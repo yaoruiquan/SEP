@@ -1,0 +1,432 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// User System (用户体系)
+// ============================================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String   // Hashed
+  avatar    String?
+  role      UserRole @default(USER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  sessions             ConversationSession[]
+  subscriptions        Subscription[]
+  computeAccount       ComputeAccount?
+  contributedCapabilities Capability[]  @relation("CapabilityContributor")
+
+  @@map("users")
+}
+
+enum UserRole {
+  USER         // B/C端用户
+  CONTRIBUTOR  // 能力贡献者
+  ADMIN        // 平台运营方
+}
+
+// ============================================================================
+// Digital Employee (碳基员工)
+// ============================================================================
+
+model DigitalEmployee {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @db.Text
+  industry    String   // 行业（电商/金融/医疗等）
+  position    String   // 岗位（运营/客服/数据分析等）
+  avatar      String?
+
+  // Agent Configuration
+  systemPrompt String  @db.Text  // Agent 人设
+  modelId      String  @default("gpt-4o")
+  maxSteps     Int     @default(10)
+
+  // Status
+  status      EmployeeStatus @default(DRAFT)
+
+  // Pricing (暂时简化，不做复杂计费)
+  price       Float?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+
+  // Relations
+  bindings      EmployeeCapabilityBinding[]
+  subscriptions Subscription[]
+  sessions      ConversationSession[]
+
+  @@map("digital_employees")
+}
+
+enum EmployeeStatus {
+  DRAFT      // 草稿
+  PUBLISHED  // 已上架
+  ARCHIVED   // 已下架
+}
+
+// ============================================================================
+// Silicon Capability (硅基能力)
+// ============================================================================
+
+model Capability {
+  id          String         @id @default(cuid())
+  name        String
+  description String         @db.Text
+  type        CapabilityType
+
+  // Classification
+  industry    String[]       // 适用行业
+  position    String[]       // 适用岗位
+
+  // Schema (JSON Schema for input/output validation)
+  inputSchema  Json
+  outputSchema Json
+
+  // Contributor
+  contributorId String
+  contributor   User   @relation("CapabilityContributor", fields: [contributorId], references: [id])
+
+  // Status
+  status      CapabilityStatus @default(PENDING)
+
+  // Statistics
+  usageCount  Int     @default(0)
+  rating      Float?
+
+  // Metadata (flexible extension)
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  approvedAt  DateTime?
+
+  // Type-specific configs (one-to-one relations)
+  agentConfig AgentConfig?
+  rpaConfig   RPAConfig?
+  skillConfig SkillConfig?
+  aiAppConfig AIAppConfig?
+
+  // Relations
+  bindings      EmployeeCapabilityBinding[]
+  toolExecutions ToolExecution[]
+
+  @@map("capabilities")
+}
+
+enum CapabilityType {
+  AGENT   // 智能体（Coze/Dify/N8N/OpenCode）
+  RPA     // RPA 工作流
+  SKILL   // 提示词模板 + LLM
+  AI_APP  // AI 应用（Web/API）
+}
+
+enum CapabilityStatus {
+  PENDING   // 待审核
+  APPROVED  // 已通过
+  REJECTED  // 已拒绝
+}
+
+// ============================================================================
+// Capability Type-Specific Configs (分表存储类型特定配置)
+// ============================================================================
+
+model AgentConfig {
+  id           String @id @default(cuid())
+  capabilityId String @unique
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  platform     AgentPlatform  // coze | dify | n8n | opencode
+
+  // Platform-specific fields (nullable based on platform)
+  botId        String?  // Coze Bot ID
+  apiKey       String?  // Dify API Key (encrypted)
+  workflowUrl  String?  // N8N Webhook URL
+  skillName    String?  // OpenCode skill name
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("agent_configs")
+}
+
+enum AgentPlatform {
+  COZE
+  DIFY
+  N8N
+  OPENCODE
+}
+
+model RPAConfig {
+  id           String @id @default(cuid())
+  capabilityId String @unique
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  platform        RPAPlatform  // 实在 | 影刀
+  executionMode   RPAExecutionMode
+
+  // Package info
+  packageUrl      String?  // OSS URL for RPA package
+  packageSha256   String?  // Package integrity check
+  configDoc       String?  @db.Text  // Configuration documentation
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("rpa_configs")
+}
+
+enum RPAPlatform {
+  SHIZAI  // 实在智能
+  YINGDAO // 影刀
+}
+
+enum RPAExecutionMode {
+  DOWNLOAD  // 下载模式（用户手动导入）
+  CLOUD     // 云端执行
+  CLIENT    // 客户端执行
+}
+
+model SkillConfig {
+  id           String @id @default(cuid())
+  capabilityId String @unique
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  // Prompt template
+  template     String @db.Text
+
+  // Model configuration
+  modelId      String @default("gpt-4o-mini")
+  temperature  Float  @default(0.7)
+  maxTokens    Int    @default(2000)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("skill_configs")
+}
+
+model AIAppConfig {
+  id           String @id @default(cuid())
+  capabilityId String @unique
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  integrationMode AIAppIntegrationMode
+
+  apiUrl       String?  // API endpoint
+  webUrl       String?  // Web URL (for iframe/redirect)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("ai_app_configs")
+}
+
+enum AIAppIntegrationMode {
+  API       // HTTP API 调用
+  IFRAME    // iframe 嵌入
+  REDIRECT  // 跳转
+}
+
+// ============================================================================
+// Binding Relationship (绑定关系)
+// ============================================================================
+
+model EmployeeCapabilityBinding {
+  id           String @id @default(cuid())
+
+  employeeId   String
+  employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  capabilityId String
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  order        Int?  // 推荐调用顺序（可选）
+
+  createdAt    DateTime @default(now())
+
+  @@unique([employeeId, capabilityId])
+  @@map("employee_capability_bindings")
+}
+
+// ============================================================================
+// Subscription (订阅)
+// ============================================================================
+
+model Subscription {
+  id         String   @id @default(cuid())
+
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  status     SubscriptionStatus @default(ACTIVE)
+
+  startDate  DateTime @default(now())
+  endDate    DateTime?
+
+  // User-specific config (e.g., 店铺账号等)
+  config     Json?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, employeeId])
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE   // 激活
+  PAUSED   // 暂停
+  EXPIRED  // 过期
+}
+
+// ============================================================================
+// Conversation (对话)
+// ============================================================================
+
+model ConversationSession {
+  id         String   @id @default(cuid())
+
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  title      String?  // 自动生成或用户修改
+  status     SessionStatus @default(ACTIVE)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  messages   Message[]
+  toolExecutions ToolExecution[]
+
+  @@map("conversation_sessions")
+}
+
+enum SessionStatus {
+  ACTIVE    // 活跃
+  ARCHIVED  // 归档
+}
+
+model Message {
+  id        String   @id @default(cuid())
+
+  sessionId String
+  session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  role      MessageRole
+  content   String   @db.Text
+
+  // Tool calls (if role is assistant and made tool calls)
+  toolCalls Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("messages")
+  @@index([sessionId, createdAt])
+}
+
+enum MessageRole {
+  USER      // 用户消息
+  ASSISTANT // AI 助手消息
+  TOOL      // Tool 执行结果
+}
+
+model ToolExecution {
+  id           String   @id @default(cuid())
+
+  sessionId    String
+  session      ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  capabilityId String
+  capability   Capability @relation(fields: [capabilityId], references: [id])
+
+  input        Json
+  output       Json?
+
+  duration     Int?     // 执行耗时（ms）
+  tokensUsed   Int?     // Token 消耗（如适用）
+
+  status       ExecutionStatus @default(SUCCESS)
+  errorMessage String?  @db.Text
+
+  createdAt    DateTime @default(now())
+
+  @@map("tool_executions")
+  @@index([sessionId, createdAt])
+}
+
+enum ExecutionStatus {
+  SUCCESS
+  FAILED
+}
+
+// ============================================================================
+// Compute Platform (算力平台)
+// ============================================================================
+
+model ComputeAccount {
+  id        String   @id @default(cuid())
+
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  balance   Float    @default(0)  // 余额（人民币）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  transactions ComputeTransaction[]
+
+  @@map("compute_accounts")
+}
+
+model ComputeTransaction {
+  id        String   @id @default(cuid())
+
+  accountId String
+  account   ComputeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  type      TransactionType
+  amount    Float    // 正数=充值，负数=消费
+
+  // 关联信息
+  sessionId String?  // 如果是对话消费，关联会话
+
+  description String?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("compute_transactions")
+  @@index([accountId, createdAt])
+}
+
+enum TransactionType {
+  RECHARGE  // 充值
+  CONSUME   // 消费
+  REFUND    // 退款
+}

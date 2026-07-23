@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sep-postgres
+    environment:
+      POSTGRES_USER: sep
+      POSTGRES_PASSWORD: sep_dev_password
+      POSTGRES_DB: sep_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sep-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NOTE: sub2api (token 中转站) 与 OpenCode Skills Service 都是【外部独立服务】，
+  # 部署在各自的服务器上，不由本 compose 管理。
+  # 通过 .env 里的 SUB2API_BASE_URL / OPENCODE_API_BASE_URL 连接。
+  # 本 compose 只负责本地开发的有状态依赖：PostgreSQL + Redis。
+
+volumes:
+  postgres_data:
+  redis_data:
