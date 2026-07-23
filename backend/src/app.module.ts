@@ -5,6 +5,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TestModule } from './modules/test/test.module';
 import { UserModule } from './modules/users/user.module';
 import { CapabilityModule } from './modules/capability/capability.module';
+import { DigitalEmployeeModule } from './modules/digital-employee/digital-employee.module';
 
 @Module({
   imports: [
@@ -16,8 +17,9 @@ import { CapabilityModule } from './modules/capability/capability.module';
     AuthModule,
     UserModule,
     CapabilityModule,
+    DigitalEmployeeModule,
     TestModule,
-    // TODO: DigitalEmployeeModule, ConversationModule
+    // TODO: ConversationModule
   ],
   controllers: [],
   providers: [],

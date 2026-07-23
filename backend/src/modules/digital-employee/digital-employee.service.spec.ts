@@ -1,0 +1,297 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { DigitalEmployeeService } from './digital-employee.service';
+import { PrismaService } from '../../prisma/prisma.service';
+
+// ─── Mock PrismaService ───────────────────────────────────────────────────────
+
+const mockEmployee = {
+  id: 'emp-1',
+  name: '电商运营助手',
+  description: '专注电商运营的数字员工，可执行数据分析和内容创作任务',
+  industry: '电商',
+  position: '运营',
+  avatar: null,
+  systemPrompt: '你是一名专业的电商运营助手',
+  modelId: 'gemini-3.5-flash-high',
+  maxSteps: 10,
+  price: 99.0,
+  status: 'DRAFT',
+  publishedAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  bindings: [],
+};
+
+const mockCapability = {
+  id: 'cap-1',
+  name: '商品描述生成',
+  status: 'APPROVED',
+};
+
+const mockBinding = {
+  id: 'bind-1',
+  employeeId: 'emp-1',
+  capabilityId: 'cap-1',
+  order: 0,
+  createdAt: new Date(),
+  capability: { id: 'cap-1', name: '商品描述生成', type: 'AGENT', description: '...' },
+};
+
+const prismaMock = {
+  digitalEmployee: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
+  capability: {
+    findMany: jest.fn(),
+  },
+  employeeCapabilityBinding: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    delete: jest.fn(),
+  },
+};
+
+// ─── Test Suite ───────────────────────────────────────────────────────────────
+
+describe('DigitalEmployeeService', () => {
+  let service: DigitalEmployeeService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DigitalEmployeeService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<DigitalEmployeeService>(DigitalEmployeeService);
+    jest.clearAllMocks();
+  });
+
+  // ── create ──────────────────────────────────────────────────────────────────
+
+  describe('create', () => {
+    const baseDto = {
+      name: '电商运营助手',
+      description: '专注电商运营的数字员工，可执行数据分析和内容创作任务',
+      industry: '电商',
+      position: '运营',
+      systemPrompt: '你是一名专业的电商运营助手',
+      modelId: 'gemini-3.5-flash-high',
+      maxSteps: 10,
+      capabilityIds: [] as string[],
+    };
+
+    it('creates employee without capabilities', async () => {
+      prismaMock.digitalEmployee.create.mockResolvedValue(mockEmployee);
+
+      const result = await service.create(baseDto);
+
+      expect(prismaMock.capability.findMany).not.toHaveBeenCalled();
+      expect(prismaMock.digitalEmployee.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ name: baseDto.name }) }),
+      );
+      expect(result).toEqual(mockEmployee);
+    });
+
+    it('validates capabilities are APPROVED before creating', async () => {
+      prismaMock.capability.findMany.mockResolvedValue([mockCapability]);
+      prismaMock.digitalEmployee.create.mockResolvedValue({
+        ...mockEmployee,
+        bindings: [mockBinding],
+      });
+
+      const dto = { ...baseDto, capabilityIds: ['cap-1'] };
+      await service.create(dto);
+
+      expect(prismaMock.capability.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['cap-1'] } } }),
+      );
+    });
+
+    it('throws BadRequestException when capability is not APPROVED', async () => {
+      prismaMock.capability.findMany.mockResolvedValue([
+        { id: 'cap-2', name: '未审核能力', status: 'PENDING' },
+      ]);
+
+      await expect(
+        service.create({ ...baseDto, capabilityIds: ['cap-2'] }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when capability id does not exist', async () => {
+      prismaMock.capability.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.create({ ...baseDto, capabilityIds: ['non-existent'] }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── findAll ─────────────────────────────────────────────────────────────────
+
+  describe('findAll', () => {
+    it('returns all employees when no status filter', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([mockEmployee]);
+
+      const result = await service.findAll();
+
+      expect(prismaMock.digitalEmployee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: undefined }),
+      );
+      expect(result).toHaveLength(1);
+    });
+
+    it('filters by status when provided', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findAll('PUBLISHED');
+
+      expect(prismaMock.digitalEmployee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: 'PUBLISHED' } }),
+      );
+    });
+  });
+
+  // ── findOne ─────────────────────────────────────────────────────────────────
+
+  describe('findOne', () => {
+    it('returns employee when found', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+
+      const result = await service.findOne('emp-1');
+
+      expect(result).toEqual(mockEmployee);
+    });
+
+    it('throws NotFoundException when not found', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(null);
+
+      await expect(service.findOne('non-existent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── update ──────────────────────────────────────────────────────────────────
+
+  describe('update', () => {
+    it('updates employee fields', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      const updated = { ...mockEmployee, name: '新名称' };
+      prismaMock.digitalEmployee.update.mockResolvedValue(updated);
+
+      const result = await service.update('emp-1', { name: '新名称' });
+
+      expect(prismaMock.digitalEmployee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'emp-1' } }),
+      );
+      expect(result.name).toBe('新名称');
+    });
+
+    it('stamps publishedAt when status changes to PUBLISHED', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.digitalEmployee.update.mockResolvedValue({
+        ...mockEmployee,
+        status: 'PUBLISHED',
+      });
+
+      await service.update('emp-1', { status: 'PUBLISHED' });
+
+      expect(prismaMock.digitalEmployee.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ publishedAt: expect.any(Date) }),
+        }),
+      );
+    });
+
+    it('throws NotFoundException when employee not found', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(null);
+
+      await expect(service.update('bad-id', { name: 'x' })).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── remove ──────────────────────────────────────────────────────────────────
+
+  describe('remove', () => {
+    it('deletes the employee', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.digitalEmployee.delete.mockResolvedValue(mockEmployee);
+
+      await service.remove('emp-1');
+
+      expect(prismaMock.digitalEmployee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
+    });
+
+    it('throws NotFoundException when not found', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(null);
+
+      await expect(service.remove('bad-id')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── bindCapability ───────────────────────────────────────────────────────────
+
+  describe('bindCapability', () => {
+    it('binds an approved capability', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.capability.findMany.mockResolvedValue([mockCapability]);
+      prismaMock.employeeCapabilityBinding.create.mockResolvedValue(mockBinding);
+
+      const result = await service.bindCapability('emp-1', {
+        capabilityId: 'cap-1',
+        order: 0,
+      });
+
+      expect(result).toEqual(mockBinding);
+    });
+
+    it('throws ConflictException when already bound (P2002)', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.capability.findMany.mockResolvedValue([mockCapability]);
+      prismaMock.employeeCapabilityBinding.create.mockRejectedValue({ code: 'P2002' });
+
+      await expect(
+        service.bindCapability('emp-1', { capabilityId: 'cap-1' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws BadRequestException when capability not approved', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.capability.findMany.mockResolvedValue([
+        { id: 'cap-pending', name: 'x', status: 'PENDING' },
+      ]);
+
+      await expect(
+        service.bindCapability('emp-1', { capabilityId: 'cap-pending' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ── unbindCapability ─────────────────────────────────────────────────────────
+
+  describe('unbindCapability', () => {
+    it('removes the binding', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.employeeCapabilityBinding.findUnique.mockResolvedValue(mockBinding);
+      prismaMock.employeeCapabilityBinding.delete.mockResolvedValue(mockBinding);
+
+      await service.unbindCapability('emp-1', 'cap-1');
+
+      expect(prismaMock.employeeCapabilityBinding.delete).toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when binding does not exist', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.employeeCapabilityBinding.findUnique.mockResolvedValue(null);
+
+      await expect(service.unbindCapability('emp-1', 'non-bound')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+});

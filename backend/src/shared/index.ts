@@ -140,20 +140,44 @@ export const CapabilityUploadDtoSchema = z.object({
 
 export type CapabilityUploadDto = z.infer<typeof CapabilityUploadDtoSchema>;
 
-// Digital Employee Creation
+// Digital Employee
 export const DigitalEmployeeCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(10).max(2000),
   industry: z.string(),
   position: z.string(),
-  systemPrompt: z.string().min(50),
-  modelId: z.string().default('gpt-4o'),
+  avatar: z.string().url().optional(),
+  systemPrompt: z.string().min(10),
+  modelId: z.string().default('gemini-3.5-flash-high'),
   maxSteps: z.number().min(1).max(20).default(10),
   price: z.number().min(0).optional(),
-  capabilityIds: z.array(z.string()),
+  // 初始绑定的已审核 Capability ID 列表（可为空）
+  capabilityIds: z.array(z.string()).default([]),
 });
 
 export type DigitalEmployeeCreateDto = z.infer<typeof DigitalEmployeeCreateDtoSchema>;
+
+export const DigitalEmployeeUpdateDtoSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().min(10).max(2000).optional(),
+  industry: z.string().optional(),
+  position: z.string().optional(),
+  avatar: z.string().url().optional(),
+  systemPrompt: z.string().min(10).optional(),
+  modelId: z.string().optional(),
+  maxSteps: z.number().min(1).max(20).optional(),
+  price: z.number().min(0).optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+});
+
+export type DigitalEmployeeUpdateDto = z.infer<typeof DigitalEmployeeUpdateDtoSchema>;
+
+export const BindCapabilityDtoSchema = z.object({
+  capabilityId: z.string().min(1),
+  order: z.number().int().min(0).optional(),
+});
+
+export type BindCapabilityDto = z.infer<typeof BindCapabilityDtoSchema>;
 
 // Subscription
 export const SubscriptionCreateDtoSchema = z.object({
