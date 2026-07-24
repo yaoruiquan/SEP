@@ -14,8 +14,20 @@ const REJECTED = 'REJECTED' as const;
 const ADMIN_ROLE = 'ADMIN';
 
 // Include shape reused across queries
+// ⚠️ 安全:永不返回 agentConfig.apiKey(Coze PAT / Dify 密钥),只返回平台/botId 等非敏感字段
 const FULL_INCLUDE = {
-  agentConfig: true,
+  agentConfig: {
+    select: {
+      id: true,
+      platform: true,
+      botId: true,
+      workflowUrl: true,
+      skillName: true,
+      createdAt: true,
+      updatedAt: true,
+      // apiKey: EXCLUDED — 永不下发到前端/API 响应
+    },
+  },
   rpaConfig: true,
   skillConfig: true,
   aiAppConfig: true,

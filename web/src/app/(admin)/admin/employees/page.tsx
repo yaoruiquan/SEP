@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
 import { useEmployees, useEmployee } from '@/features/employee/use-employees';
+import { MODEL_CATALOG, DEFAULT_MODEL_ID } from '@/lib/models';
 import {
   useCreateEmployee,
   useUpdateEmployee,
@@ -162,12 +163,12 @@ function EmployeeModal({
           position: employee.position,
           avatar: employee.avatar ?? '',
           systemPrompt: employee.systemPrompt ?? '',
-          modelId: employee.modelId ?? 'gemini-3.5-flash-high',
+          modelId: employee.modelId ?? DEFAULT_MODEL_ID,
           maxSteps: employee.maxSteps ?? 10,
           status: (employee.status as 'DRAFT' | 'PUBLISHED' | 'ARCHIVED') ?? 'DRAFT',
         }
       : {
-          modelId: 'gemini-3.5-flash-high',
+          modelId: DEFAULT_MODEL_ID,
           maxSteps: 10,
         },
   });
@@ -251,12 +252,14 @@ function EmployeeModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-fg-muted">模型 ID</label>
-              <input
-                {...register('modelId')}
-                placeholder="gemini-3.5-flash-high"
-                className={inputCls}
-              />
+              <label className="text-xs font-medium text-fg-muted">AI 模型</label>
+              <select {...register('modelId')} className={inputCls}>
+                {MODEL_CATALOG.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs font-medium text-fg-muted">

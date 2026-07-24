@@ -1,16 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
 import {
   useAllCapabilities,
   useApproveCapability,
   useRejectCapability,
+  useImportCozeBot,
 } from '@/features/admin/use-admin';
 import { CAPABILITY_TYPE_META } from '@/lib/utils';
 import type { Capability } from '@/lib/types';
@@ -29,6 +34,108 @@ function TypeBadge({ type }: { type: string }) {
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status];
   return <Badge className={meta?.tone ?? ''}>{meta?.label ?? status}</Badge>;
+}
+
+// ─── Coze Import Form ────────────────────────────────────────────────────────
+
+const cozeImportSchema = z.object({
+  botId: z.string().min(1, '请输入 Bot ID'),
+  name: z.string().min(1, '请输入能力名称'),
+  description: z.string().min(10, '描述至少 10 个字符'),
+});
+
+type CozeImportFormValues = z.infer<typeof cozeImportSchema>;
+
+function CozeImportForm() {
+  const importMutation = useImportCozeBot();
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<CozeImportFormValues>({
+    resolver: zodResolver(cozeImportSchema),
+  });
+
+  const onSubmit = async (values: CozeImportFormValues) => {
+    try {
+      await importMutation.mutateAsync(values);
+      alert(`✅ Coze Bot 导入成功\n名称: ${values.name}`);
+      reset();
+    } catch (err) {
+      alert(`❌ 导入失败: ${(err as Error).message}`);
+    }
+  };
+
+  const inputCls =
+    'w-full rounded border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const errorCls = 'mt-1 text-xs text-danger';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>导入 Coze Bot</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Bot ID <span className="text-danger">*</span>
+            </label>
+            <Input
+              {...register('botId')}
+              placeholder="7xxxxxxxxxxxxxx"
+              className={inputCls}
+            />
+            {errors.botId && <p className={errorCls}>{errors.botId.message}</p>}
+            <p className="mt-1 text-xs text-fg-subtle">
+              在 Coze 控制台的 Bot 详情页获取(形如 7xxxxxxxxxxxxxx)
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              能力名称 <span className="text-danger">*</span>
+            </label>
+            <Input {...register('name')} placeholder="例如:天气查询助手" className={inputCls} />
+            {errors.name && <p className={errorCls}>{errors.name.message}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              能力描述 <span className="text-danger">*</span>
+            </label>
+            <textarea
+              {...register('description')}
+              rows={3}
+              placeholder="描述该 Bot 的功能和使用场景..."
+              className={inputCls}
+            />
+            {errors.description && <p className={errorCls}>{errors.description.message}</p>}
+          </div>
+
+          <div className="rounded border border-border bg-muted/30 p-3 text-sm text-fg-muted">
+            <p className="font-medium mb-1">📌 说明</p>
+            <ul className="list-disc list-inside space-y-0.5 text-xs">
+              <li>Coze PAT 由服务端全局配置(环境变量 COZE_PAT),无需在此填写</li>
+              <li>导入后能力状态为"已通过",可直接绑定到员工</li>
+              <li>确保该 Bot 在 Coze 控制台已发布且可访问</li>
+            </ul>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => reset()}>
+              重置
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? '导入中...' : '导入'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
 }
 
 function PendingRow({ cap }: { cap: Capability }) {
@@ -107,7 +214,7 @@ function PendingRow({ cap }: { cap: Capability }) {
   );
 }
 
-type TabKey = 'pending' | 'all';
+type TabKey = 'pending' | 'all' | 'import';
 
 export default function CapabilitiesPage() {
   const [tab, setTab] = useState<TabKey>('pending');
@@ -119,13 +226,14 @@ export default function CapabilitiesPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">能力审核</h1>
+      <h1 className="text-xl font-semibold">能力管理</h1>
 
       <div className="flex gap-1 border-b border-border">
         {(
           [
             { key: 'pending', label: `待审核 (${pendingItems.length})` },
             { key: 'all', label: '全部' },
+            { key: 'import', label: '导入 Coze Bot' },
           ] as { key: TabKey; label: string }[]
         ).map(({ key, label }) => (
           <button
@@ -201,6 +309,8 @@ export default function CapabilitiesPage() {
           </CardContent>
         </Card>
       )}
+
+      {tab === 'import' && <CozeImportForm />}
     </div>
   );
 }

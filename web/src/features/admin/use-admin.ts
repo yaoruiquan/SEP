@@ -39,6 +39,28 @@ export function useRejectCapability() {
   });
 }
 
+export function useImportCozeBot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { botId: string; name: string; description: string }) =>
+      api.post<Capability>('/capabilities', {
+        type: 'agent',
+        name: data.name,
+        description: data.description,
+        industry: [],
+        position: [],
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: {} },
+        agentConfig: {
+          platform: 'coze',
+          botId: data.botId,
+          // apiKey 留空,运行时回退到全局 COZE_PAT
+        },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['capabilities'] }),
+  });
+}
+
 // ─── Employee admin ──────────────────────────────────────────────────────────
 
 type CreateEmployeeData = {

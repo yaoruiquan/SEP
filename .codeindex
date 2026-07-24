@@ -1,0 +1,66 @@
+# SEP 项目代码索引
+# 生成时间: 2026-07-24
+# 用途: 减少 AI Agent 重复读取文件的 token 消耗
+
+## 后端核心文件
+backend/src/modules/conversation/conversation-stream.service.ts
+  - streamConversation(sessionId, content, userId): 核心对话流生成器
+  - buildTools(bindings): 构建工具映射
+  - loadMessages(sessionId, limit): 加载历史消息
+
+backend/src/modules/conversation/conversation.service.ts
+  - createMessage(sessionId, data): 创建消息
+  - autoGenerateTitle(sessionId, content): 自动生成会话标题
+
+backend/src/modules/capability/capability.service.ts
+  - execute(capabilityId, input): 执行能力
+  - FULL_INCLUDE: 查询能力时的字段选择(已修复:不返回 apiKey)
+
+backend/src/modules/capability/adapters/coze.adapter.ts
+  - execute(input): Coze Bot 调用逻辑(支持全局 COZE_PAT 兜底)
+
+backend/src/modules/capability/adapters/opencode.adapter.ts
+  - execute(input): OpenCode 技能调用(待完善)
+
+backend/src/shared/index.ts
+  - MODEL_CATALOG: 可用模型列表(7个)
+  - DEFAULT_MODEL_ID: 默认模型(deepseek-v4-flash)
+
+## 前端核心文件
+web/src/features/chat/use-chat-stream.ts
+  - useChatStream(sessionId): SSE 流式对话 hook
+  - 监听事件: text / tool_call / tool_result / finish / error
+
+web/src/features/auth/use-auth.ts
+  - useLogin(), useRegister(), useLogout()
+  - 已修复: useLogout 增加 queryClient.clear()
+
+web/src/features/admin/use-admin.ts
+  - useImportCozeBot(): 导入 Coze Bot
+  - useAllCapabilities(status): 查询能力列表
+  - useApproveCapability(), useRejectCapability()
+
+web/src/app/(admin)/admin/employees/page.tsx
+  - 员工管理表单(已修复: modelId 改为下拉框)
+
+web/src/app/(admin)/admin/capabilities/page.tsx
+  - 能力管理 + Coze 导入 UI
+
+## 关键配置
+.env
+  - SUB2API_BASE_URL, SUB2API_API_KEY, SUB2API_DEFAULT_MODEL
+  - COZE_PAT, COZE_API_BASE
+  - DATABASE_URL, REDIS_URL
+
+backend/prisma/schema.prisma
+  - Message: role, content, toolCalls, sessionId
+  - ConversationSession: userId, employeeId
+  - DigitalEmployee: modelId, systemPrompt, maxSteps
+  - Capability: type, status, agentConfig, rpaConfig
+  - AgentConfig: platform, botId, apiKey
+
+## 最近修复
+2026-07-24:
+  - P0-2: conversation-stream.service.ts:152-180 (工具调用前检查 cap 是否为空)
+  - P1-1: use-auth.ts:39-51 (logout 增加 queryClient.clear())
+  - P0-1: conversation-stream.service.ts:80-90 (增加调试日志)

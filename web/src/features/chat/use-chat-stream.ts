@@ -35,6 +35,11 @@ const EMPTY: StreamState = {
 export interface DoneInfo {
   messageId?: string;
   toolCalls: ToolCallRecord[];
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export function useChatStream() {
@@ -143,7 +148,8 @@ function applyEvent(
     case 'done': {
       const tc = (d as any)?.toolCalls;
       const messageId = (d as any)?.messageId;
-      captureDone({ messageId, toolCalls: Array.isArray(tc) ? tc : [] });
+      const usage = (d as any)?.usage;  // 🔴 修复 P1-2: 读取 usage
+      captureDone({ messageId, toolCalls: Array.isArray(tc) ? tc : [], usage });
       break;
     }
     case 'error': {

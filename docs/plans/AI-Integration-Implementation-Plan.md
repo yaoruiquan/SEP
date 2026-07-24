@@ -7,16 +7,17 @@
 
 ### sub2api 配置
 - Base URL: `https://longdaoai.cn/v1`
-- API Key: `sk-fcaadc6bd755ca01c416f0a16bf13dc4611fc670e1bc9854b5e2d0fa9762d140`
-- 默认模型: `deepseek-chat`
+- API Key: 见 `.env`（`SUB2API_API_KEY`，不得提交到 git）
+- 默认模型: `deepseek-v4-flash`（通过 `GET /v1/models` 确认可用；备选 `gemini-3.5-flash-high`）
+- 实际可用模型 57 个，调研详见 `docs/research/sub2api用量追踪与计费对接调研.md`
 
 ### Coze 集成方案
-参考旧项目 ADR-0010，采用 **Coze 部署应用**形态：
-- 端点: `POST https://<子域>.coze.site/run`
-- 请求: `{ user_message: string, conversation_id?: string }`
-- 响应: `{ final_response: string, ...其他动态字段 }`
-- 特点: **同步返回**，10-15秒延迟，**无状态单轮**
-- 鉴权: `Authorization: Bearer <JWT>` (Coze workload token)
+依据 `docs/research/Coze官方API集成调研与方案.md`，采用 **Coze Bot Chat API**：
+- 端点: `POST {COZE_API_BASE}/v3/chat`（中国区 `api.coze.cn`，国际区 `api.coze.com`）
+- 请求: `{ bot_id, user_id, stream: true, auto_save_history: true, additional_messages: [...] }`
+- 响应: SSE 流式，事件类型 `conversation.message.delta` / `conversation.chat.completed`
+- 鉴权: `Authorization: Bearer {COZE_PAT}`（Personal Access Token，服务端持有）
+- 会话: Coze `conversation_id` 需与 SEP `sessionId` 分开映射，不能直接混用
 
 ---
 
@@ -60,12 +61,13 @@ pnpm db:generate
 ```env
 # sub2api 配置
 SUB2API_BASE_URL=https://longdaoai.cn/v1
-SUB2API_API_KEY=sk-fcaadc6bd755ca01c416f0a16bf13dc4611fc670e1bc9854b5e2d0fa9762d140
-DEFAULT_MODEL_ID=deepseek-chat
+SUB2API_API_KEY=见 .env（不得提交到 git）
+SUB2API_DEFAULT_MODEL=deepseek-v4-flash
 
 # Coze 集成配置
-COZE_API_TOKEN=        # 待提供（格式: pat_xxx 或 JWT）
-COZE_REQUEST_TIMEOUT=30000  # 30秒超时（Coze 通常 10-15s）
+COZE_API_BASE=https://api.coze.cn  # 中国区；国际区用 https://api.coze.com
+COZE_PAT=              # Personal Access Token，见 .env（不得提交到 git）
+COZE_REQUEST_TIMEOUT=30000  # 30秒超时
 ```
 
 ### 2.2 共享常量
@@ -73,15 +75,17 @@ COZE_REQUEST_TIMEOUT=30000  # 30秒超时（Coze 通常 10-15s）
 **文件**: `backend/src/shared/constants.ts` (新建)
 
 ```typescript
+// 模型 ID 均已通过 GET /v1/models 在 sub2api 确认可用
+// 完整列表见 docs/research/sub2api用量追踪与计费对接调研.md
 export const MODEL_CATALOG = [
-  { id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
-  { id: 'deepseek-reasoner', label: 'DeepSeek R1（深度推理）', provider: 'deepseek' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek' },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek' },
+  { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash High', provider: 'google' },
   { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
   { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
-  { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet', provider: 'anthropic' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
 ] as const;
-
-export const COZE_APP_RUN_HOST_SUFFIX = '.coze.site';
 ```
 
 ---
@@ -185,44 +189,56 @@ export class CapabilityToolBuilder {
 
 **文件**: `backend/src/modules/capability/adapters/coze.adapter.ts` (已存在，需完善)
 
+> 依据 `docs/research/Coze官方API集成调研与方案.md`，采用 **Coze Bot Chat API**（`POST /v3/chat`），
+> 不再使用旧的 `.coze.site/run` 部署应用形态。
+
 **功能**:
-- 根据 capability.config 提取 `run_url`
-- POST 调用 Coze 部署应用
-- 错误归一化（剥离 stack_trace）
-- 轮询或同步返回 `final_response`
+- 从 capability.config 提取 `bot_id`（Coze Bot ID）
+- POST `{COZE_API_BASE}/v3/chat`，`stream: true`，PAT 鉴权
+- 消费 SSE 事件流：拼接 `conversation.message.delta`，在 `conversation.chat.completed` 结束
+- 会话映射：SEP `sessionId` → Coze `conversation_id`（单独存储，不直接混用）
+- 错误归一化（剥离 stack_trace，不泄露 PAT）
 
 **核心代码**:
 ```typescript
 @Injectable()
 export class CozeAgentAdapter {
   async execute(capability: Capability, args: any): Promise<string> {
-    const config = capability.config as { run_url: string };
-    const token = process.env.COZE_API_TOKEN;
-    
+    const config = capability.config as { bot_id: string };
+    const base = process.env.COZE_API_BASE ?? 'https://api.coze.cn';
+    const pat = process.env.COZE_PAT; // 服务端持有，绝不下发客户端 / 不写日志
+
     try {
       const response = await axios.post(
-        config.run_url,
+        `${base}/v3/chat`,
         {
-          user_message: JSON.stringify(args),
-          conversation_id: `sep-${Date.now()}`, // 可选
+          bot_id: config.bot_id,
+          user_id: `sep_user_${args.userId ?? 'anon'}`,
+          stream: true,
+          auto_save_history: true,
+          additional_messages: [
+            { role: 'user', content: JSON.stringify(args), content_type: 'text' },
+          ],
         },
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${pat}`,
             'Content-Type': 'application/json',
           },
+          responseType: 'stream',
           timeout: 30000,
-        }
+        },
       );
-      
-      return response.data.final_response || '执行成功';
+
+      // 消费 SSE：event: conversation.message.delta → 累加 data.content
+      //           event: conversation.chat.completed → 结束
+      return await this.consumeCozeSse(response.data);
     } catch (error) {
-      // 错误归一化
+      // 错误归一化（不回传上游 stack_trace / PAT）
       if (error.response?.status === 401) {
         throw new UnauthorizedException('COZE_AUTH_FAILED');
       }
       if (error.response?.status >= 500) {
-        // 剥离 stack_trace
         throw new InternalServerErrorException('COZE_PROVIDER_ERROR');
       }
       throw error;
@@ -255,7 +271,7 @@ async streamMessage(sessionId: string, content: string) {
   const history = await this.loadHistory(sessionId);
   
   // 3. 选择模型
-  const modelId = employee.modelId ?? process.env.DEFAULT_MODEL_ID;
+  const modelId = employee.modelId ?? process.env.SUB2API_DEFAULT_MODEL;
   
   // 4. 流式调用
   const result = await this.modelService.streamConversation({
@@ -327,28 +343,27 @@ async streamMessages(
 />
 ```
 
-### 5.2 能力导入 - Coze 部署应用
+### 5.2 能力导入 - Coze Bot
 
 **文件**: `web/src/app/(admin)/capabilities/components/CozeImportForm.tsx` (新建)
 
 **功能**:
-- 输入 Coze 部署应用的 run_url（如 `https://xxx.coze.site/run`）
-- 输入 Coze API Token（可选全局配置）
-- 点击"测试连接" → 调用 `POST /api/capabilities/coze/test`
+- 输入 Coze Bot ID（形如 `7xxxxxxxxxxxxxx`，在 Coze 平台 Bot 详情页获取）
+- Coze PAT 由服务端全局持有（`COZE_PAT`），不在前端输入
+- 点击"测试连接" → 调用 `POST /api/capabilities/coze/test`（服务端用 `/v3/chat` 发一条 ping）
 - 测试成功 → 点击"导入" → 创建 AGENT 类型能力
 
 **UI 流程**:
 ```
 [选择能力类型]
   ○ Coze 工作流
-  ● Coze 部署应用  ← 新增
+  ● Coze Bot  ← 新增
   ○ OpenCode 技能
-  
-[部署应用 URL]
-https://your-app.coze.site/run
 
-[API Token]（可选，优先使用全局配置）
-pat_xxx...
+[Bot ID]
+7xxxxxxxxxxxxxxx
+
+（PAT 由服务端全局配置，无需前端输入）
 
 [测试连接] [导入]
 ```
@@ -364,30 +379,39 @@ pat_xxx...
 **新增端点**:
 ```typescript
 @Post('coze/test')
-async testCozeApp(@Body() dto: TestCozeAppDto) {
-  return this.capabilityService.testCozeApp(dto.runUrl, dto.token);
+async testCozeBot(@Body() dto: TestCozeBotDto) {
+  return this.capabilityService.testCozeBot(dto.botId);
 }
 ```
 
-**服务实现**:
+**服务实现**（用 `/v3/chat` 发一条非流式 ping，PAT 从服务端配置读取）:
 ```typescript
-async testCozeApp(runUrl: string, token?: string) {
-  const finalToken = token ?? process.env.COZE_API_TOKEN;
-  
+async testCozeBot(botId: string) {
+  const base = process.env.COZE_API_BASE ?? 'https://api.coze.cn';
+  const pat = process.env.COZE_PAT;
+
   try {
     const response = await axios.post(
-      runUrl,
-      { user_message: 'ping', conversation_id: 'test' },
+      `${base}/v3/chat`,
       {
-        headers: { 'Authorization': `Bearer ${finalToken}` },
+        bot_id: botId,
+        user_id: 'sep-conn-test',
+        stream: false,
+        auto_save_history: true,
+        additional_messages: [
+          { role: 'user', content: 'ping', content_type: 'text' },
+        ],
+      },
+      {
+        headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
         timeout: 30000,
-      }
+      },
     );
-    
+
+    // code === 0 表示 Coze 侧受理成功
     return {
-      success: true,
-      message: '连接成功',
-      response: response.data.final_response,
+      success: response.data?.code === 0,
+      message: response.data?.code === 0 ? '连接成功' : (response.data?.msg || '连接失败'),
     };
   } catch (error) {
     return {
@@ -404,21 +428,21 @@ async testCozeApp(runUrl: string, token?: string) {
 
 **新增方法**:
 ```typescript
-async importCozeApp(dto: ImportCozeAppDto) {
+async importCozeBot(dto: ImportCozeBotDto) {
   // 1. 测试连接
-  const testResult = await this.testCozeApp(dto.runUrl, dto.token);
+  const testResult = await this.testCozeBot(dto.botId);
   if (!testResult.success) {
     throw new BadRequestException('Coze 连接失败');
   }
-  
-  // 2. 创建能力
+
+  // 2. 创建能力（config 存 bot_id；PAT 不入库，运行时从 COZE_PAT 读取）
   const capability = await this.prisma.capability.create({
     data: {
       name: dto.name,
       description: dto.description,
       type: 'AGENT',
       status: 'ACTIVE',
-      config: { run_url: dto.runUrl },
+      config: { bot_id: dto.botId },
       versions: {
         create: {
           version: '1.0.0',
@@ -429,7 +453,7 @@ async importCozeApp(dto: ImportCozeAppDto) {
       },
     },
   });
-  
+
   return capability;
 }
 ```
@@ -449,8 +473,8 @@ async importCozeApp(dto: ImportCozeAppDto) {
 
 2. **管理端操作**:
    - 登录管理端（admin@example.com / Admin123456）
-   - 导入一个 Coze 部署应用
-   - 创建一个碳基员工，绑定该能力，选择模型 `deepseek-chat`
+   - 导入一个 Coze Bot（填写 bot_id）
+   - 创建一个碳基员工，绑定该能力，选择模型 `deepseek-v4-flash`
    - 设置系统提示词："你是一个智能助手，可以调用工具完成任务"
 
 3. **用户端测试**:
@@ -538,7 +562,7 @@ if (event.type === 'error') {
 
 - [ ] 阶段 5：管理端 UI（3-4h）
   - [ ] 员工表单 - 模型选择 + 系统提示词
-  - [ ] 能力导入 - Coze 部署应用表单
+  - [ ] 能力导入 - Coze Bot 表单（填写 bot_id）
 
 - [ ] 阶段 6：后端能力导入服务（2-3h）
   - [ ] Coze 测试连接 API
@@ -556,40 +580,55 @@ if (event.type === 'error') {
 
 ---
 
-## 待讨论问题
+## 待讨论问题（已定稿）
 
-1. **Coze API Token 格式**
-   - 你们的 token 是 `pat_xxx`（Personal Access Token）还是 JWT workload token？
-   - 是全局配置一个 token，还是每个能力独立配置？
+1. **Coze API Token 格式** — ✅ 已定
+   - 采用 `pat_xxx`（Personal Access Token），服务端全局持有（`COZE_PAT`），不逐能力配置。
+   - 详见 `docs/research/Coze官方API集成调研与方案.md`。
 
-2. **OpenCode Skills Service 优先级**
-   - 当前计划先做 Coze，OpenCode 是否等 Coze 稳定后再做？
-   - OpenCode 的 API 端点和认证方式是什么？
+2. **OpenCode Skills Service 优先级** — ✅ 已定
+   - 先做 Coze，OpenCode 待 Coze 稳定后再接。
+   - 端点/认证：`POST /v1/runs`、`GET /v1/runs/{id}`，`OPENCODE_API_TOKEN` 鉴权（见 CLAUDE.md 外部服务约定）。
 
-3. **RPA 和 AI_APP 类型**
-   - 这两种类型的执行逻辑是什么？
-   - 是否有现成的服务可以调用？
+3. **RPA 和 AI_APP 类型** — ⏸ 暂不做
+   - 本期只交付 `agent`（Coze）+ `skill`（OpenCode）两种执行形态，RPA / AI_APP 延后。
 
-4. **系统提示词管理**
-   - 是否需要提示词模板库（预设几个常用模板）？
-   - 是否支持提示词版本管理？
+4. **系统提示词管理** — ✅ 已定（最小实现）
+   - 管理端只做**单个输入框**填 systemPrompt，不做模板库、不做版本管理。
 
-5. **模型费用追踪**
-   - 是否需要记录每次对话的 token 消耗？
-   - sub2api 是否返回 usage 信息？
+5. **模型费用追踪** — ⏸ 暂不做（已完成调研）
+   - sub2api 返回标准 `usage`，但流式需 `createOpenAICompatible({ includeUsage: true })` 才有值——
+     当前代码缺这一项，属已知 bug（见下方修复项）。
+   - 计费需自维护「模型→单价」价格表，**本期不做**，仅记录 token 消耗留待后续。
+   - 调研详见 `docs/research/sub2api用量追踪与计费对接调研.md`。
+
+---
+
+## 已知 bug / 待修复
+
+- **`includeUsage` 缺失**：`backend/src/modules/conversation/conversation-stream.service.ts`
+  创建 provider 时未传 `includeUsage: true`，导致流式 `result.usage` 全空。
+- **环境变量名不一致**：`.env` / `.env.example` 曾用 `DEFAULT_MODEL_ID`，而全部后端代码读
+  `SUB2API_DEFAULT_MODEL` —— 该变量此前从未生效，已在本轮统一为 `SUB2API_DEFAULT_MODEL`。
+- **虚构模型 ID**：`deepseek-chat` 在 sub2api 不存在（`model_not_found`），统一改用
+  `deepseek-v4-flash`。
+
+---
+
+## 延后事项（记录，本期不做）
+
+- 计费系统：「模型→单价」价格表 + `ComputeAccount` / `ComputeTransaction` 落地。
+- RPA / AI_APP 能力类型的执行适配器。
+- 系统提示词模板库与版本管理。
+
+> 状态跟踪见 `docs/status/development-status.md`。
 
 ---
 
 ## 下一步行动
 
 **立即开始**：
-1. 确认 Coze API Token（提供或告知格式）
-2. 执行阶段 1 数据库迁移
-3. 配置阶段 2 环境变量
+1. 执行阶段 1 数据库迁移
+2. 配置阶段 2 环境变量（`SUB2API_*`、`COZE_*`）
+3. 修复上述已知 bug（`includeUsage`）
 4. 开始实现阶段 3 核心服务
-
-**需要你提供的信息**:
-- Coze API Token（或告知从哪里获取）
-- 确认上述 5 个待讨论问题
-
-一旦这些确认，我立即开始写代码。

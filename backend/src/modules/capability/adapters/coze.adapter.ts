@@ -13,12 +13,18 @@ export class CozeAdapter extends BaseAdapter {
   async execute(input: AdapterInput): Promise<AdapterExecutionResult> {
     const start = Date.now();
 
-    if (!this.adapterConfig.botId || !this.adapterConfig.apiKey) {
-      return { success: false, output: '', durationMs: 0, error: 'Coze botId or apiKey not configured' };
+    if (!this.adapterConfig.botId) {
+      return { success: false, output: '', durationMs: 0, error: 'Coze botId not configured' };
+    }
+
+    // 兜底逻辑:优先用能力自带 PAT,为空则回退到全局 COZE_PAT 环境变量
+    const pat = this.adapterConfig.apiKey || process.env.COZE_PAT;
+    if (!pat) {
+      return { success: false, output: '', durationMs: 0, error: 'Coze PAT not configured (neither agentConfig.apiKey nor COZE_PAT env)' };
     }
 
     try {
-      const output = await this.streamToText(input);
+      const output = await this.streamToText(input, pat);
       return { success: true, output, durationMs: this.elapsed(start) };
     } catch (error: any) {
       this.logger.error(`Coze execution failed: ${error.message}`, error.stack);
@@ -26,12 +32,12 @@ export class CozeAdapter extends BaseAdapter {
     }
   }
 
-  private async streamToText(input: AdapterInput): Promise<string> {
+  private async streamToText(input: AdapterInput, pat: string): Promise<string> {
     const resp = await fetch(`${COZE_API_BASE}/v3/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.adapterConfig.apiKey}`,
+        'Authorization': `Bearer ${pat}`,
       },
       body: JSON.stringify({
         bot_id: this.adapterConfig.botId,

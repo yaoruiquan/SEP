@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, tool, isStepCount } from 'ai';
 import { z } from 'zod';
+import { DEFAULT_MODEL_ID } from 'shared';
 
 @Injectable()
 export class AgentRuntimeTestService {
@@ -16,7 +17,7 @@ export class AgentRuntimeTestService {
   }
 
   private get model() {
-    return this.configService.get<string>('SUB2API_DEFAULT_MODEL') ?? 'gemini-2.5-flash-high';
+    return this.configService.get<string>('SUB2API_DEFAULT_MODEL') ?? DEFAULT_MODEL_ID;
   }
 
   async testBasicCompletion(prompt: string) {

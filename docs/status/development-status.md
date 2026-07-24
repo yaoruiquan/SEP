@@ -122,7 +122,10 @@
 
 ### 功能缺口
 1. **对话响应延迟** - AI 集成未完成，当前为 Mock 数据
-2. **费用追踪** - 未记录 token 消耗（待 sub2api usage 支持）
+2. **费用追踪 / 计费**（决策：先记录，暂不实现）
+   - `includeUsage: true` 已修复，sub2api 现可返回 `usage`（input/output/total tokens）
+   - **待做**：自维护「模型 → 单价」价格表 + 按 token 计费落库（`ComputeAccount` / `ComputeTransaction` 已在 schema 但未接线）
+   - 调研见 `docs/research/sub2api用量追踪与计费对接调研.md`
 3. **能力版本管理** - Schema 有 CapabilityVersion 表，但未实现版本切换逻辑
 4. **秘钥加密** - AgentConfig.apiKey 明文存储（生产前需加密）
 

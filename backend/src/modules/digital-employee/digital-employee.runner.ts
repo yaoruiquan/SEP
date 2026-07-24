@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CapabilityService } from '../capability/capability.service';
 import { AdapterInput } from '../capability/adapters/adapter.interface';
+import { DEFAULT_MODEL_ID } from 'shared';
 
 @Injectable()
 export class DigitalEmployeeRunner {
@@ -82,7 +83,7 @@ export class DigitalEmployeeRunner {
     const apiKey = this.configService.getOrThrow<string>('SUB2API_API_KEY');
     const defaultModel = this.configService.get<string>(
       'SUB2API_DEFAULT_MODEL',
-      'gemini-3.5-flash-high',
+      DEFAULT_MODEL_ID,
     );
 
     const provider = createOpenAICompatible({

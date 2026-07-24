@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { useAuthStore, type AuthUser } from '@/lib/auth-store';
@@ -39,10 +39,14 @@ export function useRegister() {
 export function useLogout() {
   const router = useRouter();
   const clear = useAuthStore((s) => s.clear);
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: () => api.post<void>('/auth/logout'),
     onSettled: () => {
       clear();
+      // 🔴 修复 P1-1: 清除所有查询缓存,防止账号切换后数据泄漏
+      queryClient.clear();
       router.replace('/login');
     },
   });

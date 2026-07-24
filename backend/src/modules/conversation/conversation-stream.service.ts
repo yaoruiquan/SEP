@@ -13,6 +13,7 @@ import { CapabilityService } from '../capability/capability.service';
 import { AdapterInput } from '../capability/adapters/adapter.interface';
 import { SessionLockService } from './session-lock.service';
 import { ConversationService } from './conversation.service';
+import { DEFAULT_MODEL_ID } from 'shared';
 import {
   SseEvent,
   ModelMessage,
@@ -71,15 +72,20 @@ export class ConversationStreamService {
       // 6. 初始化 sub2api provider
       const baseURL = this.configService.get('SUB2API_BASE_URL', 'https://longdaoai.cn/v1');
       const apiKey = this.configService.getOrThrow<string>('SUB2API_API_KEY');
-      const defaultModel = this.configService.get('SUB2API_DEFAULT_MODEL', 'gemini-3.5-flash-high');
-      const provider = createOpenAICompatible({ name: 'sub2api', baseURL, apiKey });
+      const defaultModel = this.configService.get('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID);
+      // includeUsage: true 让流式响应返回 usage 数据（否则 result.usage 为空）
+      const provider = createOpenAICompatible({ name: 'sub2api', baseURL, apiKey, includeUsage: true });
       const modelId = employee.modelId || defaultModel;
 
       // 7. 手动工具循环（每轮一步，finishReason === 'tool-calls' 则继续）
       let stepCount = 0;
       const hasTools = Object.keys(tools).length > 0;
 
+      this.logger.debug(`[Stream Init] session=${sessionId}, model=${modelId}, tools=${hasTools ? Object.keys(tools).length : 0}`);
+
       while (stepCount <= employee.maxSteps) {
+        this.logger.debug(`[Stream Step] step=${stepCount}, messages=${messages.length}`);
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
           model: provider(modelId),
@@ -89,41 +95,62 @@ export class ConversationStreamService {
           tools: hasTools ? tools : undefined,
         });
 
+        this.logger.debug(`[Stream Result Created] session=${sessionId}`);
+
         let accumulatedText = '';
         const pendingToolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = [];
+        let finishReason: string | undefined;
+        let usage: any;
 
-        // Cast to any: AI SDK v7 stream chunk property names are unstable across patch versions
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for await (const rawChunk of result.fullStream) {
-          const chunk = rawChunk as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-          switch (chunk.type) {
-            case 'text-delta': {
-              const delta: string = chunk.text ?? chunk.textDelta ?? '';
-              accumulatedText += delta;
-              yield { event: 'text_delta', data: delta };
-              break;
-            }
-            case 'tool-call': {
-              const cap = capabilityByToolName.get(chunk.toolName as string);
-              pendingToolCalls.push({
-                toolCallId: (chunk.toolCallId as string) ?? '',
-                toolName: (chunk.toolName as string) ?? '',
-                args: ((chunk.input ?? chunk.args ?? {}) as Record<string, unknown>),
-              });
-              yield { event: 'tool_start', data: { name: chunk.toolName, capabilityId: cap?.id } };
-              break;
-            }
-            case 'reasoning':
-            case 'reasoning-start':
-            case 'reasoning-end': {
-              const text: string = chunk.content ?? chunk.text ?? '';
-              if (text) yield { event: 'reasoning_delta', data: text };
-              break;
+        // 🔴 修复 P0-1: 包裹异常处理
+        try {
+          // Cast to any: AI SDK v7 stream chunk property names are unstable across patch versions
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          for await (const rawChunk of result.fullStream) {
+            const chunk = rawChunk as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            switch (chunk.type) {
+              case 'text-delta': {
+                const delta: string = chunk.text ?? chunk.textDelta ?? '';
+                accumulatedText += delta;
+                yield { event: 'text_delta', data: delta };
+                break;
+              }
+              case 'tool-call': {
+                const cap = capabilityByToolName.get(chunk.toolName as string);
+                pendingToolCalls.push({
+                  toolCallId: (chunk.toolCallId as string) ?? '',
+                  toolName: (chunk.toolName as string) ?? '',
+                  args: ((chunk.input ?? chunk.args ?? {}) as Record<string, unknown>),
+                });
+                yield { event: 'tool_start', data: { name: chunk.toolName, capabilityId: cap?.id } };
+                break;
+              }
+              case 'reasoning':
+              case 'reasoning-start':
+              case 'reasoning-end': {
+                const text: string = chunk.content ?? chunk.text ?? '';
+                if (text) yield { event: 'reasoning_delta', data: text };
+                break;
             }
           }
+        } catch (streamError) {
+          // 🔴 修复 P0-1: 捕获流消费异常
+          this.logger.error(`Stream consumption error for session ${sessionId}:`, streamError);
+          yield {
+            event: 'error',
+            data: {
+              message: `AI 回复生成失败: ${(streamError as Error).message}`,
+              code: 'STREAM_CONSUMPTION_ERROR',
+            }
+          };
+          // 保存错误消息到数据库
+          await this.prisma.message.create({
+            data: { sessionId, role: 'ASSISTANT', content: '❌ 对话生成失败,请稍后重试' },
+          });
+          break;  // 中断循环
         }
 
-        const [finishReason, usage] = await Promise.all([result.finishReason, result.usage]);
+        [finishReason, usage] = await Promise.all([result.finishReason, result.usage]);
 
         // ── 最终回复（无工具调用）────────────────────────────────────────────
         if (finishReason !== 'tool-calls') {
@@ -151,18 +178,35 @@ export class ConversationStreamService {
 
         for (const tc of pendingToolCalls) {
           const cap = capabilityByToolName.get(tc.toolName);
+
+          // 🔴 修复: 检查工具是否存在
+          if (!cap) {
+            this.logger.error(`Tool "${tc.toolName}" not found in bindings for session ${sessionId}`);
+            toolResults.push({
+              type: 'tool-result',
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              result: `工具 "${tc.toolName}" 未找到或未绑定`,
+            });
+            yield {
+              event: 'tool_end',
+              data: { name: tc.toolName, success: false, durationMs: 0 },
+            };
+            continue;
+          }
+
           const startTime = Date.now();
           let resultText = 'No result';
           let execSuccess = false;
 
           try {
             const input: AdapterInput = { userMessage: JSON.stringify(tc.args), sessionId, userId };
-            const execResult = await this.capabilityService.execute(cap!.id, input);
+            const execResult = await this.capabilityService.execute(cap.id, input);
             resultText = execResult.success ? execResult.output : `Error: ${execResult.error}`;
             execSuccess = execResult.success;
             await this.prisma.toolExecution.create({
               data: {
-                sessionId, capabilityId: cap!.id, input: tc.args as unknown as object,
+                sessionId, capabilityId: cap.id, input: tc.args as unknown as object,
                 output: { text: resultText }, duration: Date.now() - startTime,
                 status: execResult.success ? 'SUCCESS' : 'FAILED',
                 errorMessage: execResult.error,
@@ -177,9 +221,14 @@ export class ConversationStreamService {
           yield { event: 'tool_end', data: { name: tc.toolName, success: execSuccess, durationMs: Date.now() - startTime } };
         }
 
-        // 持久化工具结果消息
+        // 持久化工具结果消息(转为人类可读文本)
+        const toolResultText = toolResults.map((r) => {
+          const resultStr = typeof r.result === 'string' ? r.result : JSON.stringify(r.result);
+          return `🔧 工具: ${r.toolName}\n📋 结果: ${resultStr}`;
+        }).join('\n\n');
+
         await this.prisma.message.create({
-          data: { sessionId, role: 'TOOL', content: JSON.stringify(toolResults) },
+          data: { sessionId, role: 'TOOL', content: toolResultText },
         });
 
         // 追加到 messages 供下一轮使用
@@ -190,6 +239,16 @@ export class ConversationStreamService {
         messages.push({ role: 'tool', content: toolResults });
 
         stepCount++;
+      }
+
+      // 🔴 修复 P0-3: 兜底逻辑,防止达到 maxSteps 后无最终回复
+      if (stepCount > employee.maxSteps) {
+        this.logger.warn(`Session ${sessionId} reached maxSteps=${employee.maxSteps} without final reply`);
+        const fallbackContent = accumulatedText || '抱歉,处理步骤超过限制,无法继续生成回复';
+        const saved = await this.prisma.message.create({
+          data: { sessionId, role: 'ASSISTANT', content: fallbackContent },
+        });
+        yield { event: 'done', data: { messageId: saved.id, usage: {} } };
       }
     } catch (err) {
       this.logger.error(`Stream error in session ${sessionId}`, err);
@@ -252,7 +311,9 @@ export class ConversationStreamService {
 
     for (const binding of bindings) {
       const cap = binding.capability;
-      const toolName = cap.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+      // 🔴 修复 P0-2: 使用 capability.id 作为工具名,避免中文转换问题
+      // 原: const toolName = cap.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+      const toolName = cap.id;
       capabilityByToolName.set(toolName, { id: cap.id, name: cap.name });
       tools[toolName] = {
         description: cap.description,

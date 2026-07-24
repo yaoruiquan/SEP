@@ -1,6 +1,39 @@
 import { z } from 'zod';
 
 // ============================================================================
+// Model Catalog (sub2api 上游可用模型)
+// ----------------------------------------------------------------------------
+// 所有 ID 均已通过 GET /v1/models 在 sub2api 确认可用。
+// 切勿随手填写未验证的 ID（例如 deepseek-chat 在上游不存在，会 model_not_found）。
+// 完整调研见 docs/research/sub2api用量追踪与计费对接调研.md
+// 前端镜像见 web/src/lib/models.ts —— 两处需保持同步。
+// ============================================================================
+
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  provider: string;
+}
+
+export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek' },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek' },
+  { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash High', provider: 'google' },
+  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
+] as const;
+
+/** 系统默认模型（与 .env 的 SUB2API_DEFAULT_MODEL 保持一致）。 */
+export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
+
+/** 校验模型 ID 是否在目录内。 */
+export function isKnownModelId(id: string): boolean {
+  return MODEL_CATALOG.some((m) => m.id === id);
+}
+
+// ============================================================================
 // Capability Result (统一返回格式)
 // ============================================================================
 
@@ -148,7 +181,7 @@ export const DigitalEmployeeCreateDtoSchema = z.object({
   position: z.string(),
   avatar: z.string().url().optional(),
   systemPrompt: z.string().min(10),
-  modelId: z.string().default('gemini-3.5-flash-high'),
+  modelId: z.string().default(DEFAULT_MODEL_ID),
   maxSteps: z.number().min(1).max(20).default(10),
   price: z.number().min(0).optional(),
   // 初始绑定的已审核 Capability ID 列表（可为空）
