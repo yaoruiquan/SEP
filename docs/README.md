@@ -21,14 +21,21 @@
 - [OpenCode 执行后端接口契约](./对接/OpenCode执行后端-协作与接口契约.md) - OpenCode Skills Service HTTP API 规范
 - [Agent Runtime 对比](./对接/agent-runtime-对比.md) - 不同 Agent 框架对比分析
 
+### 📅 开发进度
+- [2026-07-23 开发记录](./progress/2026-07-23.md) - Layer 5 对话系统 + 前端核心页面
+- [2026-07-24 E2E 修复记录](./progress/2026-07-24-e2e-fixes.md) - 5 个阻断级问题修复
+- [Layer 0 完成报告](./progress/layer-0-completion-report.md) - 基础设施搭建完成
+
+> **说明**: `progress/` 目录记录每日开发进度，按日期归档
+
 ### 🧪 测试
 - **指南**: [E2E 测试指南](./test/guides/E2E-TEST-GUIDE.md) - 浏览器端到端测试执行手册
 - **计划**: [测试计划目录](./test/plans/) - 测试范围与用例设计
 - **报告**: [测试报告目录](./test/reports/) - 历史测试结果与问题追踪
+- **修复**: [修复记录目录](./test/fix/) - 测试发现问题的修复记录
 
 ### 📊 项目状态
-- [**开发状态总览**](./status/development-status.md) ⭐ - 当前进度、模块状态、下一步计划（**主要查看这个**）
-- [变更日志](./status/changelog/) - 按日期的详细变更记录与问题修复
+- [**开发状态总览**](./status/development-status.md) ⭐ - 当前进度、模块状态、下一步计划（**每次提交更新**）
 - [里程碑记录](./status/milestones/) - Layer 验收与重要节点
 
 ---
@@ -46,25 +53,30 @@
 2. 实施功能（参考 [实施计划](./plans/)）
 3. 运行测试（参考 [测试指南](./test/guides/)）
 4. 提交代码并**更新** [开发状态](./status/development-status.md)
-5. 记录变更到 [changelog](./status/changelog/)
+5. 记录今日进度到 `progress/YYYY-MM-DD.md`
 
 ---
 
 ## 📝 文档维护规范
 
-### 提交时必须更新
-- `status/development-status.md` - 每次提交都要更新模块状态和最新提交信息
+### 每次提交必须更新
+- `status/development-status.md` - 更新模块状态、最新提交信息、当前进度
+
+### 每日开发记录
+- `progress/YYYY-MM-DD.md` - 记录当天完成的功能、遇到的问题、解决方案
 
 ### 按需创建
-- `status/changelog/YYYY-MM-DD-功能名.md` - 重要功能开发或问题修复记录
+- `progress/功能名-completion-report.md` - 重要功能完成报告（如 layer-0-completion-report.md）
 - `test/reports/YYYY-MM-DD-测试类型-report.md` - 测试报告
+- `test/fix/YYYY-MM-DD-问题描述.md` - 测试发现问题的修复记录
 - `plans/功能名-Implementation-Plan.md` - 大型功能的实施计划
 
 ### 目录职责
 - `architecture/` - 长期稳定的架构文档，不频繁修改
-- `plans/` - 未来要做的计划，完成后归档
-- `status/` - 动态更新的状态文档，**高频修改**
-- `test/` - 测试相关，按类型分 guides/plans/reports
+- `plans/` - 未来要做的计划，完成后归档到 `progress/`
+- `progress/` - 每日开发进度记录，**高频更新**
+- `status/` - 项目总体状态，**每次提交更新**
+- `test/` - 测试相关，按类型分 guides/plans/reports/fix
 - `research/` - 技术调研，一次性文档
 
 ---

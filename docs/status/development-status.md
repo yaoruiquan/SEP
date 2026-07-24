@@ -48,7 +48,7 @@
   - P1: 后端能力 API 增加 `status` 参数支持
   - P1: 添加移动端响应式布局（汉堡菜单）
   - P2: 认证错误提示本地化为中文
-  - 详见 [changelog/2026-07-24-e2e-fixes.md](./changelog/2026-07-24-e2e-fixes.md)
+  - 详见 [progress/2026-07-24-e2e-fixes.md](../progress/2026-07-24-e2e-fixes.md)
 
 - **环境配置更新**
   - 配置 sub2api 生产端点 `https://longdaoai.cn/v1`
@@ -56,22 +56,22 @@
   - 添加 Coze 集成配置占位
 
 - **文档重组**
-  - 合并 `progress/` 到 `status/`
-  - 重组 `test/` 为 `guides/`、`plans/`、`reports/`
+  - 保留 `progress/` 用于每日开发记录
+  - 重组 `test/` 为 `guides/`、`plans/`、`reports/`、`fix/`
   - 创建 `docs/README.md` 文档导航
 
 ### 2026-07-23
 - **前端核心页面开发完成**
   - 用户端：登录、注册、工作台、员工广场、订阅管理、对话中心、个人设置
   - 管理端：仪表盘、能力审核、员工管理
-  - 详见 [changelog/2026-07-23.md](./changelog/2026-07-23.md)
+  - 详见 [progress/2026-07-23.md](../progress/2026-07-23.md)
 
 - **后端 Layer 5 完成**
   - 订阅系统（CRUD + 状态管理）
   - 对话系统（SSE 流式 + 消息持久化 + 工具执行记录）
   - Redis 分布式锁
 
-更多历史记录见 [changelog/](./changelog/)
+更多历史记录见 [progress/](../progress/)
 
 ---
 
