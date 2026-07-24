@@ -10,7 +10,8 @@
     "db:migrate": "pnpm --filter backend db:migrate",
     "db:generate": "pnpm --filter backend db:generate",
     "db:studio": "pnpm --filter backend db:studio",
-    "db:reset": "pnpm --filter backend db:reset"
+    "db:reset": "pnpm --filter backend db:reset",
+    "db:seed": "pnpm --filter backend db:seed"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

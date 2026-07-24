@@ -195,8 +195,14 @@ export const ConversationCreateDtoSchema = z.object({
 
 export type ConversationCreateDto = z.infer<typeof ConversationCreateDtoSchema>;
 
+export const ConversationUpdateDtoSchema = z.object({
+  title: z.string().min(1).max(100),
+});
+
+export type ConversationUpdateDto = z.infer<typeof ConversationUpdateDtoSchema>;
+
 export const MessageSendDtoSchema = z.object({
-  content: z.string().min(1),
+  content: z.string().min(1).max(10000),
 });
 
 export type MessageSendDto = z.infer<typeof MessageSendDtoSchema>;
