@@ -46,6 +46,8 @@ export function InputBar({
     }
   };
 
+  const charCount = value.length;
+
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-white px-3 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
@@ -88,6 +90,11 @@ export function InputBar({
           </button>
         )}
       </div>
+      {value.length > 0 && (
+        <div className="mx-auto mt-1 max-w-3xl px-1 text-right text-[11px] text-fg-subtle">
+          {value.length} 字
+        </div>
+      )}
     </div>
   );
 }

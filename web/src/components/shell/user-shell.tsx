@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { LayoutDashboard, MessagesSquare, Store, CreditCard, Settings, LogOut, Menu, X } from 'lucide-react';
+import Image from 'next/image';
+import { LayoutDashboard, MessagesSquare, Store, CreditCard, Settings, LogOut, Menu, X, BarChart3 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { NavItem, type NavLink } from './nav-item';
@@ -13,6 +14,7 @@ const LINKS: NavLink[] = [
   { href: '/chat', label: '对话中心', icon: MessagesSquare },
   { href: '/marketplace', label: '员工广场', icon: Store },
   { href: '/subscriptions', label: '我的订阅', icon: CreditCard },
+  { href: '/usage', label: '用量统计', icon: BarChart3 },
   { href: '/settings', label: '个人设置', icon: Settings },
 ];
 
@@ -48,9 +50,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="flex h-14 items-center gap-2 px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-primary text-sm font-bold text-white">
-            硅
-          </div>
+          <Image src="/logo.png" alt="硅基人才平台" width={28} height={28} className="rounded" priority />
           <span className="text-sm font-semibold">硅基人才平台</span>
         </div>
 

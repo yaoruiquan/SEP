@@ -9,6 +9,8 @@ import { CapabilityModule } from './modules/capability/capability.module';
 import { DigitalEmployeeModule } from './modules/digital-employee/digital-employee.module';
 import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { ConversationModule } from './modules/conversation/conversation.module';
+import { SettingModule } from './modules/setting/setting.module';
+import { ModelModule } from './modules/model/model.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { ConversationModule } from './modules/conversation/conversation.module';
     DigitalEmployeeModule,
     SubscriptionModule,
     ConversationModule,
+    SettingModule,
+    ModelModule,
     TestModule,
   ],
   controllers: [],

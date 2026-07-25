@@ -1,6 +1,7 @@
 'use client';
 
-import { LayoutDashboard, ShieldCheck, Users, LogOut } from 'lucide-react';
+import Image from 'next/image';
+import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, LogOut } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { NavItem, type NavLink } from './nav-item';
@@ -11,6 +12,8 @@ const LINKS: NavLink[] = [
   { href: '/admin', label: '仪表盘', icon: LayoutDashboard, exact: true },
   { href: '/admin/capabilities', label: '能力审核', icon: ShieldCheck },
   { href: '/admin/employees', label: '员工管理', icon: Users },
+  { href: '/admin/models', label: '可用模型', icon: Cpu },
+  { href: '/admin/settings', label: '系统设置', icon: Settings },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -21,9 +24,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-background">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-sidebar">
         <div className="flex h-14 items-center gap-2 px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-primary text-sm font-bold text-white">
-            硅
-          </div>
+          <Image src="/logo.png" alt="硅基人才平台" width={28} height={28} className="rounded" priority />
           <span className="text-sm font-semibold">管理后台</span>
         </div>
 

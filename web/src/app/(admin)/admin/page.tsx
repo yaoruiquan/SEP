@@ -87,7 +87,7 @@ export default function AdminDashboardPage() {
               ))}
             </div>
           ) : pendingItems.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-fg-subtle">暂无待审核能力</p>
+            <p className="px-5 py-4 text-sm text-fg-subtle">✅ 暂无待审核能力</p>
           ) : (
             <table className="w-full text-sm">
               <thead>

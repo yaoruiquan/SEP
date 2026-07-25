@@ -3,9 +3,11 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { ModelService } from '../model/model.service';
 import { ConversationCreateDto, ConversationUpdateDto } from 'shared';
 
 @Injectable()
@@ -15,6 +17,7 @@ export class ConversationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly modelService: ModelService,
   ) {}
 
   async create(userId: string, dto: ConversationCreateDto) {
@@ -70,7 +73,7 @@ export class ConversationService {
     const session = await this.prisma.conversationSession.findUnique({
       where: { id: sessionId },
       include: {
-        employee: { select: { id: true, name: true, avatar: true } },
+        employee: { select: { id: true, name: true, avatar: true, modelId: true } },
         messages: {
           orderBy: { createdAt: 'asc' },
           select: {
@@ -97,6 +100,21 @@ export class ConversationService {
       where: { id: sessionId },
       data: { title: dto.title },
       select: { id: true, title: true, updatedAt: true },
+    });
+  }
+
+  async switchModel(sessionId: string, userId: string, modelId: string) {
+    await this.assertOwner(sessionId, userId);
+
+    // 只允许切到平台已启用的模型（防止绕过白名单调用未开放模型）
+    if (modelId && !(await this.modelService.isEnabled(modelId))) {
+      throw new BadRequestException(`模型 ${modelId} 未开放使用`);
+    }
+
+    return this.prisma.conversationSession.update({
+      where: { id: sessionId },
+      data: { modelId: modelId || null }, // 空 = 回退员工默认模型
+      select: { id: true, modelId: true, updatedAt: true },
     });
   }
 

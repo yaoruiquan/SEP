@@ -35,4 +35,11 @@ export class UserController {
     const dto = ChangePasswordDtoSchema.parse(body);
     await this.userService.changePassword(req.user.id, dto);
   }
+
+  @Get('me/compute-usage')
+  @ApiOperation({ summary: '获取当前用户的计算用量统计' })
+  @ApiResponse({ status: 200, description: '用量统计和交易记录' })
+  getComputeUsage(@Request() req: any) {
+    return this.userService.getComputeUsage(req.user.id);
+  }
 }

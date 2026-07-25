@@ -7,6 +7,7 @@ import { qk } from '@/lib/query-keys';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { MessageBubble } from './message-bubble';
 import { InputBar } from './input-bar';
+import { ModelSwitcher } from './model-switcher';
 import { useChatStream } from './use-chat-stream';
 import { useConversation } from './use-conversations';
 import type { Message } from '@/lib/types';
@@ -54,6 +55,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       // on completion, refetch canonical history (includes persisted tool calls)
       qc.invalidateQueries({ queryKey: qk.conversation(conversationId) });
       qc.invalidateQueries({ queryKey: qk.conversations });
+      // 清空 pendingUser,避免重复显示
+      setPendingUser(null);
     });
   };
 
@@ -63,7 +66,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-border px-6 py-3">
         <Bot className="h-5 w-5 text-primary" />
-        <div>
+        <div className="flex-1">
           <h2 className="text-sm font-semibold text-foreground">
             {employee?.name ?? '对话'}
           </h2>
@@ -71,6 +74,13 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             <p className="text-xs text-fg-subtle">{conversation.title}</p>
           )}
         </div>
+        {conversation && (
+          <ModelSwitcher
+            conversationId={conversationId}
+            currentModelId={conversation.modelId ?? null}
+            employeeModelId={employee?.modelId}
+          />
+        )}
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin">

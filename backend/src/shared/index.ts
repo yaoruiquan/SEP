@@ -34,6 +34,41 @@ export function isKnownModelId(id: string): boolean {
 }
 
 // ============================================================================
+// System Settings (可在管理端配置的运行时设置)
+// ----------------------------------------------------------------------------
+// 运行时优先读 SystemSetting 表，未配置时回退 .env。
+// secret=true 的项加密存储，接口永不回传明文。
+// ============================================================================
+
+export const SETTING_KEYS = {
+  SUB2API_BASE_URL: 'SUB2API_BASE_URL',
+  SUB2API_API_KEY: 'SUB2API_API_KEY',
+  SUB2API_DEFAULT_MODEL: 'SUB2API_DEFAULT_MODEL',
+} as const;
+
+export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
+
+/** 哪些配置项是敏感值（加密存储、接口打码）。 */
+export const SECRET_SETTING_KEYS: readonly SettingKey[] = [
+  SETTING_KEYS.SUB2API_API_KEY,
+];
+
+/** 管理端可编辑的配置项元信息（用于渲染设置表单）。 */
+export interface SettingFieldMeta {
+  key: SettingKey;
+  label: string;
+  secret: boolean;
+  envFallback: string; // 对应的 .env 变量名（回退用）
+  placeholder?: string;
+}
+
+export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
+  { key: SETTING_KEYS.SUB2API_BASE_URL, label: 'sub2api 上游地址', secret: false, envFallback: 'SUB2API_BASE_URL', placeholder: 'https://longdaoai.cn/v1' },
+  { key: SETTING_KEYS.SUB2API_API_KEY, label: 'sub2api API Key', secret: true, envFallback: 'SUB2API_API_KEY', placeholder: 'sk-...' },
+  { key: SETTING_KEYS.SUB2API_DEFAULT_MODEL, label: '默认模型', secret: false, envFallback: 'SUB2API_DEFAULT_MODEL', placeholder: DEFAULT_MODEL_ID },
+];
+
+// ============================================================================
 // Capability Result (统一返回格式)
 // ============================================================================
 
@@ -263,4 +298,49 @@ export interface UserProfileResponse {
   role: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ============================================================================
+// Model Pricing (计费价格表)
+// ----------------------------------------------------------------------------
+// 单位：美元 / 1M tokens
+// 数据来源：各厂商官网定价（截至 2026-07）
+// ============================================================================
+
+export interface ModelPricing {
+  inputPrice: number;   // 输入 token 单价（美元 / 1M tokens）
+  outputPrice: number;  // 输出 token 单价（美元 / 1M tokens）
+}
+
+export const MODEL_PRICING: Record<string, ModelPricing> = {
+  'deepseek-v4-flash': { inputPrice: 0.14, outputPrice: 0.55 },
+  'deepseek-v4-pro': { inputPrice: 2.19, outputPrice: 8.77 },
+  'gemini-3.5-flash-high': { inputPrice: 0.15, outputPrice: 0.60 },
+  'gpt-4o': { inputPrice: 2.50, outputPrice: 10.00 },
+  'gpt-4o-mini': { inputPrice: 0.15, outputPrice: 0.60 },
+  'claude-sonnet-5': { inputPrice: 3.00, outputPrice: 15.00 },
+  'claude-haiku-4-5': { inputPrice: 0.80, outputPrice: 4.00 },
+};
+
+export const USD_TO_CNY_RATE = 7.2;
+
+/**
+ * 计算单次对话的成本
+ * @param modelId 模型 ID
+ * @param inputTokens 输入 token 数
+ * @param outputTokens 输出 token 数
+ * @returns { costUSD, costCNY } 美元和人民币成本
+ */
+export function calculateCost(
+  modelId: string,
+  inputTokens: number,
+  outputTokens: number,
+): { costUSD: number; costCNY: number } {
+  const pricing = MODEL_PRICING[modelId];
+  if (!pricing) {
+    return { costUSD: 0, costCNY: 0 };
+  }
+  const costUSD = (inputTokens * pricing.inputPrice + outputTokens * pricing.outputPrice) / 1_000_000;
+  const costCNY = costUSD * USD_TO_CNY_RATE;
+  return { costUSD, costCNY };
 }

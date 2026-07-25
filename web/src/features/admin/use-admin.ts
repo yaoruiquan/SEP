@@ -135,3 +135,32 @@ export function useUnbindCapability() {
       qc.invalidateQueries({ queryKey: qk.employee(id) }),
   });
 }
+
+// ─── System Settings ──────────────────────────────────────────────────────
+
+export interface SettingView {
+  key: string;
+  label: string;
+  secret: boolean;
+  value?: string;
+  configured: boolean;
+}
+
+export function useSettings() {
+  return useQuery<SettingView[]>({
+    queryKey: ['settings'],
+    queryFn: () => api.get<SettingView[]>('/settings'),
+  });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (updates: Record<string, string>) =>
+      api.put<SettingView[]>('/settings', updates),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      qc.invalidateQueries({ queryKey: ['models', 'available'] });
+    },
+  });
+}

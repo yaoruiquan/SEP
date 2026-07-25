@@ -80,6 +80,17 @@ export class ConversationController {
     return this.conversationService.update(id, req.user.id, dto);
   }
 
+  @Patch(':id/model')
+  @ApiOperation({ summary: '切换会话使用的模型' })
+  @ApiResponse({ status: 200, description: '切换成功' })
+  async switchModel(
+    @Param('id') id: string,
+    @Body('modelId') modelId: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.conversationService.switchModel(id, req.user.id, modelId);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除会话（级联删除消息）' })

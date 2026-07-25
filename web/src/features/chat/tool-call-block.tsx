@@ -12,12 +12,6 @@ interface ToolCallBlockProps {
 
 /** Normalize either a live streaming call or a persisted record into one shape. */
 function normalize(call: LiveToolCall | ToolCallRecord) {
-  const status =
-    'status' in call && call.status
-      ? call.status
-      : call.success === undefined
-        ? 'done'
-        : 'done';
   return {
     name: call.name ?? '能力调用',
     capabilityId: call.capabilityId,
@@ -35,7 +29,16 @@ export function ToolCallBlock({ call }: ToolCallBlockProps) {
   const hasDetail = c.args !== undefined || c.result !== undefined;
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-border bg-muted/50 text-sm">
+    <div
+      className={cn(
+        'my-2 overflow-hidden rounded-lg border border-l-[3px] bg-muted/50 text-sm transition-colors',
+        c.running
+          ? 'border-l-primary border-border'
+          : c.success === false
+            ? 'border-l-danger border-danger/20'
+            : 'border-l-success border-success/20',
+      )}
+    >
       <button
         type="button"
         onClick={() => hasDetail && setOpen((o) => !o)}

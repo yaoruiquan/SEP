@@ -315,6 +315,9 @@ model ConversationSession {
   title      String?  // 自动生成或用户修改
   status     SessionStatus @default(ACTIVE)
 
+  // 会话级模型覆盖：null 时用 employee.modelId
+  modelId    String?
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -341,6 +344,10 @@ model Message {
 
   // Tool calls (if role is assistant and made tool calls)
   toolCalls Json?
+
+  // Token usage (for billing)
+  inputTokens  Int?
+  outputTokens Int?
 
   createdAt DateTime @default(now())
 
@@ -429,4 +436,54 @@ enum TransactionType {
   RECHARGE  // 充值
   CONSUME   // 消费
   REFUND    // 退款
+}
+
+// ============================================================================
+// System Settings (系统配置 - key/value)
+// ----------------------------------------------------------------------------
+// 存运行时可配的系统级设置，如 sub2api 上游 BASE_URL / API_KEY。
+// 运行时优先读本表，缺失时回退 .env。敏感值（isSecret=true）加密存储，
+// 接口永不回传明文。
+// ============================================================================
+model SystemSetting {
+  id        String   @id @default(cuid())
+
+  key       String   @unique  // 如 SUB2API_BASE_URL / SUB2API_API_KEY
+  value     String   @db.Text // 明文或密文（isSecret 决定）
+  isSecret  Boolean  @default(false)
+  label     String?  // 界面显示名
+  category  String   @default("general") // 分组，如 sub2api
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ============================================================================
+// Platform Model (平台启用模型白名单)
+// ----------------------------------------------------------------------------
+// 上游 sub2api 有几十个模型，但并非都适合对用户开放（图像模型、preview 版本、
+// 内部工具模型等）。本表是「平台对用户开放的模型集合」：
+//   - 管理员点「同步上游」→ 上游模型入库（新的默认 enabled=false，需手动启用）
+//   - 上游已下架的模型不物理删除，标记 isStale，保留历史引用可读
+//   - enabled=false 即软禁用：用户端选不到，但历史会话仍能显示模型名
+// ============================================================================
+model PlatformModel {
+  id         String   @id @default(cuid())
+
+  modelId    String   @unique // 上游模型 ID，如 gemini-3.5-flash-high
+  label      String            // 平台自定义显示名
+  enabled    Boolean  @default(false) // 是否对用户开放
+  sortOrder  Int      @default(0)     // 列表排序，小的在前
+
+  // 同步状态
+  lastSeenAt DateTime @default(now()) // 最后一次在上游出现的时间
+  isStale    Boolean  @default(false) // 上游已下架（不删，保留历史可读）
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("platform_models")
+  @@index([enabled, sortOrder])
 }

@@ -13,7 +13,7 @@ import { CapabilityService } from '../capability/capability.service';
 import { AdapterInput } from '../capability/adapters/adapter.interface';
 import { SessionLockService } from './session-lock.service';
 import { ConversationService } from './conversation.service';
-import { DEFAULT_MODEL_ID } from 'shared';
+import { DEFAULT_MODEL_ID, calculateCost } from 'shared';
 import {
   SseEvent,
   ModelMessage,
@@ -75,11 +75,15 @@ export class ConversationStreamService {
       const defaultModel = this.configService.get('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID);
       // includeUsage: true 让流式响应返回 usage 数据（否则 result.usage 为空）
       const provider = createOpenAICompatible({ name: 'sub2api', baseURL, apiKey, includeUsage: true });
-      const modelId = employee.modelId || defaultModel;
+      // 会话级模型覆盖：session.modelId > employee.modelId > 系统默认
+      const modelId = session.modelId || employee.modelId || defaultModel;
 
-      // 7. 手动工具循环（每轮一步，finishReason === 'tool-calls' 则继续）
+      // 7. 手动工具循环(每轮一步,finishReason === 'tool-calls' 则继续)
       let stepCount = 0;
       const hasTools = Object.keys(tools).length > 0;
+      let accumulatedText = '';
+      let finishReason: string | undefined;
+      let usage: any;
 
       this.logger.debug(`[Stream Init] session=${sessionId}, model=${modelId}, tools=${hasTools ? Object.keys(tools).length : 0}`);
 
@@ -89,7 +93,7 @@ export class ConversationStreamService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
           model: provider(modelId),
-          // instructions 是 AI SDK v7 的新 key（原 system）
+          // instructions 是 AI SDK v7 的新 key(原 system)
           instructions: employee.systemPrompt,
           messages: messages as Parameters<typeof streamText>[0]['messages'],
           tools: hasTools ? tools : undefined,
@@ -97,10 +101,8 @@ export class ConversationStreamService {
 
         this.logger.debug(`[Stream Result Created] session=${sessionId}`);
 
-        let accumulatedText = '';
+        accumulatedText = '';
         const pendingToolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = [];
-        let finishReason: string | undefined;
-        let usage: any;
 
         // 🔴 修复 P0-1: 包裹异常处理
         try {
@@ -131,6 +133,7 @@ export class ConversationStreamService {
                 const text: string = chunk.content ?? chunk.text ?? '';
                 if (text) yield { event: 'reasoning_delta', data: text };
                 break;
+              }
             }
           }
         } catch (streamError) {
@@ -152,11 +155,48 @@ export class ConversationStreamService {
 
         [finishReason, usage] = await Promise.all([result.finishReason, result.usage]);
 
-        // ── 最终回复（无工具调用）────────────────────────────────────────────
+        // ── 最终回复(无工具调用)────────────────────────────────────────────
         if (finishReason !== 'tool-calls') {
+          // AI SDK v7 usage 字段兼容处理
+          let inputTokens = usage?.promptTokens ?? usage?.inputTokens ?? 0;
+          let outputTokens = usage?.completionTokens ?? usage?.outputTokens ?? 0;
+
+          // 🔴 Fallback: 当上游未返回 token 数据时,使用文本长度估算(1 token ≈ 4 chars)
+          if (inputTokens === 0 && content.length > 0) {
+            inputTokens = Math.ceil(content.length / 4);
+            this.logger.warn(`[Billing] Input tokens missing, estimated from content length: ${inputTokens}`);
+          }
+          if (outputTokens === 0 && accumulatedText.length > 0) {
+            outputTokens = Math.ceil(accumulatedText.length / 4);
+            this.logger.warn(`[Billing] Output tokens missing, estimated from response length: ${outputTokens}`);
+          }
+
+          this.logger.debug(`[Billing Check] usage=${JSON.stringify(usage)}, input=${inputTokens}, output=${outputTokens}`);
+
           const saved = await this.prisma.message.create({
-            data: { sessionId, role: 'ASSISTANT', content: accumulatedText },
+            data: {
+              sessionId,
+              role: 'ASSISTANT',
+              content: accumulatedText,
+              inputTokens,
+              outputTokens,
+            },
           });
+
+          // 计费记账 (只要有实际对话就记账,不能因上游数据缺失而漏计费)
+          if (inputTokens > 0 && outputTokens > 0) {
+            this.logger.log(`[Billing] Recording usage for session ${sessionId}: input=${inputTokens}, output=${outputTokens}`);
+            await this.recordUsage(
+              session.userId,
+              sessionId,
+              modelId,
+              inputTokens,
+              outputTokens,
+            );
+          } else {
+            this.logger.error(`[Billing] Cannot record usage - both input and output tokens are 0 for session ${sessionId}`);
+          }
+
           await this.prisma.conversationSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } });
           await this.conversationService.autoGenerateTitle(sessionId, content);
           yield { event: 'done', data: { messageId: saved.id, usage } };
@@ -246,7 +286,13 @@ export class ConversationStreamService {
         this.logger.warn(`Session ${sessionId} reached maxSteps=${employee.maxSteps} without final reply`);
         const fallbackContent = accumulatedText || '抱歉,处理步骤超过限制,无法继续生成回复';
         const saved = await this.prisma.message.create({
-          data: { sessionId, role: 'ASSISTANT', content: fallbackContent },
+          data: {
+            sessionId,
+            role: 'ASSISTANT',
+            content: fallbackContent,
+            inputTokens: null,
+            outputTokens: null,
+          },
         });
         yield { event: 'done', data: { messageId: saved.id, usage: {} } };
       }
@@ -362,5 +408,54 @@ export class ConversationStreamService {
     }
     return shape;
   }
+
+  /**
+   * 记录 token 使用量并创建计费交易
+   */
+  private async recordUsage(
+    userId: string,
+    sessionId: string,
+    modelId: string,
+    inputTokens: number,
+    outputTokens: number,
+  ): Promise<void> {
+    try {
+      // 计算成本
+      const { costUSD, costCNY } = calculateCost(modelId, inputTokens, outputTokens);
+
+      // 获取或创建用户的计费账户
+      const account = await this.prisma.computeAccount.upsert({
+        where: { userId },
+        create: { userId, balance: 0 },
+        update: {},
+      });
+
+      // 创建消费记录（负数表示消费）
+      await this.prisma.computeTransaction.create({
+        data: {
+          accountId: account.id,
+          type: 'CONSUME',
+          amount: -costCNY,
+          sessionId,
+          description: `${modelId} 对话消费`,
+          metadata: { inputTokens, outputTokens, costUSD, costCNY },
+        },
+      });
+
+      // 更新账户余额
+      await this.prisma.computeAccount.update({
+        where: { id: account.id },
+        data: { balance: { decrement: costCNY } },
+      });
+
+      this.logger.log(
+        `Recorded usage for user ${userId}: ${inputTokens}/${outputTokens} tokens, cost ¥${costCNY.toFixed(4)}`,
+      );
+    } catch (err) {
+      // 计费失败不应阻断对话，记录错误即可
+      this.logger.error(`Failed to record usage for user ${userId}`, err);
+    }
+  }
 }
+
 

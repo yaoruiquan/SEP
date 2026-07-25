@@ -70,14 +70,22 @@ export default function MarketplacePage() {
             return (
               <Card
                 key={emp.id}
-                className="flex flex-col overflow-hidden transition-shadow hover:shadow-md"
+                className={cn(
+                  'relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg',
+                  subscribed && 'ring-1 ring-primary/30',
+                )}
               >
+                {subscribed && (
+                  <span className="absolute right-2 top-2 z-10 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    已订阅
+                  </span>
+                )}
                 <CardContent className="flex flex-1 flex-col gap-3 p-4">
                   <div className="flex items-start gap-3">
                     <Avatar
                       name={emp.name}
                       src={emp.avatar}
-                      className="h-12 w-12 shrink-0"
+                      className="h-12 w-12 shrink-0 ring-2 ring-primary/15"
                     />
                     <div className="min-w-0 flex-1">
                       <h3 className="line-clamp-1 font-semibold text-foreground">

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/components/ui/toast';
 import {
   useAllCapabilities,
   useApproveCapability,
@@ -61,10 +62,10 @@ function CozeImportForm() {
   const onSubmit = async (values: CozeImportFormValues) => {
     try {
       await importMutation.mutateAsync(values);
-      alert(`✅ Coze Bot 导入成功\n名称: ${values.name}`);
+      toast.success(`Coze Bot 导入成功：${values.name}`);
       reset();
     } catch (err) {
-      alert(`❌ 导入失败: ${(err as Error).message}`);
+      toast.error(`导入失败：${(err as Error).message}`);
     }
   };
 
@@ -257,7 +258,7 @@ export default function CapabilitiesPage() {
               <Skeleton key={i} className="h-24 w-full" />
             ))
           ) : pendingItems.length === 0 ? (
-            <p className="text-sm text-fg-subtle py-8 text-center">暂无待审核能力</p>
+            <p className="text-sm text-fg-subtle py-10 text-center">🎉 暂无待审核能力，全部处理完毕</p>
           ) : (
             pendingItems.map((cap) => <PendingRow key={cap.id} cap={cap} />)
           )}
@@ -277,7 +278,7 @@ export default function CapabilitiesPage() {
                 ))}
               </div>
             ) : allItems.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-fg-subtle">暂无数据</p>
+              <p className="px-5 py-8 text-center text-sm text-fg-subtle">📭 暂无数据</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -290,7 +291,7 @@ export default function CapabilitiesPage() {
                 </thead>
                 <tbody>
                   {allItems.map((cap) => (
-                    <tr key={cap.id} className="border-b border-border last:border-0">
+                    <tr key={cap.id} className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40">
                       <td className="px-5 py-3 font-medium">{cap.name}</td>
                       <td className="px-5 py-3">
                         <TypeBadge type={cap.type} />

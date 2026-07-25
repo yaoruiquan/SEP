@@ -1,3 +1,5 @@
+import Image from 'next/image';
+
 export default function AuthLayout({
   children,
 }: {
@@ -7,7 +9,10 @@ export default function AuthLayout({
     <div className="flex min-h-screen">
       {/* Brand panel */}
       <div className="hidden w-1/2 flex-col justify-between bg-primary p-12 text-white lg:flex">
-        <div className="text-xl font-semibold tracking-tight">硅基人才平台</div>
+        <div className="flex items-center gap-2.5">
+          <Image src="/logo.png" alt="硅基人才平台" width={32} height={32} className="rounded" priority />
+          <span className="text-xl font-semibold tracking-tight">硅基人才平台</span>
+        </div>
         <div className="space-y-4">
           <h1 className="text-4xl font-bold leading-tight">
             订阅碳基员工

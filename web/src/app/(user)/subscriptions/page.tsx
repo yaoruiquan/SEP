@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { CAPABILITY_TYPE_META, SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { useSubscriptions, useUnsubscribe } from '@/features/subscription/use-subscriptions';
+import { toast } from '@/components/ui/toast';
 
 export default function SubscriptionsPage() {
   const { data: subs = [], isLoading } = useSubscriptions();
@@ -112,7 +113,10 @@ export default function SubscriptionsPage() {
                       disabled={unsubscribe.isPending}
                       onClick={() => {
                         if (confirm(`确定取消订阅「${emp.name}」吗？`)) {
-                          unsubscribe.mutate(sub.id);
+                          unsubscribe.mutate(sub.id, {
+                            onSuccess: () => toast.success(`已取消订阅「${emp.name}」`),
+                            onError: (e) => toast.error(`取消失败: ${(e as Error).message}`),
+                          });
                         }
                       }}
                     >

@@ -10,8 +10,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
+import { toast } from '@/components/ui/toast';
 import { useEmployees, useEmployee } from '@/features/employee/use-employees';
-import { MODEL_CATALOG, DEFAULT_MODEL_ID } from '@/lib/models';
+import { DEFAULT_MODEL_ID } from '@/lib/models';
+import { useEnabledModels } from '@/features/model/use-models';
 import {
   useCreateEmployee,
   useUpdateEmployee,
@@ -148,6 +150,7 @@ function EmployeeModal({
   const isEdit = !!employee;
   const create = useCreateEmployee();
   const update = useUpdateEmployee();
+  const { data: models, isLoading: modelsLoading } = useEnabledModels();
 
   const {
     register,
@@ -253,8 +256,12 @@ function EmployeeModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-fg-muted">AI 模型</label>
-              <select {...register('modelId')} className={inputCls}>
-                {MODEL_CATALOG.map((m) => (
+              <select {...register('modelId')} className={inputCls} disabled={modelsLoading}>
+                {modelsLoading && <option>加载中…</option>}
+                {!modelsLoading && (!models || models.length === 0) && (
+                  <option value="">上游未配置，请先在系统设置填写</option>
+                )}
+                {models?.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
@@ -313,6 +320,7 @@ export default function EmployeesPage() {
     employee: DigitalEmployee | null;
   }>({ open: false, employee: null });
 
+  const [confirmDel, setConfirmDel] = useState<DigitalEmployee | null>(null);
   const { data: employees, isLoading } = useEmployees();
   const deleteEmployee = useDeleteEmployee();
 
@@ -322,8 +330,13 @@ export default function EmployeesPage() {
   const closeModal = () => setModal({ open: false, employee: null });
 
   const handleDelete = (emp: DigitalEmployee) => {
-    if (!confirm(`确定删除员工「${emp.name}」？`)) return;
-    deleteEmployee.mutate(emp.id);
+    deleteEmployee.mutate(emp.id, {
+      onSuccess: () => {
+        toast.success(`已删除员工「${emp.name}」`);
+        setConfirmDel(null);
+      },
+      onError: (e) => toast.error(`删除失败: ${(e as Error).message}`),
+    });
   };
 
   return (
@@ -349,7 +362,7 @@ export default function EmployeesPage() {
             </div>
           ) : !employees || employees.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-fg-subtle">
-              暂无员工，点击「新建员工」开始创建
+              🧑‍💼 暂无员工，点击「新建员工」开始创建
             </p>
           ) : (
             <table className="w-full text-sm">
@@ -364,7 +377,7 @@ export default function EmployeesPage() {
               </thead>
               <tbody>
                 {employees.map((emp) => (
-                  <tr key={emp.id} className="border-b border-border last:border-0">
+                  <tr key={emp.id} className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
                         <Avatar name={emp.name} />
@@ -394,7 +407,7 @@ export default function EmployeesPage() {
                           variant="ghost"
                           size="icon"
                           className="text-danger hover:bg-danger/10"
-                          onClick={() => handleDelete(emp)}
+                          onClick={() => setConfirmDel(emp)}
                           title="删除"
                           disabled={deleteEmployee.isPending}
                         >
@@ -412,6 +425,36 @@ export default function EmployeesPage() {
 
       {modal.open && (
         <EmployeeModal employee={modal.employee} onClose={closeModal} />
+      )}
+
+      {confirmDel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
+            <h3 className="font-semibold text-foreground">删除员工</h3>
+            <p className="mt-2 text-sm text-fg-muted">
+              确定删除员工「{confirmDel.name}」？此操作不可撤销。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setConfirmDel(null)}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => handleDelete(confirmDel)}
+                disabled={deleteEmployee.isPending}
+              >
+                {deleteEmployee.isPending ? '删除中…' : '确认删除'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

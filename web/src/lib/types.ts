@@ -62,9 +62,10 @@ export interface ConversationSession {
   id: string;
   title: string | null;
   employeeId: string;
+  modelId?: string | null; // 会话级模型覆盖
   createdAt: string;
   updatedAt: string;
-  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar'>;
+  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'modelId'>;
   _count?: { messages?: number };
 }
 
