@@ -49,3 +49,4 @@
 | `2026-07-25-billing-system.md` | 计费系统实现专题（Schema/价格表/记账/用量页） |
 | `2026-07-25-model-sync-and-settings.md` | 模型同步 + 白名单管理 + 系统设置专题 |
 | `2026-07-25-pricing-fallback-and-streaming-fix.md` | 保底计费 + 流式错误被吞修复；发现能力适配器仅 1/4 可用 |
+| `2026-07-27-coze-verification-and-pivot.md` | Coze 端到端验证（首次成功能力执行）+ **产品方向调整，Agent 方向暂停** |
