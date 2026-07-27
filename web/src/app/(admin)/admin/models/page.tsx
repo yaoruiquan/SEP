@@ -1,17 +1,17 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/feedback';
-import { toast } from '@/components/ui/toast';
+import { useState } from "react";
+import { RefreshCw, AlertTriangle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/feedback";
+import { toast } from "@/components/ui/toast";
 import {
   usePlatformModels,
   useSyncModels,
   useUpdatePlatformModel,
-} from '@/features/model/use-models';
+} from "@/features/model/use-models";
 
 export default function ModelsPage() {
   const { data: models, isLoading } = usePlatformModels();
@@ -35,14 +35,16 @@ export default function ModelsPage() {
       { id, enabled },
       {
         onSuccess: () =>
-          toast.success(`${label} 已${enabled ? '启用' : '停用'}`),
+          toast.success(`${label} 已${enabled ? "启用" : "停用"}`),
         onError: (e) => toast.error(`操作失败：${(e as Error).message}`),
       },
     );
   };
 
   const list = (models ?? []).filter((m) => (hideDisabled ? m.enabled : true));
-  const enabledCount = (models ?? []).filter((m) => m.enabled && !m.isStale).length;
+  const enabledCount = (models ?? []).filter(
+    (m) => m.enabled && !m.isStale,
+  ).length;
 
   return (
     <div className="p-6 space-y-4">
@@ -50,18 +52,22 @@ export default function ModelsPage() {
         <div>
           <h1 className="text-xl font-semibold">可用模型</h1>
           <p className="mt-0.5 text-sm text-fg-muted">
-            勾选启用的模型才会出现在用户端的模型选择里
+            勾选启用的模型才会出现在用户端的模型选择里。标{" "}
+            <span className="text-warning">保底计费</span>{" "}
+            的模型未配价，启用后按最贵档收费，建议补价后再开放。
           </p>
         </div>
         <Button onClick={handleSync} disabled={sync.isPending}>
-          <RefreshCw className={`h-4 w-4 ${sync.isPending ? 'animate-spin' : ''}`} />
-          {sync.isPending ? '同步中…' : '同步上游模型'}
+          <RefreshCw
+            className={`h-4 w-4 ${sync.isPending ? "animate-spin" : ""}`}
+          />
+          {sync.isPending ? "同步中…" : "同步上游模型"}
         </Button>
       </div>
 
       <div className="flex items-center gap-4 text-sm text-fg-muted">
         <span>
-          共 {models?.length ?? 0} 个 · 已启用{' '}
+          共 {models?.length ?? 0} 个 · 已启用{" "}
           <span className="font-medium text-success">{enabledCount}</span>
         </span>
         <label className="flex items-center gap-1.5 cursor-pointer">
@@ -96,7 +102,9 @@ export default function ModelsPage() {
                   <th className="px-5 py-2 text-left font-medium">模型 ID</th>
                   <th className="px-5 py-2 text-left font-medium">显示名</th>
                   <th className="px-5 py-2 text-left font-medium">状态</th>
-                  <th className="px-5 py-2 text-right font-medium">对用户开放</th>
+                  <th className="px-5 py-2 text-right font-medium">
+                    对用户开放
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -106,20 +114,37 @@ export default function ModelsPage() {
                     className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40"
                   >
                     <td className="px-5 py-2.5">
-                      <code className="text-[12px] text-fg-muted">{m.modelId}</code>
+                      <code className="text-[12px] text-fg-muted">
+                        {m.modelId}
+                      </code>
                     </td>
                     <td className="px-5 py-2.5 font-medium">{m.label}</td>
                     <td className="px-5 py-2.5">
-                      {m.isStale ? (
-                        <Badge className="bg-warning/10 text-warning">
-                          <AlertTriangle className="mr-1 inline h-3 w-3" />
-                          上游已下架
-                        </Badge>
-                      ) : m.enabled ? (
-                        <Badge className="bg-success/10 text-success">已启用</Badge>
-                      ) : (
-                        <Badge className="bg-muted text-fg-subtle">未启用</Badge>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {m.isStale ? (
+                          <Badge className="bg-warning/10 text-warning">
+                            <AlertTriangle className="mr-1 inline h-3 w-3" />
+                            上游已下架
+                          </Badge>
+                        ) : m.enabled ? (
+                          <Badge className="bg-success/10 text-success">
+                            已启用
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-muted text-fg-subtle">
+                            未启用
+                          </Badge>
+                        )}
+                        {!m.hasPricing && (
+                          <Badge
+                            className="bg-warning/10 text-warning"
+                            title="该模型未配置价格，启用后按保底价（最贵档）计费。请尽快在 MODEL_PRICING 补上真实价格。"
+                          >
+                            <AlertTriangle className="mr-1 inline h-3 w-3" />
+                            保底计费
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-2.5 text-right">
                       <label className="inline-flex cursor-pointer items-center">
@@ -128,7 +153,9 @@ export default function ModelsPage() {
                           className="h-4 w-4 cursor-pointer accent-primary"
                           checked={m.enabled}
                           disabled={m.isStale || updateModel.isPending}
-                          onChange={(e) => toggle(m.id, e.target.checked, m.label)}
+                          onChange={(e) =>
+                            toggle(m.id, e.target.checked, m.label)
+                          }
                         />
                       </label>
                     </td>

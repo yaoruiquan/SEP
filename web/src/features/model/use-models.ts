@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api-client";
 
 /** 用户端可选模型（平台已启用的）。 */
 export interface AvailableModel {
@@ -16,6 +16,8 @@ export interface PlatformModel {
   sortOrder: number;
   lastSeenAt: string;
   isStale: boolean;
+  /** 是否已配置真实价格。false 表示启用后按保底价计费。 */
+  hasPricing: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,8 +37,8 @@ export interface SyncResult {
  */
 export function useEnabledModels() {
   return useQuery<AvailableModel[]>({
-    queryKey: ['models', 'enabled'],
-    queryFn: () => api.get<AvailableModel[]>('/models/enabled'),
+    queryKey: ["models", "enabled"],
+    queryFn: () => api.get<AvailableModel[]>("/models/enabled"),
     staleTime: 5 * 60_000,
     retry: 1,
   });
@@ -50,8 +52,8 @@ export function useEnabledModels() {
  */
 export function useUpstreamModels() {
   return useQuery<AvailableModel[]>({
-    queryKey: ['models', 'upstream'],
-    queryFn: () => api.get<AvailableModel[]>('/models/upstream'),
+    queryKey: ["models", "upstream"],
+    queryFn: () => api.get<AvailableModel[]>("/models/upstream"),
     enabled: false, // 手动触发（点「测试连接」）
     retry: false,
   });
@@ -60,8 +62,8 @@ export function useUpstreamModels() {
 /** 平台全部模型（含禁用与失效）。 */
 export function usePlatformModels() {
   return useQuery<PlatformModel[]>({
-    queryKey: ['models', 'all'],
-    queryFn: () => api.get<PlatformModel[]>('/models'),
+    queryKey: ["models", "all"],
+    queryFn: () => api.get<PlatformModel[]>("/models"),
   });
 }
 
@@ -69,9 +71,9 @@ export function usePlatformModels() {
 export function useSyncModels() {
   const qc = useQueryClient();
   return useMutation<SyncResult, Error, void>({
-    mutationFn: () => api.post<SyncResult>('/models/sync'),
+    mutationFn: () => api.post<SyncResult>("/models/sync"),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ["models"] });
     },
   });
 }
@@ -90,7 +92,7 @@ export function useUpdatePlatformModel() {
       sortOrder?: number;
     }) => api.patch<PlatformModel>(`/models/${id}`, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ["models"] });
     },
   });
 }

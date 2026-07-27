@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================================================
 // Model Catalog (sub2api 上游可用模型)
@@ -16,17 +16,21 @@ export interface ModelCatalogEntry {
 }
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek' },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek' },
-  { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash High', provider: 'google' },
-  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek" },
+  {
+    id: "gemini-3.5-flash-high",
+    label: "Gemini 3.5 Flash High",
+    provider: "google",
+  },
+  { id: "gpt-4o", label: "GPT-4o", provider: "openai" },
+  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "anthropic" },
 ] as const;
 
 /** 系统默认模型（与 .env 的 SUB2API_DEFAULT_MODEL 保持一致）。 */
-export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
+export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
 
 /** 校验模型 ID 是否在目录内。 */
 export function isKnownModelId(id: string): boolean {
@@ -41,9 +45,9 @@ export function isKnownModelId(id: string): boolean {
 // ============================================================================
 
 export const SETTING_KEYS = {
-  SUB2API_BASE_URL: 'SUB2API_BASE_URL',
-  SUB2API_API_KEY: 'SUB2API_API_KEY',
-  SUB2API_DEFAULT_MODEL: 'SUB2API_DEFAULT_MODEL',
+  SUB2API_BASE_URL: "SUB2API_BASE_URL",
+  SUB2API_API_KEY: "SUB2API_API_KEY",
+  SUB2API_DEFAULT_MODEL: "SUB2API_DEFAULT_MODEL",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -63,9 +67,27 @@ export interface SettingFieldMeta {
 }
 
 export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
-  { key: SETTING_KEYS.SUB2API_BASE_URL, label: 'sub2api 上游地址', secret: false, envFallback: 'SUB2API_BASE_URL', placeholder: 'https://longdaoai.cn/v1' },
-  { key: SETTING_KEYS.SUB2API_API_KEY, label: 'sub2api API Key', secret: true, envFallback: 'SUB2API_API_KEY', placeholder: 'sk-...' },
-  { key: SETTING_KEYS.SUB2API_DEFAULT_MODEL, label: '默认模型', secret: false, envFallback: 'SUB2API_DEFAULT_MODEL', placeholder: DEFAULT_MODEL_ID },
+  {
+    key: SETTING_KEYS.SUB2API_BASE_URL,
+    label: "sub2api 上游地址",
+    secret: false,
+    envFallback: "SUB2API_BASE_URL",
+    placeholder: "https://longdaoai.cn/v1",
+  },
+  {
+    key: SETTING_KEYS.SUB2API_API_KEY,
+    label: "sub2api API Key",
+    secret: true,
+    envFallback: "SUB2API_API_KEY",
+    placeholder: "sk-...",
+  },
+  {
+    key: SETTING_KEYS.SUB2API_DEFAULT_MODEL,
+    label: "默认模型",
+    secret: false,
+    envFallback: "SUB2API_DEFAULT_MODEL",
+    placeholder: DEFAULT_MODEL_ID,
+  },
 ];
 
 // ============================================================================
@@ -76,10 +98,12 @@ export const CapabilityResultSchema = z.object({
   success: z.boolean(),
   data: z.any(),
   error: z.string().optional(),
-  metadata: z.object({
-    duration: z.number(),      // 执行耗时（ms）
-    tokensUsed: z.number().optional(), // Token 消耗
-  }).optional(),
+  metadata: z
+    .object({
+      duration: z.number(), // 执行耗时（ms）
+      tokensUsed: z.number().optional(), // Token 消耗
+    })
+    .optional(),
 });
 
 export type CapabilityResult = z.infer<typeof CapabilityResultSchema>;
@@ -91,11 +115,11 @@ export type CapabilityResult = z.infer<typeof CapabilityResultSchema>;
 export interface Capability {
   id: string;
   name: string;
-  type: 'agent' | 'rpa' | 'skill' | 'ai-app';
+  type: "agent" | "rpa" | "skill" | "ai-app";
   description: string;
   industry: string[];
   position: string[];
-  inputSchema: Record<string, any>;  // JSON Schema
+  inputSchema: Record<string, any>; // JSON Schema
   outputSchema: Record<string, any>; // JSON Schema
 
   // 统一执行接口
@@ -123,7 +147,7 @@ export interface ChatRequest {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  role: "user" | "assistant" | "tool";
   content: string;
   toolCalls?: ToolCall[];
   createdAt: Date;
@@ -170,40 +194,48 @@ export interface AuthResponse {
 export const CapabilityUploadDtoSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(10).max(2000),
-  type: z.enum(['agent', 'rpa', 'skill', 'ai-app']),
+  type: z.enum(["agent", "rpa", "skill", "ai-app"]),
   industry: z.array(z.string()),
   position: z.array(z.string()),
   inputSchema: z.record(z.any()),
   outputSchema: z.record(z.any()),
 
   // Type-specific configs (conditional based on type)
-  agentConfig: z.object({
-    platform: z.enum(['coze', 'dify', 'n8n', 'opencode']),
-    botId: z.string().optional(),
-    apiKey: z.string().optional(),
-    workflowUrl: z.string().url().optional(),
-    skillName: z.string().optional(),
-  }).optional(),
+  agentConfig: z
+    .object({
+      platform: z.enum(["coze", "dify", "n8n", "opencode"]),
+      botId: z.string().optional(),
+      apiKey: z.string().optional(),
+      workflowUrl: z.string().url().optional(),
+      skillName: z.string().optional(),
+    })
+    .optional(),
 
-  rpaConfig: z.object({
-    platform: z.enum(['shizai', 'yingdao']),
-    executionMode: z.enum(['download', 'cloud', 'client']),
-    packageUrl: z.string().url().optional(),
-    configDoc: z.string().optional(),
-  }).optional(),
+  rpaConfig: z
+    .object({
+      platform: z.enum(["shizai", "yingdao"]),
+      executionMode: z.enum(["download", "cloud", "client"]),
+      packageUrl: z.string().url().optional(),
+      configDoc: z.string().optional(),
+    })
+    .optional(),
 
-  skillConfig: z.object({
-    template: z.string(),
-    modelId: z.string().optional(),
-    temperature: z.number().min(0).max(2).optional(),
-    maxTokens: z.number().min(1).max(100000).optional(),
-  }).optional(),
+  skillConfig: z
+    .object({
+      template: z.string(),
+      modelId: z.string().optional(),
+      temperature: z.number().min(0).max(2).optional(),
+      maxTokens: z.number().min(1).max(100000).optional(),
+    })
+    .optional(),
 
-  aiAppConfig: z.object({
-    integrationMode: z.enum(['api', 'iframe', 'redirect']),
-    apiUrl: z.string().url().optional(),
-    webUrl: z.string().url().optional(),
-  }).optional(),
+  aiAppConfig: z
+    .object({
+      integrationMode: z.enum(["api", "iframe", "redirect"]),
+      apiUrl: z.string().url().optional(),
+      webUrl: z.string().url().optional(),
+    })
+    .optional(),
 });
 
 export type CapabilityUploadDto = z.infer<typeof CapabilityUploadDtoSchema>;
@@ -223,7 +255,9 @@ export const DigitalEmployeeCreateDtoSchema = z.object({
   capabilityIds: z.array(z.string()).default([]),
 });
 
-export type DigitalEmployeeCreateDto = z.infer<typeof DigitalEmployeeCreateDtoSchema>;
+export type DigitalEmployeeCreateDto = z.infer<
+  typeof DigitalEmployeeCreateDtoSchema
+>;
 
 export const DigitalEmployeeUpdateDtoSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -235,10 +269,12 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   modelId: z.string().optional(),
   maxSteps: z.number().min(1).max(20).optional(),
   price: z.number().min(0).optional(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
 });
 
-export type DigitalEmployeeUpdateDto = z.infer<typeof DigitalEmployeeUpdateDtoSchema>;
+export type DigitalEmployeeUpdateDto = z.infer<
+  typeof DigitalEmployeeUpdateDtoSchema
+>;
 
 export const BindCapabilityDtoSchema = z.object({
   capabilityId: z.string().min(1),
@@ -308,39 +344,59 @@ export interface UserProfileResponse {
 // ============================================================================
 
 export interface ModelPricing {
-  inputPrice: number;   // 输入 token 单价（美元 / 1M tokens）
-  outputPrice: number;  // 输出 token 单价（美元 / 1M tokens）
+  inputPrice: number; // 输入 token 单价（美元 / 1M tokens）
+  outputPrice: number; // 输出 token 单价（美元 / 1M tokens）
 }
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
-  'deepseek-v4-flash': { inputPrice: 0.14, outputPrice: 0.55 },
-  'deepseek-v4-pro': { inputPrice: 2.19, outputPrice: 8.77 },
-  'gemini-3.5-flash-high': { inputPrice: 0.15, outputPrice: 0.60 },
-  'gpt-4o': { inputPrice: 2.50, outputPrice: 10.00 },
-  'gpt-4o-mini': { inputPrice: 0.15, outputPrice: 0.60 },
-  'claude-sonnet-5': { inputPrice: 3.00, outputPrice: 15.00 },
-  'claude-haiku-4-5': { inputPrice: 0.80, outputPrice: 4.00 },
+  "deepseek-v4-flash": { inputPrice: 0.14, outputPrice: 0.55 },
+  "deepseek-v4-pro": { inputPrice: 2.19, outputPrice: 8.77 },
+  "gemini-3.5-flash-high": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gpt-4o": { inputPrice: 2.5, outputPrice: 10.0 },
+  "gpt-4o-mini": { inputPrice: 0.15, outputPrice: 0.6 },
+  "claude-sonnet-5": { inputPrice: 3.0, outputPrice: 15.0 },
+  "claude-haiku-4-5": { inputPrice: 0.8, outputPrice: 4.0 },
 };
 
 export const USD_TO_CNY_RATE = 7.2;
+
+/**
+ * 保底价：取 MODEL_PRICING 中各维度的最高单价。
+ * 未在价格表中的模型（上游 57 个里只有 7 个配了价）按此保底计费，
+ * 宁可多收也不漏收，避免未配价模型被启用后「免费对话」。
+ * 管理端应对这类模型显示警示，提醒尽快补上真实价格。
+ */
+export const FALLBACK_PRICING: ModelPricing = {
+  inputPrice: Math.max(
+    ...Object.values(MODEL_PRICING).map((p) => p.inputPrice),
+  ),
+  outputPrice: Math.max(
+    ...Object.values(MODEL_PRICING).map((p) => p.outputPrice),
+  ),
+};
+
+/** 该模型是否已配置真实价格（未配则计费走保底价）。 */
+export function hasPricing(modelId: string): boolean {
+  return modelId in MODEL_PRICING;
+}
 
 /**
  * 计算单次对话的成本
  * @param modelId 模型 ID
  * @param inputTokens 输入 token 数
  * @param outputTokens 输出 token 数
- * @returns { costUSD, costCNY } 美元和人民币成本
+ * @returns { costUSD, costCNY, isFallback } 成本 + 是否走了保底价
  */
 export function calculateCost(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
-): { costUSD: number; costCNY: number } {
-  const pricing = MODEL_PRICING[modelId];
-  if (!pricing) {
-    return { costUSD: 0, costCNY: 0 };
-  }
-  const costUSD = (inputTokens * pricing.inputPrice + outputTokens * pricing.outputPrice) / 1_000_000;
+): { costUSD: number; costCNY: number; isFallback: boolean } {
+  const isFallback = !hasPricing(modelId);
+  const pricing = isFallback ? FALLBACK_PRICING : MODEL_PRICING[modelId];
+  const costUSD =
+    (inputTokens * pricing.inputPrice + outputTokens * pricing.outputPrice) /
+    1_000_000;
   const costCNY = costUSD * USD_TO_CNY_RATE;
-  return { costUSD, costCNY };
+  return { costUSD, costCNY, isFallback };
 }

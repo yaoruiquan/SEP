@@ -1,7 +1,12 @@
-import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SettingService } from '../setting/setting.service';
-import { SETTING_KEYS } from 'shared';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { SettingService } from "../setting/setting.service";
+import { SETTING_KEYS, hasPricing } from "shared";
 
 /** 上游返回的模型条目（标准化后）。 */
 export interface UpstreamModelEntry {
@@ -20,7 +25,7 @@ export interface SyncResult {
   upstreamTotal: number;
   added: number;
   restored: number; // 之前 isStale，本次上游又出现了
-  staled: number;   // 上游已消失，标记为失效
+  staled: number; // 上游已消失，标记为失效
 }
 
 @Injectable()
@@ -39,14 +44,20 @@ export class ModelService {
    * URL/KEY 来自 SystemSetting（回退 .env）。
    */
   async listUpstream(): Promise<UpstreamModelEntry[]> {
-    const baseURL = await this.settingService.getEffectiveValue(SETTING_KEYS.SUB2API_BASE_URL);
-    const apiKey = await this.settingService.getEffectiveValue(SETTING_KEYS.SUB2API_API_KEY);
+    const baseURL = await this.settingService.getEffectiveValue(
+      SETTING_KEYS.SUB2API_BASE_URL,
+    );
+    const apiKey = await this.settingService.getEffectiveValue(
+      SETTING_KEYS.SUB2API_API_KEY,
+    );
 
     if (!baseURL || !apiKey) {
-      throw new ServiceUnavailableException('上游渠道未配置，请先在系统设置中填写 sub2api 地址和密钥');
+      throw new ServiceUnavailableException(
+        "上游渠道未配置，请先在系统设置中填写 sub2api 地址和密钥",
+      );
     }
 
-    const url = `${baseURL.replace(/\/$/, '')}/models`;
+    const url = `${baseURL.replace(/\/$/, "")}/models`;
 
     let res: Response;
     try {
@@ -56,12 +67,16 @@ export class ModelService {
       });
     } catch (err) {
       this.logger.error(`Failed to reach upstream ${url}`, err);
-      throw new ServiceUnavailableException('无法连接上游渠道，请检查地址和网络');
+      throw new ServiceUnavailableException(
+        "无法连接上游渠道，请检查地址和网络",
+      );
     }
 
     if (!res.ok) {
       this.logger.error(`Upstream /models returned ${res.status}`);
-      throw new ServiceUnavailableException(`上游返回错误 (${res.status})，请检查密钥是否有效`);
+      throw new ServiceUnavailableException(
+        `上游返回错误 (${res.status})，请检查密钥是否有效`,
+      );
     }
 
     const json = (await res.json()) as { data?: RawUpstreamModel[] };
@@ -93,7 +108,12 @@ export class ModelService {
       const found = existingByModelId.get(m.id);
       if (!found) {
         await this.prisma.platformModel.create({
-          data: { modelId: m.id, label: m.label, enabled: false, lastSeenAt: now },
+          data: {
+            modelId: m.id,
+            label: m.label,
+            enabled: false,
+            lastSeenAt: now,
+          },
         });
         added++;
       } else {
@@ -106,7 +126,9 @@ export class ModelService {
     }
 
     // 上游已消失的：标记失效，不删除
-    const staleTargets = existing.filter((m) => !upstreamIds.has(m.modelId) && !m.isStale);
+    const staleTargets = existing.filter(
+      (m) => !upstreamIds.has(m.modelId) && !m.isStale,
+    );
     if (staleTargets.length > 0) {
       await this.prisma.platformModel.updateMany({
         where: { id: { in: staleTargets.map((m) => m.id) } },
@@ -126,11 +148,16 @@ export class ModelService {
 
   // ── 查询 ────────────────────────────────────────────────────────────────
 
-  /** 管理端：列出平台全部模型（含禁用与失效）。 */
+  /**
+   * 管理端：列出平台全部模型（含禁用与失效）。
+   * 附带 hasPricing 标记 —— 未配价的模型启用后按保底价计费，
+   * 前端据此显示警示，提醒尽快在 MODEL_PRICING 补上真实价格。
+   */
   async listAll() {
-    return this.prisma.platformModel.findMany({
-      orderBy: [{ sortOrder: 'asc' }, { modelId: 'asc' }],
+    const rows = await this.prisma.platformModel.findMany({
+      orderBy: [{ sortOrder: "asc" }, { modelId: "asc" }],
     });
+    return rows.map((r) => ({ ...r, hasPricing: hasPricing(r.modelId) }));
   }
 
   /**
@@ -140,7 +167,7 @@ export class ModelService {
   async listEnabled(): Promise<UpstreamModelEntry[]> {
     const rows = await this.prisma.platformModel.findMany({
       where: { enabled: true, isStale: false },
-      orderBy: [{ sortOrder: 'asc' }, { modelId: 'asc' }],
+      orderBy: [{ sortOrder: "asc" }, { modelId: "asc" }],
       select: { modelId: true, label: true },
     });
     return rows.map((r) => ({ id: r.modelId, label: r.label }));
@@ -165,7 +192,7 @@ export class ModelService {
     const found = await this.prisma.platformModel.findUnique({ where: { id } });
     if (!found) throw new NotFoundException(`Model ${id} not found`);
 
-    return this.prisma.platformModel.update({
+    const updated = await this.prisma.platformModel.update({
       where: { id },
       data: {
         ...(data.enabled !== undefined && { enabled: data.enabled }),
@@ -173,5 +200,7 @@ export class ModelService {
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
       },
     });
+    // 与 listAll 保持同样的返回结构，避免前端 PlatformModel 类型与实际响应不一致
+    return { ...updated, hasPricing: hasPricing(updated.modelId) };
   }
 }
