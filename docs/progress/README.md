@@ -47,3 +47,5 @@
 | `2026-07-24-e2e-fixes.md` | E2E 问题修复专题 |
 | `2026-07-25.md` | 计费系统实现 → E2E 验收 → 修复计费关键缺陷（当日汇总） |
 | `2026-07-25-billing-system.md` | 计费系统实现专题（Schema/价格表/记账/用量页） |
+| `2026-07-25-model-sync-and-settings.md` | 模型同步 + 白名单管理 + 系统设置专题 |
+| `2026-07-25-pricing-fallback-and-streaming-fix.md` | 保底计费 + 流式错误被吞修复；发现能力适配器仅 1/4 可用 |
