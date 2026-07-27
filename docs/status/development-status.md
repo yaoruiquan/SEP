@@ -1,6 +1,6 @@
 # 硅基人才平台 - 开发状态
 
-> 最后更新：2026-07-25（保底计费 + 流式修复）
+> 最后更新：2026-07-27（工具调用循环修复 + OpenCode 集成分析）
 
 ## 总体进度
 
@@ -11,7 +11,7 @@
 - [x] Layer 4: 数字员工
 - [x] Layer 5: 订阅 & 对话系统
 - [x] 前端脚手架 & 核心页面
-- [x] **AI 集成**（流式对话已通；工具调用受上游限制）
+- [x] **AI 集成**（流式对话 + 工具调用循环已通）
 - [x] **计费系统**（已完成并验证，含保底计费）
 - [ ] **能力适配器**（4 类仅 AGENT 可执行 ← 当前 P0）
 - [ ] 错误处理统一
@@ -23,9 +23,20 @@
 ## 当前状态
 
 **当前版本**: v0.4.0-alpha
-**最新提交**: `feat(model): 上游模型实时同步 + 白名单管理 + 会话级切换 + 系统设置`
-**未提交改动**: 保底计费 + 流式错误修复（6 个文件，详见 [progress/2026-07-25-pricing-fallback-and-streaming-fix.md](../progress/2026-07-25-pricing-fallback-and-streaming-fix.md)）
-**下一步**: 实现 SkillAdapter（能力适配器 4 类仅 agent 一类可执行，核心卖点阻断）
+**最新提交**: `chore(tooling): 添加 code-review-graph 生成的 skills 与 hooks`
+**下一步**: 低代码平台实际验证
+
+**关于 sub2api function calling（此前误判，已更正）**
+sub2api **支持** function calling，差异在**模型**而非网关。实测：`deepseek-v4-flash`
+带 tools 返回 400；`claude-sonnet-5` / `claude-opus-4-8` / `gemini-3.5-flash` /
+`gemini-3.5-flash-high` 均正常返回 `finish_reason: tool_calls` 及结构化调用对象。
+此前"该中继不支持 tools、可能需换中继"的结论**是错的** —— 真因是默认模型
+`deepseek-v4-flash` 恰好不支持。已改为 `gemini-3.5-flash-high`。
+
+**关于模型失效（此前误判，已更正）**
+`gemini-3.5-flash-high` 上游一直存在。50 个模型被标 `isStale` 是在上游升级中途
+（模型数暂时掉到 9 个）跑同步造成的误标，重新同步已恢复 56 个。
+副作用是意外验证了 `isStale` 机制确实有效。
 
 ---
 
@@ -39,9 +50,9 @@
 | **能力适配器** | ⚠️ 部分 | **25%** | 2026-07-25 | 仅 AGENT 类可执行；SKILL/RPA/AI_APP 调用即抛错（`execute()` 只 include agentConfig）|
 | 数字员工 | ✅ 完成 | 100% | 2026-07-23 | CRUD + 能力绑定 + 发布管理 |
 | 订阅系统 | ✅ 完成 | 100% | 2026-07-23 | 订阅/取消/配置 |
-| 对话系统 | ⚠️ 部分 | 85% | 2026-07-25 | SSE 流式对话正常；**带工具的会话必失败**（sub2api 不支持 function calling）|
+| 对话系统 | ✅ 完成 | 95% | 2026-07-27 | SSE 流式 + 工具调用循环已修复（4 个 bug）；工具名匹配/消息结构/续聊均已验证 |
 | 计费系统 | ✅ 完成 | 95% | 2026-07-25 | Token 追踪 + 成本计算 + 保底计费 + 用量统计（已 E2E 验证 + 10 个单元测试）|
-| 工具编排 | ⚠️ 部分 | 50% | 2026-07-25 | 工具注册/Zod 转换已实现，但受上游 tools 限制 + 适配器缺口双重阻断 |
+| 工具编排 | ⚠️ 部分 | 70% | 2026-07-27 | 循环/注册/Zod 转换均已修好并验证；**但零次成功的能力执行**（受适配器缺口阻断）|
 | 前端页面 | ✅ 完成 | 95% | 2026-07-25 | 所有核心页面 + 用量统计（修复重复显示问题中）|
 
 ---
@@ -146,16 +157,15 @@
   - 现状：`capability.service.ts:220-229` 只 `include: { agentConfig: true }`，缺失即抛 `NotFoundException`
   - `rpa_configs` / `skill_configs` / `ai_app_configs` 有数据但从未被读取
   - `AdapterFactory` 仅支持 `OPENCODE` / `COZE`，其余抛 `Unsupported adapter platform`
-- [ ] **sub2api function calling 支持**（上游限制，需决策）
-  - 带 `tools` 必返 400 `Invalid request`；裸 curl 已对照确认
-  - 可选：确认能否开启 tools 透传 / 换中继 / demo 只用无绑定员工
-- [ ] 提交保底计费 + 流式修复（6 个文件，建议拆 2 个 commit）
+- [ ] **OpenCode adapter 状态判断修复**（4 行改动，当前会把成功执行误判为超时）
+  - 详见「已知问题 > OpenCode 集成」，**不要按 `docs/对接/` 的契约重写**
 
 ### 中优先级（P1）
 - [ ] 补齐新模型价格表（上游 63 个，`MODEL_PRICING` 仅 7 个，其余走保底价偏离实际成本）
 - [ ] Coze 能力导入 UI（管理端）
 - [ ] 员工创建表单增加模型选择和系统提示词
-- [ ] OpenCode Skills Service 适配器（`opencode.adapter.ts` 已有实现，待服务部署验证）
+- [ ] OpenCode Skills Service 部署 + 确认 `skillName` 用哪个真实 template
+- [ ] OpenCode 服务鉴权（服务端无任何 API 认证，见已知问题）
 - [ ] RPA 适配器（需映像道 YINGDAO 账号与对接）
 - [ ] AI_APP 适配器（`IFRAME` 模式主要是前端嵌入展示）
 
@@ -169,14 +179,23 @@
 ## 已知问题
 
 ### 功能缺口
-1. **能力适配器仅 1/4 可用**（P0，核心卖点阻断）
+1. **能力适配器仅 1/4 可用**（P0）
    - 仅 AGENT 类可执行；SKILL / RPA / AI_APP 被调用即抛 `No agent config for capability X`
-   - demo 数据 5 条绑定中 4 条为坏的
-2. **sub2api 不支持 function calling**（P0，上游限制）
-   - 带 `tools` 的请求必返 HTTP 400；所有 agent 类能力无法经模型工具调用触发
-3. **能力版本管理** - Schema 有 CapabilityVersion 表，但未实现版本切换逻辑
-4. **秘钥加密** - AgentConfig.apiKey 明文存储（生产前需加密）
-5. **价格表覆盖率低** - 上游 63 个模型仅 7 个配价，其余按最贵档保底计费（有警示但偏离实际成本）
+   - `capability.service.ts:220-229` 只 `include: { agentConfig: true }`
+2. **OpenCode 集成缺陷**（P1，待服务部署后修）
+   - `opencode.adapter.ts` 端点正确（`/jobs` 系列），但**状态判断有 4 处错误**：
+     - 成功判：`'completed'` ✅ / `'done'` ❌（不存在）; 主成功态是 `'succeeded'`，**缺失 → 成功任务被误判超时**
+     - 失败判：`'cancelled'`（双 l）❌，服务端是 `'canceled'`（单 l）→ **取消永远轮询到超时**
+     - 缺处理 `'retrying'` / `'paused'`（会误判为超时）
+   - `fetchOutput` 取 `files[0]` 按顺序取第一个，应优先找结构化结果文件（`submission-result.json`）
+   - ⚠️ **契约文档 `docs/对接/OpenCode执行后端-协作与接口契约.md` 与真实服务不符**
+     文档写的是 `/v1/runs`，真实服务是 `/jobs`；**不要按该文档重写 adapter**
+   - `skillName` 需对应服务端已注册 template（如 `md2wechat`）；demo 数据填的 `web-search` 不在列表
+   - 服务端**没有 API 鉴权**（`.env` 的 `OPENCODE_API_TOKEN` 服务端不校验）；服务暴露在内网 `10.50.10.29:4100`
+   - 没有 usage 数据，能力执行的算力消耗无法计量
+3. **能力版本管理** — Schema 有 `CapabilityVersion` 表，未实现版本切换逻辑
+4. **秘钥加密** — `AgentConfig.apiKey` 明文存储（生产前需加密）
+5. **价格表覆盖率低** — 上游 63 个模型仅 7 个配价，其余按最贵档保底计费
 
 ### 技术债
 1. Layer 5 单元测试缺失（18/18 通过的是 Layer 4）
@@ -185,7 +204,11 @@
 4. token 估算公式 `length / 4` 对中文低估 5–10 倍（仅在带工具会话生效）
 5. `web/tsconfig.tsbuildinfo` 是构建产物却被 git 追踪，应移出并加 `.gitignore`
 6. 测试数据 `e2e-notools` 员工 + 订阅待清理（为绕开 tools 限制临时创建）
-7. `DEFAULT_MODEL_ID = "deepseek-v4-flash"` 与 demo 员工 `modelId` 需确认在当前上游列表中有效
+7. `tool-message-shape.spec.ts` 内联复制了 `ai@7.0.35` 的 schema（`ai` 是 ESM-only，
+   Jest 为 CJS 无法直接 import）。能防自己改回旧字段，**防不住 SDK 未来改字段名** —
+   升级 `ai` 包时需人工核对 `dist/index.js` 的 `toolCallPartSchema` / `toolResultPartSchema`
+8. OpenCode adapter 的 `fetchWithTimeout`（10s）与未配置守卫**无测试覆盖**
+   （code-review-graph 报 risk 0.75，14 处 test gap）
 
 ---
 
@@ -199,9 +222,10 @@
 - ✅ **2026-07-25**: AI 集成完成（SSE 流式对话 + 工具调用）
 - ✅ **2026-07-25**: 计费系统完成（Token 追踪 + 用量统计）
 - ✅ **2026-07-25**: 保底计费 + 流式错误修复（含 10 个定价单元测试）
-- 📅 **下一步**: SkillAdapter + `execute()` 支持 4 类能力（核心卖点）
-- 📅 **待决策**: sub2api function calling 支持方案
-- 📅 **之后**: 错误处理统一 + 结构化日志 → Beta 版本发布
+- ✅ **2026-07-27**: 工具调用循环 4 个 bug 修复 + 默认模型改为支持 tools 的模型
+- ✅ **2026-07-27**: 接入 code-review-graph 知识图谱（pre-commit 风险分析）
+- 📅 **进行中**: 低代码平台实际验证
+- 📅 **之后**: SkillAdapter + `execute()` 四类分派 → OpenCode 服务部署联调
 
 更多里程碑详情见 [milestones/](./milestones/)
 

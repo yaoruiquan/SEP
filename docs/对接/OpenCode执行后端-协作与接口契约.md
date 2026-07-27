@@ -1,8 +1,27 @@
 # OpenCode 硅基员工执行后端 —— 设计方案、协作方案与接口契约
 
 > 日期：2026-07-21
-> 状态：初稿，待双方评审冻结
+> 状态：⚠️ **本文第 4 节接口契约与真实服务不符，实现时不要以本文为准**
 > 相关：[ADR-0009 OpenCode 作为 SEP Agent 底座](../architecture/adr/0009-opencode-agent底座.md)、[agent-runtime 对比](./agent-runtime-对比.md)
+
+> ## ⚠️ 2026-07-27 核对结论
+>
+> 对照真实服务 `yaoruiquan/opencode-skiills-service` 的 README 与 `backend/server.js`：
+>
+> | 本文第 4 节 | 真实服务 |
+> |---|---|
+> | `POST /v1/runs`（发起即执行） | `POST /jobs` → `POST /jobs/{id}/files` → `POST /jobs/{id}/run` 三步 |
+> | `GET /v1/runs/{run_id}` | `GET /jobs/{id}` |
+> | 输入放请求体 `input` 字段 | 输入以文件上传到 job 的 `input/` 目录 |
+> | `Authorization: Bearer` 必须 | 服务端**无任何 API 鉴权** |
+> | 返回 `usage`（标为"计费证据"） | **不返回任何 token 统计** |
+> | 状态 `succeeded/failed/canceled/running` | `created/running/retrying/paused/succeeded/completed/failed/canceled` |
+>
+> `backend/src/modules/capability/adapters/opencode.adapter.ts` 实现的是**真实服务的
+> `/jobs` 契约**，方向正确，勿按本文重写。该 adapter 的已知缺陷（状态值判断错误等）
+> 记录在 `docs/status/development-status.md` 的「已知问题 > OpenCode 集成缺陷」。
+>
+> 本文第 5.1 节（管理端对接配置界面）、第 8 节（待确认问题）仍有参考价值。
 
 ## 0. 一句话
 
