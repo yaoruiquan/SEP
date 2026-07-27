@@ -79,9 +79,10 @@ export class ConversationStreamService {
         data: { sessionId, role: "USER", content },
       });
 
-      // 4. 加载历史消息（最近 20 条，不含本轮）
+      // 4. 加载历史消息（最近 20 条，已含刚写入的本轮用户消息）
+      // 注意：本轮用户消息在上一步已落库，loadMessages 会把它一并读出，
+      // 所以这里不能再 push 一次 —— 否则模型会连续看到两条一样的用户消息。
       const messages = await this.loadMessages(sessionId, 20);
-      messages.push({ role: "user", content });
 
       // 5. 构建工具映射
       const { tools, capabilityByToolName } = this.buildTools(
@@ -317,7 +318,10 @@ export class ConversationStreamService {
               type: "tool-result",
               toolCallId: tc.toolCallId,
               toolName: tc.toolName,
-              result: `工具 "${tc.toolName}" 未找到或未绑定`,
+              output: {
+                type: "error-text",
+                value: `工具 "${tc.toolName}" 未找到或未绑定`,
+              },
             });
             yield {
               event: "tool_end",
@@ -364,7 +368,9 @@ export class ConversationStreamService {
             type: "tool-result",
             toolCallId: tc.toolCallId,
             toolName: tc.toolName,
-            result: resultText,
+            output: execSuccess
+              ? { type: "text", value: resultText }
+              : { type: "error-text", value: resultText },
           });
           yield {
             event: "tool_end",
@@ -376,28 +382,31 @@ export class ConversationStreamService {
           };
         }
 
-        // 持久化工具结果消息(转为人类可读文本)
+        // 工具结果的人类可读形式（前端直接渲染这段）
         const toolResultText = toolResults
-          .map((r) => {
-            const resultStr =
-              typeof r.result === "string"
-                ? r.result
-                : JSON.stringify(r.result);
-            return `🔧 工具: ${r.toolName}\n📋 结果: ${resultStr}`;
-          })
+          .map((r) => `🔧 工具: ${r.toolName}\n📋 结果: ${r.output.value}`)
           .join("\n\n");
 
+        // 持久化工具结果：content 存人类可读文本（前端直接渲染），
+        // 结构化部件存 toolCalls 字段供 loadMessages 还原成 ModelMessage。
+        // 此前只存可读文本却用 JSON.parse 读回，带工具调用的会话必然续聊失败。
         await this.prisma.message.create({
-          data: { sessionId, role: "TOOL", content: toolResultText },
+          data: {
+            sessionId,
+            role: "TOOL",
+            content: toolResultText,
+            toolCalls: toolResults as unknown as object,
+          },
         });
 
         // 追加到 messages 供下一轮使用
+        // AI SDK v7 的 tool-call 部件字段是 input（v4 时代叫 args）
         const assistantParts: AssistantMessageContent[] = pendingToolCalls.map(
           (tc) => ({
             type: "tool-call" as const,
             toolCallId: tc.toolCallId,
             toolName: tc.toolName,
-            args: tc.args,
+            input: tc.args,
           }),
         );
         messages.push({ role: "assistant", content: assistantParts });
@@ -467,7 +476,8 @@ export class ConversationStreamService {
               type: "tool-call" as const,
               toolCallId: tc.toolCallId,
               toolName: tc.toolName,
-              args: tc.args,
+              // v7 用 input（非 args）
+              input: tc.args,
             })),
           );
           messages.push({ role: "assistant", content: parts });
@@ -475,7 +485,11 @@ export class ConversationStreamService {
           messages.push({ role: "assistant", content: row.content });
         }
       } else if (row.role === "TOOL") {
-        const results = JSON.parse(row.content) as ToolResultContent[];
+        // 结构化部件存在 toolCalls 字段（content 是给前端看的可读文本）。
+        // 缺失说明是旧数据（当时只存了可读文本），跳过而非抛错，
+        // 否则历史会话一律无法加载。
+        if (!row.toolCalls) continue;
+        const results = row.toolCalls as unknown as ToolResultContent[];
         messages.push({ role: "tool", content: results });
       }
     }
@@ -505,9 +519,11 @@ export class ConversationStreamService {
 
     for (const binding of bindings) {
       const cap = binding.capability;
-      // 🔴 修复 P0-2: 使用 capability.id 作为工具名,避免中文转换问题
-      // 原: const toolName = cap.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-      const toolName = cap.id;
+      // 工具名基于 capability.id（避免中文名转换问题），但必须先做归一化：
+      // 部分上游（如 Anthropic）会把工具名里的 `-` 规范成 `_` 再回传，
+      // 导致 `demo-cap-search` 发出去、`demo_cap_search` 回来，查表 miss。
+      // 这里统一用下划线形式，发送与查表两侧同源。
+      const toolName = this.toToolName(cap.id);
       capabilityByToolName.set(toolName, { id: cap.id, name: cap.name });
       tools[toolName] = {
         description: cap.description,
@@ -518,6 +534,15 @@ export class ConversationStreamService {
     }
 
     return { tools, capabilityByToolName };
+  }
+
+  /**
+   * capability.id → 合法且稳定的工具名。
+   * OpenAI 工具名规范为 `^[a-zA-Z0-9_-]{1,64}$`，但部分上游会把 `-` 归一成 `_`，
+   * 故这里主动统一为下划线，保证发送名与回传名一致。
+   */
+  private toToolName(capabilityId: string): string {
+    return capabilityId.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 64);
   }
 
   /**

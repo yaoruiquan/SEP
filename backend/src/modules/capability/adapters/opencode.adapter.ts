@@ -6,6 +6,8 @@ import { AdapterInput, AdapterExecutionResult, AdapterConfig } from './adapter.i
 @Injectable()
 export class OpenCodeAdapter extends BaseAdapter {
   private readonly baseUrl: string;
+  /** OPENCODE_API_BASE_URL 是否已显式配置（未配置则不去连默认地址）。 */
+  private readonly configured: boolean;
 
   constructor(
     private config: ConfigService,
@@ -13,10 +15,20 @@ export class OpenCodeAdapter extends BaseAdapter {
   ) {
     super('OpenCodeAdapter');
     this.baseUrl = this.config.get<string>('OPENCODE_API_BASE_URL') || 'http://localhost:4100';
+    this.configured = !!this.config.get<string>('OPENCODE_API_BASE_URL');
   }
 
   async execute(input: AdapterInput): Promise<AdapterExecutionResult> {
     const start = Date.now();
+
+    // 未配置时直接失败并说明原因 —— 否则会去连默认的 localhost:4100，
+    // 报出含义不清的 "fetch failed"，排查时容易误判为网络问题。
+    if (!this.configured) {
+      const msg =
+        'OpenCode Skills Service 未配置：请设置环境变量 OPENCODE_API_BASE_URL';
+      this.logger.error(msg);
+      return { success: false, output: '', durationMs: this.elapsed(start), error: msg };
+    }
 
     try {
       // 1. Create job
@@ -52,15 +64,31 @@ export class OpenCodeAdapter extends BaseAdapter {
     }
   }
 
+  /** 单次 HTTP 超时（毫秒）。未配置 OPENCODE_API_BASE_URL 时连接会长时间挂起，
+   *  没有超时会把整个对话流拖死（实测单轮卡 2 分钟以上）。 */
+  private static readonly FETCH_TIMEOUT_MS = 10_000;
+
+  private fetchWithTimeout(
+    url: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    return fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(OpenCodeAdapter.FETCH_TIMEOUT_MS),
+    });
+  }
+
   private async createJob(): Promise<string> {
-    const resp = await fetch(`${this.baseUrl}/jobs`, { method: 'POST' });
+    const resp = await this.fetchWithTimeout(`${this.baseUrl}/jobs`, {
+      method: 'POST',
+    });
     if (!resp.ok) throw new Error(`Create job failed: ${resp.statusText}`);
     const data = await resp.json();
     return data.id;
   }
 
   private async uploadInput(jobId: string, message: string): Promise<void> {
-    const resp = await fetch(`${this.baseUrl}/jobs/${jobId}/files`, {
+    const resp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}/files`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: 'input.txt', content: message }),
@@ -69,7 +97,7 @@ export class OpenCodeAdapter extends BaseAdapter {
   }
 
   private async runJob(jobId: string, skillName: string): Promise<void> {
-    const resp = await fetch(`${this.baseUrl}/jobs/${jobId}/run`, {
+    const resp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ template: skillName }),
@@ -79,7 +107,7 @@ export class OpenCodeAdapter extends BaseAdapter {
 
   private async pollUntilComplete(jobId: string, maxAttempts = 60): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
-      const resp = await fetch(`${this.baseUrl}/jobs/${jobId}`);
+      const resp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}`);
       if (!resp.ok) throw new Error(`Poll job failed: ${resp.statusText}`);
       const data = await resp.json();
 
@@ -94,14 +122,14 @@ export class OpenCodeAdapter extends BaseAdapter {
   }
 
   private async fetchOutput(jobId: string): Promise<string> {
-    const listResp = await fetch(`${this.baseUrl}/jobs/${jobId}/outputs`);
+    const listResp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}/outputs`);
     if (!listResp.ok) throw new Error(`List outputs failed: ${listResp.statusText}`);
     const files = await listResp.json();
 
     if (!files || files.length === 0) return '';
 
     const firstFile = files[0].path || files[0];
-    const contentResp = await fetch(`${this.baseUrl}/jobs/${jobId}/outputs/${firstFile}`);
+    const contentResp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}/outputs/${firstFile}`);
     if (!contentResp.ok) return '';
     return contentResp.text();
   }

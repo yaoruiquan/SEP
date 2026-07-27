@@ -37,12 +37,17 @@ export interface AssistantMessageContent {
   text?: string;
   toolCallId?: string;
   toolName?: string;
-  args?: Record<string, unknown>;
+  /** AI SDK v7 用 `input`（v4 是 `args`），字段名不符会被 ModelMessage schema 拒绝。 */
+  input?: Record<string, unknown>;
 }
 
+/**
+ * AI SDK v7 的 tool-result 结构：结果包在 `output: { type, value }` 里，
+ * 不再是 v4 的裸 `result` 字符串。
+ */
 export interface ToolResultContent {
   type: 'tool-result';
   toolCallId: string;
   toolName: string;
-  result: string;
+  output: { type: 'text'; value: string } | { type: 'error-text'; value: string };
 }

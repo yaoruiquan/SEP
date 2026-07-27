@@ -29,8 +29,15 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "anthropic" },
 ] as const;
 
-/** 系统默认模型（与 .env 的 SUB2API_DEFAULT_MODEL 保持一致）。 */
-export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
+/**
+ * 系统默认模型（与 .env 的 SUB2API_DEFAULT_MODEL 保持一致）。
+ *
+ * 必须选支持 function calling 的模型 —— 员工未指定 modelId 时会落到这里，
+ * 若默认模型不支持 tools，所有绑定了能力的员工都会因上游返回
+ * 400 Invalid request 而对话失败。已实测：deepseek 系不支持 tools，
+ * gemini / claude 系支持。
+ */
+export const DEFAULT_MODEL_ID = "gemini-3.5-flash-high";
 
 /** 校验模型 ID 是否在目录内。 */
 export function isKnownModelId(id: string): boolean {
