@@ -60,6 +60,9 @@ export class CozeAdapter extends BaseAdapter {
     const decoder = new TextDecoder();
     let buffer = '';
     let output = '';
+    // Coze 的 SSE 把事件名放在 data 行之前的单独一行，需跨行记住当前事件，
+    // 才能区分「增量片段」(message.delta) 与「完整消息」(message.completed)。
+    let currentEvent = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -70,27 +73,41 @@ export class CozeAdapter extends BaseAdapter {
       buffer = lines.pop() ?? '';  // Keep incomplete last line
 
       for (const line of lines) {
+        // 真实格式为 `event:xxx`（冒号后无空格），兼容带空格的写法
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim();
+          if (currentEvent === 'done') return output;
+          continue;
+        }
+
+        const isCompletedMessage = currentEvent.endsWith('.completed');
+
         if (line.startsWith('data:')) {
           const raw = line.slice(5).trim();
           if (raw === '[DONE]') return output;
 
           try {
             const event = JSON.parse(raw);
-            // Accumulate assistant text deltas
-            if (event.type === 'answer' && event.delta) {
-              output += event.delta;
-            }
-            // conversation.message.delta from /v3/chat
-            if (event.content && event.role === 'assistant') {
-              output = event.content; // Completed message replaces accumulated delta
+
+            // 只处理助手发出的 answer 类型消息。
+            // 关键：Coze 在 answer 完成后还会再发若干 type='verbose' 的消息
+            // （knowledge_recall / generate_answer_finish），它们同样是
+            // role='assistant' 且带 content。若不按 type 过滤，最后一条
+            // verbose 的 JSON 会把真正的回复覆盖掉，用户看到的就是
+            // {"msg_type":"generate_answer_finish",...} 这类内部数据。
+            if (event.role !== 'assistant' || event.type !== 'answer') continue;
+
+            // 增量片段用 content 字段承载（不是 delta），逐段累加；
+            // 完整消息（message.completed）带全文，直接替换累加结果。
+            if (typeof event.content !== 'string') continue;
+            if (isCompletedMessage) {
+              output = event.content;
+            } else {
+              output += event.content;
             }
           } catch {
             // Non-JSON lines (event: headers) — skip
           }
-        }
-
-        if (line.trim() === 'event: done' || line.includes('"event":"done"')) {
-          return output;
         }
       }
     }

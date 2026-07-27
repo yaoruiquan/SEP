@@ -16,7 +16,7 @@ export class AdapterFactory {
 
       case 'COZE':
         if (!config.botId) throw new Error('Coze adapter requires botId');
-        if (!config.apiKey) throw new Error('Coze adapter requires apiKey (PAT)');
+        // apiKey 为空时 CozeAdapter 自动回落 process.env.COZE_PAT，此处不拦截
         return new CozeAdapter(config);
 
       default:
