@@ -13,7 +13,13 @@ import { CapabilityService } from "../capability/capability.service";
 import { AdapterInput } from "../capability/adapters/adapter.interface";
 import { SessionLockService } from "./session-lock.service";
 import { ConversationService } from "./conversation.service";
-import { DEFAULT_MODEL_ID, calculateCost } from "shared";
+import {
+  DEFAULT_MODEL_ID,
+  calculateCost,
+  parseUsdToCnyRate,
+  SETTING_KEYS,
+} from "shared";
+import { SettingService } from "../setting/setting.service";
 import {
   SseEvent,
   ModelMessage,
@@ -32,6 +38,7 @@ export class ConversationStreamService {
     private readonly sessionLockService: SessionLockService,
     private readonly conversationService: ConversationService,
     private readonly configService: ConfigService,
+    private readonly settingService: SettingService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -598,11 +605,19 @@ export class ConversationStreamService {
     outputTokens: number,
   ): Promise<void> {
     try {
+      // 汇率取系统设置的生效值（管理端可改），非法值回退默认
+      const rate = parseUsdToCnyRate(
+        await this.settingService.getEffectiveValue(
+          SETTING_KEYS.USD_TO_CNY_RATE,
+        ),
+      );
+
       // 计算成本（isFallback=true 表示该模型未配价，按保底价收费）
       const { costUSD, costCNY, isFallback } = calculateCost(
         modelId,
         inputTokens,
         outputTokens,
+        rate,
       );
 
       // 获取或创建用户的计费账户
@@ -620,7 +635,15 @@ export class ConversationStreamService {
           amount: -costCNY,
           sessionId,
           description: `${modelId} 对话消费${isFallback ? "（保底价）" : ""}`,
-          metadata: { inputTokens, outputTokens, costUSD, costCNY, isFallback },
+          // 存 rate：汇率可被修改，旧账单需能复核当时的换算依据
+          metadata: {
+            inputTokens,
+            outputTokens,
+            costUSD,
+            costCNY,
+            isFallback,
+            rate,
+          },
         },
       });
 

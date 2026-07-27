@@ -65,25 +65,36 @@ export class UserService {
       update: {},
     });
 
-    // 获取最近的交易记录（最多 100 条）
+    // 交易列表只展示最近 100 条
     const transactions = await this.prisma.computeTransaction.findMany({
       where: { accountId: account.id },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
 
-    // 统计总消费和总 token 使用量
-    let totalCost = 0;
+    // 汇总必须基于【全部】交易，不能只统计上面这 100 条。
+    // 原实现用同一个 take(100) 的结果集算 totalCost，用户交易超过 100 笔后
+    // 「累计消费」会停止增长（静默少算），与前端「累计消费」的语义不符。
+    // 同时原实现要求 tx.metadata 存在才计入 totalCost，导致无 metadata 的
+    // 消费记录被漏掉；金额统计不应依赖 metadata 是否齐全。
+    const costAgg = await this.prisma.computeTransaction.aggregate({
+      where: { accountId: account.id, type: 'CONSUME' },
+      _sum: { amount: true },
+    });
+    const totalCost = Math.abs(costAgg._sum.amount ?? 0);
+
+    // token 数存在 metadata 里，无法用 SQL 聚合，需遍历全部消费记录。
+    const allConsume = await this.prisma.computeTransaction.findMany({
+      where: { accountId: account.id, type: 'CONSUME' },
+      select: { metadata: true },
+    });
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
-
-    for (const tx of transactions) {
-      if (tx.type === 'CONSUME' && tx.metadata) {
-        const meta = tx.metadata as any;
-        totalCost += Math.abs(tx.amount);
-        totalInputTokens += meta.inputTokens || 0;
-        totalOutputTokens += meta.outputTokens || 0;
-      }
+    for (const tx of allConsume) {
+      const meta = tx.metadata as { inputTokens?: number; outputTokens?: number } | null;
+      if (!meta) continue;
+      totalInputTokens += meta.inputTokens ?? 0;
+      totalOutputTokens += meta.outputTokens ?? 0;
     }
 
     return {

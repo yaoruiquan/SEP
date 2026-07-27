@@ -2,6 +2,8 @@ import {
   MODEL_PRICING,
   FALLBACK_PRICING,
   USD_TO_CNY_RATE,
+  DEFAULT_USD_TO_CNY_RATE,
+  parseUsdToCnyRate,
   hasPricing,
   calculateCost,
 } from './index';
@@ -88,6 +90,43 @@ describe('保底计费 (fallback pricing)', () => {
 
     it('零 token 不产生费用', () => {
       expect(calculateCost('deepseek-v4-flash', 0, 0).costCNY).toBe(0);
+    });
+
+    it('传入自定义汇率时按该汇率换算，并回传实际用的 rate', () => {
+      const r = calculateCost('deepseek-v4-flash', 1_000_000, 0, 7.5);
+      expect(r.rate).toBe(7.5);
+      expect(r.costCNY).toBeCloseTo(r.costUSD * 7.5, 10);
+    });
+
+    it('省略汇率时用默认值', () => {
+      expect(calculateCost('deepseek-v4-flash', 100, 100).rate).toBe(
+        DEFAULT_USD_TO_CNY_RATE,
+      );
+    });
+  });
+
+  describe('parseUsdToCnyRate（汇率配置解析）', () => {
+    it('解析合法数字字符串', () => {
+      expect(parseUsdToCnyRate('7.35')).toBe(7.35);
+      expect(parseUsdToCnyRate('8')).toBe(8);
+    });
+
+    it('非法输入回退默认值，绝不产生 NaN 账单', () => {
+      for (const bad of [undefined, '', 'abc', 'NaN', '0', '-1', 'Infinity']) {
+        const r = parseUsdToCnyRate(bad as string | undefined);
+        expect(Number.isFinite(r)).toBe(true);
+        expect(r).toBeGreaterThan(0);
+      }
+      expect(parseUsdToCnyRate('abc')).toBe(DEFAULT_USD_TO_CNY_RATE);
+      expect(parseUsdToCnyRate('0')).toBe(DEFAULT_USD_TO_CNY_RATE);
+      expect(parseUsdToCnyRate('-1')).toBe(DEFAULT_USD_TO_CNY_RATE);
+    });
+
+    it('非法汇率不会让金额变成 NaN', () => {
+      const rate = parseUsdToCnyRate('not-a-number');
+      const { costCNY } = calculateCost('deepseek-v4-flash', 1000, 1000, rate);
+      expect(Number.isFinite(costCNY)).toBe(true);
+      expect(costCNY).toBeGreaterThan(0);
     });
 
     it('未配价模型比同等用量的最便宜已配价模型更贵', () => {

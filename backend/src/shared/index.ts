@@ -51,10 +51,22 @@ export function isKnownModelId(id: string): boolean {
 // secret=true 的项加密存储，接口永不回传明文。
 // ============================================================================
 
+/**
+ * 汇率默认值。真实生效值优先取系统设置（SETTING_KEYS.USD_TO_CNY_RATE），
+ * 由调用方通过 calculateCost 的 rate 参数传入；此常量仅作兜底。
+ * 汇率会波动，硬编码会导致改一次就要重新构建部署，故做成可配置项。
+ */
+export const DEFAULT_USD_TO_CNY_RATE = 7.2;
+
+/** @deprecated 用 DEFAULT_USD_TO_CNY_RATE，或从系统设置读取生效值。 */
+export const USD_TO_CNY_RATE = DEFAULT_USD_TO_CNY_RATE;
+
 export const SETTING_KEYS = {
   SUB2API_BASE_URL: "SUB2API_BASE_URL",
   SUB2API_API_KEY: "SUB2API_API_KEY",
   SUB2API_DEFAULT_MODEL: "SUB2API_DEFAULT_MODEL",
+  /** 美元→人民币汇率。模型单价以 USD 计，计费入账以 CNY 计。 */
+  USD_TO_CNY_RATE: "USD_TO_CNY_RATE",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -94,6 +106,13 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     secret: false,
     envFallback: "SUB2API_DEFAULT_MODEL",
     placeholder: DEFAULT_MODEL_ID,
+  },
+  {
+    key: SETTING_KEYS.USD_TO_CNY_RATE,
+    label: "美元汇率（USD→CNY）",
+    secret: false,
+    envFallback: "USD_TO_CNY_RATE",
+    placeholder: String(DEFAULT_USD_TO_CNY_RATE),
   },
 ];
 
@@ -365,7 +384,11 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "claude-haiku-4-5": { inputPrice: 0.8, outputPrice: 4.0 },
 };
 
-export const USD_TO_CNY_RATE = 7.2;
+/** 解析汇率配置值，非法输入回退默认值（避免把 NaN 写进账单）。 */
+export function parseUsdToCnyRate(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_USD_TO_CNY_RATE;
+}
 
 /**
  * 保底价：取 MODEL_PRICING 中各维度的最高单价。
@@ -392,18 +415,26 @@ export function hasPricing(modelId: string): boolean {
  * @param modelId 模型 ID
  * @param inputTokens 输入 token 数
  * @param outputTokens 输出 token 数
- * @returns { costUSD, costCNY, isFallback } 成本 + 是否走了保底价
+ * @param rate 生效汇率，省略则用默认值（调用方应从系统设置读取后传入）
+ * @returns { costUSD, costCNY, isFallback, rate } 成本 + 是否走保底价 + 实际用的汇率
  */
 export function calculateCost(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
-): { costUSD: number; costCNY: number; isFallback: boolean } {
+  rate: number = DEFAULT_USD_TO_CNY_RATE,
+): {
+  costUSD: number;
+  costCNY: number;
+  isFallback: boolean;
+  rate: number;
+} {
   const isFallback = !hasPricing(modelId);
   const pricing = isFallback ? FALLBACK_PRICING : MODEL_PRICING[modelId];
   const costUSD =
     (inputTokens * pricing.inputPrice + outputTokens * pricing.outputPrice) /
     1_000_000;
-  const costCNY = costUSD * USD_TO_CNY_RATE;
-  return { costUSD, costCNY, isFallback };
+  const costCNY = costUSD * rate;
+  // 返回 rate：账单需可复核 —— 汇率改动后旧账单仍应能解释当时的金额
+  return { costUSD, costCNY, isFallback, rate };
 }
