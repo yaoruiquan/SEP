@@ -33,10 +33,13 @@ import {
   InstanceUpdateDtoSchema,
   InstanceStatusUpdateDto,
   InstanceStatusUpdateDtoSchema,
+  GrantCreateDto,
+  GrantCreateDtoSchema,
 } from "shared";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
+import { GrantService } from "./grant.service";
 
 type AuthedRequest = { user: { id: string } };
 
@@ -49,6 +52,7 @@ export class EnterpriseController {
     private readonly departments: DepartmentService,
     private readonly members: MemberService,
     private readonly instances: InstanceService,
+    private readonly grants: GrantService,
   ) {}
 
   // ── 部门 ──────────────────────────────────────────────────────────────────
@@ -231,5 +235,60 @@ export class EnterpriseController {
     @Param("id") id: string,
   ) {
     return this.instances.upgrade(req.user.id, id);
+  }
+
+  // ── 员工授权 ──────────────────────────────────────────────────────────────
+
+  @Get("my-employees")
+  @ApiOperation({
+    summary: "我可以使用的员工实例（使用者视角）",
+    description:
+      "合并直接授权给我 + 授权给我所在部门的实例，已停用/回收或已过期的不返回。" +
+      "同一实例两条路径都命中时只返回一条，直接授权优先。",
+  })
+  @ApiResponse({ status: 200, description: "可用实例列表" })
+  async myEmployees(@Request() req: AuthedRequest) {
+    return this.grants.myEmployees(req.user.id);
+  }
+
+  @Get("instances/:id/grants")
+  @ApiOperation({ summary: "某实例的授权列表（管理员视角）" })
+  @ApiResponse({ status: 200, description: "授权列表，expired=true 的已标灰" })
+  @ApiResponse({ status: 404, description: "实例不存在或不属于本企业" })
+  async listGrants(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+  ) {
+    return this.grants.listForInstance(req.user.id, id);
+  }
+
+  @Post("instances/:id/grants")
+  @ApiOperation({
+    summary: "开通授权（仅企业管理员）",
+    description: "授权对象二选一：departmentId 或 memberId，不能同时填或都不填。",
+  })
+  @ApiResponse({ status: 201, description: "已开通" })
+  @ApiResponse({ status: 400, description: "实例已回收 / 授权对象不在本企业" })
+  @ApiResponse({ status: 409, description: "该授权已存在" })
+  async createGrant(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(GrantCreateDtoSchema)) dto: GrantCreateDto,
+  ) {
+    return this.grants.create(req.user.id, id, dto);
+  }
+
+  @Delete("grants/:id")
+  @ApiOperation({
+    summary: "收回授权（仅企业管理员）",
+    description: "只删除该授权记录，不影响实例状态。",
+  })
+  @ApiResponse({ status: 200, description: "已收回" })
+  @ApiResponse({ status: 404, description: "授权记录不存在或不属于本企业" })
+  async removeGrant(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+  ) {
+    return this.grants.remove(req.user.id, id);
   }
 }

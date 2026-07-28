@@ -127,9 +127,12 @@ describe('EnterpriseContextService', () => {
       expect(() => svc.assertEnterpriseAdmin(ctx('MEMBER'))).toThrow(ForbiddenException);
     });
 
-    it('assertCanApprove：管理员与部门负责人通过，普通成员拒绝', () => {
+    it('assertCanApprove：仅管理员通过', () => {
       expect(() => svc.assertCanApprove(ctx('ENTERPRISE_ADMIN'))).not.toThrow();
-      expect(() => svc.assertCanApprove(ctx('DEPT_MANAGER'))).not.toThrow();
+      // DEPT_MANAGER 本版暂按普通成员对待：该角色要名副其实需要「数据范围」
+      // 那一层（只能管本部门），后端尚无，故不给它高于 MEMBER 的权限，
+      // 避免「能审批却看不到本部门数据」的半成品状态
+      expect(() => svc.assertCanApprove(ctx('DEPT_MANAGER'))).toThrow(ForbiddenException);
       expect(() => svc.assertCanApprove(ctx('MEMBER'))).toThrow(ForbiddenException);
     });
   });

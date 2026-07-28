@@ -359,6 +359,25 @@ export const ENTERPRISE_ROLES = [
 export const EnterpriseRoleSchema = z.enum(ENTERPRISE_ROLES);
 export type EnterpriseRoleValue = z.infer<typeof EnterpriseRoleSchema>;
 
+/**
+ * **可新分配**的企业角色 —— 不含 DEPT_MANAGER。
+ *
+ * 该角色本版暂按普通成员对待（详见 EnterpriseContextService.assertCanApprove），
+ * 故不允许新设，但**枚举值保留**：库里已有的 DEPT_MANAGER 成员仍是合法数据，
+ * 照常登录、按普通成员权限走。等「数据范围」那层做出来再放开。
+ */
+export const ASSIGNABLE_ENTERPRISE_ROLES = [
+  'ENTERPRISE_ADMIN',
+  'MEMBER',
+] as const;
+
+export const AssignableEnterpriseRoleSchema = z.enum(
+  ASSIGNABLE_ENTERPRISE_ROLES,
+);
+export type AssignableEnterpriseRoleValue = z.infer<
+  typeof AssignableEnterpriseRoleSchema
+>;
+
 // ── 部门 ────────────────────────────────────────────────────────────────────
 
 export const DepartmentCreateDtoSchema = z.object({
@@ -403,14 +422,14 @@ export const MemberCreateDtoSchema = z.object({
   name: z.string().min(1).max(50).optional(),
   /** 初始密码，成员首次登录后应自行修改 */
   password: z.string().min(8),
-  role: EnterpriseRoleSchema.default('MEMBER'),
+  role: AssignableEnterpriseRoleSchema.default('MEMBER'),
   departmentId: z.string().optional(),
   position: z.string().max(50).optional(),
 });
 export type MemberCreateDto = z.infer<typeof MemberCreateDtoSchema>;
 
 export const MemberUpdateDtoSchema = z.object({
-  role: EnterpriseRoleSchema.optional(),
+  role: AssignableEnterpriseRoleSchema.optional(),
   /** 调岗。传 null 表示移出部门。 */
   departmentId: z.string().nullable().optional(),
   position: z.string().max(50).nullable().optional(),
@@ -463,6 +482,56 @@ export type InstanceStatusUpdateDto = z.infer<
 >;
 
 /** 实例视图，含升级提示信息。 */
+// ── 员工授权 ────────────────────────────────────────────────────────────────
+
+/**
+ * 开通授权。授权对象**二选一**：整个部门，或具体某个成员。
+ *
+ * 用 refine 而非两个独立可选字段，是因为「都不传」会造出一条谁都匹配不上的
+ * 死记录，「都传」的语义又无法定义（是且还是或？）。DB 层的
+ * `@@unique([instanceId, departmentId, memberId])` 挡不住这两种情况。
+ */
+export const GrantCreateDtoSchema = z
+  .object({
+    departmentId: z.string().optional(),
+    memberId: z.string().optional(),
+    /** 限时授权到期时间（ISO 字符串）。省略表示长期有效。 */
+    expiresAt: z.string().datetime().optional(),
+  })
+  .refine(
+    (d) => Boolean(d.departmentId) !== Boolean(d.memberId),
+    { message: '授权对象必须是部门或成员之一，不能同时指定或都不指定' },
+  );
+export type GrantCreateDto = z.infer<typeof GrantCreateDtoSchema>;
+
+/** 一条授权记录。target 二选一，另一个为 null。 */
+export interface GrantView {
+  id: string;
+  department: { id: string; name: string } | null;
+  member: { id: string; name: string | null; email: string } | null;
+  expiresAt: string | null;
+  /** 已过期但未清理的记录，前端应标灰 */
+  expired: boolean;
+  createdAt: Date;
+}
+
+/**
+ * 「我的员工」—— 当前成员可用的实例。
+ *
+ * 与 InstanceView 的区别：这是**使用者视角**，不含配置/升级等管理信息，
+ * 但多一个 grantSource 说明「为什么我能用这个」。
+ */
+export interface MyEmployeeView {
+  instanceId: string;
+  name: string;
+  templateVersion: string;
+  template: { id: string; name: string; avatar: string | null };
+  department: { id: string; name: string } | null;
+  /** 授权来源：直接给我的，还是给我所在部门的 */
+  grantSource: 'DIRECT' | 'DEPARTMENT';
+  expiresAt: string | null;
+}
+
 export interface InstanceView {
   id: string;
   name: string;

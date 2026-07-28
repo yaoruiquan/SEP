@@ -271,7 +271,14 @@ model EmployeeGrant {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([instanceId, departmentId, memberId])
+  /// ⚠️ 唯一约束不在这里 —— 授权对象二选一，三列必有一列为 NULL，
+  /// 而 Postgres 视 NULL 互不相等，`@@unique([instanceId, departmentId, memberId])`
+  /// 永不生效（实测重复开通返回 201 而非 409）。
+  /// 真正的约束是两个**部分唯一索引**，见迁移
+  /// `20260728093000_fix_grant_unique_null_semantics`：
+  ///   UNIQUE (instanceId, departmentId) WHERE departmentId IS NOT NULL
+  ///   UNIQUE (instanceId, memberId)     WHERE memberId     IS NOT NULL
+  /// Prisma schema 无法表达 WHERE 子句，故不要在此处「补回」@@unique。
   @@index([instanceId])
   @@index([departmentId])
   @@index([memberId])

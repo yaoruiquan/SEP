@@ -78,10 +78,17 @@ export class EnterpriseContextService {
     }
   }
 
-  /** 要求管理员或部门负责人（审批类操作）。 */
+  /**
+   * 要求可审批（跨部门调用申请等）。
+   *
+   * 本版只有企业管理员可审批 —— DEPT_MANAGER 暂按普通成员对待。
+   * 该角色要名副其实需要「数据范围」这一整层（只能管本部门的人和实例，
+   * 还要决定管一级部门能否管二级），后端尚未具备，故先不给它任何
+   * 高于 MEMBER 的权限，避免出现「能审批却看不到本部门数据」的半成品状态。
+   */
   assertCanApprove(ctx: EnterpriseContext): void {
-    if (ctx.role === "MEMBER") {
-      throw new ForbiddenException("仅企业管理员或部门负责人可审批");
+    if (ctx.role !== "ENTERPRISE_ADMIN") {
+      throw new ForbiddenException("仅企业管理员可审批");
     }
   }
 }

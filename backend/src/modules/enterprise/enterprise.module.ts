@@ -3,6 +3,7 @@ import { EnterpriseContextService } from "./enterprise-context.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
+import { GrantService } from "./grant.service";
 import { EnterpriseController } from "./enterprise.controller";
 
 /**
@@ -20,6 +21,7 @@ import { EnterpriseController } from "./enterprise.controller";
     DepartmentService,
     MemberService,
     InstanceService,
+    GrantService,
   ],
   exports: [EnterpriseContextService],
 })
