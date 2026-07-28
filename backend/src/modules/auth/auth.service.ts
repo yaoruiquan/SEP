@@ -51,6 +51,21 @@ export class AuthService {
 
   // ──────────────── public methods ────────────────
 
+  /**
+   * 企业自助注册：一次创建「公司 + 创建者」。
+   *
+   * 四件事必须**同时成功或同时失败**，故包在事务里：
+   *   ① User             注册人本人
+   *   ② Enterprise       他的公司
+   *   ③ EnterpriseMember 把二者绑定，角色 = ENTERPRISE_ADMIN
+   *   ④ ComputeAccount   挂在企业上，否则订阅后无处扣费
+   *
+   * 若不用事务：建了 User 但建企业失败，该用户会卡在"有账号无公司"的
+   * 死状态 —— 能登录但什么都干不了，且重新注册会报"邮箱已被占用"。
+   *
+   * 注意：注册入口只用于「开公司」。第二个人起由管理员在企业管理台
+   * 添加，若同事也走注册会创建出第二家公司。
+   */
   async register(dto: RegisterDto, res: Response): Promise<AuthResponse> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.email },
@@ -58,14 +73,44 @@ export class AuthService {
     if (existingUser) throw new ConflictException('邮箱已被注册');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: { email: dto.email, name: dto.name, password: hashedPassword },
-    });
+
+    const { user, enterprise, member } = await this.prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.create({
+          data: { email: dto.email, name: dto.name, password: hashedPassword },
+        });
+
+        const enterprise = await tx.enterprise.create({
+          data: {
+            name: dto.enterpriseName,
+            // 算力账户与企业同生命周期，一并创建
+            computeAccount: { create: { balance: 0 } },
+          },
+        });
+
+        const member = await tx.enterpriseMember.create({
+          data: {
+            userId: user.id,
+            enterpriseId: enterprise.id,
+            // 创建者即首个企业管理员 —— 这个身份无法自行申请，
+            // 只能来自"这家公司是我开的"
+            role: 'ENTERPRISE_ADMIN',
+          },
+        });
+
+        return { user, enterprise, member };
+      },
+    );
 
     const token = this.signAccess(user);
     this.setRefreshCookie(res, this.signRefresh(user.id));
 
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      enterprise: { id: enterprise.id, name: enterprise.name },
+      roleInEnterprise: member.role,
+    };
   }
 
   async login(dto: LoginDto, res: Response): Promise<AuthResponse> {
@@ -78,10 +123,48 @@ export class AuthService {
     const token = this.signAccess(user);
     this.setRefreshCookie(res, this.signRefresh(user.id));
 
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const membership = await this.findMembership(user.id);
+
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      ...membership,
+    };
   }
 
-  async refresh(refreshToken: string | undefined): Promise<{ token: string; user: AuthResponse['user'] }> {
+  /**
+   * 查询用户的企业归属，供登录/刷新返回给前端。
+   *
+   * 平台运营人员不属于任何企业，返回 null 而非抛错 ——
+   * 他们要能登录去运营端，只是访问企业资源时会被 403。
+   *
+   * MVP 单企业：取最早一条 membership（与 EnterpriseContextService 一致）。
+   */
+  private async findMembership(userId: string): Promise<{
+    enterprise: { id: string; name: string } | null;
+    roleInEnterprise: string | null;
+  }> {
+    const member = await this.prisma.enterpriseMember.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        role: true,
+        enterprise: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!member) return { enterprise: null, roleInEnterprise: null };
+    return { enterprise: member.enterprise, roleInEnterprise: member.role };
+  }
+
+  /**
+   * 刷新 access token。前端在页面重载后调它重建内存态，
+   * 因此**必须一并返回企业信息** —— 否则刷新页面后侧边栏会失去角色，
+   * 菜单项渲染不出来。
+   */
+  async refresh(
+    refreshToken: string | undefined,
+  ): Promise<Omit<AuthResponse, 'token'> & { token: string }> {
     if (!refreshToken) throw new UnauthorizedException('No refresh token');
 
     let payload: any;
@@ -97,16 +180,24 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('User not found');
 
     const token = this.signAccess(user);
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const membership = await this.findMembership(user.id);
+
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      ...membership,
+    };
   }
 
+  /** 当前登录用户信息（含企业归属，前端侧边栏与管理台都要用）。 */
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, name: true, avatar: true, role: true, createdAt: true, updatedAt: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
-    return user;
+    const membership = await this.findMembership(userId);
+    return { ...user, ...membership };
   }
 
   logout(res: Response): void {

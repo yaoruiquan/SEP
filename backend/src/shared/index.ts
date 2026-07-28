@@ -191,10 +191,23 @@ export interface ToolCall {
 // ============================================================================
 
 // Auth
+/**
+ * 企业自助注册。
+ *
+ * 注册的不是"个人账号"，而是「公司 + 创建者」一并建立：
+ * User + Enterprise + EnterpriseMember(ENTERPRISE_ADMIN) + ComputeAccount。
+ *
+ * 为什么第一个人必须在注册时就成为管理员：「企业管理员」这个身份无法
+ * 自行申请（申请给谁批？），只能来自"这家公司是我开的"。第二个人起
+ * 不走注册，由管理员在企业管理台添加 —— 若同事也去点注册，
+ * 会创建出第二家公司。
+ */
 export const RegisterDtoSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   name: z.string().optional(),
+  /** 公司名称。注册即创建该企业，注册人成为其首个企业管理员。 */
+  enterpriseName: z.string().min(2).max(100),
 });
 
 export type RegisterDto = z.infer<typeof RegisterDtoSchema>;
@@ -212,8 +225,23 @@ export interface AuthResponse {
     id: string;
     email: string;
     name: string | null;
+    /** 全局角色。ADMIN = 平台运营人员，与企业内角色是两套体系。 */
     role: string;
   };
+  /**
+   * 所属企业。平台运营人员不属于任何企业，故可为 null。
+   * 前端存入 Zustand，用于企业管理台的数据归属显示。
+   */
+  enterprise: {
+    id: string;
+    name: string;
+  } | null;
+  /**
+   * 企业内角色（ENTERPRISE_ADMIN / DEPT_MANAGER / MEMBER）。
+   * 前端据此决定侧边栏可见项与按钮可操作性 ——
+   * ⚠️ 仅为体验优化，真正的权限拦截在后端。
+   */
+  roleInEnterprise: string | null;
 }
 
 // Capability Upload
