@@ -2,7 +2,12 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
-const buttonVariants = cva(
+/**
+ * 导出以便给 <Link> 之类的非 button 元素套同样的样式。
+ * 本组件不支持 Radix 的 asChild —— 需要"看起来像按钮的链接"时，
+ * 用 `className={cn(buttonVariants({ ... }))}` 直接作用在 <Link> 上。
+ */
+export const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {

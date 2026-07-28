@@ -1,4 +1,4 @@
-import { authAccessor, type AuthUser } from './auth-store';
+import { authAccessor, type AuthPayload } from './auth-store';
 
 /**
  * All requests go through the Next.js rewrite proxy at /api/* → backend.
@@ -86,8 +86,8 @@ export async function tryRefresh(): Promise<boolean> {
         credentials: 'include',
       });
       if (!res.ok) return false;
-      const data = (await res.json()) as { token: string; user: AuthUser };
-      authAccessor.setAuth(data.token, data.user);
+      const data = (await res.json()) as AuthPayload;
+      authAccessor.setAuth(data);
       return true;
     } catch {
       return false;

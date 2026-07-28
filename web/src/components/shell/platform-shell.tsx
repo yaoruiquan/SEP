@@ -16,7 +16,7 @@ const LINKS: NavLink[] = [
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ];
 
-export function AdminShell({ children }: { children: React.ReactNode }) {
+export function PlatformShell({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
 

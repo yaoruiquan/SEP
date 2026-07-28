@@ -1,10 +1,18 @@
 import { AuthGate } from '@/components/auth-gate';
-import { AdminShell } from '@/components/shell/admin-shell';
+import { PlatformShell } from '@/components/shell/platform-shell';
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+/**
+ * 平台运营端。全局 ADMIN 专用 —— 运营人员不属于任何企业，
+ * 故只查全局角色，不要求企业归属。
+ */
+export default function PlatformLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <AuthGate requireRole="ADMIN">
-      <AdminShell>{children}</AdminShell>
+    <AuthGate requireGlobalRole="ADMIN">
+      <PlatformShell>{children}</PlatformShell>
     </AuthGate>
   );
 }

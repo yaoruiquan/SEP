@@ -20,14 +20,21 @@ export function useUpdateProfile() {
       api.patch<UserProfile>('/users/me', body),
     onSuccess: (user) => {
       qc.setQueryData(qk.me, user);
-      // keep the in-memory auth user's display name in sync
+      // keep the in-memory auth user's display name in sync.
+      // 保留 enterprise / roleInEnterprise —— 改个人资料不该动企业归属，
+      // 漏传会把侧边栏的企业名和角色过滤一起清空
       const store = useAuthStore.getState();
       if (store.token) {
-        store.setAuth(store.token, {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
+        store.setAuth({
+          token: store.token,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+          enterprise: store.enterprise,
+          roleInEnterprise: store.roleInEnterprise,
         });
       }
     },
