@@ -20,6 +20,8 @@ model User {
   name      String?
   password  String   // Hashed
   avatar    String?
+  /// 全局角色。企业内身份不看这里，看 EnterpriseMember.role。
+  /// ADMIN 表示平台运营人员（可访问 (platform) 分组）。
   role      UserRole @default(USER)
 
   createdAt DateTime @default(now())
@@ -27,9 +29,11 @@ model User {
 
   // Relations
   sessions             ConversationSession[]
-  subscriptions        Subscription[]
-  computeAccount       ComputeAccount?
   contributedCapabilities Capability[]  @relation("CapabilityContributor")
+  /// 企业成员身份。MVP 阶段每个用户恰好一条记录（不做多企业切换），
+  /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
+  memberships          EnterpriseMember[]
+  approvedRequests     AccessRequest[] @relation("AccessRequestReviewer")
 
   @@map("users")
 }
@@ -38,6 +42,104 @@ enum UserRole {
   USER         // B/C端用户
   CONTRIBUTOR  // 能力贡献者
   ADMIN        // 平台运营方
+}
+
+// ============================================================================
+// Enterprise Organization (企业组织) —— P0 企业组织基座
+// ============================================================================
+
+/// 企业是数据与权限的隔离边界。所有业务数据的归属最终收敛到这里。
+model Enterprise {
+  id          String   @id @default(cuid())
+  name        String
+  /// 企业简介、行业等基础资料，MVP 阶段保持简单
+  description String?  @db.Text
+  logo        String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  departments    Department[]
+  members        EnterpriseMember[]
+  subscriptions  Subscription[]
+  computeAccount ComputeAccount?
+  instances      EmployeeInstance[]
+  accessRequests AccessRequest[]
+
+  @@map("enterprises")
+}
+
+/// 部门。树形结构，parentId 自引用。
+model Department {
+  id           String   @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  name         String
+  /// 父部门。为空表示顶级部门。
+  parentId     String?
+  parent       Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Department[] @relation("DepartmentTree")
+
+  sortOrder    Int      @default(0)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  members   EnterpriseMember[]
+  instances EmployeeInstance[]
+  grants    EmployeeGrant[]
+
+  @@index([enterpriseId])
+  @@index([parentId])
+  @@map("departments")
+}
+
+/// 企业成员：User × Enterprise 的关联，承载企业内角色与所属部门。
+///
+/// 为什么用关联表而不是把 enterpriseId + role 塞进 User：
+/// MVP 不做多企业切换（每人恰好一条记录），但一旦将来需要
+/// "一个人属于多家企业"，塞进 User 就要做数据迁移 + 全量权限改写。
+/// 关联表的成本近零，却保留了结构能力。
+model EnterpriseMember {
+  id           String   @id @default(cuid())
+
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 企业内角色，与 User.role（全局角色）是两套体系
+  role         EnterpriseRole @default(MEMBER)
+
+  /// 所属部门。为空表示未分配部门（如企业创建者）。
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  /// 岗位名称，自由文本
+  position     String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  grants           EmployeeGrant[]
+  requestedAccess  AccessRequest[] @relation("AccessRequestRequester")
+
+  @@unique([userId, enterpriseId])
+  @@index([enterpriseId])
+  @@index([departmentId])
+  @@map("enterprise_members")
+}
+
+enum EnterpriseRole {
+  ENTERPRISE_ADMIN  // 企业管理员：可订阅（花钱）、管组织、审批
+  DEPT_MANAGER      // 部门负责人：管本部门成员与实例、审批本部门申请
+  MEMBER            // 普通成员：仅使用被授权的员工，越权需申请
 }
 
 // ============================================================================
@@ -60,6 +162,10 @@ model DigitalEmployee {
   // Status
   status      EmployeeStatus @default(DRAFT)
 
+  /// 版本号（决策 14：提示式升级需要它）。
+  /// 实例订阅时锁定版本，模板发新版后不自动跟进，仅提示企业主动升级。
+  version     String  @default("1.0.0")
+
   // Pricing (暂时简化，不做复杂计费)
   price       Float?
 
@@ -71,6 +177,7 @@ model DigitalEmployee {
   bindings      EmployeeCapabilityBinding[]
   subscriptions Subscription[]
   sessions      ConversationSession[]
+  instances     EmployeeInstance[]
 
   @@map("digital_employees")
 }
@@ -79,6 +186,140 @@ enum EmployeeStatus {
   DRAFT      // 草稿
   PUBLISHED  // 已上架
   ARCHIVED   // 已下架
+}
+
+// ============================================================================
+// Employee Instance (企业员工实例) —— P1 模板与实例分离
+// ============================================================================
+
+/// 企业订阅某个员工后产生的企业专属实例。
+///
+/// 与 DigitalEmployee（市场侧模板）的区别：模板是"市场上卖的东西"，
+/// 实例是"某家企业拿到的东西"，拥有企业内名称、部门、配置与状态。
+///
+/// ⚠️ 不能用 @@unique([enterpriseId, templateId]) —— 同一企业允许订阅
+/// 同一模板的多个实例（如不同部门各一份）。
+model EmployeeInstance {
+  id           String   @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 来源模板
+  templateId   String
+  template     DigitalEmployee @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  /// 订阅时锁定的模板版本。
+  /// 必须存版本而非只存 templateId —— 否则无法实现「提示式升级」
+  /// （模板发新版不自动跟进，仅提示企业主动确认）。
+  templateVersion String
+
+  /// 企业内自定义名称，如「视频工程师」
+  name         String
+  /// 归属部门。为空表示企业级共享实例。
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  status       InstanceStatus @default(PENDING_ACTIVATION)
+
+  /// 企业侧配置：启用的知识库、模型路由、初始化资料等。
+  /// 结构由模板的配置模式定义（员工包清单），故用 Json 承载。
+  config       Json?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  grants       EmployeeGrant[]
+  accessRequests AccessRequest[]
+
+  @@index([enterpriseId])
+  @@index([templateId])
+  @@index([departmentId])
+  @@map("employee_instances")
+}
+
+enum InstanceStatus {
+  PENDING_ACTIVATION  // 已订阅未激活
+  ACTIVE              // 正常可用
+  SUSPENDED           // 企业主动停用
+  REVOKED             // 已回收（订阅到期/退订）
+}
+
+/// 员工实例的授权：某实例授权给哪个部门或哪个成员。
+///
+/// 二者互斥：departmentId 与 memberId 恰有一个非空。
+/// 授权给部门 = 该部门所有成员可用；授权给成员 = 仅该成员可用。
+model EmployeeGrant {
+  id           String   @id @default(cuid())
+
+  instanceId   String
+  instance     EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  /// 授权对象之一：部门
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  /// 授权对象之二：具体成员
+  memberId     String?
+  member       EnterpriseMember? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// 限时授权到期时间。为空表示长期有效。
+  /// 跨部门调用申请通过后签发的授权通常带过期时间。
+  expiresAt    DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([instanceId, departmentId, memberId])
+  @@index([instanceId])
+  @@index([departmentId])
+  @@index([memberId])
+  @@map("employee_grants")
+}
+
+/// 跨部门/越权调用申请。非管理员想用未授权的员工时发起。
+model AccessRequest {
+  id           String   @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 申请人（企业成员）
+  requesterId  String
+  requester    EnterpriseMember @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+
+  /// 申请使用的实例
+  instanceId   String
+  instance     EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  /// 申请理由 / 任务说明
+  reason       String?  @db.Text
+  /// 期望使用期限（天），审批时据此签发限时授权
+  requestedDays Int?
+
+  status       RequestStatus @default(PENDING)
+
+  /// 审批人（平台 User，因审批者可能是企业管理员）
+  reviewerId   String?
+  reviewer     User?    @relation("AccessRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewNote   String?  @db.Text
+  reviewedAt   DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([enterpriseId])
+  @@index([requesterId])
+  @@index([instanceId])
+  @@map("access_requests")
+}
+
+enum RequestStatus {
+  PENDING    // 待审批
+  APPROVED   // 已批准
+  REJECTED   // 已驳回
+  CANCELED   // 申请人撤回
 }
 
 // ============================================================================
@@ -269,27 +510,32 @@ model EmployeeCapabilityBinding {
 // Subscription (订阅)
 // ============================================================================
 
+/// 订阅。主体是【企业】而非个人 —— 订阅要花企业的钱，
+/// 只有企业管理员能发起（其他角色走 AccessRequest 申请）。
 model Subscription {
-  id         String   @id @default(cuid())
+  id           String   @id @default(cuid())
 
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  employeeId String
-  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  status     SubscriptionStatus @default(ACTIVE)
+  status       SubscriptionStatus @default(ACTIVE)
 
-  startDate  DateTime @default(now())
-  endDate    DateTime?
+  startDate    DateTime @default(now())
+  endDate      DateTime?
 
-  // User-specific config (e.g., 店铺账号等)
-  config     Json?
+  // 企业侧订阅配置
+  config       Json?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@unique([userId, employeeId])
+  /// 注意：这里保留唯一约束是因为「同一企业对同一模板只订阅一次」，
+  /// 而多实例是在 EmployeeInstance 层面展开（一次订阅可开多个实例）。
+  @@unique([enterpriseId, employeeId])
+  @@index([enterpriseId])
   @@map("subscriptions")
 }
 
@@ -394,13 +640,18 @@ enum ExecutionStatus {
 // Compute Platform (算力平台)
 // ============================================================================
 
+/// 算力账户。主体是【企业】—— 套餐含算力额度，按企业结算。
+///
+/// ⚠️ 多租户隔离要点：ComputeTransaction 自身没有 enterpriseId，
+/// 必须经 accountId → ComputeAccount.enterpriseId 校验归属，
+/// 否则拿到别家的 accountId 就能查别家账单。
 model ComputeAccount {
-  id        String   @id @default(cuid())
+  id           String   @id @default(cuid())
 
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enterpriseId String   @unique
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  balance   Float    @default(0)  // 余额（人民币）
+  balance      Float    @default(0)  // 余额（人民币）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

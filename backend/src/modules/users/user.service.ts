@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/co
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto, ChangePasswordDto, UserProfileResponse } from 'shared';
 import * as bcrypt from 'bcrypt';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private enterpriseContext: EnterpriseContextService,
+  ) {}
 
   async getProfile(userId: string): Promise<UserProfileResponse> {
     const user = await this.prisma.user.findUnique({
@@ -57,11 +61,21 @@ export class UserService {
     });
   }
 
+  /**
+   * 企业算力用量。账户主体是【企业】（套餐含算力额度，按企业结算）。
+   *
+   * ⚠️ 多租户要点：ComputeTransaction 自身没有 enterpriseId，
+   * 归属只能经 accountId → ComputeAccount.enterpriseId 确认。
+   * 这里先由 userId 解析出企业、再取该企业的账户，
+   * 因此后续所有按 accountId 的查询天然限定在本企业内。
+   */
   async getComputeUsage(userId: string) {
-    // 获取或创建计费账户
+    const ctx = await this.enterpriseContext.resolve(userId);
+
+    // 获取或创建企业计费账户
     const account = await this.prisma.computeAccount.upsert({
-      where: { userId },
-      create: { userId, balance: 0 },
+      where: { enterpriseId: ctx.enterpriseId },
+      create: { enterpriseId: ctx.enterpriseId, balance: 0 },
       update: {},
     });
 

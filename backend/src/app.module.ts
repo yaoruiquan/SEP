@@ -11,6 +11,7 @@ import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { ConversationModule } from './modules/conversation/conversation.module';
 import { SettingModule } from './modules/setting/setting.module';
 import { ModelModule } from './modules/model/model.module';
+import { EnterpriseModule } from './modules/enterprise/enterprise.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { ModelModule } from './modules/model/model.module';
     ConversationModule,
     SettingModule,
     ModelModule,
+    EnterpriseModule,
     TestModule,
   ],
   controllers: [],

@@ -7,18 +7,30 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionCreateDto } from 'shared';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 
 @Injectable()
 export class SubscriptionService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private enterpriseContext: EnterpriseContextService,
+  ) {}
 
   /**
-   * Subscribe user to a digital employee.
-   * Rules:
-   *  - Employee must be PUBLISHED
-   *  - One active subscription per (user, employee) pair; reactivates if PAUSED/EXPIRED
+   * 企业订阅一个市场员工模板。
+   *
+   * 订阅主体是【企业】而非个人 —— 订阅要花企业的钱，
+   * 故要求 ENTERPRISE_ADMIN 角色；其他角色应走 AccessRequest 申请流程。
+   *
+   * 规则：
+   *  - 模板必须已上架（PUBLISHED）
+   *  - 同一企业对同一模板只订阅一次；PAUSED/EXPIRED 时重新激活
+   *  - 多实例在 EmployeeInstance 层展开（一次订阅可开多个实例）
    */
   async subscribe(userId: string, dto: SubscriptionCreateDto) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
+
     const employee = await this.prisma.digitalEmployee.findUnique({
       where: { id: dto.employeeId },
     });
@@ -29,7 +41,12 @@ export class SubscriptionService {
 
     // Upsert: reactivate existing or create new
     const existing = await this.prisma.subscription.findUnique({
-      where: { userId_employeeId: { userId, employeeId: dto.employeeId } },
+      where: {
+        enterpriseId_employeeId: {
+          enterpriseId: ctx.enterpriseId,
+          employeeId: dto.employeeId,
+        },
+      },
     });
 
     if (existing) {
@@ -46,7 +63,7 @@ export class SubscriptionService {
 
     return this.prisma.subscription.create({
       data: {
-        userId,
+        enterpriseId: ctx.enterpriseId,
         employeeId: dto.employeeId,
         status: 'ACTIVE',
         config: dto.config,
@@ -55,10 +72,11 @@ export class SubscriptionService {
     });
   }
 
-  /** List all active subscriptions for the authenticated user */
+  /** 列出【本企业】的有效订阅 */
   async findAll(userId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
     return this.prisma.subscription.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
       include: {
         employee: {
           select: {
@@ -71,18 +89,28 @@ export class SubscriptionService {
     });
   }
 
-  /** Get a single subscription by id (must belong to the user) */
+  /**
+   * 按 id 取单个订阅，并校验其属于调用方所在企业。
+   *
+   * ⚠️ 多租户防线：这里必须比对 enterpriseId 而非 userId ——
+   * 攻击者会直接把 URL 里的 id 换成别家企业的订阅 id 来调接口，
+   * 仅靠"前端只展示本企业数据"挡不住。
+   */
   async findOne(id: string, userId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
     const sub = await this.prisma.subscription.findUnique({
       where: { id },
       include: { employee: true },
     });
     if (!sub) throw new NotFoundException(`Subscription ${id} not found`);
-    if (sub.userId !== userId) throw new ForbiddenException('Not your subscription');
+    if (sub.enterpriseId !== ctx.enterpriseId) {
+      // 用 404 而非 403：不向越权者确认该资源是否存在
+      throw new NotFoundException(`Subscription ${id} not found`);
+    }
     return sub;
   }
 
-  /** Update the user-specific config on a subscription */
+  /** 更新订阅上的企业侧配置 */
   async updateConfig(id: string, userId: string, config: Record<string, any>) {
     const sub = await this.findOne(id, userId);
     return this.prisma.subscription.update({
@@ -104,10 +132,19 @@ export class SubscriptionService {
     });
   }
 
-  /** Check whether the user has an active subscription for an employee (used by conversation layer) */
+  /**
+   * 校验企业对某员工有有效订阅（对话层调用前检查）。
+   * 订阅主体是企业，从 userId 解析出企业后再查。
+   */
   async assertActiveSubscription(userId: string, employeeId: string): Promise<void> {
+    const ctx = await this.enterpriseContext.resolve(userId);
     const sub = await this.prisma.subscription.findUnique({
-      where: { userId_employeeId: { userId, employeeId } },
+      where: {
+        enterpriseId_employeeId: {
+          enterpriseId: ctx.enterpriseId,
+          employeeId,
+        },
+      },
     });
     if (!sub || sub.status !== 'ACTIVE') {
       throw new ForbiddenException('Active subscription required to start a conversation');

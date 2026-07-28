@@ -13,6 +13,7 @@ import { CapabilityService } from "../capability/capability.service";
 import { AdapterInput } from "../capability/adapters/adapter.interface";
 import { SessionLockService } from "./session-lock.service";
 import { ConversationService } from "./conversation.service";
+import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import {
   DEFAULT_MODEL_ID,
   calculateCost,
@@ -39,6 +40,7 @@ export class ConversationStreamService {
     private readonly conversationService: ConversationService,
     private readonly configService: ConfigService,
     private readonly settingService: SettingService,
+    private readonly enterpriseContext: EnterpriseContextService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -620,10 +622,11 @@ export class ConversationStreamService {
         rate,
       );
 
-      // 获取或创建用户的计费账户
+      // 获取或创建【企业】计费账户（套餐含算力额度，按企业结算）
+      const ctx = await this.enterpriseContext.resolve(userId);
       const account = await this.prisma.computeAccount.upsert({
-        where: { userId },
-        create: { userId, balance: 0 },
+        where: { enterpriseId: ctx.enterpriseId },
+        create: { enterpriseId: ctx.enterpriseId, balance: 0 },
         update: {},
       });
 
