@@ -27,9 +27,16 @@ import {
   MemberCreateDtoSchema,
   MemberUpdateDto,
   MemberUpdateDtoSchema,
+  InstanceCreateDto,
+  InstanceCreateDtoSchema,
+  InstanceUpdateDto,
+  InstanceUpdateDtoSchema,
+  InstanceStatusUpdateDto,
+  InstanceStatusUpdateDtoSchema,
 } from "shared";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
+import { InstanceService } from "./instance.service";
 
 type AuthedRequest = { user: { id: string } };
 
@@ -41,6 +48,7 @@ export class EnterpriseController {
   constructor(
     private readonly departments: DepartmentService,
     private readonly members: MemberService,
+    private readonly instances: InstanceService,
   ) {}
 
   // ── 部门 ──────────────────────────────────────────────────────────────────
@@ -145,5 +153,83 @@ export class EnterpriseController {
   @ApiResponse({ status: 409, description: "企业需保留至少一名管理员" })
   async removeMember(@Request() req: AuthedRequest, @Param("id") id: string) {
     return this.members.remove(req.user.id, id);
+  }
+
+  // ── 员工实例 ──────────────────────────────────────────────────────────────
+
+  @Get("instances")
+  @ApiOperation({
+    summary: "本企业员工实例列表",
+    description:
+      "upgradeAvailable 表示模板已发新版而此实例仍锁在旧版（提示式升级）。",
+  })
+  @ApiResponse({ status: 200, description: "实例列表" })
+  async listInstances(@Request() req: AuthedRequest) {
+    return this.instances.list(req.user.id);
+  }
+
+  @Post("instances")
+  @ApiOperation({
+    summary: "创建员工实例（仅企业管理员）",
+    description:
+      "需本企业对该模板有生效中的订阅。一次订阅可开多个实例 —— " +
+      "同一模板可按部门各部署一份，互不影响。",
+  })
+  @ApiResponse({ status: 201, description: "已创建，初始状态 PENDING_ACTIVATION" })
+  @ApiResponse({ status: 400, description: "未订阅该模板或订阅未生效" })
+  @ApiResponse({ status: 404, description: "模板或部门不存在" })
+  async createInstance(
+    @Request() req: AuthedRequest,
+    @Body(new ZodValidationPipe(InstanceCreateDtoSchema))
+    dto: InstanceCreateDto,
+  ) {
+    return this.instances.create(req.user.id, dto);
+  }
+
+  @Patch("instances/:id")
+  @ApiOperation({ summary: "改名 / 换部门 / 改配置（仅企业管理员）" })
+  @ApiResponse({ status: 200, description: "已更新" })
+  @ApiResponse({ status: 404, description: "实例不存在或不属于本企业" })
+  @ApiResponse({ status: 409, description: "已回收的实例不可修改" })
+  async updateInstance(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(InstanceUpdateDtoSchema))
+    dto: InstanceUpdateDto,
+  ) {
+    return this.instances.update(req.user.id, id, dto);
+  }
+
+  @Patch("instances/:id/status")
+  @ApiOperation({
+    summary: "启用 / 停用 / 回收实例（仅企业管理员）",
+    description:
+      "停用与回收不删除授权记录 —— 实例非 ACTIVE 时授权一律不生效，" +
+      "恢复启用后原授权继续有效。REVOKED 为终态，不可转回。",
+  })
+  @ApiResponse({ status: 200, description: "已变更；changed=false 表示状态未变" })
+  @ApiResponse({ status: 409, description: "非法状态流转" })
+  async changeInstanceStatus(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(InstanceStatusUpdateDtoSchema))
+    dto: InstanceStatusUpdateDto,
+  ) {
+    return this.instances.changeStatus(req.user.id, id, dto.status);
+  }
+
+  @Post("instances/:id/upgrade")
+  @ApiOperation({
+    summary: "升级实例到模板最新版（仅企业管理员）",
+    description:
+      "只更新版本号，不自动迁移 config；返回 configReviewRequired 提示复核配置。",
+  })
+  @ApiResponse({ status: 200, description: "已升级" })
+  @ApiResponse({ status: 409, description: "已是最新版本或实例已回收" })
+  async upgradeInstance(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+  ) {
+    return this.instances.upgrade(req.user.id, id);
   }
 }

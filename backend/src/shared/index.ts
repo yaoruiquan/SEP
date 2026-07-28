@@ -417,6 +417,71 @@ export const MemberUpdateDtoSchema = z.object({
 });
 export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
 
+// ── 员工实例 ────────────────────────────────────────────────────────────────
+
+export const INSTANCE_STATUSES = [
+  'PENDING_ACTIVATION',
+  'ACTIVE',
+  'SUSPENDED',
+  'REVOKED',
+] as const;
+export const InstanceStatusSchema = z.enum(INSTANCE_STATUSES);
+export type InstanceStatusValue = z.infer<typeof InstanceStatusSchema>;
+
+/**
+ * 创建员工实例。
+ *
+ * 订阅是**企业级**的（一个模板订阅一次），实例是**部门/岗位级**的 ——
+ * 一次订阅可开多个实例（决策 8），如技术部与运营部各一份，
+ * 各自独立命名与配置。
+ */
+export const InstanceCreateDtoSchema = z.object({
+  /** 来源模板 id。必须是本企业已订阅且订阅有效的模板。 */
+  templateId: z.string(),
+  /** 企业内名称，如「视频工程师」 */
+  name: z.string().min(1).max(50),
+  /** 归属部门。省略表示企业级共享实例。 */
+  departmentId: z.string().optional(),
+  config: z.record(z.any()).optional(),
+});
+export type InstanceCreateDto = z.infer<typeof InstanceCreateDtoSchema>;
+
+export const InstanceUpdateDtoSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  /** 调整归属部门。传 null 表示改为企业级共享。 */
+  departmentId: z.string().nullable().optional(),
+  config: z.record(z.any()).optional(),
+});
+export type InstanceUpdateDto = z.infer<typeof InstanceUpdateDtoSchema>;
+
+/** 实例状态变更。REVOKED 为终态，不可再转回。 */
+export const InstanceStatusUpdateDtoSchema = z.object({
+  status: InstanceStatusSchema,
+});
+export type InstanceStatusUpdateDto = z.infer<
+  typeof InstanceStatusUpdateDtoSchema
+>;
+
+/** 实例视图，含升级提示信息。 */
+export interface InstanceView {
+  id: string;
+  name: string;
+  status: InstanceStatusValue;
+  /** 实例锁定的模板版本 */
+  templateVersion: string;
+  /** 模板当前最新版本 */
+  latestVersion: string;
+  /**
+   * 是否有可用升级。提示式升级（决策 14）：不自动跟进，
+   * 由企业在管理台主动确认。
+   */
+  upgradeAvailable: boolean;
+  template: { id: string; name: string; avatar: string | null };
+  department: { id: string; name: string } | null;
+  config: Record<string, unknown> | null;
+  createdAt: Date;
+}
+
 // Conversation
 export const ConversationCreateDtoSchema = z.object({
   employeeId: z.string(),
