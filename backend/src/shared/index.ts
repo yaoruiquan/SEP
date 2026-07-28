@@ -345,6 +345,78 @@ export const SubscriptionCreateDtoSchema = z.object({
 
 export type SubscriptionCreateDto = z.infer<typeof SubscriptionCreateDtoSchema>;
 
+// ============================================================================
+// Enterprise Organization DTOs（P1 企业组织管理）
+// ============================================================================
+
+/** 企业内角色。与全局 UserRole 是两套体系。 */
+export const ENTERPRISE_ROLES = [
+  'ENTERPRISE_ADMIN',
+  'DEPT_MANAGER',
+  'MEMBER',
+] as const;
+
+export const EnterpriseRoleSchema = z.enum(ENTERPRISE_ROLES);
+export type EnterpriseRoleValue = z.infer<typeof EnterpriseRoleSchema>;
+
+// ── 部门 ────────────────────────────────────────────────────────────────────
+
+export const DepartmentCreateDtoSchema = z.object({
+  name: z.string().min(1).max(50),
+  /** 父部门 id。省略表示顶级部门。 */
+  parentId: z.string().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export type DepartmentCreateDto = z.infer<typeof DepartmentCreateDtoSchema>;
+
+export const DepartmentUpdateDtoSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  /** 移动部门。传 null 表示提升为顶级部门。 */
+  parentId: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export type DepartmentUpdateDto = z.infer<typeof DepartmentUpdateDtoSchema>;
+
+/** 部门树节点（含子节点，供前端直接渲染树形）。 */
+export interface DepartmentTreeNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  sortOrder: number;
+  memberCount: number;
+  children: DepartmentTreeNode[];
+}
+
+// ── 成员 ────────────────────────────────────────────────────────────────────
+
+/**
+ * 添加企业成员。
+ *
+ * 这是第二个人进入企业的**唯一途径** —— 注册入口只用于开公司，
+ * 同事若走注册会创建出另一家公司。
+ *
+ * MVP 采用「管理员代建账号 + 设初始密码」，不做邮件邀请
+ * （邮件服务尚未接入）。
+ */
+export const MemberCreateDtoSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(50).optional(),
+  /** 初始密码，成员首次登录后应自行修改 */
+  password: z.string().min(8),
+  role: EnterpriseRoleSchema.default('MEMBER'),
+  departmentId: z.string().optional(),
+  position: z.string().max(50).optional(),
+});
+export type MemberCreateDto = z.infer<typeof MemberCreateDtoSchema>;
+
+export const MemberUpdateDtoSchema = z.object({
+  role: EnterpriseRoleSchema.optional(),
+  /** 调岗。传 null 表示移出部门。 */
+  departmentId: z.string().nullable().optional(),
+  position: z.string().max(50).nullable().optional(),
+});
+export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
+
 // Conversation
 export const ConversationCreateDtoSchema = z.object({
   employeeId: z.string(),
