@@ -90,3 +90,58 @@ export interface Message {
 export interface ConversationDetail extends ConversationSession {
   messages: Message[];
 }
+
+// ── 企业组织 ──────────────────────────────────────────────────────────────────
+
+export type InstanceStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+export type EnterpriseRole = 'ENTERPRISE_ADMIN' | 'DEPT_MANAGER' | 'MEMBER';
+
+export interface Department {
+  id: string;
+  name: string;
+  sortOrder: number;
+  parentId: string | null;
+  children: Department[];
+  _count?: { members: number };
+}
+
+export interface EnterpriseMember {
+  id: string;
+  role: EnterpriseRole;
+  position: string | null;
+  createdAt: string;
+  user: { id: string; email: string; name: string | null; avatar: string | null };
+  department: { id: string; name: string } | null;
+}
+
+export interface EmployeeInstance {
+  id: string;
+  name: string;
+  status: InstanceStatus;
+  templateVersion: string;
+  latestVersion: string;
+  upgradeAvailable: boolean;
+  template: { id: string; name: string; avatar: string | null };
+  department: { id: string; name: string } | null;
+  config: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface GrantRecord {
+  id: string;
+  department: { id: string; name: string } | null;
+  member: { id: string; name: string | null; email: string } | null;
+  expiresAt: string | null;
+  expired: boolean;
+  createdAt: string;
+}
+
+export interface MyEmployee {
+  instanceId: string;
+  name: string;
+  templateVersion: string;
+  template: { id: string; name: string; avatar: string | null };
+  department: { id: string; name: string } | null;
+  grantSource: 'DIRECT' | 'DEPARTMENT';
+  expiresAt: string | null;
+}

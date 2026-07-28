@@ -12,4 +12,11 @@ export const qk = {
     ['capabilities', params ?? {}] as const,
   adminStats: ['admin', 'stats'] as const,
   adminUsers: ['admin', 'users'] as const,
+  // 企业组织
+  departments: ['enterprise', 'departments'] as const,
+  members: (deptId?: string) =>
+    deptId ? ['enterprise', 'members', deptId] : (['enterprise', 'members'] as const),
+  instances: ['enterprise', 'instances'] as const,
+  instanceGrants: (instanceId: string) => ['enterprise', 'grants', instanceId] as const,
+  myEmployees: ['enterprise', 'my-employees'] as const,
 };
