@@ -1,8 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { generateText, tool, isStepCount } from 'ai';
+import {
+  generateText,
+  isStepCount,
+  jsonSchema,
+  type JSONSchema7,
+  type ToolSet,
+} from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CapabilityService } from '../capability/capability.service';
 import { AdapterInput } from '../capability/adapters/adapter.interface';
@@ -48,19 +53,22 @@ export class DigitalEmployeeRunner {
       throw new NotFoundException(`Digital employee ${employeeId} not found`);
     }
 
-    // Build Vercel AI SDK tools from bound capabilities
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tools: Record<string, any> = {};
+    // Build Vercel AI SDK tools from bound capabilities.
+    // 明确声明为 ToolSet 避免 TS 对 generateText 泛型做无限推断（OOM 来源）。
+    const tools: ToolSet = {};
 
     for (const binding of employee.bindings) {
       const cap = binding.capability;
       // Tool names must be snake_case and alphanumeric
       const toolName = cap.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
-      tools[toolName] = tool({
+      // inputSchema 在 DB 里本来就是 JSON Schema，不需要转 Zod。
+      // jsonSchema() 是 AI SDK 为运行时 schema 设计的零推断路径，
+      // 不会触发 TS 对 generateText TOOLS 泛型的递归展开（之前的 OOM 来源）。
+      tools[toolName] = {
         description: cap.description,
-        inputSchema: z.object(
-          this.buildZodShape(cap.inputSchema as Record<string, unknown>),
+        inputSchema: jsonSchema(
+          this.toJsonSchema(cap.inputSchema as Record<string, unknown>),
         ),
         execute: async (params: Record<string, unknown>) => {
           this.logger.log(`Tool call: ${cap.name} [${cap.id}]`);
@@ -72,7 +80,7 @@ export class DigitalEmployeeRunner {
           const result = await this.capabilityService.execute(cap.id, input);
           return result.success ? result.output : `Error: ${result.error}`;
         },
-      });
+      };
     }
 
     // Initialise sub2api provider
@@ -112,49 +120,32 @@ export class DigitalEmployeeRunner {
   }
 
   /**
-   * Best-effort conversion from a JSON Schema properties definition
-   * to a Zod shape accepted by AI SDK's inputSchema.
+   * 把 Capability.inputSchema 规范成模型可用的 JSON Schema。
+   *
+   * 库里存的已经是 JSON Schema，这里只做两件事：
+   * ① 补齐 type/properties 等顶层字段（历史数据可能只有 properties）；
+   * ② properties 为空时给一个 freeform input 兜底 —— 工具必须有至少一个
+   *    参数，否则部分模型会拒绝调用。
    */
-  private buildZodShape(
-    schema: Record<string, unknown>,
-  ): Record<string, z.ZodTypeAny> {
-    const properties = schema?.properties as Record<string, Record<string, unknown>> | undefined;
-    const required = (schema?.required as string[]) ?? [];
+  private toJsonSchema(schema: Record<string, unknown>): JSONSchema7 {
+    const properties = schema?.properties as
+      | Record<string, JSONSchema7>
+      | undefined;
 
     if (!properties || Object.keys(properties).length === 0) {
-      // Fallback: single freeform input field
-      return { input: z.string().describe('User input') };
+      return {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'User input' },
+        },
+        required: ['input'],
+      };
     }
 
-    const shape: Record<string, z.ZodTypeAny> = {};
-    for (const [key, def] of Object.entries(properties)) {
-      let zodType: z.ZodTypeAny;
-
-      switch (def.type as string) {
-        case 'number':
-        case 'integer':
-          zodType = z.number();
-          break;
-        case 'boolean':
-          zodType = z.boolean();
-          break;
-        case 'array':
-          zodType = z.array(z.any());
-          break;
-        case 'object':
-          zodType = z.record(z.any());
-          break;
-        default:
-          zodType = z.string();
-      }
-
-      if (typeof def.description === 'string') {
-        zodType = zodType.describe(def.description);
-      }
-
-      shape[key] = required.includes(key) ? zodType : zodType.optional();
-    }
-
-    return shape;
+    return {
+      type: 'object',
+      properties,
+      required: (schema?.required as string[]) ?? [],
+    };
   }
 }

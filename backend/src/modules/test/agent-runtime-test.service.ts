@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, tool, isStepCount } from 'ai';
-import { z } from 'zod';
+import { generateText, isStepCount, jsonSchema, type ToolSet } from 'ai';
 import { DEFAULT_MODEL_ID } from 'shared';
 
 @Injectable()
@@ -42,16 +41,26 @@ export class AgentRuntimeTestService {
     if (!p) return { status: 'not_configured', blockedBy: 'SUB2API_API_KEY not set' };
 
     const echoed: string[] = [];
+    // tools 提到 ToolSet 变量里而不是内联，且不用 tool() helper：
+    // 二者都会让 tsc 在 generateText 的 TOOLS 泛型上递归展开而 OOM。
+    const tools: ToolSet = {
+      echo: {
+        description: 'Echo back whatever message is passed in',
+        inputSchema: jsonSchema({
+          type: 'object',
+          properties: { message: { type: 'string' } },
+          required: ['message'],
+        }),
+        execute: async ({ message }: { message: string }) => {
+          echoed.push(message);
+          return { result: message };
+        },
+      },
+    };
     const { text, steps, usage } = await generateText({
       model: p(this.model),
       prompt,
-      tools: {
-        echo: tool({
-          description: 'Echo back whatever message is passed in',
-          inputSchema: z.object({ message: z.string() }),
-          execute: async ({ message }) => { echoed.push(message); return { result: message }; },
-        }),
-      },
+      tools,
       stopWhen: isStepCount(3),
     });
 
@@ -63,25 +72,37 @@ export class AgentRuntimeTestService {
     if (!p) return { status: 'not_configured', blockedBy: 'SUB2API_API_KEY not set' };
 
     const callLog: string[] = [];
+    const tools: ToolSet = {
+      echo: {
+        description: 'Echo back a message',
+        inputSchema: jsonSchema({
+          type: 'object',
+          properties: { message: { type: 'string' } },
+          required: ['message'],
+        }),
+        execute: async ({ message }: { message: string }) => {
+          callLog.push(`echo: ${message}`);
+          return { result: message };
+        },
+      },
+      reverse: {
+        description: 'Reverse a string',
+        inputSchema: jsonSchema({
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text'],
+        }),
+        execute: async ({ text: t }: { text: string }) => {
+          const reversed = t.split('').reverse().join('');
+          callLog.push(`reverse: ${t} → ${reversed}`);
+          return { result: reversed };
+        },
+      },
+    };
     const { text, steps, usage } = await generateText({
       model: p(this.model),
       prompt,
-      tools: {
-        echo: tool({
-          description: 'Echo back a message',
-          inputSchema: z.object({ message: z.string() }),
-          execute: async ({ message }) => { callLog.push(`echo: ${message}`); return { result: message }; },
-        }),
-        reverse: tool({
-          description: 'Reverse a string',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text: t }) => {
-            const reversed = t.split('').reverse().join('');
-            callLog.push(`reverse: ${t} → ${reversed}`);
-            return { result: reversed };
-          },
-        }),
-      },
+      tools,
       stopWhen: isStepCount(5),
     });
 
