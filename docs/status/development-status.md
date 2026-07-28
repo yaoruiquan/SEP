@@ -1,6 +1,6 @@
 # 硅基人才平台 - 开发状态
 
-> 最后更新：2026-07-27（⚠️ 产品方向调整：会话/编排暂停，适配器保留；汇率可配置）
+> 最后更新：2026-07-28（P0 企业组织基座 + P1 部门/成员/实例管理已落地）
 
 ---
 
@@ -76,8 +76,8 @@ ConversationSession { userId → 任务归属企业/部门/项目 }
 - [x] **计费系统**（保底计费 + 汇率可配置，已验证）— 保留，MVP 需算力计量
 - [x] **能力适配器**（Coze 已端到端验证）— 保留，重新定位为统一接入底座
 - [ ] ⏸️ **Agent 编排**（多员工协同）— 后置
-- [ ] **企业组织层**（企业/部门/成员/权限/实例/任务）← 最大缺口
-- [ ] **人才市场**（员工目录/详情/招聘/绑定）← 新方向主线
+- [x] **企业组织层** — P0 基座 ✅ + P1 部门/成员/实例管理 ✅（进行中）
+- [ ] **人才市场**（员工目录/详情/招聘/运行环境绑定）← 新方向主线
 - [ ] 错误处理统一
 - [ ] 结构化日志
 - [ ] 生产部署
@@ -86,9 +86,23 @@ ConversationSession { userId → 任务归属企业/部门/项目 }
 
 ## 当前状态
 
-**当前版本**: v0.4.0-alpha
-**最新提交**: `fix(billing): 汇率可配置 + 修复累计消费统计不准`
-**下一步**: 等企业组织 / 人才市场 MVP 范围确认后开工（会议行动项 #2、#3）
+**当前版本**: v0.5.0-alpha
+**最新提交**: `feat(enterprise): 员工实例管理（P1 第二块）`
+**下一步**: P1 第三块 —— 前端路由组重构为 `(market)` / `(enterprise)` / `(platform)` / `(auth)`
+
+**企业组织层进展（2026-07-28）**
+按 `docs/plans/项目升级开发顺序方案v3.md` 的模块优先级推进：
+
+| 阶段 | 内容 | 状态 | 验证 |
+|---|---|---|---|
+| P0 | 6 张新表 + 订阅/算力账户主体改企业 + 多租户隔离基座 | ✅ | E2E 11/11 |
+| P1-1 | 企业自助注册 + 部门树 + 成员管理（9 接口） | ✅ | 单测 94/94 · E2E 21/21 |
+| P1-2 | 员工实例管理（5 接口，版本锁定 + 状态机 + 授权保留） | ✅ | 单测 22/22 · E2E 12/12 |
+| P1-3 | 前端路由组重构（单应用按角色分权） | 🔲 | — |
+
+关键设计：**一次订阅可开多个实例**（同模板按部门分别部署）；实例创建时
+锁定 `templateVersion`，模板发新版仅提示不自动跟进（决策 14）；停用/回收
+**不删授权记录**，恢复后原授权继续有效；越权一律 404 不泄漏存在性。
 
 **Coze 验证结论（2026-07-27，方向调整前最后一项完成的工作）**
 Coze 平台已**端到端跑通** —— 项目首次成功的能力执行。链路：
@@ -125,18 +139,50 @@ sub2api **支持** function calling，差异在**模型**而非网关。实测�
 | 用户管理 | ✅ 完成 | 100% | 2026-07-23 | CRUD + 个人设置 |
 | 能力管理 | ✅ 完成 | 95% | 2026-07-24 | CRUD + 审核流程 + status 过滤 |
 | **能力适配器** | ✅ 保留 | 40% | 2026-07-27 | Coze 已端到端验证（首次成功能力执行）；Skill/RPA/AI_APP 未实现。**MVP 需 1-2 种形态** |
-| 数字员工 | ⚠️ 需改造 | 100% | 2026-07-23 | CRUD 完整，但**模板与企业实例未分离**（设计方案 §6.4 要求分离）|
-| 订阅系统 | ⚠️ 需改造 | 100% | 2026-07-23 | 主体是 user，应改为 enterprise |
+| 数字员工 | ✅ 已分离 | 100% | 2026-07-28 | `DigitalEmployee` 为市场模板（带 `version`），`EmployeeInstance` 为企业实例（设计方案 §6.4）|
+| 订阅系统 | ✅ 已改造 | 100% | 2026-07-28 | 主体已改 enterprise，`@@unique([enterpriseId, employeeId])` |
 | 会话系统 | ⏸️ 暂停 | 95% | 2026-07-27 | SSE 流式 + 工具循环已修复验证；**本期不做** |
-| 计费系统 | ✅ 保留 | 97% | 2026-07-27 | 保底计费 + 汇率可配置 + 累计消费修正；`ComputeAccount` 主体待改企业 |
+| 计费系统 | ✅ 保留 | 97% | 2026-07-27 | 保底计费 + 汇率可配置 + 累计消费修正；`ComputeAccount` 主体已改企业 |
 | 工具编排 | ✅ 保留 | 70% | 2026-07-27 | 单员工工具调用已验证；**多员工编排后置** |
+| **企业组织层** | 🔨 进行中 | 55% | 2026-07-28 | ✅ P0 基座（6 表 + 多租户隔离）· ✅ P1-1（部门/成员）· ✅ P1-2（实例）· 🔲 P1-3（前端路由组） |
 | 前端页面 | ⚠️ 部分复用 | 95% | 2026-07-25 | 现有为个人视角，企业组织相关页面待建 |
-| **企业组织层** | 🔲 未开始 | 0% | — | 企业/部门/成员/角色/授权/实例/任务，**最大缺口** |
 | **人才市场** | 🔲 未开始 | 0% | — | 员工目录/详情/招聘/运行环境绑定 |
 
 ---
 
 ## 最近变更
+
+### 2026-07-28
+- **P1 第一块：部门树 + 成员管理**（9 接口，`feat(enterprise): 7c29305`）
+  - ✅ `DepartmentService` —— 部门树（含环检测 + 跨企业挂载防护）、增改删（不级联）
+  - ✅ `MemberService` —— 列表、代建账号（事务内同时建 User）、改角色、移出
+  - 安全守卫：最后一名管理员不可移除/降级；不能自己降自己；越权 404
+  - 单测 94/94；E2E 21/21（含跨企业隔离）
+
+- **P1 第二块：员工实例管理**（5 接口，`feat(enterprise): f4376a6`）
+  - ✅ `InstanceService` —— 列表（含 `upgradeAvailable`）、创建（校验订阅有效性）、
+    改名/换部门/改配置、状态流转、主动升级
+  - 版本锁定：创建时锁 `templateVersion`，模板发新版仅提示；升级返回
+    `configReviewRequired` 提示复核，**不自动迁移 config**（版本间配置项可能变动）
+  - 停用/回收不删 `EmployeeGrant`（恢复后授权继续有效）；REVOKED 是终态
+  - 状态机：`PENDING_ACTIVATION → ACTIVE / REVOKED`、`ACTIVE ↔ SUSPENDED`、
+    `SUSPENDED → ACTIVE / REVOKED`、`REVOKED`（终态）
+  - 单测 22/22；E2E 12/12（含跨企业隔离 2 项、状态终态 2 项、幂等 1 项）
+
+- **P0 企业组织基座**（`feat(enterprise): P0`）
+  - 6 张新表：Enterprise / Department / EnterpriseMember / EmployeeInstance /
+    EmployeeGrant / AccessRequest
+  - `Subscription` / `ComputeAccount` 主体改 enterprise；`DigitalEmployee` 加 `version`
+  - `EnterpriseContextService` 多租户单一数据源；注册事务（User + Enterprise + Member + ComputeAccount）
+  - `ZodValidationPipe` —— Zod DTO 无法依赖 class-validator，新增运行时校验管道
+  - E2E 11/11（含双企业种子数据隔离验证）
+
+- **tsc 类型推断 OOM 根因修复**（`fix(build): b040f3b`）
+  - AI SDK v7 的 `tool()` + `generateText` 泛型 + Zod schema 三件事合起来触发
+    TS 递归类型展开，单文件就能把 tsc 顶到 3GB heap 后 OOM
+  - 受影响文件：`digital-employee.runner.ts`（动态 schema）、`agent-runtime-test.service.ts`（静态 schema）
+  - 修法：用 `jsonSchema()` 替换 `z.object()` + `tool()` 组合，走 AI SDK 零推断路径
+  - 全量 tsc：OOM → **2.2 秒**；`nest build` 1.7 秒；单测 116/116 不变
 
 ### 2026-07-27
 - **⚠️ 产品方向调整** —— 收敛到「企业级硅基员工人才市场 + 组织中控」。
@@ -264,18 +310,22 @@ sub2api **支持** function calling，差异在**模型**而非网关。实测�
   - 修复「累计消费」只统计最近 100 条导致的静默漏算
   - 修复金额统计依赖 `metadata` 完整性的问题
 
-### 待讨论后才能开工（阻塞中）
-- [ ] **细化人才市场 + 企业组织的 MVP 范围**
-  - 纪要行动项 #2（MVP 功能清单）、#3（端到端流程与页面/接口边界）
-  - 需评估现有 27 个模型的复用/改造/废弃清单
-  - 参考那个前端原型（用户提及，待提供）
+### 企业组织层已完成
+- [x] 企业组织数据模型（纪要 #4、#6；设计方案 §11 第一阶段）—— P0
+      Enterprise / Department / EnterpriseMember / EmployeeInstance /
+      EmployeeGrant / AccessRequest（Task 未建，随会话一并后置）
+- [x] `DigitalEmployee` 拆分为「市场模板」+「企业实例」（设计方案 §6.4）
+- [x] `Subscription` / `ComputeAccount` 主体由 user 改为 enterprise
+- [x] 部门树 + 成员管理（P1-1）· 员工实例生命周期（P1-2）
 
-### 方向已明确、可先做的（等范围确认后排期）
-- [ ] 企业组织数据模型（纪要 #4、#6；设计方案 §11 第一阶段）
-      Enterprise / Department / EnterpriseMember / EmployeeInstance / Task /
-      EmployeeGrant / AccessRequest
-- [ ] `DigitalEmployee` 拆分为「市场模板」+「企业实例」（设计方案 §6.4）
-- [ ] `Subscription` / `ComputeAccount` 主体由 user 改为 enterprise
+### 企业组织层进行中
+- [ ] **P1-3 前端路由组重构** ← 下一步
+      `(market)` 人才市场（未登录可浏览）· `(enterprise)` 企业管理端 ·
+      `(platform)` 平台运营端 · `(auth)` 登录注册。
+      单应用 + 按账号角色分权（决策：方向 2 与方向 3 同一套前端）
+- [ ] 成员↔实例授权界面（`EmployeeGrant` 表已建，接口未做）
+- [ ] 跨部门调用申请/审批（`AccessRequest` 表已建，接口未做）
+- [ ] 算力用量页面空架子（决策：前端能看到即可）
 - [ ] 审计日志（纪要 #7）—— 现有 `ToolExecution` 可作基础
 - [ ] 统一员工调用协议草案（纪要 #5；设计方案 §8.1）
       现有 `CapabilityAdapter.execute()` 可作起点，需补启动/暂停/终止/查询状态
@@ -338,6 +388,13 @@ sub2api **支持** function calling，差异在**模型**而非网关。实测�
 3. 错误日志未统一（部分模块缺少结构化日志）
 4. token 估算公式 `length / 4` 对中文低估 5–10 倍（仅在带工具会话生效）
 5. `web/tsconfig.tsbuildinfo` 是构建产物却被 git 追踪，应移出并加 `.gitignore`
+   —— 相关：`web/` dev server 非正常退出会遗留 `fork-ts-checker` worker 进程
+   （每个挂 `--max-old-space-size=2048`），排查 tsc OOM 时清掉了 22 个
+9. **AI SDK v7 泛型是 tsc 内存的雷区**（2026-07-28 已修，记录避免复犯）
+   `tool()` + `generateText` + Zod `inputSchema` 三者组合会触发 TS 递归类型
+   展开，单文件即可 OOM。新增 AI SDK 调用点时：tools 用 `ToolSet` 标注 +
+   提到变量（勿内联）+ `inputSchema` 用 `jsonSchema()` 而非 `z.object()`。
+   `tool()` 运行时是恒等函数，去掉无副作用。
 6. 验证用测试数据待清理（方向调整后可能直接废弃，暂不动）：
    - `e2e-notools` 员工 + 订阅（为绕开 tools 限制临时创建）
    - `coze-verify-emp` 员工 + `coze-verify-bot` 能力 + 订阅（Coze 验证用）
@@ -365,8 +422,11 @@ sub2api **支持** function calling，差异在**模型**而非网关。实测�
 - ✅ **2026-07-27**: 汇率可配置 + 累计消费统计修正（会议行动项 #1）
 - ⏸️ **2026-07-27**: **产品方向调整** —— 会话/Agent 编排暂停，适配器保留并重新定位；
   收敛到「企业级硅基员工人才市场 + 组织中控」
-- 📅 **下一步**: 确认企业组织 + 人才市场 MVP 范围（会议行动项 #2、#3）
-- 📅 **之后**: 企业组织数据模型 → 员工模板/实例分离 → 市场主线 → 任务闭环
+- ✅ **2026-07-28**: P0 企业组织基座（6 张新表 + 多租户隔离）
+- ✅ **2026-07-28**: P1-1 部门树 + 成员管理（94 单测 + 21 E2E）
+- ✅ **2026-07-28**: P1-2 员工实例管理（22 单测 + 12 E2E）
+- ✅ **2026-07-28**: tsc OOM 根因修复（全量编译 OOM → 2.2 秒）
+- 📅 **下一步**: P1-3 前端路由组重构 `(market)` / `(enterprise)` / `(platform)` / `(auth)`
 
 更多里程碑详情见 [milestones/](./milestones/)
 
