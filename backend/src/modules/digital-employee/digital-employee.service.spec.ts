@@ -43,6 +43,7 @@ const prismaMock = {
     create: jest.fn(),
     findMany: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
   },
@@ -290,6 +291,95 @@ describe('DigitalEmployeeService', () => {
       prismaMock.employeeCapabilityBinding.findUnique.mockResolvedValue(null);
 
       await expect(service.unbindCapability('emp-1', 'non-bound')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  // ── 公开投影（安全边界，不要放宽这些断言）─────────────────────────────────
+
+  describe('findPublicList / findPublicOne', () => {
+    /** 访客绝不该看到的字段 */
+    const FORBIDDEN = ['systemPrompt', 'modelId', 'maxSteps'];
+
+    it('列表只查 PUBLISHED，调用方无法指定 status', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findPublicList();
+
+      const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      expect(arg.where.status).toBe('PUBLISHED');
+    });
+
+    it('列表用 select 白名单，不含 systemPrompt / modelId / maxSteps', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findPublicList();
+
+      const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      // 必须是 select 白名单而非 include —— include 会带出全部标量字段
+      expect(arg.select).toBeDefined();
+      expect(arg.include).toBeUndefined();
+      for (const f of FORBIDDEN) {
+        expect(arg.select).not.toHaveProperty(f);
+      }
+    });
+
+    it('capability 只投影 id/name/type', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findPublicList();
+
+      const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      expect(arg.select.bindings.select.capability.select).toEqual({
+        id: true,
+        name: true,
+        type: true,
+      });
+    });
+
+    it('搜索词落到 name/description/industry/position 的 OR 上', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findPublicList('  文案  ');
+
+      const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      // 前后空格应被裁掉
+      expect(arg.where.OR).toEqual([
+        { name: { contains: '文案', mode: 'insensitive' } },
+        { description: { contains: '文案', mode: 'insensitive' } },
+        { industry: { contains: '文案', mode: 'insensitive' } },
+        { position: { contains: '文案', mode: 'insensitive' } },
+      ]);
+      // 搜索不得覆盖 PUBLISHED 约束
+      expect(arg.where.status).toBe('PUBLISHED');
+    });
+
+    it('搜索词为空白时不加 OR 条件', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
+
+      await service.findPublicList('   ');
+
+      const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      expect(arg.where.OR).toBeUndefined();
+    });
+
+    it('详情按 id + PUBLISHED 双条件查', async () => {
+      prismaMock.digitalEmployee.findFirst.mockResolvedValue({ id: 'emp-1' });
+
+      await service.findPublicOne('emp-1');
+
+      const arg = prismaMock.digitalEmployee.findFirst.mock.calls[0][0];
+      expect(arg.where).toEqual({ id: 'emp-1', status: 'PUBLISHED' });
+      for (const f of FORBIDDEN) {
+        expect(arg.select).not.toHaveProperty(f);
+      }
+    });
+
+    it('未上架员工详情抛 404，而非返回 null', async () => {
+      prismaMock.digitalEmployee.findFirst.mockResolvedValue(null);
+
+      await expect(service.findPublicOne('emp-draft')).rejects.toThrow(
         NotFoundException,
       );
     });

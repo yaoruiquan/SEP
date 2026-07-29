@@ -69,6 +69,79 @@ export class DigitalEmployeeService {
     });
   }
 
+  /**
+   * 人才市场的**公开**员工列表 —— 无需登录。
+   *
+   * 与 findAll 的两个关键差异，都是安全相关，不要合并这两个方法：
+   * ① status 硬编码为 PUBLISHED，不接受调用方传参 —— 否则访客传
+   *    `?status=DRAFT` 就能看到未上架的员工；
+   * ② 用 select 白名单而非 include，**不返回 systemPrompt / modelId /
+   *    maxSteps**。提示词基本等于这个员工的全部内容，公开即可被完整复制。
+   *    这些字段只在已登录的管理端/订阅方接口里返回。
+   */
+  async findPublicList(search?: string) {
+    const q = search?.trim();
+    return this.prisma.digitalEmployee.findMany({
+      where: {
+        status: 'PUBLISHED',
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' as const } },
+                { description: { contains: q, mode: 'insensitive' as const } },
+                { industry: { contains: q, mode: 'insensitive' as const } },
+                { position: { contains: q, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
+      select: this.publicSelect(),
+      orderBy: { publishedAt: 'desc' },
+    });
+  }
+
+  /** 公开员工详情。同样只返回白名单字段，且非 PUBLISHED 一律 404。 */
+  async findPublicOne(id: string) {
+    const employee = await this.prisma.digitalEmployee.findFirst({
+      where: { id, status: 'PUBLISHED' },
+      select: this.publicSelect(),
+    });
+    if (!employee) {
+      // 未上架的员工对访客应表现为「不存在」，不泄漏其存在性
+      throw new NotFoundException(`员工 ${id} 不存在`);
+    }
+    return employee;
+  }
+
+  /**
+   * 公开字段白名单。**新增字段时默认不要加进来** ——
+   * 加之前先问：访客看到它有没有问题。
+   */
+  private publicSelect() {
+    return {
+      id: true,
+      name: true,
+      description: true,
+      industry: true,
+      position: true,
+      avatar: true,
+      price: true,
+      version: true,
+      publishedAt: true,
+      bindings: {
+        select: {
+          id: true,
+          order: true,
+          // 只给能力的名称与类型，用于展示「这个员工会做什么」；
+          // 不给 capability 的 config / apiKey 等
+          capability: { select: { id: true, name: true, type: true } },
+        },
+        orderBy: { order: 'asc' as const },
+      },
+      _count: { select: { subscriptions: true } },
+    };
+  }
+
   async findOne(id: string) {
     const employee = await this.prisma.digitalEmployee.findUnique({
       where: { id },
