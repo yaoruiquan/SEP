@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Search, Users, Check } from 'lucide-react';
+import { Search, Users, Check, Zap } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,8 @@ import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subs
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
 
+const INDUSTRIES = ['全部', '电商零售', '金融服务', '医疗健康', '教育培训', '制造业', '物流运输', '餐饮服务', '企业服务'];
+
 export default function MarketplacePage() {
   const { token, hydrated } = useAuthStore();
   const loggedIn = hydrated && Boolean(token);
@@ -23,6 +25,7 @@ export default function MarketplacePage() {
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
+  const [industry, setIndustry] = useState('');
   useEffect(() => {
     const t = setTimeout(() => setSearch(input), 300);
     return () => clearTimeout(t);
@@ -35,13 +38,23 @@ export default function MarketplacePage() {
   const subscribe = useSubscribe();
   const subscribedIds = new Set(subs.map((s) => s.employee.id));
 
+  const filtered = search
+    ? employees
+    : industry
+    ? employees.filter((e) => e.industry?.includes(industry))
+    : employees;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">硅基人才市场</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          挑选适合你团队的硅基员工，订阅后即可为部门创建实例
-        </p>
+      {/* Hero Banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#eb3f00] to-orange-400 px-8 py-10 text-white">
+        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
+        <div className="absolute -bottom-6 right-20 h-24 w-24 rounded-full bg-white/8" />
+        <div className="relative">
+          <p className="mb-2 text-sm font-medium text-orange-100">🌟 硅基员工人才市场</p>
+          <h1 className="mb-3 text-3xl font-bold">发现适合你企业的数字员工</h1>
+          <p className="text-base text-orange-100">涵盖电商、金融、医疗、教育等 8 大行业，120+ 经过审核的硅基员工等你招聘</p>
+        </div>
       </div>
 
       <div className="relative">
@@ -54,13 +67,30 @@ export default function MarketplacePage() {
         />
       </div>
 
+      {/* 行业分类 Chips */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {INDUSTRIES.map((ind) => (
+          <button
+            key={ind}
+            onClick={() => setIndustry(ind === '全部' ? '' : ind)}
+            className={`shrink-0 rounded-full border px-4 py-1.5 text-sm transition-all ${
+              (ind === '全部' && !industry) || industry === ind
+                ? 'border-primary bg-primary text-white'
+                : 'border-border bg-card text-fg-muted hover:border-primary/40 hover:text-foreground'
+            }`}
+          >
+            {ind}
+          </button>
+        ))}
+      </div>
+
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <Skeleton key={i} className="h-56" />
           ))}
         </div>
-      ) : employees.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={<Users className="h-8 w-8" />}
           title={search ? '没有找到匹配的员工' : '暂无已上架的员工'}
@@ -68,7 +98,7 @@ export default function MarketplacePage() {
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {employees.map((emp) => {
+          {filtered.map((emp) => {
             const subscribed = subscribedIds.has(emp.id);
             const capTypes = Array.from(
               new Set(emp.bindings?.map((b) => b.capability.type) ?? []),
@@ -121,6 +151,19 @@ export default function MarketplacePage() {
                       })}
                     </div>
                   )}
+
+                  {/* 能力与版本统计 */}
+                  <div className="flex items-center gap-3 border-t border-border pt-3 text-xs text-fg-subtle">
+                    <span className="flex items-center gap-1">
+                      <Zap className="h-3 w-3" />
+                      {emp.bindings?.length ?? 0} 项能力
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                      运行中
+                    </span>
+                    <span className="ml-auto">v{emp.version ?? '1.0.0'}</span>
+                  </div>
 
                   <div className="flex items-center gap-2">
                     {subscribed ? (
