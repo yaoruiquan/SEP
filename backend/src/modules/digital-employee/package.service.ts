@@ -10,7 +10,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PackagePublishDto, PackageView, PACKAGE_MAX_BYTES } from 'shared';
+import { PackagePublishDto, PackageView, InstancePackageInfo, PACKAGE_MAX_BYTES } from 'shared';
 
 /** 上传文件的最小形状，避免依赖 Express.Multer 的全局类型 */
 export interface UploadedZip {
@@ -39,18 +39,29 @@ export class PackageService {
   /**
    * 发布新版本：存盘 + 落库 + 同步 DigitalEmployee.version。
    *
-   * 三件事必须一起做，否则会出现「版本号变了但没有对应的包」或反之：
-   * 前者让用户看到升级提示却下载到旧包，后者让包永远不被提示。
-   * 故 version 更新与 package 落库放在同一事务里；文件先落盘，
-   * 事务失败时再删掉 —— 宁可留一个孤儿文件，也不要留一条指向不存在文件的记录。
+   * **支持两种路径**（P3.1）：
+   * 1. ZIP 上传：file 非空 → 校验、落盘、记录（现有行为）
+   * 2. packageRef-only：file 为 undefined，dto.packageRef 非空 → 只登记引用
+   * 3. 两者并存：同时提供 file 和 packageRef
+   *
+   * 三件事必须一起做（version 更新 + package 落库在同一事务），
+   * 否则会出现「版本号变了但没有对应的包」或反之。
    */
   async publish(
     employeeId: string,
     uploaderId: string,
     dto: PackagePublishDto,
-    file: UploadedZip,
+    file?: UploadedZip,
   ): Promise<PackageView> {
-    this.assertZip(file);
+    // 至少要有一种分发方式
+    if (!file && !dto.packageRef) {
+      throw new BadRequestException('必须上传 ZIP 文件或提供 packageRef，不能都为空');
+    }
+
+    // ZIP 路径：提前校验文件（在查询 DB 之前拒绝非法文件，避免无效查询）
+    if (file) {
+      this.assertZip(file);
+    }
 
     const employee = await this.prisma.digitalEmployee.findUnique({
       where: { id: employeeId },
@@ -69,14 +80,19 @@ export class PackageService {
       );
     }
 
-    const sha256 = createHash('sha256').update(file.buffer).digest('hex');
+    // ZIP 路径：计算 SHA-256、落盘
+    let sha256: string | null = null;
+    let relPath: string | null = null;
+    let absPath: string | null = null;
 
-    // 存储路径带 uuid，避免同名文件互相覆盖
-    const relPath = join(employeeId, `${dto.version}-${randomUUID()}.zip`);
-    const absPath = join(this.storageRoot(), relPath);
+    if (file) {
+      sha256 = createHash('sha256').update(file.buffer).digest('hex');
+      relPath = join(employeeId, `${dto.version}-${randomUUID()}.zip`);
+      absPath = join(this.storageRoot(), relPath);
 
-    await mkdir(join(this.storageRoot(), employeeId), { recursive: true });
-    await writeFile(absPath, file.buffer);
+      await mkdir(join(this.storageRoot(), employeeId), { recursive: true });
+      await writeFile(absPath, file.buffer);
+    }
 
     try {
       const pkg = await this.prisma.$transaction(async (tx) => {
@@ -84,10 +100,11 @@ export class PackageService {
           data: {
             employeeId,
             version: dto.version,
-            filename: this.safeFilename(file.originalname),
+            filename: file ? this.safeFilename(file.originalname) : null,
             storagePath: relPath,
             sha256,
-            fileSizeBytes: file.size,
+            fileSizeBytes: file?.size ?? null,
+            packageRef: dto.packageRef ?? null,
             uploadedBy: uploaderId,
             changelog: dto.changelog ?? null,
           },
@@ -102,13 +119,15 @@ export class PackageService {
         return created;
       });
 
+      const refMsg = dto.packageRef ? `, packageRef=${dto.packageRef.type}:${dto.packageRef.spec}` : '';
+      const zipMsg = file ? `${file.size} 字节, sha256=${sha256!.slice(0, 12)}…` : 'packageRef-only';
       this.logger.log(
-        `已发布 ${employee.name} v${dto.version}（${file.size} 字节, sha256=${sha256.slice(0, 12)}…）`,
+        `已发布 ${employee.name} v${dto.version}（${zipMsg}${refMsg}）`,
       );
       return this.toView(pkg);
     } catch (err) {
       // 事务失败则清理已落盘的文件，避免留下无主文件
-      await unlink(absPath).catch(() => undefined);
+      if (absPath) await unlink(absPath).catch(() => undefined);
       throw err;
     }
   }
@@ -148,6 +167,13 @@ export class PackageService {
     });
     if (!pkg) throw new NotFoundException('该员工尚无可下载的员工包');
 
+    // packageRef-only 的包不支持 ZIP 下载
+    if (!pkg.storagePath) {
+      throw new BadRequestException(
+        `该员工包未提供 ZIP 下载，请用 pi install 安装（packageRef: ${JSON.stringify(pkg.packageRef)}）`,
+      );
+    }
+
     if (!isPlatformAdmin) {
       const ok = await this.hasActiveGrant(employeeId, params);
       if (!ok) {
@@ -157,11 +183,55 @@ export class PackageService {
 
     return {
       absPath: join(this.storageRoot(), pkg.storagePath),
-      filename: pkg.filename,
-      sha256: pkg.sha256,
-      fileSizeBytes: pkg.fileSizeBytes,
+      filename: pkg.filename!,
+      sha256: pkg.sha256!,
+      fileSizeBytes: pkg.fileSizeBytes!,
       version: pkg.version,
       stream: () => createReadStream(join(this.storageRoot(), pkg.storagePath)),
+    };
+  }
+
+  /**
+   * P3.2：客户端获取实例可安装的包信息。
+   *
+   * 权限判定同 resolveDownload，但返回的是 packageRef（客户端直接 pi install）
+   * 而非 ZIP 下载流。ZIP 作为兜底通道，仅在 packageRef 不存在时提示可手动下载。
+   */
+  async getForInstance(params: {
+    instanceId: string;
+    isPlatformAdmin: boolean;
+    enterpriseId?: string;
+    memberId?: string;
+    departmentId?: string | null;
+  }): Promise<InstancePackageInfo> {
+    const { instanceId, isPlatformAdmin } = params;
+
+    // 先取实例及其模板 ID
+    const inst = await this.prisma.employeeInstance.findUnique({
+      where: { id: instanceId },
+      select: { templateId: true, status: true },
+    });
+    if (!inst) throw new NotFoundException('实例不存在');
+
+    // 权限校验（非平台运营需验证授权）
+    if (!isPlatformAdmin) {
+      const ok = await this.hasActiveGrant(inst.templateId, params);
+      if (!ok) throw new NotFoundException('实例不存在'); // 不泄漏存在性
+    }
+
+    // 取最新包
+    const pkg = await this.prisma.employeePackage.findFirst({
+      where: { employeeId: inst.templateId },
+      orderBy: { createdAt: 'desc' },
+      select: { version: true, packageRef: true, storagePath: true, sha256: true },
+    });
+    if (!pkg) throw new NotFoundException('该实例对应的员工尚无可用包');
+
+    return {
+      version: pkg.version,
+      packageRef: pkg.packageRef as InstancePackageInfo['packageRef'],
+      zipAvailable: !!pkg.storagePath,
+      sha256: pkg.sha256,
     };
   }
 
@@ -242,9 +312,10 @@ export class PackageService {
   private toView(r: {
     id: string;
     version: string;
-    filename: string;
-    sha256: string;
-    fileSizeBytes: number;
+    filename: string | null;
+    sha256: string | null;
+    fileSizeBytes: number | null;
+    packageRef: any;
     changelog: string | null;
     createdAt: Date;
   }): PackageView {
@@ -254,6 +325,7 @@ export class PackageService {
       filename: r.filename,
       sha256: r.sha256,
       fileSizeBytes: r.fileSizeBytes,
+      packageRef: r.packageRef as PackageView['packageRef'],
       changelog: r.changelog,
       createdAt: r.createdAt,
     };

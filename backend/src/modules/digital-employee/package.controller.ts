@@ -61,40 +61,48 @@ export class PackageController {
   @ApiOperation({
     summary: '发布新版本员工包（仅平台运营）',
     description:
-      '上传对应版本的 ZIP 文件，同时更新 DigitalEmployee.version，触发已有实例的升级提示。\n\n' +
-      'Content-Type: multipart/form-data。表单字段：file（ZIP 文件）+ version（x.y.z）+ changelog（可选）。',
+      '**P3.1 两种发布路径**：\n' +
+      '1. 上传 ZIP（file 字段）→ 平台存储文件 + 可下载\n' +
+      '2. 填 packageRef（npm/git）→ 客户端用 pi install，平台不存文件\n' +
+      '3. 两者并存 → ZIP 作为兜底，packageRef 优先\n\n' +
+      '至少要有一种分发方式（file 或 packageRef），不能都为空。\n\n' +
+      'Content-Type: multipart/form-data。表单字段：file（可选）+ version + packageRef[type]/packageRef[spec]（可选）+ changelog（可选）。',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['file', 'version'],
+      required: ['version'],
       properties: {
-        file: { type: 'string', format: 'binary', description: 'ZIP 文件（≤ 20MB）' },
+        file: { type: 'string', format: 'binary', description: 'ZIP 文件（可选，≤ 20MB）' },
         version: { type: 'string', description: '版本号，格式 x.y.z' },
+        'packageRef[type]': { type: 'string', enum: ['npm', 'git'], description: 'packageRef.type（可选）' },
+        'packageRef[spec]': { type: 'string', example: '@sep/employee-video@1.2.0', description: 'packageRef.spec（可选）' },
         changelog: { type: 'string', description: '更新说明（可选，≤ 500 字）' },
       },
     },
   })
   @ApiResponse({ status: 201, description: '已发布' })
-  @ApiResponse({ status: 400, description: '文件非 ZIP / 超过大小限制 / 版本号重复' })
+  @ApiResponse({ status: 400, description: '文件非 ZIP / 超过大小限制 / 版本号重复 / file 和 packageRef 都为空' })
   @ApiResponse({ status: 403, description: '非平台运营' })
   async publish(
     @Param('id') employeeId: string,
-    // 用自定义的 UploadedZip 而非 Express.Multer.File ——
-    // 项目未装 @types/multer，且服务层只需要这四个字段
     @UploadedFile() file: UploadedZip | undefined,
     @Request() req: AuthedRequest,
-    // 表单的文本字段通过 Body 取，但文件上传时不能同时用 @Body(pipe)，
-    // 改为手动 parse：multer 把文本字段放在 req.body
-    @Request() { body }: { body: Record<string, string> },
+    @Request() { body }: { body: Record<string, any> },
   ) {
-    const dto = new ZodValidationPipe(PackagePublishDtoSchema).transform(body);
-    return this.packages.publish(employeeId, req.user.id, dto, {
-      originalname: file?.originalname ?? 'package.zip',
-      buffer: file?.buffer ?? Buffer.alloc(0),
-      size: file?.size ?? 0,
+    // 手动构造 packageRef（multipart 表单嵌套对象需这样处理）
+    const packageRef = body['packageRef[type]'] && body['packageRef[spec]']
+      ? { type: body['packageRef[type]'], spec: body['packageRef[spec]'] }
+      : undefined;
+
+    const dto = new ZodValidationPipe(PackagePublishDtoSchema).transform({
+      version: body.version,
+      changelog: body.changelog,
+      packageRef,
     });
+
+    return this.packages.publish(employeeId, req.user.id, dto, file);
   }
 
   @Get('digital-employees/:id/packages')
@@ -108,6 +116,34 @@ export class PackageController {
   }
 
   // ── 成员端：下载 ──────────────────────────────────────────────────────────
+
+  @Get('enterprise/instances/:id/package')
+  @ApiOperation({
+    summary: 'P3.2：获取实例可安装的包信息（客户端用）',
+    description:
+      '返回 packageRef（客户端用 pi install）+ ZIP 可用性（兜底通道）。\n' +
+      '权限同下载接口：企业成员需对该实例有未过期授权，平台运营无需授权。',
+  })
+  @ApiParam({ name: 'id', description: '实例 ID' })
+  @ApiResponse({ status: 200, description: 'packageRef + version + zipAvailable' })
+  @ApiResponse({ status: 404, description: '实例不存在 / 无授权 / 无可用包' })
+  async getInstancePackage(
+    @Param('id') instanceId: string,
+    @Request() req: AuthedRequest,
+  ) {
+    const isPlatformAdmin = req.user.role === 'ADMIN';
+    const context = isPlatformAdmin
+      ? undefined
+      : await this.enterpriseCtx.resolve(req.user.id);
+
+    return this.packages.getForInstance({
+      instanceId,
+      isPlatformAdmin,
+      enterpriseId: context?.enterpriseId,
+      memberId: context?.memberId,
+      departmentId: context?.departmentId,
+    });
+  }
 
   @Get('digital-employees/:id/package/download')
   @HttpCode(200)

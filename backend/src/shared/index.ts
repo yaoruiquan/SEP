@@ -549,18 +549,40 @@ export const PackagePublishDtoSchema = z.object({
   /** 与 DigitalEmployee.version 同步更新，格式 x.y.z */
   version: z.string().regex(/^\d+\.\d+\.\d+$/, '版本格式须为 x.y.z'),
   changelog: z.string().max(500).optional(),
+  /**
+   * pi package 引用（决策 5）。
+   * 若只填 packageRef 不上传文件，平台不经手字节流，客户端直接 `pi install`。
+   * 若同时上传文件，两者并存（ZIP 作为兜底通道）。
+   */
+  packageRef: z.object({
+    type: z.enum(['npm', 'git']),
+    spec: z.string().min(1).max(200),
+  }).optional(),
 });
 export type PackagePublishDto = z.infer<typeof PackagePublishDtoSchema>;
 
 export interface PackageView {
   id: string;
   version: string;
-  filename: string;
-  /** SHA-256 十六进制，供下载方校验完整性 */
-  sha256: string;
-  fileSizeBytes: number;
+  /** ZIP 文件名，packageRef-only 时为 null */
+  filename: string | null;
+  /** SHA-256，packageRef-only 时为 null */
+  sha256: string | null;
+  /** 文件大小，packageRef-only 时为 null */
+  fileSizeBytes: number | null;
+  /** pi package 引用，ZIP-only 时为 null */
+  packageRef: { type: 'npm' | 'git'; spec: string } | null;
   changelog: string | null;
   createdAt: Date;
+}
+
+/** 客户端获取实例可安装的包信息（P3.2） */
+export interface InstancePackageInfo {
+  version: string;
+  packageRef: { type: 'npm' | 'git'; spec: string } | null;
+  /** ZIP 通道是否可用（packageRef 不存在时客户端可提示手动下载）*/
+  zipAvailable: boolean;
+  sha256: string | null;
 }
 
 /** 员工包大小上限。ZIP 里只装 skills 与说明，20MB 足够且能挡住误传大文件。 */

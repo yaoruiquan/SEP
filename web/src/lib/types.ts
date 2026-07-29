@@ -182,10 +182,12 @@ export interface MyEmployee {
 export interface EmployeePackage {
   id: string;
   version: string;
-  filename: string;
-  /** SHA-256 十六进制，供下载方核对完整性 */
-  sha256: string;
-  fileSizeBytes: number;
+  filename: string | null;
+  /** SHA-256 十六进制，供下载方核对完整性（ZIP 上传时有值） */
+  sha256: string | null;
+  fileSizeBytes: number | null;
+  /** pi package 引用（packageRef 模式时有值，ZIP 模式为 null）*/
+  packageRef: { type: 'npm' | 'git'; spec: string } | null;
   changelog: string | null;
   createdAt: string;
 }

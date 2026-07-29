@@ -91,4 +91,27 @@ export class EnterpriseContextService {
       throw new ForbiddenException("仅企业管理员可审批");
     }
   }
+
+  /**
+   * P3.3：平台运营查看全部企业（用于运营后台企业列表页）。
+   *
+   * 仅供运营端调用，返回企业基础信息 + 成员数 + 订阅数。
+   */
+  async listAll() {
+    return this.prisma.enterprise.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        createdAt: true,
+        _count: {
+          select: {
+            members: true,
+            subscriptions: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }

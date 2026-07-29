@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, LogOut } from 'lucide-react';
+import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, Building2, LogOut } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { NavItem, type NavLink } from './nav-item';
@@ -12,6 +12,7 @@ const LINKS: NavLink[] = [
   { href: '/admin', label: '仪表盘', icon: LayoutDashboard, exact: true },
   { href: '/admin/capabilities', label: '能力审核', icon: ShieldCheck },
   { href: '/admin/employees', label: '员工管理', icon: Users },
+  { href: '/admin/enterprises', label: '企业管理', icon: Building2 },
   { href: '/admin/models', label: '可用模型', icon: Cpu },
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ];

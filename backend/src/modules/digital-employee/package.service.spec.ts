@@ -70,6 +70,12 @@ describe('PackageService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('文件和 packageRef 都为空时拒绝', async () => {
+      await expect(
+        service.publish('emp-1', 'u1', { version: '1.0.0' }, undefined),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('超过 20MB 上限拒绝', async () => {
       await expect(
         service.publish('emp-1', 'u1', { version: '1.0.0' },

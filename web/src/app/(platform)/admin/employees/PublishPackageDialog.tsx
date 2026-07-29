@@ -20,7 +20,10 @@ export function PublishPackageDialog({
   currentVersion,
   onClose,
 }: Props) {
+  const [mode, setMode] = useState<'zip' | 'ref'>('zip');
   const [file, setFile] = useState<File | null>(null);
+  const [refType, setRefType] = useState<'npm' | 'git'>('npm');
+  const [refSpec, setRefSpec] = useState('');
   const [version, setVersion] = useState('');
   const [changelog, setChangelog] = useState('');
   const [versionErr, setVersionErr] = useState('');
@@ -52,20 +55,28 @@ export function PublishPackageDialog({
   const handleSubmit = () => {
     const err = validateVersion(version);
     if (err) { setVersionErr(err); return; }
-    if (!file) { toast.error('请选择要上传的 ZIP 文件'); return; }
+    if (mode === 'zip' && !file) { toast.error('请选择要上传的 ZIP 文件'); return; }
+    if (mode === 'ref' && !refSpec.trim()) { toast.error('请输入 package 引用'); return; }
 
-    publish.mutate(
-      { employeeId, file, version: version.trim(), changelog: changelog.trim() || undefined },
-      {
-        onSuccess: (pkg) => {
-          toast.success(
-            `已发布 v${pkg.version}，SHA-256: ${pkg.sha256.slice(0, 12)}…`,
-          );
-          onClose();
-        },
-        onError: (err) => toast.error((err as Error).message || '发布失败'),
+    const payload = {
+      employeeId,
+      version: version.trim(),
+      changelog: changelog.trim() || undefined,
+      ...(mode === 'zip'
+        ? { file: file! }
+        : { packageRef: { type: refType, spec: refSpec.trim() } }),
+    };
+
+    publish.mutate(payload, {
+      onSuccess: (pkg) => {
+        const info = pkg.sha256
+          ? `SHA-256: ${pkg.sha256.slice(0, 12)}…`
+          : `packageRef: ${JSON.stringify(pkg.packageRef)}`;
+        toast.success(`已发布 v${pkg.version}，${info}`);
+        onClose();
       },
-    );
+      onError: (err) => toast.error((err as Error).message || '发布失败'),
+    });
   };
 
   return (
@@ -89,27 +100,84 @@ export function PublishPackageDialog({
         </div>
 
         <div className="space-y-4 p-5">
-          {/* 文件上传 */}
+          {/* 分发方式切换 */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
-              员工包（ZIP 文件）*
-            </label>
-            <Input
-              ref={fileRef}
-              type="file"
-              accept=".zip,application/zip"
-              disabled={publish.isPending}
-              onChange={handleFile}
-            />
-            {file && (
-              <p className="mt-1 text-xs text-fg-muted">
-                {file.name} · {(file.size / 1024).toFixed(1)} KB
-              </p>
-            )}
-            <p className="mt-1 text-xs text-fg-subtle">
-              包含 skills 目录与 README.md 说明，≤ 20MB
-            </p>
+            <label className="mb-1.5 block text-sm font-medium">分发方式 *</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMode('zip')}
+                className={`flex-1 rounded border px-3 py-1.5 text-sm ${mode === 'zip' ? 'border-primary bg-primary/10 font-medium text-primary' : 'border-border bg-background text-fg-muted hover:bg-muted/40'}`}
+                disabled={publish.isPending}
+              >
+                ZIP 文件上传
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('ref')}
+                className={`flex-1 rounded border px-3 py-1.5 text-sm ${mode === 'ref' ? 'border-primary bg-primary/10 font-medium text-primary' : 'border-border bg-background text-fg-muted hover:bg-muted/40'}`}
+                disabled={publish.isPending}
+              >
+                Package 引用
+              </button>
+            </div>
           </div>
+
+          {/* ZIP 上传 */}
+          {mode === 'zip' && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                员工包（ZIP 文件）*
+              </label>
+              <Input
+                ref={fileRef}
+                type="file"
+                accept=".zip,application/zip"
+                disabled={publish.isPending}
+                onChange={handleFile}
+              />
+              {file && (
+                <p className="mt-1 text-xs text-fg-muted">
+                  {file.name} · {(file.size / 1024).toFixed(1)} KB
+                </p>
+              )}
+              <p className="mt-1 text-xs text-fg-subtle">
+                包含 skills 目录与 README.md 说明，≤ 20MB
+              </p>
+            </div>
+          )}
+
+          {/* Package 引用 */}
+          {mode === 'ref' && (
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">引用类型</label>
+                <select
+                  value={refType}
+                  onChange={(e) => setRefType(e.target.value as 'npm' | 'git')}
+                  disabled={publish.isPending}
+                  className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="npm">npm</option>
+                  <option value="git">git</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">
+                  {refType === 'npm' ? 'npm 包名（含版本）*' : 'git 仓库地址 *'}
+                </label>
+                <Input
+                  placeholder={refType === 'npm' ? '@company/my-employee@1.2.0' : 'https://github.com/org/repo.git#v1.2.0'}
+                  value={refSpec}
+                  disabled={publish.isPending}
+                  onChange={(e) => setRefSpec(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-fg-subtle">
+                  客户端将通过 pi 的 package 机制安装此引用
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* 版本号 */}
           <div>
@@ -159,7 +227,11 @@ export function PublishPackageDialog({
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={publish.isPending || !file || !version.trim()}
+              disabled={
+                publish.isPending ||
+                !version.trim() ||
+                (mode === 'zip' ? !file : !refSpec.trim())
+              }
             >
               <Upload className="mr-1.5 h-4 w-4" />
               {publish.isPending ? '发布中…' : '发布'}

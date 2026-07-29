@@ -767,16 +767,21 @@ model EmployeePackage {
   /// 发布时对应的 DigitalEmployee.version，用于在下载 UI 上显示版本号
   version       String
 
-  /// 原始文件名（上传时携带，用于下载 Content-Disposition）
-  filename      String
+  /// 原始文件名（ZIP 上传时携带）
+  filename      String?
 
-  /// 服务器存储路径（相对 PACKAGE_STORAGE_PATH 的相对路径）
-  storagePath   String
+  /// 服务器存储路径（相对 PACKAGE_STORAGE_PATH）
+  storagePath   String?
 
-  /// SHA-256 十六进制，完整性校验用
-  sha256        String
+  /// SHA-256 十六进制
+  sha256        String?
 
-  fileSizeBytes Int
+  fileSizeBytes Int?
+
+  /// pi package 引用（决策 5：复用 pi 自己的 package 机制）。
+  /// 与 ZIP 字段互斥也可并存：没有 npm 包时只填 ZIP；两者都有时客户端优先用这个。
+  /// { type: "npm" | "git", spec: "@sep/employee-video@1.2.0" }
+  packageRef    Json?
 
   /// 上传者（平台运营账号的 User.id）
   uploadedBy    String

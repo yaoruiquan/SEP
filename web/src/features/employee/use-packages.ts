@@ -26,16 +26,19 @@ export function usePublishPackage() {
     mutationFn: ({
       employeeId,
       file,
+      packageRef,
       version,
       changelog,
     }: {
       employeeId: string;
-      file: File;
+      file?: File;
+      packageRef?: { type: 'npm' | 'git'; spec: string };
       version: string;
       changelog?: string;
     }) => {
       const form = new FormData();
-      form.append('file', file);
+      if (file) form.append('file', file);
+      if (packageRef) form.append('packageRef', JSON.stringify(packageRef));
       form.append('version', version);
       if (changelog) form.append('changelog', changelog);
       return uploadForm<EmployeePackage>(

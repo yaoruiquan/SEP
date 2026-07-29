@@ -16,7 +16,10 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
+import { UserRole } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { RolesGuard } from "../../common/guards/roles.guard";
+import { Roles } from "../../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import {
   DepartmentCreateDto,
@@ -40,6 +43,7 @@ import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
 import { GrantService } from "./grant.service";
+import { EnterpriseContextService } from "./enterprise-context.service";
 
 type AuthedRequest = { user: { id: string } };
 
@@ -53,6 +57,7 @@ export class EnterpriseController {
     private readonly members: MemberService,
     private readonly instances: InstanceService,
     private readonly grants: GrantService,
+    private readonly enterpriseCtx: EnterpriseContextService,
   ) {}
 
   // ── 部门 ──────────────────────────────────────────────────────────────────
@@ -290,5 +295,22 @@ export class EnterpriseController {
     @Param("id") id: string,
   ) {
     return this.grants.remove(req.user.id, id);
+  }
+
+  // ── P3.3：运营端 ──────────────────────────────────────────────────────────
+
+  @Get("admin/all-enterprises")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: "P3.3：全部企业列表（仅平台运营）",
+    description: "运营后台用，查看全平台所有企业的基础信息 + 成员数 + 订阅数。",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "企业列表，按创建时间倒序",
+  })
+  async listAllEnterprises() {
+    return this.enterpriseCtx.listAll();
   }
 }

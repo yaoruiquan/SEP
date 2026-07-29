@@ -136,7 +136,25 @@ export function useUnbindCapability() {
   });
 }
 
-// ─── System Settings ──────────────────────────────────────────────────────
+// ─── Enterprise admin ─────────────────────────────────────────────────────────
+
+export interface EnterpriseListItem {
+  id: string;
+  name: string;
+  contactEmail: string;
+  createdAt: string;
+  _count: {
+    members: number;
+    subscriptions: number;
+  };
+}
+
+export function useAllEnterprises() {
+  return useQuery({
+    queryKey: ['admin', 'enterprises'],
+    queryFn: () => api.get<EnterpriseListItem[]>('/enterprise/admin/all-enterprises'),
+  });
+}
 
 export interface SettingView {
   key: string;
