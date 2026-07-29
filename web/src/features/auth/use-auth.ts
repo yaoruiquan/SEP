@@ -17,7 +17,7 @@ import {
  * 且是「刚输过密码」的时刻 —— 钓鱼的理想位置。
  * 故只接受以单个 `/` 开头的路径。
  */
-function safeRedirect(target: string | null | undefined): string | null {
+export function safeRedirect(target: string | null | undefined): string | null {
   if (!target) return null;
   if (!target.startsWith('/')) return null;
   if (target.startsWith('//')) return null;
