@@ -75,6 +75,19 @@ describe('EnterpriseShell 导航角色过滤', () => {
     expect(screen.getByText('示例科技')).toBeInTheDocument();
   });
 
+  it('「员工实例」仅管理员可见 —— 普通成员进去全是点不动的按钮', () => {
+    setRole('ENTERPRISE_ADMIN');
+    const { unmount } = render(<EnterpriseShell>内容</EnterpriseShell>);
+    expect(screen.getByText('员工实例')).toBeInTheDocument();
+    unmount();
+
+    setRole('MEMBER');
+    render(<EnterpriseShell>内容</EnterpriseShell>);
+    expect(screen.queryByText('员工实例')).not.toBeInTheDocument();
+    // 但「我的员工」仍在 —— 这是成员的主页面
+    expect(screen.getByText('我的员工')).toBeInTheDocument();
+  });
+
   it('导航里没有对话中心入口（会话已暂停）', () => {
     setRole('ENTERPRISE_ADMIN');
     render(<EnterpriseShell>内容</EnterpriseShell>);

@@ -7,6 +7,7 @@ import {
   Users,
   GitBranch,
   MonitorPlay,
+  Boxes,
   Store,
   CreditCard,
   Settings,
@@ -22,10 +23,13 @@ import { NavItem, type NavLink } from './nav-item';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLogout } from '@/features/auth/use-auth';
 
+/** 单条导航项，可单独标记仅管理员可见 */
+type GuardedNavLink = NavLink & { adminOnly?: boolean };
+
 interface NavGroup {
   title?: string;
-  links: NavLink[];
-  /** 仅企业管理员可见；不设则所有角色可见 */
+  links: GuardedNavLink[];
+  /** 整组仅企业管理员可见；不设则看各 link 自己的 adminOnly */
   adminOnly?: boolean;
 }
 
@@ -62,6 +66,8 @@ const NAV_GROUPS: NavGroup[] = [
       // 使用者视角：我被授权的实例。普通成员的核心页面
       { href: '/my-employees', label: '我的员工', icon: MonitorPlay },
       { href: '/marketplace', label: '员工市场', icon: Store },
+      // 管理视角：实例的创建/停用/升级/授权。普通成员进去全是点不动的按钮
+      { href: '/instances', label: '员工实例', icon: Boxes, adminOnly: true },
       // 订阅所有人可见（能看到公司订了什么），但改只有管理员能改
       { href: '/subscriptions', label: '我的订阅', icon: CreditCard },
     ],
@@ -78,7 +84,10 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
-  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin);
+  // 先过滤整组，再过滤组内单项；两级都为空的组不渲染标题
+  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin)
+    .map((g) => ({ ...g, links: g.links.filter((l) => !l.adminOnly || isAdmin) }))
+    .filter((g) => g.links.length > 0);
 
   return (
     <div className="flex h-screen bg-background">

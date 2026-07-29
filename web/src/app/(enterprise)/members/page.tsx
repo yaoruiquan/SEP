@@ -17,7 +17,8 @@ import {
   useUpdateMember,
   useDeleteMember,
 } from '@/features/enterprise/use-enterprise';
-import type { Department, EnterpriseMember } from '@/lib/types';
+import { flattenDepts } from '@/features/enterprise/flatten-depts';
+import type { EnterpriseMember } from '@/lib/types';
 
 function Modal({
   title,
@@ -370,17 +371,3 @@ export default function MembersPage() {
   );
 }
 
-// ── 工具函数 ──────────────────────────────────────────────────────────────────
-
-function flattenDepts(
-  depts: Department[],
-  prefix = '',
-): { id: string; label: string }[] {
-  const result: { id: string; label: string }[] = [];
-  for (const d of depts) {
-    const label = prefix ? `${prefix} / ${d.name}` : d.name;
-    result.push({ id: d.id, label });
-    result.push(...flattenDepts(d.children, label));
-  }
-  return result;
-}

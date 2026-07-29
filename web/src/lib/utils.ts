@@ -24,3 +24,18 @@ export const SUBSCRIPTION_STATUS_META: Record<
   PAUSED: { label: '已暂停', tone: 'text-warning' },
   EXPIRED: { label: '已过期', tone: 'text-fg-subtle' },
 };
+
+/** 员工实例状态。REVOKED 是终态，不可转回。 */
+export const INSTANCE_STATUS_LABEL: Record<string, string> = {
+  PENDING_ACTIVATION: '待激活',
+  ACTIVE: '运行中',
+  SUSPENDED: '已停用',
+  REVOKED: '已回收',
+};
+
+export const INSTANCE_STATUS_STYLE: Record<string, string> = {
+  PENDING_ACTIVATION: 'bg-warning/10 text-warning',
+  ACTIVE: 'bg-success/10 text-success',
+  SUSPENDED: 'bg-muted text-fg-muted',
+  REVOKED: 'bg-danger/10 text-danger',
+};

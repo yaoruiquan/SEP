@@ -46,16 +46,18 @@ done
 pass "详情公开可读且不含敏感字段"
 
 # 6 bindings 只给 capability 的 id/name/type
-BAD_CAP=$(echo "$DETAIL" | jq '[.bindings[]?.capability | keys | map(select(. != "id" and . != "name" and . != "type"))] | flatten | length')
-[[ "$BAD_CAP" == "0" ]] || fail "capability 带出了额外字段"
-pass "bindings 的 capability 仅 id/name/type"
+# 白名单：加字段到公开投影时，这里和单测都必须同步改 —— 两处都是刻意的闸门
+BAD_CAP=$(echo "$DETAIL" | jq '[.bindings[]?.capability | keys | map(select(
+  . != "id" and . != "name" and . != "type" and . != "description"))] | flatten | length')
+[[ "$BAD_CAP" == "0" ]] || fail "capability 带出了白名单外的字段"
+pass "bindings 的 capability 仅 id/name/type/description"
 
 # 7 未上架员工的详情应 404（不泄漏存在性）
 DRAFT_ID=$(docker exec sep-postgres psql -U sep -d sep_platform -tAc \
   "SELECT id FROM digital_employees WHERE status='DRAFT' LIMIT 1;" | tr -d '[:space:]')
 if [[ -n "$DRAFT_ID" ]]; then
   CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/market/employees/$DRAFT_ID")
-  [[ "$CODE" == "404" ]] || fail "未上架员工详情返回 $CODE，期望 404"
+  [[ "$CODE" == "404" ]] || fail "未上架员工详情返回 ${CODE}，期望 404"
   pass "未上架员工详情 404（不泄漏存在性）"
 else
   info "库中无 DRAFT 员工，跳过第 7 项"
@@ -75,7 +77,7 @@ pass "搜索不会命中未上架员工"
 
 # 9 原管理端接口仍要求登录
 ADMIN_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/digital-employees")
-[[ "$ADMIN_CODE" == "401" ]] || fail "管理端 /digital-employees 返回 $ADMIN_CODE，应 401"
+[[ "$ADMIN_CODE" == "401" ]] || fail "管理端 /digital-employees 返回 ${ADMIN_CODE}，应 401"
 pass "管理端接口仍需登录（401），公开面未扩大"
 
 echo ""
