@@ -91,6 +91,35 @@ export interface ConversationDetail extends ConversationSession {
   messages: Message[];
 }
 
+/**
+ * 人才市场的公开员工视图 —— 后端 select 白名单的投影结果。
+ *
+ * 刻意**没有** systemPrompt / modelId / maxSteps：提示词等于这个员工的
+ * 全部内容，不对访客公开。需要这些字段的地方（管理端）用 DigitalEmployee。
+ */
+export interface MarketEmployee {
+  id: string;
+  name: string;
+  description: string;
+  industry: string;
+  position: string;
+  avatar: string | null;
+  price: number | null;
+  version: string;
+  publishedAt: string | null;
+  bindings: {
+    id: string;
+    order: number;
+    capability: {
+      id: string;
+      name: string;
+      type: CapabilityType;
+      description: string;
+    };
+  }[];
+  _count?: { subscriptions?: number };
+}
+
 // ── 企业组织 ──────────────────────────────────────────────────────────────────
 
 export type InstanceStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';

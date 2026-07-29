@@ -1,12 +1,14 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Spinner } from '@/components/ui/feedback';
+import { CenteredSpinner, Spinner } from '@/components/ui/feedback';
 import { useLogin } from '@/features/auth/use-auth';
 import { ApiError } from '@/lib/api-client';
 
@@ -16,8 +18,24 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+/**
+ * useSearchParams() 会让整棵子树退出静态预渲染，Next 要求它必须被
+ * Suspense 包住，否则 `next build` 在导出 /login 时直接失败。
+ * 故把用到它的部分拆成 LoginForm，页面组件只负责套边界。
+ */
 export default function LoginPage() {
-  const login = useLogin();
+  return (
+    <Suspense fallback={<CenteredSpinner label="加载中…" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
+  // 访客在市场页点「登录后订阅」时带上，登录成功后跳回该员工详情。
+  // 合法性校验（必须是站内路径）在 useLogin 里做。
+  const redirect = useSearchParams().get('redirect');
+  const login = useLogin(redirect);
   const {
     register,
     handleSubmit,
@@ -30,10 +48,8 @@ export default function LoginPage() {
     },
   });
 
-  const onSubmit = (values: FormValues) => {
-    console.log('[LoginPage] Form submitted with values:', values);
-    login.mutate(values);
-  };
+  // 原先这里有个 console.log 把整个 values（含明文密码）打进控制台，已移除
+  const onSubmit = (values: FormValues) => login.mutate(values);
   const serverError =
     login.error instanceof ApiError ? login.error.message : login.error ? '登录失败' : null;
 

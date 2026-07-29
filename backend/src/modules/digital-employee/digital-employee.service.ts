@@ -132,9 +132,12 @@ export class DigitalEmployeeService {
         select: {
           id: true,
           order: true,
-          // 只给能力的名称与类型，用于展示「这个员工会做什么」；
-          // 不给 capability 的 config / apiKey 等
-          capability: { select: { id: true, name: true, type: true } },
+          // 名称/类型/描述用于展示「这个员工会做什么」—— 描述是营销文案，
+          // 公开无妨，且详情页只有名称和类型太单薄。
+          // 但**不给** config / apiKey / inputSchema 等实现与凭据字段。
+          capability: {
+            select: { id: true, name: true, type: true, description: true },
+          },
         },
         orderBy: { order: 'asc' as const },
       },

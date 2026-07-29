@@ -6,6 +6,9 @@ export const qk = {
     ['digital-employees', params ?? {}] as const,
   employee: (id: string) => ['digital-employees', id] as const,
   subscriptions: ['subscriptions'] as const,
+  // 人才市场（公开接口，与管理端 employees 分开缓存 —— 字段不同）
+  marketEmployees: (search: string) => ['market', 'employees', search] as const,
+  marketEmployee: (id: string) => ['market', 'employees', id] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   capabilities: (params?: Record<string, unknown>) =>

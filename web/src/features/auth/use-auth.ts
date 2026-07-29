@@ -9,7 +9,22 @@ import {
   type AuthPayload,
 } from '@/lib/auth-store';
 
-export function useLogin() {
+/**
+ * 只允许跳回**站内**路径，挡开放重定向。
+ *
+ * `?redirect=https://evil.com` 或 `//evil.com`（协议相对 URL，浏览器会
+ * 当成跨站）若原样交给 router.replace，用户登录后就被带到站外，
+ * 且是「刚输过密码」的时刻 —— 钓鱼的理想位置。
+ * 故只接受以单个 `/` 开头的路径。
+ */
+function safeRedirect(target: string | null | undefined): string | null {
+  if (!target) return null;
+  if (!target.startsWith('/')) return null;
+  if (target.startsWith('//')) return null;
+  return target;
+}
+
+export function useLogin(redirectTo?: string | null) {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
   return useMutation({
@@ -17,7 +32,10 @@ export function useLogin() {
       api.post<AuthPayload>('/auth/login', body, { skipAuthRetry: true }),
     onSuccess: (data) => {
       setAuth(data);
-      router.replace(defaultHomeFor(data.user, data.enterprise));
+      // 有合法的站内 redirect 就回原页面，否则按角色落地
+      const target =
+        safeRedirect(redirectTo) ?? defaultHomeFor(data.user, data.enterprise);
+      router.replace(target);
     },
   });
 }

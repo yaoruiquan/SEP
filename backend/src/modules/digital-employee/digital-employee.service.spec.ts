@@ -331,10 +331,14 @@ describe('DigitalEmployeeService', () => {
       await service.findPublicList();
 
       const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
+      // 白名单式断言：列出全部允许的字段。
+      // 用 toEqual 而非 toMatchObject —— 后者不会在新增字段时报错，
+      // 而这里的重点恰恰是「有人往公开投影里加字段时必须先改测试」。
       expect(arg.select.bindings.select.capability.select).toEqual({
         id: true,
         name: true,
         type: true,
+        description: true,
       });
     });
 
