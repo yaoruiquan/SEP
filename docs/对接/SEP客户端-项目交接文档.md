@@ -57,7 +57,7 @@ React + shadcn/ui（复用 SEP web 端组件风格）。凭据存储走 Electron
 | **硅基员工** | AI 员工，本文档的主角 | 模板 `DigitalEmployee` / 实例 `EmployeeInstance` |
 | **员工模板** | 市场上「卖」的那个东西，全平台共享 | `DigitalEmployee` |
 | **员工实例** | 某企业订阅后生成的、带企业自有配置的那一份 | `EmployeeInstance` |
-| **员工包** | 员工的可执行载体（本项目中 = 一个 pi package）| 待建 |
+| **员工包** | 员工的可执行载体（本项目中 = 一个 pi package）| `EmployeePackage`（已建，ZIP 临时方案；`packageRef` 字段待加，见 SEP P4.5）|
 | **授权** | 某实例被授权给哪些部门/成员 | `EmployeeGrant` |
 | **算力** | 平台内的计费单位，模型 token 折算而来 | `ComputeAccount` / `ComputeTransaction` |
 | **壳 / 客户端** | 就是你要做的 sep-client | — |
@@ -333,11 +333,17 @@ Electron 主进程是 Node，两种路径都可行，这正是选 Electron 的�
 
 ## 5. 客户端 ↔ SEP 平台的关联
 
-**重要前提**：SEP 后端**目前完全没有面向客户端的接口**。
-现有 9 个模块（auth / capability / conversation / digital-employee /
-enterprise / model / setting / subscription / users）里没有 device、
-没有 client credential、没有 EmployeePackage 模型、没有模型网关。
-这些都要在 SEP 侧新建 —— 属于本项目的**跨仓库依赖**，见 §9。
+**重要前提**：SEP 后端**目前没有任何面向客户端的专用接口**（`/client/*` 与 `/gateway/*` 均不存在）。
+这些都要在 SEP 侧新建 —— 属于本项目的**跨仓库依赖**，见 §9 和 [SEP 开发顺序方案 P4](../plans/项目升级开发顺序方案v3.md)。
+
+> **已有基础（2026-07-29）**：企业组织层（`Enterprise` / `Department` / `EnterpriseMember`
+> / `EmployeeInstance` / `EmployeeGrant`）、多租户隔离、员工实例生命周期、
+> 授权管理（`/enterprise/*`）、员工包 ZIP 临时方案（`EmployeePackage`）均已完成。
+> 这些资产可在 `/client/*` 接口中直接复用，无需重写。
+> 
+> **仍需新建（硬阻塞）**：`/client/login`（响应体返 refresh token）、`/client/token`
+> （实例级令牌签发）、`/client/instances`（客户端专用实例清单形状）、
+> `/gateway/v1/chat/completions`（模型网关，最关键）。
 
 ### 5.0 接口清单（SEP 侧待建）
 
@@ -623,11 +629,16 @@ pi 从 registry 拉包，**平台不在这条链路上**。所以：
 
 ### 7.3 平台侧仍然需要记录的东西
 
-即使不自建制品仓库，`EmployeeTemplateVersion` 仍需存 **packageRef**：
+即使不自建制品仓库，`EmployeePackage` 仍需存 **packageRef**：
 
 ```
 packageRef: { type: "npm" | "git", spec: "@sep/employee-video@1.2.0" }
 ```
+
+> **当前实现状态**：`EmployeePackage` 表已建（2026-07-28），但目前存的是
+> ZIP 字节流（`storagePath` / `sha256` / `fileSizeBytes`），**尚无 `packageRef` 字段**。
+> 加该字段是 SEP P4.5 的工作（小改动，加可空 JSON 列）。ZIP 字段会保留作为兜底通道，
+> 两者并存——第一个员工没有 npm 包时 ZIP 是唯一可行分发方式。
 
 理由：
 - 提示式升级（v3 决策 14）需要平台知道"最新版是哪个 ref"；
@@ -747,20 +758,30 @@ pi 默认行为：
 **客户端无法独立交付。** 以下 SEP 侧工作是客户端的前置依赖，
 需要和 SEP 团队协调排期。
 
-| SEP 侧工作 | 客户端的哪部分依赖它 | 阻塞程度 |
-|---|---|---|
-| `POST /client/login` + 设备登记模型 | 登录 | 🔴 硬阻塞 |
-| `POST /client/token`（按实例签发） | 所有 API 调用 | 🔴 硬阻塞 |
-| `GET /client/instances` | 员工列表 | 🔴 硬阻塞 |
-| **模型网关** `/gateway/v1/*` | 一切实际工作 | 🔴 硬阻塞 |
-| `EmployeeTemplateVersion.packageRef` 字段 | 员工包加载 | 🔴 硬阻塞 |
-| 令牌有效期 `SystemSetting` 项 | 令牌刷新 | 🟡 可先硬编码 |
-| `POST /client/heartbeat` | 吊销联动 | 🟡 P-B |
-| 上架审核比对声明 | 权限措施 ① | 🟢 运营流程，非技术阻塞 |
+| SEP 侧工作 | 客户端的哪部分依赖它 | 阻塞程度 | 当前状态 |
+|---|---|---|---|
+| `POST /client/login` + 设备登记模型 | 登录 | 🔴 硬阻塞 | ❌ 待建（SEP P4.1）|
+| `POST /client/token`（按实例签发） | 所有 API 调用 | 🔴 硬阻塞 | ❌ 待建（SEP P4.2）|
+| `GET /client/instances` | 员工列表 | 🔴 硬阻塞 | ❌ 待建（SEP P4.4）|
+| **模型网关** `/gateway/v1/*` | 一切实际工作 | 🔴 硬阻塞 | ❌ 待建（SEP P4.3）|
+| `EmployeePackage.packageRef` 字段 | 员工包加载 | 🔴 硬阻塞 | ⚠️ `EmployeePackage` 表已建，`packageRef` 字段待加（SEP P4.5）|
+| 令牌有效期 `SystemSetting` 项 | 令牌刷新 | 🟡 可先硬编码 | ❌ key 待加（SEP P4.2）|
+| `POST /client/heartbeat` | 吊销联动 | 🟡 P-B | ❌ 待建（SEP P4.6）|
+| 上架审核比对声明 | 权限措施 ① | 🟢 运营流程，非技术阻塞 | ❌ 待建 |
 
 **可以并行的部分**：PoC 的 4 项（§8.4）均可在无真实 SEP 后端的情况下先行验证
 （第 2 项用本地假网关）。所以客户端可以先开工，
 不必等 SEP 接口就绪。
+
+**可直接复用的 SEP 现有资产**（这些接口和逻辑已完成并通过测试）：
+
+| 资产 | 用途 | 位置 |
+|---|---|---|
+| `EmployeeGrant` 两条授权路径 | `/client/instances` 的过滤逻辑，直接复用 | `GrantService.myEmployees` |
+| 多租户隔离（5 条验收）| 客户端接口同样适用，重要性升一档 | `EnterpriseContextService` |
+| 计费设施（价格表/保底/汇率）| 网关记账直接调 | `calculateCost()` in shared |
+| `SystemSetting` 机制 | 令牌 TTL 配置 | 现有，只需加 key |
+| `PlatformModel` 白名单 | 下发 `allowedModels` | 现有 |
 
 ### 排期上的一个提醒
 
@@ -787,7 +808,7 @@ P3 只做到「下载 ZIP + 说明书」，客户端壳在 v3 §10 的阶段九�
 | §8.3 问题 2 | 清单格式待确认 | ⏸️ 暂缓；MVP 只在 pi package 元数据加 `sep` 扩展字段 | 本次决策 2 |
 | §4.2 | 激活码 + 指纹登记 | ✅ 改为**账号登录**；保留设备指纹与可吊销设备记录 | 本次决策 3 |
 | §6 依赖声明 | 声明本地权限 | ✅ 强度定为**工具白名单 + GUI 批准弹窗**，不做容器化 | 本次决策 4 |
-| §4.1 / P3.1 / P3.2 | 员工包 = 平台自建 ZIP 仓库 + 下载令牌 | ✅ 改为**复用 pi package 机制**（npm/git，可锁 tag）；平台只存 `packageRef` | 本次决策 5 |
+| §4.1 / P3.1 / P3.2 | 员工包 = 平台自建 ZIP 仓库 + 下载令牌 | ✅ 改为**复用 pi package 机制**（npm/git，可锁 tag）；平台只存 `packageRef`。<br/>**实施状态**：`EmployeePackage` 表已建，现为 ZIP 临时方案（2026-07-28）；`packageRef` 字段待 SEP P4.5 补齐。ZIP 字段保留作兜底通道，两者并存。 | 本次决策 5 |
 | §10 阶段九 | 「统一客户端壳实现」，依赖待确认 | ✅ 解除阻塞，成为**独立项目 sep-client** | 本次 |
 | §7.1 员工侧 | 交付物 = 压缩包 + 说明书 | ⚠️ 演进为 = pi package + 客户端加载 | 决策 5 连带 |
 | 验收标准 4 | 下载 ZIP 并校验 SHA-256 | ⚠️ 改为：客户端能安装指定版本的 pi package | 决策 5 连带 |
