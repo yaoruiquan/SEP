@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { PackageService } from "../digital-employee/package.service";
 import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 
 @Injectable()
@@ -13,6 +14,7 @@ export class GrantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ctx: EnterpriseContextService,
+    private readonly packages: PackageService,
   ) {}
 
   /**
@@ -285,7 +287,17 @@ export class GrantService {
       }
     }
 
-    return Array.from(seen.values());
+    const rows = Array.from(seen.values());
+
+    // 标注哪些模板有包可下 —— 否则前端只能盲点下载按钮，
+    // 运营还没上传包时用户会拿到 404 却不知道为什么
+    const templateIds = [...new Set(rows.map((r) => r.template.id))];
+    const withPackage = await this.packages.employeeIdsWithPackage(templateIds);
+    for (const r of rows) {
+      r.packageAvailable = withPackage.has(r.template.id);
+    }
+
+    return rows;
   }
 
   // ── 内部校验 ──────────────────────────────────────────────────────────────

@@ -324,6 +324,11 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   maxSteps: z.number().min(1).max(20).optional(),
   price: z.number().min(0).optional(),
   status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+  /**
+   * 版本号。运营发版时同步更新这里和上传对应的员工包，
+   * 已有实例的 upgradeAvailable 才会真正触发。
+   */
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, '格式须为 x.y.z').optional(),
 });
 
 export type DigitalEmployeeUpdateDto = z.infer<
@@ -530,7 +535,36 @@ export interface MyEmployeeView {
   /** 授权来源：直接给我的，还是给我所在部门的 */
   grantSource: 'DIRECT' | 'DEPARTMENT';
   expiresAt: string | null;
+  /**
+   * 该模板是否有可下载的员工包。为 false 时前端应禁用下载按钮 ——
+   * 运营尚未上传包，点了只会拿到 404。
+   */
+  packageAvailable?: boolean;
 }
+
+// ── 员工包 ──────────────────────────────────────────────────────────────────
+
+/** 发布新版本（multipart 表单的文本字段，文件另走 file 字段）*/
+export const PackagePublishDtoSchema = z.object({
+  /** 与 DigitalEmployee.version 同步更新，格式 x.y.z */
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, '版本格式须为 x.y.z'),
+  changelog: z.string().max(500).optional(),
+});
+export type PackagePublishDto = z.infer<typeof PackagePublishDtoSchema>;
+
+export interface PackageView {
+  id: string;
+  version: string;
+  filename: string;
+  /** SHA-256 十六进制，供下载方校验完整性 */
+  sha256: string;
+  fileSizeBytes: number;
+  changelog: string | null;
+  createdAt: Date;
+}
+
+/** 员工包大小上限。ZIP 里只装 skills 与说明，20MB 足够且能挡住误传大文件。 */
+export const PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 export interface InstanceView {
   id: string;

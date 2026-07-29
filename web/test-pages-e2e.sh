@@ -30,7 +30,7 @@ pass "5 个页面均 200（含之前 404 的三个新页）"
 
 info "根路径应重定向到 /marketplace"
 ROOT=$(curl -s -o /dev/null -w "%{redirect_url}" "$WEB/")
-[[ "$ROOT" == *"/marketplace" ]] || fail "根路径跳向 $ROOT，期望 /marketplace"
+[[ "$ROOT" == *"/marketplace" ]] || fail "根路径跳向 ${ROOT}，期望 /marketplace"
 pass "/ → /marketplace"
 
 # ── 前端代理链路 ───────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ S_DEPTS=$(curl -s -o /dev/null -w "%{http_code}" "$API/enterprise/departments" -
 [[ "$S_DEPTS" == "200" ]] || fail "成员读部门返回 $S_DEPTS"
 S_WRITE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/enterprise/departments" \
   -H "$A_STAFF" -H "$JSON" -d '{"name":"越权部门"}')
-[[ "$S_WRITE" == "403" ]] || fail "成员建部门返回 $S_WRITE，期望 403"
+[[ "$S_WRITE" == "403" ]] || fail "成员建部门返回 ${S_WRITE}，期望 403"
 pass "成员可读不可写（读 200 / 写 403）—— 前端隐藏菜单只是体验，后端才是闸门"
 
 info "普通成员的 my-employees 独立于管理员"

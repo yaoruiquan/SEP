@@ -44,6 +44,7 @@ export interface DigitalEmployee {
   modelId?: string;
   maxSteps?: number;
   price: number;
+  version: string;
   status: EmployeeStatus;
   createdAt: string;
   bindings?: CapabilityBinding[];
@@ -173,4 +174,18 @@ export interface MyEmployee {
   department: { id: string; name: string } | null;
   grantSource: 'DIRECT' | 'DEPARTMENT';
   expiresAt: string | null;
+  /** 运营是否已上传员工包；false 时下载按钮应禁用 */
+  packageAvailable?: boolean;
+}
+
+/** 员工包的一个已发布版本 */
+export interface EmployeePackage {
+  id: string;
+  version: string;
+  filename: string;
+  /** SHA-256 十六进制，供下载方核对完整性 */
+  sha256: string;
+  fileSizeBytes: number;
+  changelog: string | null;
+  createdAt: string;
 }

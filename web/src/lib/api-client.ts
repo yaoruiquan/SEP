@@ -110,3 +110,81 @@ export const api = {
   delete: <T>(path: string, opts?: RequestOptions) =>
     rawRequest<T>(path, { ...opts, method: 'DELETE' }),
 };
+
+/**
+ * 下载二进制文件（员工包 ZIP）。
+ *
+ * 不能用 <a href> 直接下载 —— 下载接口要 Authorization 头，
+ * 而 access token 只存在内存里，浏览器的原生导航带不上它。
+ * 故用 fetch 拿 blob 再触发一次本地下载。
+ *
+ * 返回服务端给的 X-SHA256，调用方可展示给用户核对完整性。
+ */
+export async function downloadFile(
+  path: string,
+): Promise<{ filename: string; sha256: string | null }> {
+  const token = authAccessor.getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const data = text ? safeJson(text) : undefined;
+    const message =
+      data && typeof data === 'object' && 'message' in data
+        ? String((data as { message: unknown }).message)
+        : '下载失败';
+    throw new ApiError(res.status, message, data);
+  }
+
+  // 文件名优先取服务端的 Content-Disposition，回退到 URL 末段
+  const disp = res.headers.get('content-disposition') ?? '';
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disp);
+  const plain = /filename="([^"]+)"/i.exec(disp);
+  const raw = star?.[1] ?? plain?.[1] ?? 'package.zip';
+  let filename = 'package.zip';
+  try {
+    filename = decodeURIComponent(raw);
+  } catch {
+    filename = raw;
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // 不 revoke 的话 blob 会一直占着内存，直到页面卸载
+  URL.revokeObjectURL(url);
+
+  return { filename, sha256: res.headers.get('x-sha256') };
+}
+
+/** 上传 multipart 表单（员工包发布）。不设 Content-Type，让浏览器带 boundary。 */
+export async function uploadForm<T>(path: string, form: FormData): Promise<T> {
+  const token = authAccessor.getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+
+  const text = await res.text();
+  const data = text ? safeJson(text) : undefined;
+  if (!res.ok) {
+    const message =
+      data && typeof data === 'object' && 'message' in data
+        ? Array.isArray((data as { message: unknown }).message)
+          ? (data as { message: string[] }).message.join('; ')
+          : String((data as { message: unknown }).message)
+        : '上传失败';
+    throw new ApiError(res.status, message, data);
+  }
+  return data as T;
+}

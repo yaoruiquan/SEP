@@ -178,6 +178,7 @@ model DigitalEmployee {
   subscriptions Subscription[]
   sessions      ConversationSession[]
   instances     EmployeeInstance[]
+  packages      EmployeePackage[]
 
   @@map("digital_employees")
 }
@@ -730,18 +731,61 @@ model SystemSetting {
 model PlatformModel {
   id         String   @id @default(cuid())
 
-  modelId    String   @unique // 上游模型 ID，如 gemini-3.5-flash-high
-  label      String            // 平台自定义显示名
-  enabled    Boolean  @default(false) // 是否对用户开放
-  sortOrder  Int      @default(0)     // 列表排序，小的在前
+  modelId    String   @unique
+  label      String
+  enabled    Boolean  @default(false)
+  sortOrder  Int      @default(0)
 
-  // 同步状态
-  lastSeenAt DateTime @default(now()) // 最后一次在上游出现的时间
-  isStale    Boolean  @default(false) // 上游已下架（不删，保留历史可读）
+  lastSeenAt DateTime @default(now())
+  isStale    Boolean  @default(false)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@map("platform_models")
   @@index([enabled, sortOrder])
+}
+
+// ============================================================================
+// Employee Package（员工包）
+// ----------------------------------------------------------------------------
+// 运营上传对应版本的 ZIP 包，企业成员下载后本地部署即可使用。
+// version 与 DigitalEmployee.version 对应 —— 运营发版时同步更新两处：
+//   1. 此处的 EmployeePackage 行（新上传的文件）
+//   2. DigitalEmployee.version（触发已有实例的 upgradeAvailable 提示）
+//
+// 下载权限：调用方在本企业对该员工模板的**任意一个 ACTIVE 实例**有有效授权，
+// 即可下载。授权的两条路径（直接/部门）都算，过期授权不算。
+// 平台运营（UserRole.ADMIN）无需授权直接可下载（用于测试验包）。
+// ============================================================================
+model EmployeePackage {
+  id            String          @id @default(cuid())
+
+  employeeId    String
+  employee      DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 发布时对应的 DigitalEmployee.version，用于在下载 UI 上显示版本号
+  version       String
+
+  /// 原始文件名（上传时携带，用于下载 Content-Disposition）
+  filename      String
+
+  /// 服务器存储路径（相对 PACKAGE_STORAGE_PATH 的相对路径）
+  storagePath   String
+
+  /// SHA-256 十六进制，完整性校验用
+  sha256        String
+
+  fileSizeBytes Int
+
+  /// 上传者（平台运营账号的 User.id）
+  uploadedBy    String
+
+  /// 可选的更新说明（一句话）
+  changelog     String?
+
+  createdAt     DateTime @default(now())
+
+  @@map("employee_packages")
+  @@index([employeeId, createdAt(sort: Desc)])
 }

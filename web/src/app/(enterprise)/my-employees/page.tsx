@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { MonitorPlay } from 'lucide-react';
+import { MonitorPlay, Download } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
+import { useDownloadPackage } from '@/features/employee/use-packages';
+import { toast } from '@/components/ui/toast';
 
 /**
  * 使用者视角：我被授权的实例。
@@ -21,6 +23,7 @@ export default function MyEmployeesPage() {
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
   const { data: mine = [], isLoading } = useMyEmployees();
+  const download = useDownloadPackage();
 
   if (isLoading) return <CenteredSpinner label="加载中…" />;
 
@@ -93,6 +96,36 @@ export default function MyEmployeesPage() {
                     </Badge>
                   )}
                 </div>
+
+                {/* 下载按钮：运营上传包后 packageAvailable 才为 true */}
+                {e.packageAvailable && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    disabled={download.isPending}
+                    onClick={() =>
+                      download.mutate(e.template.id, {
+                        onSuccess: ({ filename, sha256 }) => {
+                          toast.success(
+                            `已下载 ${filename}${sha256 ? `，SHA-256: ${sha256.slice(0, 12)}…` : ''}`,
+                          );
+                        },
+                        onError: (err) => {
+                          toast.error((err as Error).message || '下载失败');
+                        },
+                      })
+                    }
+                  >
+                    <Download className="mr-1.5 h-4 w-4" />
+                    下载到本地
+                  </Button>
+                )}
+                {!e.packageAvailable && (
+                  <p className="text-center text-xs text-fg-subtle">
+                    员工包准备中，暂不可下载
+                  </p>
+                )}
               </CardContent>
             </Card>
           ))}

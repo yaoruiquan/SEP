@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { GrantService } from "./grant.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { PackageService } from "../digital-employee/package.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
 const ADMIN_CTX = {
@@ -33,6 +34,7 @@ describe("GrantService", () => {
   let service: GrantService;
   let prisma: any;
   let ctx: any;
+  let packages: any;
 
   beforeEach(async () => {
     prisma = {
@@ -50,12 +52,18 @@ describe("GrantService", () => {
       resolve: jest.fn().mockResolvedValue(ADMIN_CTX),
       assertEnterpriseAdmin: jest.fn(),
     };
+    packages = {
+      // 默认无包 —— 测 myEmployees 时不关心 packageAvailable 的具体值
+      employeeIdsWithPackage: jest.fn().mockResolvedValue(new Set()),
+    };
 
     const mod = await Test.createTestingModule({
       providers: [
         GrantService,
         { provide: PrismaService, useValue: prisma },
         { provide: EnterpriseContextService, useValue: ctx },
+        // 只用于给 myEmployees 标注 packageAvailable，默认「都没有包」
+        { provide: PackageService, useValue: packages },
       ],
     }).compile();
 
@@ -122,6 +130,31 @@ describe("GrantService", () => {
       await service.myEmployees("u1");
       const where = prisma.employeeGrant.findMany.mock.calls[0][0].where;
       expect(where.memberId).toBe("m-admin");
+    });
+
+    it("标注 packageAvailable —— 前端据此决定下载按钮是否可点", async () => {
+      prisma.employeeGrant.findMany
+        .mockResolvedValueOnce([grantRow("i-has-pkg")])
+        .mockResolvedValueOnce([]);
+      // 模板 t1 有包
+      packages.employeeIdsWithPackage.mockResolvedValue(new Set(["t1"]));
+
+      const rows = await service.myEmployees("u1");
+
+      expect(rows[0].packageAvailable).toBe(true);
+      // 只按去重后的模板 id 查一次，不是每行查一次
+      expect(packages.employeeIdsWithPackage).toHaveBeenCalledWith(["t1"]);
+    });
+
+    it("运营未上传包时 packageAvailable 为 false，而非 undefined", async () => {
+      prisma.employeeGrant.findMany
+        .mockResolvedValueOnce([grantRow("i-no-pkg")])
+        .mockResolvedValueOnce([]);
+      packages.employeeIdsWithPackage.mockResolvedValue(new Set());
+
+      const rows = await service.myEmployees("u1");
+
+      expect(rows[0].packageAvailable).toBe(false);
     });
   });
 

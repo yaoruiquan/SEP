@@ -21,7 +21,7 @@ pass "访客经 /api 代理拿到 $CNT 个员工"
 
 # 2 对照：旧的管理端接口对访客仍是 401（证明修的是投影而非放开守卫）
 OLD=$(curl -s -o /dev/null -w "%{http_code}" "$API/digital-employees?status=PUBLISHED")
-[[ "$OLD" == "401" ]] || fail "/digital-employees 返回 $OLD，应 401"
+[[ "$OLD" == "401" ]] || fail "/digital-employees 返回 ${OLD}，应 401"
 pass "管理端接口对访客仍 401（公开面没有扩大）"
 
 # 3 敏感字段不出现在访客可见数据里
@@ -62,7 +62,7 @@ DRAFT_ID=$(docker exec sep-postgres psql -U sep -d sep_platform -tAc \
   "SELECT id FROM digital_employees WHERE status='DRAFT' LIMIT 1;" | tr -d '[:space:]')
 if [[ -n "$DRAFT_ID" ]]; then
   CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API/market/employees/$DRAFT_ID")
-  [[ "$CODE" == "404" ]] || fail "未上架员工返回 $CODE，应 404"
+  [[ "$CODE" == "404" ]] || fail "未上架员工返回 ${CODE}，应 404"
   pass "未上架员工对访客 404"
 fi
 

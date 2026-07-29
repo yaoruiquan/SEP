@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Pencil, Trash2, X } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, X, Package } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import {
   useAllCapabilities,
 } from '@/features/admin/use-admin';
 import type { DigitalEmployee } from '@/lib/types';
+import { PublishPackageDialog } from './PublishPackageDialog';
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 
@@ -321,6 +322,7 @@ export default function EmployeesPage() {
   }>({ open: false, employee: null });
 
   const [confirmDel, setConfirmDel] = useState<DigitalEmployee | null>(null);
+  const [publishing, setPublishing] = useState<DigitalEmployee | null>(null);
   const { data: employees, isLoading } = useEmployees();
   const deleteEmployee = useDeleteEmployee();
 
@@ -398,6 +400,14 @@ export default function EmployeesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => setPublishing(emp)}
+                          title="发布版本"
+                        >
+                          <Package className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => openEdit(emp)}
                           title="编辑"
                         >
@@ -455,6 +465,16 @@ export default function EmployeesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 发布版本弹窗 */}
+      {publishing && (
+        <PublishPackageDialog
+          employeeId={publishing.id}
+          employeeName={publishing.name}
+          currentVersion={publishing.version}
+          onClose={() => setPublishing(null)}
+        />
       )}
     </div>
   );

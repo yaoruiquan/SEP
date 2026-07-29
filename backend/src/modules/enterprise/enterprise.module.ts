@@ -5,6 +5,7 @@ import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
 import { GrantService } from "./grant.service";
 import { EnterpriseController } from "./enterprise.controller";
+import { DigitalEmployeeModule } from "../digital-employee/digital-employee.module";
 
 /**
  * 企业上下文是多租户隔离的基础设施，几乎每个业务模块都要用，
@@ -15,6 +16,10 @@ import { EnterpriseController } from "./enterprise.controller";
  */
 @Global()
 @Module({
+  // GrantService 需要 PackageService 来标注哪些模板有包可下。
+  // 反向不成立（DigitalEmployeeModule 不 import 本模块，
+  // 它用的 EnterpriseContextService 靠 @Global 拿到），故不成环。
+  imports: [DigitalEmployeeModule],
   controllers: [EnterpriseController],
   providers: [
     EnterpriseContextService,
