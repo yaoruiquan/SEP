@@ -1,148 +1,382 @@
-# 硅基人才平台 (Silicon Talent Platform)
+# 硅基员工平台 (Silicon Employee Platform)
 
-AI 能力订阅平台 —— 让企业和个人像"雇佣员工"一样订阅 AI 能力，通过对话窗口完成业务任务。
+> **企业 AI 员工管理平台** —— 像招聘员工一样订阅 AI，为企业提供即插即用的数字员工服务
 
-## 服务地址
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
+[![NestJS](https://img.shields.io/badge/NestJS-10-red)](https://nestjs.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)]()
 
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| **前端** | http://localhost:3000 | 用户端 + 管理端界面 |
-| **后端 API** | http://localhost:3001 | NestJS REST API |
-| **Swagger 文档** | http://localhost:3001/api/docs | 接口文档，Bearer Token 鉴权测试 |
-| **Prisma Studio** | http://localhost:5555 | 数据库可视化，运行 `pnpm db:studio` 启动 |
+---
 
-## 测试账号
+## 📖 项目概述
 
-> 所有演示账号统一密码：**`Demo123456`**
+硅基员工平台（SEP）是一个面向企业的 AI 员工管理和调用平台。企业可以在平台上：
+- **招聘 AI 员工**：从人才市场浏览、试用、订阅适合的数字员工
+- **组织管理**：建立部门、分配成员、授权员工使用权限
+- **按量计费**：统一的算力账户，按实际调用量计费
+- **客户端调用**：通过桌面客户端（sep-client）与 AI 员工对话，完成业务任务
 
-| 角色 | 邮箱 | 密码 | 登录后跳转 | 备注 |
-|------|------|------|-----------|------|
-| 管理员 | `admin@sep.local` | `Demo123456` | `/admin` | 可审核能力、管理员工 |
-| 普通用户 | `user@sep.local` | `Demo123456` | `/dashboard` | 已预置订阅「小海」，仪表盘有数据 |
-| 新注册用户 | 自定义 | 自定义（≥ 8 位） | `/dashboard` | 空状态，需先去员工广场订阅 |
+---
 
-运行 `pnpm db:seed` 写入以上种子账号（幂等，可重复执行）。
+## ✨ 核心功能
 
-## 快速开始
+### 用户端（企业用户）
+- 🏢 **企业组织管理**：部门、成员、角色权限
+- 🤖 **AI 员工市场**：浏览、搜索、订阅数字员工
+- 👥 **员工实例管理**：创建实例、配置、授权给部门/成员
+- 💰 **算力账户**：充值、消费记录、余额预警
+- 📊 **数据看板**：员工使用统计、消费趋势（开发中）
 
-**依赖**：Node.js ≥ 20、pnpm ≥ 9、Docker
+### 运营端（平台管理员）
+- 🏭 **企业管理**：查看企业详情、充值/扣减算力、冻结/解冻
+- 💳 **算力管理**：全平台充值/消费记录、筛选导出
+- 👨‍💼 **员工审核**：审核开发者提交的员工模板（待开发）
+- 📈 **数据看板**：平台级统计、Top 10、异常监控（待开发）
+
+### 客户端（桌面应用 sep-client）
+- 🔐 **设备登录**：邮箱密码 + 设备指纹，生成 refresh token
+- 📋 **实例列表**：获取当前用户被授权的 AI 员工实例
+- 🎫 **实例令牌**：用 refresh token 换取实例级短期令牌（15分钟）
+- 💬 **模型网关**：通过网关调用 AI 模型，自动计费
+
+---
+
+## 🚀 快速开始
+
+### 前置依赖
+
+- **Node.js** ≥ 20
+- **pnpm** ≥ 9
+- **Docker** + **Docker Compose**（本地数据库）
+- **PostgreSQL** 16+（如果不用 Docker）
+
+### 1. 克隆仓库
 
 ```bash
-# 1. 安装依赖
-pnpm install
-
-# 2. 启动本地数据库（PostgreSQL + Redis）
-docker-compose up -d
-
-# 3. 初始化数据库 + 写入演示数据
-pnpm db:migrate && pnpm db:generate && pnpm db:seed
-
-# 4. 启动后端（http://localhost:3001）
-pnpm dev:backend
-
-# 5. 启动前端（http://localhost:3000）
-pnpm dev:web
+git clone <repository-url>
+cd SEP
 ```
 
-## 路由说明
+### 2. 安装依赖
 
-### 用户端
+```bash
+pnpm install
+```
 
-| 路径 | 页面 | 说明 |
-|------|------|------|
-| `/` | 根路由 | 自动重定向到 `/login` |
-| `/login` | 登录 | 邮箱 + 密码 |
-| `/register` | 注册 | 姓名（可选）+ 邮箱 + 密码 |
-| `/dashboard` | 工作台 | 活跃订阅数、会话数、消息数、员工快捷入口、最近会话 |
-| `/marketplace` | 员工广场 | 浏览 / 搜索 / 订阅碳基员工 |
-| `/marketplace/[id]` | 员工详情 | 员工信息 + 硅基能力列表 |
-| `/chat` | 对话中心 | 会话列表 + SSE 流式对话（支持工具调用可视化） |
-| `/subscriptions` | 我的订阅 | 查看 / 取消订阅 |
-| `/settings` | 个人设置 | 修改姓名 / 头像、修改密码、退出登录 |
+### 3. 配置环境变量
 
-### 管理端（需要 ADMIN 角色）
+复制示例文件：
+```bash
+cp backend/.env.example backend/.env
+cp web/.env.local.example web/.env.local
+```
 
-| 路径 | 页面 | 说明 |
-|------|------|------|
-| `/admin` | 管理仪表盘 | 待审能力数、员工总数、能力总数、待审列表预览 |
-| `/admin/capabilities` | 能力审核 | 待审核 / 全部两个 Tab，逐条通过或拒绝（需填原因） |
-| `/admin/employees` | 员工管理 | 完整 CRUD；编辑时可绑定 / 解绑硅基能力 |
+编辑 `backend/.env`，填写必要配置：
+```env
+DATABASE_URL="postgresql://sep_user:sep_pass@localhost:5432/sep_platform"
+JWT_SECRET="your-secret-key-change-in-production"
 
-## 环境变量
+# sub2api 配置（AI 模型中转站）
+SUB2API_BASE_URL="https://longdaoai.cn/v1"
+SUB2API_API_KEY="sk-your-key"
+SUB2API_DEFAULT_MODEL="gpt-3.5-turbo"
+```
 
-复制 `.env.example` 为 `.env`，填写以下关键配置：
+### 4. 启动数据库
 
-| 变量 | 说明 |
-|------|------|
-| `DATABASE_URL` | PostgreSQL 连接串，本地默认已填好 |
-| `SUB2API_BASE_URL` | 算力中转站地址（`https://longdaoai.cn/v1`） |
-| `SUB2API_API_KEY` | 算力中转站 Key |
-| `SUB2API_DEFAULT_MODEL` | 默认模型，如 `gemini-2.5-flash-high` |
+```bash
+docker-compose up -d
+```
 
-## 项目结构
+### 5. 初始化数据库
+
+```bash
+cd backend
+npx prisma migrate deploy  # 应用迁移
+npx prisma generate         # 生成 Prisma Client
+npx prisma db seed          # 写入种子数据（可选）
+```
+
+### 6. 启动服务
+
+**后端（端口 3001）**：
+```bash
+cd backend
+npm run dev
+```
+
+**前端（端口 3000）**：
+```bash
+cd web
+npm run dev
+```
+
+### 7. 访问应用
+
+- **前端**: http://localhost:3000
+- **后端 API**: http://localhost:3001
+- **Swagger 文档**: http://localhost:3001/api
+- **Prisma Studio**: `npx prisma studio`（端口 5555）
+
+---
+
+## 🧪 测试
+
+### 后端测试
+
+```bash
+cd backend
+npm test                    # 运行全部测试（168 个单元测试）
+npm run test:watch          # Watch 模式
+npm run test:cov            # 测试覆盖率
+```
+
+### 前端测试
+
+```bash
+cd web
+npm test                    # Jest + React Testing Library（待补充）
+```
+
+---
+
+## 📁 项目结构
 
 ```
 SEP/
-├── backend/             后端 API（NestJS）
-│   ├── prisma/          数据库 Schema + 迁移文件
+├── backend/                   # 后端 API（NestJS）
+│   ├── prisma/
+│   │   ├── schema.prisma      # 数据库 Schema
+│   │   ├── migrations/        # 迁移文件
+│   │   └── seed.ts            # 种子数据
 │   ├── src/
-│   │   ├── shared/      共享类型 / Zod DTO
-│   │   ├── modules/     业务模块
+│   │   ├── modules/           # 业务模块
+│   │   │   ├── auth/          # 用户认证（JWT）
+│   │   │   ├── enterprise/    # 企业组织管理
+│   │   │   ├── digital-employee/  # 员工模板与包
+│   │   │   ├── subscription/  # 订阅管理
+│   │   │   ├── client/        # 客户端接入（P4）
+│   │   │   ├── gateway/       # 模型网关（P4.3）
+│   │   │   ├── admin/         # 运营端管理
+│   │   │   └── ...
+│   │   ├── shared/            # 共享类型、DTO、工具函数
+│   │   ├── common/            # 通用组件（guards、decorators、pipes）
 │   │   └── main.ts
 │   └── package.json
-├── web/                 前端（Next.js，待开发）
-│   └── src/app/
-│       ├── (user)/      用户端
-│       ├── (admin)/     运营端
-│       └── (contributor)/ 贡献者端
-├── docs/                架构文档
-├── docker-compose.yml   PostgreSQL + Redis
-└── .env                 环境变量
+│
+├── web/                       # 前端（Next.js 15 App Router）
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── (market)/      # 公开市场页（落地页、员工市场）
+│   │   │   ├── (dashboard)/   # 企业用户端
+│   │   │   └── (platform)/    # 运营端
+│   │   ├── components/
+│   │   │   ├── ui/            # 基础 UI 组件
+│   │   │   └── ...
+│   │   ├── features/          # 功能模块（hooks + API）
+│   │   └── lib/               # 工具函数、API Client
+│   └── package.json
+│
+├── docs/                      # 文档
+│   ├── architecture/          # 架构设计文档
+│   ├── plans/                 # 开发计划
+│   ├──对接/                  # 对接文档（客户端、API）
+│   └── progress/              # 开发日志
+│
+├── docker-compose.yml         # PostgreSQL 16
+├── pnpm-workspace.yaml        # pnpm monorepo 配置
+└── package.json               # 根 package.json
 ```
 
-## 核心概念
+---
 
-**碳基员工（Digital Employee）**：平台售卖的"岗位包"，例如"电商运营专员"。  
-本质是一个 Agent（Vercel AI SDK），内置 System Prompt，绑定多个硅基能力作为工具。
+## 🗄️ 数据库
 
-**硅基能力（Silicon Capability）**：第三方贡献者上传的 AI 能力，分 4 种类型：
+### 核心表结构
 
-| 类型 | 说明 |
-|------|------|
-| Agent | Coze / Dify / N8N 等平台的智能体 |
-| RPA | 实在智能 / 影刀 等 RPA 流程 |
-| Skill | 提示词模板 + LLM（也可对接 OpenCode） |
-| AI 应用 | 独立 Web 应用或 API |
+| 表名 | 说明 |
+|-----|------|
+| `users` | 用户基础信息 |
+| `enterprises` | 企业组织 |
+| `enterprise_members` | 企业成员（关联 user ↔ enterprise）|
+| `departments` | 部门 |
+| `digital_employees` | 员工模板（由开发者创建）|
+| `employee_packages` | 员工包（版本化发布）|
+| `employee_instances` | 员工实例（企业订阅后创建）|
+| `employee_grants` | 授权记录（实例 → 部门/成员）|
+| `compute_transactions` | 算力交易记录 |
+| `devices` | 客户端设备（P4.1）|
+| `platform_models` | 平台支持的 AI 模型 |
+| `system_settings` | 系统配置（KV 存储）|
 
-所有能力对碳基员工暴露统一的 `execute()` 接口（适配器模式）。
-
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 后端 | NestJS 10 + Prisma 6 + PostgreSQL 16 |
-| Agent 运行时 | Vercel AI SDK (`ai ^4`) |
-| 模型调用 | 全部走 sub2api（OpenAI 兼容中转站） |
-| 认证 | JWT（`@nestjs/jwt` + `passport-jwt`） |
-| 前端 | React + Next.js（待开发） |
-| 基础设施 | Docker Compose（本地）→ 生产自行部署 |
-
-## 外部依赖服务
-
-这两个服务**不在本仓库**，不由 docker-compose 管理，通过 `.env` 连接：
-
-- **sub2api**：算力中转站（OpenAI 兼容端点），所有模型调用必须走它
-- **OpenCode Skills Service**：参考 `yaoruiquan/opencode-skiills-service`，作为一种硅基能力类型接入，不是平台前置依赖
-
-## 数据库操作
+### 数据库命令
 
 ```bash
-pnpm db:migrate          # 创建并应用迁移（修改 schema 后执行）
-pnpm db:generate         # 重新生成 Prisma Client
-pnpm db:studio           # 打开 Prisma Studio 可视化管理数据
-pnpm db:reset            # 重置数据库（仅开发环境）
+# 创建新迁移
+npx prisma migrate dev --name your_migration_name
+
+# 应用迁移（生产环境）
+npx prisma migrate deploy
+
+# 重置数据库（⚠️ 仅开发环境）
+npx prisma migrate reset
+
+# 可视化管理
+npx prisma studio
 ```
 
-## 架构文档
+---
 
-详见 `docs/` 目录。注意：文档为规划阶段产物，其中部分概念（独立 Gateway 进程、ModelRelayClient 等）与当前实际代码不符，以代码为准。
+## 🔌 API 文档
+
+### 核心端点
+
+#### 用户认证
+- `POST /auth/register` - 注册
+- `POST /auth/login` - 登录
+- `POST /auth/refresh` - 刷新令牌
+- `GET /auth/me` - 当前用户信息
+
+#### 企业管理
+- `GET /enterprise/my` - 我的企业信息
+- `GET /enterprise/members` - 成员列表
+- `POST /enterprise/members/invite` - 邀请成员
+- `GET /enterprise/departments` - 部门列表
+
+#### 员工市场
+- `GET /marketplace` - 员工列表
+- `GET /marketplace/:id` - 员工详情
+- `POST /subscriptions` - 订阅员工
+- `GET /subscriptions` - 我的订阅
+
+#### 员工实例
+- `GET /enterprise/instances` - 实例列表
+- `POST /enterprise/instances` - 创建实例
+- `GET /enterprise/instances/:id` - 实例详情
+- `PATCH /enterprise/instances/:id` - 更新实例
+- `POST /enterprise/instances/:id/grants` - 授权
+
+#### 客户端接入（P4）
+- `POST /client/auth/login` - 客户端登录
+- `POST /client/auth/token` - 换取实例令牌
+- `GET /client/instances` - 客户端实例列表
+- `POST /gateway/v1/chat/completions` - 模型网关（OpenAI 兼容）
+
+#### 运营端
+- `GET /admin/enterprises` - 企业列表
+- `GET /admin/enterprises/:id` - 企业详情
+- `POST /admin/enterprises/:id/credit` - 充值/扣减
+- `GET /admin/enterprises/compute/transactions` - 算力交易记录
+
+完整 API 文档见：[/docs/对接/SEP客户端API文档.md](./docs/对接/SEP客户端API文档.md)
+
+---
+
+## 🛠️ 技术栈
+
+### 后端
+- **框架**: NestJS 10
+- **ORM**: Prisma 6
+- **数据库**: PostgreSQL 16
+- **认证**: JWT (passport-jwt)
+- **验证**: Zod
+- **测试**: Jest + Supertest
+
+### 前端
+- **框架**: Next.js 15 (App Router)
+- **语言**: TypeScript 5.3
+- **样式**: Tailwind CSS 3.4
+- **UI**: shadcn/ui + 自定义组件
+- **状态管理**: TanStack Query (React Query)
+- **表单**: React Hook Form
+- **图表**: recharts（待集成）
+
+### 基础设施
+- **容器化**: Docker + Docker Compose
+- **CI/CD**: 待配置
+- **监控**: 待配置
+
+---
+
+## 📋 开发路线图
+
+### ✅ 已完成
+
+- [x] **P0-P2**: 企业组织基座 + 员工模板/实例 + 订阅授权
+- [x] **P3**: 员工包管理（packageRef + ZIP 双模式）
+- [x] **P4**: 客户端接入层（登录、令牌、实例列表、模型网关）
+- [x] **UI**: 落地页 + 员工市场视觉优化
+- [x] **运营端**: 企业管理 + 算力管理（充值/扣减、交易记录）
+
+### 🚧 进行中（本周）
+
+- [ ] **B.1**: Dashboard 数据可视化（图表、关键指标）
+- [ ] **B.2**: 我的员工页卡片化
+- [ ] **B.4**: 新手引导流程
+
+### 📅 计划中
+
+- [ ] **B.3**: 订阅管理优化（续费提醒、套餐对比）
+- [ ] **A.1**: 运营端 Dashboard（平台级统计）
+- [ ] **A.4**: 员工审核流程
+- [ ] **E**: 知识库功能（差异化）
+- [ ] **C**: 部署准备（Docker、日志、监控）
+
+详见：[下一阶段开发计划](./docs/plans/下一阶段开发计划-企业端+运营端+知识库.md)
+
+---
+
+## 🤝 贡献指南
+
+### Git 提交规范
+
+使用 [Conventional Commits](https://www.conventionalcommits.org/)：
+
+```
+feat: 新功能
+fix: Bug 修复
+docs: 文档更新
+style: 代码格式（不影响功能）
+refactor: 重构
+test: 测试相关
+chore: 构建/工具链
+```
+
+示例：
+```bash
+git commit -m "feat(admin): 企业管理+充值功能"
+git commit -m "fix(gateway): 修复流式响应中断问题"
+git commit -m "docs: 更新 README 和 API 文档"
+```
+
+### 开发流程
+
+1. 从 `main` 分支创建功能分支
+2. 开发 + 测试（确保测试通过）
+3. 提交 PR，描述清楚改动内容
+4. Code Review 通过后合并
+
+---
+
+## 📄 许可证
+
+MIT License
+
+---
+
+## 📞 联系方式
+
+- **文档**: `docs/` 目录
+- **Issues**: GitHub Issues
+- **API 文档**: http://localhost:3001/api（启动后端后访问）
+
+---
+
+## 🙏 致谢
+
+本项目由 Claude Code (Opus 4.8) 辅助开发。
+
+---
+
+**最后更新**: 2026-07-30

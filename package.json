@@ -1,12 +1,24 @@
 {
-  "name": "silicon-talent-platform",
-  "version": "0.1.0",
+  "name": "silicon-employee-platform",
+  "version": "0.2.0",
   "private": true,
-  "description": "硅基人才平台 - AI Capability Subscription Platform",
+  "description": "硅基员工平台 - 企业AI员工管理与调用平台",
+  "author": "SEP Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yaoruiquan/SEP"
+  },
   "scripts": {
     "dev:backend": "pnpm --filter backend dev",
     "dev:web": "pnpm --filter web dev",
-    "build": "pnpm --filter backend build",
+    "dev": "concurrently \"pnpm dev:backend\" \"pnpm dev:web\"",
+    "build": "pnpm --filter backend build && pnpm --filter web build",
+    "build:backend": "pnpm --filter backend build",
+    "build:web": "pnpm --filter web build",
+    "test": "pnpm --filter backend test",
+    "test:backend": "pnpm --filter backend test",
+    "test:web": "pnpm --filter web test",
     "db:migrate": "pnpm --filter backend db:migrate",
     "db:generate": "pnpm --filter backend db:generate",
     "db:studio": "pnpm --filter backend db:studio",
