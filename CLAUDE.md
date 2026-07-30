@@ -30,19 +30,21 @@ before trusting them.
 | Agent Runtime | Vercel AI SDK (`ai ^7`, `@ai-sdk/openai-compatible`) | all model calls via sub2api |
 | Cache | Redis 7 | |
 
-### Frontend (`web/` — not yet scaffolded)
+### Frontend (`web/` — ✅ 已实现)
 
 | Area | Choice | Notes |
 |------|--------|-------|
-| Framework | Next.js 15 App Router | three route groups: `(user)` `(admin)` `(contributor)` |
-| UI components | Shadcn/ui + Tailwind CSS | components owned as source code; Radix UI primitives |
-| Server state | TanStack Query v5 | API calls, caching, SSE streaming |
-| Client state | Zustand | UI state (open/close, active session, preferences) |
-| Forms | react-hook-form + zod | reuse Zod schemas from `backend/src/shared/` |
-| Data tables | TanStack Table v8 | admin panel |
-| Chat rendering | react-markdown + highlight.js | message content display |
-| Auth storage | httpOnly cookie | access token in memory; refresh token in cookie |
-| Date/time | date-fns | |
+| Framework | Next.js 15 App Router | 已实现两个路由组: `(enterprise)` 企业端, `(platform)` 运营端 |
+| UI components | Shadcn/ui + Tailwind CSS | 已实现 20+ 组件: Button/Card/Dialog/Switch/Badge/Input 等 |
+| Server state | TanStack Query v5 | API 调用, 缓存, 自动失效已实现 |
+| Client state | Zustand | 认证状态管理 (auth-store) |
+| Forms | react-hook-form + zod | 表单验证已实现 |
+| Data tables | - | 使用原生 table + 卡片布局 |
+| Chat rendering | react-markdown + highlight.js | 待实现（聊天功能） |
+| Auth storage | LocalStorage + API | access token 存储，JWT 认证 |
+| Date/time | date-fns | 已使用 |
+| Charts | recharts ^3.10 | Dashboard 数据可视化 |
+| Drag & Drop | @dnd-kit | 能力绑定拖拽排序 |
 
 ## Commands
 
