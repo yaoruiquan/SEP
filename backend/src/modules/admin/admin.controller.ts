@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -277,5 +278,58 @@ export class AdminController {
   @ApiResponse({ status: 404, description: '员工不存在' })
   deleteEmployee(@Param('id') id: string) {
     return this.adminService.deleteEmployee(id);
+  }
+
+  @Get('employees/:id/bindings')
+  @ApiOperation({ summary: '获取员工的能力绑定' })
+  @ApiResponse({ status: 200, description: '返回能力绑定列表' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  getEmployeeBindings(@Param('id') id: string) {
+    return this.adminService.getEmployeeBindings(id);
+  }
+
+  @Post('employees/:id/bindings')
+  @ApiOperation({ summary: '批量绑定能力到员工' })
+  @ApiResponse({ status: 200, description: '绑定成功' })
+  @ApiResponse({ status: 400, description: '部分能力不存在' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  bindCapabilities(
+    @Param('id') employeeId: string,
+    @Body(new ZodValidationPipe(z.object({ capabilityIds: z.array(z.string()).min(1, '至少选择一个能力') })))
+    dto: { capabilityIds: string[] },
+    @Request() req: any,
+  ) {
+    return this.adminService.bindCapabilities(employeeId, dto.capabilityIds, req.user.id);
+  }
+
+  @Patch('bindings/:id')
+  @ApiOperation({ summary: '更新绑定配置' })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({ status: 404, description: '绑定不存在' })
+  updateBinding(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({
+      priority: z.number().int().min(0).max(100).optional(),
+      enabled: z.boolean().optional(),
+      config: z.any().optional(),
+    })))
+    dto: { priority?: number; enabled?: boolean; config?: any },
+  ) {
+    return this.adminService.updateBinding(id, dto);
+  }
+
+  @Delete('bindings/:id')
+  @ApiOperation({ summary: '删除绑定' })
+  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({ status: 404, description: '绑定不存在' })
+  removeBinding(@Param('id') id: string) {
+    return this.adminService.removeBinding(id);
+  }
+
+  @Get('capabilities')
+  @ApiOperation({ summary: '获取可用能力列表' })
+  @ApiResponse({ status: 200, description: '返回已审核的能力列表' })
+  getAvailableCapabilities() {
+    return this.adminService.getAvailableCapabilities();
   }
 }

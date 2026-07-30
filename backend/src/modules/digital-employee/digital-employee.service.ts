@@ -44,7 +44,7 @@ export class DigitalEmployeeService {
           bindings: {
             create: dto.capabilityIds.map((capabilityId, index) => ({
               capabilityId,
-              order: index,
+              priority: index,
             })),
           },
         },
@@ -131,7 +131,7 @@ export class DigitalEmployeeService {
       bindings: {
         select: {
           id: true,
-          order: true,
+          priority: true,
           // 名称/类型/描述用于展示「这个员工会做什么」—— 描述是营销文案，
           // 公开无妨，且详情页只有名称和类型太单薄。
           // 但**不给** config / apiKey / inputSchema 等实现与凭据字段。
@@ -139,7 +139,7 @@ export class DigitalEmployeeService {
             select: { id: true, name: true, type: true, description: true },
           },
         },
-        orderBy: { order: 'asc' as const },
+        orderBy: { priority: 'asc' as const },
       },
       _count: { select: { subscriptions: true } },
     };
@@ -163,7 +163,7 @@ export class DigitalEmployeeService {
               },
             },
           },
-          orderBy: { order: 'asc' },
+          orderBy: { priority: 'asc' },
         },
         _count: { select: { subscriptions: true } },
       },
@@ -205,7 +205,7 @@ export class DigitalEmployeeService {
 
     try {
       return await this.prisma.employeeCapabilityBinding.create({
-        data: { employeeId, capabilityId: dto.capabilityId, order: dto.order },
+        data: { employeeId, capabilityId: dto.capabilityId, priority: dto.priority },
         include: {
           capability: { select: { id: true, name: true, type: true, description: true } },
         },
@@ -244,7 +244,7 @@ export class DigitalEmployeeService {
         include: {
           capability: { select: { id: true, name: true, type: true } },
         },
-        orderBy: { order: 'asc' as const },
+        orderBy: { priority: 'asc' as const },
       },
     };
   }

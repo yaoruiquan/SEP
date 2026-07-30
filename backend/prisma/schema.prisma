@@ -511,11 +511,17 @@ model EmployeeCapabilityBinding {
   capabilityId String
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
-  order        Int?  // 推荐调用顺序（可选）
+  // 绑定配置
+  priority     Int     @default(0)      // 优先级（0-100）
+  enabled      Boolean @default(true)   // 是否启用
+  config       Json?                    // 能力配置（JSON）
 
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([employeeId, capabilityId])
+  @@index([employeeId])
+  @@index([capabilityId])
   @@map("employee_capability_bindings")
 }
 

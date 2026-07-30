@@ -202,7 +202,7 @@ async function seedTemplates(caps: Awaited<ReturnType<typeof seedCapabilities>>)
   // 模板 1：技能包形态 —— 对应第一个真实员工（下载 skills 包）
   const skillsEmp = await prisma.digitalEmployee.upsert({
     where: { id: 'demo-emp-skills' },
-    update: { status: 'PUBLISHED' as any },
+    update: { status: 'APPROVED' as any },
     create: {
       id: 'demo-emp-skills',
       name: '文案助手（技能包）',
@@ -213,18 +213,18 @@ async function seedTemplates(caps: Awaited<ReturnType<typeof seedCapabilities>>)
       systemPrompt: '你是一名爆款文案高手，擅长小红书、详情页、短视频脚本。',
       modelId: MODEL,
       maxSteps: 6,
-      status: 'PUBLISHED' as any,
+      status: 'APPROVED' as any,
       price: 0,
       publishedAt: now,
       version: '1.0.0',
-      bindings: { create: [{ capabilityId: caps.copyCap.id, order: 1 }] },
+      bindings: { create: [{ capabilityId: caps.copyCap.id, priority: 1 }] },
     },
   });
 
   // 模板 2：用于演示「同企业多实例」（决策 16）
   const researchEmp = await prisma.digitalEmployee.upsert({
     where: { id: 'demo-emp-research' },
-    update: { status: 'PUBLISHED' as any },
+    update: { status: 'APPROVED' as any },
     create: {
       id: 'demo-emp-research',
       name: '市场调研员',
@@ -234,15 +234,15 @@ async function seedTemplates(caps: Awaited<ReturnType<typeof seedCapabilities>>)
       systemPrompt: '你是一名资深市场调研员，结论先行，附关键数据来源。',
       modelId: MODEL,
       maxSteps: 10,
-      status: 'PUBLISHED' as any,
+      status: 'APPROVED' as any,
       price: 0,
       publishedAt: now,
       version: '1.0.0',
-      bindings: { create: [{ capabilityId: caps.searchCap.id, order: 1 }] },
+      bindings: { create: [{ capabilityId: caps.searchCap.id, priority: 1 }] },
     },
   });
 
-  // 未上架模板：验证市场只展示 PUBLISHED
+  // 未上架模板：验证市场只展示 APPROVED
   await prisma.digitalEmployee.upsert({
     where: { id: 'demo-emp-draft' },
     update: {},

@@ -44,7 +44,7 @@ export class DigitalEmployeeRunner {
               },
             },
           },
-          orderBy: { order: 'asc' },
+          orderBy: { priority: 'asc' },
         },
       },
     });

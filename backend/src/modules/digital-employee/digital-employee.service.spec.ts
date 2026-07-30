@@ -33,7 +33,7 @@ const mockBinding = {
   id: 'bind-1',
   employeeId: 'emp-1',
   capabilityId: 'cap-1',
-  order: 0,
+  priority: 0,
   createdAt: new Date(),
   capability: { id: 'cap-1', name: '商品描述生成', type: 'AGENT', description: '...' },
 };
@@ -245,7 +245,7 @@ describe('DigitalEmployeeService', () => {
 
       const result = await service.bindCapability('emp-1', {
         capabilityId: 'cap-1',
-        order: 0,
+        priority: 0,
       });
 
       expect(result).toEqual(mockBinding);

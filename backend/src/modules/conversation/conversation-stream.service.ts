@@ -67,7 +67,7 @@ export class ConversationStreamService {
                   },
                 },
               },
-              orderBy: { order: "asc" },
+              orderBy: { priority: "asc" },
             },
           },
         },

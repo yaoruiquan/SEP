@@ -645,4 +645,104 @@ export class AdminService {
 
     return employee;
   }
+
+  /**
+   * 获取员工的能力绑定列表
+   */
+  async getEmployeeBindings(employeeId: string) {
+    return this.prisma.employeeCapabilityBinding.findMany({
+      where: { employeeId },
+      include: {
+        capability: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            description: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { priority: 'desc' },
+    });
+  }
+
+  /**
+   * 批量绑定能力到员工
+   */
+  async bindCapabilities(employeeId: string, capabilityIds: string[], operatorId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('员工不存在');
+
+    // 验证所有能力都存在
+    const capabilities = await this.prisma.capability.findMany({
+      where: { id: { in: capabilityIds } },
+    });
+    if (capabilities.length !== capabilityIds.length) {
+      throw new BadRequestException('部分能力不存在');
+    }
+
+    // 删除现有绑定
+    await this.prisma.employeeCapabilityBinding.deleteMany({
+      where: { employeeId },
+    });
+
+    // 创建新绑定
+    const bindings = capabilityIds.map((capabilityId, index) => ({
+      employeeId,
+      capabilityId,
+      priority: capabilityIds.length - index, // 按顺序设置优先级
+      enabled: true,
+    }));
+
+    await this.prisma.employeeCapabilityBinding.createMany({
+      data: bindings,
+    });
+
+    return { success: true, count: bindings.length };
+  }
+
+  /**
+   * 更新单个绑定的配置
+   */
+  async updateBinding(bindingId: string, data: {
+    priority?: number;
+    enabled?: boolean;
+    config?: any;
+  }) {
+    return this.prisma.employeeCapabilityBinding.update({
+      where: { id: bindingId },
+      data,
+    });
+  }
+
+  /**
+   * 删除绑定
+   */
+  async removeBinding(bindingId: string) {
+    await this.prisma.employeeCapabilityBinding.delete({
+      where: { id: bindingId },
+    });
+    return { success: true };
+  }
+
+  /**
+   * 获取可用能力列表（用于绑定选择）
+   */
+  async getAvailableCapabilities() {
+    return this.prisma.capability.findMany({
+      where: { status: 'APPROVED' }, // 只显示已审核的能力
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        description: true,
+        industry: true,
+        position: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
 }

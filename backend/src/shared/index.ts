@@ -346,7 +346,7 @@ export type DigitalEmployeeUpdateDto = z.infer<
 
 export const BindCapabilityDtoSchema = z.object({
   capabilityId: z.string().min(1),
-  order: z.number().int().min(0).optional(),
+  priority: z.number().int().min(0).max(100).optional(),
 });
 
 export type BindCapabilityDto = z.infer<typeof BindCapabilityDtoSchema>;
