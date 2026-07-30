@@ -39,6 +39,7 @@ import {
   GrantCreateDto,
   GrantCreateDtoSchema,
 } from "shared";
+import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
@@ -53,6 +54,7 @@ type AuthedRequest = { user: { id: string } };
 @ApiBearerAuth()
 export class EnterpriseController {
   constructor(
+    private readonly enterprise: EnterpriseService,
     private readonly departments: DepartmentService,
     private readonly members: MemberService,
     private readonly instances: InstanceService,
@@ -295,6 +297,18 @@ export class EnterpriseController {
     @Param("id") id: string,
   ) {
     return this.grants.remove(req.user.id, id);
+  }
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+
+  @Get("dashboard-stats")
+  @ApiOperation({ summary: "获取 Dashboard 统计数据" })
+  @ApiResponse({
+    status: 200,
+    description: "关键指标、消费趋势、热门员工、最近活动",
+  })
+  async getDashboardStats(@Request() req: AuthedRequest) {
+    return this.enterprise.getDashboardStats(req.user.id);
   }
 
   // ── P3.3：运营端 ──────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
@@ -23,6 +24,7 @@ import { DigitalEmployeeModule } from "../digital-employee/digital-employee.modu
   controllers: [EnterpriseController],
   providers: [
     EnterpriseContextService,
+    EnterpriseService,
     DepartmentService,
     MemberService,
     InstanceService,

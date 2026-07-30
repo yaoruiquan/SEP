@@ -1,227 +1,210 @@
 'use client';
 
 import Link from 'next/link';
-import { Bot, MessageSquare, Users, Zap } from 'lucide-react';
+import { Bot, Users, Wallet, Zap, UserPlus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar } from '@/components/ui/avatar';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
-import { useMe } from '@/features/user/use-user';
-import { useSubscriptions } from '@/features/subscription/use-subscriptions';
-import { useConversations } from '@/features/chat/use-conversations';
+import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { StatsCard } from '@/components/dashboard/stats-card';
+import { useDashboardStats } from '@/features/enterprise/use-enterprise';
 
 export default function DashboardPage() {
-  const { data: me } = useMe();
-  const { data: subs = [], isLoading: subsLoading } = useSubscriptions();
-  const { data: convs = [], isLoading: convsLoading } = useConversations();
+  const { data: stats, isLoading, error } = useDashboardStats();
 
-  // derive stats client-side per design doc §9
-  const activeSubs = subs.length;
-  const totalConvs = convs.length;
-  const totalMessages = convs.reduce((sum, c) => sum + (c._count?.messages ?? 0), 0);
-  const recentConvs = [...convs].sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-  ).slice(0, 5);
+  if (isLoading) {
+    return <CenteredSpinner />;
+  }
 
-  const greeting = me?.name ? `你好，${me.name}` : '你好';
+  if (error) {
+    return (
+      <div className="p-6">
+        <EmptyState title="加载失败" description="无法加载 Dashboard 数据，请稍后重试。" />
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return null;
+  }
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{greeting}</h1>
-        <p className="mt-1 text-sm text-fg-muted">欢迎回到硅基人才平台</p>
+      {/* 1. 关键指标卡片 */}
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <StatsCard
+          title="AI 员工"
+          value={stats.employeeCount}
+          icon={<Bot className="h-8 w-8" />}
+        />
+        <StatsCard
+          title="团队成员"
+          value={stats.memberCount}
+          icon={<Users className="h-8 w-8" />}
+        />
+        <StatsCard
+          title="本月消费"
+          value={`¥${stats.monthlySpend.toFixed(2)}`}
+          icon={<Wallet className="h-8 w-8" />}
+        />
+        <StatsCard
+          title="本月调用"
+          value={stats.callCount}
+          icon={<Zap className="h-8 w-8" />}
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={<Users className="h-5 w-5" />}
-          label="活跃订阅"
-          value={activeSubs}
-          loading={subsLoading}
-        />
-        <StatCard
-          icon={<MessageSquare className="h-5 w-5" />}
-          label="累计会话"
-          value={totalConvs}
-          loading={convsLoading}
-        />
-        <StatCard
-          icon={<Zap className="h-5 w-5" />}
-          label="累计消息"
-          value={totalMessages}
-          loading={convsLoading}
-        />
-        <Link href="/chat" className="block">
-          <Card className="h-full transition-colors hover:border-primary/40 hover:bg-primary-subtle/30">
-            <CardContent className="flex h-full items-center justify-center p-5">
-              <div className="text-center">
-                <Bot className="mx-auto h-6 w-6 text-primary" />
-                <p className="mt-2 text-sm font-medium text-foreground">开始对话</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      {subsLoading ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>我的碳基员工</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16" />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : subs.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>我的碳基员工</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EmptyState
-              title="你还没有订阅任何员工"
-              description="去员工广场挑选一位碳基员工开始使用吧。"
-              action={
-                <Link href="/marketplace">
-                  <Button size="sm">前往员工广场</Button>
-                </Link>
-              }
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>我的碳基员工</CardTitle>
-            <Link href="/subscriptions">
-              <Button variant="ghost" size="sm">
-                查看全部
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {subs.slice(0, 3).map((sub) => {
-                const emp = sub.employee;
-                return (
-                  <Link key={sub.id} href={`/chat?employeeId=${emp.id}`}>
-                    <div className="flex items-center gap-3 rounded-lg border border-border p-3 transition-colors hover:border-primary/40 hover:bg-primary-subtle/20">
-                      <Avatar name={emp.name} src={emp.avatar} className="h-10 w-10" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {emp.name}
-                        </p>
-                        <p className="truncate text-xs text-fg-muted">
-                          {emp.position} · {emp.industry}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+      {/* 2. 消费趋势图 */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>最近会话</CardTitle>
-          <Link href="/chat">
-            <Button variant="ghost" size="sm">
-              查看全部
-            </Button>
-          </Link>
+        <CardHeader>
+          <CardTitle>算力消费趋势</CardTitle>
+          <CardDescription>最近 30 天</CardDescription>
         </CardHeader>
         <CardContent>
-          {convsLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-14" />
-              ))}
-            </div>
-          ) : recentConvs.length === 0 ? (
-            <EmptyState
-              title="还没有会话记录"
-              description="开始和碳基员工对话吧。"
-            />
+          {stats.spendTrend.length === 0 ? (
+            <EmptyState title="暂无消费数据" description="开始使用 AI 员工后，消费趋势将显示在这里。" />
           ) : (
-            <ul className="divide-y divide-border">
-              {recentConvs.map((conv) => (
-                <li key={conv.id}>
-                  <Link
-                    href={`/chat?sessionId=${conv.id}`}
-                    className="flex items-center gap-3 py-3 transition-colors hover:bg-muted/40"
-                  >
-                    <Avatar
-                      name={conv.employee?.name}
-                      src={conv.employee?.avatar}
-                      className="h-9 w-9 shrink-0"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {conv.title || conv.employee?.name || '新会话'}
-                      </p>
-                      <p className="text-xs text-fg-subtle">
-                        {formatDistanceToNow(new Date(conv.updatedAt), {
-                          addSuffix: true,
-                          locale: zhCN,
-                        })}
-                        {conv._count?.messages ? ` · ${conv._count.messages} 条消息` : ''}
-                      </p>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={stats.spendTrend}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis
+                  dataKey="date"
+                  className="text-xs text-fg-muted"
+                  tickFormatter={(value) => {
+                    const date = new Date(value);
+                    return `${date.getMonth() + 1}/${date.getDate()}`;
+                  }}
+                />
+                <YAxis className="text-xs text-fg-muted" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '0.5rem',
+                  }}
+                  labelFormatter={(value) => {
+                    const date = new Date(value as string);
+                    return date.toLocaleDateString('zh-CN');
+                  }}
+                  formatter={(value) => [`¥${(value as number).toFixed(2)}`, '消费']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="amount"
+                  stroke="#eb3f00"
+                  strokeWidth={2}
+                  dot={{ fill: '#eb3f00', r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-function StatCard({
-  icon,
-  label,
-  value,
-  loading,
-  badge,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  loading?: boolean;
-  badge?: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-subtle text-primary">
-          {icon}
-        </div>
-        <div className="flex-1">
-          <p className="text-xs text-fg-muted">{label}</p>
-          {loading ? (
-            <Skeleton className="mt-1 h-7 w-12" />
-          ) : (
-            <p className="text-2xl font-bold text-foreground">
-              {value}
-              {badge && (
-                <span className="ml-2 text-xs font-normal text-fg-subtle">
-                  {badge}
-                </span>
-              )}
-            </p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* 3. 热门员工 Top 5 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>热门员工 Top 5</CardTitle>
+            <CardDescription>按调用次数排序</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {stats.topEmployees.length === 0 ? (
+              <EmptyState title="暂无数据" description="开始使用 AI 员工后，热门员工将显示在这里。" />
+            ) : (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={stats.topEmployees} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis type="number" className="text-xs text-fg-muted" />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={150}
+                    className="text-xs text-fg-muted"
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '0.5rem',
+                    }}
+                    formatter={(value) => [value as number, '调用次数']}
+                  />
+                  <Bar dataKey="calls" fill="#eb3f00" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 4. 最近活动 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>最近活动</CardTitle>
+            <CardDescription>最近 10 条操作记录</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {stats.recentActivities.length === 0 ? (
+              <EmptyState title="暂无活动" description="企业活动记录将显示在这里。" />
+            ) : (
+              <div className="space-y-3">
+                {stats.recentActivities.map((activity, i) => (
+                  <div key={i} className="flex items-start gap-3 text-sm">
+                    <Zap className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-foreground">
+                        <strong>{activity.actor}</strong> 使用{' '}
+                        <strong>{activity.target}</strong>
+                      </p>
+                      <p className="text-xs text-fg-muted">
+                        {formatDistanceToNow(new Date(activity.time), {
+                          addSuffix: true,
+                          locale: zhCN,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 5. 快速入口 */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Link href="/marketplace" className="block">
+          <Button variant="secondary" className="h-20 w-full justify-start gap-3">
+            <Bot className="h-5 w-5" />
+            <span>招聘新员工</span>
+          </Button>
+        </Link>
+        <Link href="/members" className="block">
+          <Button variant="secondary" className="h-20 w-full justify-start gap-3">
+            <UserPlus className="h-5 w-5" />
+            <span>邀请成员</span>
+          </Button>
+        </Link>
+        <Link href="/usage" className="block">
+          <Button variant="secondary" className="h-20 w-full justify-start gap-3">
+            <Wallet className="h-5 w-5" />
+            <span>查看消费</span>
+          </Button>
+        </Link>
+      </div>
+    </div>
   );
 }

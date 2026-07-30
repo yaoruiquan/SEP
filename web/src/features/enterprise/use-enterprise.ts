@@ -248,3 +248,27 @@ export function useMyEmployees() {
     queryFn: () => api.get<MyEmployee[]>('/enterprise/my-employees'),
   });
 }
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardStats {
+  employeeCount: number;
+  memberCount: number;
+  monthlySpend: number;
+  callCount: number;
+  spendTrend: Array<{ date: string; amount: number }>;
+  topEmployees: Array<{ id: string; name: string; calls: number }>;
+  recentActivities: Array<{
+    type: string;
+    actor: string;
+    target: string;
+    time: string;
+  }>;
+}
+
+export function useDashboardStats() {
+  return useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => api.get<DashboardStats>('/enterprise/dashboard-stats'),
+  });
+}
