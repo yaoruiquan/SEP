@@ -156,6 +156,69 @@ export function useAllEnterprises() {
   });
 }
 
+// Import admin API types
+import type {
+  EnterpriseListResponse,
+  EnterpriseDetail,
+  CreditAdjustmentRequest,
+  SuspendEnterpriseRequest,
+} from './admin-api';
+import { adminApi } from './admin-api';
+
+export function useEnterprisesList(params?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+}) {
+  return useQuery({
+    queryKey: ['admin', 'enterprises', 'list', params],
+    queryFn: () => adminApi.listEnterprises(params),
+  });
+}
+
+export function useEnterpriseDetail(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'enterprises', id],
+    queryFn: () => adminApi.getEnterpriseDetail(id),
+    enabled: !!id,
+  });
+}
+
+export function useCreditAdjustment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: CreditAdjustmentRequest }) =>
+      adminApi.creditAdjustment(id, data),
+    onSuccess: (_res, { id }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', 'list'] });
+    },
+  });
+}
+
+export function useSuspendEnterprise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: SuspendEnterpriseRequest }) =>
+      adminApi.suspendEnterprise(id, data),
+    onSuccess: (_res, { id }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', 'list'] });
+    },
+  });
+}
+
+export function useResumeEnterprise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.resumeEnterprise(id),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises', 'list'] });
+    },
+  });
+}
+
 export interface SettingView {
   key: string;
   label: string;

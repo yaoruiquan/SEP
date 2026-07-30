@@ -13,6 +13,7 @@ import { ModelModule } from './modules/model/model.module';
 import { EnterpriseModule } from './modules/enterprise/enterprise.module';
 import { ClientModule } from './modules/client/client.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { GatewayModule } from './modules/gateway/gateway.module';
     EnterpriseModule,
     ClientModule,
     GatewayModule,
+    AdminModule,
   ],
   controllers: [],
   providers: [],
