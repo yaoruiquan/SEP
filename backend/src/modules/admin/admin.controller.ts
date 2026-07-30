@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Delete,
   Param,
   Body,
   Query,
@@ -35,6 +37,30 @@ const ApproveEmployeeSchema = z.object({
 
 const RejectEmployeeSchema = z.object({
   reason: z.string().min(1, '拒绝原因不能为空').max(500, '原因不能超过500字符'),
+});
+
+const CreateEmployeeSchema = z.object({
+  name: z.string().min(1, '员工名称不能为空').max(100, '名称不能超过100字符'),
+  description: z.string().optional(),
+  industry: z.string().optional(),
+  position: z.string().optional(),
+  avatar: z.string().url('头像必须是有效的URL').optional(),
+  systemPrompt: z.string().optional(),
+  modelId: z.string().optional(),
+  maxSteps: z.number().int().positive().optional(),
+  price: z.number().nonnegative().optional(),
+});
+
+const UpdateEmployeeSchema = z.object({
+  name: z.string().min(1, '员工名称不能为空').max(100, '名称不能超过100字符').optional(),
+  description: z.string().optional(),
+  industry: z.string().optional(),
+  position: z.string().optional(),
+  avatar: z.string().url('头像必须是有效的URL').optional(),
+  systemPrompt: z.string().optional(),
+  modelId: z.string().optional(),
+  maxSteps: z.number().int().positive().optional(),
+  price: z.number().nonnegative().optional(),
 });
 
 @ApiTags('admin')
@@ -181,5 +207,75 @@ export class AdminController {
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
+  }
+
+  @Post('employees')
+  @ApiOperation({ summary: '创建员工（运营）' })
+  @ApiResponse({ status: 201, description: '员工创建成功' })
+  @ApiResponse({ status: 400, description: '输入参数无效' })
+  createEmployee(
+    @Body(new ZodValidationPipe(CreateEmployeeSchema)) dto: z.infer<typeof CreateEmployeeSchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.createEmployee({
+      name: dto.name,
+      description: dto.description,
+      industry: dto.industry,
+      position: dto.position,
+      avatar: dto.avatar,
+      systemPrompt: dto.systemPrompt,
+      modelId: dto.modelId,
+      maxSteps: dto.maxSteps,
+      price: dto.price,
+      operatorId: req.user.id,
+    });
+  }
+
+  @Get('employees/:id')
+  @ApiOperation({ summary: '获取员工详情（运营端）' })
+  @ApiResponse({ status: 200, description: '返回员工详情' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  getEmployeeDetail(@Param('id') id: string) {
+    return this.adminService.getEmployeeDetail(id);
+  }
+
+  @Put('employees/:id')
+  @ApiOperation({ summary: '更新员工' })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  @ApiResponse({ status: 400, description: '输入参数无效' })
+  updateEmployee(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateEmployeeSchema)) dto: z.infer<typeof UpdateEmployeeSchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateEmployee(id, dto, req.user.id);
+  }
+
+  @Post('employees/:id/publish')
+  @ApiOperation({ summary: '发布员工（直接上架）' })
+  @ApiResponse({ status: 200, description: '发布成功' })
+  @ApiResponse({ status: 400, description: '只能发布草稿状态的员工' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  publishEmployee(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishEmployee(id, req.user.id);
+  }
+
+  @Post('employees/:id/archive')
+  @ApiOperation({ summary: '下架员工' })
+  @ApiResponse({ status: 200, description: '下架成功' })
+  @ApiResponse({ status: 400, description: '只能下架已发布的员工' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  archiveEmployee(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.archiveEmployee(id, req.user.id);
+  }
+
+  @Delete('employees/:id')
+  @ApiOperation({ summary: '删除员工（仅草稿）' })
+  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({ status: 400, description: '只能删除草稿状态的员工' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  deleteEmployee(@Param('id') id: string) {
+    return this.adminService.deleteEmployee(id);
   }
 }

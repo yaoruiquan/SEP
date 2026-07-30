@@ -106,6 +106,117 @@ export interface OperationResponse {
   success: boolean;
 }
 
+// Employee Management Types
+export interface EmployeeListItem {
+  id: string;
+  name: string;
+  description: string;
+  industry: string;
+  position: string;
+  avatar: string | null;
+  status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
+  version: string;
+  price: number | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  bindings: Array<{
+    capability: {
+      id: string;
+      name: string;
+    };
+  }>;
+  _count: {
+    bindings: number;
+  };
+}
+
+export interface EmployeeListResponse {
+  data: EmployeeListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface EmployeeDetail {
+  id: string;
+  name: string;
+  description: string;
+  industry: string;
+  position: string;
+  avatar: string | null;
+  systemPrompt: string;
+  modelId: string;
+  maxSteps: number;
+  status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
+  version: string;
+  price: number | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  bindings: Array<{
+    id: string;
+    capability: {
+      id: string;
+      name: string;
+      type: string;
+      status: string;
+    };
+  }>;
+  _count: {
+    subscriptions: number;
+    instances: number;
+    sessions: number;
+  };
+}
+
+export interface CreateEmployeeRequest {
+  name: string;
+  description?: string;
+  industry?: string;
+  position?: string;
+  avatar?: string;
+  systemPrompt?: string;
+  modelId?: string;
+  maxSteps?: number;
+  price?: number;
+}
+
+export interface UpdateEmployeeRequest {
+  name?: string;
+  description?: string;
+  industry?: string;
+  position?: string;
+  avatar?: string;
+  systemPrompt?: string;
+  modelId?: string;
+  maxSteps?: number;
+  price?: number;
+}
+
+export interface ComputeTransaction {
+  id: string;
+  type: 'RECHARGE' | 'CONSUME' | 'REFUND';
+  amount: number;
+  description: string | null;
+  metadata: any;
+  createdAt: string;
+  sessionId: string | null;
+  enterprise: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface ComputeTransactionsResponse {
+  data: ComputeTransaction[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export const adminApi = {
   /**
    * 获取企业列表
@@ -181,29 +292,82 @@ export const adminApi = {
 
     const query = searchParams.toString();
     return api.get<ComputeTransactionsResponse>(
-      `/admin/enterprises/compute/transactions${query ? `?${query}` : ''}`
+      `/admin/compute/transactions${query ? `?${query}` : ''}`
     );
   },
+
+  /**
+   * 获取员工列表
+   */
+  listEmployees: (params?: {
+    status?: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+
+    const query = searchParams.toString();
+    return api.get<EmployeeListResponse>(
+      `/admin/employees${query ? `?${query}` : ''}`
+    );
+  },
+
+  /**
+   * 获取员工详情
+   */
+  getEmployeeDetail: (id: string) => {
+    return api.get<EmployeeDetail>(`/admin/employees/${id}`);
+  },
+
+  /**
+   * 创建员工
+   */
+  createEmployee: (data: CreateEmployeeRequest) => {
+    return api.post<EmployeeDetail>('/admin/employees', data);
+  },
+
+  /**
+   * 更新员工
+   */
+  updateEmployee: (id: string, data: UpdateEmployeeRequest) => {
+    return api.put<EmployeeDetail>(`/admin/employees/${id}`, data);
+  },
+
+  /**
+   * 发布员工
+   */
+  publishEmployee: (id: string) => {
+    return api.post<EmployeeDetail>(`/admin/employees/${id}/publish`);
+  },
+
+  /**
+   * 下架员工
+   */
+  archiveEmployee: (id: string) => {
+    return api.post<EmployeeDetail>(`/admin/employees/${id}/archive`);
+  },
+
+  /**
+   * 删除员工
+   */
+  deleteEmployee: (id: string) => {
+    return api.delete<OperationResponse>(`/admin/employees/${id}`);
+  },
+
+  /**
+   * 审核通过员工
+   */
+  approveEmployee: (id: string, note?: string) => {
+    return api.post<OperationResponse>(`/admin/employees/${id}/approve`, { note });
+  },
+
+  /**
+   * 拒绝员工
+   */
+  rejectEmployee: (id: string, reason: string) => {
+    return api.post<OperationResponse>(`/admin/employees/${id}/reject`, { reason });
+  },
 };
-
-export interface ComputeTransaction {
-  id: string;
-  type: 'RECHARGE' | 'CONSUME' | 'REFUND';
-  amount: number;
-  description: string | null;
-  metadata: any;
-  createdAt: string;
-  sessionId: string | null;
-  enterprise: {
-    id: string;
-    name: string;
-  };
-}
-
-export interface ComputeTransactionsResponse {
-  data: ComputeTransaction[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}

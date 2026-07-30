@@ -2,14 +2,27 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminApi } from '@/features/admin/admin-api';
+import { toast } from 'sonner';
+import { Plus, Pencil, Trash2, Archive, Upload } from 'lucide-react';
 
 type EmployeeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED';
 
@@ -27,37 +40,97 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AdminEmployeesPage() {
-  const [tab, setTab] = useState<'pending' | 'approved' | 'all'>('pending');
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState<'approved' | 'draft' | 'pending'>('approved');
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; employeeId: string; employeeName: string }>({
+    open: false,
+    employeeId: '',
+    employeeName: '',
+  });
 
-  const { data: employees, isLoading } = useQuery({
+  const { data: employeesResponse, isLoading } = useQuery({
     queryKey: ['admin-employees', tab],
     queryFn: async () => {
-      const filter = tab === 'pending' ? '?status=PENDING' : tab === 'approved' ? '?status=APPROVED' : '';
-      const res = await api.get<{ data: any[] }>(`/admin/employees${filter}`);
-      return res.data || [];
+      const statusMap = {
+        approved: 'APPROVED',
+        draft: 'DRAFT',
+        pending: 'PENDING',
+      };
+      return adminApi.listEmployees({ status: statusMap[tab] as any });
     },
   });
+
+  const employees = employeesResponse?.data || [];
+
+  const publishMutation = useMutation({
+    mutationFn: (id: string) => adminApi.publishEmployee(id),
+    onSuccess: () => {
+      toast.success('员工发布成功');
+      queryClient.invalidateQueries({ queryKey: ['admin-employees'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || '发布失败');
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => adminApi.archiveEmployee(id),
+    onSuccess: () => {
+      toast.success('员工已下架');
+      queryClient.invalidateQueries({ queryKey: ['admin-employees'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || '下架失败');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => adminApi.deleteEmployee(id),
+    onSuccess: () => {
+      toast.success('员工已删除');
+      queryClient.invalidateQueries({ queryKey: ['admin-employees'] });
+      setDeleteDialog({ open: false, employeeId: '', employeeName: '' });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || '删除失败');
+    },
+  });
+
+  const handleDelete = (id: string, name: string) => {
+    setDeleteDialog({ open: true, employeeId: id, employeeName: name });
+  };
+
+  const confirmDelete = () => {
+    if (deleteDialog.employeeId) {
+      deleteMutation.mutate(deleteDialog.employeeId);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">员工管理</h1>
+        <Button onClick={() => router.push('/admin/employees/new')}>
+          <Plus className="h-4 w-4 mr-2" />
+          新建员工
+        </Button>
       </div>
 
       <Tabs value={tab} onValueChange={(v: any) => setTab(v)}>
         <TabsList>
-          <TabsTrigger value="pending">待审核</TabsTrigger>
           <TabsTrigger value="approved">已发布</TabsTrigger>
-          <TabsTrigger value="all">全部</TabsTrigger>
+          <TabsTrigger value="draft">草稿</TabsTrigger>
+          <TabsTrigger value="pending">待审核</TabsTrigger>
         </TabsList>
 
         <TabsContent value={tab} className="mt-4">
           <Card>
             <CardHeader>
               <CardTitle>
-                {tab === 'pending' && '待审核员工'}
                 {tab === 'approved' && '已发布员工'}
-                {tab === 'all' && '全部员工'}
+                {tab === 'draft' && '草稿员工'}
+                {tab === 'pending' && '待审核员工'}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -107,9 +180,74 @@ export default function AdminEmployeesPage() {
                           <div className="flex items-center justify-end gap-1">
                             <Link href={`/admin/employees/${emp.id}`}>
                               <Button variant="ghost" size="sm">
-                                详情
+                                查看
                               </Button>
                             </Link>
+
+                            {emp.status === 'DRAFT' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => router.push(`/admin/employees/${emp.id}/edit`)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                                  编辑
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => publishMutation.mutate(emp.id)}
+                                  disabled={publishMutation.isPending}
+                                >
+                                  <Upload className="h-3.5 w-3.5 mr-1" />
+                                  发布
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(emp.id, emp.name)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                  删除
+                                </Button>
+                              </>
+                            )}
+
+                            {emp.status === 'APPROVED' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => router.push(`/admin/employees/${emp.id}/edit`)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                                  编辑
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => archiveMutation.mutate(emp.id)}
+                                  disabled={archiveMutation.isPending}
+                                >
+                                  <Archive className="h-3.5 w-3.5 mr-1" />
+                                  下架
+                                </Button>
+                              </>
+                            )}
+
+                            {emp.status === 'PENDING' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => router.push(`/admin/employees/${emp.id}`)}
+                                >
+                                  审核
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -121,6 +259,21 @@ export default function AdminEmployeesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ ...deleteDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除员工 "{deleteDialog.employeeName}" 吗？此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>删除</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

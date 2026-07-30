@@ -464,4 +464,185 @@ export class AdminService {
 
     return { success: true };
   }
+
+  /**
+   * 创建员工（运营）
+   */
+  async createEmployee(data: {
+    name: string;
+    description?: string;
+    industry?: string;
+    position?: string;
+    avatar?: string;
+    systemPrompt?: string;
+    modelId?: string;
+    maxSteps?: number;
+    price?: number;
+    operatorId: string;
+  }) {
+    const employee = await this.prisma.digitalEmployee.create({
+      data: {
+        name: data.name,
+        description: data.description || '',
+        industry: data.industry || '通用',
+        position: data.position || '通用',
+        avatar: data.avatar,
+        systemPrompt: data.systemPrompt || '你是一位专业的数字员工，随时准备协助用户完成各项任务。',
+        modelId: data.modelId || 'gpt-4o',
+        maxSteps: data.maxSteps || 10,
+        price: data.price,
+        status: 'DRAFT',
+        version: '1.0.0',
+      },
+    });
+
+    return employee;
+  }
+
+  /**
+   * 更新员工
+   */
+  async updateEmployee(
+    employeeId: string,
+    data: {
+      name?: string;
+      description?: string;
+      industry?: string;
+      position?: string;
+      avatar?: string;
+      systemPrompt?: string;
+      modelId?: string;
+      maxSteps?: number;
+      price?: number;
+    },
+    operatorId: string,
+  ) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+
+    return this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        name: data.name,
+        description: data.description,
+        industry: data.industry,
+        position: data.position,
+        avatar: data.avatar,
+        systemPrompt: data.systemPrompt,
+        modelId: data.modelId,
+        maxSteps: data.maxSteps,
+        price: data.price,
+      },
+    });
+  }
+
+  /**
+   * 发布员工（运营直接发布，跳过审核）
+   */
+  async publishEmployee(employeeId: string, operatorId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+    if (employee.status !== 'DRAFT') {
+      throw new BadRequestException('只能发布草稿状态的员工');
+    }
+
+    return this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        status: 'APPROVED',
+        publishedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * 下架员工
+   */
+  async archiveEmployee(employeeId: string, operatorId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+    if (employee.status !== 'APPROVED') {
+      throw new BadRequestException('只能下架已发布的员工');
+    }
+
+    return this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        status: 'ARCHIVED',
+      },
+    });
+  }
+
+  /**
+   * 删除员工（仅草稿可删除）
+   */
+  async deleteEmployee(employeeId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+    if (employee.status !== 'DRAFT') {
+      throw new BadRequestException('只能删除草稿状态的员工');
+    }
+
+    await this.prisma.digitalEmployee.delete({
+      where: { id: employeeId },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * 获取员工详情（运营端）
+   */
+  async getEmployeeDetail(employeeId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+      include: {
+        bindings: {
+          include: {
+            capability: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                status: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            subscriptions: true,
+            instances: true,
+            sessions: true,
+          },
+        },
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+
+    return employee;
+  }
 }
