@@ -123,7 +123,13 @@ body {
   50%       { background-position: 100% 50%; }
 }
 
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
 .animate-float      { animation: float      7s ease-in-out infinite; }
+.animate-marquee    { animation: marquee    20s linear infinite; }
 .animate-float-slow { animation: float-slow 11s ease-in-out infinite reverse; }
 
 .animate-fade-up         { animation: fade-up .6s ease both; }

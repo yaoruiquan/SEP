@@ -12,6 +12,7 @@ import { SettingModule } from './modules/setting/setting.module';
 import { ModelModule } from './modules/model/model.module';
 import { EnterpriseModule } from './modules/enterprise/enterprise.module';
 import { ClientModule } from './modules/client/client.module';
+import { GatewayModule } from './modules/gateway/gateway.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ClientModule } from './modules/client/client.module';
     ModelModule,
     EnterpriseModule,
     ClientModule,
+    GatewayModule,
   ],
   controllers: [],
   providers: [],

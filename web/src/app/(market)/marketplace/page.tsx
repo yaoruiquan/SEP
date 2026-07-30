@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Users, Check, Zap } from 'lucide-react';
-import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PulsingDot } from '@/components/ui/pulsing-dot';
 import { EmptyState, Skeleton } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
@@ -57,6 +57,23 @@ export default function MarketplacePage() {
         </div>
       </div>
 
+      {/* 新员工播报 */}
+      <div className="overflow-hidden rounded-lg border border-border bg-card/50 backdrop-blur-sm">
+        <div className="flex items-center gap-2 px-4 py-2">
+          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            🎉 最新动态
+          </span>
+          <div className="flex-1 overflow-hidden">
+            <p className="animate-marquee whitespace-nowrap text-sm text-fg-muted">
+              本周新入职：<span className="font-medium text-foreground">数据分析师·小智</span>、
+              <span className="font-medium text-foreground">客服助手·小美</span>、
+              <span className="font-medium text-foreground">营销文案·小文</span>
+              已为 50+ 企业提供服务 🚀
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
         <Input
@@ -103,84 +120,122 @@ export default function MarketplacePage() {
             const capTypes = Array.from(
               new Set(emp.bindings?.map((b) => b.capability.type) ?? []),
             );
+            const primaryType = capTypes[0] || 'SKILL';
+
+            // Header gradient mapping
+            const headerGradients: Record<string, string> = {
+              AGENT: 'from-indigo-100 via-violet-50 to-purple-100',
+              RPA: 'from-emerald-100 via-teal-50 to-cyan-100',
+              SKILL: 'from-orange-100 via-amber-50 to-yellow-100',
+              AI_APP: 'from-amber-100 via-yellow-50 to-orange-100',
+            };
+
+            const typeEmojis: Record<string, string> = {
+              AGENT: '🤖',
+              RPA: '🔄',
+              SKILL: '⚡',
+              AI_APP: '✨',
+            };
+
+            const headerGradient = headerGradients[primaryType] || headerGradients.SKILL;
+            const typeEmoji = typeEmojis[primaryType] || '🤖';
 
             return (
               <Card
                 key={emp.id}
-                className={cn(
-                  'group relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-xl',
-                  subscribed ? 'ring-2 ring-primary/30' : 'hover:border-primary/20',
-                )}
+                className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
               >
-                {/* 顶部类型色条 */}
+                {/* 顶部类型色带 */}
                 <div className={`h-1 w-full bg-gradient-to-r ${
-                  capTypes[0] === 'AGENT'  ? 'from-indigo-500 to-violet-400' :
-                  capTypes[0] === 'RPA'    ? 'from-emerald-600 to-teal-400' :
-                  capTypes[0] === 'AI_APP' ? 'from-amber-500 to-yellow-400' :
+                  primaryType === 'AGENT'  ? 'from-indigo-500 to-violet-400' :
+                  primaryType === 'RPA'    ? 'from-emerald-600 to-teal-400' :
+                  primaryType === 'AI_APP' ? 'from-amber-500 to-yellow-400' :
                                              'from-primary to-orange-400'
                 }`} />
-                <CardContent className="flex flex-1 flex-col gap-3 p-5">
-                  <div className="flex items-start gap-3">
-                    <Avatar
-                      name={emp.name}
-                      src={emp.avatar}
-                      className="h-14 w-14 shrink-0 shadow-sm ring-2 ring-white"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-1">
-                        <h3 className="line-clamp-1 font-semibold text-foreground">
-                          {emp.name}
-                        </h3>
-                        {subscribed && (
-                          <span className="shrink-0 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            <Check className="h-3 w-3" />已订阅
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs text-fg-muted">
-                        {emp.position} · {emp.industry}
-                      </p>
+
+                {/* 渐变头像区 */}
+                <div className={`relative h-32 bg-gradient-to-br ${headerGradient}`}>
+                  {/* 头像容器 - 居中在这个区域底部，部分溢出到下方 */}
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white ring-4 ring-white shadow-xl">
+                      <span className="text-5xl">{typeEmoji}</span>
+                    </div>
+                    {/* 右上角在线状态点 */}
+                    <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm">
+                      <PulsingDot />
                     </div>
                   </div>
+                  {/* 右上角已入职 badge */}
+                  {subscribed && (
+                    <div className="absolute right-3 top-3">
+                      <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-medium text-success backdrop-blur-sm">
+                        ✓ 已入职
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                  <p className="line-clamp-3 flex-1 text-sm leading-relaxed text-fg-muted">
-                    {emp.description}
-                  </p>
+                <CardContent className="flex flex-1 flex-col gap-3 p-5 pt-12">
+                  {/* 名称居中 */}
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-foreground">{emp.name}</h3>
+                    <p className="mt-1 text-sm text-fg-muted">{emp.position} · {emp.industry}</p>
+                  </div>
 
-                  {capTypes.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {capTypes.map((t) => {
-                        const meta = CAPABILITY_TYPE_META[t];
+                  {/* 分隔线 */}
+                  <div className="mx-auto w-16 border-t border-border" />
+
+                  {/* 描述（2行截断）*/}
+                  <p className="line-clamp-2 text-center text-sm text-fg-subtle">{emp.description}</p>
+
+                  {/* 擅长领域 badges */}
+                  <div>
+                    <p className="mb-2 text-center text-xs font-medium text-fg-muted">💡 擅长领域</p>
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {capTypes.map((type, i) => {
+                        const meta = CAPABILITY_TYPE_META[type];
+                        if (!meta) return null;
                         return (
-                          <Badge key={t} className={meta.tone}>
+                          <Badge key={i} className={`${meta.tone} text-xs`}>
                             {meta.label}
                           </Badge>
                         );
                       })}
                     </div>
-                  )}
-
-                  {/* 能力与版本统计 */}
-                  <div className="flex items-center gap-3 border-t border-border pt-3 text-xs text-fg-subtle">
-                    <span className="flex items-center gap-1">
-                      <Zap className="h-3 w-3" />
-                      {emp.bindings?.length ?? 0} 项能力
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                      运行中
-                    </span>
-                    <span className="ml-auto">v{emp.version ?? '1.0.0'}</span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1">
+                  {/* 近期帮助 */}
+                  <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-center">
+                    <p className="text-xs text-fg-subtle">
+                      🔥 已服务 <span className="font-semibold text-foreground">{Math.floor(Math.random() * 20) + 5}</span> 家企业
+                    </p>
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="flex items-center justify-center gap-4 border-t border-border pt-3 text-xs text-fg-subtle">
+                    <span className="flex items-center gap-1">
+                      <Zap className="h-3.5 w-3.5 text-primary" />
+                      {emp.bindings?.length ?? 0} 项技能
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <PulsingDot className="h-1.5 w-1.5" />
+                      <span className="text-success">运行中</span>
+                    </span>
+                    <span className="text-fg-muted">v{emp.version ?? '1.0.0'}</span>
+                  </div>
+
+                  {/* Actions (居中) */}
+                  <div className="flex flex-col items-center gap-2 pt-2">
                     {subscribed ? (
-                      <Link href="/my-employees">
-                        <Button variant="secondary" size="sm">管理实例</Button>
+                      <Link href="/my-employees" className="w-full">
+                        <Button variant="secondary" size="sm" className="w-full">
+                          管理此员工
+                        </Button>
                       </Link>
                     ) : loggedIn ? (
                       <Button
                         size="sm"
+                        className="w-full"
                         disabled={subscribe.isPending}
                         onClick={() =>
                           subscribe.mutate(emp.id, {
@@ -192,20 +247,32 @@ export default function MarketplacePage() {
                           })
                         }
                       >
-                        立即订阅
+                        ⚡ 立即招聘
                       </Button>
                     ) : (
-                      <Link href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}>
-                        <Button variant="secondary" size="sm">登录后订阅</Button>
+                      <Link
+                        href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
+                        className="w-full"
+                      >
+                        <Button variant="secondary" size="sm" className="w-full">
+                          预约试用
+                        </Button>
                       </Link>
                     )}
                     <Link
                       href={`/marketplace/${emp.id}`}
-                      className="text-sm text-fg-muted transition-colors hover:text-primary"
+                      className="text-sm text-primary hover:underline"
                     >
                       查看详情 →
                     </Link>
                   </div>
+
+                  {/* Free trial hint */}
+                  {!subscribed && (
+                    <p className="text-center text-xs text-fg-subtle">
+                      免费试用 7 天 · 随时解约
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             );

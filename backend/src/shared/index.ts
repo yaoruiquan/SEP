@@ -755,3 +755,54 @@ export const ClientTokenDtoSchema = z.object({
   instanceId: z.string().min(1),
 });
 export type ClientTokenDto = z.infer<typeof ClientTokenDtoSchema>;
+
+// ============================================================================
+// Gateway Layer Types (OpenAI-compatible chat completion)
+// ============================================================================
+
+export const ChatCompletionRequestSchema = z.object({
+  model: z.string().min(1),
+  messages: z.array(
+    z.object({
+      role: z.enum(['system', 'user', 'assistant', 'tool']),
+      content: z.string(),
+      name: z.string().optional(),
+    }),
+  ),
+  temperature: z.number().min(0).max(2).optional(),
+  max_tokens: z.number().int().positive().optional(),
+  stream: z.boolean().optional(),
+  tools: z.array(z.any()).optional(),
+});
+export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
+
+export interface ChatCompletionUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+/**
+ * 计算模型调用成本（CNY）。
+ * @param modelId 模型ID（如 gpt-4）
+ * @param inputTokens prompt token数
+ * @param outputTokens completion token数
+ * @param usdRate 美元→人民币汇率
+ * @returns 成本（人民币）
+ */
+export function calculateModelCost(
+  modelId: string,
+  inputTokens: number,
+  outputTokens: number,
+  usdRate: number,
+): number {
+  // 简化版：用默认费率，后续从 PlatformModel 读单价
+  const RATES: Record<string, { input: number; output: number }> = {
+    'gpt-4': { input: 0.03 / 1000, output: 0.06 / 1000 },  // USD per token
+    'gpt-3.5-turbo': { input: 0.001 / 1000, output: 0.002 / 1000 },
+    'claude-3-opus': { input: 0.015 / 1000, output: 0.075 / 1000 },
+  };
+  const rate = RATES[modelId] || RATES['gpt-3.5-turbo']; // fallback
+  const costUsd = inputTokens * rate.input + outputTokens * rate.output;
+  return costUsd * usdRate;
+}
