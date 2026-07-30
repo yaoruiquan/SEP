@@ -197,7 +197,14 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>能力绑定详情</CardTitle>
-              <Badge className="bg-secondary text-secondary-foreground">{bindings?.length || 0} 个</Badge>
+              <div className="flex items-center gap-2">
+                <Badge className="bg-secondary text-secondary-foreground">{bindings?.length || 0} 个</Badge>
+                <Link href={`/admin/employees/${params.id}/bindings`}>
+                  <Button variant="secondary" size="sm">
+                    高级管理
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
             <CardContent>
               {bindingsLoading ? (
