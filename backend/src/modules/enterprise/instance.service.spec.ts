@@ -120,7 +120,7 @@ describe("InstanceService", () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: "t1",
         version: "2.3.0",
-        status: "PUBLISHED",
+        status: "APPROVED",
       });
       prisma.employeeInstance.create.mockResolvedValue({ id: "i1" });
 
@@ -142,7 +142,7 @@ describe("InstanceService", () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: "t1",
         version: "1.0.0",
-        status: "PUBLISHED",
+        status: "APPROVED",
       });
       prisma.department.findUnique.mockResolvedValue({
         id: "d-other",
@@ -169,7 +169,7 @@ describe("InstanceService", () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: "t1",
         version: "1.0.0",
-        status: "PUBLISHED",
+        status: "APPROVED",
       });
       prisma.employeeInstance.create.mockResolvedValue({ id: "i2" });
 

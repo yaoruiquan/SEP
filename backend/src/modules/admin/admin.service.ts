@@ -364,4 +364,104 @@ export class AdminService {
       totalPages: Math.ceil(total / pageSize),
     };
   }
+
+  /**
+   * 获取员工列表（运营端）
+   */
+  async listEmployees(params?: {
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED';
+    page?: number;
+    pageSize?: number;
+  }) {
+    const { status, page = 1, pageSize = 20 } = params || {};
+    const skip = (page - 1) * pageSize;
+
+    const where = status ? { status } : {};
+
+    const [employees, total] = await Promise.all([
+      this.prisma.digitalEmployee.findMany({
+        where,
+        skip,
+        take: pageSize,
+        include: {
+          bindings: {
+            include: {
+              capability: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              bindings: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.digitalEmployee.count({ where }),
+    ]);
+
+    return {
+      data: employees,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  /**
+   * 审核通过员工模板
+   */
+  async approveEmployee(employeeId: string, operatorId: string, note?: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工模板不存在');
+    }
+    if (employee.status !== 'PENDING') {
+      throw new BadRequestException('只能审核待审核状态的员工');
+    }
+
+    await this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        status: 'APPROVED',
+        publishedAt: new Date(),
+      },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * 拒绝员工模板
+   */
+  async rejectEmployee(employeeId: string, operatorId: string, reason: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工模板不存在');
+    }
+    if (employee.status !== 'PENDING') {
+      throw new BadRequestException('只能审核待审核状态的员工');
+    }
+
+    await this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        status: 'REJECTED',
+      },
+    });
+
+    return { success: true };
+  }
 }

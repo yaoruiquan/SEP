@@ -35,8 +35,8 @@ export class SubscriptionService {
       where: { id: dto.employeeId },
     });
     if (!employee) throw new NotFoundException(`Employee ${dto.employeeId} not found`);
-    if (employee.status !== 'PUBLISHED') {
-      throw new BadRequestException('Cannot subscribe to an unpublished employee');
+    if (employee.status !== 'APPROVED') {
+      throw new BadRequestException('Cannot subscribe to an unapproved employee');
     }
 
     // Upsert: reactivate existing or create new

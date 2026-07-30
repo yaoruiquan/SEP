@@ -73,7 +73,7 @@ export class DigitalEmployeeService {
    * 人才市场的**公开**员工列表 —— 无需登录。
    *
    * 与 findAll 的两个关键差异，都是安全相关，不要合并这两个方法：
-   * ① status 硬编码为 PUBLISHED，不接受调用方传参 —— 否则访客传
+   * ① status 硬编码为 APPROVED，不接受调用方传参 —— 否则访客传
    *    `?status=DRAFT` 就能看到未上架的员工；
    * ② 用 select 白名单而非 include，**不返回 systemPrompt / modelId /
    *    maxSteps**。提示词基本等于这个员工的全部内容，公开即可被完整复制。
@@ -83,7 +83,7 @@ export class DigitalEmployeeService {
     const q = search?.trim();
     return this.prisma.digitalEmployee.findMany({
       where: {
-        status: 'PUBLISHED',
+        status: 'APPROVED',
         ...(q
           ? {
               OR: [
@@ -100,10 +100,10 @@ export class DigitalEmployeeService {
     });
   }
 
-  /** 公开员工详情。同样只返回白名单字段，且非 PUBLISHED 一律 404。 */
+  /** 公开员工详情。同样只返回白名单字段，且非 APPROVED 一律 404。 */
   async findPublicOne(id: string) {
     const employee = await this.prisma.digitalEmployee.findFirst({
-      where: { id, status: 'PUBLISHED' },
+      where: { id, status: 'APPROVED' },
       select: this.publicSelect(),
     });
     if (!employee) {
@@ -183,8 +183,8 @@ export class DigitalEmployeeService {
       where: { id },
       data: {
         ...dto,
-        // Auto-stamp publishedAt when status transitions to PUBLISHED
-        ...(dto.status === 'PUBLISHED' && { publishedAt: new Date() }),
+        // Auto-stamp publishedAt when status transitions to APPROVED
+        ...(dto.status === 'APPROVED' && { publishedAt: new Date() }),
       },
       include: this.defaultInclude(),
     });

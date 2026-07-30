@@ -17,7 +17,7 @@ export function useEmployees(status?: string) {
 }
 
 export function usePublishedEmployees() {
-  return useEmployees('PUBLISHED');
+  return useEmployees('APPROVED');
 }
 
 export function useEmployee(id: string | undefined) {

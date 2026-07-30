@@ -1,7 +1,7 @@
 // Mirror of backend response shapes (kept minimal, only what the UI reads).
 
 export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
-export type EmployeeStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+export type EmployeeStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
 export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type CapabilityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export type UserRole = 'USER' | 'ADMIN';

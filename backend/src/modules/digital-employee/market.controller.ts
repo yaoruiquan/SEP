@@ -24,7 +24,7 @@ export class MarketController {
   @ApiOperation({
     summary: '人才市场员工列表（公开，无需登录）',
     description:
-      '只返回 PUBLISHED 员工，且不含 systemPrompt / modelId / maxSteps。' +
+      '只返回 APPROVED 员工，且不含 systemPrompt / modelId / maxSteps。' +
       'status 不可由调用方指定。',
   })
   @ApiQuery({ name: 'search', required: false, description: '搜索名称/描述/行业/岗位' })

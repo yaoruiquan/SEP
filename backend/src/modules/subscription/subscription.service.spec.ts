@@ -95,7 +95,7 @@ describe('SubscriptionService', () => {
     it('订阅创建时 enterpriseId 取自服务端上下文，不取自入参', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
-        status: 'PUBLISHED',
+        status: 'APPROVED',
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
 
@@ -112,7 +112,7 @@ describe('SubscriptionService', () => {
     it('订阅唯一性检查按 (企业, 模板) 而非 (用户, 模板)', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
-        status: 'PUBLISHED',
+        status: 'APPROVED',
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
 
@@ -141,7 +141,7 @@ describe('SubscriptionService', () => {
     it('企业管理员可以订阅', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
-        status: 'PUBLISHED',
+        status: 'APPROVED',
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
 
@@ -160,7 +160,7 @@ describe('SubscriptionService', () => {
 
       await expect(
         svc.subscribe('user-acme-boss', { employeeId: 'emp-draft' } as never),
-      ).rejects.toThrow(/unpublished/i);
+      ).rejects.toThrow(/unapproved/i);
     });
 
     it('模板不存在时报 404', async () => {

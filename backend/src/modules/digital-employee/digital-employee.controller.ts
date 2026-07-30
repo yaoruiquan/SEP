@@ -59,7 +59,7 @@ export class DigitalEmployeeController {
 
   @Get()
   @ApiOperation({ summary: '获取数字员工列表' })
-  @ApiQuery({ name: 'status', required: false, description: 'DRAFT | PUBLISHED | ARCHIVED' })
+  @ApiQuery({ name: 'status', required: false, description: 'DRAFT | APPROVED | ARCHIVED' })
   @ApiResponse({ status: 200, description: '数字员工列表' })
   findAll(@Query('status') status?: string) {
     return this.service.findAll(status);

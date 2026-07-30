@@ -151,10 +151,10 @@ describe('DigitalEmployeeService', () => {
     it('filters by status when provided', async () => {
       prismaMock.digitalEmployee.findMany.mockResolvedValue([]);
 
-      await service.findAll('PUBLISHED');
+      await service.findAll('APPROVED');
 
       expect(prismaMock.digitalEmployee.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { status: 'PUBLISHED' } }),
+        expect.objectContaining({ where: { status: 'APPROVED' } }),
       );
     });
   });
@@ -197,10 +197,10 @@ describe('DigitalEmployeeService', () => {
       prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
       prismaMock.digitalEmployee.update.mockResolvedValue({
         ...mockEmployee,
-        status: 'PUBLISHED',
+        status: 'APPROVED',
       });
 
-      await service.update('emp-1', { status: 'PUBLISHED' });
+      await service.update('emp-1', { status: 'APPROVED' });
 
       expect(prismaMock.digitalEmployee.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -308,7 +308,7 @@ describe('DigitalEmployeeService', () => {
       await service.findPublicList();
 
       const arg = prismaMock.digitalEmployee.findMany.mock.calls[0][0];
-      expect(arg.where.status).toBe('PUBLISHED');
+      expect(arg.where.status).toBe('APPROVED');
     });
 
     it('列表用 select 白名单，不含 systemPrompt / modelId / maxSteps', async () => {
@@ -356,7 +356,7 @@ describe('DigitalEmployeeService', () => {
         { position: { contains: '文案', mode: 'insensitive' } },
       ]);
       // 搜索不得覆盖 PUBLISHED 约束
-      expect(arg.where.status).toBe('PUBLISHED');
+      expect(arg.where.status).toBe('APPROVED');
     });
 
     it('搜索词为空白时不加 OR 条件', async () => {
@@ -374,7 +374,7 @@ describe('DigitalEmployeeService', () => {
       await service.findPublicOne('emp-1');
 
       const arg = prismaMock.digitalEmployee.findFirst.mock.calls[0][0];
-      expect(arg.where).toEqual({ id: 'emp-1', status: 'PUBLISHED' });
+      expect(arg.where).toEqual({ id: 'emp-1', status: 'APPROVED' });
       for (const f of FORBIDDEN) {
         expect(arg.select).not.toHaveProperty(f);
       }

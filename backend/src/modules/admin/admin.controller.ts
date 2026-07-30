@@ -29,15 +29,23 @@ const SuspendSchema = z.object({
   reason: z.string().min(1, '原因不能为空').max(500, '原因不能超过500字符'),
 });
 
+const ApproveEmployeeSchema = z.object({
+  note: z.string().optional(),
+});
+
+const RejectEmployeeSchema = z.object({
+  reason: z.string().min(1, '拒绝原因不能为空').max(500, '原因不能超过500字符'),
+});
+
 @ApiTags('admin')
-@Controller('admin/enterprises')
+@Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Get()
+  @Get('enterprises')
   @ApiOperation({ summary: '获取企业列表（运营端）' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })
   @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页数量，默认20' })
@@ -55,7 +63,7 @@ export class AdminController {
     });
   }
 
-  @Get(':id')
+  @Get('enterprises/:id')
   @ApiOperation({ summary: '获取企业详情（运营端）' })
   @ApiResponse({ status: 200, description: '返回企业详情，包含成员、实例、交易记录' })
   @ApiResponse({ status: 404, description: '企业不存在' })
@@ -63,7 +71,7 @@ export class AdminController {
     return this.adminService.getEnterpriseDetail(id);
   }
 
-  @Post(':id/credit')
+  @Post('enterprises/:id/credit')
   @ApiOperation({ summary: '充值或扣减算力' })
   @ApiResponse({ status: 200, description: '操作成功，返回新余额' })
   @ApiResponse({ status: 400, description: '金额无效或余额不足' })
@@ -82,7 +90,7 @@ export class AdminController {
     });
   }
 
-  @Post(':id/suspend')
+  @Post('enterprises/:id/suspend')
   @ApiOperation({ summary: '冻结企业' })
   @ApiResponse({ status: 200, description: '冻结成功' })
   @ApiResponse({ status: 400, description: '企业已被冻结' })
@@ -95,13 +103,57 @@ export class AdminController {
     return this.adminService.suspendEnterprise(id, dto.reason, req.user.id);
   }
 
-  @Post(':id/resume')
+  @Post('enterprises/:id/resume')
   @ApiOperation({ summary: '解冻企业' })
   @ApiResponse({ status: 200, description: '解冻成功' })
   @ApiResponse({ status: 400, description: '企业未被冻结' })
   @ApiResponse({ status: 404, description: '企业不存在' })
   resumeEnterprise(@Param('id') id: string, @Request() req: any) {
     return this.adminService.resumeEnterprise(id, req.user.id);
+  }
+
+  @Get('employees')
+  @ApiOperation({ summary: '获取员工列表（运营端）' })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'APPROVED', 'REJECTED', 'DRAFT', 'ARCHIVED'], description: '员工状态' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页数量，默认20' })
+  @ApiResponse({ status: 200, description: '返回员工列表' })
+  listEmployees(
+    @Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.listEmployees({
+      status,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
+  }
+
+  @Post('employees/:id/approve')
+  @ApiOperation({ summary: '审核通过员工模板' })
+  @ApiResponse({ status: 200, description: '审核通过' })
+  @ApiResponse({ status: 400, description: '只能审核待审核状态的员工' })
+  @ApiResponse({ status: 404, description: '员工模板不存在' })
+  approveEmployee(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ApproveEmployeeSchema)) dto: z.infer<typeof ApproveEmployeeSchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.approveEmployee(id, req.user.id, dto.note);
+  }
+
+  @Post('employees/:id/reject')
+  @ApiOperation({ summary: '拒绝员工模板' })
+  @ApiResponse({ status: 200, description: '拒绝成功' })
+  @ApiResponse({ status: 400, description: '只能审核待审核状态的员工' })
+  @ApiResponse({ status: 404, description: '员工模板不存在' })
+  rejectEmployee(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectEmployeeSchema)) dto: z.infer<typeof RejectEmployeeSchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.rejectEmployee(id, req.user.id, dto.reason);
   }
 
   @Get('compute/transactions')

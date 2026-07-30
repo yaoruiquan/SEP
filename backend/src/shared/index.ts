@@ -332,7 +332,7 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   modelId: z.string().optional(),
   maxSteps: z.number().min(1).max(20).optional(),
   price: z.number().min(0).optional(),
-  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+  status: z.enum(["DRAFT", "PENDING", "APPROVED", "REJECTED", "ARCHIVED"]).optional(),
   /**
    * 版本号。运营发版时同步更新这里和上传对应的员工包，
    * 已有实例的 upgradeAvailable 才会真正触发。
