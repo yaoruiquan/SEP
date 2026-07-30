@@ -14,9 +14,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { adminApi, type EmployeeDetail } from '@/features/admin/admin-api';
+import {
+  useAvailableCapabilities,
+  useEmployeeBindings,
+  useBindCapabilities,
+} from '@/features/admin/use-admin';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function EditEmployeePage() {
   const router = useRouter();
@@ -26,6 +33,7 @@ export default function EditEmployeePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
+  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -37,6 +45,11 @@ export default function EditEmployeePage() {
     maxSteps: 10,
     price: 0,
   });
+
+  const { data: capabilities, isLoading: capabilitiesLoading } =
+    useAvailableCapabilities();
+  const { data: bindings } = useEmployeeBindings(employeeId);
+  const bindCapabilitiesMutation = useBindCapabilities();
 
   const industries = [
     '通用',
@@ -76,6 +89,13 @@ export default function EditEmployeePage() {
     loadEmployee();
   }, [employeeId]);
 
+  useEffect(() => {
+    if (bindings) {
+      const ids = bindings.map((b: any) => b.capability.id);
+      setSelectedCapabilities(ids);
+    }
+  }, [bindings]);
+
   const loadEmployee = async () => {
     try {
       setIsLoading(true);
@@ -106,9 +126,18 @@ export default function EditEmployeePage() {
       return;
     }
 
+    if (selectedCapabilities.length === 0) {
+      toast.error('请至少选择一个能力');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await adminApi.updateEmployee(employeeId, formData);
+      await bindCapabilitiesMutation.mutateAsync({
+        employeeId,
+        capabilityIds: selectedCapabilities,
+      });
       toast.success('员工信息更新成功');
       router.push('/admin/employees');
     } catch (error: any) {
@@ -282,6 +311,68 @@ export default function EditEmployeePage() {
               }
               placeholder="0.00"
             />
+          </div>
+
+          <div className="space-y-4 pt-4 border-t">
+            <div>
+              <Label>绑定能力 *</Label>
+              <p className="text-sm text-muted-foreground mb-3">
+                选择此员工可以使用的能力（至少选择一个）
+              </p>
+            </div>
+
+            {capabilitiesLoading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                加载能力列表...
+              </div>
+            ) : !capabilities || capabilities.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>暂无可用能力</p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {capabilities.map((cap: any) => (
+                  <label
+                    key={cap.id}
+                    className={cn(
+                      'flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors',
+                      selectedCapabilities.includes(cap.id)
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:bg-muted/50'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedCapabilities.includes(cap.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCapabilities([...selectedCapabilities, cap.id]);
+                        } else {
+                          setSelectedCapabilities(
+                            selectedCapabilities.filter((id) => id !== cap.id)
+                          );
+                        }
+                      }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{cap.name}</p>
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                        {cap.description}
+                      </p>
+                      <Badge className="mt-2 bg-secondary text-secondary-foreground">
+                        {cap.type}
+                      </Badge>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {selectedCapabilities.length === 0 && (
+              <p className="text-sm text-red-500">* 请至少选择一个能力</p>
+            )}
           </div>
 
           <div className="flex gap-4 pt-4">

@@ -14,13 +14,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { adminApi } from '@/features/admin/admin-api';
+import { useAvailableCapabilities, useBindCapabilities } from '@/features/admin/use-admin';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function NewEmployeePage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -32,6 +36,9 @@ export default function NewEmployeePage() {
     maxSteps: 10,
     price: 0,
   });
+
+  const { data: capabilities, isLoading: capabilitiesLoading } = useAvailableCapabilities();
+  const bindCapabilitiesMutation = useBindCapabilities();
 
   const industries = [
     '通用',
@@ -73,9 +80,20 @@ export default function NewEmployeePage() {
       return;
     }
 
+    if (selectedCapabilities.length === 0) {
+      toast.error('请至少选择一个能力');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const employee = await adminApi.createEmployee(formData);
+
+      // Bind capabilities
+      await bindCapabilitiesMutation.mutateAsync({
+        employeeId: employee.id,
+        capabilityIds: selectedCapabilities,
+      });
 
       if (publish) {
         await adminApi.publishEmployee(employee.id);
@@ -246,6 +264,68 @@ export default function NewEmployeePage() {
               }
               placeholder="0.00"
             />
+          </div>
+
+          <div className="space-y-4 pt-4 border-t">
+            <div>
+              <Label>绑定能力 *</Label>
+              <p className="text-sm text-muted-foreground mb-3">
+                选择此员工可以使用的能力（至少选择一个）
+              </p>
+            </div>
+
+            {capabilitiesLoading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                加载能力列表...
+              </div>
+            ) : !capabilities || capabilities.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>暂无可用能力</p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {capabilities.map((cap: any) => (
+                  <label
+                    key={cap.id}
+                    className={cn(
+                      'flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors',
+                      selectedCapabilities.includes(cap.id)
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:bg-muted/50'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedCapabilities.includes(cap.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCapabilities([...selectedCapabilities, cap.id]);
+                        } else {
+                          setSelectedCapabilities(
+                            selectedCapabilities.filter((id) => id !== cap.id)
+                          );
+                        }
+                      }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{cap.name}</p>
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                        {cap.description}
+                      </p>
+                      <Badge className="mt-2 bg-secondary text-secondary-foreground">
+                        {cap.type}
+                      </Badge>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {selectedCapabilities.length === 0 && (
+              <p className="text-sm text-red-500">* 请至少选择一个能力</p>
+            )}
           </div>
 
           <div className="flex gap-4 pt-4">

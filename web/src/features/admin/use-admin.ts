@@ -263,3 +263,64 @@ export function useComputeTransactions(params?: {
     queryFn: () => adminApi.getComputeTransactions(params),
   });
 }
+
+// ─── Employee Capability Bindings ─────────────────────────────────────────────
+
+export function useAvailableCapabilities() {
+  return useQuery({
+    queryKey: ['available-capabilities'],
+    queryFn: () => adminApi.getAvailableCapabilities(),
+  });
+}
+
+export function useEmployeeBindings(employeeId: string) {
+  return useQuery({
+    queryKey: ['employee-bindings', employeeId],
+    queryFn: () => adminApi.getEmployeeBindings(employeeId),
+    enabled: !!employeeId,
+  });
+}
+
+export function useBindCapabilities() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      employeeId,
+      capabilityIds,
+    }: {
+      employeeId: string;
+      capabilityIds: string[];
+    }) => adminApi.bindCapabilities(employeeId, capabilityIds),
+    onSuccess: (_res, { employeeId }) => {
+      qc.invalidateQueries({ queryKey: ['employee-bindings', employeeId] });
+      qc.invalidateQueries({ queryKey: ['admin-employee', employeeId] });
+    },
+  });
+}
+
+export function useUpdateBinding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      bindingId,
+      data,
+    }: {
+      bindingId: string;
+      data: { priority?: number; enabled?: boolean; config?: any };
+    }) => adminApi.updateBinding(bindingId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employee-bindings'] });
+    },
+  });
+}
+
+export function useRemoveBinding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (bindingId: string) => adminApi.removeBinding(bindingId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employee-bindings'] });
+      qc.invalidateQueries({ queryKey: ['admin-employee'] });
+    },
+  });
+}

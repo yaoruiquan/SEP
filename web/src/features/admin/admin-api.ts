@@ -370,4 +370,71 @@ export const adminApi = {
   rejectEmployee: (id: string, reason: string) => {
     return api.post<OperationResponse>(`/admin/employees/${id}/reject`, { reason });
   },
+
+  /**
+   * 获取员工绑定的能力
+   */
+  getEmployeeBindings: (employeeId: string) => {
+    return api.get<EmployeeBindingItem[]>(`/admin/employees/${employeeId}/bindings`);
+  },
+
+  /**
+   * 批量绑定能力
+   */
+  bindCapabilities: (employeeId: string, capabilityIds: string[]) => {
+    return api.post<OperationResponse>(`/admin/employees/${employeeId}/bindings`, {
+      capabilityIds,
+    });
+  },
+
+  /**
+   * 更新绑定配置
+   */
+  updateBinding: (
+    bindingId: string,
+    data: {
+      priority?: number;
+      enabled?: boolean;
+      config?: any;
+    }
+  ) => {
+    return api.patch<OperationResponse>(`/admin/bindings/${bindingId}`, data);
+  },
+
+  /**
+   * 移除绑定
+   */
+  removeBinding: (bindingId: string) => {
+    return api.delete<OperationResponse>(`/admin/bindings/${bindingId}`);
+  },
+
+  /**
+   * 获取可用能力列表
+   */
+  getAvailableCapabilities: () => {
+    return api.get<CapabilityItem[]>('/admin/capabilities');
+  },
 };
+
+// Binding related types
+export interface EmployeeBindingItem {
+  id: string;
+  priority: number;
+  enabled: boolean;
+  config: any;
+  capability: {
+    id: string;
+    name: string;
+    description: string;
+    type: string;
+    status: string;
+  };
+}
+
+export interface CapabilityItem {
+  id: string;
+  name: string;
+  description: string;
+  type: 'agent' | 'rpa' | 'skill' | 'ai-app';
+  status: string;
+}

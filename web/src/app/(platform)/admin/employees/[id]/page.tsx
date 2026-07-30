@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Skeleton } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
 import { toast } from '@/components/ui/toast';
 import { api } from '@/lib/api-client';
+import { useEmployeeBindings, useRemoveBinding } from '@/features/admin/use-admin';
 import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 
 const STATUS_META: Record<string, { label: string; tone: string }> = {
@@ -35,6 +37,9 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
       return all.find((e: any) => e.id === params.id);
     },
   });
+
+  const { data: bindings, isLoading: bindingsLoading } = useEmployeeBindings(params.id);
+  const removeBindingMutation = useRemoveBinding();
 
   const approveMutation = useMutation({
     mutationFn: async (note?: string) => {
@@ -182,6 +187,73 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                       className="flex items-center gap-2 p-2 rounded border border-border"
                     >
                       <span className="text-sm font-medium">{binding.capability.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>能力绑定详情</CardTitle>
+              <Badge className="bg-secondary text-secondary-foreground">{bindings?.length || 0} 个</Badge>
+            </CardHeader>
+            <CardContent>
+              {bindingsLoading ? (
+                <div className="text-center py-8">
+                  <Skeleton className="h-20 w-full" />
+                </div>
+              ) : !bindings || bindings.length === 0 ? (
+                <div className="text-center py-8 text-fg-muted">
+                  <p>暂无绑定的能力</p>
+                  <Link href={`/admin/employees/${params.id}/edit`}>
+                    <Button variant="link" size="sm" className="mt-2">
+                      前往编辑
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bindings.map((binding: any) => (
+                    <div
+                      key={binding.id}
+                      className="flex items-start justify-between p-4 border rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="font-medium">{binding.capability.name}</p>
+                          <Badge className={binding.enabled ? 'bg-green-500/10 text-green-700' : 'bg-secondary text-secondary-foreground'}>
+                            {binding.enabled ? '已启用' : '已禁用'}
+                          </Badge>
+                          <Badge className="border border-border">{binding.capability.type}</Badge>
+                        </div>
+                        <p className="text-sm text-fg-muted">
+                          {binding.capability.description}
+                        </p>
+                        <p className="text-xs text-fg-subtle mt-2">
+                          优先级: {binding.priority}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (confirm('确定删除此能力绑定？')) {
+                            removeBindingMutation.mutate(binding.id, {
+                              onSuccess: () => {
+                                toast.success('绑定已删除');
+                              },
+                              onError: (error: any) => {
+                                toast.error(error.message || '删除失败');
+                              },
+                            });
+                          }
+                        }}
+                        disabled={removeBindingMutation.isPending}
+                      >
+                        删除
+                      </Button>
                     </div>
                   ))}
                 </div>
