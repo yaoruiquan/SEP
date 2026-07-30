@@ -751,6 +751,39 @@ pi 默认行为：
 主进程持有 session 引用，从主进程 await renderer Promise 是标准 Electron 模式；
 但**钩子 API 本身是否支持异步返回**（而非同步 block/allow）仍需确认。
 
+### 8.5 建议开工顺序
+
+**第一阶段（第一周）：PoC 验证，完全不依赖 SEP 后端**
+
+按顺序跑通 §8.4 的四项验证，全部使用假网关/假 token，不等 SEP 任何新接口。
+任一失败需停下来重新讨论方案，后续界面工作在此之前不要大量投入。
+
+```
+Week 1
+  Day 1-2: § 8.4 ① — Electron + pi SDK 嵌入跑通 createAgentSession()
+  Day 2-3: § 8.4 ② — 注册假 provider，resolve() 动态取 token 验证
+  Day 3-4: § 8.4 ③ — tool_call 拦截 + 异步 await GUI 弹窗决策
+  Day 4-5: § 8.4 ④ — 断网 / token 失效 → 明确拒绝不静默降级
+```
+
+**第二阶段：界面骨架 + SEP 轻量接口并行**
+
+PoC 通过后同步推进：
+
+- 客户端：写界面骨架（登录页、实例列表、运行视图），先用 Mock 数据
+- SEP 侧：建 `/client/login` + `/client/token` + `/client/instances`（§9，三个接口均可复用现有业务逻辑，工作量小）
+
+**第三阶段：端到端登录联调**
+
+SEP 三个接口就绪后，替换 Mock，跑通：登录 → 拿到 token → 看到我的实例列表 → 加载员工包
+
+**第四阶段：网关联调（最复杂，单独排期）**
+
+SEP 模型网关（P4.3）就绪后，替换假 provider，跑通完整链路：
+输入任务 → 调用模型 → 网关计量 → 结果返回
+
+> 网关不要在 PoC 结果出来前开始建——万一 PoC 有问题导致架构调整，网关工时全部浪费。
+
 ---
 
 ## 9. 跨仓库依赖：SEP 侧需要新建的东西
@@ -764,6 +797,7 @@ pi 默认行为：
 | `POST /client/token`（按实例签发） | 所有 API 调用 | 🔴 硬阻塞 | ❌ 待建（SEP P4.2）|
 | `GET /client/instances` | 员工列表 | 🔴 硬阻塞 | ❌ 待建（SEP P4.4）|
 | **模型网关** `/gateway/v1/*` | 一切实际工作 | 🔴 硬阻塞 | ❌ 待建（SEP P4.3）|
+| `EmployeePackage.packageRef` 字段 | 员工包加载 | ✅ 已完成 | ✅ 2026-07-29 完成：ZIP + packageRef 双模式并存；`GET /enterprise/instances/:id/package` 返回 `{ packageRef, zipAvailable, sha256, version }` |
 | `EmployeePackage.packageRef` 字段 | 员工包加载 | 🔴 硬阻塞 | ⚠️ `EmployeePackage` 表已建，`packageRef` 字段待加（SEP P4.5）|
 | 令牌有效期 `SystemSetting` 项 | 令牌刷新 | 🟡 可先硬编码 | ❌ key 待加（SEP P4.2）|
 | `POST /client/heartbeat` | 吊销联动 | 🟡 P-B | ❌ 待建（SEP P4.6）|
@@ -808,7 +842,7 @@ P3 只做到「下载 ZIP + 说明书」，客户端壳在 v3 §10 的阶段九�
 | §8.3 问题 2 | 清单格式待确认 | ⏸️ 暂缓；MVP 只在 pi package 元数据加 `sep` 扩展字段 | 本次决策 2 |
 | §4.2 | 激活码 + 指纹登记 | ✅ 改为**账号登录**；保留设备指纹与可吊销设备记录 | 本次决策 3 |
 | §6 依赖声明 | 声明本地权限 | ✅ 强度定为**工具白名单 + GUI 批准弹窗**，不做容器化 | 本次决策 4 |
-| §4.1 / P3.1 / P3.2 | 员工包 = 平台自建 ZIP 仓库 + 下载令牌 | ✅ 改为**复用 pi package 机制**（npm/git，可锁 tag）；平台只存 `packageRef`。<br/>**实施状态**：`EmployeePackage` 表已建，现为 ZIP 临时方案（2026-07-28）；`packageRef` 字段待 SEP P4.5 补齐。ZIP 字段保留作兜底通道，两者并存。 | 本次决策 5 |
+| §4.1 / P3.1 / P3.2 | 员工包 = 平台自建 ZIP 仓库 + 下载令牌 | ✅ 改为**复用 pi package 机制**（npm/git，可锁 tag）；平台只存 `packageRef`。<br/>**实施状态（2026-07-29 已完成）**：`packageRef JSONB` 字段已加，ZIP 字段改为可空兜底通道，两者并存；发布接口支持 ZIP / packageRef 二选一。 | 本次决策 5 |
 | §10 阶段九 | 「统一客户端壳实现」，依赖待确认 | ✅ 解除阻塞，成为**独立项目 sep-client** | 本次 |
 | §7.1 员工侧 | 交付物 = 压缩包 + 说明书 | ⚠️ 演进为 = pi package + 客户端加载 | 决策 5 连带 |
 | 验收标准 4 | 下载 ZIP 并校验 SHA-256 | ⚠️ 改为：客户端能安装指定版本的 pi package | 决策 5 连带 |
