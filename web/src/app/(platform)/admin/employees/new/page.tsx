@@ -274,6 +274,12 @@ export default function NewEmployeePage() {
               </p>
             </div>
 
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                💡 <strong>提示：</strong>选择的能力会按顺序设置优先级，可以在「高级管理」中调整。
+              </p>
+            </div>
+
             {capabilitiesLoading ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />

@@ -2,6 +2,7 @@
 
 import { use, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useEmployeeBindings, useUpdateBinding } from '@/features/admin/use-admin';
 import { SortableBindingItem } from './sortable-binding-item';
 
@@ -20,6 +21,7 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
   const updateBindingMutation = useUpdateBinding();
 
   const [items, setItems] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingConfig, setEditingConfig] = useState<{ bindingId: string; config: string } | null>(null);
 
   // 初始化排序项
@@ -47,6 +49,7 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
     setItems(newItems);
 
     // 更新优先级（最上面的优先级最高）
+    setIsSaving(true);
     try {
       await Promise.all(
         newItems.map((item, index) =>
@@ -62,6 +65,8 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
       if (bindings) {
         setItems([...bindings].sort((a, b) => b.priority - a.priority));
       }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -100,7 +105,12 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
   };
 
   if (isLoading) {
-    return <div className="p-8">加载中...</div>;
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+        <p className="text-muted-foreground">加载中...</p>
+      </div>
+    );
   }
 
   return (
@@ -111,10 +121,18 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
           <ArrowLeft className="mr-2 h-4 w-4" />
           返回
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">能力绑定管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">拖拽调整优先级</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            💡 拖拽卡片调整优先级，使用开关启用/禁用能力
+          </p>
         </div>
+        {isSaving && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在保存...
+          </div>
+        )}
       </div>
 
       {/* 绑定列表 */}
@@ -124,8 +142,15 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
         </CardHeader>
         <CardContent>
           {items.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              暂无绑定的能力
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">🔧</div>
+              <h3 className="text-lg font-semibold mb-2">暂无绑定的能力</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                员工需要至少绑定一个能力才能工作
+              </p>
+              <Link href={`/admin/employees/${params.id}/edit`}>
+                <Button>前往绑定能力</Button>
+              </Link>
             </div>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
