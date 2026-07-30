@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Bot, Users, Wallet, Zap, UserPlus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -19,10 +20,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { StatsCard } from '@/components/dashboard/stats-card';
-import { useDashboardStats } from '@/features/enterprise/use-enterprise';
+import { useDashboardStats, useEnterpriseInfo } from '@/features/enterprise/use-enterprise';
+import { OnboardingModal } from '@/features/onboarding/onboarding-modal';
 
 export default function DashboardPage() {
   const { data: stats, isLoading, error } = useDashboardStats();
+  const { data: enterprise } = useEnterpriseInfo();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (enterprise && !enterprise.metadata?.onboardingCompleted) {
+      setShowOnboarding(true);
+    }
+  }, [enterprise]);
 
   if (isLoading) {
     return <CenteredSpinner />;
@@ -42,6 +52,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* Onboarding Modal */}
+      {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
+
       {/* 1. 关键指标卡片 */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard

@@ -251,6 +251,28 @@ export function useMyEmployees() {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
+export interface EnterpriseInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  logo: string | null;
+  metadata: Record<string, any> | null;
+  createdAt: string;
+  _count: {
+    members: number;
+    departments: number;
+    instances: number;
+    subscriptions: number;
+  };
+}
+
+export function useEnterpriseInfo() {
+  return useQuery({
+    queryKey: ['enterprise', 'info'],
+    queryFn: () => api.get<EnterpriseInfo>('/enterprise/info'),
+  });
+}
+
 export interface DashboardStats {
   employeeCount: number;
   memberCount: number;
@@ -270,5 +292,18 @@ export function useDashboardStats() {
   return useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: () => api.get<DashboardStats>('/enterprise/dashboard-stats'),
+  });
+}
+
+// ── Onboarding ────────────────────────────────────────────────────────────────
+
+export function useMarkOnboardingCompleted() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean }>('/enterprise/onboarding/complete'),
+    onSuccess: () => {
+      // 刷新企业信息，使 metadata.onboardingCompleted 更新
+      qc.invalidateQueries({ queryKey: ['enterprise', 'info'] });
+    },
   });
 }

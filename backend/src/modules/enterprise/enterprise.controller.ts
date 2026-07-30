@@ -301,6 +301,16 @@ export class EnterpriseController {
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
 
+  @Get("info")
+  @ApiOperation({ summary: "获取当前企业详细信息" })
+  @ApiResponse({
+    status: 200,
+    description: "企业基本信息 + 统计数据",
+  })
+  async getEnterpriseInfo(@Request() req: AuthedRequest) {
+    return this.enterprise.getEnterpriseInfo(req.user.id);
+  }
+
   @Get("dashboard-stats")
   @ApiOperation({ summary: "获取 Dashboard 统计数据" })
   @ApiResponse({
@@ -309,6 +319,18 @@ export class EnterpriseController {
   })
   async getDashboardStats(@Request() req: AuthedRequest) {
     return this.enterprise.getDashboardStats(req.user.id);
+  }
+
+  // ── Onboarding ────────────────────────────────────────────────────────────
+
+  @Post("onboarding/complete")
+  @ApiOperation({ summary: "标记新手引导已完成" })
+  @ApiResponse({
+    status: 200,
+    description: "已标记完成",
+  })
+  async markOnboardingCompleted(@Request() req: AuthedRequest) {
+    return this.enterprise.markOnboardingCompleted(req.user.id);
   }
 
   // ── P3.3：运营端 ──────────────────────────────────────────────────────────

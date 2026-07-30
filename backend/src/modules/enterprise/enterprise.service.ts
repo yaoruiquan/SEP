@@ -10,6 +10,67 @@ export class EnterpriseService {
   ) {}
 
   /**
+   * 获取当前用户所属企业的详细信息
+   */
+  async getEnterpriseInfo(userId: string) {
+    const context = await this.ctx.resolve(userId);
+    const { enterpriseId } = context;
+
+    const enterprise = await this.prisma.enterprise.findUnique({
+      where: { id: enterpriseId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        logo: true,
+        metadata: true,
+        createdAt: true,
+        _count: {
+          select: {
+            members: true,
+            departments: true,
+            instances: true,
+            subscriptions: true,
+          },
+        },
+      },
+    });
+
+    if (!enterprise) {
+      throw new Error('Enterprise not found');
+    }
+
+    return enterprise;
+  }
+
+  /**
+   * 标记新手引导已完成
+   */
+  async markOnboardingCompleted(userId: string) {
+    const context = await this.ctx.resolve(userId);
+    const { enterpriseId } = context;
+
+    const enterprise = await this.prisma.enterprise.findUnique({
+      where: { id: enterpriseId },
+      select: { metadata: true },
+    });
+
+    const metadata = (enterprise?.metadata as any) || {};
+
+    await this.prisma.enterprise.update({
+      where: { id: enterpriseId },
+      data: {
+        metadata: {
+          ...metadata,
+          onboardingCompleted: true,
+        },
+      },
+    });
+
+    return { success: true };
+  }
+
+  /**
    * 获取 Dashboard 统计数据
    */
   async getDashboardStats(userId: string) {
