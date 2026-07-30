@@ -103,4 +103,31 @@ export class AdminController {
   resumeEnterprise(@Param('id') id: string, @Request() req: any) {
     return this.adminService.resumeEnterprise(id, req.user.id);
   }
+
+  @Get('compute/transactions')
+  @ApiOperation({ summary: '获取平台级算力交易记录' })
+  @ApiQuery({ name: 'type', required: false, enum: ['RECHARGE', 'CONSUME', 'REFUND'], description: '交易类型' })
+  @ApiQuery({ name: 'enterpriseId', required: false, type: String, description: '企业ID' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: '开始日期 (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: '结束日期 (ISO 8601)' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页数量，默认20' })
+  @ApiResponse({ status: 200, description: '返回交易记录列表' })
+  getComputeTransactions(
+    @Query('type') type?: 'RECHARGE' | 'CONSUME' | 'REFUND',
+    @Query('enterpriseId') enterpriseId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.getComputeTransactions({
+      type,
+      enterpriseId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
+  }
 }

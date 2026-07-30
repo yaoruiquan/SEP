@@ -245,3 +245,21 @@ export function useUpdateSettings() {
     },
   });
 }
+
+// ─── Compute Transactions ─────────────────────────────────────────────────────
+
+import type { ComputeTransactionsResponse } from './admin-api';
+
+export function useComputeTransactions(params?: {
+  type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
+  enterpriseId?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  return useQuery({
+    queryKey: ['admin', 'compute', 'transactions', params],
+    queryFn: () => adminApi.getComputeTransactions(params),
+  });
+}

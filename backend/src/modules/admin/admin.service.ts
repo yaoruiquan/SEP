@@ -279,4 +279,89 @@ export class AdminService {
       totalPages: Math.ceil(total / pageSize),
     };
   }
+
+  /**
+   * 获取平台级算力交易记录
+   */
+  async getComputeTransactions(params: {
+    type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
+    enterpriseId?: string;
+    startDate?: Date;
+    endDate?: Date;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const {
+      type,
+      enterpriseId,
+      startDate,
+      endDate,
+      page = 1,
+      pageSize = 20,
+    } = params;
+
+    const where: any = {};
+
+    // Filter by transaction type
+    if (type) {
+      where.type = type;
+    }
+
+    // Filter by enterprise (through account relationship)
+    if (enterpriseId) {
+      where.account = {
+        enterpriseId,
+      };
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        where.createdAt.gte = startDate;
+      }
+      if (endDate) {
+        where.createdAt.lte = endDate;
+      }
+    }
+
+    const [transactions, total] = await Promise.all([
+      this.prisma.computeTransaction.findMany({
+        where,
+        include: {
+          account: {
+            include: {
+              enterprise: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.computeTransaction.count({ where }),
+    ]);
+
+    return {
+      data: transactions.map((t) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        description: t.description,
+        metadata: t.metadata,
+        createdAt: t.createdAt,
+        sessionId: t.sessionId,
+        enterprise: t.account.enterprise,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
 }

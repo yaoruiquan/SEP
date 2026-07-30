@@ -159,4 +159,51 @@ export const adminApi = {
   resumeEnterprise: (id: string) => {
     return api.post<OperationResponse>(`/admin/enterprises/${id}/resume`);
   },
+
+  /**
+   * 获取平台级算力交易记录
+   */
+  getComputeTransactions: (params?: {
+    type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
+    enterpriseId?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.enterpriseId) searchParams.set('enterpriseId', params.enterpriseId);
+    if (params?.startDate) searchParams.set('startDate', params.startDate);
+    if (params?.endDate) searchParams.set('endDate', params.endDate);
+    if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+
+    const query = searchParams.toString();
+    return api.get<ComputeTransactionsResponse>(
+      `/admin/enterprises/compute/transactions${query ? `?${query}` : ''}`
+    );
+  },
 };
+
+export interface ComputeTransaction {
+  id: string;
+  type: 'RECHARGE' | 'CONSUME' | 'REFUND';
+  amount: number;
+  description: string | null;
+  metadata: any;
+  createdAt: string;
+  sessionId: string | null;
+  enterprise: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface ComputeTransactionsResponse {
+  data: ComputeTransaction[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
