@@ -108,28 +108,36 @@ export default function MarketplacePage() {
               <Card
                 key={emp.id}
                 className={cn(
-                  'relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg',
-                  subscribed && 'ring-1 ring-primary/30',
+                  'group relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-xl',
+                  subscribed ? 'ring-2 ring-primary/30' : 'hover:border-primary/20',
                 )}
               >
-                {subscribed && (
-                  <span className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    <Check className="h-3 w-3" />
-                    已订阅
-                  </span>
-                )}
-                <CardContent className="flex flex-1 flex-col gap-3 p-4">
+                {/* 顶部类型色条 */}
+                <div className={`h-1 w-full bg-gradient-to-r ${
+                  capTypes[0] === 'AGENT'  ? 'from-indigo-500 to-violet-400' :
+                  capTypes[0] === 'RPA'    ? 'from-emerald-600 to-teal-400' :
+                  capTypes[0] === 'AI_APP' ? 'from-amber-500 to-yellow-400' :
+                                             'from-primary to-orange-400'
+                }`} />
+                <CardContent className="flex flex-1 flex-col gap-3 p-5">
                   <div className="flex items-start gap-3">
                     <Avatar
                       name={emp.name}
                       src={emp.avatar}
-                      className="h-12 w-12 shrink-0 ring-2 ring-primary/15"
+                      className="h-14 w-14 shrink-0 shadow-sm ring-2 ring-white"
                     />
                     <div className="min-w-0 flex-1">
-                      <h3 className="line-clamp-1 font-semibold text-foreground">
-                        {emp.name}
-                      </h3>
-                      <p className="text-xs text-fg-muted">
+                      <div className="flex items-start justify-between gap-1">
+                        <h3 className="line-clamp-1 font-semibold text-foreground">
+                          {emp.name}
+                        </h3>
+                        {subscribed && (
+                          <span className="shrink-0 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                            <Check className="h-3 w-3" />已订阅
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-fg-muted">
                         {emp.position} · {emp.industry}
                       </p>
                     </div>
@@ -165,18 +173,14 @@ export default function MarketplacePage() {
                     <span className="ml-auto">v{emp.version ?? '1.0.0'}</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 pt-1">
                     {subscribed ? (
-                      // 订阅后的下一步是「建实例」，不是聊天（会话已暂停）
-                      <Link href="/my-employees" className="flex-1">
-                        <Button variant="secondary" size="sm" className="w-full">
-                          管理实例
-                        </Button>
+                      <Link href="/my-employees">
+                        <Button variant="secondary" size="sm">管理实例</Button>
                       </Link>
                     ) : loggedIn ? (
                       <Button
                         size="sm"
-                        className="flex-1"
                         disabled={subscribe.isPending}
                         onClick={() =>
                           subscribe.mutate(emp.id, {
@@ -188,23 +192,18 @@ export default function MarketplacePage() {
                           })
                         }
                       >
-                        订阅
+                        立即订阅
                       </Button>
                     ) : (
-                      // 访客：带 redirect 跳登录，登录后回到该员工详情
-                      <Link
-                        href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
-                        className="flex-1"
-                      >
-                        <Button size="sm" className="w-full">
-                          登录后订阅
-                        </Button>
+                      <Link href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}>
+                        <Button variant="secondary" size="sm">登录后订阅</Button>
                       </Link>
                     )}
-                    <Link href={`/marketplace/${emp.id}`}>
-                      <Button variant="ghost" size="sm">
-                        详情
-                      </Button>
+                    <Link
+                      href={`/marketplace/${emp.id}`}
+                      className="text-sm text-fg-muted transition-colors hover:text-primary"
+                    >
+                      查看详情 →
                     </Link>
                   </div>
                 </CardContent>

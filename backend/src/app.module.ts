@@ -11,6 +11,7 @@ import { ConversationModule } from './modules/conversation/conversation.module';
 import { SettingModule } from './modules/setting/setting.module';
 import { ModelModule } from './modules/model/model.module';
 import { EnterpriseModule } from './modules/enterprise/enterprise.module';
+import { ClientModule } from './modules/client/client.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { EnterpriseModule } from './modules/enterprise/enterprise.module';
     SettingModule,
     ModelModule,
     EnterpriseModule,
+    ClientModule,
   ],
   controllers: [],
   providers: [],

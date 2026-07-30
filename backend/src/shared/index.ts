@@ -67,6 +67,8 @@ export const SETTING_KEYS = {
   SUB2API_DEFAULT_MODEL: "SUB2API_DEFAULT_MODEL",
   /** 美元→人民币汇率。模型单价以 USD 计，计费入账以 CNY 计。 */
   USD_TO_CNY_RATE: "USD_TO_CNY_RATE",
+  /** 客户端实例令牌有效期（分钟）。建议初值 15。 */
+  CLIENT_TOKEN_TTL_MINUTES: "CLIENT_TOKEN_TTL_MINUTES",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -113,6 +115,13 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     secret: false,
     envFallback: "USD_TO_CNY_RATE",
     placeholder: String(DEFAULT_USD_TO_CNY_RATE),
+  },
+  {
+    key: SETTING_KEYS.CLIENT_TOKEN_TTL_MINUTES,
+    label: "客户端实例令牌有效期（分钟）",
+    secret: false,
+    envFallback: "CLIENT_TOKEN_TTL_MINUTES",
+    placeholder: "15",
   },
 ];
 
@@ -728,3 +737,21 @@ export function calculateCost(
   // 返回 rate：账单需可复核 —— 汇率改动后旧账单仍应能解释当时的金额
   return { costUSD, costCNY, isFallback, rate };
 }
+
+// ============================================================================
+// Client Auth DTOs (P4)
+// ============================================================================
+export const ClientLoginDtoSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  fingerprint: z.string().min(1).max(256),
+  platform: z.enum(['darwin', 'win32', 'linux']).or(z.string()),
+  clientVersion: z.string().optional(),
+});
+export type ClientLoginDto = z.infer<typeof ClientLoginDtoSchema>;
+
+export const ClientTokenDtoSchema = z.object({
+  refreshToken: z.string().min(1),
+  instanceId: z.string().min(1),
+});
+export type ClientTokenDto = z.infer<typeof ClientTokenDtoSchema>;

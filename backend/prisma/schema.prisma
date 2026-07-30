@@ -34,6 +34,7 @@ model User {
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
   memberships          EnterpriseMember[]
   approvedRequests     AccessRequest[] @relation("AccessRequestReviewer")
+  devices              Device[]
 
   @@map("users")
 }
@@ -793,4 +794,26 @@ model EmployeePackage {
 
   @@map("employee_packages")
   @@index([employeeId, createdAt(sort: Desc)])
+}
+
+// ============================================================================
+// Device (客户端设备)
+// ============================================================================
+
+model Device {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 客户端生成的设备指纹（如 OS + CPU + 主板序列号的哈希）
+  fingerprint   String
+  platform      String    // darwin / win32 / linux
+  clientVersion String?
+  lastSeenAt    DateTime  @default(now()) @updatedAt
+  revokedAt     DateTime? // 运营吊销后设置
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, fingerprint])
+  @@index([userId])
+  @@map("devices")
 }
