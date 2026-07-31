@@ -15,6 +15,8 @@ export const buttonVariants = cva(
         primary: 'bg-primary text-primary-foreground hover:bg-primary-hover',
         secondary:
           'bg-white text-foreground border border-border hover:bg-muted',
+        outline:
+          'bg-white text-foreground border border-border hover:bg-muted',
         ghost: 'text-foreground hover:bg-muted',
         danger: 'bg-danger text-white hover:opacity-90',
         link: 'text-primary underline-offset-4 hover:underline',

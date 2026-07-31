@@ -6,12 +6,20 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import Link from 'next/link';
+import { ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   useAllCapabilities,
   useApproveCapability,
@@ -215,26 +223,52 @@ function PendingRow({ cap }: { cap: Capability }) {
   );
 }
 
-type TabKey = 'pending' | 'all' | 'import';
+type TabKey = 'pending' | 'approved' | 'all';
 
 export default function CapabilitiesPage() {
   const [tab, setTab] = useState<TabKey>('pending');
   const pendingQuery = useAllCapabilities('PENDING');
+  const approvedQuery = useAllCapabilities('APPROVED');
   const allQuery = useAllCapabilities();
 
   const pendingItems = pendingQuery.data?.items ?? [];
+  const approvedItems = approvedQuery.data?.items ?? [];
   const allItems = allQuery.data?.items ?? [];
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">能力管理</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">能力管理</h1>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              + 新建能力
+              <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href="/admin/capabilities/new?type=AGENT">创建 Agent（智能体）</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/capabilities/new?type=SKILL">创建 Skill（技能包）</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/capabilities/new?type=RPA">创建 RPA（流程自动化）</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/capabilities/new?type=AI_APP">创建 AI App</Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <div className="flex gap-1 border-b border-border">
         {(
           [
             { key: 'pending', label: `待审核 (${pendingItems.length})` },
+            { key: 'approved', label: '已发布' },
             { key: 'all', label: '全部' },
-            { key: 'import', label: '导入 Coze Bot' },
           ] as { key: TabKey; label: string }[]
         ).map(({ key, label }) => (
           <button
@@ -263,6 +297,52 @@ export default function CapabilitiesPage() {
             pendingItems.map((cap) => <PendingRow key={cap.id} cap={cap} />)
           )}
         </div>
+      )}
+
+      {tab === 'approved' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>已发布能力</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {approvedQuery.isLoading ? (
+              <div className="space-y-2 p-5">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
+              </div>
+            ) : approvedItems.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-fg-subtle">📭 暂无已发布能力</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-fg-muted">
+                    <th className="px-5 py-2 text-left font-medium">名称</th>
+                    <th className="px-5 py-2 text-left font-medium">类型</th>
+                    <th className="px-5 py-2 text-left font-medium">状态</th>
+                    <th className="px-5 py-2 text-left font-medium">提交时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {approvedItems.map((cap) => (
+                    <tr key={cap.id} className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40">
+                      <td className="px-5 py-3 font-medium">{cap.name}</td>
+                      <td className="px-5 py-3">
+                        <TypeBadge type={cap.type} />
+                      </td>
+                      <td className="px-5 py-3">
+                        <StatusBadge status={cap.status} />
+                      </td>
+                      <td className="px-5 py-3 text-fg-muted">
+                        {format(new Date(cap.createdAt), 'yyyy-MM-dd', { locale: zhCN })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {tab === 'all' && (
@@ -310,8 +390,6 @@ export default function CapabilitiesPage() {
           </CardContent>
         </Card>
       )}
-
-      {tab === 'import' && <CozeImportForm />}
     </div>
   );
 }

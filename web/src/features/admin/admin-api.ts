@@ -421,6 +421,28 @@ export const adminApi = {
   getAvailableCapabilities: () => {
     return api.get<CapabilityItem[]>('/admin/capabilities');
   },
+
+  /**
+   * 创建能力
+   */
+  createCapability: (data: {
+    name: string;
+    description: string;
+    type: string;
+    industry: string[];
+    position: string[];
+    inputSchema: any;
+    outputSchema: any;
+  }) => {
+    return api.post<any>('/admin/capabilities', data);
+  },
+
+  /**
+   * 提交能力审核
+   */
+  submitCapabilityForReview: (capabilityId: string) => {
+    return api.post<OperationResponse>(`/admin/capabilities/${capabilityId}/submit`);
+  },
 };
 
 // Binding related types
