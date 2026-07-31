@@ -344,6 +344,13 @@ export const adminApi = {
   },
 
   /**
+   * 提交员工审核
+   */
+  submitEmployeeForReview: (id: string) => {
+    return api.post<EmployeeDetail>(`/admin/employees/${id}/submit`);
+  },
+
+  /**
    * 下架员工
    */
   archiveEmployee: (id: string) => {

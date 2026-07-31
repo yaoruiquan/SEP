@@ -74,6 +74,17 @@ export default function AdminEmployeesPage() {
     },
   });
 
+  const submitForReviewMutation = useMutation({
+    mutationFn: (id: string) => adminApi.submitEmployeeForReview(id),
+    onSuccess: () => {
+      toast.success('已提交审核');
+      queryClient.invalidateQueries({ queryKey: ['admin-employees'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || '提交失败');
+    },
+  });
+
   const archiveMutation = useMutation({
     mutationFn: (id: string) => adminApi.archiveEmployee(id),
     onSuccess: () => {
@@ -197,11 +208,11 @@ export default function AdminEmployeesPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => publishMutation.mutate(emp.id)}
-                                  disabled={publishMutation.isPending}
+                                  onClick={() => submitForReviewMutation.mutate(emp.id)}
+                                  disabled={submitForReviewMutation.isPending}
                                 >
                                   <Upload className="h-3.5 w-3.5 mr-1" />
-                                  发布
+                                  提交审核
                                 </Button>
                                 <Button
                                   variant="ghost"

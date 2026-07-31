@@ -74,7 +74,7 @@ export default function NewEmployeePage() {
     { id: 'claude-3-opus', label: 'Claude 3 Opus' },
   ];
 
-  const handleSubmit = async (publish: boolean) => {
+  const handleSubmit = async (submitForReview: boolean) => {
     if (!formData.name.trim()) {
       toast.error('请输入员工名称');
       return;
@@ -95,9 +95,9 @@ export default function NewEmployeePage() {
         capabilityIds: selectedCapabilities,
       });
 
-      if (publish) {
-        await adminApi.publishEmployee(employee.id);
-        toast.success('员工创建并发布成功');
+      if (submitForReview) {
+        await adminApi.submitEmployeeForReview(employee.id);
+        toast.success('员工创建并提交审核成功');
       } else {
         toast.success('员工草稿保存成功');
       }
@@ -350,7 +350,7 @@ export default function NewEmployeePage() {
               className="flex-1"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              创建并发布
+              创建并提交审核
             </Button>
           </div>
         </CardContent>

@@ -64,6 +64,36 @@ const UpdateEmployeeSchema = z.object({
   price: z.number().nonnegative().optional(),
 });
 
+const CreateCapabilitySchema = z.object({
+  name: z.string().min(1, '能力名称不能为空').max(100, '名称不能超过100字符'),
+  description: z.string().min(1, '描述不能为空'),
+  type: z.enum(['AGENT', 'RPA', 'SKILL', 'AI_APP'], {
+    errorMap: () => ({ message: '类型必须是 AGENT、RPA、SKILL 或 AI_APP' })
+  }),
+  industry: z.array(z.string()).default([]),
+  position: z.array(z.string()).default([]),
+  inputSchema: z.any().optional(),
+  outputSchema: z.any().optional(),
+});
+
+const UpdateCapabilitySchema = z.object({
+  name: z.string().min(1, '能力名称不能为空').max(100, '名称不能超过100字符').optional(),
+  description: z.string().optional(),
+  type: z.enum(['AGENT', 'RPA', 'SKILL', 'AI_APP']).optional(),
+  industry: z.array(z.string()).optional(),
+  position: z.array(z.string()).optional(),
+  inputSchema: z.any().optional(),
+  outputSchema: z.any().optional(),
+});
+
+const ApproveCapabilitySchema = z.object({
+  note: z.string().optional(),
+});
+
+const RejectCapabilitySchema = z.object({
+  reason: z.string().min(1, '拒绝原因不能为空').max(500, '原因不能超过500字符'),
+});
+
 @ApiTags('admin')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -253,8 +283,17 @@ export class AdminController {
     return this.adminService.updateEmployee(id, dto, req.user.id);
   }
 
+  @Post('employees/:id/submit')
+  @ApiOperation({ summary: '提交员工审核' })
+  @ApiResponse({ status: 200, description: '提交成功' })
+  @ApiResponse({ status: 400, description: '只能提交草稿状态的员工' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  submitEmployeeForReview(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.submitEmployeeForReview(id, req.user.id);
+  }
+
   @Post('employees/:id/publish')
-  @ApiOperation({ summary: '发布员工（直接上架）' })
+  @ApiOperation({ summary: '发布员工（运营直接上架，跳过审核）' })
   @ApiResponse({ status: 200, description: '发布成功' })
   @ApiResponse({ status: 400, description: '只能发布草稿状态的员工' })
   @ApiResponse({ status: 404, description: '员工不存在' })
@@ -327,7 +366,113 @@ export class AdminController {
   }
 
   @Get('capabilities')
-  @ApiOperation({ summary: '获取可用能力列表' })
+  @ApiOperation({ summary: '获取能力列表（运营端）' })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'APPROVED', 'REJECTED'], description: '能力状态' })
+  @ApiQuery({ name: 'type', required: false, enum: ['AGENT', 'RPA', 'SKILL', 'AI_APP'], description: '能力类型' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页数量，默认20' })
+  @ApiResponse({ status: 200, description: '返回能力列表' })
+  listCapabilitiesAdmin(
+    @Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED',
+    @Query('type') type?: 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.listCapabilities({
+      status,
+      type,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
+  }
+
+  @Post('capabilities')
+  @ApiOperation({ summary: '创建能力（运营）' })
+  @ApiResponse({ status: 201, description: '能力创建成功' })
+  @ApiResponse({ status: 400, description: '输入参数无效' })
+  createCapabilityAdmin(
+    @Body(new ZodValidationPipe(CreateCapabilitySchema)) dto: z.infer<typeof CreateCapabilitySchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.createCapability({
+      name: dto.name,
+      description: dto.description,
+      type: dto.type,
+      industry: dto.industry,
+      position: dto.position,
+      inputSchema: dto.inputSchema || {},
+      outputSchema: dto.outputSchema || {},
+      operatorId: req.user.id,
+    });
+  }
+
+  @Get('capabilities/:id')
+  @ApiOperation({ summary: '获取能力详情（运营端）' })
+  @ApiResponse({ status: 200, description: '返回能力详情' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  getCapabilityDetailAdmin(@Param('id') id: string) {
+    return this.adminService.getCapabilityDetail(id);
+  }
+
+  @Put('capabilities/:id')
+  @ApiOperation({ summary: '更新能力' })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  @ApiResponse({ status: 400, description: '输入参数无效' })
+  updateCapabilityAdmin(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateCapabilitySchema)) dto: z.infer<typeof UpdateCapabilitySchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateCapability(id, dto, req.user.id);
+  }
+
+  @Post('capabilities/:id/submit')
+  @ApiOperation({ summary: '提交能力审核' })
+  @ApiResponse({ status: 200, description: '提交成功' })
+  @ApiResponse({ status: 400, description: '已审核通过的能力无需重新提交' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  submitCapabilityForReview(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.submitCapabilityForReview(id, req.user.id);
+  }
+
+  @Post('capabilities/:id/approve')
+  @ApiOperation({ summary: '审核通过能力' })
+  @ApiResponse({ status: 200, description: '审核通过' })
+  @ApiResponse({ status: 400, description: '只能审核待审核状态的能力' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  approveCapabilityAdmin(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ApproveCapabilitySchema)) dto: z.infer<typeof ApproveCapabilitySchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.approveCapability(id, req.user.id, dto.note);
+  }
+
+  @Post('capabilities/:id/reject')
+  @ApiOperation({ summary: '拒绝能力' })
+  @ApiResponse({ status: 200, description: '拒绝成功' })
+  @ApiResponse({ status: 400, description: '只能审核待审核状态的能力' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  rejectCapabilityAdmin(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectCapabilitySchema)) dto: z.infer<typeof RejectCapabilitySchema>,
+    @Request() req: any,
+  ) {
+    return this.adminService.rejectCapability(id, req.user.id, dto.reason);
+  }
+
+  @Delete('capabilities/:id')
+  @ApiOperation({ summary: '删除能力（仅待审核或已拒绝）' })
+  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({ status: 400, description: '已审核通过的能力无法删除' })
+  @ApiResponse({ status: 404, description: '能力不存在' })
+  deleteCapabilityAdmin(@Param('id') id: string) {
+    return this.adminService.deleteCapability(id);
+  }
+
+  @Get('capabilities/available/list')
+  @ApiOperation({ summary: '获取可用能力列表（用于绑定）' })
   @ApiResponse({ status: 200, description: '返回已审核的能力列表' })
   getAvailableCapabilities() {
     return this.adminService.getAvailableCapabilities();

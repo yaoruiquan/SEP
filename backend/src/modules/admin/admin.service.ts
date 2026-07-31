@@ -745,4 +745,233 @@ export class AdminService {
       orderBy: { name: 'asc' },
     });
   }
+
+  /**
+   * 创建能力（运营）
+   */
+  async createCapability(data: {
+    name: string;
+    description: string;
+    type: 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
+    industry: string[];
+    position: string[];
+    inputSchema: any;
+    outputSchema: any;
+    operatorId: string;
+  }) {
+    return this.prisma.capability.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        type: data.type,
+        industry: data.industry,
+        position: data.position,
+        inputSchema: data.inputSchema,
+        outputSchema: data.outputSchema,
+        status: 'PENDING', // 初始为待审核
+        contributorId: data.operatorId, // 运营人员作为贡献者
+      },
+    });
+  }
+
+  /**
+   * 获取能力列表（运营端）
+   */
+  async listCapabilities(params?: {
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    type?: 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
+    page?: number;
+    pageSize?: number;
+  }) {
+    const { status, type, page = 1, pageSize = 20 } = params || {};
+    const skip = (page - 1) * pageSize;
+
+    const where: any = {};
+    if (status) where.status = status;
+    if (type) where.type = type;
+
+    const [items, total] = await Promise.all([
+      this.prisma.capability.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          contributor: {
+            select: { id: true, email: true, name: true },
+          },
+        },
+      }),
+      this.prisma.capability.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
+  }
+
+  /**
+   * 获取能力详情（运营端）
+   */
+  async getCapabilityDetail(capabilityId: string) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+      include: {
+        contributor: {
+          select: { id: true, email: true, name: true },
+        },
+        bindings: {
+          include: {
+            employee: {
+              select: { id: true, name: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+    return capability;
+  }
+
+  /**
+   * 更新能力
+   */
+  async updateCapability(
+    capabilityId: string,
+    data: {
+      name?: string;
+      description?: string;
+      type?: 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
+      industry?: string[];
+      position?: string[];
+      inputSchema?: any;
+      outputSchema?: any;
+    },
+    operatorId: string,
+  ) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+
+    return this.prisma.capability.update({
+      where: { id: capabilityId },
+      data: {
+        name: data.name,
+        description: data.description,
+        type: data.type,
+        industry: data.industry,
+        position: data.position,
+        inputSchema: data.inputSchema,
+        outputSchema: data.outputSchema,
+      },
+    });
+  }
+
+  /**
+   * 提交能力审核
+   */
+  async submitCapabilityForReview(capabilityId: string, operatorId: string) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.status === 'APPROVED') {
+      throw new BadRequestException('已审核通过的能力无需重新提交');
+    }
+
+    return this.prisma.capability.update({
+      where: { id: capabilityId },
+      data: { status: 'PENDING' },
+    });
+  }
+
+  /**
+   * 审核通过能力
+   */
+  async approveCapability(capabilityId: string, operatorId: string, note?: string) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.status !== 'PENDING') {
+      throw new BadRequestException('只能审核待审核状态的能力');
+    }
+
+    return this.prisma.capability.update({
+      where: { id: capabilityId },
+      data: {
+        status: 'APPROVED',
+        approvedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * 拒绝能力
+   */
+  async rejectCapability(capabilityId: string, operatorId: string, reason: string) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.status !== 'PENDING') {
+      throw new BadRequestException('只能审核待审核状态的能力');
+    }
+
+    return this.prisma.capability.update({
+      where: { id: capabilityId },
+      data: {
+        status: 'REJECTED',
+      },
+    });
+  }
+
+  /**
+   * 删除能力（仅待审核或已拒绝可删除）
+   */
+  async deleteCapability(capabilityId: string) {
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+      include: { bindings: true },
+    });
+
+    if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.status === 'APPROVED') {
+      throw new BadRequestException('已审核通过的能力无法删除，请先将其从所有员工中解绑');
+    }
+    if (capability.bindings?.length > 0) {
+      throw new BadRequestException('能力已被员工绑定，无法删除');
+    }
+
+    await this.prisma.capability.delete({
+      where: { id: capabilityId },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * 提交员工审核（替代原 publishEmployee）
+   */
+  async submitEmployeeForReview(employeeId: string, operatorId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) throw new NotFoundException('员工不存在');
+    if (employee.status !== 'DRAFT') {
+      throw new BadRequestException('只能提交草稿状态的员工');
+    }
+
+    return this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: {
+        status: 'PENDING', // 进入待审核
+      },
+    });
+  }
 }
