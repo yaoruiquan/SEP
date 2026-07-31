@@ -269,7 +269,11 @@ export function useComputeTransactions(params?: {
 export function useAvailableCapabilities() {
   return useQuery({
     queryKey: ['available-capabilities'],
-    queryFn: () => adminApi.getAvailableCapabilities(),
+    queryFn: async () => {
+      const res = await adminApi.getAvailableCapabilities();
+      // API 返回 {items: [], total, page, pageSize}，提取 items
+      return res.items || [];
+    },
   });
 }
 
