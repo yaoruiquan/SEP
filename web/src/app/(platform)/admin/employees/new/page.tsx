@@ -37,7 +37,10 @@ export default function NewEmployeePage() {
     price: 0,
   });
 
-  const { data: capabilities, isLoading: capabilitiesLoading } = useAvailableCapabilities();
+  const { data: capabilitiesData, isLoading: capabilitiesLoading } = useAvailableCapabilities();
+
+  // 提取 items 数组
+  const capabilities = capabilitiesData || [];
   const bindCapabilitiesMutation = useBindCapabilities();
 
   const industries = [
