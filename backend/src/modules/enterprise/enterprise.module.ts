@@ -5,6 +5,7 @@ import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InstanceService } from "./instance.service";
 import { GrantService } from "./grant.service";
+import { AccessRequestService } from "./access-request.service";
 import { EnterpriseController } from "./enterprise.controller";
 import { DigitalEmployeeModule } from "../digital-employee/digital-employee.module";
 
@@ -29,6 +30,7 @@ import { DigitalEmployeeModule } from "../digital-employee/digital-employee.modu
     MemberService,
     InstanceService,
     GrantService,
+    AccessRequestService,
   ],
   exports: [EnterpriseContextService],
 })

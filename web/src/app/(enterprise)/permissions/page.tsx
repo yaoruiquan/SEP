@@ -9,6 +9,15 @@ import { Avatar } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
+import { useInstances, useMembers } from '@/features/enterprise/use-enterprise';
+import {
+  usePendingAccessRequests,
+  useApproveAccessRequest,
+  useRejectAccessRequest,
+  useCreateGrant,
+  useDeleteGrant,
+  useEmployeeGrants,
+} from '@/features/permissions/use-permissions';
 
 /**
  * 权限管理页
@@ -69,75 +78,90 @@ export default function PermissionsPage() {
 // ============ 按员工查看 ============
 
 function EmployeePermissionMatrix() {
-  // Mock 数据
-  const employees = [
-    { id: '1', name: '销售助理小李', avatar: null, department: '销售部' },
-    { id: '2', name: '客服专员小王', avatar: null, department: '客服部' },
-    { id: '3', name: '数据分析师小刘', avatar: null, department: '技术部' },
-  ];
+  const { data: instances = [], isLoading: instancesLoading } = useInstances();
+  const { data: members = [], isLoading: membersLoading } = useMembers();
+  const [selectedInstance, setSelectedInstance] = useState<string>('');
 
-  const members = [
-    { id: 'm1', name: '张三', department: '销售部', avatar: null },
-    { id: 'm2', name: '李四', department: '客服部', avatar: null },
-    { id: 'm3', name: '王五', department: '技术部', avatar: null },
-    { id: 'm4', name: '赵六', department: '销售部', avatar: null },
-  ];
+  const createGrant = useCreateGrant();
+  const deleteGrant = useDeleteGrant();
 
-  // Mock 权限数据 (employeeId -> memberId[])
-  const [permissions, setPermissions] = useState<Record<string, string[]>>({
-    '1': ['m1', 'm4'], // 小李: 张三、赵六
-    '2': ['m2'], // 小王: 李四
-    '3': ['m3'], // 小刘: 王五
+  // 选择第一个实例作为默认值
+  const currentInstance = selectedInstance || instances[0]?.id;
+  const { data: grants = [] } = useEmployeeGrants(currentInstance || '');
+
+  // 构造授权映射 (memberId -> grantId)
+  const grantMap = new Map<string, string>();
+  grants.forEach((g) => {
+    if (g.memberId) {
+      grantMap.set(g.memberId, g.id);
+    }
   });
 
-  const togglePermission = (employeeId: string, memberId: string) => {
-    setPermissions((prev) => {
-      const current = prev[employeeId] || [];
-      const has = current.includes(memberId);
+  const togglePermission = async (instanceId: string, memberId: string) => {
+    const grantId = grantMap.get(memberId);
 
-      if (has) {
-        toast.success('已撤销授权');
-        return { ...prev, [employeeId]: current.filter((id) => id !== memberId) };
-      } else {
-        toast.success('已授权');
-        return { ...prev, [employeeId]: [...current, memberId] };
-      }
-    });
+    if (grantId) {
+      // 撤销
+      await deleteGrant.mutateAsync({ grantId, instanceId });
+      toast.success('已撤销授权');
+    } else {
+      // 授权
+      await createGrant.mutateAsync({ instanceId, memberId });
+      toast.success('已授权');
+    }
   };
+
+  if (instancesLoading || membersLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-neutral-600">加载中...</div>
+      </div>
+    );
+  }
+
+  if (instances.length === 0) {
+    return (
+      <div className="text-center py-12 text-neutral-600">
+        暂无员工实例，请先创建员工
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {employees.map((employee) => (
-        <Card key={employee.id} className="p-6">
+      {instances.map((instance) => (
+        <Card key={instance.id} className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <Avatar name={employee.name} src={employee.avatar} className="w-12 h-12" />
+              <Avatar name={instance.name} src={null} className="w-12 h-12" />
               <div>
-                <h3 className="font-semibold text-neutral-900">{employee.name}</h3>
-                <p className="text-sm text-neutral-600">{employee.department}</p>
+                <h3 className="font-semibold text-neutral-900">{instance.name}</h3>
+                <p className="text-sm text-neutral-600">
+                  {instance.department?.name || '未分配部门'}
+                </p>
               </div>
             </div>
-            <Button variant="outline" size="sm">
-              批量设置
-            </Button>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {members.map((member) => {
-              const hasPermission = permissions[employee.id]?.includes(member.id);
+              const hasPermission = grants.some((g) => g.memberId === member.id && g.instanceId === instance.id);
+              const grantId = grants.find((g) => g.memberId === member.id && g.instanceId === instance.id)?.id;
+
               return (
                 <button
                   key={member.id}
-                  onClick={() => togglePermission(employee.id, member.id)}
+                  onClick={() => togglePermission(instance.id, member.id)}
+                  disabled={createGrant.isPending || deleteGrant.isPending}
                   className={`p-3 rounded-lg border-2 transition-all text-left ${
                     hasPermission
                       ? 'border-success bg-success/5 hover:bg-success/10'
                       : 'border-neutral-200 hover:border-neutral-300 bg-white'
-                  }`}
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-neutral-900">
-                      {member.name}
+                      {member.user.name}
                     </span>
                     {hasPermission ? (
                       <Check className="w-4 h-4 text-success" />
@@ -145,16 +169,12 @@ function EmployeePermissionMatrix() {
                       <div className="w-4 h-4 rounded border-2 border-neutral-300" />
                     )}
                   </div>
-                  <p className="text-xs text-neutral-600">{member.department}</p>
+                  <p className="text-xs text-neutral-600">
+                    {member.department?.name || '未分配部门'}
+                  </p>
                 </button>
               );
             })}
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-neutral-200 flex justify-end">
-            <Button variant="outline" size="sm">
-              高级权限配置
-            </Button>
           </div>
         </Card>
       ))}
@@ -213,44 +233,47 @@ function DepartmentPermissionMatrix() {
 // ============ 待审批申请 ============
 
 function PendingApprovals() {
+  const { data: requests = [], isLoading } = usePendingAccessRequests();
+  const approveRequest = useApproveAccessRequest();
+  const rejectRequest = useRejectAccessRequest();
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState<'approve' | 'reject' | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string>('');
 
-  // Mock 申请数据
-  const applications = [
-    {
-      id: 'app1',
-      applicant: { name: '李四', avatar: null, department: '客服部' },
-      employee: { name: '数据分析师小刘', avatar: null, department: '技术部' },
-      reason: '需要分析 Q4 客户满意度数据，协助制定客服改进方案',
-      duration: 7,
-      appliedAt: '2024-01-15 14:30',
-    },
-    {
-      id: 'app2',
-      applicant: { name: '赵六', avatar: null, department: '销售部' },
-      employee: { name: '客服专员小王', avatar: null, department: '客服部' },
-      reason: '需要帮助处理重点客户售后问题',
-      duration: 3,
-      appliedAt: '2024-01-15 10:20',
-    },
-  ];
-
-  const handleAction = (action: 'approve' | 'reject') => {
+  const handleAction = (action: 'approve' | 'reject', requestId: string) => {
     setSelectedAction(action);
+    setSelectedRequestId(requestId);
     setConfirmOpen(true);
   };
 
   const confirmAction = async () => {
-    if (selectedAction === 'approve') {
-      toast.success('已批准申请，授权已生效');
-    } else {
-      toast.success('已拒绝申请');
+    try {
+      if (selectedAction === 'approve') {
+        await approveRequest.mutateAsync({ requestId: selectedRequestId });
+        toast.success('已批准申请，授权已生效');
+      } else {
+        await rejectRequest.mutateAsync({ requestId: selectedRequestId });
+        toast.success('已拒绝申请');
+      }
+    } catch (error) {
+      toast.error('操作失败，请重试');
+    } finally {
+      setSelectedAction(null);
+      setSelectedRequestId('');
+      setConfirmOpen(false);
     }
-    setSelectedAction(null);
   };
 
-  if (applications.length === 0) {
+  if (isLoading) {
+    return (
+      <Card className="p-6">
+        <div className="text-center text-neutral-600">加载中...</div>
+      </Card>
+    );
+  }
+
+  if (requests.length === 0) {
     return null;
   }
 
@@ -262,49 +285,56 @@ function PendingApprovals() {
           待审批申请
         </h2>
         <Badge className="bg-warning/10 text-warning border border-warning/20">
-          {applications.length} 条
+          {requests.length} 条
         </Badge>
       </div>
 
       <div className="space-y-4">
-        {applications.map((app) => (
+        {requests.map((req) => (
           <div
-            key={app.id}
+            key={req.id}
             className="p-4 bg-neutral-50 rounded-lg border border-neutral-200"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <Avatar
-                    name={app.applicant.name}
-                    src={app.applicant.avatar}
+                    name={req.requester.user.name}
+                    src={req.requester.user.avatar}
                     className="w-10 h-10"
                   />
                   <div>
                     <p className="font-medium text-neutral-900">
-                      {app.applicant.name}
+                      {req.requester.user.name}
                       <span className="text-neutral-600 font-normal">
                         {' '}申请使用{' '}
                       </span>
-                      {app.employee.name}
+                      {req.instance.employee.name}
                     </p>
                     <p className="text-xs text-neutral-600">
-                      {app.applicant.department} → {app.employee.department}（跨部门）
+                      {req.requester.department?.name || '未分配部门'}
+                      {req.requester.department?.name !== req.instance.employee.name && ' → 跨部门申请'}
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <span className="text-neutral-600 min-w-16">申请理由:</span>
-                    <span className="text-neutral-900">{app.reason}</span>
-                  </div>
+                  {req.reason && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-neutral-600 min-w-16">申请理由:</span>
+                      <span className="text-neutral-900">{req.reason}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-4 text-neutral-600">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      期限: {app.duration} 天
+                    {req.requestedDays && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        期限: {req.requestedDays} 天
+                      </span>
+                    )}
+                    <span>
+                      申请时间: {new Date(req.createdAt).toLocaleString('zh-CN')}
                     </span>
-                    <span>申请时间: {app.appliedAt}</span>
                   </div>
                 </div>
               </div>
@@ -313,7 +343,8 @@ function PendingApprovals() {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => handleAction('approve')}
+                  onClick={() => handleAction('approve', req.id)}
+                  disabled={approveRequest.isPending || rejectRequest.isPending}
                 >
                   <Check className="w-4 h-4 mr-1" />
                   批准
@@ -321,7 +352,8 @@ function PendingApprovals() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleAction('reject')}
+                  onClick={() => handleAction('reject', req.id)}
+                  disabled={approveRequest.isPending || rejectRequest.isPending}
                 >
                   <X className="w-4 h-4 mr-1" />
                   拒绝
