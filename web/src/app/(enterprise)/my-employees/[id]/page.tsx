@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Settings, Trash2, Activity, Clock, FileText, Sliders } from 'lucide-react';
+import { ArrowLeft, Settings, Trash2, Activity, Clock, FileText, Sliders, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,8 +9,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Avatar } from '@/components/ui/avatar';
 import { StatusDot } from '@/components/ui/status-dot';
 import { ProgressBar } from '@/components/ui/progress-bar';
-import { CenteredSpinner } from '@/components/ui/feedback';
+import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useState } from 'react';
+import { useEmployeeDetail, useUpdateEmployee, useDeleteEmployee } from '@/features/employee/use-employee-detail';
+import { useWebSocket } from '@/hooks/use-websocket';
+import { useAuthStore } from '@/lib/auth-store';
 
 /**
  * 员工详情页
@@ -20,36 +24,66 @@ export default function EmployeeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const employeeId = params.id as string;
+  const { token } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState('overview');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
-  // TODO: 从 API 获取员工详情
-  const isLoading = false;
+  // 获取员工详情
+  const { data: employee, isLoading, isError, error } = useEmployeeDetail(employeeId);
+
+  // WebSocket 实时状态（只在有 token 和 employeeId 时连接）
+  const wsUrl = token && employeeId
+    ? `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/employees/${employeeId}/status?token=${token}`
+    : '';
+
+  const { isConnected: wsConnected } = useWebSocket(wsUrl, {
+    onMessage: (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'status_update') {
+          // TODO: 更新本地状态
+          console.log('Employee status updated:', data);
+        }
+      } catch (err) {
+        console.error('WebSocket message parse error:', err);
+      }
+    },
+  });
+
+  // 更新 & 删除
+  const updateEmployee = useUpdateEmployee();
+  const deleteEmployee = useDeleteEmployee();
+
+  const handleDelete = () => {
+    deleteEmployee.mutate(employeeId, {
+      onSuccess: () => {
+        router.push('/my-employees');
+      },
+    });
+  };
 
   if (isLoading) {
     return <CenteredSpinner label="加载员工详情..." />;
   }
 
-  // Mock 数据
-  const employee = {
-    id: employeeId,
-    name: 'AI助手小明',
-    avatar: null,
-    status: 'online' as const,
-    templateName: '智能客服助手',
-    version: '2.1.0',
-    department: '客服部',
-    createdAt: '2024-01-15',
-    capabilities: ['问答', '订单查询', '售后处理'],
-    description: '专注于客户咨询服务的智能助手，具备丰富的业务知识和友好的沟通方式。',
-    stats: {
-      totalTasks: 156,
-      successRate: 98.5,
-      avgResponseTime: 1.2,
-      monthCalls: 1234,
-      monthSpend: 156.78,
-    },
-  };
+  if (isError || !employee) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <EmptyState
+          icon={<AlertTriangle className="h-8 w-8 text-danger" />}
+          title="加载失败"
+          description={error?.message || '无法获取员工详情'}
+          action={
+            <Button variant="outline" onClick={() => router.back()}>
+              返回
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -68,13 +102,26 @@ export default function EmployeeDetailPage() {
               </Button>
               <div className="h-6 w-px bg-neutral-200" />
               <h1 className="text-xl font-semibold text-neutral-900">员工详情</h1>
+              {wsConnected && (
+                <Badge className="ml-2 text-xs text-success border-success">
+                  ● 实时连接
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+              >
                 <Settings className="w-4 h-4 mr-2" />
-                编辑
+                {isEditing ? '取消编辑' : '编辑'}
               </Button>
-              <Button variant="danger" size="sm">
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+              >
                 <Trash2 className="w-4 h-4 mr-2" />
                 删除
               </Button>
@@ -104,7 +151,7 @@ export default function EmployeeDetailPage() {
                   {employee.name}
                 </h2>
                 <p className="text-sm text-neutral-600 mt-1">
-                  {employee.templateName} · v{employee.version}
+                  {employee.templateName || '自定义员工'} {employee.templateVersion && `· v${employee.templateVersion}`}
                 </p>
                 <StatusDot
                   status={employee.status}
@@ -117,24 +164,24 @@ export default function EmployeeDetailPage() {
               <div className="space-y-3 pt-4 border-t border-neutral-200">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-600">部门</span>
-                  <Badge>{employee.department}</Badge>
+                  <Badge>{employee.departmentName || '未分配'}</Badge>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-600">总任务数</span>
                   <span className="font-semibold text-neutral-900">
-                    {employee.stats.totalTasks}
+                    {employee.stats?.totalTasks || 0}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-600">成功率</span>
                   <span className="font-semibold text-success">
-                    {employee.stats.successRate}%
+                    {employee.stats?.successRate || 0}%
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-600">平均响应</span>
                   <span className="font-semibold text-neutral-900">
-                    {employee.stats.avgResponseTime}s
+                    {employee.stats?.avgResponseTime || 0}s
                   </span>
                 </div>
               </div>
@@ -145,11 +192,11 @@ export default function EmployeeDetailPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-600">调用次数</span>
-                    <span className="font-semibold">{employee.stats.monthCalls}</span>
+                    <span className="font-semibold">{employee.stats?.monthCalls || 0}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-600">消费金额</span>
-                    <span className="font-semibold">¥{employee.stats.monthSpend}</span>
+                    <span className="font-semibold">¥{employee.stats?.monthSpend || 0}</span>
                   </div>
                 </div>
               </div>
@@ -208,6 +255,18 @@ export default function EmployeeDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* 删除确认对话框 */}
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="删除员工"
+        description={`确定要删除员工「${employee.name}」吗？此操作不可撤销，员工的所有数据和历史记录都将被删除。`}
+        confirmText="删除"
+        variant="danger"
+        loading={deleteEmployee.isPending}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }
@@ -221,74 +280,46 @@ function OverviewTab({ employee }: { employee: any }) {
       <div>
         <h3 className="text-base font-semibold text-neutral-900 mb-3">员工简介</h3>
         <p className="text-sm text-neutral-700 leading-relaxed">
-          {employee.description}
+          {employee.description || '暂无描述'}
         </p>
       </div>
 
       {/* 核心能力 */}
       <div>
         <h3 className="text-base font-semibold text-neutral-900 mb-3">核心能力</h3>
-        <div className="flex flex-wrap gap-2">
-          {employee.capabilities.map((cap: string) => (
-            <Badge key={cap} className="bg-primary/10 text-primary border border-primary/20">
-              {cap}
-            </Badge>
-          ))}
-        </div>
+        {employee.capabilities.length === 0 ? (
+          <p className="text-sm text-neutral-500">暂未绑定能力</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {employee.capabilities.map((cap: any) => (
+              <Badge key={cap.id} className="bg-primary/10 text-primary border border-primary/20">
+                {cap.name}
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 当前任务 */}
+      {/* 基本信息 */}
       <div>
-        <h3 className="text-base font-semibold text-neutral-900 mb-3">当前任务</h3>
-        <div className="space-y-3">
-          <div className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <p className="font-medium text-neutral-900">客户咨询处理</p>
-                <p className="text-sm text-neutral-600 mt-1">
-                  处理客户关于订单配送的咨询
-                </p>
-              </div>
-              <Badge className="bg-success/10 text-success">进行中</Badge>
-            </div>
-            <ProgressBar value={65} variant="success" showLabel label="处理进度 65%" />
+        <h3 className="text-base font-semibold text-neutral-900 mb-3">基本信息</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="text-neutral-600">行业：</span>
+            <span className="font-medium">{employee.industry.join('、') || '未设置'}</span>
           </div>
-
-          <div className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <p className="font-medium text-neutral-900">售后问题跟进</p>
-                <p className="text-sm text-neutral-600 mt-1">
-                  跟进用户退换货请求
-                </p>
-              </div>
-              <Badge className="bg-warning/10 text-warning">排队中</Badge>
-            </div>
-            <ProgressBar value={15} variant="default" showLabel label="等待处理" />
+          <div>
+            <span className="text-neutral-600">岗位：</span>
+            <span className="font-medium">{employee.position.join('、') || '未设置'}</span>
           </div>
-        </div>
-      </div>
-
-      {/* 工作摘要 */}
-      <div>
-        <h3 className="text-base font-semibold text-neutral-900 mb-3">近7天工作摘要</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="p-4 bg-blue-50 border-blue-200">
-            <p className="text-sm text-blue-700">总任务数</p>
-            <p className="text-2xl font-bold text-blue-900 mt-1">89</p>
-          </Card>
-          <Card className="p-4 bg-green-50 border-green-200">
-            <p className="text-sm text-green-700">成功完成</p>
-            <p className="text-2xl font-bold text-green-900 mt-1">86</p>
-          </Card>
-          <Card className="p-4 bg-red-50 border-red-200">
-            <p className="text-sm text-red-700">失败</p>
-            <p className="text-2xl font-bold text-red-900 mt-1">2</p>
-          </Card>
-          <Card className="p-4 bg-yellow-50 border-yellow-200">
-            <p className="text-sm text-yellow-700">等待中</p>
-            <p className="text-2xl font-bold text-yellow-900 mt-1">1</p>
-          </Card>
+          <div>
+            <span className="text-neutral-600">创建时间：</span>
+            <span className="font-medium">{new Date(employee.createdAt).toLocaleDateString()}</span>
+          </div>
+          <div>
+            <span className="text-neutral-600">最后更新：</span>
+            <span className="font-medium">{new Date(employee.updatedAt).toLocaleDateString()}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -335,6 +366,22 @@ function TasksTab() {
 }
 
 function ConfigTab({ employee }: { employee: any }) {
+  const [formData, setFormData] = useState({
+    name: employee.name,
+    departmentId: employee.departmentId || '',
+    description: employee.description || '',
+  });
+  const updateEmployee = useUpdateEmployee();
+
+  const handleSave = () => {
+    updateEmployee.mutate({
+      id: employee.id,
+      name: formData.name,
+      departmentId: formData.departmentId || null,
+      description: formData.description,
+    });
+  };
+
   return (
     <div className="space-y-6">
       <h3 className="text-base font-semibold text-neutral-900">基本信息</h3>
@@ -345,7 +392,8 @@ function ConfigTab({ employee }: { employee: any }) {
           </label>
           <input
             type="text"
-            defaultValue={employee.name}
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
           />
         </div>
@@ -355,9 +403,11 @@ function ConfigTab({ employee }: { employee: any }) {
           </label>
           <input
             type="text"
-            defaultValue={employee.department}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+            value={employee.departmentName || '未分配'}
+            disabled
+            className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50 text-neutral-500"
           />
+          <p className="text-xs text-neutral-500 mt-1">部门分配需在组织管理中设置</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-2">
@@ -365,13 +415,29 @@ function ConfigTab({ employee }: { employee: any }) {
           </label>
           <textarea
             rows={4}
-            defaultValue={employee.description}
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
           />
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <Button variant="outline">取消</Button>
-          <Button variant="primary">保存更改</Button>
+          <Button
+            variant="outline"
+            onClick={() => setFormData({
+              name: employee.name,
+              departmentId: employee.departmentId || '',
+              description: employee.description || '',
+            })}
+          >
+            重置
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            disabled={updateEmployee.isPending}
+          >
+            {updateEmployee.isPending ? '保存中...' : '保存更改'}
+          </Button>
         </div>
       </div>
     </div>
