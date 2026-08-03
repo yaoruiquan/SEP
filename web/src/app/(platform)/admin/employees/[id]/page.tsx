@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { api } from '@/lib/api-client';
 import { useEmployeeBindings, useRemoveBinding } from '@/features/admin/use-admin';
@@ -28,6 +29,10 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
   const queryClient = useQueryClient();
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [showApproveDialog, setShowApproveDialog] = useState(false);
+  const [removeBindingDialog, setRemoveBindingDialog] = useState<{ open: boolean; bindingId: string; bindingName: string }>({
+    open: false, bindingId: '', bindingName: '',
+  });
 
   const { data: employee, isLoading } = useQuery({
     queryKey: ['admin-employee', params.id],
@@ -73,9 +78,11 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
   });
 
   const handleApprove = () => {
-    if (window.confirm('确认审核通过该员工模板？')) {
-      approveMutation.mutate(undefined);
-    }
+    setShowApproveDialog(true);
+  };
+
+  const handleApproveConfirm = () => {
+    approveMutation.mutate(undefined);
   };
 
   const handleReject = () => {
@@ -84,6 +91,17 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
       return;
     }
     rejectMutation.mutate(rejectReason);
+  };
+
+  const handleRemoveBinding = () => {
+    removeBindingMutation.mutate(removeBindingDialog.bindingId, {
+      onSuccess: () => {
+        toast.success('绑定已删除');
+      },
+      onError: (error: any) => {
+        toast.error(error.message || '删除失败');
+      },
+    });
   };
 
   if (isLoading) {
@@ -246,16 +264,11 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          if (confirm('确定删除此能力绑定？')) {
-                            removeBindingMutation.mutate(binding.id, {
-                              onSuccess: () => {
-                                toast.success('绑定已删除');
-                              },
-                              onError: (error: any) => {
-                                toast.error(error.message || '删除失败');
-                              },
-                            });
-                          }
+                          setRemoveBindingDialog({
+                            open: true,
+                            bindingId: binding.id,
+                            bindingName: binding.capability.name,
+                          });
                         }}
                         disabled={removeBindingMutation.isPending}
                       >
@@ -356,6 +369,30 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showApproveDialog}
+        onOpenChange={setShowApproveDialog}
+        title="审核通过"
+        description={`确认审核通过员工模板「${employee?.name}」吗？通过后该员工将发布到市场。`}
+        confirmText="确认通过"
+        cancelText="取消"
+        variant="default"
+        loading={approveMutation.isPending}
+        onConfirm={handleApproveConfirm}
+      />
+
+      <ConfirmDialog
+        open={removeBindingDialog.open}
+        onOpenChange={(open) => setRemoveBindingDialog({ ...removeBindingDialog, open })}
+        title="删除能力绑定"
+        description={`确定要删除能力绑定「${removeBindingDialog.bindingName}」吗？此操作不可恢复。`}
+        confirmText="确认删除"
+        cancelText="取消"
+        variant="danger"
+        loading={removeBindingMutation.isPending}
+        onConfirm={handleRemoveBinding}
+      />
     </div>
   );
 }

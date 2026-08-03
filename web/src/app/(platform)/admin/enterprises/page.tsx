@@ -2,11 +2,12 @@
 
 import { Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/feedback';
+import { Button } from '@/components/ui/button';
+import { Skeleton, EmptyState } from '@/components/ui/feedback';
 import { useAllEnterprises } from '@/features/admin/use-admin';
 
 export default function EnterprisesPage() {
-  const { data: enterprises, isLoading } = useAllEnterprises();
+  const { data: enterprises, isLoading, isError, error } = useAllEnterprises();
 
   return (
     <div className="p-6 space-y-4">
@@ -27,6 +28,19 @@ export default function EnterprisesPage() {
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
+            </div>
+          ) : isError ? (
+            <div className="px-5 py-8">
+              <EmptyState
+                icon={<Building2 className="h-8 w-8" />}
+                title="加载失败"
+                description={error?.message || '无法加载企业列表，请稍后重试。'}
+                action={
+                  <Button size="sm" onClick={() => window.location.reload()}>
+                    刷新页面
+                  </Button>
+                }
+              />
             </div>
           ) : !enterprises || enterprises.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-fg-subtle">

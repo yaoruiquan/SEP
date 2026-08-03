@@ -390,6 +390,8 @@ export class AdminService {
                 select: {
                   id: true,
                   name: true,
+                  type: true,
+                  status: true,
                 },
               },
             },
@@ -952,6 +954,231 @@ export class AdminService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * 运营仪表盘统计数据
+   */
+  async getStats() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+    // 上月末（用于 MoM 环比）
+    const prevMonthEnd = new Date();
+    prevMonthEnd.setDate(0);
+    prevMonthEnd.setHours(23, 59, 59, 999);
+
+    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+
+    const [
+      totalEnterprises,
+      suspendedEnterprises,
+      totalEmployees,
+      pendingEmployees,
+      todayConsumeTx,
+      yesterdayConsumeTx,
+      todayConversations,
+      yesterdayConversations,
+      prevMonthEnterprises,
+      prevMonthEmployees,
+      pendingCapabilities,
+      computeTx30,
+      enterprises30,
+      topAccountsRaw,
+      topEmployeesRaw,
+    ] = await Promise.all([
+      this.prisma.enterprise.count(),
+      // 冻结状态存在 metadata JSON 里，不是独立字段
+      this.prisma.enterprise.count({
+        where: { metadata: { path: ['suspended'], equals: true } },
+      }),
+      this.prisma.digitalEmployee.count({ where: { status: 'APPROVED' } }),
+      this.prisma.digitalEmployee.count({ where: { status: 'PENDING' } }),
+      // 今日算力消费
+      this.prisma.computeTransaction.aggregate({
+        where: { type: 'CONSUME', createdAt: { gte: todayStart, lte: todayEnd } },
+        _sum: { amount: true },
+      }),
+      // 昨日算力消费（用于趋势比较）
+      this.prisma.computeTransaction.aggregate({
+        where: {
+          type: 'CONSUME',
+          createdAt: { gte: yesterdayStart, lt: todayStart },
+        },
+        _sum: { amount: true },
+      }),
+      // 今日活跃用户（有会话的不重复用户数）
+      this.prisma.conversationSession.findMany({
+        where: { createdAt: { gte: todayStart, lte: todayEnd } },
+        select: { userId: true },
+        distinct: ['userId'],
+      }),
+      // 昨日活跃用户
+      this.prisma.conversationSession.findMany({
+        where: { createdAt: { gte: yesterdayStart, lt: todayStart } },
+        select: { userId: true },
+        distinct: ['userId'],
+      }),
+      // 上月企业总数（用于 MoM 趋势）
+      this.prisma.enterprise.count({
+        where: { createdAt: { lte: prevMonthEnd } },
+      }),
+      // 上月员工数
+      this.prisma.digitalEmployee.count({
+        where: { status: 'APPROVED', createdAt: { lte: prevMonthEnd } },
+      }),
+      // 待审核能力
+      this.prisma.capability.count({ where: { status: 'PENDING' } }),
+      // 近 30 天按日汇总的算力消费
+      this.prisma.computeTransaction.findMany({
+        where: { type: 'CONSUME', createdAt: { gte: thirtyDaysAgo } },
+        select: { amount: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      // 近 30 天企业注册记录
+      this.prisma.enterprise.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      // Top 10 企业（按算力消费 sum）
+      // ComputeTransaction 没有 enterpriseId，只能按 accountId 聚合后再回查企业
+      this.prisma.computeTransaction.groupBy({
+        by: ['accountId'],
+        where: { type: 'CONSUME' },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'asc' } }, // 消费是负数，升序 = 消费最多
+        take: 10,
+      }),
+      // Top 10 员工（按会话数）
+      this.prisma.conversationSession.groupBy({
+        by: ['employeeId'],
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 10,
+      }),
+    ]);
+
+    // ── 计算 KPI trends ────────────────────────────────────────────
+    const enterpriseTrendPct =
+      prevMonthEnterprises > 0
+        ? +((((totalEnterprises - prevMonthEnterprises) / prevMonthEnterprises) * 100).toFixed(1))
+        : 0;
+
+    const employeeTrendPct =
+      prevMonthEmployees > 0
+        ? +((((totalEmployees - prevMonthEmployees) / prevMonthEmployees) * 100).toFixed(1))
+        : 0;
+
+    const todayTokens = Math.abs(Number(todayConsumeTx._sum.amount ?? 0));
+    const yesterdayTokens = Math.abs(Number(yesterdayConsumeTx._sum.amount ?? 0));
+    const tokenTrendPct =
+      yesterdayTokens > 0
+        ? +(((todayTokens - yesterdayTokens) / yesterdayTokens) * 100).toFixed(1)
+        : 0;
+
+    const todayActiveUsers = todayConversations.length;
+    const yesterdayActiveUsers = yesterdayConversations.length;
+    const userTrendPct =
+      yesterdayActiveUsers > 0
+        ? +(((todayActiveUsers - yesterdayActiveUsers) / yesterdayActiveUsers) * 100).toFixed(1)
+        : 0;
+
+    // ── 近 30 天趋势：按日汇总 ──────────────────────────────────────
+    const dayMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(thirtyDaysAgo.getTime() + i * 86400000);
+      const key = `${d.getMonth() + 1}/${d.getDate()}`;
+      dayMap.set(key, 0);
+    }
+    for (const tx of computeTx30) {
+      const d = tx.createdAt;
+      const key = `${d.getMonth() + 1}/${d.getDate()}`;
+      dayMap.set(key, (dayMap.get(key) ?? 0) + Math.abs(Number(tx.amount)));
+    }
+    const computeTrend = Array.from(dayMap.entries()).map(([date, tokens]) => ({
+      date,
+      tokens: Math.round(tokens),
+    }));
+
+    const entDayMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(thirtyDaysAgo.getTime() + i * 86400000);
+      const key = `${d.getMonth() + 1}/${d.getDate()}`;
+      entDayMap.set(key, 0);
+    }
+    for (const ent of enterprises30) {
+      const d = ent.createdAt;
+      const key = `${d.getMonth() + 1}/${d.getDate()}`;
+      entDayMap.set(key, (entDayMap.get(key) ?? 0) + 1);
+    }
+    const enterpriseTrend = Array.from(entDayMap.entries()).map(([date, count]) => ({
+      date,
+      count,
+    }));
+
+    // ── Top 10 企业：accountId → 企业名称 ─────────────────────────
+    const topAccountIds = topAccountsRaw.map((r) => r.accountId);
+
+    const topAccounts = await this.prisma.computeAccount.findMany({
+      where: { id: { in: topAccountIds } },
+      select: { id: true, enterpriseId: true, enterprise: { select: { name: true } } },
+    });
+    const accountMap = new Map(topAccounts.map((a) => [a.id, a]));
+
+    const topEnterprises = topAccountsRaw.map((r) => {
+      const acc = accountMap.get(r.accountId);
+      return {
+        id: acc?.enterpriseId ?? r.accountId,
+        name: acc?.enterprise?.name ?? '未知企业',
+        tokens: Math.abs(Number(r._sum.amount ?? 0)),
+      };
+    });
+
+    // ── Top 10 员工：补全名称 ──────────────────────────────────────
+    const topEmployeeIds = topEmployeesRaw.map((r) => r.employeeId);
+    const topEmployeeDetails = await this.prisma.digitalEmployee.findMany({
+      where: { id: { in: topEmployeeIds } },
+      select: { id: true, name: true, bindings: { select: { capability: { select: { type: true } } }, take: 1 } },
+    });
+    const empDetailMap = new Map(topEmployeeDetails.map((e) => [e.id, e]));
+
+    const topEmployees = topEmployeesRaw.map((r) => {
+      const detail = empDetailMap.get(r.employeeId);
+      const firstType = detail?.bindings?.[0]?.capability?.type ?? 'AGENT';
+      return {
+        id: r.employeeId,
+        name: detail?.name ?? '未知员工',
+        type: firstType,
+        calls: r._count.id,
+      };
+    });
+
+    return {
+      kpi: {
+        totalEnterprises,
+        suspendedEnterprises,
+        enterpriseTrendPct,
+        totalEmployees,
+        pendingEmployees,
+        employeeTrendPct,
+        pendingCapabilities,
+        todayTokens,
+        tokenTrendPct,
+        todayActiveUsers,
+        userTrendPct,
+      },
+      computeTrend,
+      enterpriseTrend,
+      topEnterprises,
+      topEmployees,
+    };
   }
 
   /**

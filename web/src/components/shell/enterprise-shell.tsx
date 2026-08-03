@@ -15,6 +15,9 @@ import {
   Menu,
   X,
   BarChart3,
+  Shield,
+  BookOpen,
+  ListTodo,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -70,6 +73,19 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/instances', label: '员工实例', icon: Boxes, adminOnly: true },
       // 订阅所有人可见（能看到公司订了什么），但改只有管理员能改
       { href: '/subscriptions', label: '我的订阅', icon: CreditCard },
+    ],
+  },
+  {
+    title: '工作',
+    links: [
+      { href: '/tasks', label: '任务中心', icon: ListTodo },
+    ],
+  },
+  {
+    title: '协作',
+    links: [
+      { href: '/permissions', label: '权限管理', icon: Shield },
+      { href: '/knowledge', label: '知识库', icon: BookOpen },
     ],
   },
   {

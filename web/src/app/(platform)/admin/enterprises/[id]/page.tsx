@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Building2,
   Users,
@@ -45,6 +46,7 @@ export default function EnterpriseDetailPage() {
   // Suspend dialog state
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
+  const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
 
   const isSuspended = enterprise?.metadata?.suspended === true;
 
@@ -98,8 +100,6 @@ export default function EnterpriseDetailPage() {
   };
 
   const handleResume = async () => {
-    if (!confirm('确认解冻该企业？')) return;
-
     try {
       await resumeEnterprise.mutateAsync(enterpriseId);
       alert('企业已解冻');
@@ -182,7 +182,7 @@ export default function EnterpriseDetailPage() {
           </Button>
 
           {isSuspended ? (
-            <Button variant="secondary" size="sm" onClick={handleResume}>
+            <Button variant="secondary" size="sm" onClick={() => setResumeDialogOpen(true)}>
               <Unlock className="h-4 w-4 mr-2" />
               解冻
             </Button>
@@ -546,6 +546,18 @@ export default function EnterpriseDetailPage() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={resumeDialogOpen}
+        onOpenChange={setResumeDialogOpen}
+        title="解冻企业"
+        description={`确认要解冻企业「${enterprise?.name}」吗？解冻后企业将恢复正常使用。`}
+        confirmText="确认解冻"
+        cancelText="取消"
+        variant="default"
+        loading={resumeEnterprise.isPending}
+        onConfirm={handleResume}
+      />
     </div>
   );
 }

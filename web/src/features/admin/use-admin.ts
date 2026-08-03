@@ -270,9 +270,8 @@ export function useAvailableCapabilities() {
   return useQuery({
     queryKey: ['available-capabilities'],
     queryFn: async () => {
-      const res = await adminApi.getAvailableCapabilities();
-      // API 返回 {items: [], total, page, pageSize}，提取 items
-      return res.items || [];
+      // API 直接返回 CapabilityItem[]
+      return await adminApi.getAvailableCapabilities();
     },
   });
 }

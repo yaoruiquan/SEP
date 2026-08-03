@@ -102,6 +102,16 @@ const RejectCapabilitySchema = z.object({
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get('stats')
+  @ApiOperation({ summary: '获取运营仪表盘统计数据' })
+  @ApiResponse({
+    status: 200,
+    description: '返回 KPI、近 30 天趋势、Top 10 企业与员工排行',
+  })
+  getStats() {
+    return this.adminService.getStats();
+  }
+
   @Get('enterprises')
   @ApiOperation({ summary: '获取企业列表（运营端）' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })

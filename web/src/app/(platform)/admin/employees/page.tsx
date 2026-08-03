@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/feedback';
+import { Skeleton, EmptyState } from '@/components/ui/feedback';
 import { Avatar } from '@/components/ui/avatar';
 import {
   AlertDialog,
@@ -22,7 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/features/admin/admin-api';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Archive, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Archive, Upload, Users } from 'lucide-react';
 
 type EmployeeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED';
 
@@ -49,7 +49,7 @@ export default function AdminEmployeesPage() {
     employeeName: '',
   });
 
-  const { data: employeesResponse, isLoading } = useQuery({
+  const { data: employeesResponse, isLoading, isError, error } = useQuery({
     queryKey: ['admin-employees', tab],
     queryFn: async () => {
       const statusMap = {
@@ -150,6 +150,19 @@ export default function AdminEmployeesPage() {
                   {Array.from({ length: 4 }).map((_, i) => (
                     <Skeleton key={i} className="h-12 w-full" />
                   ))}
+                </div>
+              ) : isError ? (
+                <div className="px-5 py-8">
+                  <EmptyState
+                    icon={<Users className="h-8 w-8" />}
+                    title="加载失败"
+                    description={error?.message || '无法加载员工列表，请稍后重试。'}
+                    action={
+                      <Button size="sm" onClick={() => window.location.reload()}>
+                        刷新页面
+                      </Button>
+                    }
+                  />
                 </div>
               ) : !employees || employees.length === 0 ? (
                 <p className="px-5 py-8 text-center text-sm text-fg-subtle">

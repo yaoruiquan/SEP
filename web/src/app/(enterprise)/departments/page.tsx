@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Users, Folder } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -140,7 +140,7 @@ export default function DepartmentsPage() {
   const { roleInEnterprise } = useAuthStore();
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
-  const { data: depts = [], isLoading } = useDepartments();
+  const { data: depts = [], isLoading, isError, error } = useDepartments();
   const createDept = useCreateDepartment();
   const updateDept = useUpdateDepartment();
   const deleteDept = useDeleteDepartment();
@@ -184,6 +184,22 @@ export default function DepartmentsPage() {
   };
 
   if (isLoading) return <CenteredSpinner label="加载中…" />;
+  if (isError) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <EmptyState
+          icon={<Folder className="h-8 w-8" />}
+          title="加载失败"
+          description={error?.message || '无法加载部门列表，请稍后重试。'}
+          action={
+            <Button size="sm" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">

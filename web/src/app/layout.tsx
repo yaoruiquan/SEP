@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import 'highlight.js/styles/github.css';
 import { Providers } from '@/components/providers';
+import NextTopLoader from 'nextjs-toploader';
 
 export const metadata: Metadata = {
   title: '硅基人才平台 - Silicon Talent Platform',
@@ -22,6 +23,11 @@ export default function RootLayout({
         className="min-h-screen bg-background text-foreground antialiased"
         suppressHydrationWarning
       >
+        <NextTopLoader
+          color="#3b82f6"
+          height={3}
+          showSpinner={false}
+        />
         <Providers>{children}</Providers>
       </body>
     </html>

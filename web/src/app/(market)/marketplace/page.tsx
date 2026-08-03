@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
-import { EmptyState, Skeleton } from '@/components/ui/feedback';
+import { EmptyState } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
@@ -15,6 +15,7 @@ import { useMarketEmployees } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
+import { EmployeeListSkeleton } from '@/features/employee/employee-skeleton';
 
 const INDUSTRIES = ['全部', '电商零售', '金融服务', '医疗健康', '教育培训', '制造业', '物流运输', '餐饮服务', '企业服务'];
 
@@ -31,7 +32,7 @@ export default function MarketplacePage() {
     return () => clearTimeout(t);
   }, [input]);
 
-  const { data: employees = [], isLoading } = useMarketEmployees(search);
+  const { data: employees = [], isLoading, isError, error } = useMarketEmployees(search);
 
   // 订阅列表需登录 —— 访客不请求，否则每次都白跑一轮 401 + refresh
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
@@ -102,11 +103,18 @@ export default function MarketplacePage() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Skeleton key={i} className="h-56" />
-          ))}
-        </div>
+        <EmployeeListSkeleton count={6} />
+      ) : isError ? (
+        <EmptyState
+          icon={<Users className="h-8 w-8" />}
+          title="加载失败"
+          description={error?.message || '无法加载员工列表，请稍后重试。'}
+          action={
+            <Button size="sm" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<Users className="h-8 w-8" />}

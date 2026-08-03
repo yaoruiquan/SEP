@@ -8,12 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { EmptyState } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useDownloadPackage } from '@/features/employee/use-packages';
 import { toast } from '@/components/ui/toast';
 import type { MyEmployee } from '@/lib/types';
+import { MyEmployeeListSkeleton } from '@/features/employee/employee-skeleton';
 
 type SortOption = 'name' | 'recent';
 
@@ -27,7 +28,7 @@ export default function MyEmployeesPage() {
   const { roleInEnterprise } = useAuthStore();
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
-  const { data: mine = [], isLoading } = useMyEmployees();
+  const { data: mine = [], isLoading, isError, error } = useMyEmployees();
   const download = useDownloadPackage();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,8 +57,6 @@ export default function MyEmployeesPage() {
     return result;
   }, [mine, searchQuery, sortBy]);
 
-  if (isLoading) return <CenteredSpinner label="加载中…" />;
-
   return (
     <div className="space-y-6 p-6">
       {/* 页头 */}
@@ -82,7 +81,20 @@ export default function MyEmployeesPage() {
         </div>
       </div>
 
-      {mine.length === 0 ? (
+      {isLoading ? (
+        <MyEmployeeListSkeleton count={6} />
+      ) : isError ? (
+        <EmptyState
+          icon={<MonitorPlay className="h-8 w-8" />}
+          title="加载失败"
+          description={error?.message || '无法加载员工列表，请稍后重试。'}
+          action={
+            <Button size="sm" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      ) : mine.length === 0 ? (
         <EmptyState
           icon={<MonitorPlay className="h-8 w-8" />}
           title="还没有可用的员工"
@@ -183,9 +195,10 @@ function EmployeeCard({
   const mockMonthSpend = (Math.random() * 100 + 5).toFixed(2);
 
   return (
-    <Card className="group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-2 hover:border-primary/30">
-      {/* 卡片头部 */}
-      <CardHeader className="border-b bg-gradient-to-br from-primary/5 via-orange-50/30 to-transparent p-5">
+    <Link href={`/my-employees/${instanceId}`}>
+      <Card className="group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-2 hover:border-primary/30 cursor-pointer">
+        {/* 卡片头部 */}
+        <CardHeader className="border-b bg-gradient-to-br from-primary/5 via-orange-50/30 to-transparent p-5">
         <div className="flex items-start gap-4">
           {/* 头像 */}
           <div className="relative shrink-0">
@@ -307,5 +320,6 @@ function EmployeeCard({
         </div>
       </CardContent>
     </Card>
+    </Link>
   );
 }
