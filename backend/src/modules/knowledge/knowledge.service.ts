@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { EnterpriseContextService } from './enterprise-context.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import type {
   KnowledgeBaseCreateDto,
   KnowledgeBaseUpdateDto,
