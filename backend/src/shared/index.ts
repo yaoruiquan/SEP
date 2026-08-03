@@ -806,3 +806,9 @@ export function calculateModelCost(
   const costUsd = inputTokens * rate.input + outputTokens * rate.output;
   return costUsd * usdRate;
 }
+
+// ============================================================================
+// Knowledge Base DTOs
+// ============================================================================
+
+export * from './knowledge.dto';

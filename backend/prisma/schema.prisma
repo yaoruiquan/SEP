@@ -35,6 +35,8 @@ model User {
   memberships          EnterpriseMember[]
   approvedRequests     AccessRequest[] @relation("AccessRequestReviewer")
   devices              Device[]
+  createdKnowledgeBases KnowledgeBase[] @relation("KnowledgeBaseCreator")
+  uploadedDocuments    Document[]      @relation("DocumentUploader")
 
   @@map("users")
 }
@@ -69,6 +71,7 @@ model Enterprise {
   computeAccount ComputeAccount?
   instances      EmployeeInstance[]
   accessRequests AccessRequest[]
+  knowledgeBases KnowledgeBase[]
 
   @@map("enterprises")
 }
@@ -95,6 +98,7 @@ model Department {
   members   EnterpriseMember[]
   instances EmployeeInstance[]
   grants    EmployeeGrant[]
+  knowledgeGrants KnowledgeGrant[]
 
   @@index([enterpriseId])
   @@index([parentId])
@@ -238,6 +242,7 @@ model EmployeeInstance {
   // Relations
   grants       EmployeeGrant[]
   accessRequests AccessRequest[]
+  knowledgeGrants KnowledgeGrant[]
 
   @@index([enterpriseId])
   @@index([templateId])
@@ -826,4 +831,69 @@ model Device {
   @@unique([userId, fingerprint])
   @@index([userId])
   @@map("devices")
+}
+
+// ============================================================================
+// Knowledge Base (企业知识库 - MVP 空壳实现)
+// ============================================================================
+
+model KnowledgeBase {
+  id           String   @id @default(cuid())
+  enterpriseId String
+  name         String
+  description  String?  @db.Text
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  enterprise   Enterprise         @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  creator      User               @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
+  documents    Document[]
+  grants       KnowledgeGrant[]
+
+  @@index([enterpriseId])
+  @@map("knowledge_bases")
+}
+
+model Document {
+  id              String         @id @default(cuid())
+  knowledgeBaseId String
+  filename        String
+  originalName    String
+  fileSize        Int
+  mimeType        String
+  storagePath     String         // 本地文件路径
+  status          DocumentStatus @default(PENDING)
+  uploadedBy      String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  uploader      User          @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+
+  @@index([knowledgeBaseId])
+  @@map("documents")
+}
+
+enum DocumentStatus {
+  PENDING    // 上传中
+  READY      // 可用（MVP 直接设为此状态，不做解析）
+  FAILED     // 失败
+}
+
+model KnowledgeGrant {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  instanceId      String?
+  departmentId    String?
+  createdAt       DateTime @default(now())
+
+  knowledgeBase KnowledgeBase     @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  instance      EmployeeInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  department    Department?       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeBaseId, instanceId])
+  @@unique([knowledgeBaseId, departmentId])
+  @@index([knowledgeBaseId])
+  @@map("knowledge_grants")
 }
