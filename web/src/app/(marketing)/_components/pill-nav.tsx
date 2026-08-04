@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
+import { ThemeLogo } from '@/components/ui/theme-logo';
 import { cn } from '@/lib/utils';
 
 const LINKS = [
@@ -50,7 +51,7 @@ export function PillNav() {
             href="/"
             className="flex shrink-0 items-center gap-2 rounded-glass-sm"
           >
-            <img src="/logo-new.png" alt="" className="h-7 w-7 rounded-lg" />
+            <ThemeLogo width={28} height={28} />
             <span className="text-sm font-semibold text-gtext-primary">
               硅基人才平台
             </span>

@@ -25,6 +25,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { StatusDot } from '@/components/ui/status-dot';
 import { AuroraBackground } from '@/components/ui/aurora-background';
+import { ThemeLogo } from '@/components/ui/theme-logo';
 import { cn } from '@/lib/utils';
 import { NavItem, type NavLink } from './nav-item';
 import { ShellTopbar, type CrumbMap } from './shell-topbar';
@@ -167,14 +168,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         {/* Logo 区域 - 固定 64px 高度，与顶栏对齐 */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
           <div className="flex items-center gap-2 overflow-hidden">
-            <Image
-              src="/logo-new.png"
-              alt="硅基人才平台"
-              width={28}
-              height={28}
-              className="shrink-0 rounded"
-              priority
-            />
+            <ThemeLogo priority />
             {/* 显示企业名而非平台名 —— 多租户下让人一眼确认在哪家企业 */}
             {!collapsed && (
               <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gtext-primary">

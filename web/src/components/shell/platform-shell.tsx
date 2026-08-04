@@ -6,6 +6,7 @@ import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, Building2, CheckSqu
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AuroraBackground } from '@/components/ui/aurora-background';
+import { ThemeLogo } from '@/components/ui/theme-logo';
 import { NavItem, type NavLink } from './nav-item';
 import { ShellTopbar, type CrumbMap } from './shell-topbar';
 import { useAuthStore } from '@/lib/auth-store';
@@ -55,7 +56,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
       )}>
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
           <div className="flex items-center gap-2 overflow-hidden">
-            <Image src="/logo-new.png" alt="硅基人才平台" width={28} height={28} className="shrink-0 rounded" priority />
+            <ThemeLogo priority />
             {!collapsed && <span className="text-sm font-semibold text-gtext-primary">管理后台</span>}
           </div>
           <button

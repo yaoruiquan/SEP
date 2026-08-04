@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
+import { ThemeLogo } from '@/components/ui/theme-logo';
 import { useAuthStore, defaultHomeFor } from '@/lib/auth-store';
 
 /**
@@ -22,14 +22,7 @@ export function MarketHeader() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
         <div className="flex items-center gap-6">
           <Link href="/marketplace" className="flex items-center gap-2.5">
-            <Image
-              src="/logo-new.png"
-              alt="硅基人才平台"
-              width={28}
-              height={28}
-              className="rounded"
-              priority
-            />
+            <ThemeLogo priority />
             <span className="text-sm font-semibold text-gtext-primary">
               硅基人才市场
             </span>

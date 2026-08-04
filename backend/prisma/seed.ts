@@ -15,6 +15,9 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as fs from 'fs';
+import * as path from 'path';
+import AdmZip from 'adm-zip';
 
 const prisma = new PrismaClient();
 
@@ -355,6 +358,91 @@ async function seedSubscriptionsAndInstances(
   return { globexInstance };
 }
 
+// ── 员工包（下载演示数据）──────────────────────────────────────────────────
+
+async function seedEmployeePackages(
+  tpls: Awaited<ReturnType<typeof seedTemplates>>,
+  platformAdminId: string,
+) {
+  const storageRoot = path.resolve(__dirname, '../storage/packages');
+  if (!fs.existsSync(storageRoot)) {
+    fs.mkdirSync(storageRoot, { recursive: true });
+  }
+
+  // 为每个已发布的员工生成演示 ZIP
+  for (const emp of [tpls.skillsEmp, tpls.researchEmp]) {
+    const empDir = path.join(storageRoot, emp.id);
+    if (!fs.existsSync(empDir)) {
+      fs.mkdirSync(empDir, { recursive: true });
+    }
+
+    const zipPath = path.join(empDir, `${emp.id}-v${emp.version}.zip`);
+    const relPath = path.relative(storageRoot, zipPath);
+
+    // 已存在则跳过
+    if (fs.existsSync(zipPath)) {
+      console.log(`  ⏭️  Package already exists: ${relPath}`);
+      continue;
+    }
+
+    // 创建 ZIP（使用 adm-zip）
+    const zip = new AdmZip();
+
+    // README.txt
+    const readme = `# ${emp.name} v${emp.version}
+
+## 描述
+${emp.description}
+
+## 适用场景
+行业: ${emp.industry}
+职位: ${emp.position}
+
+## 使用说明
+1. 解压本包到你的项目目录
+2. 参考 config.json 配置模型参数
+3. 将 skills/ 目录拷贝到你的 AI agent 工作区
+
+---
+由硅基人才平台生成 | ${new Date().toISOString()}
+`;
+
+    // config.json
+    const config = {
+      name: emp.name,
+      version: emp.version,
+      modelId: emp.modelId,
+      maxSteps: emp.maxSteps,
+      systemPrompt: emp.systemPrompt,
+      capabilityCount: 0,
+    };
+
+    zip.addFile('README.txt', Buffer.from(readme, 'utf8'));
+    zip.addFile('config.json', Buffer.from(JSON.stringify(config, null, 2), 'utf8'));
+    zip.writeZip(zipPath);
+
+    console.log(`  ✅ Generated package: ${relPath}`);
+
+    // 插入 EmployeePackage 记录
+    await prisma.employeePackage.upsert({
+      where: { id: emp.id },
+      update: { storagePath: relPath, version: emp.version },
+      create: {
+        id: emp.id,
+        version: emp.version,
+        storagePath: relPath,
+        fileSizeBytes: fs.statSync(zipPath).size,
+        uploadedBy: platformAdminId,
+        employee: {
+          connect: { id: emp.id },
+        },
+      },
+    });
+  }
+
+  console.log('');
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -365,6 +453,7 @@ async function main() {
   const caps = await seedCapabilities(users.platformAdmin.id);
   const tpls = await seedTemplates(caps);
   await seedSubscriptionsAndInstances(ents, tpls);
+  await seedEmployeePackages(tpls, users.platformAdmin.id);
 
   console.log('✅ Seed done. 密码统一 Demo123456');
   console.log('');

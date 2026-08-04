@@ -13,6 +13,7 @@ import type { MarketEmployee } from '@/lib/types';
 import { EmployeeCard } from './_components/employee-card';
 import { EmployeeDrawer } from './_components/employee-drawer';
 import { CategoryTabs } from './_components/category-tabs';
+import { PaymentModal } from '@/components/ui/payment-modal';
 import {
   FilterPanel,
   INITIAL_FILTERS,
@@ -38,6 +39,7 @@ export default function MarketplacePage() {
   const [sort, setSort] = useState<SortMode>('');
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
 
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -132,9 +134,23 @@ export default function MarketplacePage() {
     ? employees.find((e) => e.id === drawerId) ?? null
     : null;
 
+  /**
+   * 点「订阅」不直接下单 —— 先弹支付确认，让用户看清价格再掏钱。
+   * 免费员工也走这一步：确认页同时承担「订阅是企业级操作」的告知作用。
+   */
   function doSubscribe(emp: MarketEmployee) {
+    setPayingEmp(emp);
+  }
+
+  /** 支付确认后才真正调订阅接口。成功则关弹窗，失败留在弹窗里让用户重试。 */
+  function confirmPayment() {
+    const emp = payingEmp;
+    if (!emp) return;
     subscribe.mutate(emp.id, {
-      onSuccess: () => toast.success(`已订阅「${emp.name}」`),
+      onSuccess: () => {
+        setPayingEmp(null);
+        toast.success(`已订阅「${emp.name}」，可去「员工实例」创建实例`);
+      },
       onError: (e) =>
         toast.error(e instanceof ApiError ? e.message : '订阅失败'),
     });
@@ -274,6 +290,17 @@ export default function MarketplacePage() {
         onSubscribe={() => drawerEmp && doSubscribe(drawerEmp)}
         onClose={() => setDrawerId(null)}
       />
+
+      {/* ── 支付确认 ─────────────────────────────────────────────────── */}
+      {payingEmp && (
+        <PaymentModal
+          open
+          emp={payingEmp}
+          subscribing={subscribe.isPending}
+          onConfirm={confirmPayment}
+          onClose={() => setPayingEmp(null)}
+        />
+      )}
     </div>
   );
 }

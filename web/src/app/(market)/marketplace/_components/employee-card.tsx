@@ -61,6 +61,7 @@ export function EmployeeCard({
         'glass-card group relative flex cursor-pointer flex-col gap-4 p-5',
         'transition-all duration-300',
         'hover:-translate-y-1 hover:shadow-glass-xl hover:border-glassline-hover',
+        subscribed && 'border-emerald-500/40 shadow-[0_0_0_1px_rgb(16_185_129_/_0.2)]',
       )}
     >
       {/* ── avatar + status ─────────────────────────────────────────── */}
@@ -111,7 +112,11 @@ export function EmployeeCard({
           return (
             <span
               key={t}
-              className="rounded-full border border-glassline bg-glass-2 px-2 py-0.5 text-[11px] text-gtext-secondary"
+              className={cn(
+                'rounded-full border border-glassline bg-glass-2 px-2 py-0.5 text-[11px] text-gtext-secondary',
+                'transition-all duration-150',
+                'hover:scale-105 hover:border-gbrand/40 hover:bg-gbrand/10 hover:text-gbrand-text',
+              )}
             >
               {meta.label}
             </span>

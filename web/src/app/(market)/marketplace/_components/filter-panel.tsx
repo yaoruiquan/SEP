@@ -127,9 +127,16 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
 
       {/* ── 能力类型 ────────────────────────────────────────────── */}
       <div>
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
-          能力类型
-        </p>
+        <div className="mb-2.5 flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
+            能力类型
+          </p>
+          {filters.capTypes.length > 0 && (
+            <span className="rounded-full bg-gbrand/15 px-1.5 py-0.5 text-[10px] font-medium text-gbrand-text">
+              已选 {filters.capTypes.length}
+            </span>
+          )}
+        </div>
         <ul className="space-y-0.5">
           {CAP_TYPES.map((ct) => {
             const checked = filters.capTypes.includes(ct.value);
@@ -161,27 +168,33 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
 
       {/* ── 价格区间 ────────────────────────────────────────────── */}
       <div>
-        <div className="mb-2.5 flex items-baseline justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
-            价格上限
-          </p>
-          <span className="text-[12px] font-medium text-gtext-secondary">
-            {filters.maxPrice >= PRICE_MAX ? '不限' : `¥${filters.maxPrice}/月`}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={PRICE_MAX}
-          step={100}
-          value={filters.maxPrice}
-          onChange={(e) => onChange({ maxPrice: Number(e.target.value) })}
-          aria-label="价格上限"
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-glass-3 accent-[#818cf8]"
-        />
-        <div className="mt-1 flex justify-between text-[10px] text-gtext-muted">
-          <span>免费</span>
-          <span>¥{PRICE_MAX}+</span>
+        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
+          价格上限
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: '免费', value: 0 },
+            { label: '¥100以下', value: 100 },
+            { label: '¥100-500', value: 500 },
+            { label: '不限', value: PRICE_MAX },
+          ].map((opt) => {
+            const active = filters.maxPrice === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onChange({ maxPrice: opt.value })}
+                aria-pressed={active}
+                className={cn(
+                  'rounded-glass-md px-3 py-2 text-[12px] transition-all duration-150',
+                  active
+                    ? 'border border-glassline-brand bg-gbrand/15 font-medium text-gbrand-text shadow-glass-sm'
+                    : 'border border-glassline bg-glass-2 text-gtext-secondary hover:bg-glass-3 hover:text-gtext-primary',
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

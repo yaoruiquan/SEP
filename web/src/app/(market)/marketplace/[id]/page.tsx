@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -12,6 +13,7 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployee } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
 import { toast } from '@/components/ui/toast';
+import { PaymentModal } from '@/components/ui/payment-modal';
 import { ApiError } from '@/lib/api-client';
 
 // ─── avatar gradient（与卡片/抽屉同一套映射）──────────────────────────────────
@@ -93,6 +95,9 @@ export default function EmployeeDetailPage() {
   // 访客不请求订阅列表
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   const subscribe = useSubscribe();
+
+  // 支付弹窗开关。Hook 必须在早退分支之前声明。
+  const [payOpen, setPayOpen] = useState(false);
 
   const subscribed = subs.some((s) => s.employee.id === id);
 
@@ -204,14 +209,7 @@ export default function EmployeeDetailPage() {
               variant="glass-primary"
               size="sm"
               disabled={subscribe.isPending}
-              onClick={() =>
-                subscribe.mutate(emp.id, {
-                  onSuccess: () =>
-                    toast.success(`已订阅「${emp.name}」，可去「员工实例」创建实例`),
-                  onError: (e) =>
-                    toast.error(e instanceof ApiError ? e.message : '订阅失败'),
-                })
-              }
+              onClick={() => setPayOpen(true)}
             >
               订阅该员工
             </Button>
@@ -319,6 +317,24 @@ export default function EmployeeDetailPage() {
           故这两项暂无数据，而非为 0。「已服务企业」取自平台订阅记录，是真实值。
         </p>
       </GlassSection>
+
+      {/* ── 支付确认 ─────────────────────────────────────────────────── */}
+      <PaymentModal
+        open={payOpen}
+        emp={{ name: emp.name, price: emp.price }}
+        subscribing={subscribe.isPending}
+        onConfirm={() =>
+          subscribe.mutate(emp.id, {
+            onSuccess: () => {
+              setPayOpen(false);
+              toast.success(`已订阅「${emp.name}」，可去「员工实例」创建实例`);
+            },
+            onError: (e) =>
+              toast.error(e instanceof ApiError ? e.message : '订阅失败'),
+          })
+        }
+        onClose={() => setPayOpen(false)}
+      />
     </div>
   );
 }

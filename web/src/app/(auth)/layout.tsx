@@ -1,5 +1,5 @@
-import Image from 'next/image';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { ThemeLogo } from '@/components/ui/theme-logo';
 import { AuroraBackground } from '@/components/ui/aurora-background';
 
 export default function AuthLayout({
@@ -17,7 +17,7 @@ export default function AuthLayout({
       {/* Brand panel */}
       <div className="hidden w-1/2 flex-col justify-between p-12 lg:flex">
         <div className="flex items-center gap-2.5">
-          <Image src="/logo-new.png" alt="硅基人才平台" width={40} height={40} className="rounded-lg" priority />
+          <ThemeLogo width={40} height={40} priority />
           <span className="text-xl font-semibold tracking-tight text-gtext-primary">硅基人才平台</span>
         </div>
 
