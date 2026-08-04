@@ -60,16 +60,16 @@ export class ComputeService {
     });
 
     // 最近30天趋势
-    const trendData = await this.prisma.$queryRaw<Array<{ date: string; amount: number }>>`
+    const trendData = await this.prisma.$queryRaw<Array<{ date: string; amount: string }>>`
       SELECT
-        DATE(created_at) as date,
+        DATE("createdAt") as date,
         SUM(ABS(amount)) as amount
       FROM compute_transactions
       WHERE
-        account_id = ${account.id}
+        "accountId" = ${account.id}
         AND type = 'CONSUME'
-        AND created_at >= ${last30Days}
-      GROUP BY DATE(created_at)
+        AND "createdAt" >= ${last30Days}
+      GROUP BY DATE("createdAt")
       ORDER BY date ASC
     `;
 
