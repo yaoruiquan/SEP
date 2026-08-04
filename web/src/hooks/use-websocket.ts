@@ -120,7 +120,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
 
         // 自动重连
         if (shouldReconnectRef.current && reconnectCount < maxReconnectAttempts) {
-          console.log(`[WebSocket] Reconnecting in ${reconnectInterval}ms... (attempt ${reconnectCount + 1}/${maxReconnectAttempts})`);
+          const attempt = `${reconnectCount + 1}/${maxReconnectAttempts}`;
+          console.log(`[WebSocket] Reconnecting in ${reconnectInterval}ms... (attempt ${attempt})`);
           reconnectTimerRef.current = setTimeout(() => {
             setReconnectCount((prev) => prev + 1);
             connect();

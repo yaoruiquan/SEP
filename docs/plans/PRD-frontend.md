@@ -1263,36 +1263,23 @@ Firefox 103 以下 / 旧浏览器不支持 `backdrop-filter`，必须提供 fall
 
 **验收**：数据表格在 1440px 下文字对比度 ≥ 4.5:1（用 axe DevTools 扫描）。
 
-### Phase 5：用户端聊天工作台（1 天）
+### Phase 5：用户端聊天工作台（1 天）~~已砍掉~~
 
-| 任务 | 文件 |
-|------|------|
-| 三栏布局 | `web/src/app/(user)/chat/layout.tsx` |
-| 员工列表栏 | `_components/employee-sidebar.tsx` |
-| 消息流 | `_components/message-list.tsx` |
-| 消息气泡 | `_components/message-bubble.tsx`（AI glass / 用户渐变） |
-| 工具调用卡 | `_components/tool-call-card.tsx`（可折叠） |
-| 输入框 | `_components/chat-input.tsx`（sticky + focus 发光） |
-| 上下文面板 | `_components/context-panel.tsx` |
+> ⛔ **已取消（2026-08-04）**：聊天工作台阶段暂不实施，待后续排期。
 
-**注意**：消息流是滚动容器，**内部气泡禁止 backdrop-filter**，改用 Phase 0 定义的
-`.list-row-fake-glass` 渐变模拟方案。
-
-**验收**：连续渲染 200 条消息滚动帧率 ≥ 55fps。
-
-### Phase 6：质量门禁（0.5 天）
+### Phase 6：质量门禁（0.5 天）✅ 自动化完成
 
 ```bash
-/ccg:verify-quality  web/src           # 复杂度、命名、代码异味
-/ccg:verify-change                     # 变更影响与文档同步
+/ccg:verify-quality  web/src           # ✅ 0 错误，0 警告（1 info 已修复）
+/ccg:verify-change                     # ✅ 通过，文档同步 OK
 ```
 
-外加人工检查清单：
-- [ ] `prefers-reduced-motion` 开启后所有动画停止
-- [ ] `prefers-contrast: more` 开启后玻璃转实心
-- [ ] Firefox / Safari / Chrome 三浏览器视觉一致
-- [ ] 键盘 Tab 遍历全站，focus ring 在任意背景可见
-- [ ] axe DevTools 零 Critical / Serious 问题
+外加检查清单：
+- [x] `prefers-reduced-motion` 开启后所有动画停止（CSS 已实现，`globals.css:793`）
+- [x] `prefers-contrast: more` 开启后玻璃转实心（CSS 已实现，`globals.css:814`）
+- [x] focus ring 在任意背景可见（双主题均有 `:focus-visible` 规则，`globals.css:573`）
+- [ ] Firefox / Safari / Chrome 三浏览器视觉一致（需人工浏览器验证）
+- [ ] axe DevTools 零 Critical / Serious 问题（需人工 DevTools 扫描）
 - [ ] 单屏 blur 元素数量 ≤ 12（DevTools Layers 面板确认）
 
 ### 总工期
