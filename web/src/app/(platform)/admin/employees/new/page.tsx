@@ -333,7 +333,7 @@ export default function NewEmployeePage() {
             )}
 
             {selectedCapabilities.length === 0 && (
-              <p className="text-sm text-red-500">* 请至少选择一个能力</p>
+              <p className="text-sm text-gdanger">* 请至少选择一个能力</p>
             )}
           </div>
 

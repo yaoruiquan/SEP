@@ -18,7 +18,7 @@
 ### ✅ Step 3: Dashboard (老板第一眼看到的页面)
 - `/dashboard` — greeting + 4 metric cards (活跃订阅/累计会话/累计消息/快捷入口)
 - Client-derived stats from `useSubscriptions()` + `useConversations()`
-- "我的碳基员工" row (top 3 subscriptions)
+- "我的硅基员工" row (top 3 subscriptions)
 - "最近会话" list (top 5 by updatedAt)
 
 ### ✅ Step 4: Chat (核心流程 — SSE streaming)

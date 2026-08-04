@@ -1,11 +1,17 @@
+import type { Metadata } from 'next';
 import { MarketHeader } from '@/components/shell/market-header';
+import { AuroraBackground } from '@/components/ui/aurora-background';
+
+export const metadata: Metadata = {
+  title: '员工市场 — 硅基人才平台',
+  description: '浏览、筛选、订阅 AI 数字员工，涵盖人事、销售、财务、技术等职能。',
+};
 
 /**
- * 人才市场。**不加 AuthGate** —— 市场对未登录用户开放浏览，
- * 这是决策明确的（未登录用户能逛人才市场）。
- *
- * 需要登录的动作（订阅、创建实例）由各页面自己在点击时引导登录，
- * 而不是在进入页面时就拦截。
+ * 人才市场路由组布局。
+ * - 对未登录用户**完全开放**（无 AuthGate）
+ * - 使用 AuroraBackground 自动响应主题切换
+ * - main 不限宽，由子页面自己决定最大宽度
  */
 export default function MarketLayout({
   children,
@@ -13,9 +19,9 @@ export default function MarketLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background">
+    <AuroraBackground className="min-h-dvh">
       <MarketHeader />
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
-    </div>
+      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+    </AuroraBackground>
   );
 }

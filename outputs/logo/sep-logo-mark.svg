@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 24 24" role="img" aria-labelledby="title desc">
+  <title id="title">SEP enterprise AI employee mark</title>
+  <desc id="desc">A rounded hexagonal semiconductor badge with a negative-space human figure.</desc>
+  <defs>
+    <linearGradient id="sep-gradient" x1="20" y1="4" x2="4" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="0.5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <mask id="sep-cutouts" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+      <rect width="24" height="24" fill="#000"/>
+      <path fill="#fff" d="M12 1.5c.45 0 .88.12 1.26.35l6.99 4.19a2.96 2.96 0 0 1 1.45 2.54v6.84c0 1.04-.56 2.01-1.45 2.54l-6.99 4.19a2.45 2.45 0 0 1-2.52 0l-6.99-4.19a2.96 2.96 0 0 1-1.45-2.54V8.58c0-1.04.56-2.01 1.45-2.54l6.99-4.19c.38-.23.81-.35 1.26-.35Z"/>
+      <circle cx="12" cy="8.35" r="1.65" fill="#000"/>
+      <path d="M9.15 12.25h5.7l1.15 3.5H8l1.15-3.5Z" fill="#000"/>
+      <rect x="2.25" y="10.7" width="2.1" height="1.6" fill="#000"/>
+      <rect x="19.65" y="10.7" width="2.1" height="1.6" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="24" height="24" fill="#0b0f19"/>
+  <rect width="24" height="24" fill="url(#sep-gradient)" mask="url(#sep-cutouts)"/>
+</svg>

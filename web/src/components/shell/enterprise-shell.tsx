@@ -18,13 +18,19 @@ import {
   Shield,
   BookOpen,
   ListTodo,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { StatusDot } from '@/components/ui/status-dot';
+import { AuroraBackground } from '@/components/ui/aurora-background';
 import { cn } from '@/lib/utils';
 import { NavItem, type NavLink } from './nav-item';
+import { ShellTopbar, type CrumbMap } from './shell-topbar';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLogout } from '@/features/auth/use-auth';
+import { useGlobalWebSocket } from '@/lib/websocket';
 
 /** 单条导航项，可单独标记仅管理员可见 */
 type GuardedNavLink = NavLink & { adminOnly?: boolean };
@@ -94,23 +100,45 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+/** 顶栏面包屑用的「路径段 → 中文名」映射，从 NAV_GROUPS 推导 + 补上非导航路由 */
+const CRUMBS: CrumbMap = {
+  ...Object.fromEntries(
+    NAV_GROUPS.flatMap((g) =>
+      g.links.map((l) => [l.href.replace(/^\//, ''), l.label] as const),
+    ),
+  ),
+  settings: '个人设置',
+  chat: '对话',
+  new: '新建',
+  edit: '编辑',
+};
+
 export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const { user, enterprise, roleInEnterprise } = useAuthStore();
   const logout = useLogout();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
+
+  // WebSocket 功能暂时禁用（后端未实现），先固定为 offline。
+  // 恢复时改成：const { status: statusDotStatus } = useGlobalWebSocket();
+  // useGlobalWebSocket 的 status 与 StatusDot 的取值域一致，无需再做映射。
+  const statusDotStatus: 'online' | 'offline' | 'connecting' = 'offline';
+
   // 先过滤整组，再过滤组内单项；两级都为空的组不渲染标题
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin)
     .map((g) => ({ ...g, links: g.links.filter((l) => !l.adminOnly || isAdmin) }))
     .filter((g) => g.links.length > 0);
 
   return (
-    <div className="flex h-screen bg-background">
+    // 主题 B 极光（PRD §背景渐变配方）。blobs=2：企业端多为表格/长列表，
+    // 少一层 80px blur 给内容区留 GPU 预算。
+    <AuroraBackground blobs={2} className="flex h-screen">
       {/* Mobile menu button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-sidebar text-foreground lg:hidden"
+        className="fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-glass-sm border border-glassline bg-glass-2 text-gtext-primary backdrop-blur-glass-md lg:hidden"
         aria-label="Toggle menu"
       >
         {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -119,7 +147,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
       {/* Backdrop overlay for mobile */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-gbg-deep/70 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -128,73 +156,129 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
       <aside
         className={cn(
           'fixed lg:static inset-y-0 left-0 z-40',
-          'flex w-60 shrink-0 flex-col border-r border-border bg-sidebar',
-          'transition-transform duration-300 lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          'glass-nav flex shrink-0 flex-col transition-all duration-300',
+          'lg:translate-x-0',
+          // 移动端：完全隐藏或显示
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+          // 桌面端：折叠时宽度变窄
+          collapsed ? 'lg:w-16' : 'w-60',
         )}
       >
-        <div className="flex h-14 items-center gap-2 px-5">
-          <Image
-            src="/logo.png"
-            alt="硅基人才平台"
-            width={28}
-            height={28}
-            className="rounded"
-            priority
-          />
-          {/* 显示企业名而非平台名 —— 多租户下让人一眼确认在哪家企业 */}
-          <p className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {enterprise?.name ?? '硅基人才平台'}
-          </p>
+        {/* Logo 区域 - 固定 64px 高度，与顶栏对齐 */}
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Image
+              src="/logo-new.png"
+              alt="硅基人才平台"
+              width={28}
+              height={28}
+              className="shrink-0 rounded"
+              priority
+            />
+            {/* 显示企业名而非平台名 —— 多租户下让人一眼确认在哪家企业 */}
+            {!collapsed && (
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gtext-primary">
+                {enterprise?.name ?? '硅基人才平台'}
+              </p>
+            )}
+          </div>
+          {/* 桌面端折叠按钮 */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="hidden shrink-0 rounded hover:bg-glass-2 p-1 lg:block"
+            aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 text-gtext-secondary" />
+            ) : (
+              <ChevronLeft className="h-4 w-4 text-gtext-secondary" />
+            )}
+          </button>
+          {/* WebSocket 连接状态指示器 - 折叠时隐藏 */}
+          {!collapsed && <StatusDot status={statusDotStatus} size="sm" />}
         </div>
 
-        <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-2">
+        <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-4">
           {groups.map((group, i) => (
-            <div key={group.title ?? `g${i}`} className="mb-4">
-              {group.title && (
-                <p className="mb-1 px-3 text-xs font-medium uppercase tracking-wider text-fg-subtle">
+            <div key={group.title ?? `g${i}`} className="mb-1">
+              {group.title && !collapsed && (
+                <p className="mb-2 px-3 text-xs font-medium uppercase tracking-wider text-gtext-muted">
                   {group.title}
                 </p>
               )}
               <div className="space-y-0.5">
                 {group.links.map((link) => (
                   <div key={link.href} onClick={() => setSidebarOpen(false)}>
-                    <NavItem {...link} />
+                    <NavItem {...link} collapsed={collapsed} />
                   </div>
                 ))}
               </div>
+              {/* 分组分割线 */}
+              {i < groups.length - 1 && (
+                <div className="my-3 border-t border-glassline" />
+              )}
             </div>
           ))}
         </nav>
 
-        <div className="border-t border-border p-3">
-          <div className="flex items-center gap-2 px-1 py-2">
-            <Avatar name={user?.name || user?.email || '用户'} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {user?.name || '用户'}
-              </p>
-              <p className="truncate text-xs text-fg-subtle">{user?.email}</p>
+        {/* 用户信息区域 - 底部固定 */}
+        <div className="shrink-0 border-t border-glassline p-3">
+          {!collapsed ? (
+            <>
+              <div className="mb-2 flex items-center gap-2 rounded-glass-sm border border-glassline bg-glass-2 px-2 py-2.5">
+                <Avatar name={user?.name || user?.email || '用户'} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-gtext-primary">
+                    {user?.name || '用户'}
+                  </p>
+                  <p className="truncate text-xs text-gtext-muted">{user?.email}</p>
+                </div>
+              </div>
+              <div onClick={() => setSidebarOpen(false)}>
+                <NavItem href="/settings" label="个人设置" icon={Settings} />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-1 w-full justify-start text-gtext-secondary hover:bg-glass-2 hover:text-gtext-primary"
+                onClick={() => logout.mutate()}
+              >
+                <LogOut className="h-4 w-4" />
+                退出登录
+              </Button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-glass-sm hover:bg-glass-2"
+                title="个人设置"
+              >
+                <Settings className="h-5 w-5 text-gtext-secondary" />
+              </button>
+              <button
+                onClick={() => logout.mutate()}
+                className="flex h-10 w-10 items-center justify-center rounded-glass-sm hover:bg-glass-2"
+                title="退出登录"
+              >
+                <LogOut className="h-5 w-5 text-gtext-secondary" />
+              </button>
             </div>
-          </div>
-          <div onClick={() => setSidebarOpen(false)}>
-            <NavItem href="/settings" label="个人设置" icon={Settings} />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-fg-muted"
-            onClick={() => logout.mutate()}
-          >
-            <LogOut className="h-4 w-4" />
-            退出登录
-          </Button>
+          )}
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto scroll-thin lg:ml-0">
+      {/* 内容区是滚动容器 —— sticky 顶栏必须是它的直接子元素才能吸住 */}
+      <main className="flex-1 overflow-y-auto scroll-thin">
+        <ShellTopbar
+          crumbs={CRUMBS}
+          rootLabel="工作台"
+          rootHref="/dashboard"
+          roleLabel={isAdmin ? '企业管理员' : '企业成员'}
+          hamburgerGutter
+        />
         {children}
       </main>
-    </div>
+    </AuroraBackground>
   );
 }

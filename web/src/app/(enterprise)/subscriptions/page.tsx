@@ -68,7 +68,7 @@ export default function SubscriptionsPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold">我的订阅</h1>
-          <p className="mt-1 text-sm text-fg-muted">管理你订阅的碳基员工，随时开启对话</p>
+          <p className="mt-1 text-sm text-fg-muted">管理你订阅的硅基员工，随时开启对话</p>
         </div>
         <Link href="/marketplace">
           <Button variant="outline" size="sm">
@@ -132,7 +132,7 @@ export default function SubscriptionsPage() {
         <EmptyState
           icon={<Users className="h-8 w-8" />}
           title="你还没有订阅任何员工"
-          description="去员工广场挑选一位碳基员工开始使用吧。"
+          description="去员工广场挑选一位硅基员工开始使用吧。"
           action={
             <Link href="/marketplace">
               <Button size="sm">前往员工广场</Button>

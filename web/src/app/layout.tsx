@@ -6,7 +6,7 @@ import NextTopLoader from 'nextjs-toploader';
 
 export const metadata: Metadata = {
   title: '硅基人才平台 - Silicon Talent Platform',
-  description: '订阅碳基员工，调度硅基能力 | 像招募团队一样订阅数字员工，用一句话驱动 Agent、RPA、技能与 AI 应用',
+  description: '订阅硅基员工，调度硅基能力 | 像招募团队一样订阅数字员工，用一句话驱动 Agent、RPA、技能与 AI 应用',
   icons: {
     icon: '/favicon.ico',
   },
@@ -23,6 +23,13 @@ export default function RootLayout({
         className="min-h-screen bg-background text-foreground antialiased"
         suppressHydrationWarning
       >
+        {/* Aurora 背景层 - 由 ThemeProvider 动态添加 aurora-root / aurora-root-light class */}
+        <div className="aurora-layer" aria-hidden="true">
+          <div className="aurora-blob aurora-blob-1" />
+          <div className="aurora-blob aurora-blob-2" />
+          <div className="aurora-blob aurora-blob-3" />
+        </div>
+
         <NextTopLoader
           color="#3b82f6"
           height={3}

@@ -1,292 +1,333 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { Search, Users, Check, Zap } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { useState, useEffect, useMemo } from 'react';
+import { Search, Users, SlidersHorizontal } from 'lucide-react';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { PulsingDot } from '@/components/ui/pulsing-dot';
-import { EmptyState } from '@/components/ui/feedback';
-import { Input } from '@/components/ui/input';
-import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
+import { ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployees } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
-import { toast } from '@/components/ui/toast';
-import { ApiError } from '@/lib/api-client';
-import { EmployeeListSkeleton } from '@/features/employee/employee-skeleton';
+import type { MarketEmployee } from '@/lib/types';
+import { EmployeeCard } from './_components/employee-card';
+import { EmployeeDrawer } from './_components/employee-drawer';
+import { CategoryTabs } from './_components/category-tabs';
+import {
+  FilterPanel,
+  INITIAL_FILTERS,
+  PRICE_MAX,
+  type FilterState,
+} from './_components/filter-panel';
 
-const INDUSTRIES = ['全部', '电商零售', '金融服务', '医疗健康', '教育培训', '制造业', '物流运输', '餐饮服务', '企业服务'];
+/** 左侧面板里的职能关键词 —— 用于算各分类的数量 */
+const CATEGORY_KEYS = ['人事', '销售', '财务', '运营', '营销', '技术'];
+
+type SortMode = '' | 'hot' | 'new';
+
+function matchesCategory(emp: MarketEmployee, keyword: string) {
+  if (!keyword) return true;
+  return `${emp.position ?? ''} ${emp.industry ?? ''}`.includes(keyword);
+}
 
 export default function MarketplacePage() {
   const { token, hydrated } = useAuthStore();
   const loggedIn = hydrated && Boolean(token);
 
-  // 搜索走服务端（后端支持 ?search=），300ms 防抖
-  const [input, setInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [industry, setIndustry] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(input), 300);
-    return () => clearTimeout(t);
-  }, [input]);
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+  const [sort, setSort] = useState<SortMode>('');
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
-  const { data: employees = [], isLoading, isError, error } = useMarketEmployees(search);
+  // 搜索走服务端（后端支持 ?search=），300ms 防抖
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(filters.search), 300);
+    return () => clearTimeout(t);
+  }, [filters.search]);
+
+  const {
+    data: employees = [],
+    isLoading,
+    isError,
+    error,
+  } = useMarketEmployees(debouncedSearch);
 
   // 订阅列表需登录 —— 访客不请求，否则每次都白跑一轮 401 + refresh
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   const subscribe = useSubscribe();
-  const subscribedIds = new Set(subs.map((s) => s.employee.id));
+  const subscribedIds = useMemo(
+    () => new Set(subs.map((s) => s.employee.id)),
+    [subs],
+  );
 
-  const filtered = search
-    ? employees
-    : industry
-    ? employees.filter((e) => e.industry?.includes(industry))
-    : employees;
+  function patchFilters(next: Partial<FilterState>) {
+    setFilters((prev) => ({ ...prev, ...next }));
+  }
+
+  /**
+   * Tab 栏是单选「视图」：热门/新上架 = 排序（并清掉职能筛选），
+   * 其余 = 职能筛选（并清掉排序）。
+   */
+  function handleTab(v: string) {
+    if (v === '__hot__') {
+      setSort('hot');
+      patchFilters({ category: '' });
+    } else if (v === '__new__') {
+      setSort('new');
+      patchFilters({ category: '' });
+    } else {
+      setSort('');
+      patchFilters({ category: v });
+    }
+  }
+
+  const activeTab =
+    filters.category ||
+    (sort === 'hot' ? '__hot__' : sort === 'new' ? '__new__' : '');
+
+  // 除「职能分类」外的所有筛选 —— 用它算各分类数量，
+  // 这样选中某个分类后其他分类的数字不会全变 0
+  const preCategory = useMemo(() => {
+    return employees.filter((emp) => {
+      if (filters.capTypes.length > 0) {
+        const types = new Set<string>(
+          emp.bindings?.map((b) => b.capability.type) ?? [],
+        );
+        if (!filters.capTypes.some((t) => types.has(t))) return false;
+      }
+      if (filters.maxPrice < PRICE_MAX && (emp.price ?? 0) > filters.maxPrice) {
+        return false;
+      }
+      return true;
+    });
+  }, [employees, filters.capTypes, filters.maxPrice]);
+
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const key of CATEGORY_KEYS) {
+      out[key] = preCategory.filter((e) => matchesCategory(e, key)).length;
+    }
+    return out;
+  }, [preCategory]);
+
+  const visible = useMemo(() => {
+    const list = preCategory.filter((e) => matchesCategory(e, filters.category));
+    if (sort === 'hot') {
+      return [...list].sort(
+        (a, b) => (b._count?.subscriptions ?? 0) - (a._count?.subscriptions ?? 0),
+      );
+    }
+    if (sort === 'new') {
+      return [...list].sort(
+        (a, b) =>
+          new Date(b.publishedAt ?? 0).getTime() -
+          new Date(a.publishedAt ?? 0).getTime(),
+      );
+    }
+    return list;
+  }, [preCategory, filters.category, sort]);
+
+  const drawerEmp = drawerId
+    ? employees.find((e) => e.id === drawerId) ?? null
+    : null;
+
+  function doSubscribe(emp: MarketEmployee) {
+    subscribe.mutate(emp.id, {
+      onSuccess: () => toast.success(`已订阅「${emp.name}」`),
+      onError: (e) =>
+        toast.error(e instanceof ApiError ? e.message : '订阅失败'),
+    });
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#eb3f00] to-orange-400 px-8 py-10 text-white">
-        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
-        <div className="absolute -bottom-6 right-20 h-24 w-24 rounded-full bg-white/8" />
-        <div className="relative">
-          <p className="mb-2 text-sm font-medium text-orange-100">🌟 硅基员工人才市场</p>
-          <h1 className="mb-3 text-3xl font-bold">发现适合你企业的数字员工</h1>
-          <p className="text-base text-orange-100">涵盖电商、金融、医疗、教育等 8 大行业，120+ 经过审核的硅基员工等你招聘</p>
+    <div className="space-y-8">
+      {/* ── page header ──────────────────────────────────────────────── */}
+      <header className="space-y-5 pt-4 text-center">
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+          <span className="gradient-text-glass inline-block">员工市场</span>
+        </h1>
+        <p className="mx-auto max-w-xl text-[15px] text-gtext-secondary">
+          按职能、能力类型和预算挑选硅基员工，订阅后即可为部门创建实例。
+        </p>
+
+        <div className="relative mx-auto max-w-xl">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" />
+          <input
+            type="search"
+            value={filters.search}
+            onChange={(e) => patchFilters({ search: e.target.value })}
+            placeholder="搜索员工名称、岗位、行业…"
+            aria-label="搜索员工"
+            className={cn(
+              'w-full rounded-glass-pill border border-glassline bg-glass-2 py-3 pl-11 pr-4',
+              'text-[14px] text-gtext-primary placeholder:text-gtext-muted',
+              'shadow-glass-sm backdrop-blur-glass-md transition-colors duration-200',
+              'focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
+            )}
+          />
+        </div>
+      </header>
+
+      {/* ── tabs ─────────────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between gap-4 border-b border-glassline">
+        <CategoryTabs active={activeTab} onChange={handleTab} />
+        <button
+          onClick={() => setMobileFilterOpen((v) => !v)}
+          className="mb-2 flex shrink-0 items-center gap-1.5 rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary transition-colors hover:text-gtext-primary lg:hidden"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          筛选
+        </button>
+      </div>
+
+      {/* ── body: filter + grid ──────────────────────────────────────── */}
+      <div className="flex gap-6">
+        {/* 桌面常驻，移动端按需展开 */}
+        <div className={cn('lg:block', mobileFilterOpen ? 'block' : 'hidden')}>
+          <FilterPanel
+            filters={filters}
+            onChange={patchFilters}
+            counts={counts}
+            total={preCategory.length}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          {isLoading ? (
+            <CardGridSkeleton />
+          ) : isError ? (
+            <GlassEmpty
+              title="加载失败"
+              desc={error?.message || '无法加载员工列表，请稍后重试。'}
+              action={
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                >
+                  刷新页面
+                </Button>
+              }
+            />
+          ) : visible.length === 0 ? (
+            <GlassEmpty
+              title={
+                debouncedSearch || filters.category || filters.capTypes.length
+                  ? '没有匹配的员工'
+                  : '暂无已上架的员工'
+              }
+              desc={
+                debouncedSearch || filters.category || filters.capTypes.length
+                  ? '试试放宽筛选条件或换个关键词。'
+                  : '员工上架后会出现在这里。'
+              }
+              action={
+                filters.category || filters.capTypes.length ? (
+                  <Button
+                    variant="glass"
+                    size="sm"
+                    onClick={() =>
+                      patchFilters({
+                        category: '',
+                        capTypes: [],
+                        maxPrice: PRICE_MAX,
+                      })
+                    }
+                  >
+                    清除筛选
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              <p className="mb-4 text-[12px] text-gtext-muted">
+                共 {visible.length} 位员工
+                {sort === 'hot' && ' · 按热门排序'}
+                {sort === 'new' && ' · 按上架时间排序'}
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {visible.map((emp) => (
+                  <EmployeeCard
+                    key={emp.id}
+                    emp={emp}
+                    subscribed={subscribedIds.has(emp.id)}
+                    loggedIn={loggedIn}
+                    subscribing={subscribe.isPending}
+                    onSubscribe={() => doSubscribe(emp)}
+                    onClick={() => setDrawerId(emp.id)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* 新员工播报 */}
-      <div className="overflow-hidden rounded-lg border border-border bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center gap-2 px-4 py-2">
-          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-            🎉 最新动态
-          </span>
-          <div className="flex-1 overflow-hidden">
-            <p className="animate-marquee whitespace-nowrap text-sm text-fg-muted">
-              本周新入职：<span className="font-medium text-foreground">数据分析师·小智</span>、
-              <span className="font-medium text-foreground">客服助手·小美</span>、
-              <span className="font-medium text-foreground">营销文案·小文</span>
-              已为 50+ 企业提供服务 🚀
-            </p>
+      {/* ── drawer ───────────────────────────────────────────────────── */}
+      <EmployeeDrawer
+        emp={drawerEmp}
+        subscribed={drawerEmp ? subscribedIds.has(drawerEmp.id) : false}
+        loggedIn={loggedIn}
+        subscribing={subscribe.isPending}
+        onSubscribe={() => drawerEmp && doSubscribe(drawerEmp)}
+        onClose={() => setDrawerId(null)}
+      />
+    </div>
+  );
+}
+
+// ─── local glass states ───────────────────────────────────────────────────────
+
+function CardGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="glass-card animate-pulse space-y-4 p-5"
+          aria-hidden="true"
+        >
+          <div className="flex gap-4">
+            <div className="h-[72px] w-[72px] shrink-0 rounded-full bg-glass-3" />
+            <div className="flex-1 space-y-2 pt-2">
+              <div className="h-3.5 w-2/3 rounded bg-glass-3" />
+              <div className="h-3 w-1/2 rounded bg-glass-2" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="h-3 w-full rounded bg-glass-2" />
+            <div className="h-3 w-4/5 rounded bg-glass-2" />
+          </div>
+          <div className="h-px bg-glassline" />
+          <div className="flex justify-between">
+            <div className="h-4 w-16 rounded bg-glass-3" />
+            <div className="h-7 w-16 rounded-glass-md bg-glass-3" />
           </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+function GlassEmpty({
+  title,
+  desc,
+  action,
+}: {
+  title: string;
+  desc: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="glass-card flex flex-col items-center gap-3 px-6 py-16 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-glassline bg-glass-2">
+        <Users className="h-5 w-5 text-gtext-muted" />
       </div>
-
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="搜索员工名称、行业、岗位…"
-          className="pl-9"
-        />
-      </div>
-
-      {/* 行业分类 Chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        {INDUSTRIES.map((ind) => (
-          <button
-            key={ind}
-            onClick={() => setIndustry(ind === '全部' ? '' : ind)}
-            className={`shrink-0 rounded-full border px-4 py-1.5 text-sm transition-all ${
-              (ind === '全部' && !industry) || industry === ind
-                ? 'border-primary bg-primary text-white'
-                : 'border-border bg-card text-fg-muted hover:border-primary/40 hover:text-foreground'
-            }`}
-          >
-            {ind}
-          </button>
-        ))}
-      </div>
-
-      {isLoading ? (
-        <EmployeeListSkeleton count={6} />
-      ) : isError ? (
-        <EmptyState
-          icon={<Users className="h-8 w-8" />}
-          title="加载失败"
-          description={error?.message || '无法加载员工列表，请稍后重试。'}
-          action={
-            <Button size="sm" onClick={() => window.location.reload()}>
-              刷新页面
-            </Button>
-          }
-        />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={<Users className="h-8 w-8" />}
-          title={search ? '没有找到匹配的员工' : '暂无已上架的员工'}
-          description={search ? '试试其他关键词' : '请稍后再来'}
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((emp) => {
-            const subscribed = subscribedIds.has(emp.id);
-            const capTypes = Array.from(
-              new Set(emp.bindings?.map((b) => b.capability.type) ?? []),
-            );
-            const primaryType = capTypes[0] || 'SKILL';
-
-            // Header gradient mapping
-            const headerGradients: Record<string, string> = {
-              AGENT: 'from-indigo-100 via-violet-50 to-purple-100',
-              RPA: 'from-emerald-100 via-teal-50 to-cyan-100',
-              SKILL: 'from-orange-100 via-amber-50 to-yellow-100',
-              AI_APP: 'from-amber-100 via-yellow-50 to-orange-100',
-            };
-
-            const typeEmojis: Record<string, string> = {
-              AGENT: '🤖',
-              RPA: '🔄',
-              SKILL: '⚡',
-              AI_APP: '✨',
-            };
-
-            const headerGradient = headerGradients[primaryType] || headerGradients.SKILL;
-            const typeEmoji = typeEmojis[primaryType] || '🤖';
-
-            return (
-              <Card
-                key={emp.id}
-                className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
-              >
-                {/* 顶部类型色带 */}
-                <div className={`h-1 w-full bg-gradient-to-r ${
-                  primaryType === 'AGENT'  ? 'from-indigo-500 to-violet-400' :
-                  primaryType === 'RPA'    ? 'from-emerald-600 to-teal-400' :
-                  primaryType === 'AI_APP' ? 'from-amber-500 to-yellow-400' :
-                                             'from-primary to-orange-400'
-                }`} />
-
-                {/* 渐变头像区 */}
-                <div className={`relative h-32 bg-gradient-to-br ${headerGradient}`}>
-                  {/* 头像容器 - 居中在这个区域底部，部分溢出到下方 */}
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white ring-4 ring-white shadow-xl">
-                      <span className="text-5xl">{typeEmoji}</span>
-                    </div>
-                    {/* 右上角在线状态点 */}
-                    <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm">
-                      <PulsingDot />
-                    </div>
-                  </div>
-                  {/* 右上角已入职 badge */}
-                  {subscribed && (
-                    <div className="absolute right-3 top-3">
-                      <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-medium text-success backdrop-blur-sm">
-                        ✓ 已入职
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <CardContent className="flex flex-1 flex-col gap-3 p-5 pt-12">
-                  {/* 名称居中 */}
-                  <div className="text-center">
-                    <h3 className="text-lg font-semibold text-foreground">{emp.name}</h3>
-                    <p className="mt-1 text-sm text-fg-muted">{emp.position} · {emp.industry}</p>
-                  </div>
-
-                  {/* 分隔线 */}
-                  <div className="mx-auto w-16 border-t border-border" />
-
-                  {/* 描述（2行截断）*/}
-                  <p className="line-clamp-2 text-center text-sm text-fg-subtle">{emp.description}</p>
-
-                  {/* 擅长领域 badges */}
-                  <div>
-                    <p className="mb-2 text-center text-xs font-medium text-fg-muted">💡 擅长领域</p>
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                      {capTypes.map((type, i) => {
-                        const meta = CAPABILITY_TYPE_META[type];
-                        if (!meta) return null;
-                        return (
-                          <Badge key={i} className={`${meta.tone} text-xs`}>
-                            {meta.label}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* 近期帮助 */}
-                  <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-center">
-                    <p className="text-xs text-fg-subtle">
-                      🔥 已服务 <span className="font-semibold text-foreground">{Math.floor(Math.random() * 20) + 5}</span> 家企业
-                    </p>
-                  </div>
-
-                  {/* Stats row */}
-                  <div className="flex items-center justify-center gap-4 border-t border-border pt-3 text-xs text-fg-subtle">
-                    <span className="flex items-center gap-1">
-                      <Zap className="h-3.5 w-3.5 text-primary" />
-                      {emp.bindings?.length ?? 0} 项技能
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <PulsingDot className="h-1.5 w-1.5" />
-                      <span className="text-success">运行中</span>
-                    </span>
-                    <span className="text-fg-muted">v{emp.version ?? '1.0.0'}</span>
-                  </div>
-
-                  {/* Actions (居中) */}
-                  <div className="flex flex-col items-center gap-2 pt-2">
-                    {subscribed ? (
-                      <Link href="/my-employees" className="w-full">
-                        <Button variant="secondary" size="sm" className="w-full">
-                          管理此员工
-                        </Button>
-                      </Link>
-                    ) : loggedIn ? (
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        disabled={subscribe.isPending}
-                        onClick={() =>
-                          subscribe.mutate(emp.id, {
-                            onSuccess: () => toast.success(`已订阅「${emp.name}」`),
-                            onError: (e) =>
-                              toast.error(
-                                e instanceof ApiError ? e.message : '订阅失败',
-                              ),
-                          })
-                        }
-                      >
-                        ⚡ 立即招聘
-                      </Button>
-                    ) : (
-                      <Link
-                        href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
-                        className="w-full"
-                      >
-                        <Button variant="secondary" size="sm" className="w-full">
-                          预约试用
-                        </Button>
-                      </Link>
-                    )}
-                    <Link
-                      href={`/marketplace/${emp.id}`}
-                      className="text-sm text-primary hover:underline"
-                    >
-                      查看详情 →
-                    </Link>
-                  </div>
-
-                  {/* Free trial hint */}
-                  {!subscribed && (
-                    <p className="text-center text-xs text-fg-subtle">
-                      免费试用 7 天 · 随时解约
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      <h3 className="text-[15px] font-semibold text-gtext-primary">{title}</h3>
+      <p className="max-w-sm text-[13px] text-gtext-secondary">{desc}</p>
+      {action && <div className="mt-1">{action}</div>}
     </div>
   );
 }

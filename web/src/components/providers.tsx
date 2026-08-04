@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { tryRefresh } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
+import { ThemeProvider } from '@/lib/theme-provider';
 import { Toaster } from '@/components/ui/toast';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -32,9 +33,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [setHydrated]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      {children}
-      <Toaster />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        {children}
+        <Toaster />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

@@ -44,14 +44,14 @@ export default function RegisterPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-semibold text-foreground">创建企业账号</h2>
-      <p className="mt-1 text-sm text-fg-muted">
+      <h2 className="text-2xl font-semibold text-gtext-primary">创建企业账号</h2>
+      <p className="mt-1 text-sm text-gtext-secondary">
         注册即开通企业，你将成为该企业的首位管理员
       </p>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
         <div>
-          <label className="mb-1.5 block text-sm font-medium">公司名称</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">公司名称</label>
           <Input placeholder="你的公司" {...register('enterpriseName')} />
           {errors.enterpriseName && (
             <p className="mt-1 text-xs text-danger">
@@ -60,19 +60,19 @@ export default function RegisterPage() {
           )}
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium">昵称</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">昵称</label>
           <Input placeholder="你的名字" {...register('name')} />
           {errors.name && <p className="mt-1 text-xs text-danger">{errors.name.message}</p>}
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium">邮箱</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">邮箱</label>
           <Input type="email" placeholder="you@company.com" {...register('email')} />
           {errors.email && (
             <p className="mt-1 text-xs text-danger">{errors.email.message}</p>
           )}
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium">密码</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">密码</label>
           <Input type="password" placeholder="至少 8 位" {...register('password')} />
           {errors.password && (
             <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
@@ -80,7 +80,7 @@ export default function RegisterPage() {
         </div>
 
         {serverError && (
-          <div className="rounded border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+          <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger backdrop-blur-sm">
             {serverError}
           </div>
         )}
@@ -91,7 +91,7 @@ export default function RegisterPage() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-fg-muted">
+      <p className="mt-6 text-center text-sm text-gtext-secondary">
         已有账号？{' '}
         <Link href="/login" className="font-medium text-primary hover:underline">
           登录

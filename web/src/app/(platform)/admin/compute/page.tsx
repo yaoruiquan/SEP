@@ -114,7 +114,7 @@ export default function AdminComputePage() {
 
       {/* Tab Content */}
       <div className="mt-4">
-        <Card>
+        <Card variant="solid">
           <CardHeader>
             <CardTitle>{tab === 'RECHARGE' ? '充值记录' : '消费记录'}</CardTitle>
           </CardHeader>
@@ -247,7 +247,7 @@ function TransactionRow({
       <td className="px-4 py-3">
         <span
           className={
-            transaction.amount > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'
+            transaction.amount > 0 ? 'text-gsuccess font-medium' : 'text-gdanger font-medium'
           }
         >
           {transaction.amount > 0 ? '+' : ''}

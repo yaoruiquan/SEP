@@ -43,10 +43,10 @@ interface RunningTask {
 }
 
 const STATUS_CONFIGS: Record<TaskStatus, { label: string; dotColor: string; icon: React.ReactNode }> = {
-  pending:   { label: '待执行', dotColor: 'bg-gray-400',  icon: <Clock className="h-3.5 w-3.5" /> },
-  running:   { label: '执行中', dotColor: 'bg-blue-500',  icon: <PlayCircle className="h-3.5 w-3.5" /> },
-  completed: { label: '已完成', dotColor: 'bg-green-500', icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  failed:    { label: '失败',   dotColor: 'bg-red-500',   icon: <XCircle className="h-3.5 w-3.5" /> },
+  pending:   { label: '待执行', dotColor: 'bg-gtext-disabled', icon: <Clock className="h-3.5 w-3.5" /> },
+  running:   { label: '执行中', dotColor: 'bg-gneon-blue',     icon: <PlayCircle className="h-3.5 w-3.5" /> },
+  completed: { label: '已完成', dotColor: 'bg-gsuccess',       icon: <CheckCircle className="h-3.5 w-3.5" /> },
+  failed:    { label: '失败',   dotColor: 'bg-gdanger',         icon: <XCircle className="h-3.5 w-3.5" /> },
 };
 
 function TaskCard({
@@ -59,30 +59,40 @@ function TaskCard({
   const config = STATUS_CONFIGS[task.status];
 
   return (
-    <Card className="p-4 hover:shadow-md transition-shadow">
+    <Card className="p-5 hover:shadow-card-hover transition-all cursor-pointer" onClick={() => onViewLive(task)}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-            <h3 className="font-medium text-base truncate">{task.title}</h3>
-            <Badge className={`flex items-center gap-1 shrink-0 text-white text-xs ${config.dotColor}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="font-medium text-base text-neutral-900 truncate">{task.title}</h3>
+            <Badge
+              className={`flex items-center gap-1 shrink-0 border text-xs ${
+                task.status === 'completed'
+                  ? 'border-gsuccess/30 bg-gsuccess/12 text-gsuccess'
+                  : task.status === 'running'
+                  ? 'border-ginfo/30 bg-ginfo/12 text-gneon-blue'
+                  : task.status === 'failed'
+                  ? 'border-gdanger/30 bg-gdanger/12 text-gdanger'
+                  : 'border-glassline bg-glass-2 text-gtext-muted'
+              }`}
+            >
               {config.icon}
               {config.label}
             </Badge>
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-fg-muted mb-2">
-            <div className="flex items-center gap-1.5">
-              <Avatar name={task.employee.name} className="h-5 w-5 text-xs" />
+          <div className="flex items-center gap-4 text-sm text-neutral-600 mb-3">
+            <div className="flex items-center gap-2">
+              <Avatar name={task.employee.name} src={task.employee.avatar} className="h-5 w-5 text-xs" />
               <span>{task.employee.name}</span>
             </div>
-            <span className="text-fg-subtle">•</span>
-            <div className="flex items-center gap-1.5">
-              <Avatar name={task.initiator.name} className="h-5 w-5 text-xs" />
+            <span className="text-neutral-400">•</span>
+            <div className="flex items-center gap-2">
+              <Avatar name={task.initiator.name} src={task.initiator.avatar} className="h-5 w-5 text-xs" />
               <span>{task.initiator.name} 发起</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-fg-subtle">
+          <div className="flex items-center gap-3 text-xs text-neutral-500">
             <span>
               {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true, locale: zhCN })}
             </span>
@@ -90,10 +100,10 @@ function TaskCard({
               <>
                 <span>•</span>
                 <div className="flex items-center gap-2">
-                  <div className="w-24 h-1.5 bg-bg-subtle rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500" style={{ width: `${task.progress}%` }} />
+                  <div className="w-24 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${task.progress}%` }} />
                   </div>
-                  <span>{task.progress}%</span>
+                  <span className="font-medium">{task.progress}%</span>
                 </div>
               </>
             )}
@@ -118,7 +128,7 @@ function TaskCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           {task.status === 'running' && (
             <>
               <Button size="sm" variant="outline" onClick={() => onViewLive(task)}>
@@ -303,95 +313,102 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-neutral-50/50">
       {/* 页头 */}
-      <div className="border-b border-border bg-background px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="border-b border-neutral-200 bg-white px-6 py-5">
+        <div className="mx-auto max-w-7xl flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">任务中心</h1>
+              <h1 className="text-2xl font-semibold text-neutral-900">任务中心</h1>
               {/* WebSocket 连接状态 */}
-              <div className="flex items-center gap-1.5 text-xs">
+              <div className="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 bg-neutral-100">
                 {wsConnected ? (
                   <>
                     <Wifi className="h-3.5 w-3.5 text-success" />
-                    <span className="text-success">实时连接</span>
+                    <span className="text-success font-medium">实时连接</span>
                   </>
                 ) : (
                   <>
-                    <WifiOff className="h-3.5 w-3.5 text-fg-muted" />
-                    <span className="text-fg-muted">
+                    <WifiOff className="h-3.5 w-3.5 text-neutral-500" />
+                    <span className="text-neutral-500">
                       {reconnectCount > 0 ? `重连中 (${reconnectCount})` : '离线'}
                     </span>
                   </>
                 )}
               </div>
             </div>
-            <p className="text-sm text-fg-muted mt-1">管理和追踪所有碳基员工任务</p>
+            <p className="text-sm text-neutral-600 mt-1">管理和追踪所有硅基员工任务</p>
           </div>
           <Button onClick={() => setLaunchOpen(true)}>
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4 mr-1.5" />
             发起任务
           </Button>
         </div>
       </div>
 
       {/* Tab 筛选 */}
-      <div className="border-b border-border bg-background px-6">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-          <TabsList className="bg-transparent h-auto gap-1 p-0 rounded-none">
-            {(['all', 'running', 'completed', 'failed'] as const).map((tab) => {
-              const labels: Record<string, string> = {
-                all: '全部', running: '执行中', completed: '已完成', failed: '失败',
-              };
-              const count = tab === 'all' ? stats.all : stats[tab];
-              return (
-                <TabsTrigger
-                  key={tab}
-                  value={tab}
-                  className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
-                >
-                  {labels[tab]}
-                  <Badge className="ml-1.5 bg-muted text-fg-muted">{count}</Badge>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
+      <div className="border-b border-neutral-200 bg-white px-6">
+        <div className="mx-auto max-w-7xl">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+            <TabsList className="bg-transparent h-auto gap-6 p-0 rounded-none">
+              {(['all', 'running', 'completed', 'failed'] as const).map((tab) => {
+                const labels: Record<string, string> = {
+                  all: '全部', running: '执行中', completed: '已完成', failed: '失败',
+                };
+                const count = tab === 'all' ? stats.all : stats[tab];
+                return (
+                  <TabsTrigger
+                    key={tab}
+                    value={tab}
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary px-0 pb-3"
+                  >
+                    {labels[tab]}
+                    <Badge className="ml-2 bg-neutral-100 text-neutral-600 border-neutral-200">{count}</Badge>
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {/* 任务列表 */}
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
-          <TaskListSkeleton count={5} />
-        ) : isError ? (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={<Clock className="h-8 w-8" />}
-              title="加载失败"
-              description={error?.message || '无法加载任务列表，请稍后重试。'}
-              action={
-                <Button size="sm" onClick={() => window.location.reload()}>
-                  刷新页面
-                </Button>
-              }
-            />
-          </div>
-        ) : filteredTasks.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={<Clock className="h-8 w-8" />}
-              title="暂无任务"
-              description={'点击右上角「发起任务」创建第一个任务'}
-            />
-          </div>
-        ) : (
-          <div className="space-y-3 max-w-5xl">
-            {filteredTasks.map((task) => (
-              <TaskCard key={task.id} task={task} onViewLive={handleViewLive} />
-            ))}
-          </div>
-        )}
+        <div className="mx-auto max-w-7xl">
+          {isLoading ? (
+            <TaskListSkeleton count={5} />
+          ) : isError ? (
+            <Card className="shadow-card">
+              <div className="flex h-full items-center justify-center py-12">
+                <EmptyState
+                  icon={<Clock className="h-12 w-12" />}
+                  title="加载失败"
+                  description={error?.message || '无法加载任务列表，请稍后重试。'}
+                  action={{
+                    label: '刷新页面',
+                    onClick: () => window.location.reload(),
+                  }}
+                />
+              </div>
+            </Card>
+          ) : filteredTasks.length === 0 ? (
+            <Card className="shadow-card">
+              <div className="flex h-full items-center justify-center py-12">
+                <EmptyState
+                  icon={<Clock className="h-12 w-12" />}
+                  title="暂无任务"
+                  description="点击右上角「发起任务」创建第一个任务"
+                />
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {filteredTasks.map((task) => (
+                <TaskCard key={task.id} task={task} onViewLive={handleViewLive} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 发起任务 Modal */}

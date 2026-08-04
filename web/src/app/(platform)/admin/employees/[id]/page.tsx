@@ -248,7 +248,7 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2">
                           <p className="font-medium">{binding.capability.name}</p>
-                          <Badge className={binding.enabled ? 'bg-green-500/10 text-green-700' : 'bg-secondary text-secondary-foreground'}>
+                          <Badge className={binding.enabled ? 'border border-gsuccess/25 bg-gsuccess/12 text-gsuccess' : 'border border-glassline bg-glass-2 text-gtext-muted'}>
                             {binding.enabled ? '已启用' : '已禁用'}
                           </Badge>
                           <Badge className="border border-border">{binding.capability.type}</Badge>

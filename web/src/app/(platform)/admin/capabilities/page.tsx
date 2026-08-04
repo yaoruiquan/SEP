@@ -300,7 +300,7 @@ export default function CapabilitiesPage() {
       )}
 
       {tab === 'approved' && (
-        <Card>
+        <Card variant="solid">
           <CardHeader>
             <CardTitle>已发布能力</CardTitle>
           </CardHeader>
@@ -346,7 +346,7 @@ export default function CapabilitiesPage() {
       )}
 
       {tab === 'all' && (
-        <Card>
+        <Card variant="solid">
           <CardHeader>
             <CardTitle>全部能力</CardTitle>
           </CardHeader>

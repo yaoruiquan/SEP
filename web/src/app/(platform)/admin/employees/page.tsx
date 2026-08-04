@@ -136,7 +136,7 @@ export default function AdminEmployeesPage() {
         </TabsList>
 
         <TabsContent value={tab} className="mt-4">
-          <Card>
+          <Card variant="solid">
             <CardHeader>
               <CardTitle>
                 {tab === 'approved' && '已发布员工'}

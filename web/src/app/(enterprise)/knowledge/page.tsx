@@ -294,8 +294,8 @@ function FileList({
             >
               <div className="flex items-start gap-4">
                 {/* 文件图标 */}
-                <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-6 h-6 text-blue-600" />
+                <div className="w-12 h-12 rounded-glass-md border border-ginfo/25 bg-ginfo/12 flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-6 h-6 text-gneon-blue" />
                 </div>
 
                 {/* 文件信息 */}

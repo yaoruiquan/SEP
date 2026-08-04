@@ -35,7 +35,7 @@ export class AccessRequestService {
     // 检查实例是否存在且属于同一企业
     const instance = await this.prisma.employeeInstance.findUnique({
       where: { id: data.instanceId },
-      include: { employee: true },
+      include: { template: true },
     });
 
     if (!instance) {
@@ -90,7 +90,7 @@ export class AccessRequestService {
         },
         instance: {
           include: {
-            employee: { select: { name: true } },
+            template: { select: { name: true } },
           },
         },
       },
@@ -130,7 +130,7 @@ export class AccessRequestService {
         },
         instance: {
           include: {
-            employee: { select: { id: true, name: true } },
+            template: { select: { id: true, name: true } },
           },
         },
       },
@@ -195,7 +195,7 @@ export class AccessRequestService {
           },
           instance: {
             include: {
-              employee: { select: { name: true } },
+              template: { select: { name: true } },
             },
           },
         },
@@ -262,7 +262,7 @@ export class AccessRequestService {
         },
         instance: {
           include: {
-            employee: { select: { name: true } },
+            template: { select: { name: true } },
           },
         },
       },
@@ -286,7 +286,7 @@ export class AccessRequestService {
       include: {
         instance: {
           include: {
-            employee: { select: { id: true, name: true } },
+            template: { select: { id: true, name: true } },
           },
         },
         reviewer: { select: { id: true, name: true, email: true } },

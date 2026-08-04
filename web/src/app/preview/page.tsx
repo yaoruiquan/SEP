@@ -34,7 +34,7 @@ export default function ComponentPreviewPage() {
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">Skeleton 骨架屏</h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="p-6 space-y-4">
+          <Card variant="solid" className="p-6 space-y-4">
             <h3 className="text-sm font-medium text-neutral-700 mb-4">基础形态</h3>
             <div className="space-y-3">
               <Skeleton variant="text" width="80%" />
@@ -50,12 +50,12 @@ export default function ComponentPreviewPage() {
             </div>
           </Card>
 
-          <Card className="p-6">
+          <Card variant="solid" className="p-6">
             <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：CardSkeleton</h3>
             <CardSkeleton />
           </Card>
 
-          <Card className="p-6 lg:col-span-2">
+          <Card variant="solid" className="p-6 lg:col-span-2">
             <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：TableSkeleton</h3>
             <TableSkeleton rows={5} />
           </Card>
@@ -65,7 +65,7 @@ export default function ComponentPreviewPage() {
       {/* StatusDot */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">StatusDot 状态指示器</h2>
-        <Card className="p-6">
+        <Card variant="solid" className="p-6">
           <div className="flex flex-wrap gap-8">
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-neutral-700">小尺寸</h3>
@@ -98,7 +98,7 @@ export default function ComponentPreviewPage() {
       {/* ProgressBar */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">ProgressBar 进度条</h2>
-        <Card className="p-6 space-y-6">
+        <Card variant="solid" className="p-6 space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-neutral-700">不同变体</h3>
             <ProgressBar value={30} variant="default" showLabel label="默认进度" />
@@ -118,7 +118,7 @@ export default function ComponentPreviewPage() {
       {/* Steps */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">Steps 步骤条</h2>
-        <Card className="p-6 space-y-8">
+        <Card variant="solid" className="p-6 space-y-8">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-neutral-700">横向步骤条（可点击）</h3>
@@ -178,7 +178,7 @@ export default function ComponentPreviewPage() {
       {/* Drawer */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">Drawer 抽屉</h2>
-        <Card className="p-6">
+        <Card variant="solid" className="p-6">
           <div className="flex gap-4">
             <Button variant="primary" onClick={() => setDrawerOpen(true)}>
               打开抽屉（右侧）
@@ -190,7 +190,7 @@ export default function ComponentPreviewPage() {
       {/* ConfirmDialog */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">ConfirmDialog 确认对话框</h2>
-        <Card className="p-6">
+        <Card variant="solid" className="p-6">
           <div className="flex gap-4">
             <Button variant="danger" onClick={() => setConfirmOpen(true)}>
               危险操作（删除）
@@ -202,7 +202,7 @@ export default function ComponentPreviewPage() {
       {/* 能力类型颜色 */}
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-neutral-900">能力类型颜色</h2>
-        <Card className="p-6">
+        <Card variant="solid" className="p-6">
           <div className="flex flex-wrap gap-4">
             <div className="flex items-center gap-2">
               <div className="w-12 h-12 rounded-lg bg-capability-agent" />

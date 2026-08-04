@@ -5,7 +5,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ## What this project is
 
 **硅基人才平台 (Silicon Talent Platform / SEP)** — a platform where users subscribe to
-**Digital Employees (碳基员工)** and use them through a ChatGPT-style chat. Each Digital
+**Digital Employees (硅基员工)** and use them through a ChatGPT-style chat. Each Digital
 Employee is an agent (Vercel AI SDK) that orchestrates one or more **Silicon Capabilities
 (硅基能力)** — reusable units of type `agent` / `rpa` / `skill` / `ai-app`, each hidden
 behind a single `execute()` interface via the adapter pattern.

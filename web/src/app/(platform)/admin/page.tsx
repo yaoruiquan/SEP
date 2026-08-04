@@ -16,14 +16,15 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useAdminStats, type AdminStats } from '@/features/admin/use-admin-stats';
+import { CHART_GRID, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE, CHART_TOOLTIP_LABEL_STYLE, CHART_SERIES } from '@/lib/chart-theme';
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
 const TYPE_COLORS: Record<string, string> = {
-  AGENT: 'bg-violet-100 text-violet-700',
-  SKILL: 'bg-amber-100 text-amber-700',
-  AI_APP: 'bg-blue-100 text-blue-700',
-  RPA: 'bg-emerald-100 text-emerald-700',
+  AGENT: 'border-glassline bg-glass-2 text-gneon-purple',
+  SKILL: 'border-glassline bg-glass-2 text-gwarning',
+  AI_APP: 'border-glassline bg-glass-2 text-gneon-blue',
+  RPA: 'border-glassline bg-glass-2 text-gneon-green',
 };
 
 function fmtNumber(n: number) {
@@ -57,8 +58,8 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
       trend: kpi.enterpriseTrendPct,
       trendLabel: '较上月',
       icon: Building2,
-      color: 'text-blue-500',
-      bg: 'bg-blue-50 dark:bg-blue-950/30',
+      color: 'text-gneon-blue',
+      bg: 'border border-glassline bg-glass-2',
     },
     {
       label: '已上架员工',
@@ -67,8 +68,8 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
       trend: kpi.employeeTrendPct,
       trendLabel: '较上月',
       icon: Users,
-      color: 'text-violet-500',
-      bg: 'bg-violet-50 dark:bg-violet-950/30',
+      color: 'text-gneon-purple',
+      bg: 'border border-glassline bg-glass-2',
     },
     {
       label: '今日算力消费',
@@ -77,8 +78,8 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
       trend: kpi.tokenTrendPct,
       trendLabel: '较昨日',
       icon: Zap,
-      color: 'text-amber-500',
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
+      color: 'text-gwarning',
+      bg: 'border border-glassline bg-glass-2',
     },
     {
       label: '今日活跃用户',
@@ -87,8 +88,8 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
       trend: kpi.userTrendPct,
       trendLabel: '较昨日',
       icon: Activity,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-50 dark:bg-emerald-950/30',
+      color: 'text-gneon-green',
+      bg: 'border border-glassline bg-glass-2',
     },
   ];
 }
@@ -121,11 +122,11 @@ function KpiCard({ item }: { item: KpiItem }) {
           ) : (
             <>
               {up ? (
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                <TrendingUp className="h-3.5 w-3.5 text-gneon-green" />
               ) : (
-                <TrendingDown className="h-3.5 w-3.5 text-red-400" />
+                <TrendingDown className="h-3.5 w-3.5 text-gdanger" />
               )}
-              <span className={up ? 'text-emerald-600' : 'text-red-500'}>
+              <span className={up ? 'text-gneon-green' : 'text-gdanger'}>
                 {up ? '+' : ''}{item.trend}%
               </span>
             </>
@@ -176,7 +177,7 @@ export default function AdminDashboardPage() {
           title="数据加载失败"
           description={error instanceof Error ? error.message : '无法获取平台统计数据'}
           action={
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <Button variant="glass" size="sm" onClick={() => refetch()}>
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               重试
             </Button>
@@ -199,12 +200,12 @@ export default function AdminDashboardPage() {
           <p className="mt-0.5 text-sm text-fg-muted">平台全局数据概览 · 每 60 秒自动刷新</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className="border-0 bg-emerald-100 px-3 py-1 text-emerald-700">
-            <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+          <Badge className="border border-glassline bg-glass-accent-2 px-3 py-1 text-gneon-green">
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gneon-green" />
             数据正常
           </Badge>
           <Button
-            variant="outline"
+            variant="glass"
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
@@ -235,21 +236,22 @@ export default function AdminDashboardPage() {
                 <AreaChart data={data.computeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      <stop offset="5%" stopColor={CHART_SERIES.purple} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={CHART_SERIES.purple} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} interval={4} />
-                  <YAxis tick={{ fontSize: 11 }} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                  <XAxis dataKey="date" tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} interval={4} />
+                  <YAxis tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} />
                   <Tooltip
                     formatter={(v) => [fmtMoney(Number(v)), '消费']}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                   />
                   <Area
                     type="monotone"
                     dataKey="tokens"
-                    stroke="#8b5cf6"
+                    stroke={CHART_SERIES.purple}
                     strokeWidth={2}
                     fill="url(#gradTokens)"
                   />
@@ -270,14 +272,15 @@ export default function AdminDashboardPage() {
             {hasEnterpriseData ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={data.enterpriseTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} interval={4} />
-                  <YAxis tick={{ fontSize: 11 }} tickLine={false} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                  <XAxis dataKey="date" tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} interval={4} />
+                  <YAxis tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     formatter={(v) => [`${Number(v).toLocaleString()} 家`, '新增企业']}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                   />
-                  <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={CHART_SERIES.primary} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -313,7 +316,7 @@ export default function AdminDashboardPage() {
                     className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
                   >
                     <span className={`w-5 text-center text-sm font-bold ${
-                      i < 3 ? 'text-amber-500' : 'text-fg-subtle'
+                      i < 3 ? 'text-gwarning' : 'text-fg-subtle'
                     }`}>
                       {i + 1}
                     </span>
@@ -353,7 +356,7 @@ export default function AdminDashboardPage() {
                     className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
                   >
                     <span className={`w-5 text-center text-sm font-bold ${
-                      i < 3 ? 'text-amber-500' : 'text-fg-subtle'
+                      i < 3 ? 'text-gwarning' : 'text-fg-subtle'
                     }`}>
                       {i + 1}
                     </span>
@@ -389,9 +392,9 @@ export default function AdminDashboardPage() {
               {data.kpi.pendingEmployees > 0 && (
                 <Link
                   href="/admin/audit"
-                  className="flex items-start gap-3 rounded-lg bg-amber-50 px-4 py-3 transition-colors hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
+                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gwarning/25 px-4 py-3 transition-colors hover:border-gwarning/40 hover:bg-gwarning/8"
                 >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gwarning" />
                   <p className="flex-1 text-sm">
                     有 <strong>{data.kpi.pendingEmployees}</strong> 位员工待审核
                   </p>
@@ -401,9 +404,9 @@ export default function AdminDashboardPage() {
               {data.kpi.pendingCapabilities > 0 && (
                 <Link
                   href="/admin/audit"
-                  className="flex items-start gap-3 rounded-lg bg-amber-50 px-4 py-3 transition-colors hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
+                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gwarning/25 px-4 py-3 transition-colors hover:border-gwarning/40 hover:bg-gwarning/8"
                 >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gwarning" />
                   <p className="flex-1 text-sm">
                     有 <strong>{data.kpi.pendingCapabilities}</strong> 个能力待审核
                   </p>
@@ -413,9 +416,9 @@ export default function AdminDashboardPage() {
               {data.kpi.suspendedEnterprises > 0 && (
                 <Link
                   href="/admin/enterprises"
-                  className="flex items-start gap-3 rounded-lg bg-red-50 px-4 py-3 transition-colors hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/40"
+                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gdanger/25 px-4 py-3 transition-colors hover:border-gdanger/40 hover:bg-gdanger/8"
                 >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gdanger" />
                   <p className="flex-1 text-sm">
                     有 <strong>{data.kpi.suspendedEnterprises}</strong> 家企业处于冻结状态
                   </p>

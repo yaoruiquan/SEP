@@ -75,7 +75,8 @@ export class KnowledgeService {
 
     return this.prisma.knowledgeBase.create({
       data: {
-        ...data,
+        name: data.name,
+        description: data.description,
         enterpriseId,
         createdBy: userId,
       },
@@ -132,7 +133,11 @@ export class KnowledgeService {
 
     return this.prisma.document.create({
       data: {
-        ...data,
+        filename: data.filename,
+        originalName: data.originalName,
+        fileSize: data.fileSize,
+        mimeType: data.mimeType,
+        storagePath: data.storagePath,
         knowledgeBaseId,
         uploadedBy: userId,
         status: 'READY', // MVP: 直接标记为 READY，不做解析

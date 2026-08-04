@@ -50,11 +50,13 @@ interface CapabilityAuditItem {
   outputSchema: object;
 }
 
+// 深底上的类型徽章：不用 500 级实心填充（白字压纯色在深底会「发光」抢注意力），
+// 改成玻璃底 + 品牌色文字，与 admin/page.tsx 的 TYPE_COLORS 保持同一套配方。
 const CAPABILITY_TYPE_COLORS: Record<string, string> = {
-  AGENT: 'bg-blue-500',
-  SKILL: 'bg-green-500',
-  RPA: 'bg-orange-500',
-  AI_APP: 'bg-purple-500',
+  AGENT: 'border border-glassline bg-glass-2 text-gneon-blue',
+  SKILL: 'border border-glassline bg-glass-2 text-gneon-green',
+  RPA: 'border border-glassline bg-glass-2 text-gwarning',
+  AI_APP: 'border border-glassline bg-glass-2 text-gneon-purple',
 };
 
 export default function AuditPage() {
@@ -204,7 +206,7 @@ export default function AuditPage() {
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-medium truncate">{item.name}</h3>
                           {item.capabilities?.some((c: any) => c.status === 'PENDING') && (
-                            <Badge className="shrink-0 bg-amber-500 text-white text-xs">
+                            <Badge className="shrink-0 border border-gwarning/30 bg-gwarning/12 text-gwarning text-xs">
                               含待审能力
                             </Badge>
                           )}
@@ -221,7 +223,7 @@ export default function AuditPage() {
                           })}
                         </div>
                       </div>
-                      <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                      <Clock className="h-4 w-4 text-gwarning shrink-0" />
                     </div>
                   </Card>
                 ))
@@ -252,7 +254,7 @@ export default function AuditPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-medium truncate">{item.name}</h3>
-                          <Badge className={`shrink-0 text-white text-xs ${CAPABILITY_TYPE_COLORS[item.type] || 'bg-gray-500'}`}>
+                          <Badge className={`shrink-0 text-xs ${CAPABILITY_TYPE_COLORS[item.type] || 'border border-glassline bg-glass-2 text-gtext-secondary'}`}>
                             {item.type}
                           </Badge>
                         </div>
@@ -264,7 +266,7 @@ export default function AuditPage() {
                           })}
                         </div>
                       </div>
-                      <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                      <Clock className="h-4 w-4 text-gwarning shrink-0" />
                     </div>
                   </Card>
                 ))
@@ -344,7 +346,7 @@ export default function AuditPage() {
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="请详细说明拒绝原因..."
                 rows={4}
-                className={!rejectReason.trim() ? 'border-red-500' : ''}
+                className={!rejectReason.trim() ? 'border-gdanger' : ''}
               />
             </div>
           </div>
@@ -384,7 +386,7 @@ function EmployeeAuditDetail({
           {/* 基本信息 */}
           <Card className="p-6">
             <div className="flex items-start gap-4 mb-4">
-              <div className="h-20 w-20 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-2xl font-bold shrink-0">
+              <div className="h-20 w-20 rounded-glass-lg bg-gradient-to-br from-gbrand to-gneon-purple flex items-center justify-center text-white text-2xl font-bold shrink-0">
                 {employee.name.charAt(0)}
               </div>
               <div className="flex-1">
@@ -435,7 +437,7 @@ function EmployeeAuditDetail({
 
             {employee.capabilities.some(c => c.status === 'PENDING') && (
               <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="h-5 w-5 text-gwarning shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-800">
                   <p className="font-medium">提示：存在未审核的能力</p>
                   <p className="mt-1">建议先审核完所有能力后再审核员工</p>

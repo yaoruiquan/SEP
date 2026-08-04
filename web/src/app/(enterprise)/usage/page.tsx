@@ -19,6 +19,7 @@ import {
 } from '@/features/compute/use-compute';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 
 export default function UsagePage() {
   const { data: account, isLoading: accountLoading } = useComputeAccount();
@@ -124,7 +125,7 @@ export default function UsagePage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline gap-2">
-              <ArrowDownLeft className="w-5 h-5 text-orange-500" />
+              <ArrowDownLeft className="w-5 h-5 text-gwarning" />
               <span className="text-2xl font-bold">¥{stats.todayConsume.toFixed(2)}</span>
             </div>
           </CardContent>
@@ -136,7 +137,7 @@ export default function UsagePage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline gap-2">
-              <Zap className="w-5 h-5 text-purple-500" />
+              <Zap className="w-5 h-5 text-gneon-purple" />
               <span className="text-2xl font-bold">¥{stats.monthConsume.toFixed(2)}</span>
             </div>
           </CardContent>
@@ -166,8 +167,8 @@ export default function UsagePage() {
                 />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
-                  formatter={(value: number) => [`¥${value.toFixed(2)}`, '消费金额']}
-                  labelFormatter={(label) => format(new Date(label), 'yyyy-MM-dd', { locale: zhCN })}
+                  formatter={(value) => [`¥${Number(value ?? 0).toFixed(2)}`, '消费金额']}
+                  labelFormatter={(label) => format(new Date(String(label)), 'yyyy-MM-dd', { locale: zhCN })}
                 />
                 <Area
                   type="monotone"
@@ -204,18 +205,18 @@ export default function UsagePage() {
                     <div
                       className={`w-10 h-10 rounded-full flex items-center justify-center ${
                         tx.type === 'RECHARGE'
-                          ? 'bg-green-100'
+                          ? 'border border-gsuccess/25 bg-gsuccess/12'
                           : tx.type === 'CONSUME'
-                          ? 'bg-orange-100'
-                          : 'bg-blue-100'
+                          ? 'border border-gwarning/25 bg-gwarning/12'
+                          : 'border border-gneon-blue/25 bg-ginfo/12'
                       }`}
                     >
                       {tx.type === 'RECHARGE' ? (
-                        <ArrowUpLeft className="w-5 h-5 text-green-600" />
+                        <ArrowUpLeft className="w-5 h-5 text-gsuccess" />
                       ) : tx.type === 'CONSUME' ? (
-                        <ArrowDownLeft className="w-5 h-5 text-orange-600" />
+                        <ArrowDownLeft className="w-5 h-5 text-gwarning" />
                       ) : (
-                        <Zap className="w-5 h-5 text-blue-600" />
+                        <Zap className="w-5 h-5 text-gneon-blue" />
                       )}
                     </div>
                     <div>
@@ -230,12 +231,19 @@ export default function UsagePage() {
                   <div className="text-right">
                     <p
                       className={`font-semibold ${
-                        tx.type === 'RECHARGE' ? 'text-green-600' : 'text-orange-600'
+                        tx.type === 'RECHARGE' ? 'text-gsuccess' : 'text-gwarning'
                       }`}
                     >
                       {tx.type === 'RECHARGE' ? '+' : ''}¥{Math.abs(tx.amount).toFixed(2)}
                     </p>
-                    <Badge variant={tx.type === 'RECHARGE' ? 'success' : 'default'} className="text-xs">
+                    <Badge
+                      className={cn(
+                        'text-xs',
+                        tx.type === 'RECHARGE'
+                          ? 'bg-success-50 text-success-700'
+                          : 'bg-muted text-muted-foreground',
+                      )}
+                    >
                       {tx.type === 'RECHARGE' ? '充值' : tx.type === 'CONSUME' ? '消费' : '退款'}
                     </Badge>
                   </div>

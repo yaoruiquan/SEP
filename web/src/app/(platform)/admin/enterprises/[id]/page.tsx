@@ -262,7 +262,7 @@ export default function EnterpriseDetailPage() {
         </div>
 
         {activeTab === 'members' && (
-          <Card>
+          <Card variant="solid">
             <CardHeader>
               <CardTitle>企业成员 ({enterprise.members.length})</CardTitle>
             </CardHeader>
@@ -307,7 +307,7 @@ export default function EnterpriseDetailPage() {
         )}
 
         {activeTab === 'instances' && (
-          <Card>
+          <Card variant="solid">
             <CardHeader>
               <CardTitle>员工实例 ({enterprise.instances.length})</CardTitle>
             </CardHeader>
@@ -355,7 +355,7 @@ export default function EnterpriseDetailPage() {
         )}
 
         {activeTab === 'transactions' && (
-          <Card>
+          <Card variant="solid">
             <CardHeader>
               <CardTitle>
                 交易记录 ({enterprise.computeAccount?.transactions.length || 0})
@@ -392,7 +392,7 @@ export default function EnterpriseDetailPage() {
                         </td>
                         <td
                           className={`px-5 py-3 text-right font-mono ${
-                            tx.amount > 0 ? 'text-green-600' : 'text-red-600'
+                            tx.amount > 0 ? 'text-gsuccess' : 'text-gdanger'
                           }`}
                         >
                           {tx.amount > 0 ? '+' : ''}

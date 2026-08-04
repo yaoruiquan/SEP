@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { useFocusTrap, useEscapeKey, useFocusReturn } from '@/lib/accessibility';
+import { usePrefersReducedMotion, useIsMobile } from '@/lib/responsive';
 
 interface DrawerProps {
   open: boolean;
@@ -34,57 +36,15 @@ export function Drawer({
   closeOnOverlayClick = true,
   closeOnEsc = true,
 }: DrawerProps) {
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
-  // ESC键关闭
-  useEffect(() => {
-    if (!open || !closeOnEsc) return;
-
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [open, closeOnEsc, onClose]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!open) return;
-
-    const drawer = drawerRef.current;
-    if (!drawer) return;
-
-    const focusableElements = drawer.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-
-    const firstElement = focusableElements[0];
-    const lastElement = focusableElements[focusableElements.length - 1];
-
-    const handleTab = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-
-      if (e.shiftKey) {
-        if (document.activeElement === firstElement) {
-          e.preventDefault();
-          lastElement?.focus();
-        }
-      } else {
-        if (document.activeElement === lastElement) {
-          e.preventDefault();
-          firstElement?.focus();
-        }
-      }
-    };
-
-    drawer.addEventListener('keydown', handleTab as any);
-    firstElement?.focus();
-
-    return () => drawer.removeEventListener('keydown', handleTab as any);
-  }, [open]);
+  // 使用无障碍工具（useFocusTrap 自己创建并返回 ref）
+  const drawerRef = useFocusTrap<HTMLDivElement>(open);
+  useFocusReturn(open);
+  useEscapeKey(() => {
+    if (closeOnEsc) onClose();
+  }, open);
 
   // 防止body滚动
   useEffect(() => {
@@ -100,6 +60,9 @@ export function Drawer({
 
   if (!open) return null;
 
+  // 移动端全屏显示
+  const drawerWidth = isMobile ? 'w-full' : widthClasses[width];
+
   const drawer = (
     <div
       className="fixed inset-0 z-50 flex"
@@ -110,7 +73,10 @@ export function Drawer({
       {/* Overlay */}
       {showOverlay && (
         <div
-          className="fixed inset-0 bg-black/50 animate-fade-in"
+          className={cn(
+            'fixed inset-0 bg-neutral-900/60 backdrop-blur-sm',
+            !prefersReducedMotion && 'animate-in fade-in duration-200'
+          )}
           onClick={closeOnOverlayClick ? onClose : undefined}
           aria-hidden="true"
         />
@@ -120,12 +86,13 @@ export function Drawer({
       <div
         ref={drawerRef}
         className={cn(
-          'fixed top-0 bottom-0 bg-white shadow-2xl flex flex-col',
-          widthClasses[width],
-          position === 'right'
-            ? 'right-0 animate-slide-in-right'
-            : 'left-0 -scale-x-100 animate-slide-in-right scale-x-100',
-          'z-50'
+          'fixed top-0 bottom-0 bg-white shadow-modal flex flex-col z-50',
+          drawerWidth,
+          position === 'right' ? 'right-0' : 'left-0',
+          !prefersReducedMotion &&
+            position === 'right'
+            ? 'animate-in slide-in-from-right duration-300'
+            : 'animate-in slide-in-from-left duration-300'
         )}
       >
         {/* Header */}
@@ -139,7 +106,7 @@ export function Drawer({
             </h2>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-neutral-100 transition-colors"
+              className="p-2 rounded-md hover:bg-neutral-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
               aria-label="关闭"
             >
               <svg

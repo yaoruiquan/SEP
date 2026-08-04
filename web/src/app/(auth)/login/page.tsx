@@ -55,19 +55,21 @@ function LoginForm() {
 
   return (
     <div>
-      <h2 className="text-2xl font-semibold text-foreground">欢迎回来</h2>
-      <p className="mt-1 text-sm text-fg-muted">登录后进入你的数字员工工作台</p>
+      <h2 className="text-2xl font-semibold text-gtext-primary">欢迎回来</h2>
+      <p className="mt-1 text-sm text-gtext-secondary">登录后进入你的数字员工工作台</p>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
         <div>
-          <label className="mb-1.5 block text-sm font-medium">邮箱</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">邮箱</label>
           <Input type="email" placeholder="you@company.com" {...register('email')} />
           {errors.email && (
-            <p className="mt-1 text-xs text-danger">{errors.email.message}</p>
+            <p className="mt-1 text-xs text-danger">
+              {errors.email.message}
+            </p>
           )}
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium">密码</label>
+          <label className="mb-1.5 block text-sm font-medium text-gtext-primary">密码</label>
           <Input type="password" placeholder="••••••••" {...register('password')} />
           {errors.password && (
             <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
@@ -75,7 +77,7 @@ function LoginForm() {
         </div>
 
         {serverError && (
-          <div className="rounded border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+          <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger backdrop-blur-sm">
             {serverError}
           </div>
         )}
@@ -86,7 +88,7 @@ function LoginForm() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-fg-muted">
+      <p className="mt-6 text-center text-sm text-gtext-secondary">
         还没有账号？{' '}
         <Link href="/register" className="font-medium text-primary hover:underline">
           注册

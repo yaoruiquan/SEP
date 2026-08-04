@@ -18,7 +18,7 @@ export default function EnterprisesPage() {
         )}
       </div>
 
-      <Card>
+      <Card variant="solid">
         <CardHeader>
           <CardTitle>全部企业</CardTitle>
         </CardHeader>

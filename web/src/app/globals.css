@@ -27,6 +27,41 @@
   --danger: #dc2626;
   --info: #2563eb;
 
+  /* ─── 状态点（StatusDot / 任务状态点）─────────────────────────────────────
+     这些点是**饱和填充**，不是文字，所以不能走 --success/--danger 那套
+     「文字对比度优先」的令牌：深底上 #16a34a 这类 600 阶几乎看不见。
+     浅色下用 Tailwind 500 阶原值，深色下由 .theme-glass 换成 400 阶亮色。
+     光晕单独给一档 rgba —— 深底上 0.65 的实心光晕会糊成一团。            */
+  --dot-online:     #22c55e;
+  --dot-offline:    #a3a3a3;
+  --dot-busy:       #eab308;
+  --dot-connecting: #3b82f6;
+  --dot-online-glow:     0 0 8px 2px rgba(34, 197, 94, 0.65);
+  --dot-offline-glow:    0 0 6px 1px rgba(163, 163, 163, 0.45);
+  --dot-busy-glow:       0 0 8px 2px rgba(234, 179, 8, 0.65);
+  --dot-connecting-glow: 0 0 8px 2px rgba(59, 130, 246, 0.65);
+
+  /* ─── RGB 通道副本 —— 让 Tailwind 的 /alpha 修饰符真正生效 ──────────────────
+     Tailwind v3 对 `var()` 形式的颜色会**静默丢弃** alpha 修饰符：
+     `bg-primary/10` 一条声明都编译不出来（实测验证）。全站有 147 处这种写法
+     散落在 45 个文件里（bg-primary/10、bg-muted/40、bg-danger/10 …），
+     一直是隐性失效的。要让它们生效，config 里必须写成
+     `rgb(var(--x-rgb) / <alpha-value>)`，因此这里补上通道副本。
+
+     只给「两套主题下都是不透明色」的令牌加通道副本：
+       brand / background / card / muted / success / warning / danger / info
+     半透明令牌（--border、--sidebar、--fg*）保持 var() 形式 —— 它们在玻璃
+     作用域下本身就是 rgba，转通道会丢掉自带的透明度，反而破坏玻璃质感。
+     ⚠️ 下面这几行必须与上面的 hex 手工保持同步。                          */
+  --brand-rgb:      235 63 0;
+  --background-rgb: 255 255 255;
+  --card-rgb:       255 255 255;
+  --muted-rgb:      244 244 244;
+  --success-rgb:    22 163 74;
+  --warning-rgb:    217 119 6;
+  --danger-rgb:     220 38 38;
+  --info-rgb:       37 99 235;
+
   /* Radius */
   --radius: 10px;
   --radius-sm: 6px;
@@ -164,3 +199,1190 @@ body {
   border-color: rgba(235,63,0,.25);
   box-shadow: 0 0 0 1px rgba(235,63,0,.12), 0 8px 24px rgba(235,63,0,.08);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLASSMORPHISM LAYER  ·  Phase 0
+   ---------------------------------------------------------------------------
+   规范来源：docs/plans/PRD-frontend.md §2 Design Token
+   配色：indigo / violet / cyan 冷色系，深蓝紫画布衬托冷色 blob。
+
+   ⚠️  作用域约束：所有令牌挂在 .theme-glass 下，绝不污染 :root。
+       现有 20+ 浅色页面依赖 :root 那套令牌，改动会导致全站视觉崩坏。
+       页面通过在根元素加 class="theme-glass" 主动 opt-in。
+
+   .glass-scope 声明同一套令牌但**不带** background/color —— 专供 Radix Portal。
+   Portal 把浮层挂到 <body> 下，跑出了 .theme-glass 子树，令牌会全部丢失
+   （下拉/弹窗变成透明块）。给 Portal 内容加 .glass-scope 就能把令牌带过去，
+   同时不会给浮层刷上画布底色。                                              */
+
+.theme-glass,
+.glass-scope {
+  /* ─── 画布（深蓝紫，为冷色 blob 提供纵深） ────────────────────────────── */
+  --gbg-deep:    #0a0a1a;   /* 最深，页面最外层 */
+  --gbg-canvas:  #0f0f2d;   /* 标准画布 */
+  --gbg-raised:  #13132e;   /* 抬升区（实心表面基底） */
+
+  /* ─── 背景装饰球（冷色系，紫 → 蓝 → 青三段分级） ──────────────────────── */
+  --blob-violet: #7c3aed;   /* Violet 600 — 主 blob */
+  --blob-blue:   #2563eb;   /* Blue 600 — 次 blob */
+  --blob-cyan:   #0891b2;   /* Cyan 600 — 点缀 */
+  --blob-indigo: #4f46e5;   /* Indigo 600 — 备用 */
+  --blob-pink:   #db2777;   /* Pink 600 — 增加层次纵深，低透明度使用 */
+
+  /* ─── 玻璃填充（白色低透明度叠在深底上） ──────────────────────────────── */
+  --glass-1: rgba(255, 255, 255, 0.05);  /* Hero 展示级，极通透 */
+  --glass-2: rgba(255, 255, 255, 0.08);  /* 标准卡片 / 导航 */
+  --glass-3: rgba(255, 255, 255, 0.12);  /* hover 状态 */
+  --glass-4: rgba(255, 255, 255, 0.16);  /* Modal / 抽屉 / 强调 */
+
+  /* 冷调玻璃 — 用于品牌强调卡，与 indigo 系呼应 */
+  --glass-accent-2: rgba(129, 140, 248, 0.08);
+  --glass-accent-3: rgba(129, 140, 248, 0.13);
+
+  /* ─── 玻璃边框（1px 亮边模拟玻璃折射，iOS 26 Liquid Glass 做法） ──────── */
+  --glass-border:       rgba(255, 255, 255, 0.10);
+  --glass-border-hover: rgba(255, 255, 255, 0.20);
+  --glass-border-glow:  rgba(255, 255, 255, 0.25);
+  --glass-border-brand: rgba(129, 140, 248, 0.35);
+
+  /* ─── Blur 半径（28px 为性能上限，见 PRD §11 性能预算） ────────────────── */
+  --glass-blur-xs: blur(12px);   /* Tooltip / 小组件 */
+  --glass-blur-sm: blur(16px);   /* 标准卡片 */
+  --glass-blur-md: blur(20px);   /* 导航 / hover */
+  --glass-blur-lg: blur(24px);   /* Modal / 抽屉 */
+  --glass-blur-xl: blur(28px);   /* Hero 展示级 */
+
+  /* ─── 阴影（蓝紫投影 rgba(31,38,135)，取自 liquid-glass-effect 双层配方） ── */
+  --glass-shadow-sm: 0 4px 16px rgba(31, 38, 135, 0.24);
+  --glass-shadow-md: 0 8px 32px rgba(31, 38, 135, 0.32),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --glass-shadow-lg: 0 16px 48px rgba(31, 38, 135, 0.44),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --glass-shadow-xl: 0 24px 64px rgba(31, 38, 135, 0.52),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.16);
+
+  /* ─── 实心表面（数据密集区强制使用，零 GPU 成本） ─────────────────────── */
+  --surface-solid:        #141a2b;
+  --surface-solid-raised: #1a2137;
+  --surface-solid-hover:  #202844;
+  --surface-solid-border: rgba(255, 255, 255, 0.08);
+
+  /* ─── 文字（深底上的白色阶梯，全部 ≥5.5:1） ──────────────────────────── */
+  --gtext-primary:   rgba(255, 255, 255, 0.95);
+  --gtext-secondary: rgba(255, 255, 255, 0.72);
+  --gtext-muted:     rgba(255, 255, 255, 0.48);
+  --gtext-disabled:  rgba(255, 255, 255, 0.26);
+
+  /* ─── 品牌色：填充与文字必须分开取值 ──────────────────────────────────
+     PRD 把 #818cf8 同时用于「主按钮 + 链接」，但白字压在 #818cf8 上只有
+     2.98:1，不满足 PRD §11 自己定的 4.5:1 红线。故拆成两支：
+       填充（白字压上去） → --gbrand / --gbrand-hover
+       文字链接（压在画布上） → --gbrand-text / --gbrand-text-hover        */
+  --gbrand:            #4f46e5;   /* Indigo 600。白字 6.29:1 ✅ AA */
+  --gbrand-hover:      #5850ec;   /* 白字 5.56:1 ✅ AA */
+  --gbrand-text:       #818cf8;   /* Indigo 400。on canvas 6.25:1 ✅ AA */
+  --gbrand-text-hover: #a5b4fc;   /* Indigo 300。on canvas 9.35:1 ✅ AAA */
+  --gbrand-subtle:     rgba(129, 140, 248, 0.14);
+  --gbrand-ring:       rgba(129, 140, 248, 0.45);
+
+  /* 语义色（均在画布上实测通过） */
+  --gsuccess: #34d399;   /* 9.70:1 ✅ AAA */
+  --gwarning: #fbbf24;   /* 11.17:1 ✅ AAA */
+  --gdanger:  #f87171;   /* 6.74:1 ✅ AA */
+  --ginfo:    #60a5fa;   /* 7.33:1 ✅ AAA */
+
+  /* ─── RGB 通道副本 —— 让 Tailwind 的 /alpha 修饰符能生效 ──────────────────
+     Tailwind v3 对 `var()` 形式的颜色**静默丢弃** alpha 修饰符：
+     `bg-gsuccess/20` 编译不出任何声明（实测验证）。要支持 alpha，
+     config 里必须写成 `rgb(var(--x-rgb) / <alpha-value>)`。
+     ⚠️ 这几行必须与上面的 hex 手工保持同步。                              */
+  --gsuccess-rgb: 52 211 153;
+  --gwarning-rgb: 251 191 36;
+  --gdanger-rgb:  248 113 113;
+  --ginfo-rgb:    96 165 250;
+  --gbrand-rgb:      79 70 229;
+  --gbrand-text-rgb: 129 140 248;
+  --gbg-deep-rgb:    10 10 26;
+  --gbg-canvas-rgb:  15 15 45;
+  --gbg-raised-rgb:  19 19 46;
+
+  /* Neon 高亮（核心指标 / 状态指示，少量使用） */
+  --gneon-blue:   #60a5fa;
+  --gneon-purple: #c084fc;
+  --gneon-green:  #4ade80;
+
+  /* ─── 品牌渐变（Hero 标题 / 强调边框） ────────────────────────────────── */
+  --ggradient-brand:  linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #22d3ee 100%);
+  --ggradient-text:   linear-gradient(135deg, #ffffff 0%, #c7d2fe 50%, #a78bfa 100%);
+  --ggradient-accent: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
+
+  /* ─── 圆角 ────────────────────────────────────────────────────────────── */
+  --gradius-sm:   8px;
+  --gradius-md:   12px;
+  --gradius-lg:   16px;
+  --gradius-xl:   24px;
+  --gradius-2xl:  32px;
+  --gradius-3xl:  40px;   /* 大 CTA 玻璃块，2.5rem 保持视觉节奏 */
+  --gradius-pill: 9999px;
+
+  /* ─── 动效时长 ────────────────────────────────────────────────────────── */
+  --gease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --gduration-fast: 150ms;
+  --gduration-base: 250ms;
+  --gduration-slow: 400ms;
+
+  /* ═══ 令牌桥：把浅色语义变量在玻璃作用域内改指深色值 ═══════════════════════
+     现有 20+ 页面全用语义 class（bg-card / text-foreground / border-border /
+     text-fg-muted / bg-popover…）。只要在 .theme-glass 里重新定义这些变量，
+     那些页面套上 theme-glass 后就自动变深色，调用点一行都不用改。
+
+     覆盖不到的是写死的字面色（bg-white / text-neutral-900 / border-neutral-200），
+     那些只能靠组件显式 variant 或下面的 SCOPED OVERRIDES 兜。            */
+  --background:    var(--gbg-canvas);
+  --sidebar:       rgba(255, 255, 255, 0.04);
+  --card:          var(--glass-2);
+  --muted:         rgba(255, 255, 255, 0.06);
+  --border:        var(--glass-border);
+
+  --fg:            var(--gtext-primary);
+  --fg-muted:      var(--gtext-secondary);
+  --fg-subtle:     var(--gtext-muted);
+
+  --brand:         var(--gbrand);
+  --brand-hover:   var(--gbrand-hover);
+  --brand-subtle:  var(--gbrand-subtle);
+  --brand-ring:    var(--gbrand-ring);
+
+  --success:       var(--gsuccess);
+  --warning:       var(--gwarning);
+  --danger:        var(--gdanger);
+  --info:          var(--ginfo);
+
+  --shadow-sm:     var(--glass-shadow-sm);
+  --shadow-md:     var(--glass-shadow-md);
+
+  /* 通道副本同步覆盖 —— 支持 alpha 修饰符的那几个键（见 :root 同段注释）。
+     card / muted 在深色下取「不透明近似值」而非半透明白：
+     半透明白叠在深底上会越叠越灰，而且行/芯片这类小面积填充本来就该走
+     实心表面（PRD §11 性能预算）。真正要玻璃质感的地方用 .glass-card。 */
+  --brand-rgb:      var(--gbrand-rgb);
+  --background-rgb: var(--gbg-canvas-rgb);
+  --card-rgb:       26 33 55;    /* ≈ --surface-solid-raised */
+  --muted-rgb:      30 30 58;    /* 比画布亮一档的行底色 */
+  --success-rgb:    var(--gsuccess-rgb);
+  --warning-rgb:    var(--gwarning-rgb);
+  --danger-rgb:     var(--gdanger-rgb);
+  --info-rgb:       var(--ginfo-rgb);
+
+  /* 状态点提亮到 400 阶 —— 500 阶压在 #0f0f2d 上偏闷，点又太小撑不起饱和度。
+     离线点改成半透明白：深底上灰点会被误读成「和背景一样的空位」。
+     光晕透明度砍到 0.5，深底上光晕本来就更显眼。 */
+  --dot-online:     var(--gneon-green);
+  --dot-offline:    rgba(255, 255, 255, 0.32);
+  --dot-busy:       var(--gwarning);
+  --dot-connecting: var(--gneon-blue);
+  --dot-online-glow:     0 0 8px 2px rgba(74, 222, 128, 0.5);
+  --dot-offline-glow:    0 0 6px 1px rgba(255, 255, 255, 0.22);
+  --dot-busy-glow:       0 0 8px 2px rgba(251, 191, 36, 0.5);
+  --dot-connecting-glow: 0 0 8px 2px rgba(96, 165, 250, 0.5);
+}
+
+/* 只有 .theme-glass 自带深色底 —— .glass-scope 不能带，
+   否则 Portal 浮层会被刷成一整块不透明画布色，玻璃质感全没了。 */
+.theme-glass {
+  background: var(--gbg-canvas);
+  color: var(--gtext-primary);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLASS UTILITIES
+   每个玻璃类都遵循同一结构：
+     1. fallback 实心背景（旧浏览器 / 不支持 backdrop-filter 时生效）
+     2. @supports 内才启用 backdrop-filter
+   顺序不能颠倒，否则 Firefox 102- 会显示难看的半透明白块。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── 标准卡片 ──────────────────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(20, 26, 43, 0.92);          /* fallback */
+  border: 1px solid var(--glass-border);
+  border-radius: var(--gradius-lg);
+  box-shadow: var(--glass-shadow-md);
+  transition: background var(--gduration-base) var(--gease),
+              border-color var(--gduration-base) var(--gease),
+              transform var(--gduration-base) var(--gease),
+              box-shadow var(--gduration-base) var(--gease);
+}
+
+/* ─── hover 可交互卡片 ──────────────────────────────────────────────────── */
+.glass-card-interactive:hover {
+  border-color: var(--glass-border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+/* ─── Modal / 抽屉 ──────────────────────────────────────────────────────── */
+.glass-elevated {
+  background: rgba(26, 33, 55, 0.96);          /* fallback */
+  border: 1px solid var(--glass-border-hover);
+  border-radius: var(--gradius-xl);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+/* ─── Hero 展示级（极通透） ─────────────────────────────────────────────── */
+.glass-hero {
+  background: rgba(20, 26, 43, 0.86);          /* fallback */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--gradius-2xl);
+  box-shadow: var(--glass-shadow-xl);
+}
+
+/* ─── 侧栏 / 导航 ───────────────────────────────────────────────────────── */
+.glass-nav {
+  background: rgba(16, 21, 38, 0.94);          /* fallback */
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ─── 胶囊悬浮导航 ─────────────────────────────────────────────────────── */
+.glass-pill {
+  background: rgba(20, 26, 43, 0.90);          /* fallback */
+  border: 1px solid var(--glass-border);
+  border-radius: var(--gradius-pill);
+  box-shadow: var(--glass-shadow-md);
+  transition: background var(--gduration-base) var(--gease);
+}
+
+/* ─── 冷调品牌强调卡 ───────────────────────────────────────────────────── */
+.glass-accent {
+  background: rgba(30, 27, 75, 0.92);          /* fallback */
+  border: 1px solid var(--glass-border-brand);
+  border-radius: var(--gradius-lg);
+  box-shadow: var(--glass-shadow-md);
+}
+
+/* ─── backdrop-filter 增强层 ────────────────────────────────────────────── */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glass-card {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-sm) saturate(160%);
+    backdrop-filter: var(--glass-blur-sm) saturate(160%);
+  }
+  .glass-card-interactive:hover {
+    background: var(--glass-3);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(170%);
+    backdrop-filter: var(--glass-blur-md) saturate(170%);
+  }
+  .glass-elevated {
+    background: var(--glass-4);
+    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(170%);
+    backdrop-filter: var(--glass-blur-lg) saturate(170%);
+  }
+  .glass-hero {
+    background: var(--glass-1);
+    -webkit-backdrop-filter: var(--glass-blur-xl) saturate(180%);
+    backdrop-filter: var(--glass-blur-xl) saturate(180%);
+  }
+  .glass-nav {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(160%);
+    backdrop-filter: var(--glass-blur-md) saturate(160%);
+  }
+  .glass-pill {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(180%);
+    backdrop-filter: var(--glass-blur-md) saturate(180%);
+  }
+  .glass-pill[data-scrolled='true'] {
+    background: rgba(15, 15, 45, 0.74);
+    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(180%);
+    backdrop-filter: var(--glass-blur-lg) saturate(180%);
+  }
+  .glass-accent {
+    background: var(--glass-accent-2);
+    -webkit-backdrop-filter: var(--glass-blur-sm) saturate(170%);
+    backdrop-filter: var(--glass-blur-sm) saturate(170%);
+  }
+}
+
+/* ─── 伪玻璃：滚动容器 / 长列表专用 ─────────────────────────────────────
+   backdrop-filter 在滚动容器内每帧重算，必掉帧。
+   这个类用纯渐变模拟玻璃观感，零 GPU 成本。
+   适用：聊天气泡、>20 行的列表项。                                        */
+.fake-glass {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.025) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--gradius-lg);
+}
+
+/* ─── 实心表面：表格 / 长表单强制使用 ──────────────────────────────────── */
+.surface-solid {
+  background: var(--surface-solid);
+  border: 1px solid var(--surface-solid-border);
+  border-radius: var(--gradius-lg);
+}
+.surface-solid-row:hover { background: var(--surface-solid-hover); }
+
+/* ─── 光晕（强调状态） ─────────────────────────────────────────────────── */
+.glow-brand {
+  box-shadow: 0 0 24px rgba(129, 140, 248, 0.30),
+              inset 0 0 24px rgba(129, 140, 248, 0.10);
+}
+.glow-success {
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.28),
+              inset 0 0 20px rgba(52, 211, 153, 0.08);
+}
+
+/* ─── 渐变边框（定价推荐卡）
+   mask-composite 双层遮罩，只保留 1px 边缘的渐变。                        */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--ggradient-brand);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+                linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ─── 渐变文字 ─────────────────────────────────────────────────────────── */
+.gradient-text-glass {
+  background: var(--ggradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ─── 焦点可见性
+   玻璃背景上默认 focus ring 容易看不见，用亮 ring + 暗描边双层保证可见。  */
+.theme-glass :focus-visible {
+  outline: 2px solid var(--gbrand-text);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(10, 10, 26, 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AURORA BACKGROUND  ·  极光背景系统
+   结构：画布底色 → 冷色 blob 层 → grain 纹理 → 内容
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.theme-glass {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #1b1b4a 0%, transparent 60%),
+    var(--gbg-canvas);
+}
+
+.aurora-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  will-change: transform;
+}
+
+/* 深色主题 blob 配置（冷色系） */
+.theme-glass .aurora-blob-1 {
+  width: 520px; height: 520px;
+  top: -12%; left: 2%;
+  background: var(--blob-violet);
+  opacity: 0.34;
+  animation: aurora-drift-a 24s var(--gease) infinite;
+}
+.theme-glass .aurora-blob-2 {
+  width: 420px; height: 420px;
+  top: 14%; right: 4%;
+  background: var(--blob-blue);
+  opacity: 0.26;
+  animation: aurora-drift-b 30s var(--gease) infinite;
+}
+.theme-glass .aurora-blob-3 {
+  width: 380px; height: 380px;
+  bottom: -8%; left: 34%;
+  background: var(--blob-cyan);
+  opacity: 0.22;
+  animation: aurora-drift-c 27s var(--gease) infinite;
+}
+
+/* 浅色主题 blob 配置（暖色系） */
+.theme-glass-light .aurora-blob-1 {
+  width: 520px; height: 520px;
+  top: -12%; left: 2%;
+  background: var(--blob-pink);
+  opacity: 0.18;
+  animation: aurora-drift-a 24s var(--gease) infinite;
+}
+.theme-glass-light .aurora-blob-2 {
+  width: 420px; height: 420px;
+  top: 14%; right: 4%;
+  background: var(--blob-orange);
+  opacity: 0.14;
+  animation: aurora-drift-b 30s var(--gease) infinite;
+}
+.theme-glass-light .aurora-blob-3 {
+  width: 380px; height: 380px;
+  bottom: -8%; left: 34%;
+  background: var(--blob-amber);
+  opacity: 0.12;
+  animation: aurora-drift-c 27s var(--gease) infinite;
+}
+
+/* grain 纹理：防止大面积渐变出现色带（banding）
+   来源：superdesign.dev 明确要求 grainy noise 叠加                        */
+.aurora-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 网格叠加：Hero 区可选，增加科技感 */
+.aurora-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(110% 70% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(110% 70% at 50% 0%, #000 30%, transparent 75%);
+}
+
+@keyframes aurora-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(48px, -64px) scale(1.10); }
+  66%      { transform: translate(-32px, 44px) scale(0.94); }
+}
+@keyframes aurora-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-56px, 40px) scale(0.92); }
+  66%      { transform: translate(36px, -48px) scale(1.12); }
+}
+@keyframes aurora-drift-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(40px, -52px) scale(1.08); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE  ·  Phase 2
+   规范来源：docs/plans/PRD-frontend.md §7 官网落地页
+   只放"无法用 Tailwind 原子类表达"的东西：3D perspective、mask 渐变边框、
+   多层 inset 光晕、marquee 轨道。其余一律走 Tailwind。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Hero 3D 悬浮 mockup ───────────────────────────────────────────────────
+   perspective 必须在父层，子层才能吃到透视。hover 时抬起并回正一点。      */
+.hero-mockup {
+  perspective: 1600px;
+}
+.hero-mockup > * {
+  transform: rotateX(8deg) rotateY(-4deg);
+  transition: transform 600ms var(--gease);
+  will-change: transform;
+}
+.hero-mockup:hover > * {
+  transform: rotateX(4deg) rotateY(-2deg) translateY(-8px);
+}
+
+/* ─── 大 CTA 玻璃块 ─────────────────────────────────────────────────────────
+   三层阴影：顶部 1px 内高光 + 外投影 + 品牌色氛围光。
+   Tailwind 的 shadow 工具类没法叠 inset + 两层 outer，所以写成 CSS。      */
+.cta-block {
+  border-radius: var(--gradius-3xl);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 24px 64px rgba(0, 0, 0, 0.40),
+    0 0 120px rgba(124, 58, 237, 0.12);
+}
+
+/* ─── 定价推荐卡：渐变边框 + 氛围光 ────────────────────────────────────────
+   复用 .gradient-border 的 mask 技巧，额外加一层品牌辉光。               */
+.pricing-featured {
+  box-shadow:
+    var(--glass-shadow-lg),
+    0 0 48px rgba(129, 140, 248, 0.18);
+}
+
+/* ─── 流程 3 步：虚线连接线 ─────────────────────────────────────────────── */
+.step-connector::after {
+  content: '';
+  position: absolute;
+  top: 32px;             /* 对齐数字圆圈中线（64px 圆圈的一半） */
+  left: calc(50% + 44px);
+  right: calc(-50% + 44px);
+  border-top: 1px dashed rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+/* 最后一步不画线 */
+.step-connector:last-child::after { display: none; }
+
+@media (max-width: 767px) {
+  /* 移动端竖排，横线会画歪，直接关掉 */
+  .step-connector::after { display: none; }
+}
+
+/* ─── 员工展示：无限横向滚动轨道 ─────────────────────────────────────────
+   轨道里放两份相同内容，translateX(-50%) 刚好接上，形成无缝循环。       */
+.marquee-viewport {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 42s linear infinite;
+  will-change: transform;
+}
+.marquee-viewport:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+/* ─── 滚动进场（IntersectionObserver 加 data-visible） ─────────────────────
+   不用第三方动画库，1 个 observer + CSS 过渡搞定。
+
+   ⚠️  隐藏态挂在 html.js-reveal 下，由 useReveal 挂载后才加这个 class。
+       否则 JS 失败 / 爬虫不执行 JS 时，opacity:0 会让整页内容永久不可见
+       （SEO 和无障碍双杀）。没有 JS 就没有 .js-reveal，内容默认可见。   */
+html.js-reveal .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 700ms var(--gease), transform 700ms var(--gease);
+}
+html.js-reveal .reveal[data-visible='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   无障碍与性能降级
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. 减少动效 —— blob 停在初始位置 */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob { animation: none !important; }
+  /* Phase 2 动效降级：跑马灯停住、3D 倾斜取消、进场动画直接落位 */
+  .marquee-track { animation: none !important; }
+  .hero-mockup > *,
+  .hero-mockup:hover > * { transform: none !important; }
+  html.js-reveal .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .theme-glass *,
+  .theme-glass *::before,
+  .theme-glass *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 2. 高对比度 —— 玻璃全部转实心，边框加亮 */
+@media (prefers-contrast: more) {
+  .glass-card, .glass-elevated, .glass-hero,
+  .glass-nav, .glass-pill, .glass-accent, .fake-glass {
+    background: #0f0f14 !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: rgba(255, 255, 255, 0.42) !important;
+  }
+  .aurora-layer { display: none; }
+}
+
+/* 3. 降低透明度偏好（Apple 系统级设置） */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-card, .glass-elevated, .glass-hero,
+  .glass-nav, .glass-pill, .glass-accent {
+    background: var(--surface-solid) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+/* 4. 移动端 blur 降级 —— 移动 GPU 撑不住 28px */
+@media (max-width: 768px) {
+  .theme-glass {
+    --glass-blur-xs: blur(10px);
+    --glass-blur-sm: blur(12px);
+    --glass-blur-md: blur(14px);
+    --glass-blur-lg: blur(16px);
+    --glass-blur-xl: blur(18px);
+  }
+  /* blob 减到 1 个，并缩小尺寸 */
+  .aurora-blob-2, .aurora-blob-3 { display: none; }
+  .aurora-blob-1 { width: 320px; height: 320px; filter: blur(60px); }
+}
+
+/* 深色滚动条（玻璃主题内） */
+.theme-glass .scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+.theme-glass .scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLASSMORPHISM LIGHT MODE  ·  浅色玻璃形态主题
+   ---------------------------------------------------------------------------
+   设计理念：柔和暖色 blob（粉/橙/金）+ 浅灰蓝画布 + 黑色半透明玻璃
+   对标：iOS 17+ 浅色毛玻璃、Stripe 落地页、Linear 浅色模式
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.theme-glass-light,
+.glass-scope-light {
+  /* ─── 画布（浅灰蓝，为暖色 blob 提供柔和衬底） ──────────────────────────── */
+  --gbg-deep:    #f8f9fb;   /* 最浅，页面最外层 */
+  --gbg-canvas:  #f0f2f5;   /* 标准画布 */
+  --gbg-raised:  #e8eaed;   /* 抬升区（实心表面基底） */
+
+  /* ─── 背景装饰球（暖色系，粉 → 橙 → 金三段分级） ──────────────────────── */
+  --blob-pink:   #ec4899;   /* Pink 500 — 主 blob */
+  --blob-orange: #f97316;   /* Orange 500 — 次 blob */
+  --blob-amber:  #f59e0b;   /* Amber 500 — 点缀 */
+  --blob-rose:   #fb7185;   /* Rose 400 — 备用 */
+  --blob-violet: #a855f7;   /* Violet 500 — 增加层次纵深，低透明度使用 */
+
+  /* ─── 玻璃填充（黑色低透明度叠在浅底上） ──────────────────────────────── */
+  --glass-1: rgba(255, 255, 255, 0.60);  /* Hero 展示级，极通透 */
+  --glass-2: rgba(255, 255, 255, 0.72);  /* 标准卡片 / 导航 */
+  --glass-3: rgba(255, 255, 255, 0.80);  /* hover 状态 */
+  --glass-4: rgba(255, 255, 255, 0.88);  /* Modal / 抽屉 / 强调 */
+
+  /* 暖调玻璃 — 用于品牌强调卡，与 pink 系呼应 */
+  --glass-accent-2: rgba(236, 72, 153, 0.06);
+  --glass-accent-3: rgba(236, 72, 153, 0.10);
+
+  /* ─── 玻璃边框（1px 深边模拟玻璃折射） ──────────────────────────────── */
+  --glass-border:       rgba(0, 0, 0, 0.08);
+  --glass-border-hover: rgba(0, 0, 0, 0.14);
+  --glass-border-glow:  rgba(0, 0, 0, 0.20);
+  --glass-border-brand: rgba(236, 72, 153, 0.30);
+
+  /* ─── Blur 半径（与深色模式相同） ───────────────────────────────────── */
+  --glass-blur-xs: blur(12px);
+  --glass-blur-sm: blur(16px);
+  --glass-blur-md: blur(20px);
+  --glass-blur-lg: blur(24px);
+  --glass-blur-xl: blur(28px);
+
+  /* ─── 阴影（柔和灰色投影，取自 Tailwind 默认阴影） ───────────────────── */
+  --glass-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --glass-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.80);
+  --glass-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  --glass-shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.10),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+
+  /* ─── 实心表面（数据密集区强制使用，零 GPU 成本） ─────────────────────── */
+  --surface-solid:        #ffffff;
+  --surface-solid-raised: #fafbfc;
+  --surface-solid-hover:  #f5f6f7;
+  --surface-solid-border: rgba(0, 0, 0, 0.08);
+
+  /* ─── 文字（浅底上的深色阶梯，全部 ≥7:1） ──────────────────────────── */
+  --gtext-primary:   rgba(0, 0, 0, 0.90);
+  --gtext-secondary: rgba(0, 0, 0, 0.65);
+  --gtext-muted:     rgba(0, 0, 0, 0.45);
+  --gtext-disabled:  rgba(0, 0, 0, 0.26);
+
+  /* ─── 品牌色：填充与文字必须分开取值 ─────────────────────────────────── */
+  --gbrand:            #db2777;   /* Pink 600。白字 5.52:1 ✅ AA */
+  --gbrand-hover:      #be185d;   /* Pink 700。白字 7.35:1 ✅ AAA */
+  --gbrand-text:       #ec4899;   /* Pink 500。on canvas 4.79:1 ✅ AA */
+  --gbrand-text-hover: #db2777;   /* Pink 600。on canvas 6.42:1 ✅ AA */
+  --gbrand-subtle:     rgba(236, 72, 153, 0.10);
+  --gbrand-ring:       rgba(236, 72, 153, 0.35);
+
+  /* 语义色（均在画布上实测通过） */
+  --gsuccess: #16a34a;   /* Green 600。on canvas 6.32:1 ✅ AA */
+  --gwarning: #d97706;   /* Amber 600。on canvas 7.18:1 ✅ AAA */
+  --gdanger:  #dc2626;   /* Red 600。on canvas 7.91:1 ✅ AAA */
+  --ginfo:    #2563eb;   /* Blue 600。on canvas 8.59:1 ✅ AAA */
+
+  /* ─── RGB 通道副本 ───────────────────────────────────────────────────── */
+  --gsuccess-rgb: 22 163 74;
+  --gwarning-rgb: 217 119 6;
+  --gdanger-rgb:  220 38 38;
+  --ginfo-rgb:    37 99 235;
+  --gbrand-rgb:      219 39 119;
+  --gbrand-text-rgb: 236 72 153;
+  --gbg-deep-rgb:    248 249 251;
+  --gbg-canvas-rgb:  240 242 245;
+  --gbg-raised-rgb:  232 234 237;
+
+  /* Neon 高亮（核心指标 / 状态指示，少量使用） */
+  --gneon-blue:   #3b82f6;
+  --gneon-purple: #a855f7;
+  --gneon-green:  #22c55e;
+
+  /* ─── 品牌渐变（Hero 标题 / 强调边框） ────────────────────────────────── */
+  --ggradient-brand:  linear-gradient(135deg, #ec4899 0%, #f97316 50%, #f59e0b 100%);
+  --ggradient-text:   linear-gradient(135deg, #1f2937 0%, #ec4899 50%, #f97316 100%);
+  --ggradient-accent: linear-gradient(135deg, #ec4899 0%, #f97316 100%);
+
+  /* ─── 圆角（与深色模式相同） ──────────────────────────────────────────── */
+  --gradius-sm:   8px;
+  --gradius-md:   12px;
+  --gradius-lg:   16px;
+  --gradius-xl:   24px;
+  --gradius-2xl:  32px;
+  --gradius-3xl:  40px;
+  --gradius-pill: 9999px;
+
+  /* ─── 动效时长（与深色模式相同） ──────────────────────────────────────── */
+  --gease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --gduration-fast: 150ms;
+  --gduration-base: 250ms;
+  --gduration-slow: 400ms;
+
+  /* ═══ 令牌桥：把浅色语义变量在玻璃作用域内改指浅色玻璃值 ═══════════════════ */
+  --background:    var(--gbg-canvas);
+  --sidebar:       rgba(0, 0, 0, 0.02);
+  --card:          var(--glass-2);
+  --muted:         rgba(0, 0, 0, 0.04);
+  --border:        var(--glass-border);
+
+  --fg:            var(--gtext-primary);
+  --fg-muted:      var(--gtext-secondary);
+  --fg-subtle:     var(--gtext-muted);
+
+  --brand:         var(--gbrand);
+  --brand-hover:   var(--gbrand-hover);
+  --brand-subtle:  var(--gbrand-subtle);
+  --brand-ring:    var(--gbrand-ring);
+
+  --success:       var(--gsuccess);
+  --warning:       var(--gwarning);
+  --danger:        var(--gdanger);
+  --info:          var(--ginfo);
+
+  --shadow-sm:     var(--glass-shadow-sm);
+  --shadow-md:     var(--glass-shadow-md);
+
+  /* 通道副本同步覆盖 */
+  --brand-rgb:      var(--gbrand-rgb);
+  --background-rgb: var(--gbg-canvas-rgb);
+  --card-rgb:       250 251 252;    /* ≈ --surface-solid-raised */
+  --muted-rgb:      245 246 247;    /* 比画布深一档的行底色 */
+  --success-rgb:    var(--gsuccess-rgb);
+  --warning-rgb:    var(--gwarning-rgb);
+  --danger-rgb:     var(--gdanger-rgb);
+  --info-rgb:       var(--ginfo-rgb);
+
+  /* 状态点使用饱和色 */
+  --dot-online:     #22c55e;
+  --dot-offline:    #94a3b8;
+  --dot-busy:       #eab308;
+  --dot-connecting: #3b82f6;
+  --dot-online-glow:     0 0 8px 2px rgba(34, 197, 94, 0.50);
+  --dot-offline-glow:    0 0 6px 1px rgba(148, 163, 184, 0.40);
+  --dot-busy-glow:       0 0 8px 2px rgba(234, 179, 8, 0.50);
+  --dot-connecting-glow: 0 0 8px 2px rgba(59, 130, 246, 0.50);
+}
+
+/* 只有 .theme-glass-light 自带浅色底 */
+.theme-glass-light {
+  background: var(--gbg-canvas);
+  color: var(--gtext-primary);
+}
+
+/* 浅色滚动条 */
+.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.20);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AURORA BACKGROUND · 浅色模式
+   结构：浅灰蓝画布 → 暖色 blob 层 → grain 纹理 → 内容
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.aurora-root-light {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #fef3f8 0%, transparent 60%),
+    var(--gbg-canvas);
+}
+
+/* 暖色 blob 配置 */
+.aurora-root-light .aurora-blob-1 {
+  width: 520px; height: 520px;
+  top: -12%; left: 2%;
+  background: var(--blob-pink);
+  opacity: 0.18;
+}
+.aurora-root-light .aurora-blob-2 {
+  width: 420px; height: 420px;
+  top: 14%; right: 4%;
+  background: var(--blob-orange);
+  opacity: 0.14;
+}
+.aurora-root-light .aurora-blob-3 {
+  width: 380px; height: 380px;
+  bottom: -8%; left: 34%;
+  background: var(--blob-amber);
+  opacity: 0.12;
+}
+
+/* 浅色模式 grain 纹理调整透明度 */
+.aurora-root-light.aurora-grain::after {
+  opacity: 0.025;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLASS UTILITIES · 浅色模式适配
+   每个玻璃类在浅色模式下使用白色半透明 + 柔和阴影
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── 标准卡片（浅色） ──────────────────────────────────────────────────── */
+.theme-glass-light .glass-card {
+  background: rgba(255, 255, 255, 0.88);   /* fallback */
+  border: 1px solid var(--glass-border);
+  border-radius: var(--gradius-lg);
+  box-shadow: var(--glass-shadow-md);
+  transition: background var(--gduration-base) var(--gease),
+              border-color var(--gduration-base) var(--gease),
+              transform var(--gduration-base) var(--gease),
+              box-shadow var(--gduration-base) var(--gease);
+}
+
+.theme-glass-light .glass-card-interactive:hover {
+  border-color: var(--glass-border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+.theme-glass-light .glass-elevated {
+  background: rgba(255, 255, 255, 0.94);   /* fallback */
+  border: 1px solid var(--glass-border-hover);
+  border-radius: var(--gradius-xl);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+.theme-glass-light .glass-hero {
+  background: rgba(255, 255, 255, 0.78);   /* fallback */
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--gradius-2xl);
+  box-shadow: var(--glass-shadow-xl);
+}
+
+.theme-glass-light .glass-nav {
+  background: rgba(255, 255, 255, 0.90);   /* fallback */
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-glass-light .glass-pill {
+  background: rgba(255, 255, 255, 0.86);   /* fallback */
+  border: 1px solid var(--glass-border);
+  border-radius: var(--gradius-pill);
+  box-shadow: var(--glass-shadow-md);
+  transition: background var(--gduration-base) var(--gease);
+}
+
+.theme-glass-light .glass-accent {
+  background: rgba(255, 252, 254, 0.88);   /* fallback */
+  border: 1px solid var(--glass-border-brand);
+  border-radius: var(--gradius-lg);
+  box-shadow: var(--glass-shadow-md);
+}
+
+/* ─── backdrop-filter 增强层（浅色） ───────────────────────────────────── */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .theme-glass-light .glass-card {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-sm) saturate(140%);
+    backdrop-filter: var(--glass-blur-sm) saturate(140%);
+  }
+  .theme-glass-light .glass-card-interactive:hover {
+    background: var(--glass-3);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(150%);
+    backdrop-filter: var(--glass-blur-md) saturate(150%);
+  }
+  .theme-glass-light .glass-elevated {
+    background: var(--glass-4);
+    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(150%);
+    backdrop-filter: var(--glass-blur-lg) saturate(150%);
+  }
+  .theme-glass-light .glass-hero {
+    background: var(--glass-1);
+    -webkit-backdrop-filter: var(--glass-blur-xl) saturate(160%);
+    backdrop-filter: var(--glass-blur-xl) saturate(160%);
+  }
+  .theme-glass-light .glass-nav {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(140%);
+    backdrop-filter: var(--glass-blur-md) saturate(140%);
+  }
+  .theme-glass-light .glass-pill {
+    background: var(--glass-2);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(160%);
+    backdrop-filter: var(--glass-blur-md) saturate(160%);
+  }
+  .theme-glass-light .glass-pill[data-scrolled='true'] {
+    background: rgba(255, 255, 255, 0.84);
+    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(160%);
+    backdrop-filter: var(--glass-blur-lg) saturate(160%);
+  }
+  .theme-glass-light .glass-accent {
+    background: var(--glass-accent-2);
+    -webkit-backdrop-filter: var(--glass-blur-sm) saturate(150%);
+    backdrop-filter: var(--glass-blur-sm) saturate(150%);
+  }
+}
+
+/* ─── 伪玻璃（浅色）────────────────────────────────────────────────────── */
+.theme-glass-light .fake-glass {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.70) 100%
+  );
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--gradius-lg);
+}
+
+/* ─── 实心表面（浅色）──────────────────────────────────────────────────── */
+.theme-glass-light .surface-solid {
+  background: var(--surface-solid);
+  border: 1px solid var(--surface-solid-border);
+  border-radius: var(--gradius-lg);
+}
+.theme-glass-light .surface-solid-row:hover {
+  background: var(--surface-solid-hover);
+}
+
+/* ─── 光晕（浅色强调状态）──────────────────────────────────────────────── */
+.theme-glass-light .glow-brand {
+  box-shadow: 0 0 24px rgba(236, 72, 153, 0.24),
+              inset 0 0 24px rgba(236, 72, 153, 0.08);
+}
+.theme-glass-light .glow-success {
+  box-shadow: 0 0 20px rgba(22, 163, 74, 0.22),
+              inset 0 0 20px rgba(22, 163, 74, 0.06);
+}
+
+/* ─── 焦点可见性（浅色）────────────────────────────────────────────────── */
+.theme-glass-light :focus-visible {
+  outline: 2px solid var(--gbrand-text);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(248, 249, 251, 0.75);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCOPED OVERRIDES  ·  字面色兜底层（Phase 4）
+   ───────────────────────────────────────────────────────────────────────────
+   令牌桥（见 .theme-glass 顶部）已经把 bg-card / text-foreground / border-border
+   这类**语义** class 自动翻成深色。覆盖不到的是 22 个企业端/运营端页面里
+   写死的**字面色** —— bg-white / text-neutral-900 / border-neutral-200 之类，
+   共 ~350 处。它们在深底上会变成「黑字压深蓝」，直接不可读。
+
+   逐页改要动 22 个文件、350 处调用点，且以后每加一页都可能再犯。这里改成
+   在 .theme-glass 作用域内重新定义这批字面色，调用点一行都不用改。
+
+   为什么不需要 !important：Tailwind utilities 在 @layer utilities 里，
+   本层规则是无 layer 的普通样式，未分层样式优先级高于任何 @layer。
+   （hover: 变体编译成 .hover\:bg-white:hover，故 hover 态要单独写一条。）
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── 文字：深色阶 → 白色阶（对比度对应 --gtext-* 的 ≥5.5:1） ─────────────── */
+.theme-glass .text-neutral-900 { color: var(--gtext-primary); }
+.theme-glass .text-neutral-800 { color: var(--gtext-primary); }
+.theme-glass .text-neutral-700 { color: var(--gtext-secondary); }
+.theme-glass .text-neutral-600 { color: var(--gtext-secondary); }
+.theme-glass .text-neutral-500 { color: var(--gtext-muted); }
+.theme-glass .text-neutral-400 { color: var(--gtext-muted); }
+.theme-glass .text-neutral-300 { color: var(--gtext-disabled); }
+.theme-glass .hover\:text-neutral-900:hover { color: var(--gtext-primary); }
+.theme-glass .hover\:text-neutral-700:hover { color: var(--gtext-primary); }
+.theme-glass .group:hover .group-hover\:text-neutral-700 { color: var(--gtext-primary); }
+
+/* ─── 背景：白/浅灰 → 实心深色表面
+   这里刻意用 --surface-solid-* 而非半透明玻璃：这批 bg-white 绝大多数是
+   表格行、列表项、chip 这类高密度小面积填充，PRD §11 明确要求走实心表面
+   （backdrop-filter 在长列表里每帧重算，必掉帧）。真要玻璃质感的地方
+   显式写 .glass-card。                                                    */
+.theme-glass .bg-white       { background-color: var(--surface-solid-raised); }
+.theme-glass .bg-white\/80   { background-color: rgba(26, 33, 55, 0.80); }
+.theme-glass .bg-neutral-50  { background-color: var(--surface-solid); }
+.theme-glass .bg-neutral-50\/50 { background-color: rgba(20, 26, 43, 0.50); }
+.theme-glass .bg-neutral-100 { background-color: var(--surface-solid-hover); }
+.theme-glass .bg-neutral-200 { background-color: var(--surface-solid-hover); }
+.theme-glass .hover\:bg-white:hover       { background-color: var(--surface-solid-hover); }
+.theme-glass .hover\:bg-neutral-50:hover  { background-color: var(--surface-solid-hover); }
+.theme-glass .hover\:bg-neutral-50\/50:hover { background-color: var(--surface-solid-hover); }
+.theme-glass .hover\:bg-neutral-100:hover { background-color: var(--surface-solid-hover); }
+.theme-glass .group:hover .group-hover\:bg-neutral-50 { background-color: var(--surface-solid-hover); }
+
+/* ─── 边框：浅灰描边 → 玻璃亮边 ─────────────────────────────────────────── */
+.theme-glass .border-neutral-100 { border-color: rgba(255, 255, 255, 0.06); }
+.theme-glass .border-neutral-200 { border-color: var(--glass-border); }
+.theme-glass .border-neutral-300 { border-color: var(--glass-border-hover); }
+.theme-glass .hover\:border-neutral-200:hover { border-color: var(--glass-border-hover); }
+.theme-glass .hover\:border-neutral-300:hover { border-color: var(--glass-border-glow); }
+
+/* ─── 阴影：浅色投影在深底上完全看不见，换成玻璃蓝紫投影 ────────────────── */
+.theme-glass .shadow-sm          { box-shadow: var(--glass-shadow-sm); }
+.theme-glass .shadow-card        { box-shadow: var(--glass-shadow-sm); }
+.theme-glass .hover\:shadow-card-hover:hover { box-shadow: var(--glass-shadow-md); }
+.theme-glass .hover\:shadow-sm:hover { box-shadow: var(--glass-shadow-md); }
+
+/* ─── 表格容器：PRD Phase 4 明确要求运营端表格/审核列表保持实心 ──────────── */
+.theme-glass table { background: transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCOPED OVERRIDES · 彩色字面色（Phase 4 续）
+   ───────────────────────────────────────────────────────────────────────────
+   上面那批是中性色，这批是**语义彩色** —— 审核页、用量页里的
+   bg-green-100/text-green-700 这类「浅底 + 深字」徽章与提示条，共 ~90 处，
+   分布在 11 个页面。深底上它们变成「亮块压深蓝」，比中性色更刺眼。
+
+   规则只有一条：**浅底深字 → 半透明色底 + 亮色字**。
+     bg-*-50/100  → rgba(hue, .12)      色相保留，亮度交给底
+     border-*-200 → rgba(hue, .28)
+     text-*-600~900 → 对应的 --gsuccess / --gwarning / --gdanger / --gneon-*
+
+   刻意**不动** bg-*-500 这类饱和实心填充：它们是类型点和 text-white 徽章，
+   本来就是「有色小色块」，深底上照样成立；一起翻反而会让白字更不可读。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── 绿 · 成功 / 充值 / 通过 ──────────────────────────────────────────── */
+.theme-glass .bg-green-50,
+.theme-glass .bg-green-100     { background-color: rgba(52, 211, 153, 0.12); }
+.theme-glass .border-green-200 { border-color: rgba(52, 211, 153, 0.28); }
+.theme-glass .text-green-900,
+.theme-glass .text-green-800,
+.theme-glass .text-green-700,
+.theme-glass .text-green-600   { color: var(--gsuccess); }
+
+/* ─── 蓝 · 信息 / 检查清单 / 行业标签 ─────────────────────────────────── */
+.theme-glass .bg-blue-50,
+.theme-glass .bg-blue-100      { background-color: rgba(96, 165, 250, 0.12); }
+.theme-glass .border-blue-200  { border-color: rgba(96, 165, 250, 0.28); }
+.theme-glass .text-blue-900,
+.theme-glass .text-blue-800,
+.theme-glass .text-blue-700,
+.theme-glass .text-blue-600,
+.theme-glass .text-blue-300    { color: var(--gneon-blue); }
+
+/* ─── 琥珀/黄 · 警告 / 待审核 ─────────────────────────────────────────── */
+.theme-glass .bg-amber-50,
+.theme-glass .bg-amber-100,
+.theme-glass .bg-yellow-50     { background-color: rgba(251, 191, 36, 0.12); }
+.theme-glass .border-amber-200,
+.theme-glass .border-yellow-200 { border-color: rgba(251, 191, 36, 0.28); }
+.theme-glass .text-amber-800,
+.theme-glass .text-amber-700,
+.theme-glass .text-amber-600,
+.theme-glass .text-amber-500,
+.theme-glass .text-yellow-700  { color: var(--gwarning); }
+
+/* ─── 红 · 危险 / 驳回 / 冻结 ─────────────────────────────────────────── */
+.theme-glass .bg-red-50        { background-color: rgba(248, 113, 113, 0.12); }
+.theme-glass .border-red-200   { border-color: rgba(248, 113, 113, 0.28); }
+.theme-glass .border-red-500   { border-color: var(--gdanger); }
+.theme-glass .text-red-700,
+.theme-glass .text-red-600,
+.theme-glass .text-red-500     { color: var(--gdanger); }
+
+/* ─── 橙 · 消耗（用量页把「充值/消耗」做成绿/橙对照，橙要单独留一档） ───── */
+.theme-glass .bg-orange-100    { background-color: rgba(251, 146, 60, 0.12); }
+.theme-glass .text-orange-600,
+.theme-glass .text-orange-500  { color: #fdba74; }
+
+/* ─── 紫 · 模型调用 ───────────────────────────────────────────────────── */
+.theme-glass .text-purple-500  { color: var(--gneon-purple); }
+
+/* ─── 灰 · 未知类型的兜底点，深底上要提到白色阶才看得见 ────────────────── */
+.theme-glass .bg-gray-500,
+.theme-glass .bg-gray-400      { background-color: rgba(255, 255, 255, 0.28); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AURORA · 主题 C 午夜蓝（运营端 / 管理界面，PRD §背景渐变配方）
+   ───────────────────────────────────────────────────────────────────────────
+   比主题 B 更克制：底色更深（#060617）、只留 2 个 blob、透明度砍半。
+   后台要长时间盯着看，背景动静大了会抢数据的注意力。
+   用法：<div class="theme-glass aurora-root aurora-midnight aurora-grain">
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* 主题 C — 午夜蓝（深色，运营端数据密集场景） */
+.aurora-midnight {
+  --gbg-canvas: #060617;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #101033 0%, transparent 58%),
+    var(--gbg-canvas);
+}
+.aurora-midnight .aurora-blob-1 {
+  width: 400px; height: 400px;
+  top: 0; right: 0; left: auto;
+  background: #1e40af;
+  opacity: 0.20;
+}
+.aurora-midnight .aurora-blob-2 {
+  width: 300px; height: 300px;
+  bottom: 0; left: 0; top: auto; right: auto;
+  background: #4f46e5;
+  opacity: 0.15;
+}
+/* 主题 C 只要 2 个 blob */
+.aurora-midnight .aurora-blob-3 { display: none; }
+
+/* 主题 C — 日光白（浅色，运营端数据密集场景） */
+.aurora-daylight {
+  --gbg-canvas: #fafbfc;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #f0f4ff 0%, transparent 58%),
+    var(--gbg-canvas);
+}
+.aurora-daylight .aurora-blob-1 {
+  width: 400px; height: 400px;
+  top: 0; right: 0; left: auto;
+  background: #93c5fd;  /* Blue 300 */
+  opacity: 0.15;
+}
+.aurora-daylight .aurora-blob-2 {
+  width: 300px; height: 300px;
+  bottom: 0; left: 0; top: auto; right: auto;
+  background: #c4b5fd;  /* Violet 300 */
+  opacity: 0.12;
+}
+/* 主题 C 只要 2 个 blob */
+.aurora-daylight .aurora-blob-3 { display: none; }

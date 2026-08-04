@@ -80,7 +80,7 @@ export default function ModelsPage() {
         </label>
       </div>
 
-      <Card>
+      <Card variant="solid">
         <CardHeader>
           <CardTitle>模型列表</CardTitle>
         </CardHeader>

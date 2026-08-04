@@ -61,14 +61,14 @@ export function LaunchTaskDialog({
           {/* 选择员工 */}
           <div>
             <label className="block text-sm font-medium mb-2">
-              选择碳基员工 <span className="text-red-500">*</span>
+              选择硅基员工 <span className="text-gdanger">*</span>
             </label>
             {isLoading ? (
               <CenteredSpinner label="加载订阅…" />
             ) : subs.length === 0 ? (
               <EmptyState
                 title="你还没有订阅任何员工"
-                description="先去员工广场订阅一位碳基员工吧。"
+                description="先去员工广场订阅一位硅基员工吧。"
                 action={
                   <Link href="/marketplace">
                     <Button size="sm">前往员工广场</Button>
@@ -116,7 +116,7 @@ export function LaunchTaskDialog({
           {/* 任务内容 */}
           <div>
             <label htmlFor="task-content" className="block text-sm font-medium mb-2">
-              任务内容 <span className="text-red-500">*</span>
+              任务内容 <span className="text-gdanger">*</span>
             </label>
             <textarea
               id="task-content"

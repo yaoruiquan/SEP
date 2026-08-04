@@ -43,19 +43,19 @@ export function TaskExecutionPanel({
               {taskTitle}
             </h3>
             {streaming && (
-              <Badge className="bg-blue-500 text-white flex items-center gap-1 shrink-0">
+              <Badge className="border border-ginfo/30 bg-ginfo/12 text-gneon-blue flex items-center gap-1 shrink-0">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 执行中
               </Badge>
             )}
             {error && (
-              <Badge className="bg-red-500 text-white flex items-center gap-1 shrink-0">
+              <Badge className="border border-gdanger/30 bg-gdanger/12 text-gdanger flex items-center gap-1 shrink-0">
                 <XCircle className="h-3 w-3" />
                 失败
               </Badge>
             )}
             {!streaming && !error && text && (
-              <Badge className="bg-green-500 text-white flex items-center gap-1 shrink-0">
+              <Badge className="border border-gsuccess/30 bg-gsuccess/12 text-gsuccess flex items-center gap-1 shrink-0">
                 <CheckCircle className="h-3 w-3" />
                 已完成
               </Badge>
@@ -78,7 +78,7 @@ export function TaskExecutionPanel({
           {toolCalls.length > 0 && (
             <Card className="p-4">
               <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-blue-500" />
+                <AlertCircle className="h-4 w-4 text-gneon-blue" />
                 执行步骤
               </h4>
               <div className="space-y-2">
@@ -95,10 +95,10 @@ export function TaskExecutionPanel({
                     </div>
                     <div className="shrink-0">
                       {tool.status === 'running' && (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                        <Loader2 className="h-4 w-4 animate-spin text-gneon-blue" />
                       )}
                       {tool.status === 'done' && tool.success && (
-                        <div className="flex items-center gap-1 text-green-600">
+                        <div className="flex items-center gap-1 text-gsuccess">
                           <CheckCircle className="h-4 w-4" />
                           {tool.durationMs && (
                             <span className="text-xs">{(tool.durationMs / 1000).toFixed(1)}s</span>
@@ -106,7 +106,7 @@ export function TaskExecutionPanel({
                         </div>
                       )}
                       {tool.status === 'done' && tool.success === false && (
-                        <XCircle className="h-4 w-4 text-red-500" />
+                        <XCircle className="h-4 w-4 text-gdanger" />
                       )}
                     </div>
                   </div>
@@ -145,7 +145,7 @@ export function TaskExecutionPanel({
           {error && (
             <Card className="p-4 bg-red-50 border-red-200">
               <div className="flex items-start gap-3">
-                <XCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                <XCircle className="h-5 w-5 text-gdanger shrink-0 mt-0.5" />
                 <div>
                   <h4 className="text-sm font-medium text-red-900 mb-1">执行失败</h4>
                   <p className="text-sm text-red-800">{error}</p>
@@ -157,7 +157,7 @@ export function TaskExecutionPanel({
           {/* 初始加载状态 */}
           {!text && !error && streaming && toolCalls.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-3" />
+              <Loader2 className="h-8 w-8 animate-spin text-gneon-blue mb-3" />
               <p className="text-sm text-fg-muted">正在初始化任务...</p>
             </div>
           )}

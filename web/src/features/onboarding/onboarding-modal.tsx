@@ -271,8 +271,8 @@ export function OnboardingModal({ onClose }: Props) {
           {/* Step 5: 完成 */}
           {currentStep === 5 && (
             <div className="space-y-6 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-500/10">
-                <CheckCircle2 className="h-8 w-8 text-green-500" />
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-gsuccess/25 bg-gsuccess/12">
+                <CheckCircle2 className="h-8 w-8 text-gsuccess" />
               </div>
               <div>
                 <h2 className="text-2xl font-bold">🎉 设置完成！</h2>

@@ -65,6 +65,13 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
       return;
     }
 
+    // MVP 阶段：WebSocket 功能尚未实现，暂时禁用连接
+    // TODO: 后端实现 WebSocket 服务器后移除此检查
+    if (process.env.NODE_ENV !== 'production' || !process.env.NEXT_PUBLIC_WS_ENABLED) {
+      console.log('[WebSocket] Disabled in MVP - backend not implemented yet');
+      return;
+    }
+
     // 已有连接则先关闭
     if (wsRef.current) {
       wsRef.current.close();
