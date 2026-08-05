@@ -419,7 +419,7 @@ export const adminApi = {
    * 获取可用能力列表
    */
   getAvailableCapabilities: () => {
-    return api.get<CapabilityItem[]>('/admin/capabilities');
+    return api.get<{ items: CapabilityItem[]; total: number; page: number; pageSize: number }>('/admin/capabilities');
   },
 
   /**

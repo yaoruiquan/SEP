@@ -39,8 +39,8 @@ export default function NewEmployeePage() {
 
   const { data: capabilitiesData, isLoading: capabilitiesLoading } = useAvailableCapabilities();
 
-  // 提取 items 数组
-  const capabilities = capabilitiesData || [];
+  // Hook 已经提取了 items 数组，添加防御性检查
+  const capabilities = Array.isArray(capabilitiesData) ? capabilitiesData : [];
   const bindCapabilitiesMutation = useBindCapabilities();
 
   const industries = [
