@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Check, X, Clock, AlertCircle, Users, Building2 } from 'lucide-react';
+import {
+  Shield, Check, X, Clock, AlertCircle, Users, Building2, Plus, Trash2,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +11,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
-import { useInstances, useMembers } from '@/features/enterprise/use-enterprise';
+import { useInstances, useMembers, useDepartments } from '@/features/enterprise/use-enterprise';
 import {
   usePendingAccessRequests,
   useApproveAccessRequest,
@@ -17,15 +19,19 @@ import {
   useCreateGrant,
   useDeleteGrant,
   useEmployeeGrants,
+  useAllInstanceGrants,
+  type GrantRecord,
 } from '@/features/permissions/use-permissions';
+import type { EmployeeInstance, EnterpriseMember, Department } from '@/lib/types';
+import { api } from '@/lib/api-client';
 
 /**
  * 权限管理页
  * 路由：/permissions
- * 功能：权限矩阵表格 + 跨部门申请审批
+ * 功能：成员授权矩阵 + 部门授权矩阵 + 申请审批
  */
 export default function PermissionsPage() {
-  const [viewMode, setViewMode] = useState<'department' | 'employee'>('employee');
+  const [viewMode, setViewMode] = useState<'employee' | 'department'>('employee');
 
   return (
     <div className="min-h-screen bg-neutral-50 p-6 space-y-6">
@@ -37,7 +43,7 @@ export default function PermissionsPage() {
             权限管理
           </h1>
           <p className="text-sm text-neutral-600 mt-1">
-            管理成员对员工的使用权限，审批跨部门申请
+            管理成员和部门对员工的使用权限，审批跨部门申请
           </p>
         </div>
         <Badge className="bg-primary/10 text-primary border border-primary/20">
@@ -45,17 +51,17 @@ export default function PermissionsPage() {
         </Badge>
       </div>
 
-      {/* 视图切换 */}
+      {/* 视图切换 + 矩阵 */}
       <Card className="p-4">
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'employee' | 'department')}>
           <TabsList>
             <TabsTrigger value="employee">
               <Users className="w-4 h-4 mr-2" />
-              按员工查看
+              按成员授权
             </TabsTrigger>
             <TabsTrigger value="department">
               <Building2 className="w-4 h-4 mr-2" />
-              按部门查看
+              按部门授权
             </TabsTrigger>
           </TabsList>
 
@@ -75,53 +81,63 @@ export default function PermissionsPage() {
   );
 }
 
-// ============ 按员工查看 ============
+// ─────────────────────────────────────────────────────────
+// 按部门授权（实例 × 部门 矩阵）
+// ─────────────────────────────────────────────────────────
 
-function EmployeePermissionMatrix() {
-  const { data: instances = [], isLoading: instancesLoading } = useInstances();
-  const { data: members = [], isLoading: membersLoading } = useMembers();
-  const [selectedInstance, setSelectedInstance] = useState<string>('');
-
+function DepartmentPermissionMatrix() {
+  const { data: departments = [], isLoading: deptsLoading } = useDepartments();
+  const { data: instances = [], isLoading: instsLoading } = useInstances();
   const createGrant = useCreateGrant();
   const deleteGrant = useDeleteGrant();
 
-  // 选择第一个实例作为默认值
-  const currentInstance = selectedInstance || instances[0]?.id;
-  const { data: grants = [] } = useEmployeeGrants(currentInstance || '');
+  // 并行获取所有实例的 grants
+  const grantsResults = useAllInstanceGrants(instances.map((i) => i.id));
 
-  // 构造授权映射 (memberId -> grantId)
-  const grantMap = new Map<string, string>();
-  grants.forEach((g) => {
-    if (g.memberId) {
-      grantMap.set(g.memberId, g.id);
-    }
+  // instanceId → GrantRecord[]
+  const instanceGrants = new Map<string, GrantRecord[]>();
+  instances.forEach((inst, idx) => {
+    instanceGrants.set(inst.id, grantsResults[idx]?.data ?? []);
   });
 
-  const togglePermission = async (instanceId: string, memberId: string) => {
-    const grantId = grantMap.get(memberId);
+  const isLoading = deptsLoading || instsLoading;
+  const isBusy = createGrant.isPending || deleteGrant.isPending;
 
-    if (grantId) {
-      // 撤销
-      await deleteGrant.mutateAsync({ grantId, instanceId });
-      toast.success('已撤销授权');
-    } else {
-      // 授权
-      await createGrant.mutateAsync({ instanceId, memberId });
-      toast.success('已授权');
+  const toggleDeptGrant = async (instanceId: string, deptId: string) => {
+    const grants = instanceGrants.get(instanceId) ?? [];
+    const existing = grants.find((g) => g.department?.id === deptId && !g.expired);
+    try {
+      if (existing) {
+        await deleteGrant.mutateAsync({ grantId: existing.id, instanceId });
+        toast.success('已撤销部门授权');
+      } else {
+        await createGrant.mutateAsync({ instanceId, departmentId: deptId });
+        toast.success('已授权该部门');
+      }
+    } catch {
+      toast.error('操作失败，请重试');
     }
   };
 
-  if (instancesLoading || membersLoading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-neutral-600">加载中...</div>
+      <div className="flex items-center justify-center py-12 text-neutral-500">
+        加载中...
+      </div>
+    );
+  }
+
+  if (departments.length === 0) {
+    return (
+      <div className="text-center py-12 text-neutral-500">
+        暂无部门，请先前往「成员管理」创建部门
       </div>
     );
   }
 
   if (instances.length === 0) {
     return (
-      <div className="text-center py-12 text-neutral-600">
+      <div className="text-center py-12 text-neutral-500">
         暂无员工实例，请先创建员工
       </div>
     );
@@ -129,108 +145,234 @@ function EmployeePermissionMatrix() {
 
   return (
     <div className="space-y-4">
-      {instances.map((instance) => (
-        <Card key={instance.id} className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Avatar name={instance.name} src={null} className="w-12 h-12" />
-              <div>
-                <h3 className="font-semibold text-neutral-900">{instance.name}</h3>
-                <p className="text-sm text-neutral-600">
-                  {instance.department?.name || '未分配部门'}
-                </p>
-              </div>
-            </div>
-          </div>
+      {departments.map((dept) => {
+        // 统计该部门有多少实例的授权
+        const grantedCount = instances.filter((inst) => {
+          const grants = instanceGrants.get(inst.id) ?? [];
+          return grants.some((g) => g.department?.id === dept.id && !g.expired);
+        }).length;
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {members.map((member) => {
-              const hasPermission = grants.some((g) => g.memberId === member.id && g.instanceId === instance.id);
-              const grantId = grants.find((g) => g.memberId === member.id && g.instanceId === instance.id)?.id;
-
-              return (
-                <button
-                  key={member.id}
-                  onClick={() => togglePermission(instance.id, member.id)}
-                  disabled={createGrant.isPending || deleteGrant.isPending}
-                  className={`p-3 rounded-lg border-2 transition-all text-left ${
-                    hasPermission
-                      ? 'border-success bg-success/5 hover:bg-success/10'
-                      : 'border-neutral-200 hover:border-neutral-300 bg-white'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-neutral-900">
-                      {member.user.name}
-                    </span>
-                    {hasPermission ? (
-                      <Check className="w-4 h-4 text-success" />
-                    ) : (
-                      <div className="w-4 h-4 rounded border-2 border-neutral-300" />
-                    )}
-                  </div>
-                  <p className="text-xs text-neutral-600">
-                    {member.department?.name || '未分配部门'}
+        return (
+          <Card key={dept.id} className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Building2 className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-neutral-900">{dept.name}</h3>
+                  <p className="text-sm text-neutral-500">
+                    {dept._count?.members ?? 0} 名成员
                   </p>
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-      ))}
+                </div>
+              </div>
+              <Badge className="bg-success/10 text-success border border-success/20">
+                {grantedCount} / {instances.length} 个员工已授权
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {instances.map((instance) => {
+                const grants = instanceGrants.get(instance.id) ?? [];
+                const grant = grants.find((g) => g.department?.id === dept.id);
+                const hasActive = !!grant && !grant.expired;
+                const hasExpired = !!grant && grant.expired;
+
+                return (
+                  <button
+                    key={instance.id}
+                    onClick={() => !isBusy && toggleDeptGrant(instance.id, dept.id)}
+                    disabled={isBusy}
+                    className={[
+                      'p-3 rounded-lg border-2 transition-all text-left',
+                      hasActive
+                        ? 'border-success bg-success/5 hover:bg-success/10'
+                        : hasExpired
+                        ? 'border-neutral-200 bg-neutral-50 opacity-60 cursor-default'
+                        : 'border-neutral-200 hover:border-primary/40 bg-white',
+                      isBusy ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-medium text-neutral-900 truncate pr-1">
+                        {instance.name}
+                      </span>
+                      {hasActive ? (
+                        <Check className="w-4 h-4 text-success flex-shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded border-2 border-neutral-300 flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-500 truncate">
+                      {instance.department?.name ?? '未分配部门'}
+                    </p>
+                    {hasExpired && (
+                      <span className="text-xs text-warning mt-1 block">授权已过期</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
-// ============ 按部门查看 ============
+// ─────────────────────────────────────────────────────────
+// 按成员授权（每个员工实例一张卡片）
+// ─────────────────────────────────────────────────────────
 
-function DepartmentPermissionMatrix() {
-  const departments = [
-    { id: 'd1', name: '销售部', members: 5, employees: 2 },
-    { id: 'd2', name: '客服部', members: 8, employees: 3 },
-    { id: 'd3', name: '技术部', members: 12, employees: 4 },
-  ];
+function EmployeePermissionMatrix() {
+  const { data: instances = [], isLoading: instancesLoading } = useInstances();
+  const { data: members = [], isLoading: membersLoading } = useMembers();
+
+  if (instancesLoading || membersLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-neutral-500">
+        加载中...
+      </div>
+    );
+  }
+
+  if (instances.length === 0) {
+    return (
+      <div className="text-center py-12 text-neutral-500">
+        暂无员工实例，请先前往「我的员工」创建
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {departments.map((dept) => (
-        <Card key={dept.id} className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-neutral-900 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-primary" />
-                {dept.name}
-              </h3>
-              <p className="text-sm text-neutral-600 mt-1">
-                {dept.members} 名成员 · {dept.employees} 个员工
-              </p>
-            </div>
-            <Button variant="outline" size="sm">
-              部门权限设置
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-700 font-medium">全员可用</p>
-              <p className="text-2xl font-bold text-blue-900 mt-1">2</p>
-            </div>
-            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-              <p className="text-sm text-green-700 font-medium">部分授权</p>
-              <p className="text-2xl font-bold text-green-900 mt-1">0</p>
-            </div>
-            <div className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
-              <p className="text-sm text-neutral-700 font-medium">未授权</p>
-              <p className="text-2xl font-bold text-neutral-900 mt-1">0</p>
-            </div>
-          </div>
-        </Card>
+      {instances.map((instance) => (
+        <InstancePermissionCard
+          key={instance.id}
+          instance={instance}
+          members={members}
+        />
       ))}
     </div>
   );
 }
 
-// ============ 待审批申请 ============
+/** 单个实例的授权卡片，独立管理自己的 grants 查询 */
+function InstancePermissionCard({
+  instance,
+  members,
+}: {
+  instance: EmployeeInstance;
+  members: EnterpriseMember[];
+}) {
+  const { data: grants = [], isLoading } = useEmployeeGrants(instance.id);
+  const createGrant = useCreateGrant();
+  const deleteGrant = useDeleteGrant();
+
+  const activeGrants = grants.filter((g) => !g.expired);
+
+  const toggleMember = async (memberId: string) => {
+    const existing = grants.find((g) => g.member?.id === memberId && !g.expired);
+    try {
+      if (existing) {
+        await deleteGrant.mutateAsync({ grantId: existing.id, instanceId: instance.id });
+        toast.success('已撤销授权');
+      } else {
+        await createGrant.mutateAsync({ instanceId: instance.id, memberId });
+        toast.success('已授权');
+      }
+    } catch {
+      toast.error('操作失败，请重试');
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      {/* 实例信息头 */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <Avatar name={instance.name} src={instance.template?.avatar ?? null} className="w-11 h-11" />
+          <div>
+            <h3 className="font-semibold text-neutral-900">{instance.name}</h3>
+            <p className="text-sm text-neutral-500">
+              {instance.department?.name ?? '未分配部门'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isLoading ? (
+            <span className="text-sm text-neutral-400">加载中...</span>
+          ) : (
+            <Badge className="bg-success/10 text-success border border-success/20">
+              {activeGrants.length} 项授权
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* 成员授权网格 */}
+      {members.length === 0 ? (
+        <p className="text-sm text-neutral-400 py-4 text-center">暂无成员</p>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {members.map((member) => {
+            const grant = grants.find((g) => g.member?.id === member.id);
+            const hasActive = !!grant && !grant.expired;
+            const hasExpired = !!grant && grant.expired;
+            const isBusy = createGrant.isPending || deleteGrant.isPending;
+
+            return (
+              <button
+                key={member.id}
+                onClick={() => !isBusy && toggleMember(member.id)}
+                disabled={isBusy}
+                className={[
+                  'p-3 rounded-lg border-2 transition-all text-left relative',
+                  hasActive
+                    ? 'border-success bg-success/5 hover:bg-success/10'
+                    : hasExpired
+                    ? 'border-neutral-200 bg-neutral-50 opacity-60 cursor-default'
+                    : 'border-neutral-200 hover:border-primary/40 bg-white',
+                  isBusy ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                ].join(' ')}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-sm font-medium text-neutral-900 truncate pr-1">
+                    {member.user.name ?? member.user.email}
+                  </span>
+                  {hasActive ? (
+                    <Check className="w-4 h-4 text-success flex-shrink-0" />
+                  ) : hasExpired ? (
+                    <Clock className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+                  ) : (
+                    <div className="w-4 h-4 rounded border-2 border-neutral-300 flex-shrink-0" />
+                  )}
+                </div>
+                <p className="text-xs text-neutral-500 truncate">
+                  {member.department?.name ?? '未分配部门'}
+                </p>
+                {hasExpired && (
+                  <span className="text-xs text-warning mt-1 block">已过期</span>
+                )}
+                {hasActive && grant?.expiresAt && (
+                  <span className="text-xs text-neutral-400 mt-1 block">
+                    {new Date(grant.expiresAt) < new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+                      ? '⚠️ 即将到期'
+                      : `至 ${new Date(grant.expiresAt).toLocaleDateString('zh-CN')}`}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// 待审批申请
+// ─────────────────────────────────────────────────────────
 
 function PendingApprovals() {
   const { data: requests = [], isLoading } = usePendingAccessRequests();
@@ -239,7 +381,7 @@ function PendingApprovals() {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState<'approve' | 'reject' | null>(null);
-  const [selectedRequestId, setSelectedRequestId] = useState<string>('');
+  const [selectedRequestId, setSelectedRequestId] = useState('');
 
   const handleAction = (action: 'approve' | 'reject', requestId: string) => {
     setSelectedAction(action);
@@ -256,7 +398,7 @@ function PendingApprovals() {
         await rejectRequest.mutateAsync({ requestId: selectedRequestId });
         toast.success('已拒绝申请');
       }
-    } catch (error) {
+    } catch {
       toast.error('操作失败，请重试');
     } finally {
       setSelectedAction(null);
@@ -265,104 +407,102 @@ function PendingApprovals() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card className="p-6">
-        <div className="text-center text-neutral-600">加载中...</div>
-      </Card>
-    );
-  }
-
-  if (requests.length === 0) {
-    return null;
-  }
+  // 没有待审批时不显示此区块
+  if (!isLoading && requests.length === 0) return null;
 
   return (
     <Card className="p-6">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-5">
         <AlertCircle className="w-5 h-5 text-warning" />
-        <h2 className="text-lg font-semibold text-neutral-900">
-          待审批申请
-        </h2>
-        <Badge className="bg-warning/10 text-warning border border-warning/20">
-          {requests.length} 条
-        </Badge>
+        <h2 className="text-lg font-semibold text-neutral-900">待审批申请</h2>
+        {!isLoading && (
+          <Badge className="bg-warning/10 text-warning border border-warning/20">
+            {requests.length} 条
+          </Badge>
+        )}
       </div>
 
-      <div className="space-y-4">
-        {requests.map((req) => (
-          <div
-            key={req.id}
-            className="p-4 bg-neutral-50 rounded-lg border border-neutral-200"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <Avatar
-                    name={req.requester.user.name}
-                    src={req.requester.user.avatar}
-                    className="w-10 h-10"
-                  />
-                  <div>
-                    <p className="font-medium text-neutral-900">
-                      {req.requester.user.name}
-                      <span className="text-neutral-600 font-normal">
-                        {' '}申请使用{' '}
-                      </span>
-                      {req.instance.employee.name}
-                    </p>
-                    <p className="text-xs text-neutral-600">
-                      {req.requester.department?.name || '未分配部门'}
-                      {req.requester.department?.name !== req.instance.employee.name && ' → 跨部门申请'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  {req.reason && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-neutral-600 min-w-16">申请理由:</span>
-                      <span className="text-neutral-900">{req.reason}</span>
+      {isLoading ? (
+        <div className="text-center py-8 text-neutral-500">加载中...</div>
+      ) : (
+        <div className="space-y-4">
+          {requests.map((req) => (
+            <div
+              key={req.id}
+              className="p-4 bg-neutral-50 rounded-lg border border-neutral-200"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Avatar
+                      name={req.requester.user.name}
+                      src={req.requester.user.avatar}
+                      className="w-9 h-9 flex-shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-medium text-neutral-900">
+                        {req.requester.user.name}
+                        <span className="text-neutral-500 font-normal"> 申请使用 </span>
+                        <span className="text-primary">{req.instance.employee.name}</span>
+                      </p>
+                      <p className="text-xs text-neutral-500">
+                        {req.requester.department?.name ?? '未分配部门'}
+                        {' · 跨部门申请'}
+                      </p>
                     </div>
-                  )}
-                  <div className="flex items-center gap-4 text-neutral-600">
-                    {req.requestedDays && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        期限: {req.requestedDays} 天
-                      </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-sm pl-12">
+                    {req.reason && (
+                      <p className="text-neutral-700">
+                        <span className="text-neutral-500">申请理由：</span>
+                        {req.reason}
+                      </p>
                     )}
-                    <span>
-                      申请时间: {new Date(req.createdAt).toLocaleString('zh-CN')}
-                    </span>
+                    <div className="flex items-center gap-4 text-neutral-500">
+                      {req.requestedDays && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          申请 {req.requestedDays} 天
+                        </span>
+                      )}
+                      <span>
+                        {new Date(req.createdAt).toLocaleString('zh-CN', {
+                          month: 'numeric',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleAction('approve', req.id)}
-                  disabled={approveRequest.isPending || rejectRequest.isPending}
-                >
-                  <Check className="w-4 h-4 mr-1" />
-                  批准
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleAction('reject', req.id)}
-                  disabled={approveRequest.isPending || rejectRequest.isPending}
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  拒绝
-                </Button>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleAction('approve', req.id)}
+                    disabled={approveRequest.isPending || rejectRequest.isPending}
+                  >
+                    <Check className="w-4 h-4 mr-1" />
+                    批准
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleAction('reject', req.id)}
+                    disabled={approveRequest.isPending || rejectRequest.isPending}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    拒绝
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmOpen}
@@ -373,7 +513,7 @@ function PendingApprovals() {
             ? '批准后将自动授予限时权限，到期后自动回收。'
             : '拒绝后申请人将收到通知，可以重新提交申请。'
         }
-        confirmText={selectedAction === 'approve' ? '批准' : '拒绝'}
+        confirmText={selectedAction === 'approve' ? '确认批准' : '确认拒绝'}
         variant={selectedAction === 'reject' ? 'danger' : 'default'}
         onConfirm={confirmAction}
       />

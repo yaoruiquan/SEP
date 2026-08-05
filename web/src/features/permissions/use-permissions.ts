@@ -1,33 +1,8 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import { GrantRecord } from '@/lib/types';
 
-export interface EmployeeGrant {
-  id: string;
-  instanceId: string;
-  departmentId: string | null;
-  memberId: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  instance?: {
-    id: string;
-    employee: {
-      id: string;
-      name: string;
-    };
-  };
-  member?: {
-    id: string;
-    user: {
-      id: string;
-      name: string;
-      email: string;
-    };
-    department: {
-      id: string;
-      name: string;
-    } | null;
-  } | null;
-}
+export type { GrantRecord };
 
 export interface AccessRequest {
   id: string;
@@ -69,36 +44,49 @@ export interface AccessRequest {
 }
 
 /**
- * 获取员工授权列表（某个实例的授权情况）
+ * 获取单个实例的授权列表
  */
 export function useEmployeeGrants(instanceId: string) {
-  return useQuery<EmployeeGrant[]>({
+  return useQuery<GrantRecord[]>({
     queryKey: ['grants', instanceId],
-    queryFn: async () => {
-      return await api.get<EmployeeGrant[]>(`/enterprise/instances/${instanceId}/grants`);
-    },
+    queryFn: () => api.get<GrantRecord[]>(`/enterprise/instances/${instanceId}/grants`),
     enabled: !!instanceId,
     staleTime: 30_000,
   });
 }
 
 /**
- * 创建授权
+ * 并行获取多个实例的授权列表（用于部门视图）
+ */
+export function useAllInstanceGrants(instanceIds: string[]) {
+  return useQueries({
+    queries: instanceIds.map((id) => ({
+      queryKey: ['grants', id],
+      queryFn: () => api.get<GrantRecord[]>(`/enterprise/instances/${id}/grants`),
+      enabled: instanceIds.length > 0,
+      staleTime: 30_000,
+    })),
+  });
+}
+
+/**
+ * 创建授权（支持过期时间）
  */
 export function useCreateGrant() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: {
+    mutationFn: (data: {
       instanceId: string;
       departmentId?: string | null;
       memberId?: string | null;
-    }) => {
-      return await api.post(`/enterprise/instances/${data.instanceId}/grants`, {
-        departmentId: data.departmentId,
-        memberId: data.memberId,
-      });
-    },
+      expiresAt?: string | null;
+    }) =>
+      api.post<GrantRecord>(`/enterprise/instances/${data.instanceId}/grants`, {
+        departmentId: data.departmentId ?? null,
+        memberId: data.memberId ?? null,
+        expiresAt: data.expiresAt ?? null,
+      }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['grants', vars.instanceId] });
     },
@@ -112,9 +100,8 @@ export function useDeleteGrant() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { grantId: string; instanceId: string }) => {
-      await api.delete(`/enterprise/grants/${params.grantId}`);
-    },
+    mutationFn: (params: { grantId: string; instanceId: string }) =>
+      api.delete(`/enterprise/grants/${params.grantId}`),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['grants', vars.instanceId] });
     },
@@ -128,13 +115,8 @@ export function useCreateAccessRequest() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: {
-      instanceId: string;
-      reason?: string;
-      requestedDays?: number;
-    }) => {
-      return await api.post<AccessRequest>('/enterprise/access-requests', data);
-    },
+    mutationFn: (data: { instanceId: string; reason?: string; requestedDays?: number }) =>
+      api.post<AccessRequest>('/enterprise/access-requests', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['access-requests'] });
     },
@@ -142,14 +124,12 @@ export function useCreateAccessRequest() {
 }
 
 /**
- * 获取待审批列表（管理员/部门负责人）
+ * 获取待审批列表（管理员）
  */
 export function usePendingAccessRequests() {
   return useQuery<AccessRequest[]>({
     queryKey: ['access-requests', 'pending'],
-    queryFn: async () => {
-      return await api.get<AccessRequest[]>('/enterprise/access-requests/pending');
-    },
+    queryFn: () => api.get<AccessRequest[]>('/enterprise/access-requests/pending'),
     staleTime: 30_000,
   });
 }
@@ -160,25 +140,22 @@ export function usePendingAccessRequests() {
 export function useMyAccessRequests() {
   return useQuery<AccessRequest[]>({
     queryKey: ['access-requests', 'my'],
-    queryFn: async () => {
-      return await api.get<AccessRequest[]>('/enterprise/access-requests/my');
-    },
+    queryFn: () => api.get<AccessRequest[]>('/enterprise/access-requests/my'),
     staleTime: 30_000,
   });
 }
 
 /**
- * 批准访问申请
+ * 批准申请
  */
 export function useApproveAccessRequest() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { requestId: string; reviewNote?: string }) => {
-      return await api.post(`/enterprise/access-requests/${params.requestId}/approve`, {
+    mutationFn: (params: { requestId: string; reviewNote?: string }) =>
+      api.post(`/enterprise/access-requests/${params.requestId}/approve`, {
         reviewNote: params.reviewNote,
-      });
-    },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['access-requests'] });
     },
@@ -186,17 +163,16 @@ export function useApproveAccessRequest() {
 }
 
 /**
- * 拒绝访问申请
+ * 拒绝申请
  */
 export function useRejectAccessRequest() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { requestId: string; reviewNote?: string }) => {
-      return await api.post(`/enterprise/access-requests/${params.requestId}/reject`, {
+    mutationFn: (params: { requestId: string; reviewNote?: string }) =>
+      api.post(`/enterprise/access-requests/${params.requestId}/reject`, {
         reviewNote: params.reviewNote,
-      });
-    },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['access-requests'] });
     },
