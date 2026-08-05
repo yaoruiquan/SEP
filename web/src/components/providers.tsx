@@ -13,9 +13,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000,
+            staleTime: 5 * 60_000, // 5分钟缓存，减少不必要的重新请求
             retry: 1,
             refetchOnWindowFocus: false,
+            refetchOnMount: false, // 避免每次组件挂载都重新请求
           },
         },
       }),

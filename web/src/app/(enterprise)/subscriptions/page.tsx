@@ -214,7 +214,8 @@ export default function SubscriptionsPage() {
 
                   {/* 操作 */}
                   <div className="flex gap-2">
-                    {isActive ? (
+                    {/* 聊天功能暂未开发，暂时隐藏 */}
+                    {/* {isActive ? (
                       <Link href={`/chat?employeeId=${emp.id}`} className="flex-1">
                         <Button variant="secondary" size="sm" className="w-full">
                           <MessageSquare className="h-4 w-4" />
@@ -228,7 +229,7 @@ export default function SubscriptionsPage() {
                           {sub.status === 'EXPIRED' ? '重新订阅' : '前往市场'}
                         </Button>
                       </Link>
-                    )}
+                    )} */}
                     <Button
                       variant="ghost"
                       size="sm"
