@@ -40,6 +40,7 @@ export default function MarketplacePage() {
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
+  const [subscribeSucceeded, setSubscribeSucceeded] = useState(false);
 
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -142,18 +143,22 @@ export default function MarketplacePage() {
     setPayingEmp(emp);
   }
 
-  /** 支付确认后才真正调订阅接口。成功则关弹窗，失败留在弹窗里让用户重试。 */
+  /** 支付确认后才真正调订阅接口。成功则切换到引导界面，失败留在弹窗里让用户重试。 */
   function confirmPayment() {
     const emp = payingEmp;
     if (!emp) return;
     subscribe.mutate(emp.id, {
       onSuccess: () => {
-        setPayingEmp(null);
-        toast.success(`已订阅「${emp.name}」，可去「员工实例」创建实例`);
+        setSubscribeSucceeded(true);
       },
       onError: (e) =>
         toast.error(e instanceof ApiError ? e.message : '订阅失败'),
     });
+  }
+
+  function closePaymentModal() {
+    setPayingEmp(null);
+    setSubscribeSucceeded(false);
   }
 
   return (
@@ -239,12 +244,13 @@ export default function MarketplacePage() {
                   : '员工上架后会出现在这里。'
               }
               action={
-                filters.category || filters.capTypes.length ? (
+                debouncedSearch || filters.category || filters.capTypes.length ? (
                   <Button
                     variant="glass"
                     size="sm"
                     onClick={() =>
                       patchFilters({
+                        search: '',
                         category: '',
                         capTypes: [],
                         maxPrice: PRICE_MAX,
@@ -297,8 +303,9 @@ export default function MarketplacePage() {
           open
           emp={payingEmp}
           subscribing={subscribe.isPending}
+          succeeded={subscribeSucceeded}
           onConfirm={confirmPayment}
-          onClose={() => setPayingEmp(null)}
+          onClose={closePaymentModal}
         />
       )}
     </div>

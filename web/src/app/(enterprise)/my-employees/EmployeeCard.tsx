@@ -1,12 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { MonitorPlay, Download, Settings, Key, BarChart3, MessageSquare } from 'lucide-react';
+import { Download, Settings, Key, BarChart3 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { StatusDot } from '@/components/ui/status-dot';
 import { toast } from '@/components/ui/toast';
 import type { MyEmployee } from '@/lib/types';
 import type { useDownloadPackage } from '@/features/employee/use-packages';
@@ -16,28 +15,18 @@ interface EmployeeCardProps {
   employee: MyEmployee;
   isAdmin: boolean;
   download: ReturnType<typeof useDownloadPackage>;
-  status: 'online' | 'offline' | 'busy';
+  /** @deprecated WebSocket 未实现，保留字段但不用于展示假数据 */
+  status?: 'online' | 'offline' | 'busy';
 }
 
 export const EmployeeCard = memo(function EmployeeCard({
   employee,
   isAdmin,
   download,
-  status,
 }: EmployeeCardProps) {
   const router = useRouter();
   const { instanceId, name, templateVersion, template, department, grantSource, expiresAt, packageAvailable } =
     employee;
-
-  // Mock 统计数据（待后端实现）
-  const mockMonthCalls = Math.floor(Math.random() * 200) + 10;
-  const mockMonthSpend = (Math.random() * 100 + 5).toFixed(2);
-
-  const statusText = {
-    online: '在线',
-    offline: '离线',
-    busy: '忙碌中',
-  }[status];
 
   const handleDownload = () => {
     download.mutate(
@@ -69,17 +58,13 @@ export const EmployeeCard = memo(function EmployeeCard({
       >
         <CardHeader className="border-b border-glassline bg-gradient-to-br from-gbrand-text/10 via-transparent to-transparent p-5">
           <div className="flex items-start gap-4">
-            {/* 头像 + 状态指示器 */}
+            {/* 头像 */}
             <div className="relative shrink-0">
               <Avatar
                 name={template.name}
                 src={template.avatar}
                 className="h-14 w-14 shadow-glass-sm ring-2 ring-white/15 transition-transform group-hover:scale-105"
               />
-              {/* 实时状态指示器 */}
-              <div className="absolute -bottom-1 -right-1">
-                <StatusDot status={status} size="lg" />
-              </div>
             </div>
 
             {/* 员工信息 */}
@@ -88,11 +73,9 @@ export const EmployeeCard = memo(function EmployeeCard({
               <p className="mt-0.5 truncate text-xs text-gtext-secondary">
                 {template.name} <span className="opacity-60">v{templateVersion}</span>
               </p>
-              <div className="mt-2 flex items-center gap-2 text-xs text-gtext-muted">
-                <StatusDot status={status} size="sm" />
-                <span>{statusText}</span>
-                <span className="text-xs text-gtext-muted">· 2 小时前活跃</span>
-              </div>
+              <p className="mt-1.5 text-xs text-gtext-muted">
+                {grantSource === 'ADMIN' ? '管理员授权' : '自助订阅'}
+              </p>
             </div>
           </div>
         </CardHeader>
@@ -100,18 +83,6 @@ export const EmployeeCard = memo(function EmployeeCard({
 
       {/* 卡片内容 */}
       <CardContent className="space-y-4 p-5">
-        {/* 使用统计 */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gtext-secondary">本月调用</span>
-            <span className="font-medium text-gtext-primary">{mockMonthCalls} 次</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gtext-secondary">本月消费</span>
-            <span className="font-medium text-gneon-green">¥{mockMonthSpend}</span>
-          </div>
-        </div>
-
         {/* 授权信息 */}
         <div className="space-y-1.5 rounded-md bg-glass-2 p-2.5">
           {department && (
@@ -134,19 +105,6 @@ export const EmployeeCard = memo(function EmployeeCard({
 
         {/* 操作按钮 */}
         <div className="space-y-2">
-          {/* 聊天功能暂未开发，暂时隐藏 */}
-          {/* <Button
-            size="sm"
-            className="w-full shadow-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/chat?employeeId=${instanceId}`);
-            }}
-          >
-            <MessageSquare className="mr-2 h-4 w-4" />
-            开始对话
-          </Button> */}
-
           {/* 管理员操作 */}
           {isAdmin && (
             <div className="grid grid-cols-3 gap-2">
