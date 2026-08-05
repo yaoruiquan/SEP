@@ -10,6 +10,15 @@ export const RechargeCreateDtoSchema = z.object({
 });
 export type RechargeCreateDto = z.infer<typeof RechargeCreateDtoSchema>;
 
+export const TransactionQueryDtoSchema = z.object({
+  type: z.enum(['RECHARGE', 'CONSUME', 'REFUND']).optional(),
+  startDate: z.string().optional(), // ISO date string YYYY-MM-DD
+  endDate: z.string().optional(),   // ISO date string YYYY-MM-DD
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+export type TransactionQueryDto = z.infer<typeof TransactionQueryDtoSchema>;
+
 export interface ComputeAccountView {
   id: string;
   balance: number;

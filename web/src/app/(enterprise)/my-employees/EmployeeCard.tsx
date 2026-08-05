@@ -30,19 +30,13 @@ export const EmployeeCard = memo(function EmployeeCard({
 
   const handleDownload = () => {
     download.mutate(
-      { instanceId },
+      instanceId,
       {
         onSuccess: ({ filename, sha256 }) => {
-          toast.success(
-            <>
-              下载成功：{filename}
-              {sha256 && (
-                <div className="mt-2 text-xs opacity-75">
-                  SHA256: <code className="break-all">{sha256}</code>
-                </div>
-              )}
-            </>,
-          );
+          const message = sha256
+            ? `下载成功：${filename}\nSHA256: ${sha256}`
+            : `下载成功：${filename}`;
+          toast.success(message);
         },
         onError: (err) => toast.error((err as Error).message),
       },
@@ -74,7 +68,7 @@ export const EmployeeCard = memo(function EmployeeCard({
                 {template.name} <span className="opacity-60">v{templateVersion}</span>
               </p>
               <p className="mt-1.5 text-xs text-gtext-muted">
-                {grantSource === 'ADMIN' ? '管理员授权' : '自助订阅'}
+                {grantSource === 'DIRECT' ? '自助订阅' : grantSource === 'DEPARTMENT' ? '部门授权' : '未知'}
               </p>
             </div>
           </div>
@@ -88,12 +82,14 @@ export const EmployeeCard = memo(function EmployeeCard({
           {department && (
             <div className="flex items-center justify-between text-xs">
               <span className="text-gtext-secondary">所属部门</span>
-              <Badge className="bg-glass-3 text-xs">{department}</Badge>
+              <span className="text-gtext-muted">{department.name}</span>
             </div>
           )}
           <div className="flex items-center justify-between text-xs">
             <span className="text-gtext-secondary">授权来源</span>
-            <span className="text-gtext-muted">{grantSource === 'ADMIN' ? '管理员' : '自助订阅'}</span>
+            <span className="text-gtext-muted">
+              {grantSource === 'DIRECT' ? '自助订阅' : grantSource === 'DEPARTMENT' ? '部门授权' : '未知'}
+            </span>
           </div>
           {expiresAt && (
             <div className="flex items-center justify-between text-xs">

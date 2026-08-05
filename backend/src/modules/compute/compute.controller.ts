@@ -37,18 +37,22 @@ export class ComputeController {
   }
 
   @Get('transactions')
-  @ApiOperation({ summary: '获取交易记录列表' })
+  @ApiOperation({ summary: '获取交易记录列表（支持类型/日期过滤 + 分页）' })
   @ApiResponse({ status: 200, description: '交易记录' })
   async listTransactions(
     @Request() req: AuthedRequest,
     @Query('type') type?: 'RECHARGE' | 'CONSUME' | 'REFUND',
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     return this.compute.listTransactions(req.user.id, {
       type,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      startDate,
+      endDate,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
   }
 

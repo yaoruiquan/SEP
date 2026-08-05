@@ -90,8 +90,10 @@ export class ComputeService {
     userId: string,
     params?: {
       type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
-      limit?: number;
-      offset?: number;
+      startDate?: string;
+      endDate?: string;
+      page?: number;
+      pageSize?: number;
     },
   ) {
     const account = await this.getAccount(userId);
@@ -100,18 +102,33 @@ export class ComputeService {
     if (params?.type) {
       where.type = params.type;
     }
+    if (params?.startDate || params?.endDate) {
+      where.createdAt = {};
+      if (params.startDate) {
+        where.createdAt.gte = new Date(params.startDate);
+      }
+      if (params?.endDate) {
+        // include the full end day
+        const end = new Date(params.endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    const page = params?.page || 1;
+    const pageSize = params?.pageSize || 20;
 
     const [total, transactions] = await Promise.all([
       this.prisma.computeTransaction.count({ where }),
       this.prisma.computeTransaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: params?.limit || 50,
-        skip: params?.offset || 0,
+        take: pageSize,
+        skip: (page - 1) * pageSize,
       }),
     ]);
 
-    return { total, transactions };
+    return { total, page, pageSize, transactions };
   }
 
   // ── 充值 ──────────────────────────────────────────────────────────────────

@@ -42,20 +42,33 @@ export function useComputeStats() {
   });
 }
 
-export function useComputeTransactions(params?: {
+export interface TransactionListParams {
   type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
-  limit?: number;
-  offset?: number;
-}) {
-  return useQuery<{ total: number; transactions: ComputeTransaction[] }>({
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string;   // YYYY-MM-DD
+  page?: number;
+  pageSize?: number;
+}
+
+export interface TransactionListResult {
+  total: number;
+  page: number;
+  pageSize: number;
+  transactions: ComputeTransaction[];
+}
+
+export function useComputeTransactions(params?: TransactionListParams) {
+  return useQuery<TransactionListResult>({
     queryKey: ['compute', 'transactions', params],
     queryFn: () => {
-      const searchParams = new URLSearchParams();
-      if (params?.type) searchParams.append('type', params.type);
-      if (params?.limit) searchParams.append('limit', params.limit.toString());
-      if (params?.offset) searchParams.append('offset', params.offset.toString());
+      const sp = new URLSearchParams();
+      if (params?.type) sp.append('type', params.type);
+      if (params?.startDate) sp.append('startDate', params.startDate);
+      if (params?.endDate) sp.append('endDate', params.endDate);
+      if (params?.page) sp.append('page', params.page.toString());
+      if (params?.pageSize) sp.append('pageSize', params.pageSize.toString());
 
-      const qs = searchParams.toString();
+      const qs = sp.toString();
       return api.get(`/compute/transactions${qs ? `?${qs}` : ''}`);
     },
   });
