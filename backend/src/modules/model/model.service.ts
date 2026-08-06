@@ -164,13 +164,35 @@ export class ModelService {
    * 用户端：仅返回已启用且未失效的模型。
    * 用于员工表单的模型选择、会话内模型切换。
    */
-  async listEnabled(): Promise<UpstreamModelEntry[]> {
+  async listEnabled() {
     const rows = await this.prisma.platformModel.findMany({
       where: { enabled: true, isStale: false },
       orderBy: [{ sortOrder: "asc" }, { modelId: "asc" }],
-      select: { modelId: true, label: true },
+      select: {
+        modelId: true,
+        label: true,
+        vendor: true,
+        category: true,
+        description: true,
+        contextLength: true,
+        maxOutputTokens: true,
+        pricingInputPer1M: true,
+        pricingOutputPer1M: true,
+        supportedFeatures: true,
+      },
     });
-    return rows.map((r) => ({ id: r.modelId, label: r.label }));
+    return rows.map((r) => ({
+      id: r.modelId,
+      label: r.label,
+      vendor: r.vendor,
+      category: r.category,
+      description: r.description,
+      contextLength: r.contextLength,
+      maxOutputTokens: r.maxOutputTokens,
+      pricingInputPer1M: r.pricingInputPer1M?.toNumber() ?? null,
+      pricingOutputPer1M: r.pricingOutputPer1M?.toNumber() ?? null,
+      supportedFeatures: r.supportedFeatures,
+    }));
   }
 
   /** 校验某模型 ID 是否已对用户开放（切换模型时用）。 */

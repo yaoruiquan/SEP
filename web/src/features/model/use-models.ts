@@ -5,6 +5,14 @@ import { api } from "@/lib/api-client";
 export interface AvailableModel {
   id: string;
   label: string;
+  vendor: string | null;
+  category: string | null;
+  description: string | null;
+  contextLength: number | null;
+  maxOutputTokens: number | null;
+  pricingInputPer1M: number | null;
+  pricingOutputPer1M: number | null;
+  supportedFeatures: unknown;
 }
 
 /** 管理端的平台模型记录。 */
