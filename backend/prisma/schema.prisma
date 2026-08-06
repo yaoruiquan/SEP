@@ -37,6 +37,7 @@ model User {
   devices                 Device[]
   createdKnowledgeBases   KnowledgeBase[]       @relation("KnowledgeBaseCreator")
   uploadedDocuments       Document[]            @relation("DocumentUploader")
+  createdTextChunks       TextChunk[]           @relation("TextChunkCreator")
   notifications           Notification[]
 
   @@map("users")
@@ -599,8 +600,9 @@ model ConversationSession {
   updatedAt DateTime @updatedAt
 
   // Relations
-  messages       Message[]
-  toolExecutions ToolExecution[]
+  messages          Message[]
+  toolExecutions    ToolExecution[]
+  knowledgeUsageLogs KnowledgeUsageLog[]
 
   @@map("conversation_sessions")
 }
@@ -870,10 +872,12 @@ model KnowledgeBase {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  enterprise Enterprise       @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-  creator    User             @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
+  enterprise Enterprise            @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  creator    User                  @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
   documents  Document[]
   grants     KnowledgeGrant[]
+  textChunks TextChunk[]
+  usageLogs  KnowledgeUsageLog[]
 
   @@index([enterpriseId])
   @@map("knowledge_bases")
@@ -920,6 +924,41 @@ model KnowledgeGrant {
   @@unique([knowledgeBaseId, departmentId])
   @@index([knowledgeBaseId])
   @@map("knowledge_grants")
+}
+
+model TextChunk {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  title           String?
+  content         String   @db.Text
+  source          String // "manual" or document ID
+  tags            String[] // User-defined tags
+  vectorId        String? // Vector database ID
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  creator       User?         @relation("TextChunkCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([knowledgeBaseId])
+  @@map("text_chunks")
+}
+
+model KnowledgeUsageLog {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  sessionId       String
+  query           String   @db.Text
+  retrievedChunks Int
+  createdAt       DateTime @default(now())
+
+  knowledgeBase KnowledgeBase       @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  session       ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+  @@index([sessionId])
+  @@map("knowledge_usage_logs")
 }
 
 // ============================================================================
