@@ -56,7 +56,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="absolute inset-0 flex">
+    <div className="flex h-screen">
       <SessionList
         sessions={sessions}
         activeId={effectiveActive}
@@ -67,7 +67,7 @@ export default function ChatPage() {
         onDelete={handleDelete}
       />
 
-      <div className="min-w-0 flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {effectiveActive ? (
           <ChatWindow key={effectiveActive} conversationId={effectiveActive} />
         ) : (
