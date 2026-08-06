@@ -84,7 +84,7 @@ export interface ToolCallRecord {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  role: 'USER' | 'ASSISTANT' | 'TOOL';
   content: string;
   toolCalls?: ToolCallRecord[] | null;
   createdAt: string;

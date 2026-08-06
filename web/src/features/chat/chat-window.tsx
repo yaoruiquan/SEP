@@ -97,11 +97,11 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         ) : (
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
             {persisted
-              .filter((m) => m.role !== 'tool')
+              .filter((m) => m.role !== 'TOOL')
               .map((m) => (
                 <MessageBubble
                   key={m.id}
-                  role={m.role as 'user' | 'assistant'}
+                  role={m.role.toLowerCase() as 'user' | 'assistant'}
                   content={m.content}
                   toolCalls={m.toolCalls}
                   employeeName={employee?.name}
