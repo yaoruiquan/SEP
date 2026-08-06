@@ -48,14 +48,14 @@ export function AuroraBackground({
   scoped = true,
   blobs = 3,
 }: AuroraBackgroundProps) {
-  // 优雅处理 SSR：如果 ThemeProvider 不可用（SSR 阶段），默认深色主题
-  let theme: 'light' | 'dark' = 'dark';
+  // 优雅处理 SSR：如果 ThemeProvider 不可用（SSR 阶段），默认浅色主题
+  let theme: 'light' | 'dark' = 'light';
   try {
     const context = useTheme();
     theme = context.theme;
   } catch {
     // SSR 或 ThemeProvider 不可用时，使用默认主题
-    theme = 'dark';
+    theme = 'light';
   }
 
   return (

@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Settings, Trash2, Activity, Clock, FileText, Sliders, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Settings, Trash2, Activity, Clock, FileText, Sliders, AlertTriangle, Zap, BarChart2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,57 +12,40 @@ import { ProgressBar } from '@/components/ui/progress-bar';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useState } from 'react';
-import { useEmployeeDetail, useUpdateEmployee, useDeleteEmployee } from '@/features/employee/use-employee-detail';
-import { useWebSocket } from '@/hooks/use-websocket';
-import { useAuthStore } from '@/lib/auth-store';
+import { useMyEmployees } from '@/features/enterprise/use-enterprise';
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts';
 
 /**
  * 员工详情页
  * 路由：/my-employees/[id]
+ * 注意：id 是 instanceId，不是 employeeId
  */
 export default function EmployeeDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const employeeId = params.id as string;
-  const { token } = useAuthStore();
-
+  const instanceId = params.id as string;
   const [activeTab, setActiveTab] = useState('overview');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // 获取员工详情
-  const { data: employee, isLoading, isError, error } = useEmployeeDetail(employeeId);
+  // 从"我的员工"列表中查找当前实例
+  const { data: employees = [], isLoading, isError } = useMyEmployees();
+  const employee = employees.find(emp => emp.instanceId === instanceId);
 
-  // WebSocket 实时状态（只在有 token 和 employeeId 时连接）
-  const wsUrl = token && employeeId
-    ? `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/employees/${employeeId}/status?token=${token}`
-    : '';
+  // 暂时禁用更新和删除功能（需要后端API支持）
+  // const updateEmployee = useUpdateEmployee();
+  // const deleteEmployee = useDeleteEmployee();
 
-  const { isConnected: wsConnected } = useWebSocket(wsUrl, {
-    onMessage: (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'status_update') {
-          // TODO: 更新本地状态
-          console.log('Employee status updated:', data);
-        }
-      } catch (err) {
-        console.error('WebSocket message parse error:', err);
-      }
-    },
-  });
-
-  // 更新 & 删除
-  const updateEmployee = useUpdateEmployee();
-  const deleteEmployee = useDeleteEmployee();
-
-  const handleDelete = () => {
-    deleteEmployee.mutate(employeeId, {
-      onSuccess: () => {
-        router.push('/my-employees');
-      },
-    });
-  };
+  // const handleDelete = () => {
+  //   deleteEmployee.mutate(instanceId, {
+  //     onSuccess: () => {
+  //       router.push('/my-employees');
+  //     },
+  //   });
+  // };
 
   if (isLoading) {
     return <CenteredSpinner label="加载员工详情..." />;
@@ -74,9 +57,9 @@ export default function EmployeeDetailPage() {
         <EmptyState
           icon={<AlertTriangle className="h-8 w-8 text-danger" />}
           title="加载失败"
-          description={error?.message || '无法获取员工详情'}
+          description="未找到该员工实例或无权访问"
           action={
-            <Button variant="outline" onClick={() => router.back()}>
+            <Button variant="outline" onClick={() => router.push('/my-employees')}>
               返回
             </Button>
           }
@@ -102,17 +85,14 @@ export default function EmployeeDetailPage() {
               </Button>
               <div className="h-6 w-px bg-neutral-200" />
               <h1 className="text-xl font-semibold text-neutral-900">员工详情</h1>
-              {wsConnected && (
-                <Badge className="ml-2 text-xs text-success border-success">
-                  ● 实时连接
-                </Badge>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setIsEditing(!isEditing)}
+                disabled
+                title="编辑功能待实现"
               >
                 <Settings className="w-4 h-4 mr-2" />
                 {isEditing ? '取消编辑' : '编辑'}
@@ -121,6 +101,8 @@ export default function EmployeeDetailPage() {
                 variant="danger"
                 size="sm"
                 onClick={() => setDeleteOpen(true)}
+                disabled
+                title="删除功能待实现"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 删除
@@ -140,63 +122,51 @@ export default function EmployeeDetailPage() {
                 <div className="relative">
                   <Avatar
                     name={employee.name}
-                    src={employee.avatar}
+                    src={employee.template.avatar}
                     className="w-24 h-24 text-2xl"
                   />
-                  <div className="absolute -bottom-1 -right-1">
-                    <StatusDot status={employee.status} size="lg" />
-                  </div>
                 </div>
                 <h2 className="mt-4 text-lg font-semibold text-neutral-900">
                   {employee.name}
                 </h2>
                 <p className="text-sm text-neutral-600 mt-1">
-                  {employee.templateName || '自定义员工'} {employee.templateVersion && `· v${employee.templateVersion}`}
+                  {employee.template.name} · v{employee.templateVersion}
                 </p>
-                <StatusDot
-                  status={employee.status}
-                  showLabel
-                  className="mt-3"
-                />
               </div>
 
               {/* 统计数据 */}
               <div className="space-y-3 pt-4 border-t border-neutral-200">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-600">部门</span>
-                  <Badge>{employee.departmentName || '未分配'}</Badge>
+                  <Badge>{employee.department?.name || '未分配'}</Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-neutral-600">总任务数</span>
-                  <span className="font-semibold text-neutral-900">
-                    {employee.stats?.totalTasks || 0}
-                  </span>
+                  <span className="text-sm text-neutral-600">授权来源</span>
+                  <Badge>
+                    {employee.grantSource === 'DIRECT' ? '自助订阅' : '部门授权'}
+                  </Badge>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-neutral-600">成功率</span>
-                  <span className="font-semibold text-success">
-                    {employee.stats?.successRate || 0}%
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-neutral-600">平均响应</span>
-                  <span className="font-semibold text-neutral-900">
-                    {employee.stats?.avgResponseTime || 0}s
-                  </span>
-                </div>
+                {employee.expiresAt && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-neutral-600">到期时间</span>
+                    <span className="text-sm text-neutral-900">
+                      {new Date(employee.expiresAt).toLocaleDateString('zh-CN')}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* 本月统计 */}
+              {/* 本月统计 - 暂无数据 */}
               <div className="space-y-3 pt-4 border-t border-neutral-200">
                 <h3 className="text-sm font-medium text-neutral-700">本月统计</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-600">调用次数</span>
-                    <span className="font-semibold">{employee.stats?.monthCalls || 0}</span>
+                    <span className="font-semibold text-neutral-400">-</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-600">消费金额</span>
-                    <span className="font-semibold">¥{employee.stats?.monthSpend || 0}</span>
+                    <span className="font-semibold text-neutral-400">-</span>
                   </div>
                 </div>
               </div>
@@ -224,6 +194,10 @@ export default function EmployeeDetailPage() {
                     <Activity className="w-4 h-4 mr-2" />
                     概览
                   </TabsTrigger>
+                  <TabsTrigger value="capabilities">
+                    <Zap className="w-4 h-4 mr-2" />
+                    能力
+                  </TabsTrigger>
                   <TabsTrigger value="tasks">
                     <Clock className="w-4 h-4 mr-2" />
                     任务
@@ -236,10 +210,17 @@ export default function EmployeeDetailPage() {
                     <FileText className="w-4 h-4 mr-2" />
                     日志
                   </TabsTrigger>
+                  <TabsTrigger value="monitoring">
+                    <BarChart2 className="w-4 h-4 mr-2" />
+                    监控
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview" className="mt-6">
                   <OverviewTab employee={employee} />
+                </TabsContent>
+                <TabsContent value="capabilities" className="mt-6">
+                  <CapabilitiesTab />
                 </TabsContent>
                 <TabsContent value="tasks" className="mt-6">
                   <TasksTab />
@@ -250,23 +231,26 @@ export default function EmployeeDetailPage() {
                 <TabsContent value="logs" className="mt-6">
                   <LogsTab />
                 </TabsContent>
+                <TabsContent value="monitoring" className="mt-6">
+                  <MonitoringTab employeeId={instanceId} />
+                </TabsContent>
               </Tabs>
             </Card>
           </div>
         </div>
       </div>
 
-      {/* 删除确认对话框 */}
-      <ConfirmDialog
+      {/* 删除确认对话框 - 暂时禁用 */}
+      {/* <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="删除员工"
         description={`确定要删除员工「${employee.name}」吗？此操作不可撤销，员工的所有数据和历史记录都将被删除。`}
         confirmText="删除"
         variant="danger"
-        loading={deleteEmployee.isPending}
-        onConfirm={handleDelete}
-      />
+        loading={false}
+        onConfirm={() => {}}
+      /> */}
     </div>
   );
 }
@@ -280,24 +264,8 @@ function OverviewTab({ employee }: { employee: any }) {
       <div>
         <h3 className="text-base font-semibold text-neutral-900 mb-3">员工简介</h3>
         <p className="text-sm text-neutral-700 leading-relaxed">
-          {employee.description || '暂无描述'}
+          {employee.template.name} - 硅基员工实例
         </p>
-      </div>
-
-      {/* 核心能力 */}
-      <div>
-        <h3 className="text-base font-semibold text-neutral-900 mb-3">核心能力</h3>
-        {employee.capabilities.length === 0 ? (
-          <p className="text-sm text-neutral-500">暂未绑定能力</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {employee.capabilities.map((cap: any) => (
-              <Badge key={cap.id} className="bg-primary/10 text-primary border border-primary/20">
-                {cap.name}
-              </Badge>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* 基本信息 */}
@@ -305,22 +273,33 @@ function OverviewTab({ employee }: { employee: any }) {
         <h3 className="text-base font-semibold text-neutral-900 mb-3">基本信息</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-neutral-600">行业：</span>
-            <span className="font-medium">{employee.industry.join('、') || '未设置'}</span>
+            <span className="text-neutral-600">实例ID：</span>
+            <span className="font-medium font-mono text-xs">{employee.instanceId}</span>
           </div>
           <div>
-            <span className="text-neutral-600">岗位：</span>
-            <span className="font-medium">{employee.position.join('、') || '未设置'}</span>
+            <span className="text-neutral-600">模板版本：</span>
+            <span className="font-medium">v{employee.templateVersion}</span>
           </div>
           <div>
-            <span className="text-neutral-600">创建时间：</span>
-            <span className="font-medium">{new Date(employee.createdAt).toLocaleDateString()}</span>
+            <span className="text-neutral-600">授权来源：</span>
+            <span className="font-medium">
+              {employee.grantSource === 'DIRECT' ? '自助订阅' : '部门授权'}
+            </span>
           </div>
-          <div>
-            <span className="text-neutral-600">最后更新：</span>
-            <span className="font-medium">{new Date(employee.updatedAt).toLocaleDateString()}</span>
-          </div>
+          {employee.expiresAt && (
+            <div>
+              <span className="text-neutral-600">到期时间：</span>
+              <span className="font-medium">{new Date(employee.expiresAt).toLocaleDateString()}</span>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* 提示 */}
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <p className="text-sm text-blue-900">
+          💡 更多详细信息和能力配置，请访问「员工实例」页面
+        </p>
       </div>
     </div>
   );
@@ -366,80 +345,11 @@ function TasksTab() {
 }
 
 function ConfigTab({ employee }: { employee: any }) {
-  const [formData, setFormData] = useState({
-    name: employee.name,
-    departmentId: employee.departmentId || '',
-    description: employee.description || '',
-  });
-  const updateEmployee = useUpdateEmployee();
-
-  const handleSave = () => {
-    updateEmployee.mutate({
-      id: employee.id,
-      name: formData.name,
-      departmentId: formData.departmentId || null,
-      description: formData.description,
-    });
-  };
-
   return (
-    <div className="space-y-6">
-      <h3 className="text-base font-semibold text-neutral-900">基本信息</h3>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            员工名称
-          </label>
-          <input
-            type="text"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            所属部门
-          </label>
-          <input
-            type="text"
-            value={employee.departmentName || '未分配'}
-            disabled
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50 text-neutral-500"
-          />
-          <p className="text-xs text-neutral-500 mt-1">部门分配需在组织管理中设置</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            员工描述
-          </label>
-          <textarea
-            rows={4}
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
-          />
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <Button
-            variant="outline"
-            onClick={() => setFormData({
-              name: employee.name,
-              departmentId: employee.departmentId || '',
-              description: employee.description || '',
-            })}
-          >
-            重置
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            disabled={updateEmployee.isPending}
-          >
-            {updateEmployee.isPending ? '保存中...' : '保存更改'}
-          </Button>
-        </div>
-      </div>
+    <div className="flex flex-col items-center py-16 text-neutral-400">
+      <Sliders className="mb-3 h-10 w-10 opacity-30" />
+      <p className="text-sm">配置功能待实现</p>
+      <p className="mt-2 text-xs text-neutral-500">请访问「员工实例」页面进行配置</p>
     </div>
   );
 }
@@ -476,6 +386,100 @@ function LogsTab() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ---- 能力类型配置 ----
+const CAPABILITY_TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
+  AGENT:   { label: 'Agent',   color: 'text-violet-700', bg: 'bg-violet-50 border-violet-200' },
+  RPA:     { label: 'RPA',     color: 'text-blue-700',   bg: 'bg-blue-50 border-blue-200'     },
+  SKILL:   { label: 'Skill',   color: 'text-emerald-700',bg: 'bg-emerald-50 border-emerald-200'},
+  AI_APP:  { label: 'AI App',  color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
+};
+
+function capTypeMeta(type: string) {
+  return CAPABILITY_TYPE_META[type] ?? { label: type, color: 'text-neutral-700', bg: 'bg-neutral-50 border-neutral-200' };
+}
+
+/** 将 JSON Schema 的 properties 提取为 [{name, type, required, description}] */
+function schemaToFields(schema: Record<string, unknown> | null) {
+  if (!schema || typeof schema !== 'object') return [];
+  const props = (schema as any).properties ?? {};
+  const required: string[] = (schema as any).required ?? [];
+  return Object.entries(props).map(([name, def]: [string, any]) => ({
+    name,
+    type: def?.type ?? 'any',
+    required: required.includes(name),
+    description: def?.description ?? '',
+  }));
+}
+
+function SchemaFields({ fields, empty }: { fields: ReturnType<typeof schemaToFields>; empty: string }) {
+  if (fields.length === 0) {
+    return <p className="text-xs text-neutral-400 italic">{empty}</p>;
+  }
+  return (
+    <ul className="space-y-1.5">
+      {fields.map((f) => (
+        <li key={f.name} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+          <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-neutral-800">{f.name}</code>
+          <span className="text-neutral-400">{f.type}</span>
+          {f.required && (
+            <span className="rounded bg-red-50 px-1 text-red-500">必填</span>
+          )}
+          {f.description && (
+            <span className="text-neutral-500">{f.description}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CapabilitiesTab() {
+  return (
+    <div className="flex flex-col items-center py-16 text-neutral-400">
+      <Zap className="mb-3 h-10 w-10 opacity-30" />
+      <p className="text-sm">能力信息请访问「员工实例」页面查看</p>
+    </div>
+  );
+}
+
+// ============ 监控仪表盘 ============
+
+const DAYS_OPTIONS = [
+  { label: '近 7 天', value: 7 },
+  { label: '近 30 天', value: 30 },
+];
+
+function MonitoringTab({ employeeId }: { employeeId: string }) {
+  return (
+    <div className="flex flex-col items-center py-16 text-neutral-400">
+      <BarChart2 className="mb-3 h-10 w-10 opacity-30" />
+      <p className="text-sm">监控数据待实现</p>
+      <p className="mt-2 text-xs text-neutral-500">敬请期待运行监控和数据分析功能</p>
+    </div>
+  );
+}
+
+
+function StatCard({
+  label,
+  value,
+  sub,
+  valueClass,
+}: {
+  label: string;
+  value: string | number;
+  sub: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <p className="text-xs text-neutral-500">{label}</p>
+      <p className={`mt-1 text-2xl font-bold text-neutral-900 ${valueClass ?? ''}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-neutral-400">{sub}</p>
     </div>
   );
 }

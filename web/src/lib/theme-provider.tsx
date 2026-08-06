@@ -12,11 +12,11 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // 从 localStorage 读取保存的主题，默认 dark
+    // 从 localStorage 读取保存的主题，默认 light
     const stored = localStorage.getItem('theme') as Theme | null;
     if (stored === 'light' || stored === 'dark') {
       setTheme(stored);
@@ -29,9 +29,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const root = document.documentElement;
 
-    // 简单地在 <html> 上标记当前主题
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
+    // dark 主题使用 theme-glass 类，light 主题移除该类
+    if (theme === 'dark') {
+      root.classList.add('theme-glass');
+    } else {
+      root.classList.remove('theme-glass');
+    }
 
     localStorage.setItem('theme', theme);
 

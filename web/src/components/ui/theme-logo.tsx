@@ -24,15 +24,15 @@ export function ThemeLogo({
   className,
   priority = false,
 }: ThemeLogoProps) {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
 
-    // 读取 html 元素的 class 来判断主题
+    // 读取 html 元素的 class 来判断主题（检查 theme-glass 类）
     const updateTheme = () => {
-      const isDark = document.documentElement.classList.contains('dark');
+      const isDark = document.documentElement.classList.contains('theme-glass');
       setTheme(isDark ? 'dark' : 'light');
     };
 
@@ -48,8 +48,8 @@ export function ThemeLogo({
     return () => observer.disconnect();
   }, []);
 
-  // 避免服务端渲染时的闪烁，先显示深色 logo
-  const logoSrc = mounted && theme === 'light' ? '/logo-light.png' : '/logo-new.png';
+  // 避免服务端渲染时的闪烁，先显示浅色 logo
+  const logoSrc = mounted && theme === 'dark' ? '/logo-new.png' : '/logo-light.png';
 
   return (
     <Image

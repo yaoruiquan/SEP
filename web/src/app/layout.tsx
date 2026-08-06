@@ -19,6 +19,22 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('theme') || 'light';
+                  if (theme === 'dark') {
+                    document.documentElement.classList.add('theme-glass');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className="min-h-screen bg-background text-foreground antialiased"
         suppressHydrationWarning
