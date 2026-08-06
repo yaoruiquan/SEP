@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
+import { MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,8 +22,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   useAllCapabilities,
-  useApproveCapability,
-  useRejectCapability,
   useImportCozeBot,
 } from '@/features/admin/use-admin';
 import { CAPABILITY_TYPE_META } from '@/lib/utils';
@@ -147,91 +145,13 @@ function CozeImportForm() {
   );
 }
 
-function PendingRow({ cap }: { cap: Capability }) {
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [reason, setReason] = useState('');
-  const approve = useApproveCapability();
-  const reject = useRejectCapability();
-
-  const handleApprove = () => approve.mutate(cap.id);
-  const handleReject = () => {
-    if (!reason.trim()) return;
-    reject.mutate(
-      { id: cap.id, reason: reason.trim() },
-      { onSuccess: () => { setRejectOpen(false); setReason(''); } },
-    );
-  };
-
-  return (
-    <div className="flex flex-col gap-2 rounded border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{cap.name}</span>
-            <TypeBadge type={cap.type} />
-          </div>
-          <p className="mt-1 text-sm text-fg-muted line-clamp-2">{cap.description}</p>
-          <p className="mt-1 text-xs text-fg-subtle">
-            提交于 {format(new Date(cap.createdAt), 'yyyy-MM-dd HH:mm', { locale: zhCN })}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={handleApprove}
-            disabled={approve.isPending}
-          >
-            通过
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setRejectOpen((v) => !v)}
-          >
-            拒绝
-          </Button>
-        </div>
-      </div>
-
-      {rejectOpen && (
-        <div className="flex items-center gap-2 border-t border-border pt-2">
-          <input
-            className="h-8 flex-1 rounded border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="请输入拒绝原因…"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={handleReject}
-            disabled={!reason.trim() || reject.isPending}
-          >
-            确认拒绝
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => { setRejectOpen(false); setReason(''); }}
-          >
-            取消
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-type TabKey = 'pending' | 'approved' | 'all';
+type TabKey = 'approved' | 'all';
 
 export default function CapabilitiesPage() {
-  const [tab, setTab] = useState<TabKey>('pending');
-  const pendingQuery = useAllCapabilities('PENDING');
+  const [tab, setTab] = useState<TabKey>('approved');
   const approvedQuery = useAllCapabilities('APPROVED');
   const allQuery = useAllCapabilities();
 
-  const pendingItems = pendingQuery.data?.items ?? [];
   const approvedItems = approvedQuery.data?.items ?? [];
   const allItems = allQuery.data?.items ?? [];
 
@@ -239,34 +159,14 @@ export default function CapabilitiesPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">能力管理</h1>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button>
-              + 新建能力
-              <ChevronDown className="ml-2 h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href="/admin/capabilities/new?type=AGENT">创建 Agent（智能体）</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/capabilities/new?type=SKILL">创建 Skill（技能包）</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/capabilities/new?type=RPA">创建 RPA（流程自动化）</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/capabilities/new?type=AI_APP">创建 AI App</Link>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Link href="/admin/capabilities/new">
+          <Button>+ 新建能力</Button>
+        </Link>
       </div>
 
       <div className="flex gap-1 border-b border-border">
         {(
           [
-            { key: 'pending', label: `待审核 (${pendingItems.length})` },
             { key: 'approved', label: '已发布' },
             { key: 'all', label: '全部' },
           ] as { key: TabKey; label: string }[]
@@ -284,20 +184,6 @@ export default function CapabilitiesPage() {
           </button>
         ))}
       </div>
-
-      {tab === 'pending' && (
-        <div className="space-y-3">
-          {pendingQuery.isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-24 w-full" />
-            ))
-          ) : pendingItems.length === 0 ? (
-            <p className="text-sm text-fg-subtle py-10 text-center">🎉 暂无待审核能力，全部处理完毕</p>
-          ) : (
-            pendingItems.map((cap) => <PendingRow key={cap.id} cap={cap} />)
-          )}
-        </div>
-      )}
 
       {tab === 'approved' && (
         <Card variant="solid">
@@ -321,6 +207,7 @@ export default function CapabilitiesPage() {
                     <th className="px-5 py-2 text-left font-medium">类型</th>
                     <th className="px-5 py-2 text-left font-medium">状态</th>
                     <th className="px-5 py-2 text-left font-medium">提交时间</th>
+                    <th className="px-5 py-2 text-right font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -335,6 +222,25 @@ export default function CapabilitiesPage() {
                       </td>
                       <td className="px-5 py-3 text-fg-muted">
                         {format(new Date(cap.createdAt), 'yyyy-MM-dd', { locale: zhCN })}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>
+                              <Edit className="mr-2 h-4 w-4" />
+                              编辑
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}
@@ -367,6 +273,7 @@ export default function CapabilitiesPage() {
                     <th className="px-5 py-2 text-left font-medium">类型</th>
                     <th className="px-5 py-2 text-left font-medium">状态</th>
                     <th className="px-5 py-2 text-left font-medium">提交时间</th>
+                    <th className="px-5 py-2 text-right font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -381,6 +288,25 @@ export default function CapabilitiesPage() {
                       </td>
                       <td className="px-5 py-3 text-fg-muted">
                         {format(new Date(cap.createdAt), 'yyyy-MM-dd', { locale: zhCN })}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>
+                              <Edit className="mr-2 h-4 w-4" />
+                              编辑
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}

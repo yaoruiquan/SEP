@@ -5,28 +5,8 @@ import { Zap } from 'lucide-react';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
+import { Avatar } from '@/components/ui/avatar';
 import type { MarketEmployee } from '@/lib/types';
-
-// ─── avatar gradient by function keyword ─────────────────────────────────────
-
-const GRAD_MAP: [string, string][] = [
-  ['人事', 'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['HR',   'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['销售', 'linear-gradient(135deg,#2563eb,#3b82f6)'],
-  ['CRM',  'linear-gradient(135deg,#2563eb,#3b82f6)'],
-  ['财务', 'linear-gradient(135deg,#0891b2,#06b6d4)'],
-  ['运营', 'linear-gradient(135deg,#059669,#10b981)'],
-  ['营销', 'linear-gradient(135deg,#db2777,#f43f5e)'],
-  ['技术', 'linear-gradient(135deg,#d97706,#f59e0b)'],
-];
-
-function avatarGradient(position: string, industry: string): string {
-  const text = `${position} ${industry}`;
-  for (const [key, grad] of GRAD_MAP) {
-    if (text.includes(key)) return grad;
-  }
-  return 'linear-gradient(135deg,#4f46e5,#818cf8)';
-}
 
 // ─── props ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +32,6 @@ export function EmployeeCard({
   const capTypes = Array.from(new Set(emp.bindings?.map((b) => b.capability.type) ?? []));
   const visibleTypes = capTypes.slice(0, 3);
   const extra = capTypes.length - visibleTypes.length;
-  const grad = avatarGradient(emp.position ?? '', emp.industry ?? '');
 
   return (
     <article
@@ -67,12 +46,11 @@ export function EmployeeCard({
       {/* ── avatar + status ─────────────────────────────────────────── */}
       <div className="flex items-start gap-4">
         <div className="relative shrink-0">
-          <div
-            className="flex h-[72px] w-[72px] items-center justify-center rounded-full text-2xl font-bold text-white shadow-glass-sm"
-            style={{ background: grad }}
-          >
-            {emp.name.slice(0, 2)}
-          </div>
+          <Avatar
+            name={emp.name}
+            src={emp.avatar}
+            className="h-[72px] w-[72px] shadow-glass-sm"
+          />
           {/* online dot */}
           <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0f0f2d] ring-2 ring-[#0f0f2d]">
             <PulsingDot className="h-2 w-2" />

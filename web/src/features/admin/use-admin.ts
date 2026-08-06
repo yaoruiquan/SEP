@@ -61,6 +61,37 @@ export function useImportCozeBot() {
   });
 }
 
+export function useCreateCozeCapability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      region: 'CN' | 'GLOBAL';
+      runtimeKind: 'BOT_CHAT' | 'WORKFLOW';
+      resourceId: string;
+      apiKey?: string;
+      name: string;
+      description: string;
+      industry: string[];
+      position: string[];
+    }) => adminApi.createCozeCapability(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['capabilities'] }),
+  });
+}
+
+export function useCreateCozeUrlCapability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      webUrl: string;
+      name: string;
+      description: string;
+      industry: string[];
+      position: string[];
+    }) => adminApi.createCozeUrlCapability(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['capabilities'] }),
+  });
+}
+
 // ─── Employee admin ──────────────────────────────────────────────────────────
 
 type CreateEmployeeData = {

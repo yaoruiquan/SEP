@@ -36,6 +36,7 @@ export function useWebSocket({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const connect = () => {
+    if (!url) return;
     try {
       const ws = new WebSocket(url);
 
@@ -131,8 +132,9 @@ export function useWebSocket({
 export function useEmployeeStatus() {
   const [statuses, setStatuses] = useState<Record<string, 'online' | 'offline' | 'busy'>>({});
 
+  // /employee-status gateway 尚未实现，传空 URL 禁用连接
   useWebSocket({
-    url: `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/employee-status`,
+    url: '',
     onMessage: (data) => {
       if (data.type === 'status_update') {
         setStatuses((prev) => ({
@@ -152,8 +154,9 @@ export function useEmployeeStatus() {
  * 用于显示全局连接状态指示器（如侧边栏右上角）
  */
 export function useGlobalWebSocket() {
+  // /global gateway 尚未实现，传空 URL 禁用连接
   return useWebSocket({
-    url: `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/global`,
+    url: '',
     onMessage: (data) => {
       console.log('[Global WebSocket]', data);
     },

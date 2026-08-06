@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   Building2, Users, Zap, Activity,
   TrendingUp, TrendingDown, ArrowRight,
-  AlertTriangle, Inbox, RefreshCw,
+  AlertTriangle, Inbox, RefreshCw, Plus, UserPlus, Layers,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar,
@@ -214,6 +214,39 @@ export default function AdminDashboardPage() {
             刷新
           </Button>
         </div>
+      </div>
+
+      {/* 快速操作 */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Link href="/admin/employees/new">
+          <Card className="cursor-pointer border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 transition-all hover:border-primary/40 hover:shadow-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <UserPlus className="h-7 w-7" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold">创建数字员工</h3>
+                <p className="text-sm text-fg-muted">上架新员工，组合能力开始服务</p>
+              </div>
+              <ArrowRight className="h-5 w-5 text-primary" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/admin/capabilities/new">
+          <Card className="cursor-pointer border-2 border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-purple-500/10 transition-all hover:border-purple-500/40 hover:shadow-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-purple-500 text-white">
+                <Layers className="h-7 w-7" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold">上架新能力</h3>
+                <p className="text-sm text-fg-muted">集成 Coze、Skill、RPA 等能力</p>
+              </div>
+              <ArrowRight className="h-5 w-5 text-purple-500" />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* KPI 卡片 */}

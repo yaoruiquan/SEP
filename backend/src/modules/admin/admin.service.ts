@@ -759,9 +759,35 @@ export class AdminService {
     position: string[];
     inputSchema: any;
     outputSchema: any;
+    agentConfig?: {
+      platform: 'COZE' | 'DIFY' | 'N8N' | 'OPENCODE';
+      region?: string;
+      runtimeKind?: string;
+      botId?: string;
+      workflowId?: string;
+      apiKey?: string;
+      workflowUrl?: string;
+      webUrl?: string;
+      skillName?: string;
+    };
+    // SKILL 类型专用字段
+    zipPath?: string;
+    sha256?: string;
+    fileCount?: number;
+    totalSize?: number;
     operatorId: string;
   }) {
-    return this.prisma.capability.create({
+    // 构建 metadata（用于存储 SKILL 类型的文件信息）
+    const metadata: any = {};
+    if (data.type === 'SKILL' && data.zipPath) {
+      metadata.zipPath = data.zipPath;
+      metadata.sha256 = data.sha256;
+      metadata.fileCount = data.fileCount;
+      metadata.totalSize = data.totalSize;
+    }
+
+    // 如果是 AGENT 类型且提供了 agentConfig，创建关联的 AgentConfig
+    const capability = await this.prisma.capability.create({
       data: {
         name: data.name,
         description: data.description,
@@ -772,8 +798,29 @@ export class AdminService {
         outputSchema: data.outputSchema,
         status: 'PENDING', // 初始为待审核
         contributorId: data.operatorId, // 运营人员作为贡献者
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        ...(data.type === 'AGENT' && data.agentConfig && {
+          agentConfig: {
+            create: {
+              platform: data.agentConfig.platform,
+              region: data.agentConfig.region,
+              runtimeKind: data.agentConfig.runtimeKind,
+              botId: data.agentConfig.botId,
+              workflowId: data.agentConfig.workflowId,
+              apiKey: data.agentConfig.apiKey,
+              workflowUrl: data.agentConfig.workflowUrl,
+              webUrl: data.agentConfig.webUrl,
+              skillName: data.agentConfig.skillName,
+            },
+          },
+        }),
+      },
+      include: {
+        agentConfig: true,
       },
     });
+
+    return capability;
   }
 
   /**

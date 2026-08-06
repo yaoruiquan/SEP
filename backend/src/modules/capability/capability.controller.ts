@@ -1,13 +1,17 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param,
   Request, UseGuards, Query, HttpCode, HttpStatus,
+  Res, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery,
 } from '@nestjs/swagger';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CapabilityService } from './capability.service';
 import { CapabilityUploadDto } from 'shared';
+import { createReadStream, existsSync } from 'fs';
+import { join } from 'path';
 
 @ApiTags('Capabilities')
 @Controller('capabilities')
@@ -42,6 +46,48 @@ export class CapabilityController {
   @ApiResponse({ status: 404, description: 'Not found' })
   async findOne(@Param('id') id: string) {
     return this.capabilityService.findOne(id);
+  }
+
+  @Get(':id/download')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Download SKILL capability package' })
+  @ApiResponse({ status: 200, description: 'Skill package downloaded' })
+  @ApiResponse({ status: 400, description: 'Not a SKILL type capability' })
+  @ApiResponse({ status: 404, description: 'Capability or file not found' })
+  async download(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const capability = await this.capabilityService.findOne(id);
+
+    if (!capability) {
+      throw new NotFoundException('Capability not found');
+    }
+
+    if (capability.type !== 'SKILL') {
+      throw new BadRequestException('Only SKILL type capabilities can be downloaded');
+    }
+
+    const zipPath = capability.metadata?.['zipPath'];
+    if (!zipPath) {
+      throw new NotFoundException('Skill package file not found in metadata');
+    }
+
+    const fullPath = join(process.cwd(), 'uploads', zipPath);
+
+    if (!existsSync(fullPath)) {
+      throw new NotFoundException('Skill package file does not exist on disk');
+    }
+
+    // 设置下载响应头
+    const fileName = `${capability.name.replace(/[^a-zA-Z0-9一-龥]/g, '_')}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+
+    // 流式传输文件
+    const fileStream = createReadStream(fullPath);
+    fileStream.pipe(res);
   }
 
   // ────────────── Contributor routes ──────────────

@@ -74,6 +74,22 @@ const CreateCapabilitySchema = z.object({
   position: z.array(z.string()).default([]),
   inputSchema: z.any().optional(),
   outputSchema: z.any().optional(),
+  agentConfig: z.object({
+    platform: z.enum(['COZE', 'DIFY', 'N8N', 'OPENCODE']),
+    region: z.string().optional(),
+    runtimeKind: z.string().optional(),
+    botId: z.string().optional(),
+    workflowId: z.string().optional(),
+    apiKey: z.string().optional(),
+    workflowUrl: z.string().optional(),
+    webUrl: z.string().optional(),
+    skillName: z.string().optional(),
+  }).optional(),
+  // SKILL 类型必填字段
+  zipPath: z.string().optional(), // 从 upload-skill 返回的路径
+  sha256: z.string().optional(),
+  fileCount: z.number().optional(),
+  totalSize: z.number().optional(),
 });
 
 const UpdateCapabilitySchema = z.object({
@@ -412,6 +428,11 @@ export class AdminController {
       position: dto.position,
       inputSchema: dto.inputSchema || {},
       outputSchema: dto.outputSchema || {},
+      agentConfig: dto.agentConfig as any,
+      zipPath: dto.zipPath,
+      sha256: dto.sha256,
+      fileCount: dto.fileCount,
+      totalSize: dto.totalSize,
       operatorId: req.user.id,
     });
   }

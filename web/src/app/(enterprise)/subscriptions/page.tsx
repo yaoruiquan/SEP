@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { MessageSquare, Trash2, Users, Store, PlayCircle, PauseCircle, XCircle } from 'lucide-react';
+import { MessageSquare, Trash2, Users, Store, PlayCircle, PauseCircle, XCircle, Download } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CAPABILITY_TYPE_META, SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { useSubscriptions, useUnsubscribe } from '@/features/subscription/use-subscriptions';
+import { useDownloadSkill } from '@/features/capability/use-capability';
 import { toast } from '@/components/ui/toast';
 import { SubscriptionListSkeleton } from '@/features/subscription/subscription-skeleton';
 import type { SubscriptionStatus } from '@/lib/types';
@@ -36,6 +37,7 @@ const STATUS_ICON: Record<SubscriptionStatus, React.ReactNode> = {
 export default function SubscriptionsPage() {
   const { data: subs = [], isLoading, isError, error } = useSubscriptions();
   const unsubscribe = useUnsubscribe();
+  const downloadSkill = useDownloadSkill();
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
   const [unsubscribeDialog, setUnsubscribeDialog] = useState<{
     open: boolean; subId: string; empName: string;
@@ -190,13 +192,37 @@ export default function SubscriptionsPage() {
                   </p>
 
                   {/* 能力标签 */}
-                  {capTypes.length > 0 && (
+                  {emp.bindings && emp.bindings.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
-                      {capTypes.map((t) => {
-                        const meta = CAPABILITY_TYPE_META[t];
+                      {emp.bindings.map((binding) => {
+                        const meta = CAPABILITY_TYPE_META[binding.capability.type];
+                        const isSkill = binding.capability.type === 'SKILL';
                         return (
-                          <Badge key={t} className={`text-xs ${meta.tone}`}>
-                            {meta.label}
+                          <Badge
+                            key={binding.id}
+                            className={`text-xs ${meta.tone} ${isSkill ? 'pr-1' : ''}`}
+                          >
+                            <span>{binding.capability.name}</span>
+                            {isSkill && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadSkill.mutate(binding.capability.id, {
+                                    onSuccess: ({ filename }) => {
+                                      toast.success(`下载成功：${filename}`);
+                                    },
+                                    onError: (err) => {
+                                      toast.error(`下载失败：${(err as Error).message}`);
+                                    },
+                                  });
+                                }}
+                                disabled={downloadSkill.isPending}
+                                className="ml-1.5 rounded hover:bg-white/20 p-0.5 transition-colors disabled:opacity-50"
+                                title="下载技能包"
+                              >
+                                <Download className="h-2.5 w-2.5" />
+                              </button>
+                            )}
                           </Badge>
                         );
                       })}

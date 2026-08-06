@@ -433,8 +433,77 @@ export const adminApi = {
     position: string[];
     inputSchema: any;
     outputSchema: any;
+    agentConfig?: {
+      platform: string;
+      region?: string;
+      runtimeKind?: string;
+      botId?: string;
+      workflowId?: string;
+      apiKey?: string;
+    };
   }) => {
     return api.post<any>('/admin/capabilities', data);
+  },
+
+  /**
+   * 创建 Coze 能力（API 接入模式：Bot ID / Workflow ID + PAT）
+   */
+  createCozeCapability: (data: {
+    region: 'CN' | 'GLOBAL';
+    runtimeKind: 'BOT_CHAT' | 'WORKFLOW';
+    resourceId: string;
+    apiKey?: string;
+    name: string;
+    description: string;
+    industry: string[];
+    position: string[];
+  }) => {
+    const payload = {
+      type: 'AGENT',
+      name: data.name,
+      description: data.description,
+      industry: data.industry,
+      position: data.position,
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: {} },
+      agentConfig: {
+        platform: 'COZE',
+        region: data.region,
+        runtimeKind: data.runtimeKind,
+        ...(data.runtimeKind === 'BOT_CHAT'
+          ? { botId: data.resourceId }
+          : { workflowId: data.resourceId }
+        ),
+        ...(data.apiKey && { apiKey: data.apiKey }),
+      },
+    };
+    return api.post<any>('/admin/capabilities', payload);
+  },
+
+  /**
+   * 创建 Coze 能力（URL 链接模式：仅存储 webUrl，前端跳转/嵌入）
+   */
+  createCozeUrlCapability: (data: {
+    webUrl: string;
+    name: string;
+    description: string;
+    industry: string[];
+    position: string[];
+  }) => {
+    const payload = {
+      type: 'AGENT',
+      name: data.name,
+      description: data.description,
+      industry: data.industry,
+      position: data.position,
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: {} },
+      agentConfig: {
+        platform: 'COZE',
+        webUrl: data.webUrl,
+      },
+    };
+    return api.post<any>('/admin/capabilities', payload);
   },
 
   /**

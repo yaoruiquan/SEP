@@ -60,15 +60,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   }, [sendHeartbeat, heartbeatInterval, clearTimers]);
 
   const connect = useCallback(() => {
-    // 未登录不连接
-    if (!token) {
-      return;
-    }
-
-    // MVP 阶段：WebSocket 功能尚未实现，暂时禁用连接
-    // TODO: 后端实现 WebSocket 服务器后移除此检查
-    if (process.env.NODE_ENV !== 'production' || !process.env.NEXT_PUBLIC_WS_ENABLED) {
-      console.log('[WebSocket] Disabled in MVP - backend not implemented yet');
+    // URL 为空或未登录不连接
+    if (!url || !token) {
       return;
     }
 
@@ -108,7 +101,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
       };
 
       ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
+        // 连接失败是暂时状态（后端未就绪），用 warn 而非 error 避免误报
+        console.warn('[WebSocket] Connection error (will retry):', url);
         onError?.(error);
       };
 
@@ -118,14 +112,19 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         clearTimers();
         onDisconnect?.();
 
-        // 自动重连
+        // 自动重连（指数退避，最多 maxReconnectAttempts 次）
         if (shouldReconnectRef.current && reconnectCount < maxReconnectAttempts) {
-          const attempt = `${reconnectCount + 1}/${maxReconnectAttempts}`;
-          console.log(`[WebSocket] Reconnecting in ${reconnectInterval}ms... (attempt ${attempt})`);
+          const attempt = reconnectCount + 1;
+          const delay = Math.min(reconnectInterval * Math.pow(1.5, reconnectCount), 30000);
+          console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms... (${attempt}/${maxReconnectAttempts})`);
           reconnectTimerRef.current = setTimeout(() => {
             setReconnectCount((prev) => prev + 1);
             connect();
-          }, reconnectInterval);
+          }, delay);
+        } else if (!shouldReconnectRef.current) {
+          // 主动断开，不输出任何内容
+        } else {
+          console.warn(`[WebSocket] Gave up reconnecting to ${url} after ${maxReconnectAttempts} attempts`);
         }
       };
     } catch (error) {

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, CreditCard, Wallet, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
+import { X, Wallet, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -18,7 +18,7 @@ interface PaymentModalProps {
   onClose: () => void;
 }
 
-type PaymentMethod = 'card' | 'balance';
+type PaymentMethod = 'balance';
 
 // ─── success screen ───────────────────────────────────────────────────────────
 
@@ -91,13 +91,8 @@ export function PaymentModal({
   onConfirm,
   onClose,
 }: PaymentModalProps) {
-  const [method, setMethod] = useState<PaymentMethod>('card');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-
   const isFree = !emp.price || emp.price === 0;
-  const canConfirm = isFree || (cardNumber.length >= 16 && expiry && cvv);
+  const canConfirm = true; // 余额支付始终可点击
 
   if (!open) return null;
 
@@ -183,143 +178,19 @@ export function PaymentModal({
                 </div>
               </div>
 
-              {/* payment method (only show for paid employees) */}
+              {/* payment method - 仅显示余额支付 */}
               {!isFree && (
-                <>
-                  <div>
-                    <p className="mb-3 text-sm font-medium text-gtext-primary">
-                      支付方式
-                    </p>
-                    <div className="flex gap-3">
-                      <label
-                        className={cn(
-                          'flex flex-1 cursor-pointer items-center gap-2.5 rounded-glass-lg border p-3 transition-all',
-                          method === 'card'
-                            ? 'border-glassline-brand bg-gbrand/10'
-                            : 'border-glassline bg-glass-2 hover:bg-glass-3',
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="payment-method"
-                          value="card"
-                          checked={method === 'card'}
-                          onChange={() => setMethod('card')}
-                          className="h-4 w-4 accent-gbrand-text"
-                        />
-                        <CreditCard className="h-4 w-4 text-gtext-secondary" />
-                        <span className="text-sm text-gtext-primary">信用卡</span>
-                      </label>
-
-                      <label
-                        className={cn(
-                          'flex flex-1 cursor-pointer items-center gap-2.5 rounded-glass-lg border p-3 transition-all',
-                          method === 'balance'
-                            ? 'border-glassline-brand bg-gbrand/10'
-                            : 'border-glassline bg-glass-2 hover:bg-glass-3',
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="payment-method"
-                          value="balance"
-                          checked={method === 'balance'}
-                          onChange={() => setMethod('balance')}
-                          className="h-4 w-4 accent-gbrand-text"
-                        />
-                        <Wallet className="h-4 w-4 text-gtext-secondary" />
-                        <span className="text-sm text-gtext-primary">余额</span>
-                      </label>
+                <div>
+                  <p className="mb-3 text-sm font-medium text-gtext-primary">
+                    支付方式
+                  </p>
+                  <div className="rounded-glass-lg border border-glassline-brand bg-gbrand/10 p-3">
+                    <div className="flex items-center gap-2.5">
+                      <Wallet className="h-4 w-4 text-gtext-secondary" />
+                      <span className="text-sm text-gtext-primary">余额支付</span>
                     </div>
                   </div>
-
-                  {/* card details */}
-                  {method === 'card' && (
-                    <div className="space-y-3">
-                      <div>
-                        <label
-                          htmlFor="card-number"
-                          className="mb-1.5 block text-xs font-medium text-gtext-secondary"
-                        >
-                          卡号
-                        </label>
-                        <input
-                          id="card-number"
-                          type="text"
-                          placeholder="4242 4242 4242 4242"
-                          value={cardNumber}
-                          onChange={(e) =>
-                            setCardNumber(e.target.value.replace(/\D/g, '').slice(0, 16))
-                          }
-                          disabled={subscribing}
-                          className={cn(
-                            'w-full rounded-glass-lg border border-glassline bg-glass-2 px-3 py-2',
-                            'text-sm text-gtext-primary placeholder:text-gtext-muted',
-                            'transition-colors focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
-                            'disabled:pointer-events-none disabled:opacity-50',
-                          )}
-                        />
-                      </div>
-
-                      <div className="flex gap-3">
-                        <div className="flex-1">
-                          <label
-                            htmlFor="expiry"
-                            className="mb-1.5 block text-xs font-medium text-gtext-secondary"
-                          >
-                            有效期
-                          </label>
-                          <input
-                            id="expiry"
-                            type="text"
-                            placeholder="MM/YY"
-                            value={expiry}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/\D/g, '');
-                              if (val.length <= 2) {
-                                setExpiry(val);
-                              } else {
-                                setExpiry(`${val.slice(0, 2)}/${val.slice(2, 4)}`);
-                              }
-                            }}
-                            disabled={subscribing}
-                            className={cn(
-                              'w-full rounded-glass-lg border border-glassline bg-glass-2 px-3 py-2',
-                              'text-sm text-gtext-primary placeholder:text-gtext-muted',
-                              'transition-colors focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
-                              'disabled:pointer-events-none disabled:opacity-50',
-                            )}
-                          />
-                        </div>
-
-                        <div className="flex-1">
-                          <label
-                            htmlFor="cvv"
-                            className="mb-1.5 block text-xs font-medium text-gtext-secondary"
-                          >
-                            CVV
-                          </label>
-                          <input
-                            id="cvv"
-                            type="text"
-                            placeholder="123"
-                            value={cvv}
-                            onChange={(e) =>
-                              setCvv(e.target.value.replace(/\D/g, '').slice(0, 3))
-                            }
-                            disabled={subscribing}
-                            className={cn(
-                              'w-full rounded-glass-lg border border-glassline bg-glass-2 px-3 py-2',
-                              'text-sm text-gtext-primary placeholder:text-gtext-muted',
-                              'transition-colors focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
-                              'disabled:pointer-events-none disabled:opacity-50',
-                            )}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
 
               {/* footer */}

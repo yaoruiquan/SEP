@@ -20,6 +20,7 @@ import {
   ListTodo,
   ChevronLeft,
   ChevronRight,
+  MessageSquare,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ import { NavItem, type NavLink } from './nav-item';
 import { ShellTopbar, type CrumbMap } from './shell-topbar';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLogout } from '@/features/auth/use-auth';
-import { useGlobalWebSocket } from '@/lib/websocket';
+import { NotificationBell } from '@/components/notification-bell';
 
 /** 单条导航项，可单独标记仅管理员可见 */
 type GuardedNavLink = NavLink & { adminOnly?: boolean };
@@ -52,9 +53,6 @@ interface NavGroup {
  *
  * ⚠️ 这是体验优化，**不是安全措施** —— roleInEnterprise 存在浏览器里，
  * 用户改得动。真正拦人的是后端的 assertEnterpriseAdmin。
- *
- * 「对话中心」已从导航移除：会话于 2026-07-27 暂停，代码与后端接口保留，
- * 但挂着一个"产品上不做、技术上能用"的入口会让人误判当前范围。
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -85,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '工作',
     links: [
+      { href: '/chat', label: '对话中心', icon: MessageSquare },
       { href: '/tasks', label: '任务中心', icon: ListTodo },
     ],
   },
@@ -122,10 +121,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
 
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
-  // WebSocket 功能暂时禁用（后端未实现），先固定为 offline。
-  // 恢复时改成：const { status: statusDotStatus } = useGlobalWebSocket();
-  // useGlobalWebSocket 的 status 与 StatusDot 的取值域一致，无需再做映射。
-  const statusDotStatus: 'online' | 'offline' | 'connecting' = 'offline';
+  const statusDotStatus = 'offline' as const;
 
   // 先过滤整组，再过滤组内单项；两级都为空的组不渲染标题
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin)
@@ -270,7 +266,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           rootHref="/dashboard"
           roleLabel={isAdmin ? '企业管理员' : '企业成员'}
           hamburgerGutter
-        />
+        >
+          <NotificationBell />
+        </ShellTopbar>
         {children}
       </main>
     </AuroraBackground>

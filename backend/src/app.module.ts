@@ -16,6 +16,7 @@ import { GatewayModule } from './modules/gateway/gateway.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { ComputeModule } from './modules/compute/compute.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ComputeModule } from './modules/compute/compute.module';
     AdminModule,
     KnowledgeModule,
     ComputeModule,
+    NotificationsModule,
   ],
   controllers: [],
   providers: [],

@@ -235,6 +235,93 @@ export class DigitalEmployeeService {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
+  // Stats / Monitoring
+  // ────────────────────────────────────────────────────────────────────────────
+
+  async getStats(employeeId: string, days: number) {
+    await this.findOne(employeeId); // guard: 404 if missing
+
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Fetch sessions for this employee within the window
+    const sessions = await this.prisma.conversationSession.findMany({
+      where: { employeeId, createdAt: { gte: startDate } },
+      select: { id: true, createdAt: true },
+    });
+
+    const sessionIds = sessions.map((s) => s.id);
+
+    // Fetch all tool executions for these sessions
+    const executions =
+      sessionIds.length > 0
+        ? await this.prisma.toolExecution.findMany({
+            where: { sessionId: { in: sessionIds } },
+            select: {
+              id: true,
+              status: true,
+              duration: true,
+              createdAt: true,
+              capability: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+
+    // Aggregate totals
+    const total = executions.length;
+    const successCount = executions.filter((e) => e.status === 'SUCCESS').length;
+    const failedCount = executions.filter((e) => e.status === 'FAILED').length;
+    const durations = executions
+      .map((e) => e.duration)
+      .filter((d): d is number => d !== null && d !== undefined);
+    const avgDuration =
+      durations.length > 0
+        ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+        : 0;
+
+    // Build daily trend: { date: 'YYYY-MM-DD', total, success, failed }
+    const trendMap = new Map<string, { total: number; success: number; failed: number }>();
+
+    // Pre-fill all days in range with zeroes so chart has continuous axis
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      trendMap.set(key, { total: 0, success: 0, failed: 0 });
+    }
+
+    for (const exec of executions) {
+      const key = exec.createdAt.toISOString().slice(0, 10);
+      const entry = trendMap.get(key);
+      if (entry) {
+        entry.total += 1;
+        if (exec.status === 'SUCCESS') entry.success += 1;
+        if (exec.status === 'FAILED') entry.failed += 1;
+      }
+    }
+
+    const trend = Array.from(trendMap.entries()).map(([date, counts]) => ({
+      date,
+      ...counts,
+    }));
+
+    // Recent executions log (last 10)
+    const recentLog = executions.slice(0, 10).map((e) => ({
+      id: e.id,
+      toolName: e.capability?.name ?? 'unknown',
+      status: e.status,
+      duration: e.duration,
+      createdAt: e.createdAt.toISOString(),
+    }));
+
+    return {
+      period: { days, startDate: startDate.toISOString() },
+      summary: { total, successCount, failedCount, avgDuration },
+      trend,
+      recentLog,
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
   // Helpers
   // ────────────────────────────────────────────────────────────────────────────
 

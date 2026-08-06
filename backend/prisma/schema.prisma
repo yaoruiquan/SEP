@@ -15,36 +15,37 @@ datasource db {
 // ============================================================================
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String   // Hashed
-  avatar    String?
+  id       String   @id @default(cuid())
+  email    String   @unique
+  name     String?
+  password String // Hashed
+  avatar   String?
   /// 全局角色。企业内身份不看这里，看 EnterpriseMember.role。
   /// ADMIN 表示平台运营人员（可访问 (platform) 分组）。
-  role      UserRole @default(USER)
+  role     UserRole @default(USER)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  sessions             ConversationSession[]
-  contributedCapabilities Capability[]  @relation("CapabilityContributor")
+  sessions                ConversationSession[]
+  contributedCapabilities Capability[]          @relation("CapabilityContributor")
   /// 企业成员身份。MVP 阶段每个用户恰好一条记录（不做多企业切换），
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
-  memberships          EnterpriseMember[]
-  approvedRequests     AccessRequest[] @relation("AccessRequestReviewer")
-  devices              Device[]
-  createdKnowledgeBases KnowledgeBase[] @relation("KnowledgeBaseCreator")
-  uploadedDocuments    Document[]      @relation("DocumentUploader")
+  memberships             EnterpriseMember[]
+  approvedRequests        AccessRequest[]       @relation("AccessRequestReviewer")
+  devices                 Device[]
+  createdKnowledgeBases   KnowledgeBase[]       @relation("KnowledgeBaseCreator")
+  uploadedDocuments       Document[]            @relation("DocumentUploader")
+  notifications           Notification[]
 
   @@map("users")
 }
 
 enum UserRole {
-  USER         // B/C端用户
-  CONTRIBUTOR  // 能力贡献者
-  ADMIN        // 平台运营方
+  USER // B/C端用户
+  CONTRIBUTOR // 能力贡献者
+  ADMIN // 平台运营方
 }
 
 // ============================================================================
@@ -53,16 +54,16 @@ enum UserRole {
 
 /// 企业是数据与权限的隔离边界。所有业务数据的归属最终收敛到这里。
 model Enterprise {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   /// 企业简介、行业等基础资料，MVP 阶段保持简单
-  description String?  @db.Text
+  description String? @db.Text
   logo        String?
   /// 运营端元数据：冻结状态、冻结原因等
   metadata    Json?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   departments    Department[]
@@ -78,26 +79,26 @@ model Enterprise {
 
 /// 部门。树形结构，parentId 自引用。
 model Department {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  name         String
+  name     String
   /// 父部门。为空表示顶级部门。
-  parentId     String?
-  parent       Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children     Department[] @relation("DepartmentTree")
+  parentId String?
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Department[] @relation("DepartmentTree")
 
-  sortOrder    Int      @default(0)
+  sortOrder Int @default(0)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  members   EnterpriseMember[]
-  instances EmployeeInstance[]
-  grants    EmployeeGrant[]
+  members         EnterpriseMember[]
+  instances       EmployeeInstance[]
+  grants          EmployeeGrant[]
   knowledgeGrants KnowledgeGrant[]
 
   @@index([enterpriseId])
@@ -112,30 +113,30 @@ model Department {
 /// "一个人属于多家企业"，塞进 User 就要做数据迁移 + 全量权限改写。
 /// 关联表的成本近零，却保留了结构能力。
 model EnterpriseMember {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
   /// 企业内角色，与 User.role（全局角色）是两套体系
-  role         EnterpriseRole @default(MEMBER)
+  role EnterpriseRole @default(MEMBER)
 
   /// 所属部门。为空表示未分配部门（如企业创建者）。
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   /// 岗位名称，自由文本
-  position     String?
+  position String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  grants           EmployeeGrant[]
-  requestedAccess  AccessRequest[] @relation("AccessRequestRequester")
+  grants          EmployeeGrant[]
+  requestedAccess AccessRequest[] @relation("AccessRequestRequester")
 
   @@unique([userId, enterpriseId])
   @@index([enterpriseId])
@@ -144,9 +145,9 @@ model EnterpriseMember {
 }
 
 enum EnterpriseRole {
-  ENTERPRISE_ADMIN  // 企业管理员：可订阅（花钱）、管组织、审批
-  DEPT_MANAGER      // 部门负责人：管本部门成员与实例、审批本部门申请
-  MEMBER            // 普通成员：仅使用被授权的员工，越权需申请
+  ENTERPRISE_ADMIN // 企业管理员：可订阅（花钱）、管组织、审批
+  DEPT_MANAGER // 部门负责人：管本部门成员与实例、审批本部门申请
+  MEMBER // 普通成员：仅使用被授权的员工，越权需申请
 }
 
 // ============================================================================
@@ -154,30 +155,30 @@ enum EnterpriseRole {
 // ============================================================================
 
 model DigitalEmployee {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
-  description String   @db.Text
-  industry    String   // 行业（电商/金融/医疗等）
-  position    String   // 岗位（运营/客服/数据分析等）
+  description String  @db.Text
+  industry    String // 行业（电商/金融/医疗等）
+  position    String // 岗位（运营/客服/数据分析等）
   avatar      String?
 
   // Agent Configuration
-  systemPrompt String  @db.Text  // Agent 人设
-  modelId      String  @default("gpt-4o")
-  maxSteps     Int     @default(10)
+  systemPrompt String @db.Text // Agent 人设
+  modelId      String @default("gpt-4o")
+  maxSteps     Int    @default(10)
 
   // Status
-  status      EmployeeStatus @default(DRAFT)
+  status EmployeeStatus @default(DRAFT)
 
   /// 版本号（决策 14：提示式升级需要它）。
   /// 实例订阅时锁定版本，模板发新版后不自动跟进，仅提示企业主动升级。
-  version     String  @default("1.0.0")
+  version String @default("1.0.0")
 
   // Pricing (暂时简化，不做复杂计费)
-  price       Float?
+  price Float?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   publishedAt DateTime?
 
   // Relations
@@ -191,11 +192,11 @@ model DigitalEmployee {
 }
 
 enum EmployeeStatus {
-  DRAFT      // 草稿
-  PENDING    // 待审核
-  APPROVED   // 已审核通过（已上架）
-  REJECTED   // 已拒绝
-  ARCHIVED   // 已下架
+  DRAFT // 草稿
+  PENDING // 待审核
+  APPROVED // 已审核通过（已上架）
+  REJECTED // 已拒绝
+  ARCHIVED // 已下架
 }
 
 // ============================================================================
@@ -210,14 +211,14 @@ enum EmployeeStatus {
 /// ⚠️ 不能用 @@unique([enterpriseId, templateId]) —— 同一企业允许订阅
 /// 同一模板的多个实例（如不同部门各一份）。
 model EmployeeInstance {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
   /// 来源模板
-  templateId   String
-  template     DigitalEmployee @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateId String
+  template   DigitalEmployee @relation(fields: [templateId], references: [id], onDelete: Restrict)
 
   /// 订阅时锁定的模板版本。
   /// 必须存版本而非只存 templateId —— 否则无法实现「提示式升级」
@@ -230,18 +231,18 @@ model EmployeeInstance {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
-  status       InstanceStatus @default(PENDING_ACTIVATION)
+  status InstanceStatus @default(PENDING_ACTIVATION)
 
   /// 企业侧配置：启用的知识库、模型路由、初始化资料等。
   /// 结构由模板的配置模式定义（员工包清单），故用 Json 承载。
-  config       Json?
+  config Json?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  grants       EmployeeGrant[]
-  accessRequests AccessRequest[]
+  grants          EmployeeGrant[]
+  accessRequests  AccessRequest[]
   knowledgeGrants KnowledgeGrant[]
 
   @@index([enterpriseId])
@@ -251,10 +252,10 @@ model EmployeeInstance {
 }
 
 enum InstanceStatus {
-  PENDING_ACTIVATION  // 已订阅未激活
-  ACTIVE              // 正常可用
-  SUSPENDED           // 企业主动停用
-  REVOKED             // 已回收（订阅到期/退订）
+  PENDING_ACTIVATION // 已订阅未激活
+  ACTIVE // 正常可用
+  SUSPENDED // 企业主动停用
+  REVOKED // 已回收（订阅到期/退订）
 }
 
 /// 员工实例的授权：某实例授权给哪个部门或哪个成员。
@@ -262,25 +263,25 @@ enum InstanceStatus {
 /// 二者互斥：departmentId 与 memberId 恰有一个非空。
 /// 授权给部门 = 该部门所有成员可用；授权给成员 = 仅该成员可用。
 model EmployeeGrant {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  instanceId   String
-  instance     EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId String
+  instance   EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   /// 授权对象之一：部门
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
   /// 授权对象之二：具体成员
-  memberId     String?
-  member       EnterpriseMember? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String?
+  member   EnterpriseMember? @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   /// 限时授权到期时间。为空表示长期有效。
   /// 跨部门调用申请通过后签发的授权通常带过期时间。
-  expiresAt    DateTime?
+  expiresAt DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// ⚠️ 唯一约束不在这里 —— 授权对象二选一，三列必有一列为 NULL，
   /// 而 Postgres 视 NULL 互不相等，`@@unique([instanceId, departmentId, memberId])`
@@ -298,34 +299,34 @@ model EmployeeGrant {
 
 /// 跨部门/越权调用申请。非管理员想用未授权的员工时发起。
 model AccessRequest {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
   /// 申请人（企业成员）
-  requesterId  String
-  requester    EnterpriseMember @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  requesterId String
+  requester   EnterpriseMember @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
 
   /// 申请使用的实例
-  instanceId   String
-  instance     EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId String
+  instance   EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   /// 申请理由 / 任务说明
-  reason       String?  @db.Text
+  reason        String? @db.Text
   /// 期望使用期限（天），审批时据此签发限时授权
   requestedDays Int?
 
-  status       RequestStatus @default(PENDING)
+  status RequestStatus @default(PENDING)
 
   /// 审批人（平台 User，因审批者可能是企业管理员）
-  reviewerId   String?
-  reviewer     User?    @relation("AccessRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  reviewNote   String?  @db.Text
-  reviewedAt   DateTime?
+  reviewerId String?
+  reviewer   User?     @relation("AccessRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewNote String?   @db.Text
+  reviewedAt DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([enterpriseId])
   @@index([requesterId])
@@ -334,10 +335,10 @@ model AccessRequest {
 }
 
 enum RequestStatus {
-  PENDING    // 待审批
-  APPROVED   // 已批准
-  REJECTED   // 已驳回
-  CANCELED   // 申请人撤回
+  PENDING // 待审批
+  APPROVED // 已批准
+  REJECTED // 已驳回
+  CANCELED // 申请人撤回
 }
 
 // ============================================================================
@@ -351,8 +352,8 @@ model Capability {
   type        CapabilityType
 
   // Classification
-  industry    String[]       // 适用行业
-  position    String[]       // 适用岗位
+  industry String[] // 适用行业
+  position String[] // 适用岗位
 
   // Schema (JSON Schema for input/output validation)
   inputSchema  Json
@@ -363,18 +364,18 @@ model Capability {
   contributor   User   @relation("CapabilityContributor", fields: [contributorId], references: [id])
 
   // Status
-  status      CapabilityStatus @default(PENDING)
+  status CapabilityStatus @default(PENDING)
 
   // Statistics
-  usageCount  Int     @default(0)
-  rating      Float?
+  usageCount Int    @default(0)
+  rating     Float?
 
   // Metadata (flexible extension)
-  metadata    Json?
+  metadata Json?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  approvedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  approvedAt DateTime?
 
   // Type-specific configs (one-to-one relations)
   agentConfig AgentConfig?
@@ -383,23 +384,23 @@ model Capability {
   aiAppConfig AIAppConfig?
 
   // Relations
-  bindings      EmployeeCapabilityBinding[]
+  bindings       EmployeeCapabilityBinding[]
   toolExecutions ToolExecution[]
 
   @@map("capabilities")
 }
 
 enum CapabilityType {
-  AGENT   // 智能体（Coze/Dify/N8N/OpenCode）
-  RPA     // RPA 工作流
-  SKILL   // 提示词模板 + LLM
-  AI_APP  // AI 应用（Web/API）
+  AGENT // 智能体（Coze/Dify/N8N/OpenCode）
+  RPA // RPA 工作流
+  SKILL // 提示词模板 + LLM
+  AI_APP // AI 应用（Web/API）
 }
 
 enum CapabilityStatus {
-  PENDING   // 待审核
-  APPROVED  // 已通过
-  REJECTED  // 已拒绝
+  PENDING // 待审核
+  APPROVED // 已通过
+  REJECTED // 已拒绝
 }
 
 // ============================================================================
@@ -407,20 +408,26 @@ enum CapabilityStatus {
 // ============================================================================
 
 model AgentConfig {
-  id           String @id @default(cuid())
-  capabilityId String @unique
+  id           String     @id @default(cuid())
+  capabilityId String     @unique
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
-  platform     AgentPlatform  // coze | dify | n8n | opencode
+  platform AgentPlatform // coze | dify | n8n | opencode
 
-  // Platform-specific fields (nullable based on platform)
-  botId        String?  // Coze Bot ID
-  apiKey       String?  // Dify API Key (encrypted)
-  workflowUrl  String?  // N8N Webhook URL
-  skillName    String?  // OpenCode skill name
+  // Coze-specific fields
+  region      String? // CN | GLOBAL (Coze 区域)
+  runtimeKind String? // BOT_CHAT | WORKFLOW (Coze 运行类型)
+  botId       String? // Coze Bot ID
+  workflowId  String? // Coze Workflow ID
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // Other platform-specific fields
+  apiKey      String? // Coze PAT / Dify API Key (encrypted)
+  workflowUrl String? // N8N Webhook URL
+  webUrl      String? // Web URL (for iframe/redirect)
+  skillName   String? // OpenCode skill name
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("agent_configs")
 }
@@ -433,74 +440,74 @@ enum AgentPlatform {
 }
 
 model RPAConfig {
-  id           String @id @default(cuid())
-  capabilityId String @unique
+  id           String     @id @default(cuid())
+  capabilityId String     @unique
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
-  platform        RPAPlatform  // 实在 | 影刀
-  executionMode   RPAExecutionMode
+  platform      RPAPlatform // 实在 | 影刀
+  executionMode RPAExecutionMode
 
   // Package info
-  packageUrl      String?  // OSS URL for RPA package
-  packageSha256   String?  // Package integrity check
-  configDoc       String?  @db.Text  // Configuration documentation
+  packageUrl    String? // OSS URL for RPA package
+  packageSha256 String? // Package integrity check
+  configDoc     String? @db.Text // Configuration documentation
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("rpa_configs")
 }
 
 enum RPAPlatform {
-  SHIZAI  // 实在智能
+  SHIZAI // 实在智能
   YINGDAO // 影刀
 }
 
 enum RPAExecutionMode {
-  DOWNLOAD  // 下载模式（用户手动导入）
-  CLOUD     // 云端执行
-  CLIENT    // 客户端执行
+  DOWNLOAD // 下载模式（用户手动导入）
+  CLOUD // 云端执行
+  CLIENT // 客户端执行
 }
 
 model SkillConfig {
-  id           String @id @default(cuid())
-  capabilityId String @unique
+  id           String     @id @default(cuid())
+  capabilityId String     @unique
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
   // Prompt template
-  template     String @db.Text
+  template String @db.Text
 
   // Model configuration
-  modelId      String @default("gpt-4o-mini")
-  temperature  Float  @default(0.7)
-  maxTokens    Int    @default(2000)
+  modelId     String @default("gpt-4o-mini")
+  temperature Float  @default(0.7)
+  maxTokens   Int    @default(2000)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("skill_configs")
 }
 
 model AIAppConfig {
-  id           String @id @default(cuid())
-  capabilityId String @unique
+  id           String     @id @default(cuid())
+  capabilityId String     @unique
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
   integrationMode AIAppIntegrationMode
 
-  apiUrl       String?  // API endpoint
-  webUrl       String?  // Web URL (for iframe/redirect)
+  apiUrl String? // API endpoint
+  webUrl String? // Web URL (for iframe/redirect)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("ai_app_configs")
 }
 
 enum AIAppIntegrationMode {
-  API       // HTTP API 调用
-  IFRAME    // iframe 嵌入
-  REDIRECT  // 跳转
+  API // HTTP API 调用
+  IFRAME // iframe 嵌入
+  REDIRECT // 跳转
 }
 
 // ============================================================================
@@ -508,21 +515,21 @@ enum AIAppIntegrationMode {
 // ============================================================================
 
 model EmployeeCapabilityBinding {
-  id           String @id @default(cuid())
+  id String @id @default(cuid())
 
-  employeeId   String
-  employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   capabilityId String
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
   // 绑定配置
-  priority     Int     @default(0)      // 优先级（0-100）
-  enabled      Boolean @default(true)   // 是否启用
-  config       Json?                    // 能力配置（JSON）
+  priority Int     @default(0) // 优先级（0-100）
+  enabled  Boolean @default(true) // 是否启用
+  config   Json? // 能力配置（JSON）
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([employeeId, capabilityId])
   @@index([employeeId])
@@ -537,24 +544,24 @@ model EmployeeCapabilityBinding {
 /// 订阅。主体是【企业】而非个人 —— 订阅要花企业的钱，
 /// 只有企业管理员能发起（其他角色走 AccessRequest 申请）。
 model Subscription {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  employeeId   String
-  employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  status       SubscriptionStatus @default(ACTIVE)
+  status SubscriptionStatus @default(ACTIVE)
 
-  startDate    DateTime @default(now())
-  endDate      DateTime?
+  startDate DateTime  @default(now())
+  endDate   DateTime?
 
   // 企业侧订阅配置
-  config       Json?
+  config Json?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// 注意：这里保留唯一约束是因为「同一企业对同一模板只订阅一次」，
   /// 而多实例是在 EmployeeInstance 层面展开（一次订阅可开多个实例）。
@@ -564,9 +571,9 @@ model Subscription {
 }
 
 enum SubscriptionStatus {
-  ACTIVE   // 激活
-  PAUSED   // 暂停
-  EXPIRED  // 过期
+  ACTIVE // 激活
+  PAUSED // 暂停
+  EXPIRED // 过期
 }
 
 // ============================================================================
@@ -574,43 +581,43 @@ enum SubscriptionStatus {
 // ============================================================================
 
 model ConversationSession {
-  id         String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   employeeId String
   employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  title      String?  // 自动生成或用户修改
-  status     SessionStatus @default(ACTIVE)
+  title  String? // 自动生成或用户修改
+  status SessionStatus @default(ACTIVE)
 
   // 会话级模型覆盖：null 时用 employee.modelId
-  modelId    String?
+  modelId String?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  messages   Message[]
+  messages       Message[]
   toolExecutions ToolExecution[]
 
   @@map("conversation_sessions")
 }
 
 enum SessionStatus {
-  ACTIVE    // 活跃
-  ARCHIVED  // 归档
+  ACTIVE // 活跃
+  ARCHIVED // 归档
 }
 
 model Message {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
   sessionId String
   session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  role      MessageRole
-  content   String   @db.Text
+  role    MessageRole
+  content String      @db.Text
 
   // Tool calls (if role is assistant and made tool calls)
   toolCalls Json?
@@ -621,38 +628,38 @@ model Message {
 
   createdAt DateTime @default(now())
 
-  @@map("messages")
   @@index([sessionId, createdAt])
+  @@map("messages")
 }
 
 enum MessageRole {
-  USER      // 用户消息
+  USER // 用户消息
   ASSISTANT // AI 助手消息
-  TOOL      // Tool 执行结果
+  TOOL // Tool 执行结果
 }
 
 model ToolExecution {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  sessionId    String
-  session      ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId String
+  session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   capabilityId String
   capability   Capability @relation(fields: [capabilityId], references: [id])
 
-  input        Json
-  output       Json?
+  input  Json
+  output Json?
 
-  duration     Int?     // 执行耗时（ms）
-  tokensUsed   Int?     // Token 消耗（如适用）
+  duration   Int? // 执行耗时（ms）
+  tokensUsed Int? // Token 消耗（如适用）
 
   status       ExecutionStatus @default(SUCCESS)
-  errorMessage String?  @db.Text
+  errorMessage String?         @db.Text
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  @@map("tool_executions")
   @@index([sessionId, createdAt])
+  @@map("tool_executions")
 }
 
 enum ExecutionStatus {
@@ -670,12 +677,12 @@ enum ExecutionStatus {
 /// 必须经 accountId → ComputeAccount.enterpriseId 校验归属，
 /// 否则拿到别家的 accountId 就能查别家账单。
 model ComputeAccount {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  enterpriseId String   @unique
+  enterpriseId String     @unique
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  balance      Float    @default(0)  // 余额（人民币）
+  balance Float @default(0) // 余额（人民币）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -687,30 +694,30 @@ model ComputeAccount {
 }
 
 model ComputeTransaction {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
   accountId String
   account   ComputeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  type      TransactionType
-  amount    Float    // 正数=充值，负数=消费
+  type   TransactionType
+  amount Float // 正数=充值，负数=消费
 
   // 关联信息
-  sessionId String?  // 如果是对话消费，关联会话
+  sessionId String? // 如果是对话消费，关联会话
 
   description String?
   metadata    Json?
 
   createdAt DateTime @default(now())
 
-  @@map("compute_transactions")
   @@index([accountId, createdAt])
+  @@map("compute_transactions")
 }
 
 enum TransactionType {
-  RECHARGE  // 充值
-  CONSUME   // 消费
-  REFUND    // 退款
+  RECHARGE // 充值
+  CONSUME // 消费
+  REFUND // 退款
 }
 
 // ============================================================================
@@ -721,13 +728,13 @@ enum TransactionType {
 // 接口永不回传明文。
 // ============================================================================
 model SystemSetting {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  key       String   @unique  // 如 SUB2API_BASE_URL / SUB2API_API_KEY
-  value     String   @db.Text // 明文或密文（isSecret 决定）
-  isSecret  Boolean  @default(false)
-  label     String?  // 界面显示名
-  category  String   @default("general") // 分组，如 sub2api
+  key      String  @unique // 如 SUB2API_BASE_URL / SUB2API_API_KEY
+  value    String  @db.Text // 明文或密文（isSecret 决定）
+  isSecret Boolean @default(false)
+  label    String? // 界面显示名
+  category String  @default("general") // 分组，如 sub2api
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -745,21 +752,21 @@ model SystemSetting {
 //   - enabled=false 即软禁用：用户端选不到，但历史会话仍能显示模型名
 // ============================================================================
 model PlatformModel {
-  id         String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  modelId    String   @unique
-  label      String
-  enabled    Boolean  @default(false)
-  sortOrder  Int      @default(0)
+  modelId   String  @unique
+  label     String
+  enabled   Boolean @default(false)
+  sortOrder Int     @default(0)
 
   lastSeenAt DateTime @default(now())
   isStale    Boolean  @default(false)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@map("platform_models")
   @@index([enabled, sortOrder])
+  @@map("platform_models")
 }
 
 // ============================================================================
@@ -775,40 +782,40 @@ model PlatformModel {
 // 平台运营（UserRole.ADMIN）无需授权直接可下载（用于测试验包）。
 // ============================================================================
 model EmployeePackage {
-  id            String          @id @default(cuid())
+  id String @id @default(cuid())
 
-  employeeId    String
-  employee      DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   /// 发布时对应的 DigitalEmployee.version，用于在下载 UI 上显示版本号
-  version       String
+  version String
 
   /// 原始文件名（ZIP 上传时携带）
-  filename      String?
+  filename String?
 
   /// 服务器存储路径（相对 PACKAGE_STORAGE_PATH）
-  storagePath   String?
+  storagePath String?
 
   /// SHA-256 十六进制
-  sha256        String?
+  sha256 String?
 
   fileSizeBytes Int?
 
   /// pi package 引用（决策 5：复用 pi 自己的 package 机制）。
   /// 与 ZIP 字段互斥也可并存：没有 npm 包时只填 ZIP；两者都有时客户端优先用这个。
   /// { type: "npm" | "git", spec: "@sep/employee-video@1.2.0" }
-  packageRef    Json?
+  packageRef Json?
 
   /// 上传者（平台运营账号的 User.id）
-  uploadedBy    String
+  uploadedBy String
 
   /// 可选的更新说明（一句话）
-  changelog     String?
+  changelog String?
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  @@map("employee_packages")
   @@index([employeeId, createdAt(sort: Desc)])
+  @@map("employee_packages")
 }
 
 // ============================================================================
@@ -821,7 +828,7 @@ model Device {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// 客户端生成的设备指纹（如 OS + CPU + 主板序列号的哈希）
   fingerprint   String
-  platform      String    // darwin / win32 / linux
+  platform      String // darwin / win32 / linux
   clientVersion String?
   lastSeenAt    DateTime  @default(now()) @updatedAt
   revokedAt     DateTime? // 运营吊销后设置
@@ -846,10 +853,10 @@ model KnowledgeBase {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  enterprise   Enterprise         @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-  creator      User               @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
-  documents    Document[]
-  grants       KnowledgeGrant[]
+  enterprise Enterprise       @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  creator    User             @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
+  documents  Document[]
+  grants     KnowledgeGrant[]
 
   @@index([enterpriseId])
   @@map("knowledge_bases")
@@ -862,7 +869,7 @@ model Document {
   originalName    String
   fileSize        Int
   mimeType        String
-  storagePath     String         // 本地文件路径
+  storagePath     String // 本地文件路径
   status          DocumentStatus @default(PENDING)
   uploadedBy      String
   createdAt       DateTime       @default(now())
@@ -876,9 +883,9 @@ model Document {
 }
 
 enum DocumentStatus {
-  PENDING    // 上传中
-  READY      // 可用（MVP 直接设为此状态，不做解析）
-  FAILED     // 失败
+  PENDING // 上传中
+  READY // 可用（MVP 直接设为此状态，不做解析）
+  FAILED // 失败
 }
 
 model KnowledgeGrant {
@@ -896,4 +903,33 @@ model KnowledgeGrant {
   @@unique([knowledgeBaseId, departmentId])
   @@index([knowledgeBaseId])
   @@map("knowledge_grants")
+}
+
+// ============================================================================
+// Notification (实时通知)
+// ============================================================================
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String           @db.Text
+  relatedType String? // 'subscription' | 'task' | 'instance' | 'balance'
+  relatedId   String?
+  read        Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
 }

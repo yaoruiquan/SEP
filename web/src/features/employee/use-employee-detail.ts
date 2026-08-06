@@ -31,7 +31,10 @@ export interface EmployeeDetail {
     name: string;
     type: string;
     status: string;
+    description: string | null;
     order: number;
+    inputSchema: Record<string, unknown> | null;
+    outputSchema: Record<string, unknown> | null;
   }>;
 
   // 统计数据
@@ -130,7 +133,10 @@ function normalizeEmployeeDetail(raw: any): EmployeeDetail {
       name: b.capability.name,
       type: b.capability.type,
       status: b.capability.status,
-      order: b.order,
+      description: b.capability.description || null,
+      order: b.priority ?? b.order ?? 0,
+      inputSchema: b.capability.inputSchema ?? null,
+      outputSchema: b.capability.outputSchema ?? null,
     })),
 
     // 统计数据（TODO: 后端补充）

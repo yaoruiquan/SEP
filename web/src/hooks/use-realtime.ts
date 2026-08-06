@@ -14,7 +14,7 @@ interface TaskUpdateMessage {
 
 interface NotificationMessage {
   id: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
   title: string;
   message: string;
   timestamp: number;
@@ -22,49 +22,33 @@ interface NotificationMessage {
 
 /**
  * 任务实时更新 hook
- * 监听任务状态变化并自动更新查询缓存
  */
 export function useTaskUpdates() {
   const queryClient = useQueryClient();
 
   const handleMessage = (message: WebSocketMessage) => {
     switch (message.type) {
-      case 'task:update':
+      case 'task:update': {
         const taskUpdate = message.data as TaskUpdateMessage;
-        console.log('[TaskUpdates] Task update:', taskUpdate);
-
-        // 使任务列表查询失效，触发重新获取
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
-
-        // 如果有特定任务 ID，也更新单个任务查询
         if (taskUpdate.taskId) {
           queryClient.invalidateQueries({ queryKey: ['tasks', taskUpdate.taskId] });
         }
         break;
-
+      }
       case 'task:completed':
-        console.log('[TaskUpdates] Task completed:', message.data);
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
-        break;
-
       case 'task:failed':
-        console.log('[TaskUpdates] Task failed:', message.data);
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
         break;
-
       default:
         break;
     }
   };
 
-  const { isConnected, reconnectCount } = useWebSocket(
-    `${WS_BASE_URL}/ws/tasks`,
-    {
-      onMessage: handleMessage,
-      onConnect: () => console.log('[TaskUpdates] Connected to task updates'),
-      onDisconnect: () => console.log('[TaskUpdates] Disconnected from task updates'),
-    }
-  );
+  // /ws/tasks gateway 尚未实现，传空 URL 禁止连接
+  const { isConnected, reconnectCount } = useWebSocket('', {
+    onMessage: handleMessage,
+  });
 
   return { isConnected, reconnectCount };
 }
@@ -77,59 +61,53 @@ export function useNotifications(onNotification?: (notification: NotificationMes
   const queryClient = useQueryClient();
 
   const handleMessage = (message: WebSocketMessage) => {
-    if (message.type === 'notification') {
-      const notification = message.data as NotificationMessage;
-      console.log('[Notifications] New notification:', notification);
-
-      // 触发回调
-      onNotification?.(notification);
-
-      // 使通知列表查询失效
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    switch (message.type) {
+      case 'notification': {
+        const notification = message.data as NotificationMessage;
+        onNotification?.(notification);
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        break;
+      }
+      case 'connected':
+        // 连接成功，刷新未读数
+        queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+        break;
+      case 'unread_count':
+        // 后端主动推送未读数变化，直接更新缓存
+        queryClient.setQueryData(['notifications', 'unread-count'], {
+          count: (message.data as { count: number }).count,
+        });
+        break;
+      default:
+        break;
     }
   };
 
-  const { isConnected, reconnectCount } = useWebSocket(
-    `${WS_BASE_URL}/ws/notifications`,
-    {
-      onMessage: handleMessage,
-      onConnect: () => console.log('[Notifications] Connected to notifications'),
-      onDisconnect: () => console.log('[Notifications] Disconnected from notifications'),
-    }
-  );
+  const { isConnected, reconnectCount } = useWebSocket(`${WS_BASE_URL}/ws/notifications`, {
+    onMessage: handleMessage,
+    onConnect: () => queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] }),
+  });
 
   return { isConnected, reconnectCount };
 }
 
 /**
  * 在线状态实时更新 hook
- * 监听用户和员工的在线状态变化
  */
 export function usePresence() {
   const queryClient = useQueryClient();
 
   const handleMessage = (message: WebSocketMessage) => {
-    switch (message.type) {
-      case 'presence:update':
-        console.log('[Presence] Status update:', message.data);
-        // 使相关查询失效
-        queryClient.invalidateQueries({ queryKey: ['employees'] });
-        queryClient.invalidateQueries({ queryKey: ['my-employees'] });
-        break;
-
-      default:
-        break;
+    if (message.type === 'presence:update') {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ['my-employees'] });
     }
   };
 
-  const { isConnected, reconnectCount } = useWebSocket(
-    `${WS_BASE_URL}/ws/presence`,
-    {
-      onMessage: handleMessage,
-      onConnect: () => console.log('[Presence] Connected to presence updates'),
-      onDisconnect: () => console.log('[Presence] Disconnected from presence updates'),
-    }
-  );
+  // /ws/presence gateway 尚未实现，传空 URL 禁止连接
+  const { isConnected, reconnectCount } = useWebSocket('', {
+    onMessage: handleMessage,
+  });
 
   return { isConnected, reconnectCount };
 }

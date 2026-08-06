@@ -55,6 +55,8 @@ export interface Subscription {
   id: string;
   status: SubscriptionStatus;
   config: Record<string, unknown> | null;
+  startDate: string;
+  endDate: string | null;
   createdAt: string;
   employee: DigitalEmployee;
 }
