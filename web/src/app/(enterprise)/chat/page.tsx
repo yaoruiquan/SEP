@@ -75,7 +75,7 @@ export default function ChatPage() {
             <EmptyState
               icon={<MessageSquare className=”h-8 w-8” />}
               title=”选择或新建一个会话”
-              description=”从左侧选择已有会话，或点击”新建会话”挑选一位碳基员工开始对话。”
+              description=”从左侧选择已有会话，或点击「新建会话」挑选一位碳基员工开始对话。”
             />
           </div>
         )}
