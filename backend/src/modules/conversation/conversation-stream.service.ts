@@ -258,6 +258,19 @@ export class ConversationStreamService {
             `[Billing Check] usage=${JSON.stringify(usage)}, input=${inputTokens}, output=${outputTokens}`,
           );
 
+          // 计算消息成本（用于账单明细和成本分析）
+          const rate = parseUsdToCnyRate(
+            await this.settingService.getEffectiveValue(
+              SETTING_KEYS.USD_TO_CNY_RATE,
+            ),
+          );
+          const { costCNY } = calculateCost(
+            modelId,
+            inputTokens,
+            outputTokens,
+            rate,
+          );
+
           const saved = await this.prisma.message.create({
             data: {
               sessionId,
@@ -265,6 +278,8 @@ export class ConversationStreamService {
               content: accumulatedText,
               inputTokens,
               outputTokens,
+              modelId, // 记录实际使用的模型（会话级 > 员工级 > 系统默认）
+              cost: costCNY, // 单条消息成本（CNY），精确到 6 位小数
             },
           });
 

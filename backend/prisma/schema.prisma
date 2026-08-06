@@ -626,6 +626,13 @@ model Message {
   inputTokens  Int?
   outputTokens Int?
 
+  // 实际使用的模型（用于计费追溯和成本分析）
+  modelId String?
+
+  // 本条消息的成本（人民币，元）
+  // 计算公式：(inputTokens * pricingInputPer1M + outputTokens * pricingOutputPer1M) / 1,000,000
+  cost Decimal? @db.Decimal(10, 6)
+
   createdAt DateTime @default(now())
 
   @@index([sessionId, createdAt])
