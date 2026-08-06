@@ -56,7 +56,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className=”absolute inset-0 flex”>
+    <div className="absolute inset-0 flex">
       <SessionList
         sessions={sessions}
         activeId={effectiveActive}
@@ -67,15 +67,15 @@ export default function ChatPage() {
         onDelete={handleDelete}
       />
 
-      <div className=”min-w-0 flex-1 flex flex-col”>
+      <div className="min-w-0 flex-1 flex flex-col">
         {effectiveActive ? (
           <ChatWindow key={effectiveActive} conversationId={effectiveActive} />
         ) : (
-          <div className=”flex h-full items-center justify-center p-6”>
+          <div className="flex h-full items-center justify-center p-6">
             <EmptyState
-              icon={<MessageSquare className=”h-8 w-8” />}
-              title=”选择或新建一个会话”
-              description=”从左侧选择已有会话，或点击「新建会话」挑选一位碳基员工开始对话。”
+              icon={<MessageSquare className="h-8 w-8" />}
+              title="选择或新建一个会话"
+              description="从左侧选择已有会话，或点击新建会话挑选一位碳基员工开始对话。"
             />
           </div>
         )}
