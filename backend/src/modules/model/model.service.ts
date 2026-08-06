@@ -203,4 +203,74 @@ export class ModelService {
     // 与 listAll 保持同样的返回结构，避免前端 PlatformModel 类型与实际响应不一致
     return { ...updated, hasPricing: hasPricing(updated.modelId) };
   }
+
+  /** 管理端：测试模型可用性（发送一个简单的测试消息）。 */
+  async testModel(id: string) {
+    // 先查询数据库记录，获取真实的 modelId
+    const model = await this.prisma.platformModel.findUnique({
+      where: { id },
+      select: { modelId: true, label: true },
+    });
+    if (!model) {
+      throw new NotFoundException(`Model ${id} not found`);
+    }
+
+    const baseURL = await this.settingService.getEffectiveValue(
+      SETTING_KEYS.SUB2API_BASE_URL,
+    );
+    const apiKey = await this.settingService.getEffectiveValue(
+      SETTING_KEYS.SUB2API_API_KEY,
+    );
+
+    if (!baseURL || !apiKey) {
+      throw new ServiceUnavailableException(
+        '上游渠道未配置，请先在系统设置中填写 sub2api 地址和密钥',
+      );
+    }
+
+    const url = `${baseURL.replace(/\/$/, '')}/chat/completions`;
+    const startTime = Date.now();
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [{ role: 'user', content: '你好，请回复一个字：好' }],
+          max_tokens: 10,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      const latency = Date.now() - startTime;
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.error(`Model test failed for ${model.modelId}: ${res.status} ${text}`);
+        throw new ServiceUnavailableException(
+          `模型测试失败 (${res.status})：${text.substring(0, 200)}`,
+        );
+      }
+
+      const json = await res.json();
+      const content = json.choices?.[0]?.message?.content || '';
+
+      return {
+        success: true,
+        modelId: model.modelId,
+        latency,
+        response: content,
+        message: `测试成功，响应延迟 ${latency}ms`,
+      };
+    } catch (err) {
+      this.logger.error(`Model test error for ${model.modelId}`, err);
+      throw new ServiceUnavailableException(
+        `模型测试失败：${(err as Error).message}`,
+      );
+    }
+  }
 }

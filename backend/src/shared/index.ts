@@ -69,6 +69,38 @@ export const SETTING_KEYS = {
   USD_TO_CNY_RATE: "USD_TO_CNY_RATE",
   /** 客户端实例令牌有效期（分钟）。建议初值 15。 */
   CLIENT_TOKEN_TTL_MINUTES: "CLIENT_TOKEN_TTL_MINUTES",
+  // 平台基础信息
+  PLATFORM_NAME: "PLATFORM_NAME",
+  PLATFORM_LOGO_URL: "PLATFORM_LOGO_URL",
+  SUPPORT_EMAIL: "SUPPORT_EMAIL",
+  SUPPORT_PHONE: "SUPPORT_PHONE",
+  ICP_NUMBER: "ICP_NUMBER",
+  // 计费配置
+  FALLBACK_PRICE_INPUT: "FALLBACK_PRICE_INPUT",
+  FALLBACK_PRICE_OUTPUT: "FALLBACK_PRICE_OUTPUT",
+  NEW_ENTERPRISE_GIFT_TOKENS: "NEW_ENTERPRISE_GIFT_TOKENS",
+  LOW_BALANCE_THRESHOLD: "LOW_BALANCE_THRESHOLD",
+  // 安全与限制
+  MAX_TOKENS_PER_CONVERSATION: "MAX_TOKENS_PER_CONVERSATION",
+  MAX_CONCURRENT_SESSIONS: "MAX_CONCURRENT_SESSIONS",
+  ADMIN_IP_WHITELIST: "ADMIN_IP_WHITELIST",
+  // 注册与审核
+  ENTERPRISE_REGISTRATION_APPROVAL: "ENTERPRISE_REGISTRATION_APPROVAL",
+  SEND_WELCOME_EMAIL: "SEND_WELCOME_EMAIL",
+  // 内容审核
+  CONTENT_FILTER_ENABLED: "CONTENT_FILTER_ENABLED",
+  // 数据保留
+  CONVERSATION_RETENTION_DAYS: "CONVERSATION_RETENTION_DAYS",
+  OPERATION_LOG_RETENTION_DAYS: "OPERATION_LOG_RETENTION_DAYS",
+  SOFT_DELETE_RETENTION_DAYS: "SOFT_DELETE_RETENTION_DAYS",
+  // 性能与缓存
+  REDIS_CACHE_ENABLED: "REDIS_CACHE_ENABLED",
+  CONVERSATION_CACHE_TTL: "CONVERSATION_CACHE_TTL",
+  MODEL_RESPONSE_TIMEOUT: "MODEL_RESPONSE_TIMEOUT",
+  // 通知配置
+  ADMIN_NOTIFICATION_EMAIL: "ADMIN_NOTIFICATION_EMAIL",
+  ABNORMAL_USAGE_THRESHOLD: "ABNORMAL_USAGE_THRESHOLD",
+  SYSTEM_MAINTENANCE_NOTICE: "SYSTEM_MAINTENANCE_NOTICE",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -122,6 +154,182 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     secret: false,
     envFallback: "CLIENT_TOKEN_TTL_MINUTES",
     placeholder: "15",
+  },
+  // 平台基础信息
+  {
+    key: SETTING_KEYS.PLATFORM_NAME,
+    label: "平台名称",
+    secret: false,
+    envFallback: "PLATFORM_NAME",
+    placeholder: "硅基人才平台",
+  },
+  {
+    key: SETTING_KEYS.PLATFORM_LOGO_URL,
+    label: "平台Logo地址",
+    secret: false,
+    envFallback: "PLATFORM_LOGO_URL",
+    placeholder: "",
+  },
+  {
+    key: SETTING_KEYS.SUPPORT_EMAIL,
+    label: "客服邮箱",
+    secret: false,
+    envFallback: "SUPPORT_EMAIL",
+    placeholder: "support@example.com",
+  },
+  {
+    key: SETTING_KEYS.SUPPORT_PHONE,
+    label: "客服电话",
+    secret: false,
+    envFallback: "SUPPORT_PHONE",
+    placeholder: "",
+  },
+  {
+    key: SETTING_KEYS.ICP_NUMBER,
+    label: "备案号",
+    secret: false,
+    envFallback: "ICP_NUMBER",
+    placeholder: "",
+  },
+  // 计费配置
+  {
+    key: SETTING_KEYS.FALLBACK_PRICE_INPUT,
+    label: "保底计费-输入价格 (元/1K tokens)",
+    secret: false,
+    envFallback: "FALLBACK_PRICE_INPUT",
+    placeholder: "0.001",
+  },
+  {
+    key: SETTING_KEYS.FALLBACK_PRICE_OUTPUT,
+    label: "保底计费-输出价格 (元/1K tokens)",
+    secret: false,
+    envFallback: "FALLBACK_PRICE_OUTPUT",
+    placeholder: "0.002",
+  },
+  {
+    key: SETTING_KEYS.NEW_ENTERPRISE_GIFT_TOKENS,
+    label: "新企业赠送额度 (tokens)",
+    secret: false,
+    envFallback: "NEW_ENTERPRISE_GIFT_TOKENS",
+    placeholder: "100000",
+  },
+  {
+    key: SETTING_KEYS.LOW_BALANCE_THRESHOLD,
+    label: "低余额告警阈值 (tokens)",
+    secret: false,
+    envFallback: "LOW_BALANCE_THRESHOLD",
+    placeholder: "10000",
+  },
+  // 安全与限制
+  {
+    key: SETTING_KEYS.MAX_TOKENS_PER_CONVERSATION,
+    label: "单次对话最大tokens",
+    secret: false,
+    envFallback: "MAX_TOKENS_PER_CONVERSATION",
+    placeholder: "32000",
+  },
+  {
+    key: SETTING_KEYS.MAX_CONCURRENT_SESSIONS,
+    label: "单企业并发会话数 (0=不限制)",
+    secret: false,
+    envFallback: "MAX_CONCURRENT_SESSIONS",
+    placeholder: "10",
+  },
+  {
+    key: SETTING_KEYS.ADMIN_IP_WHITELIST,
+    label: "管理员IP白名单 (逗号分隔)",
+    secret: false,
+    envFallback: "ADMIN_IP_WHITELIST",
+    placeholder: "",
+  },
+  // 注册与审核
+  {
+    key: SETTING_KEYS.ENTERPRISE_REGISTRATION_APPROVAL,
+    label: "企业注册需人工审核",
+    secret: false,
+    envFallback: "ENTERPRISE_REGISTRATION_APPROVAL",
+    placeholder: "true",
+  },
+  {
+    key: SETTING_KEYS.SEND_WELCOME_EMAIL,
+    label: "审核通过发送欢迎邮件",
+    secret: false,
+    envFallback: "SEND_WELCOME_EMAIL",
+    placeholder: "false",
+  },
+  // 内容审核
+  {
+    key: SETTING_KEYS.CONTENT_FILTER_ENABLED,
+    label: "敏感词过滤开关",
+    secret: false,
+    envFallback: "CONTENT_FILTER_ENABLED",
+    placeholder: "false",
+  },
+  // 数据保留
+  {
+    key: SETTING_KEYS.CONVERSATION_RETENTION_DAYS,
+    label: "对话记录保留天数 (0=永久)",
+    secret: false,
+    envFallback: "CONVERSATION_RETENTION_DAYS",
+    placeholder: "90",
+  },
+  {
+    key: SETTING_KEYS.OPERATION_LOG_RETENTION_DAYS,
+    label: "操作日志保留天数 (0=永久)",
+    secret: false,
+    envFallback: "OPERATION_LOG_RETENTION_DAYS",
+    placeholder: "180",
+  },
+  {
+    key: SETTING_KEYS.SOFT_DELETE_RETENTION_DAYS,
+    label: "软删除数据保留天数",
+    secret: false,
+    envFallback: "SOFT_DELETE_RETENTION_DAYS",
+    placeholder: "30",
+  },
+  // 性能与缓存
+  {
+    key: SETTING_KEYS.REDIS_CACHE_ENABLED,
+    label: "Redis缓存开关",
+    secret: false,
+    envFallback: "REDIS_CACHE_ENABLED",
+    placeholder: "true",
+  },
+  {
+    key: SETTING_KEYS.CONVERSATION_CACHE_TTL,
+    label: "对话历史缓存时长 (秒)",
+    secret: false,
+    envFallback: "CONVERSATION_CACHE_TTL",
+    placeholder: "3600",
+  },
+  {
+    key: SETTING_KEYS.MODEL_RESPONSE_TIMEOUT,
+    label: "模型响应超时 (秒)",
+    secret: false,
+    envFallback: "MODEL_RESPONSE_TIMEOUT",
+    placeholder: "120",
+  },
+  // 通知配置
+  {
+    key: SETTING_KEYS.ADMIN_NOTIFICATION_EMAIL,
+    label: "管理员通知邮箱",
+    secret: false,
+    envFallback: "ADMIN_NOTIFICATION_EMAIL",
+    placeholder: "admin@example.com",
+  },
+  {
+    key: SETTING_KEYS.ABNORMAL_USAGE_THRESHOLD,
+    label: "异常消耗告警阈值 (单小时tokens)",
+    secret: false,
+    envFallback: "ABNORMAL_USAGE_THRESHOLD",
+    placeholder: "100000",
+  },
+  {
+    key: SETTING_KEYS.SYSTEM_MAINTENANCE_NOTICE,
+    label: "系统维护公告",
+    secret: false,
+    envFallback: "SYSTEM_MAINTENANCE_NOTICE",
+    placeholder: "",
   },
 ];
 

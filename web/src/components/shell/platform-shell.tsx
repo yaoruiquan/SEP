@@ -21,7 +21,6 @@ const LINKS: NavLink[] = [
   { href: '/admin/employees', label: '员工管理', icon: Users },
   { href: '/admin/enterprises', label: '企业管理', icon: Building2 },
   { href: '/admin/compute', label: '算力管理', icon: Wallet },
-  { href: '/admin/models', label: '可用模型', icon: Cpu },
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ];
 

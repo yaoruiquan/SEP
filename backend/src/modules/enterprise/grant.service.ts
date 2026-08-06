@@ -218,7 +218,26 @@ export class GrantService {
             departmentId: true,
             department: { select: { id: true, name: true } },
             template: {
-              select: { id: true, name: true, avatar: true },
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+                bindings: {
+                  select: {
+                    id: true,
+                    priority: true,
+                    capability: {
+                      select: {
+                        id: true,
+                        name: true,
+                        type: true,
+                        description: true,
+                      },
+                    },
+                  },
+                  orderBy: { priority: 'asc' },
+                },
+              },
             },
           },
         },

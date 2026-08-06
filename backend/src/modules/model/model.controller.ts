@@ -61,4 +61,14 @@ export class ModelController {
   ) {
     return this.modelService.updateModel(id, body ?? {});
   }
+
+  @Post(':id/test')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: '测试模型可用性（仅管理员）' })
+  @ApiResponse({ status: 200, description: '测试成功，返回响应内容和延迟' })
+  @ApiResponse({ status: 503, description: '模型不可用或测试失败' })
+  testModel(@Param('id') id: string) {
+    return this.modelService.testModel(id);
+  }
 }

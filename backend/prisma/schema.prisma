@@ -762,6 +762,16 @@ model PlatformModel {
   lastSeenAt DateTime @default(now())
   isStale    Boolean  @default(false)
 
+  // 扩展元数据
+  contextLength      Int?     // 上下文长度（tokens）
+  maxOutputTokens    Int?     // 最大输出长度
+  supportedFeatures  Json?    // 支持的功能 {functionCalling, vision, streaming}
+  pricingInputPer1M  Decimal? @db.Decimal(10, 4) // 输入价格（元/1M tokens）
+  pricingOutputPer1M Decimal? @db.Decimal(10, 4) // 输出价格（元/1M tokens）
+  description        String?  // 模型说明
+  vendor             String?  // 厂商（OpenAI, Anthropic, Google, etc.）
+  category           String?  // 分类（chat, code, vision, embedding）
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

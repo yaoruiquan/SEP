@@ -7,8 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
+import { CAPABILITY_TYPE_META } from '@/lib/utils';
 import type { MyEmployee } from '@/lib/types';
 import type { useDownloadPackage } from '@/features/employee/use-packages';
+import { useDownloadSkill } from '@/features/capability/use-capability';
 import { memo } from 'react';
 
 interface EmployeeCardProps {
@@ -25,6 +27,7 @@ export const EmployeeCard = memo(function EmployeeCard({
   download,
 }: EmployeeCardProps) {
   const router = useRouter();
+  const downloadSkill = useDownloadSkill();
   const { instanceId, name, templateVersion, template, department, grantSource, expiresAt, packageAvailable } =
     employee;
 
@@ -41,6 +44,23 @@ export const EmployeeCard = memo(function EmployeeCard({
         onError: (err) => toast.error((err as Error).message),
       },
     );
+  };
+
+  const handleDownloadSkills = async () => {
+    const skills = template.bindings?.filter((b) => b.capability.type === 'SKILL') || [];
+    if (skills.length === 0) {
+      toast.error('该员工没有可下载的技能');
+      return;
+    }
+
+    for (const skill of skills) {
+      try {
+        const { filename } = await downloadSkill.mutateAsync(skill.capability.id);
+        toast.success(`${skill.capability.name} 下载成功`);
+      } catch (err) {
+        toast.error(`${skill.capability.name} 下载失败：${(err as Error).message}`);
+      }
+    }
   };
 
   return (
@@ -99,6 +119,26 @@ export const EmployeeCard = memo(function EmployeeCard({
           )}
         </div>
 
+        {/* 能力列表 */}
+        {template.bindings && template.bindings.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-gtext-secondary">绑定能力</p>
+            <div className="flex flex-wrap gap-1.5">
+              {template.bindings.map((binding) => {
+                const meta = CAPABILITY_TYPE_META[binding.capability.type];
+                return (
+                  <Badge
+                    key={binding.id}
+                    className={`text-xs ${meta.tone}`}
+                  >
+                    {binding.capability.name}
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* 操作按钮 */}
         <div className="space-y-2">
           {/* 管理员操作 */}
@@ -153,7 +193,24 @@ export const EmployeeCard = memo(function EmployeeCard({
               className="w-full"
             >
               <Download className="mr-2 h-4 w-4" />
-              {download.isPending ? '下载中...' : '下载到本地'}
+              {download.isPending ? '下载中...' : '下载员工包'}
+            </Button>
+          )}
+
+          {/* 下载所有技能按钮 */}
+          {template.bindings?.some((b) => b.capability.type === 'SKILL') && (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={downloadSkill.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadSkills();
+              }}
+              className="w-full bg-success hover:bg-success/90"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {downloadSkill.isPending ? '下载中...' : '下载所有技能'}
             </Button>
           )}
         </div>

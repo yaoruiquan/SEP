@@ -172,7 +172,21 @@ export interface MyEmployee {
   instanceId: string;
   name: string;
   templateVersion: string;
-  template: { id: string; name: string; avatar: string | null };
+  template: {
+    id: string;
+    name: string;
+    avatar: string | null;
+    bindings?: Array<{
+      id: string;
+      priority: number;
+      capability: {
+        id: string;
+        name: string;
+        type: CapabilityType;
+        description: string;
+      };
+    }>;
+  };
   department: { id: string; name: string } | null;
   grantSource: 'DIRECT' | 'DEPARTMENT';
   expiresAt: string | null;

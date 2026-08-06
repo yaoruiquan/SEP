@@ -96,3 +96,17 @@ export function useUpdatePlatformModel() {
     },
   });
 }
+
+/** 测试模型可用性（发送测试消息到上游）。 */
+export function useTestModel() {
+  return useMutation<
+    { success: boolean; latency: number; response: string },
+    Error,
+    string
+  >({
+    mutationFn: (modelId: string) =>
+      api.post<{ success: boolean; latency: number; response: string }>(
+        `/models/${modelId}/test`
+      ),
+  });
+}
