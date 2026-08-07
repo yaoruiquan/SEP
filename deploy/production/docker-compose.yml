@@ -12,6 +12,23 @@
 
 services:
   # ═════════════════════════════════════════════════════════════════════════════
+  # SEP Migrate (prisma migrate deploy — 启动后自动退出，幂等)
+  # ═════════════════════════════════════════════════════════════════════════════
+  sep-migrate:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      target: migrator
+    image: sep-migrator:latest
+    container_name: sep-migrate
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@longdao-postgres:5432/sep_prod
+      - TZ=Asia/Shanghai
+    networks:
+      - longdao-network
+
+  # ═════════════════════════════════════════════════════════════════════════════
   # SEP Backend (NestJS)
   # ═════════════════════════════════════════════════════════════════════════════
   sep-backend:
@@ -47,6 +64,10 @@ services:
 
     volumes:
       - sep_uploads:/app/uploads
+
+    depends_on:
+      sep-migrate:
+        condition: service_completed_successfully
 
     networks:
       - longdao-network

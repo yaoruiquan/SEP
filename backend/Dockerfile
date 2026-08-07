@@ -24,7 +24,13 @@ RUN pnpm --filter backend exec prisma generate
 
 RUN pnpm --filter backend run build
 
-# ── Stage 3: Runner ───────────────────────────────────────────────────────────
+# ── Stage 3: Migrator (独立运行 prisma migrate deploy) ────────────────────────
+# 直接复用 builder：pnpm + prisma CLI 均已就位，无需重新安装
+FROM builder AS migrator
+WORKDIR /app
+CMD ["sh", "-c", "pnpm --filter backend exec prisma migrate deploy"]
+
+# ── Stage 4: Runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
@@ -35,13 +41,8 @@ COPY --from=builder /app/backend/package.json ./package.json
 COPY --from=builder /app/backend/prisma ./prisma
 COPY --from=builder /app/backend/node_modules ./node_modules
 
-# prisma CLI 被 pnpm 提升到 workspace 根 node_modules，需单独复制供 migrate deploy 用
-# .bin/prisma shim 已在 backend/node_modules/.bin/ 中，只缺少包本体
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-
 RUN mkdir -p uploads
 
 EXPOSE 3001
 
-# 启动前先跑 prisma migrate deploy（幂等，可重复执行）
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main"]
+CMD ["node", "dist/main"]
