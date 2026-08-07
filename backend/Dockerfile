@@ -19,6 +19,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/backend/node_modules ./backend/node_modules
 COPY . .
 
+# 先生成 Prisma Client，否则 TypeScript 编译找不到枚举类型
+RUN pnpm --filter backend exec prisma generate
+
 RUN pnpm --filter backend run build
 
 # ── Stage 3: Runner ───────────────────────────────────────────────────────────
