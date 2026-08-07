@@ -28,11 +28,11 @@ RUN pnpm --filter backend run build
 # pnpm deploy：创建自包含生产包，所有依赖展平（prod only）
 RUN pnpm deploy --filter backend --prod /prod-bundle
 
-# pnpm deploy 从 registry 安装 @prisma/client，没有 generated files
-# 用 workspace 的 prisma CLI 在 prod-bundle 内重新 generate（输出到 prod-bundle/node_modules/.prisma/client）
+# pnpm deploy 从 registry 安装 @prisma/client，没有 generated files；
+# 在 prod-bundle 内重新 generate（生成到 /prod-bundle/node_modules/.prisma/client）
+# prisma CLI 是 devDep，在 backend/node_modules/.bin/，不在 workspace root
 RUN cp -r /app/backend/prisma /prod-bundle/prisma && \
-    cd /prod-bundle && \
-    /app/node_modules/.bin/prisma generate --schema=prisma/schema.prisma && \
+    /app/backend/node_modules/.bin/prisma generate --schema=/prod-bundle/prisma/schema.prisma && \
     rm -rf /prod-bundle/prisma
 
 # ── Stage 3: Migrator (独立运行 prisma migrate deploy) ────────────────────────
@@ -52,7 +52,7 @@ COPY --from=builder /prod-bundle ./
 # 用最新编译产出覆盖 dist/
 COPY --from=builder /app/backend/dist ./dist
 
-# prisma schema + migrations（供 health check / 运行时读取）
+# prisma schema + migrations（供运行时读取）
 COPY --from=builder /app/backend/prisma ./prisma
 
 RUN mkdir -p uploads
