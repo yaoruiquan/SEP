@@ -40,4 +40,4 @@ RUN mkdir -p uploads
 EXPOSE 3001
 
 # 启动前先跑 prisma migrate deploy（幂等，可重复执行）
-CMD ["sh", "-c", "node node_modules/.bin/prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main"]
