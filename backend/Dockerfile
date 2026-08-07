@@ -19,15 +19,24 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/backend/node_modules ./backend/node_modules
 COPY . .
 
-# 先生成 Prisma Client，否则 TypeScript 编译找不到枚举类型
+# 生成 Prisma Client（含 UserRole 等枚举），必须在 nest build 之前
 RUN pnpm --filter backend exec prisma generate
 
 # 编译 NestJS
 RUN pnpm --filter backend run build
 
-# pnpm deploy：创建自包含生产包，所有依赖展平无 workspace 提升问题
-# --prod 只保留 dependencies（排除 devDependencies）
+# pnpm deploy：创建自包含生产包，所有依赖展平，无 workspace 提升问题
 RUN pnpm deploy --filter backend --prod /prod-bundle
+
+# pnpm deploy 从 registry 安装 @prisma/client，不会 generate，
+# 手动将已 generate 的 .prisma/client 复制进 prod-bundle
+RUN if [ -d /app/node_modules/.prisma ]; then \
+      cp -r /app/node_modules/.prisma /prod-bundle/node_modules/.prisma; \
+    elif [ -d /app/backend/node_modules/.prisma ]; then \
+      cp -r /app/backend/node_modules/.prisma /prod-bundle/node_modules/.prisma; \
+    else \
+      echo "ERROR: .prisma not found after prisma generate" && exit 1; \
+    fi
 
 # ── Stage 3: Migrator (独立运行 prisma migrate deploy) ────────────────────────
 FROM builder AS migrator
@@ -40,13 +49,13 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# pnpm deploy 已包含：package.json + node_modules（全部展平）+ 源码/dist
+# prod-bundle 包含：package.json + 展平的 node_modules（含 .prisma/client）
 COPY --from=builder /prod-bundle ./
 
-# 用构建产出的 dist/ 覆盖（pnpm deploy 可能包含旧的，确保用最新编译结果）
+# 用最新编译产出覆盖 dist/
 COPY --from=builder /app/backend/dist ./dist
 
-# prisma schema + migrations（prisma migrate deploy 和 generate 需要）
+# prisma schema + migrations（运行时可能需要）
 COPY --from=builder /app/backend/prisma ./prisma
 
 RUN mkdir -p uploads
