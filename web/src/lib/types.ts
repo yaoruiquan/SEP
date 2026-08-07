@@ -307,3 +307,40 @@ export interface KnowledgeBaseDetail extends Omit<KnowledgeBase, '_count'> {
     grants: number;
   };
 }
+
+// ── Cost Analytics (Phase 3) ──────────────────────────────────────────────────
+
+export interface CostSummary {
+  totalCost: number;
+  budgetCNY: number | null;
+  budgetUsagePercent: number | null;
+  periodStart: string;
+  periodEnd: string;
+  comparisonPeriodCost?: number;
+  changePercent?: number;
+}
+
+export interface CostByDimensionItem {
+  id: string;
+  name: string;
+  cost: number;
+  percent: number;
+  messageCount: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface CostTrendPoint {
+  date: string;
+  cost: number;
+  messageCount: number;
+}
+
+export interface CostAlert {
+  id: string;
+  type: 'BUDGET_THRESHOLD' | 'BUDGET_EXCEEDED' | 'ANOMALY';
+  severity: 'WARNING' | 'ERROR';
+  message: string;
+  triggeredAt: string;
+  acknowledged: boolean;
+}

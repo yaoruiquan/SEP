@@ -18,6 +18,7 @@ import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { ComputeModule } from './modules/compute/compute.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/enterprise-model-config.module';
+import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/e
     ComputeModule,
     NotificationsModule,
     EnterpriseModelConfigModule,
+    CostAnalyticsModule,
   ],
   controllers: [],
   providers: [],

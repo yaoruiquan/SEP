@@ -1090,3 +1090,46 @@ export * from './compute.dto';
 // ============================================================================
 
 export * from './model-config.dto';
+
+// ============================================================================
+// Cost Analytics DTOs
+// ============================================================================
+
+export const CostSummarySchema = z.object({
+  totalCost: z.number(),
+  budgetCNY: z.number().nullable(),
+  budgetUsagePercent: z.number().nullable(),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  comparisonPeriodCost: z.number().optional(),
+  changePercent: z.number().optional(),
+});
+export type CostSummary = z.infer<typeof CostSummarySchema>;
+
+export const CostByDimensionItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  cost: z.number(),
+  percent: z.number(),
+  messageCount: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+});
+export type CostByDimensionItem = z.infer<typeof CostByDimensionItemSchema>;
+
+export const CostTrendPointSchema = z.object({
+  date: z.string(),
+  cost: z.number(),
+  messageCount: z.number(),
+});
+export type CostTrendPoint = z.infer<typeof CostTrendPointSchema>;
+
+export const CostAlertSchema = z.object({
+  id: z.string(),
+  type: z.enum(['BUDGET_THRESHOLD', 'BUDGET_EXCEEDED', 'ANOMALY']),
+  severity: z.enum(['WARNING', 'ERROR']),
+  message: z.string(),
+  triggeredAt: z.string(),
+  acknowledged: z.boolean(),
+});
+export type CostAlert = z.infer<typeof CostAlertSchema>;

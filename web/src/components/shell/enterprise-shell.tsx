@@ -97,7 +97,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: '账务',
-    links: [{ href: '/usage', label: '用量统计', icon: BarChart3 }],
+    links: [
+      { href: '/usage', label: '用量统计', icon: BarChart3 },
+      { href: '/analytics/cost', label: '成本分析', icon: BarChart3, adminOnly: true },
+    ],
   },
   {
     title: '设置',

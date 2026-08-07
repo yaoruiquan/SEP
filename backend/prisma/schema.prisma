@@ -1077,6 +1077,38 @@ model EnterpriseModelConfig {
   @@map("enterprise_model_configs")
 }
 
+// ============================================================================
+// Cost Analytics (成本归因分析)
+// ============================================================================
+
+/// 按天预聚合的成本数据，避免全表扫描 messages。
+/// 由 CostAnalyticsCronService 每小时增量更新（当天），每日 00:30 固化前一天。
+/// enterpriseId + departmentId + employeeInstanceId + modelId + date 五元组唯一。
+model CostDailyRollup {
+  id                 String   @id @default(cuid())
+  enterpriseId       String
+  /// 若消息来自归属某部门的用户，此处非空
+  departmentId       String?
+  /// 保留以备后续 ConversationSession 挂载 instanceId 后回填，暂为 null
+  employeeInstanceId String?
+  modelId            String
+  /// 精确到「日」的 Date（UTC 00:00:00）
+  date               DateTime @db.Date
+
+  inputTokens  BigInt  @default(0)
+  outputTokens BigInt  @default(0)
+  /// 精度：12 位整数，4 位小数（人民币，元）
+  costCNY      Decimal @db.Decimal(12, 4)
+  messageCount Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([enterpriseId, departmentId, employeeInstanceId, modelId, date])
+  @@index([enterpriseId, date])
+  @@map("cost_daily_rollups")
+}
+
 /// 部门级模型策略覆盖，优先级高于企业级配置。
 model DepartmentModelPolicy {
   id               String   @id @default(cuid())
