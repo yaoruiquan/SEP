@@ -36,8 +36,8 @@ COPY --from=builder /app/backend/prisma ./prisma
 COPY --from=builder /app/backend/node_modules ./node_modules
 
 # prisma CLI 被 pnpm 提升到 workspace 根 node_modules，需单独复制供 migrate deploy 用
+# .bin/prisma shim 已在 backend/node_modules/.bin/ 中，只缺少包本体
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 
 RUN mkdir -p uploads
 
