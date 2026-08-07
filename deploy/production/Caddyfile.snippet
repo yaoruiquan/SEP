@@ -1,0 +1,43 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 将以下内容追加到服务器上的：
+# /opt/longdao/deploy/production/Caddyfile
+# 追加后执行：docker exec longdao-caddy caddy reload --config /etc/caddy/Caddyfile
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# SEP 硅基人才平台
+your-sep-domain.com {
+
+    # TLS 由 Caddy 自动向 Let's Encrypt 申请（域名 DNS 必须已指向本服务器）
+
+    # 所有请求走 Next.js；/api/* 由 Next.js 内部 rewrite 转发到 sep-backend
+    reverse_proxy sep-web:3000 {
+        flush_interval -1
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    encode {
+        zstd
+        gzip 6
+        minimum_length 256
+        match {
+            header Content-Type text/html*
+            header Content-Type text/css*
+            header Content-Type text/plain*
+            header Content-Type application/json*
+            header Content-Type application/javascript*
+        }
+    }
+
+    log {
+        output file /var/log/caddy/sep.log {
+            roll_size 50mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+        level INFO
+    }
+}

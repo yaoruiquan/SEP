@@ -1,0 +1,130 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SEP 硅基人才平台 - 生产部署配置
+# ═══════════════════════════════════════════════════════════════════════════════
+# 复用现有基础设施：
+#   - longdao-postgres (PostgreSQL 18，新建数据库 sep_prod)
+#   - longdao-redis (Redis 8，使用 DB 1)
+#   - longdao-sub2api-blue (sub2api 服务)
+#   - longdao-network (Docker 网络)
+#
+# 部署步骤：见 README.md
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ═════════════════════════════════════════════════════════════════════════════
+  # SEP Backend (NestJS)
+  # ═════════════════════════════════════════════════════════════════════════════
+  sep-backend:
+    build:
+      context: ../..          # SEP 项目根目录
+      dockerfile: backend/Dockerfile
+    image: sep-backend:latest
+    container_name: sep-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+
+      # 数据库：复用 longdao-postgres，独立数据库 sep_prod
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@longdao-postgres:5432/sep_prod
+
+      # Redis：复用 longdao-redis，使用 DB 1（longdao 用 DB 0）
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@longdao-redis:6379/1
+
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRE_DAYS=7
+
+      # sub2api（已在 longdao-network 运行）
+      - SUB2API_BASE_URL=http://longdao-sub2api-blue:8080
+      - SUB2API_API_KEY=${SUB2API_API_KEY}
+
+      # 文件上传
+      - UPLOAD_PATH=/app/uploads
+
+      # 时区
+      - TZ=Asia/Shanghai
+
+    volumes:
+      - sep_uploads:/app/uploads
+
+    networks:
+      - longdao-network
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  # SEP Frontend (Next.js)
+  # ═════════════════════════════════════════════════════════════════════════════
+  sep-web:
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+    image: sep-web:latest
+    container_name: sep-web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+
+      # Next.js rewrites /api/* → API_ORIGIN（见 next.config.mjs）
+      - API_ORIGIN=http://sep-backend:3001
+
+      - NEXT_TELEMETRY_DISABLED=1
+      - TZ=Asia/Shanghai
+
+    networks:
+      - longdao-network
+
+    depends_on:
+      sep-backend:
+        condition: service_healthy
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 数据卷
+# ═══════════════════════════════════════════════════════════════════════════════
+volumes:
+  sep_uploads:
+    name: sep_uploads
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 网络（外部，由 longdao docker-compose 创建）
+# ═══════════════════════════════════════════════════════════════════════════════
+networks:
+  longdao-network:
+    external: true
