@@ -145,8 +145,14 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
   const removeMember = useRemoveDeptMember(dept?.id ?? '');
   const setLeader = useSetDeptLeader(dept?.id ?? '');
 
+  const { user } = useAuthStore();
   const leaderId = data?.leaderId ?? null;
   const items = data?.items ?? [];
+
+  // 当前用户是否是该部门的主管（auth-store 不存 memberId，从成员列表推导）
+  const currentMemberId = items.find((m) => m.user.id === user?.id)?.id ?? null;
+  const isDeptLeader = Boolean(leaderId && currentMemberId === leaderId);
+  const canManage = isAdmin || isDeptLeader;
 
   if (!dept) {
     return (
@@ -199,7 +205,7 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
             )}
           </p>
         </div>
-        {isAdmin && (
+        {canManage && (
           <Button onClick={() => setShowAdd(true)}>
             <UserPlus className="h-4 w-4" />
             添加成员
@@ -215,8 +221,8 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
           <EmptyState
             icon={<Users className="h-8 w-8 text-fg-muted" />}
             title="暂无成员"
-            description={isAdmin ? '点击「添加成员」将企业成员加入此部门。' : '此部门还没有成员。'}
-            action={isAdmin ? (
+            description={canManage ? '点击「添加成员」将企业成员加入此部门。' : '此部门还没有成员。'}
+            action={canManage ? (
               <Button size="sm" onClick={() => setShowAdd(true)}>
                 <UserPlus className="h-4 w-4" /> 添加成员
               </Button>
@@ -225,7 +231,7 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((m) => <MemberCard key={m.id} member={m} isLeader={m.id === leaderId}
-              isAdmin={isAdmin} onSetLeader={() => handleSetLeader(m.id)}
+              isAdmin={isAdmin} canManage={canManage} onSetLeader={() => handleSetLeader(m.id)}
               onClearLeader={handleClearLeader} onRemove={() => handleRemove(m)}
               settingLeader={setLeader.isPending} removing={removeMember.isPending} />)}
           </div>
@@ -240,9 +246,9 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
 // ── 成员卡片 ──────────────────────────────────────────────────────────────────
 
 function MemberCard({
-  member, isLeader, isAdmin, onSetLeader, onClearLeader, onRemove, settingLeader, removing,
+  member, isLeader, isAdmin, canManage, onSetLeader, onClearLeader, onRemove, settingLeader, removing,
 }: {
-  member: DeptMemberItem; isLeader: boolean; isAdmin: boolean;
+  member: DeptMemberItem; isLeader: boolean; isAdmin: boolean; canManage: boolean;
   onSetLeader: () => void; onClearLeader: () => void; onRemove: () => void;
   settingLeader: boolean; removing: boolean;
 }) {
@@ -284,10 +290,10 @@ function MemberCard({
         )}
       </div>
 
-      {/* action row */}
-      {isAdmin && (
+      {/* action row — canManage (主管/管理员) 可移出；isAdmin 额外可设/取消主管 */}
+      {canManage && (
         <div className="flex gap-1.5 border-t border-border pt-2.5">
-          {isLeader ? (
+          {isAdmin && (isLeader ? (
             <Button variant="ghost" size="sm" onClick={onClearLeader} disabled={settingLeader}
               className="h-7 flex-1 px-2 text-xs text-fg-muted">
               取消主管
@@ -297,7 +303,7 @@ function MemberCard({
               className="h-7 flex-1 px-2 text-xs">
               <Crown className="mr-1 h-3 w-3 text-amber-500" /> 设为主管
             </Button>
-          )}
+          ))}
           <Button variant="ghost" size="sm" onClick={onRemove} disabled={removing}
             className="h-7 flex-1 px-2 text-xs text-danger hover:bg-danger/10">
             <UserMinus className="mr-1 h-3 w-3" /> 移出
