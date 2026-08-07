@@ -1,0 +1,116 @@
+import { z } from 'zod';
+
+// ── 企业模型配置 ──────────────────────────────────────────────────────────
+
+export const EnterpriseModelConfigSchema = z.object({
+  id: z.string().cuid(),
+  enterpriseId: z.string().cuid(),
+
+  // 会话模型
+  defaultChatModel: z.string(),
+  allowedChatModels: z.array(z.string()),
+  allowUserSwitchModel: z.boolean(),
+
+  // 知识库模型
+  embeddingModel: z.string(),
+  rerankModel: z.string().nullable(),
+  embeddingBatchSize: z.number().int().positive(),
+  embeddingTimeoutMs: z.number().int().positive(),
+
+  // 员工模型策略
+  employeeModelPolicy: z.enum(['FOLLOW_TEMPLATE', 'FORCE_DEFAULT']),
+  employeeDefaultModel: z.string().nullable(),
+
+  // 成本控制
+  monthlyBudgetCNY: z.string().nullable(), // Decimal as string
+  alertThreshold: z.number().min(0).max(1),
+  hardStopOnBudget: z.boolean(),
+
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const UpdateEnterpriseModelConfigDtoSchema = z.object({
+  defaultChatModel: z.string().optional(),
+  allowedChatModels: z.array(z.string()).optional(),
+  allowUserSwitchModel: z.boolean().optional(),
+
+  embeddingModel: z.string().optional(),
+  rerankModel: z.string().nullable().optional(),
+  embeddingBatchSize: z.number().int().positive().optional(),
+  embeddingTimeoutMs: z.number().int().positive().optional(),
+
+  employeeModelPolicy: z.enum(['FOLLOW_TEMPLATE', 'FORCE_DEFAULT']).optional(),
+  employeeDefaultModel: z.string().nullable().optional(),
+
+  /** 前端传数字，也兼容 Decimal 字符串；null = 不限预算 */
+  monthlyBudgetCNY: z.union([z.number().nonnegative(), z.string()]).nullable().optional(),
+  alertThreshold: z.number().min(0).max(1).optional(),
+  hardStopOnBudget: z.boolean().optional(),
+});
+
+export type EnterpriseModelConfig = z.infer<typeof EnterpriseModelConfigSchema>;
+export type UpdateEnterpriseModelConfigDto = z.infer<typeof UpdateEnterpriseModelConfigDtoSchema>;
+
+// ── 部门模型策略 ──────────────────────────────────────────────────────────
+
+export const DepartmentModelPolicySchema = z.object({
+  id: z.string().cuid(),
+  departmentId: z.string().cuid(),
+  defaultChatModel: z.string().nullable(),
+  allowedChatModels: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const UpdateDepartmentModelPolicyDtoSchema = z.object({
+  defaultChatModel: z.string().nullable().optional(),
+  allowedChatModels: z.array(z.string()).optional(),
+});
+
+export type DepartmentModelPolicy = z.infer<typeof DepartmentModelPolicySchema>;
+export type UpdateDepartmentModelPolicyDto = z.infer<typeof UpdateDepartmentModelPolicyDtoSchema>;
+
+// ── 生效配置（解析后） ──────────────────────────────────────────────────────
+
+export const EffectiveModelConfigSchema = z.object({
+  /** 最终用于本次会话的模型 id */
+  chatModel: z.string(),
+  /** 可切换范围。空数组 = 平台全部 enabled 模型 */
+  allowedChatModels: z.array(z.string()),
+  /** 成员是否可以手动切换模型（false 时前端锁定选择器） */
+  allowUserSwitchModel: z.boolean(),
+
+  embeddingModel: z.string(),
+  rerankModel: z.string().nullable(),
+  embeddingBatchSize: z.number().int().positive(),
+  embeddingTimeoutMs: z.number().int().positive(),
+
+  /** 本月消费已达预算上限且开启了硬性阻断 */
+  budgetExceeded: z.boolean(),
+  /** 该模型来自哪一层配置，便于前端解释「为什么是这个模型」 */
+  source: z.enum(['USER_CHOICE', 'EMPLOYEE_INSTANCE', 'DEPARTMENT', 'ENTERPRISE', 'SYSTEM_DEFAULT']),
+});
+
+export type EffectiveModelConfig = z.infer<typeof EffectiveModelConfigSchema>;
+
+// ── 可用模型列表 ──────────────────────────────────────────────────────────
+
+/**
+ * 平台可用模型。除 modelId / label 外全部可空 —— platform_models 的元数据
+ * 由同步任务补齐，前端必须能在缺失时降级展示。
+ */
+export const AvailableModelSchema = z.object({
+  modelId: z.string(),
+  label: z.string(),
+  vendor: z.string().nullable(),
+  category: z.string().nullable(),
+  contextLength: z.number().int().nullable(),
+  maxOutputTokens: z.number().int().nullable(),
+  pricingInputPer1M: z.string().nullable(), // Decimal as string
+  pricingOutputPer1M: z.string().nullable(),
+  supportedFeatures: z.record(z.unknown()).nullable(),
+  description: z.string().nullable(),
+});
+
+export type AvailableModel = z.infer<typeof AvailableModelSchema>;

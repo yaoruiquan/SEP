@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
+  Cpu,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,11 @@ const NAV_GROUPS: NavGroup[] = [
     title: '账务',
     links: [{ href: '/usage', label: '用量统计', icon: BarChart3 }],
   },
+  {
+    title: '设置',
+    adminOnly: true,
+    links: [{ href: '/settings/models', label: '模型配置', icon: Cpu }],
+  },
 ];
 
 /** 顶栏面包屑用的「路径段 → 中文名」映射，从 NAV_GROUPS 推导 + 补上非导航路由 */
@@ -107,7 +113,8 @@ const CRUMBS: CrumbMap = {
       g.links.map((l) => [l.href.replace(/^\//, ''), l.label] as const),
     ),
   ),
-  settings: '个人设置',
+  settings: '设置',
+  models: '模型配置',
   chat: '对话',
   new: '新建',
   edit: '编辑',

@@ -182,7 +182,7 @@ export default function ModelsPageNew() {
                       style={{ backgroundColor: config.color }}
                     />
                     <CardTitle className="text-lg">{config.label}</CardTitle>
-                    <Badge variant="secondary">{visibleModels.length} 个模型</Badge>
+                    <Badge variant="glass-info">{visibleModels.length} 个模型</Badge>
                   </div>
                   {isExpanded ? (
                     <ChevronUp className="h-5 w-5 text-fg-muted" />
@@ -197,7 +197,6 @@ export default function ModelsPageNew() {
                   {visibleModels.map((model) => (
                     <Card
                       key={model.id}
-                      variant="outline"
                       className={`transition-all ${
                         model.enabled
                           ? "border-success/30 bg-success/5"

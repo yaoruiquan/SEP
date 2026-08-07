@@ -308,9 +308,11 @@ export default function DashboardPage() {
                       borderRadius: '8px',
                       border: '1px solid rgba(139, 92, 246, 0.2)',
                     }}
-                    formatter={(value: any, name: string) => {
-                      if (name === 'cacheHitRate') return [`${value.toFixed(1)}%`, 'Cache命中率'];
-                      return [`${(value / 1000).toFixed(1)}K`, name];
+                    formatter={(value, name) => {
+                      const n = String(name ?? '');
+                      const v = Number(value ?? 0);
+                      if (n === 'cacheHitRate') return [`${v.toFixed(1)}%`, 'Cache命中率'];
+                      return [`${(v / 1000).toFixed(1)}K`, n];
                     }}
                   />
                   <Legend />
@@ -404,7 +406,7 @@ export default function DashboardPage() {
                       borderRadius: '8px',
                       border: '1px solid rgba(139, 92, 246, 0.2)',
                     }}
-                    formatter={(value: any, name: string) => [`¥${value.toFixed(2)}`, name]}
+                    formatter={(value, name) => [`¥${Number(value ?? 0).toFixed(2)}`, String(name ?? '')]}
                     labelFormatter={(value) => {
                       const date = new Date(value as string);
                       return date.toLocaleDateString('zh-CN');
@@ -478,8 +480,8 @@ export default function DashboardPage() {
                     <Bar
                       dataKey="calls"
                       fill="#8b5cf6"
-                      radius={[0, 6, 6, 0]}
-                      background={{ fill: 'rgba(139, 92, 246, 0.05)', radius: [0, 6, 6, 0] }}
+                      radius={[0, 6, 6, 0] as [number, number, number, number]}
+                      background={{ fill: 'rgba(139, 92, 246, 0.05)', radius: [0, 6, 6, 0] as unknown as number }}
                       label={{ position: 'right', fill: 'rgba(255,255,255,0.7)', fontSize: 11 }}
                     />
                   </BarChart>

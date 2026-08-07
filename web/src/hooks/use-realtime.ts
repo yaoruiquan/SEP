@@ -83,7 +83,8 @@ export function useNotifications(onNotification?: (notification: NotificationMes
     }
   };
 
-  const { isConnected, reconnectCount } = useWebSocket(`${WS_BASE_URL}/ws/notifications`, {
+  // WebSocket 通知功能暂未实现，传空 URL 禁止连接
+  const { isConnected, reconnectCount } = useWebSocket('', {
     onMessage: handleMessage,
     onConnect: () => queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] }),
   });

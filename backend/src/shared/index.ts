@@ -852,6 +852,48 @@ export const UpdateProfileDtoSchema = z.object({
 
 export type UpdateProfileDto = z.infer<typeof UpdateProfileDtoSchema>;
 
+// ============================================================================
+// Enterprise Model Config DTOs (Phase 1 — 模型配置中心)
+// ============================================================================
+
+export const EMPLOYEE_MODEL_POLICIES = ['FOLLOW_TEMPLATE', 'FORCE_DEFAULT'] as const;
+export type EmployeeModelPolicy = (typeof EMPLOYEE_MODEL_POLICIES)[number];
+
+export const UpdateEnterpriseModelConfigDtoSchema = z.object({
+  defaultChatModel: z.string().min(1).optional(),
+  allowedChatModels: z.array(z.string()).optional(),
+  allowUserSwitchModel: z.boolean().optional(),
+  embeddingModel: z.string().min(1).optional(),
+  rerankModel: z.string().nullable().optional(),
+  embeddingBatchSize: z.number().int().min(1).max(256).optional(),
+  embeddingTimeoutMs: z.number().int().min(1000).max(120000).optional(),
+  employeeModelPolicy: z.enum(EMPLOYEE_MODEL_POLICIES).optional(),
+  employeeDefaultModel: z.string().nullable().optional(),
+  monthlyBudgetCNY: z.number().positive().nullable().optional(),
+  alertThreshold: z.number().min(0).max(1).optional(),
+  hardStopOnBudget: z.boolean().optional(),
+});
+export type UpdateEnterpriseModelConfigDto = z.infer<typeof UpdateEnterpriseModelConfigDtoSchema>;
+
+export const DepartmentModelPolicyDtoSchema = z.object({
+  defaultChatModel: z.string().nullable().optional(),
+  allowedChatModels: z.array(z.string()).optional(),
+});
+export type DepartmentModelPolicyDto = z.infer<typeof DepartmentModelPolicyDtoSchema>;
+
+/** 解析后最终生效的模型配置（会话侧消费） */
+export interface EffectiveModelConfig {
+  chatModel: string;
+  allowedChatModels: string[];
+  allowUserSwitchModel: boolean;
+  embeddingModel: string;
+  rerankModel: string | null;
+  embeddingBatchSize: number;
+  embeddingTimeoutMs: number;
+  /** 超预算且 hardStopOnBudget=true 时为 true */
+  budgetExceeded: boolean;
+}
+
 export const ChangePasswordDtoSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8),
@@ -1016,6 +1058,22 @@ export function calculateModelCost(
 }
 
 // ============================================================================
+// Department Member Management DTOs
+// ============================================================================
+
+/** 批量将成员（EnterpriseMember）分配到某部门 */
+export const AssignDeptMembersDtoSchema = z.object({
+  memberIds: z.array(z.string()).min(1, '至少指定一位成员'),
+});
+export type AssignDeptMembersDto = z.infer<typeof AssignDeptMembersDtoSchema>;
+
+/** 设置 / 清除部门主管 */
+export const SetDeptLeaderDtoSchema = z.object({
+  memberId: z.string().nullable(),
+});
+export type SetDeptLeaderDto = z.infer<typeof SetDeptLeaderDtoSchema>;
+
+// ============================================================================
 // Knowledge Base DTOs
 // ============================================================================
 
@@ -1026,3 +1084,9 @@ export * from './knowledge.dto';
 // ============================================================================
 
 export * from './compute.dto';
+
+// ============================================================================
+// Model Config DTOs
+// ============================================================================
+
+export * from './model-config.dto';

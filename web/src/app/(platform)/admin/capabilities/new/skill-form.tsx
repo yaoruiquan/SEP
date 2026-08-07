@@ -56,19 +56,29 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: SkillFormValues & { zipPath: string; sha256: string; fileCount: number; totalSize: number }) => {
-      const res = await fetch('/api/admin/capabilities', {
+      const res = await fetch('/api/capabilities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'SKILL',
+          type: 'skill',
           name: data.name,
           description: data.description,
           industry: data.industry,
           position: data.position,
-          zipPath: data.zipPath,
-          sha256: data.sha256,
-          fileCount: data.fileCount,
-          totalSize: data.totalSize,
+          inputSchema: {},
+          outputSchema: {},
+          metadata: {
+            zipPath: data.zipPath,
+            sha256: data.sha256,
+            fileCount: data.fileCount,
+            totalSize: data.totalSize,
+          },
+          skillConfig: {
+            template: '',
+            modelId: 'gpt-4o-mini',
+            temperature: 0.7,
+            maxTokens: 2000,
+          },
         }),
       });
       if (!res.ok) {

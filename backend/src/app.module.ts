@@ -17,6 +17,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { ComputeModule } from './modules/compute/compute.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/enterprise-model-config.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     KnowledgeModule,
     ComputeModule,
     NotificationsModule,
+    EnterpriseModelConfigModule,
   ],
   controllers: [],
   providers: [],

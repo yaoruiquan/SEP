@@ -1,11 +1,11 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Cpu, ChevronDown, Check } from 'lucide-react';
+import { Cpu, ChevronDown, Check, Lock } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { api } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
-import { useEnabledModels } from '@/features/model/use-models';
+import { useAvailableModels } from '@/features/enterprise-settings/use-model-config';
 
 interface ModelSwitcherProps {
   conversationId: string;
@@ -13,21 +13,37 @@ interface ModelSwitcherProps {
   currentModelId: string | null;
   /** 员工默认模型（会话未指定时的兜底显示） */
   employeeModelId?: string | null;
+  /** 企业 ID，用于拉取可用模型白名单 */
+  enterpriseId: string;
+  /** 企业配置的模型白名单；空数组 = 不限制 */
+  allowedChatModels?: string[];
+  /** 是否允许用户切换模型；false 时显示锁图标，禁止切换 */
+  canSwitch?: boolean;
 }
 
 /**
  * 对话窗口顶部的模型切换下拉。
- * 切换后 PATCH 会话，后续消息即用新模型。
+ * - canSwitch=false 时只读展示，不可切换。
+ * - allowedChatModels 非空时仅展示白名单内的模型。
  */
 export function ModelSwitcher({
   conversationId,
   currentModelId,
   employeeModelId,
+  enterpriseId,
+  allowedChatModels = [],
+  canSwitch = true,
 }: ModelSwitcherProps) {
   const qc = useQueryClient();
-  const { data: models, isLoading } = useEnabledModels();
+  const { data: allModels, isLoading } = useAvailableModels(enterpriseId);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 应用白名单过滤：allowedChatModels 非空时只显示白名单内的模型
+  const models =
+    allowedChatModels.length > 0
+      ? (allModels ?? []).filter((m) => allowedChatModels.includes(m.modelId))
+      : (allModels ?? []);
 
   const switchModel = useMutation({
     mutationFn: (modelId: string) =>
@@ -40,7 +56,7 @@ export function ModelSwitcher({
 
   // 生效模型：会话级 > 员工默认
   const effective = currentModelId ?? employeeModelId ?? '';
-  const currentModel = models?.find((m) => m.id === effective);
+  const currentModel = models.find((m) => m.modelId === effective);
 
   // 点击外部关闭下拉
   useEffect(() => {
@@ -55,20 +71,32 @@ export function ModelSwitcher({
     }
   }, [isOpen]);
 
-  // 格式化价格
-  const formatPrice = (price: number | null) => {
-    if (price === null) return '未配置';
-    return `¥${price.toFixed(2)}`;
-  };
-
-  // 格式化上下文长度
   const formatContext = (length: number | null) => {
     if (!length) return '';
-    if (length >= 1000000) return `${(length / 1000000).toFixed(1)}M`;
-    if (length >= 1000) return `${(length / 1000).toFixed(0)}k`;
+    if (length >= 1_000_000) return `${(length / 1_000_000).toFixed(1)}M`;
+    if (length >= 1_000) return `${(length / 1_000).toFixed(0)}k`;
     return `${length}`;
   };
 
+  const formatPrice = (price: string | null) => {
+    if (price === null) return '未配置';
+    return `¥${parseFloat(price).toFixed(2)}`;
+  };
+
+  // ── 锁定模式：管理员禁止用户切换 ──────────────────────────────────────────
+  if (!canSwitch) {
+    return (
+      <div
+        className="flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 text-xs text-fg-muted"
+        title="管理员已锁定模型，不可切换"
+      >
+        <Lock className="h-3.5 w-3.5 text-fg-subtle" />
+        <span>{(currentModel?.label ?? effective) || '默认模型'}</span>
+      </div>
+    );
+  }
+
+  // ── 正常下拉模式 ──────────────────────────────────────────────────────────
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -78,50 +106,50 @@ export function ModelSwitcher({
         title="切换该会话使用的模型"
       >
         <Cpu className="h-3.5 w-3.5 text-fg-subtle" />
-        <span>{currentModel?.label || effective || '加载中...'}</span>
+        <span>{(currentModel?.label ?? effective) || '加载中...'}</span>
         <ChevronDown className="h-3 w-3 text-fg-subtle" />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-border bg-background shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border border-border bg-background shadow-lg">
           <div className="max-h-96 overflow-y-auto">
             {isLoading && (
               <div className="px-3 py-2 text-xs text-fg-muted">加载模型...</div>
             )}
-            {!isLoading && (!models || models.length === 0) && (
-              <div className="px-3 py-2 text-xs text-fg-muted">上游未配置模型</div>
+            {!isLoading && models.length === 0 && (
+              <div className="px-3 py-2 text-xs text-fg-muted">暂无可用模型</div>
             )}
-            {models?.map((model) => {
-              const isActive = model.id === effective;
+            {models.map((model) => {
+              const isActive = model.modelId === effective;
               const hasPricing =
                 model.pricingInputPer1M !== null &&
                 model.pricingOutputPer1M !== null;
 
               return (
                 <button
-                  key={model.id}
-                  onClick={() => switchModel.mutate(model.id)}
+                  key={model.modelId}
+                  onClick={() => switchModel.mutate(model.modelId)}
                   disabled={switchModel.isPending}
                   className={`w-full px-3 py-2 text-left hover:bg-bg-subtle focus:bg-bg-subtle focus:outline-none disabled:opacity-60 ${
                     isActive ? 'bg-bg-subtle' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="font-medium text-xs text-fg">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-fg">
                           {model.label}
                         </span>
-                        {isActive && <Check className="h-3 w-3 text-primary shrink-0" />}
+                        {isActive && <Check className="h-3 w-3 shrink-0 text-primary" />}
                       </div>
                       {model.vendor && (
-                        <div className="text-[10px] text-fg-muted mb-1">
+                        <div className="mb-1 text-[10px] text-fg-muted">
                           {model.vendor}
                           {model.category && ` · ${model.category}`}
                         </div>
                       )}
                       {model.description && (
-                        <div className="text-[10px] text-fg-subtle line-clamp-2 mb-1">
+                        <div className="mb-1 line-clamp-2 text-[10px] text-fg-subtle">
                           {model.description}
                         </div>
                       )}

@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   UseGuards,
@@ -13,6 +14,7 @@ import {
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
@@ -22,6 +24,8 @@ import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import {
+  AssignDeptMembersDto,
+  AssignDeptMembersDtoSchema,
   DepartmentCreateDto,
   DepartmentCreateDtoSchema,
   DepartmentUpdateDto,
@@ -30,6 +34,8 @@ import {
   MemberCreateDtoSchema,
   MemberUpdateDto,
   MemberUpdateDtoSchema,
+  SetDeptLeaderDto,
+  SetDeptLeaderDtoSchema,
   InstanceCreateDto,
   InstanceCreateDtoSchema,
   InstanceUpdateDto,
@@ -113,6 +119,66 @@ export class EnterpriseController {
     @Param("id") id: string,
   ) {
     return this.departments.remove(req.user.id, id);
+  }
+
+  // ── 部门成员管理 ───────────────────────────────────────────────────────────
+
+  @Get("departments/:id/members")
+  @ApiOperation({ summary: "列出部门成员（支持搜索/分页）" })
+  @ApiQuery({ name: "search", required: false })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiResponse({ status: 200, description: "成员列表 + 当前 leaderId" })
+  async listDeptMembers(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Query("search") search?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.departments.listMembers(req.user.id, id, {
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Post("departments/:id/members")
+  @ApiOperation({ summary: "批量将成员分配到部门（管理员或部门主管）" })
+  @ApiResponse({ status: 201, description: "已分配" })
+  @ApiResponse({ status: 400, description: "部分 memberIds 无效" })
+  @ApiResponse({ status: 403, description: "权限不足" })
+  async assignDeptMembers(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(AssignDeptMembersDtoSchema))
+    dto: AssignDeptMembersDto,
+  ) {
+    return this.departments.assignMembers(req.user.id, id, dto);
+  }
+
+  @Delete("departments/:id/members/:memberId")
+  @ApiOperation({ summary: "将成员从部门移除（管理员或部门主管）" })
+  @ApiResponse({ status: 200, description: "已移除" })
+  @ApiResponse({ status: 400, description: "成员不在此部门" })
+  async removeDeptMember(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Param("memberId") memberId: string,
+  ) {
+    return this.departments.removeMember(req.user.id, id, memberId);
+  }
+
+  @Put("departments/:id/leader")
+  @ApiOperation({ summary: "设置/清除部门主管（仅企业管理员）" })
+  @ApiResponse({ status: 200, description: "已更新" })
+  @ApiResponse({ status: 400, description: "新主管不在此部门中" })
+  async setDeptLeader(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(SetDeptLeaderDtoSchema)) dto: SetDeptLeaderDto,
+  ) {
+    return this.departments.setLeader(req.user.id, id, dto);
   }
 
   // ── 成员 ──────────────────────────────────────────────────────────────────

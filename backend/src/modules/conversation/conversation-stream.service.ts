@@ -14,6 +14,8 @@ import { AdapterInput } from "../capability/adapters/adapter.interface";
 import { SessionLockService } from "./session-lock.service";
 import { ConversationService } from "./conversation.service";
 import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
+import { KnowledgeSearchService } from "../knowledge/knowledge-search.service";
+import { EnterpriseModelConfigService } from "../enterprise-model-config/enterprise-model-config.service";
 import {
   DEFAULT_MODEL_ID,
   calculateCost,
@@ -41,6 +43,8 @@ export class ConversationStreamService {
     private readonly configService: ConfigService,
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
+    private readonly knowledgeSearch: KnowledgeSearchService,
+    private readonly modelConfig: EnterpriseModelConfigService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -79,6 +83,20 @@ export class ConversationStreamService {
 
     const employee = session.employee;
 
+    // 1a. 解析企业上下文（用于预算检查 + 模型解析，仅解析一次）
+    const enterpriseCtx = await this.enterpriseContext.resolve(userId);
+
+    // 1b. 预算硬阻断：超额且开启了 hardStopOnBudget 时，直接 403，不加锁不落库
+    await this.modelConfig.assertBudgetAllowsNewSession(enterpriseCtx.enterpriseId);
+
+    // 获取员工实例 ID（用于知识库检索 + 模型解析）
+    // 注意：一个员工模板可能有多个实例，这里只取第一个
+    const instance = await this.prisma.employeeInstance.findFirst({
+      where: { templateId: employee.id },
+      select: { id: true },
+    });
+    const employeeInstanceId = instance?.id;
+
     // 2. 获取分布式锁（防并发）
     const lockValue = await this.sessionLockService.acquireLock(sessionId);
 
@@ -97,6 +115,58 @@ export class ConversationStreamService {
       const { tools, capabilityByToolName } = this.buildTools(
         employee.bindings,
       );
+
+      // 5.5. 知识库检索（RAG）
+      let knowledgeContext: string | null = null;
+      let knowledgeSources: Array<{
+        chunkId: string;
+        content: string;
+        source: string;
+        score: number;
+        knowledgeBaseId: string;
+      }> = [];
+
+      // 只有当员工实例存在时才进行知识库检索
+      if (employeeInstanceId) {
+        try {
+          const searchResult = await this.knowledgeSearch.search(
+            content,
+            employeeInstanceId,
+            3, // topK: 检索 3 个最相关的文本块
+            0.7, // scoreThreshold: 相似度阈值
+          );
+
+          if (searchResult.count > 0) {
+            // 保存知识来源供后续持久化
+            knowledgeSources = searchResult.results.map((r) => ({
+              chunkId: r.chunkId,
+              content: r.content,
+              source: r.source,
+              score: r.score,
+              knowledgeBaseId: r.knowledgeBaseId,
+            }));
+
+            // 构建知识库上下文
+            knowledgeContext = searchResult.results
+              .map(
+                (r, i) =>
+                  `[${i + 1}] ${r.content}\n来源: ${r.source} (相似度: ${r.score.toFixed(2)})`,
+              )
+              .join("\n\n");
+
+            this.logger.log(
+              `[RAG] Found ${searchResult.count} knowledge chunks for session ${sessionId}`,
+            );
+          } else {
+            this.logger.debug(
+              `[RAG] No relevant knowledge found for session ${sessionId}`,
+            );
+          }
+        } catch (error) {
+          // 知识库检索失败不应阻断对话
+          this.logger.error(`[RAG] Search failed for session ${sessionId}:`, error);
+        }
+      }
 
       // 6. 初始化 sub2api provider
       const baseURL = this.configService.get(
@@ -119,8 +189,20 @@ export class ConversationStreamService {
         apiKey,
         includeUsage: !hasTools,
       });
-      // 会话级模型覆盖：session.modelId > employee.modelId > 系统默认
-      const modelId = session.modelId || employee.modelId || defaultModel;
+      // 企业模型策略解析（五级优先级：USER_CHOICE → EMPLOYEE_INSTANCE → DEPT → ENTERPRISE → SYSTEM）
+      // resolveEffectiveModel 内部走 DB，在锁内调用是安全的（不影响其他会话）。
+      const effective = await this.modelConfig.resolveEffectiveModel({
+        userId,
+        userSelectedModel: session.modelId ?? undefined,
+        employeeInstanceId,
+        employeeTemplateModel: employee.modelId,
+        departmentId: enterpriseCtx.departmentId ?? undefined,
+      });
+      const modelId = effective.chatModel;
+
+      this.logger.debug(
+        `[Model] resolved=${modelId}, source=${effective.source}, session=${sessionId}`,
+      );
 
       // 7. 手动工具循环(每轮一步,finishReason === 'tool-calls' 则继续)
       let stepCount = 0;
@@ -141,7 +223,7 @@ export class ConversationStreamService {
         const result = streamText({
           model: provider(modelId),
           // instructions 是 AI SDK v7 的新 key(原 system)
-          instructions: employee.systemPrompt,
+          instructions: this.buildSystemPrompt(employee.systemPrompt, knowledgeContext),
           messages: messages as Parameters<typeof streamText>[0]["messages"],
           tools: hasTools ? tools : undefined,
         });
@@ -280,6 +362,10 @@ export class ConversationStreamService {
               outputTokens,
               modelId, // 记录实际使用的模型（会话级 > 员工级 > 系统默认）
               cost: costCNY, // 单条消息成本（CNY），精确到 6 位小数
+              knowledgeSources:
+                knowledgeSources.length > 0
+                  ? (knowledgeSources as unknown as object)
+                  : null,
             },
           });
 
@@ -683,5 +769,33 @@ export class ConversationStreamService {
       // 计费失败不应阻断对话，记录错误即可
       this.logger.error(`Failed to record usage for user ${userId}`, err);
     }
+  }
+
+  /**
+   * 构建系统提示词，注入知识库上下文（如果有）
+   */
+  private buildSystemPrompt(
+    basePrompt: string,
+    knowledgeContext: string | null,
+  ): string {
+    if (!knowledgeContext) {
+      return basePrompt;
+    }
+
+    return `${basePrompt}
+
+## 知识库参考
+
+以下是从知识库中检索到的相关内容，请优先基于这些内容回答用户问题：
+
+${knowledgeContext}
+
+---
+
+**重要提示**：
+- 如果知识库内容能够回答用户问题，请优先使用知识库信息
+- 引用知识库内容时，可以标注来源编号（如 [1]、[2]）
+- 如果知识库内容与问题不相关或不足以回答，请结合你的通用知识回答
+- 不要编造知识库中没有的内容`;
   }
 }

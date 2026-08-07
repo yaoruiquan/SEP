@@ -74,6 +74,7 @@ model Enterprise {
   instances      EmployeeInstance[]
   accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
+  modelConfig    EnterpriseModelConfig?
 
   @@map("enterprises")
 }
@@ -96,11 +97,16 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// 部门主管（引用 EnterpriseMember）。可为空，由企业管理员设置。
+  leaderId String? @map("leader_id")
+  leader   EnterpriseMember? @relation("DepartmentLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+
   // Relations
   members         EnterpriseMember[]
   instances       EmployeeInstance[]
   grants          EmployeeGrant[]
   knowledgeGrants KnowledgeGrant[]
+  modelPolicy     DepartmentModelPolicy?
 
   @@index([enterpriseId])
   @@index([parentId])
@@ -138,6 +144,7 @@ model EnterpriseMember {
   // Relations
   grants          EmployeeGrant[]
   requestedAccess AccessRequest[] @relation("AccessRequestRequester")
+  ledDepartments  Department[]    @relation("DepartmentLeader")
 
   @@unique([userId, enterpriseId])
   @@index([enterpriseId])
@@ -600,8 +607,8 @@ model ConversationSession {
   updatedAt DateTime @updatedAt
 
   // Relations
-  messages          Message[]
-  toolExecutions    ToolExecution[]
+  messages           Message[]
+  toolExecutions     ToolExecution[]
   knowledgeUsageLogs KnowledgeUsageLog[]
 
   @@map("conversation_sessions")
@@ -623,6 +630,9 @@ model Message {
 
   // Tool calls (if role is assistant and made tool calls)
   toolCalls Json?
+
+  // Knowledge sources (RAG - stores retrieved knowledge chunks used in this response)
+  knowledgeSources Json?
 
   // Token usage (for billing)
   inputTokens  Int?
@@ -772,14 +782,14 @@ model PlatformModel {
   isStale    Boolean  @default(false)
 
   // 扩展元数据
-  contextLength      Int?     // 上下文长度（tokens）
-  maxOutputTokens    Int?     // 最大输出长度
-  supportedFeatures  Json?    // 支持的功能 {functionCalling, vision, streaming}
+  contextLength      Int? // 上下文长度（tokens）
+  maxOutputTokens    Int? // 最大输出长度
+  supportedFeatures  Json? // 支持的功能 {functionCalling, vision, streaming}
   pricingInputPer1M  Decimal? @db.Decimal(10, 4) // 输入价格（元/1M tokens）
   pricingOutputPer1M Decimal? @db.Decimal(10, 4) // 输出价格（元/1M tokens）
-  description        String?  // 模型说明
-  vendor             String?  // 厂商（OpenAI, Anthropic, Google, etc.）
-  category           String?  // 分类（chat, code, vision, embedding）
+  description        String? // 模型说明
+  vendor             String? // 厂商（OpenAI, Anthropic, Google, etc.）
+  category           String? // 分类（chat, code, vision, embedding）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -872,12 +882,13 @@ model KnowledgeBase {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  enterprise Enterprise            @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-  creator    User                  @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
-  documents  Document[]
-  grants     KnowledgeGrant[]
-  textChunks TextChunk[]
-  usageLogs  KnowledgeUsageLog[]
+  enterprise  Enterprise           @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  creator     User                 @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
+  documents   Document[]
+  grants      KnowledgeGrant[]
+  textChunks  TextChunk[]
+  usageLogs   KnowledgeUsageLog[]
+  searchLogs  KnowledgeSearchLog[]
 
   @@index([enterpriseId])
   @@map("knowledge_bases")
@@ -896,17 +907,51 @@ model Document {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
+  // Phase 2 新增：处理增强字段（均为可空，保持向后兼容）
+  version        Int       @default(1)
+  lastError      String?   @db.Text
+  processedAt    DateTime?
+  embeddingModel String?   // 向量化时使用的模型 ID，用于追溯
+
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   uploader      User          @relation("DocumentUploader", fields: [uploadedBy], references: [id])
 
   @@index([knowledgeBaseId])
+  @@index([knowledgeBaseId, status]) // 批量查询状态时加速
   @@map("documents")
 }
 
 enum DocumentStatus {
-  PENDING // 上传中
-  READY // 可用（MVP 直接设为此状态，不做解析）
-  FAILED // 失败
+  PENDING     // 等待处理
+  PROCESSING  // 处理中（Phase 2 新增）
+  READY       // 处理完成，可检索
+  FAILED      // 失败，可重试
+}
+
+// ============================================================================
+// Knowledge Search Log (检索日志 - Phase 2)
+// ----------------------------------------------------------------------------
+// 记录每次检索（含测试检索 isTest=true），用于分析命中率和零命中查询。
+// ============================================================================
+
+model KnowledgeSearchLog {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  enterpriseId    String
+  query           String   @db.Text
+  topK            Int
+  hitCount        Int      // 实际返回的结果数量
+  topScore        Float?   // 最高相似度分数
+  strategy        String   @default("vector") // "vector" | "fulltext" | "hybrid"
+  isTest          Boolean  @default(false) // true = 来自测试工具，false = 来自实际会话
+  durationMs      Int?     // 检索耗时（ms）
+  createdAt       DateTime @default(now())
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId, createdAt])
+  @@index([enterpriseId, createdAt])
+  @@map("knowledge_search_logs")
 }
 
 model KnowledgeGrant {
@@ -988,4 +1033,61 @@ enum NotificationType {
   SUCCESS
   WARNING
   ERROR
+}
+
+// ============================================================================
+// Enterprise Model Config (企业模型配置中心 - Phase 1)
+// ============================================================================
+
+/// 企业级模型与预算配置。每家企业最多一条，不存在时所有字段退回系统默认。
+model EnterpriseModelConfig {
+  id           String @id @default(cuid())
+  enterpriseId String @unique
+
+  // 会话模型
+  defaultChatModel     String   @default("gemini-3.5-flash-high")
+  /// 允许使用的模型白名单。空数组 = 继承平台全部 enabled 模型。
+  allowedChatModels    String[] @default([])
+  /// 是否允许成员在会话中手动切换模型
+  allowUserSwitchModel Boolean  @default(true)
+
+  // 知识库向量化设置
+  embeddingModel     String  @default("text-embedding-3-small")
+  rerankModel        String?
+  embeddingBatchSize Int     @default(32)
+  embeddingTimeoutMs Int     @default(30000)
+
+  // 员工模型策略
+  /// FOLLOW_TEMPLATE = 使用员工模板的 modelId；FORCE_DEFAULT = 强制使用 defaultChatModel
+  employeeModelPolicy  String  @default("FOLLOW_TEMPLATE")
+  employeeDefaultModel String?
+
+  // 月度预算控制
+  monthlyBudgetCNY Decimal? @db.Decimal(12, 2)
+  /// 触发告警的预算使用率，默认 80%
+  alertThreshold   Float    @default(0.8)
+  /// 超预算后是否硬性阻断新会话
+  hardStopOnBudget Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enterprise Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  @@map("enterprise_model_configs")
+}
+
+/// 部门级模型策略覆盖，优先级高于企业级配置。
+model DepartmentModelPolicy {
+  id               String   @id @default(cuid())
+  departmentId     String   @unique
+  defaultChatModel String?
+  allowedChatModels String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@map("department_model_policies")
 }

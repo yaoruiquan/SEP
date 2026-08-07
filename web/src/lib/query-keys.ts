@@ -21,7 +21,16 @@ export const qk = {
   departments: ['enterprise', 'departments'] as const,
   members: (deptId?: string) =>
     deptId ? ['enterprise', 'members', deptId] : (['enterprise', 'members'] as const),
+  deptMembers: (deptId: string, params?: Record<string, unknown>) =>
+    ['enterprise', 'departments', deptId, 'members', params ?? {}] as const,
   instances: ['enterprise', 'instances'] as const,
   instanceGrants: (instanceId: string) => ['enterprise', 'grants', instanceId] as const,
   myEmployees: ['enterprise', 'my-employees'] as const,
+  // Phase 1: 模型配置中心
+  modelConfig: (enterpriseId: string) =>
+    ['enterprise', enterpriseId, 'model-config'] as const,
+  availableModels: (enterpriseId: string) =>
+    ['enterprise', enterpriseId, 'available-models'] as const,
+  effectiveModelConfig: (enterpriseId?: string, opts?: Record<string, unknown>) =>
+    ['enterprise', enterpriseId ?? 'unknown', 'effective-model-config', opts ?? {}] as const,
 };

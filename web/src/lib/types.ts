@@ -207,3 +207,94 @@ export interface EmployeePackage {
   changelog: string | null;
   createdAt: string;
 }
+
+// ============================================================================
+// Enterprise Model Config Types (Phase 1)
+// ============================================================================
+
+export type EmployeeModelPolicy = "FOLLOW_TEMPLATE" | "FORCE_DEFAULT";
+
+export interface UpdateEnterpriseModelConfigDto {
+  defaultChatModel?: string;
+  allowedChatModels?: string[];
+  allowUserSwitchModel?: boolean;
+  embeddingModel?: string;
+  rerankModel?: string | null;
+  embeddingBatchSize?: number;
+  embeddingTimeoutMs?: number;
+  employeeModelPolicy?: EmployeeModelPolicy;
+  employeeDefaultModel?: string | null;
+  monthlyBudgetCNY?: number | null;
+  alertThreshold?: number;
+  hardStopOnBudget?: boolean;
+}
+
+export interface DepartmentModelPolicyDto {
+  defaultChatModel?: string | null;
+  allowedChatModels?: string[];
+}
+
+/** 模型来源，按解析优先级从高到低 */
+export type EffectiveModelSource =
+  | 'USER_CHOICE'
+  | 'EMPLOYEE_INSTANCE'
+  | 'DEPARTMENT'
+  | 'ENTERPRISE'
+  | 'SYSTEM_DEFAULT';
+
+export interface EffectiveModelConfig {
+  chatModel: string;
+  allowedChatModels: string[];
+  allowUserSwitchModel: boolean;
+  embeddingModel: string;
+  rerankModel: string | null;
+  embeddingBatchSize: number;
+  embeddingTimeoutMs: number;
+  /** 本月是否已超预算（事实判断，与是否硬性阻断无关） */
+  budgetExceeded: boolean;
+  source: EffectiveModelSource;
+}
+
+export interface DeptMemberItem {
+  id: string;
+  role: EnterpriseRole;
+  position: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+    avatar: string | null;
+  };
+}
+
+export interface DeptMembersResponse {
+  total: number;
+  page: number;
+  limit: number;
+  leaderId: string | null;
+  items: DeptMemberItem[];
+}
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  creator: { name: string | null; email: string };
+  _count?: {
+    documents?: number;
+    textChunks?: number;
+    grants?: number;
+  };
+}
+
+/** 知识库详情（GET /knowledge/:id），_count 字段均存在且为数值 */
+export interface KnowledgeBaseDetail extends Omit<KnowledgeBase, '_count'> {
+  _count: {
+    documents: number;
+    textChunks: number;
+    grants: number;
+  };
+}

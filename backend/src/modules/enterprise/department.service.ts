@@ -1,14 +1,17 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import {
+  AssignDeptMembersDto,
   DepartmentCreateDto,
   DepartmentUpdateDto,
   DepartmentTreeNode,
+  SetDeptLeaderDto,
 } from "shared";
 import { EnterpriseContextService } from "./enterprise-context.service";
 
@@ -136,7 +139,215 @@ export class DepartmentService {
     return { id, deleted: true };
   }
 
+  // ── 成员管理 ──────────────────────────────────────────────────────────────
+
+  /** 列出指定部门的所有成员，支持姓名/邮箱搜索与分页。 */
+  async listMembers(
+    userId: string,
+    deptId: string,
+    opts: { search?: string; page?: number; limit?: number },
+  ) {
+    const ctx = await this.ctx.resolve(userId);
+    await this.assertInEnterprise(deptId, ctx.enterpriseId);
+
+    const { search, page = 1, limit = 50 } = opts;
+
+    // 收集当前部门及所有子孙部门的 ID
+    const allDeptIds = await this.collectDescendantIds(deptId, ctx.enterpriseId);
+
+    const where: Record<string, unknown> = {
+      departmentId: { in: allDeptIds }
+    };
+    if (search) {
+      where["OR"] = [
+        { user: { name: { contains: search, mode: "insensitive" } } },
+        { user: { email: { contains: search, mode: "insensitive" } } },
+      ];
+    }
+
+    const [total, items] = await Promise.all([
+      this.prisma.enterpriseMember.count({ where }),
+      this.prisma.enterpriseMember.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          role: true,
+          position: true,
+          createdAt: true,
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      }),
+    ]);
+
+    // 当前部门主管 ID，用于前端标注
+    const dept = await this.prisma.department.findUnique({
+      where: { id: deptId },
+      select: { leaderId: true },
+    });
+
+    return { total, page, limit, leaderId: dept?.leaderId ?? null, items };
+  }
+
+  /**
+   * 收集当前部门及其所有子孙部门的 ID（递归查询）
+   */
+  private async collectDescendantIds(
+    deptId: string,
+    enterpriseId: string,
+  ): Promise<string[]> {
+    const allDepts = await this.prisma.department.findMany({
+      where: { enterpriseId },
+      select: { id: true, parentId: true },
+    });
+
+    const childrenMap = new Map<string, string[]>();
+    for (const d of allDepts) {
+      if (d.parentId) {
+        const siblings = childrenMap.get(d.parentId) ?? [];
+        siblings.push(d.id);
+        childrenMap.set(d.parentId, siblings);
+      }
+    }
+
+    const result: string[] = [deptId];
+    const queue = [deptId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const children = childrenMap.get(current) ?? [];
+      for (const child of children) {
+        result.push(child);
+        queue.push(child);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 将一批企业成员（EnterpriseMember）分配到指定部门。
+   *
+   * 成员必须属于本企业；已在该部门的成员幂等处理。
+   */
+  async assignMembers(
+    userId: string,
+    deptId: string,
+    dto: AssignDeptMembersDto,
+  ) {
+    const ctx = await this.ctx.resolve(userId);
+    await this.assertAdminOrDeptLeader(ctx, deptId);
+    await this.assertInEnterprise(deptId, ctx.enterpriseId);
+
+    // 确认所有 memberIds 属于本企业
+    const members = await this.prisma.enterpriseMember.findMany({
+      where: { id: { in: dto.memberIds }, enterpriseId: ctx.enterpriseId },
+      select: { id: true },
+    });
+    if (members.length !== dto.memberIds.length) {
+      throw new BadRequestException("部分成员 ID 无效或不属于本企业");
+    }
+
+    const updated = await this.prisma.enterpriseMember.updateMany({
+      where: { id: { in: dto.memberIds }, enterpriseId: ctx.enterpriseId },
+      data: { departmentId: deptId },
+    });
+
+    return { assigned: updated.count };
+  }
+
+  /**
+   * 将成员从部门移除（departmentId 置 null）。
+   *
+   * 若被移除成员是该部门主管，同时清除 leaderId。
+   */
+  async removeMember(userId: string, deptId: string, memberId: string) {
+    const ctx = await this.ctx.resolve(userId);
+    await this.assertAdminOrDeptLeader(ctx, deptId);
+
+    const member = await this.prisma.enterpriseMember.findUnique({
+      where: { id: memberId },
+      select: { id: true, enterpriseId: true, departmentId: true },
+    });
+    if (!member || member.enterpriseId !== ctx.enterpriseId) {
+      throw new NotFoundException(`成员 ${memberId} 不存在`);
+    }
+    if (member.departmentId !== deptId) {
+      throw new BadRequestException("该成员不在此部门中");
+    }
+
+    // 如果是部门主管，先清除主管标记
+    const dept = await this.prisma.department.findUnique({
+      where: { id: deptId },
+      select: { leaderId: true },
+    });
+    if (dept?.leaderId === memberId) {
+      await this.prisma.department.update({
+        where: { id: deptId },
+        data: { leaderId: null },
+      });
+    }
+
+    await this.prisma.enterpriseMember.update({
+      where: { id: memberId },
+      data: { departmentId: null },
+    });
+
+    return { removed: true, memberId };
+  }
+
+  /**
+   * 设置或清除部门主管。
+   *
+   * 新主管必须是该部门的成员；传 null 表示清除主管。
+   * 仅企业管理员可操作（不允许主管自行指定继任者）。
+   */
+  async setLeader(userId: string, deptId: string, dto: SetDeptLeaderDto) {
+    const ctx = await this.ctx.resolve(userId);
+    this.ctx.assertEnterpriseAdmin(ctx);
+    await this.assertInEnterprise(deptId, ctx.enterpriseId);
+
+    if (dto.memberId !== null) {
+      const member = await this.prisma.enterpriseMember.findUnique({
+        where: { id: dto.memberId },
+        select: { id: true, enterpriseId: true, departmentId: true },
+      });
+      if (!member || member.enterpriseId !== ctx.enterpriseId) {
+        throw new NotFoundException(`成员 ${dto.memberId} 不存在`);
+      }
+      if (member.departmentId !== deptId) {
+        throw new BadRequestException("主管必须是该部门的成员");
+      }
+    }
+
+    const updated = await this.prisma.department.update({
+      where: { id: deptId },
+      data: { leaderId: dto.memberId },
+      select: { id: true, name: true, leaderId: true },
+    });
+
+    return updated;
+  }
+
   // ── 内部校验 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 要求企业管理员或该部门的主管（成员管理操作权限）。
+   */
+  private async assertAdminOrDeptLeader(
+    ctx: import("./enterprise-context.service").EnterpriseContext,
+    deptId: string,
+  ) {
+    if (ctx.role === "ENTERPRISE_ADMIN") return;
+
+    const dept = await this.prisma.department.findUnique({
+      where: { id: deptId },
+      select: { leaderId: true },
+    });
+    if (!dept || dept.leaderId !== ctx.memberId) {
+      throw new ForbiddenException("仅企业管理员或部门主管可执行此操作");
+    }
+  }
 
   /**
    * 校验部门属于指定企业。

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot } from 'lucide-react';
 import { qk } from '@/lib/query-keys';
@@ -10,6 +10,8 @@ import { InputBar } from './input-bar';
 import { ModelSwitcher } from './model-switcher';
 import { useChatStream } from './use-chat-stream';
 import { useConversation } from './use-conversations';
+import { useAuthStore } from '@/lib/auth-store';
+import { useModelConfig } from '@/features/enterprise-settings/use-model-config';
 import type { Message } from '@/lib/types';
 
 interface ChatWindowProps {
@@ -28,6 +30,10 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const { state, send, stop } = useChatStream();
   const [pendingUser, setPendingUser] = useState<PendingUser | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 企业模型策略：用于 ModelSwitcher 的白名单 + 锁定控制
+  const enterprise = useAuthStore((s) => s.enterprise);
+  const { data: modelConfig } = useModelConfig(enterprise?.id ?? '');
 
   const employee = conversation?.employee;
   const persisted: Message[] = conversation?.messages ?? [];
@@ -79,6 +85,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             conversationId={conversationId}
             currentModelId={conversation.modelId ?? null}
             employeeModelId={employee?.modelId}
+            enterpriseId={enterprise?.id ?? ''}
+            allowedChatModels={modelConfig?.allowedChatModels ?? []}
+            canSwitch={modelConfig?.allowUserSwitchModel ?? true}
           />
         )}
       </header>

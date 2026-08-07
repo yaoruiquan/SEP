@@ -98,7 +98,7 @@ export class CapabilityService {
 
   // ──────────────── Write (Contributor) ────────────────
 
-  async create(contributorId: string, dto: CapabilityUploadDto) {
+  async create(contributorId: string, dto: CapabilityUploadDto & { metadata?: any }) {
     const typeMap: Record<string, string> = {
       agent: 'AGENT', rpa: 'RPA', skill: 'SKILL', 'ai-app': 'AI_APP',
     };
@@ -113,6 +113,7 @@ export class CapabilityService {
         inputSchema: dto.inputSchema,
         outputSchema: dto.outputSchema,
         contributorId,
+        metadata: dto.metadata || null,
         // Type-specific config sub-records
         ...(dto.agentConfig && {
           agentConfig: {
