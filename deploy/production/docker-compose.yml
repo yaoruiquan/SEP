@@ -92,6 +92,9 @@ services:
       - NEXT_TELEMETRY_DISABLED=1
       - TZ=Asia/Shanghai
 
+    ports:
+      - "3000:3000"    # Option A: 直接 IP 访问，无需 Caddy
+
     networks:
       - longdao-network
 
