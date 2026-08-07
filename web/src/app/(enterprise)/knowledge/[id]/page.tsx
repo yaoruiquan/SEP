@@ -16,6 +16,7 @@ import { useTextChunks, useDeleteTextChunk } from '@/features/knowledge/use-text
 import { TextChunkEditor } from '@/features/knowledge/text-chunk-editor';
 import { KnowledgeTestDialog } from '@/features/knowledge/knowledge-test-dialog';
 import { DocumentStatusPanel } from '@/features/knowledge/document-status-panel';
+import { KnowledgeGrantsPanel } from '@/features/knowledge/knowledge-grants-panel';
 
 interface KnowledgeDetailPageProps {
   params: Promise<{ id: string }>;
@@ -413,33 +414,7 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
 
         {/* 授权管理标签页 */}
         <TabsContent value="grants" className="mt-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" />
-              <Input
-                placeholder="搜索员工..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              授权员工
-            </Button>
-          </div>
-
-          <EmptyState
-            icon={<FileText className="h-12 w-12" />}
-            title="还没有授权员工"
-            description="授权数字员工使用这个知识库"
-            action={
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                授权员工
-              </Button>
-            }
-          />
+          <KnowledgeGrantsPanel knowledgeBaseId={id} />
         </TabsContent>
       </Tabs>
 

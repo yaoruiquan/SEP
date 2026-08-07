@@ -113,6 +113,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                   role={m.role.toLowerCase() as 'user' | 'assistant'}
                   content={m.content}
                   toolCalls={m.toolCalls}
+                  knowledgeSources={m.knowledgeSources}
                   employeeName={employee?.name}
                   employeeAvatar={employee?.avatar}
                 />

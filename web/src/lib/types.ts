@@ -87,7 +87,16 @@ export interface Message {
   role: 'USER' | 'ASSISTANT' | 'TOOL';
   content: string;
   toolCalls?: ToolCallRecord[] | null;
+  knowledgeSources?: KnowledgeSource[] | null;
   createdAt: string;
+}
+
+export interface KnowledgeSource {
+  chunkId: string;
+  content: string;
+  source: string;
+  score: number;
+  knowledgeBaseId: string;
 }
 
 export interface ConversationDetail extends ConversationSession {
