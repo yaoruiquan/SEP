@@ -141,16 +141,16 @@ export class CostAnalyticsService {
         u.email         AS "userEmail",
         COALESCE(SUM(m.cost), 0)::float           AS "cost",
         COUNT(m.id)::int                          AS "messageCount",
-        COALESCE(SUM(m.input_tokens), 0)::int     AS "inputTokens",
-        COALESCE(SUM(m.output_tokens), 0)::int    AS "outputTokens"
+        COALESCE(SUM(m."inputTokens"), 0)::int     AS "inputTokens",
+        COALESCE(SUM(m."outputTokens"), 0)::int    AS "outputTokens"
       FROM messages m
-      JOIN conversation_sessions cs ON cs.id = m.session_id
-      JOIN users u ON u.id = cs.user_id
-      JOIN enterprise_members em ON em.user_id = u.id AND em.enterprise_id = ${enterpriseId}
+      JOIN conversation_sessions cs ON cs.id = m."sessionId"
+      JOIN users u ON u.id = cs."userId"
+      JOIN enterprise_members em ON em."userId" = u.id AND em."enterpriseId" = ${enterpriseId}
       WHERE m.role = 'ASSISTANT'
         AND m.cost IS NOT NULL
-        AND m.created_at >= ${periodStart}
-        AND m.created_at <= ${periodEnd}
+        AND m."createdAt" >= ${periodStart}
+        AND m."createdAt" <= ${periodEnd}
       GROUP BY u.id, u.name, u.email
       ORDER BY "cost" DESC
       LIMIT ${limit}
@@ -383,38 +383,38 @@ export class CostAnalyticsService {
     const rows = enterpriseId
       ? await this.prisma.$queryRaw<AggRow[]>`
           SELECT
-            em.enterprise_id                        AS "enterpriseId",
-            em.department_id                        AS "departmentId",
-            COALESCE(m.model_id, 'unknown')         AS "modelId",
-            COALESCE(SUM(m.input_tokens), 0)::bigint  AS "inputTokens",
-            COALESCE(SUM(m.output_tokens), 0)::bigint AS "outputTokens",
+            em."enterpriseId"                       AS "enterpriseId",
+            em."departmentId"                       AS "departmentId",
+            COALESCE(m."modelId", 'unknown')        AS "modelId",
+            COALESCE(SUM(m."inputTokens"), 0)::bigint  AS "inputTokens",
+            COALESCE(SUM(m."outputTokens"), 0)::bigint AS "outputTokens",
             COALESCE(SUM(m.cost), 0)::float           AS "cost",
             COUNT(m.id)::int                          AS "messageCount"
           FROM messages m
-          JOIN conversation_sessions cs ON cs.id = m.session_id
-          JOIN enterprise_members em ON em.user_id = cs.user_id
+          JOIN conversation_sessions cs ON cs.id = m."sessionId"
+          JOIN enterprise_members em ON em."userId" = cs."userId"
           WHERE m.role = 'ASSISTANT'
-            AND m.created_at >= ${dayStart}
-            AND m.created_at <= ${dayEnd}
-            AND em.enterprise_id = ${enterpriseId}
-          GROUP BY em.enterprise_id, em.department_id, COALESCE(m.model_id, 'unknown')
+            AND m."createdAt" >= ${dayStart}
+            AND m."createdAt" <= ${dayEnd}
+            AND em."enterpriseId" = ${enterpriseId}
+          GROUP BY em."enterpriseId", em."departmentId", COALESCE(m."modelId", 'unknown')
         `
       : await this.prisma.$queryRaw<AggRow[]>`
           SELECT
-            em.enterprise_id                        AS "enterpriseId",
-            em.department_id                        AS "departmentId",
-            COALESCE(m.model_id, 'unknown')         AS "modelId",
-            COALESCE(SUM(m.input_tokens), 0)::bigint  AS "inputTokens",
-            COALESCE(SUM(m.output_tokens), 0)::bigint AS "outputTokens",
+            em."enterpriseId"                       AS "enterpriseId",
+            em."departmentId"                       AS "departmentId",
+            COALESCE(m."modelId", 'unknown')        AS "modelId",
+            COALESCE(SUM(m."inputTokens"), 0)::bigint  AS "inputTokens",
+            COALESCE(SUM(m."outputTokens"), 0)::bigint AS "outputTokens",
             COALESCE(SUM(m.cost), 0)::float           AS "cost",
             COUNT(m.id)::int                          AS "messageCount"
           FROM messages m
-          JOIN conversation_sessions cs ON cs.id = m.session_id
-          JOIN enterprise_members em ON em.user_id = cs.user_id
+          JOIN conversation_sessions cs ON cs.id = m."sessionId"
+          JOIN enterprise_members em ON em."userId" = cs."userId"
           WHERE m.role = 'ASSISTANT'
-            AND m.created_at >= ${dayStart}
-            AND m.created_at <= ${dayEnd}
-          GROUP BY em.enterprise_id, em.department_id, COALESCE(m.model_id, 'unknown')
+            AND m."createdAt" >= ${dayStart}
+            AND m."createdAt" <= ${dayEnd}
+          GROUP BY em."enterpriseId", em."departmentId", COALESCE(m."modelId", 'unknown')
         `;
 
     for (const r of rows) {
