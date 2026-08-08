@@ -99,11 +99,11 @@ cmd_deploy_backend() {
   dc build --no-cache sep-backend
 
   info "运行数据库迁移..."
-  dc --no-deps run --rm sep-migrate || warn "迁移失败或已是最新，继续..."
+  dc run --no-deps --rm sep-migrate || warn "迁移失败或已是最新，继续..."
 
   info "重启 sep-backend（保留容器配置，不重新创建）..."
   docker stop sep-backend 2>/dev/null || true
-  dc --no-deps up -d sep-backend
+  dc up --no-deps -d sep-backend
 
   wait_healthy sep-backend
 
@@ -144,11 +144,11 @@ cmd_deploy() {
   success "数据库迁移完成"
 
   info "启动 sep-backend..."
-  dc --no-deps up -d sep-backend
+  dc up --no-deps -d sep-backend
   wait_healthy sep-backend
 
   info "启动 sep-web..."
-  dc --no-deps up -d sep-web
+  dc up --no-deps -d sep-web
   sleep 3
 
   success "全量部署完成 ✓"
