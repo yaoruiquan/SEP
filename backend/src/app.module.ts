@@ -19,6 +19,7 @@ import { ComputeModule } from './modules/compute/compute.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/enterprise-model-config.module';
 import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.module';
+import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterprise-settings.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.mod
     NotificationsModule,
     EnterpriseModelConfigModule,
     CostAnalyticsModule,
+    EnterpriseSettingsModule,
   ],
   controllers: [],
   providers: [],
