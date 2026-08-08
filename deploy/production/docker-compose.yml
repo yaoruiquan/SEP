@@ -101,6 +101,8 @@ services:
     build:
       context: ../..
       dockerfile: web/Dockerfile
+      args:
+        - API_ORIGIN=http://sep-backend:3001
     image: sep-web:latest
     container_name: sep-web
     restart: unless-stopped
