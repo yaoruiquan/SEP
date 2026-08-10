@@ -6,8 +6,9 @@ RUN corepack enable && corepack prepare pnpm@9.15 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json ./web/
+COPY backend/package.json ./backend/
 
-RUN pnpm install --frozen-lockfile --filter web...
+RUN pnpm install --frozen-lockfile --filter web... --filter backend...
 
 # ── Stage 2: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -17,6 +18,7 @@ RUN corepack enable && corepack prepare pnpm@9.15 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/web/node_modules ./web/node_modules
+COPY --from=deps /app/backend/node_modules ./backend/node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
