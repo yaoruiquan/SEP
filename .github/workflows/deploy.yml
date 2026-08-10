@@ -44,20 +44,20 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → deploy-backend
+      - name: SSH → 同步代码并部署后端
         uses: appleboy/ssh-action@v1.2.0
         with:
           host:     ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key:      ${{ secrets.SERVER_SSH_KEY }}
           port:     ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
             set -e
             cd /opt/sep/app
             git pull origin main
-            # 非交互模式：deploy-backend 不需要确认
             ./deploy/production/sep-deploy.sh deploy-backend
+            ./deploy/production/sep-deploy.sh status
 
   # ── 部署前端（backend 成功或无需部署时才跑）────────────────────────────────
   deploy-web:
@@ -70,16 +70,17 @@ jobs:
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → deploy-web
+      - name: SSH → 同步代码并部署前端
         uses: appleboy/ssh-action@v1.2.0
         with:
           host:     ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key:      ${{ secrets.SERVER_SSH_KEY }}
           port:     ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
             set -e
             cd /opt/sep/app
             git pull origin main
             ./deploy/production/sep-deploy.sh deploy-web
+            ./deploy/production/sep-deploy.sh status
