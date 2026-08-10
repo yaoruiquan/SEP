@@ -99,7 +99,24 @@ cmd_deploy_backend() {
   dc build --no-cache sep-backend
 
   info "运行数据库迁移..."
-  dc run --no-deps --rm sep-migrate || warn "迁移失败或已是最新，继续..."
+  # 使用 up 替代 run，设置超时并检查退出状态
+  dc up --no-deps sep-migrate
+
+  # 等待迁移容器退出（最多60秒）
+  for i in $(seq 1 12); do
+    status=$(docker inspect --format='{{.State.Status}}' sep-migrate 2>/dev/null || echo "missing")
+    [[ "$status" == "exited" ]] && break
+    sleep 5
+  done
+
+  local exit_code
+  exit_code=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo "1")
+  if [[ "$exit_code" != "0" ]]; then
+    warn "数据库迁移非零退出码（$exit_code），检查是否已是最新"
+    docker logs --tail=30 sep-migrate 2>&1 | sed 's/^/  /'
+  else
+    success "数据库迁移完成"
+  fi
 
   info "重启 sep-backend（保留容器配置，不重新创建）..."
   docker stop sep-backend 2>/dev/null || true
