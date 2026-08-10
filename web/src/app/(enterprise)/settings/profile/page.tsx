@@ -7,11 +7,16 @@ import { z } from 'zod';
 import { Check, Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMe, useUpdateProfile, useChangePassword } from '@/features/user/use-user';
 import { useLogout } from '@/features/auth/use-auth';
+import {
+  useNotificationPreferences,
+  useUpdateNotificationPreferences,
+} from '@/features/notifications/use-notifications';
 import type { ApiError } from '@/lib/api-client';
 
 const profileSchema = z.object({
@@ -19,20 +24,25 @@ const profileSchema = z.object({
   avatar: z.string().optional(),
 });
 
-const passwordSchema = z.object({
-  currentPassword: z.string().min(1, '当前密码不能为空'),
-  newPassword: z.string().min(8, '新密码至少 8 位'),
-  confirmPassword: z.string().min(1, '请确认新密码'),
-}).refine((d) => d.newPassword === d.confirmPassword, {
-  message: '两次输入的密码不一致',
-  path: ['confirmPassword'],
-});
+const passwordSchema = z
+  .object({
+    currentPassword: z.string().min(1, '当前密码不能为空'),
+    newPassword: z.string().min(8, '新密码至少 8 位'),
+    confirmPassword: z.string().min(1, '请确认新密码'),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: '两次输入的密码不一致',
+    path: ['confirmPassword'],
+  });
 
 export default function SettingsPage() {
   const { data: me, isLoading } = useMe();
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
   const logout = useLogout();
+
+  const { data: notifPrefs } = useNotificationPreferences();
+  const updatePrefs = useUpdateNotificationPreferences();
 
   const [pwSuccess, setPwSuccess] = useState(false);
 
@@ -99,9 +109,7 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                姓名
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">姓名</label>
               <Input {...profileForm.register('name')} />
               {profileForm.formState.errors.name && (
                 <p className="mt-1 text-sm text-danger">
@@ -126,9 +134,7 @@ export default function SettingsPage() {
             <Button
               type="submit"
               size="sm"
-              disabled={
-                updateProfile.isPending || !profileForm.formState.isDirty
-              }
+              disabled={updateProfile.isPending || !profileForm.formState.isDirty}
             >
               {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               保存
@@ -144,13 +150,8 @@ export default function SettingsPage() {
         <CardContent>
           <form onSubmit={onPasswordSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                当前密码
-              </label>
-              <Input
-                type="password"
-                {...passwordForm.register('currentPassword')}
-              />
+              <label className="mb-1.5 block text-sm font-medium text-foreground">当前密码</label>
+              <Input type="password" {...passwordForm.register('currentPassword')} />
               {passwordForm.formState.errors.currentPassword && (
                 <p className="mt-1 text-sm text-danger">
                   {passwordForm.formState.errors.currentPassword.message}
@@ -159,9 +160,7 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                新密码
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">新密码</label>
               <Input type="password" {...passwordForm.register('newPassword')} />
               {passwordForm.formState.errors.newPassword && (
                 <p className="mt-1 text-sm text-danger">
@@ -171,13 +170,8 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                确认新密码
-              </label>
-              <Input
-                type="password"
-                {...passwordForm.register('confirmPassword')}
-              />
+              <label className="mb-1.5 block text-sm font-medium text-foreground">确认新密码</label>
+              <Input type="password" {...passwordForm.register('confirmPassword')} />
               {passwordForm.formState.errors.confirmPassword && (
                 <p className="mt-1 text-sm text-danger">
                   {passwordForm.formState.errors.confirmPassword.message}
@@ -198,15 +192,46 @@ export default function SettingsPage() {
               </p>
             )}
 
-            <Button
-              type="submit"
-              size="sm"
-              disabled={changePassword.isPending}
-            >
+            <Button type="submit" size="sm" disabled={changePassword.isPending}>
               {changePassword.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               修改密码
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* 通知偏好 */}
+      <Card id="notifications">
+        <CardHeader>
+          <CardTitle>通知偏好</CardTitle>
+          <CardDescription>选择你希望接收哪些类型的通知</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(
+            [
+              { key: 'systemEnabled', label: '系统通知', desc: '平台公告、维护通知等' },
+              { key: 'usageAlertEnabled', label: '用量预警', desc: 'Token 额度和预算超限提醒' },
+              { key: 'securityEnabled', label: '安全通知', desc: 'API 密钥创建/吊销、登录异常等' },
+              { key: 'approvalEnabled', label: '审批通知', desc: '员工申请和审批结果' },
+              {
+                key: 'emailEnabled',
+                label: '邮件通知',
+                desc: '将重要通知同时发送到邮箱（暂未开放）',
+              },
+            ] as const
+          ).map(({ key, label, desc }) => (
+            <div key={key} className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">{label}</p>
+                <p className="text-xs text-fg-muted">{desc}</p>
+              </div>
+              <Switch
+                checked={notifPrefs?.[key] ?? true}
+                disabled={updatePrefs.isPending || key === 'emailEnabled'}
+                onCheckedChange={(checked) => updatePrefs.mutate({ [key]: checked })}
+              />
+            </div>
+          ))}
         </CardContent>
       </Card>
 

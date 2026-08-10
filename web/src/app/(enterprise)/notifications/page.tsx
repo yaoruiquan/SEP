@@ -1,0 +1,269 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';import {
+  Bell,
+  Check,
+  Trash2,
+  ExternalLink,
+  Settings2,
+  BarChart2,
+  ShieldAlert,
+  CheckSquare,
+} from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { CenteredSpinner } from '@/components/ui/feedback';
+import { cn } from '@/lib/utils';
+import {
+  useNotifications,
+  useUnreadCount,
+  useMarkAsRead,
+  useMarkAllAsRead,
+  useClearRead,
+  useDeleteNotification,
+  type NotificationCategory,
+  type NotificationSeverity,
+} from '@/features/notifications/use-notifications';
+
+const CATEGORY_TABS: Array<{
+  key: NotificationCategory | 'ALL';
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { key: 'ALL', label: '全部', icon: <Bell className="h-4 w-4" /> },
+  { key: 'SYSTEM', label: '系统', icon: <Settings2 className="h-4 w-4" /> },
+  { key: 'USAGE_ALERT', label: '用量预警', icon: <BarChart2 className="h-4 w-4" /> },
+  { key: 'SECURITY', label: '安全', icon: <ShieldAlert className="h-4 w-4" /> },
+  { key: 'APPROVAL', label: '审批', icon: <CheckSquare className="h-4 w-4" /> },
+];
+
+const SEVERITY_STYLES: Record<NotificationSeverity, string> = {
+  INFO: 'text-gtext-primary',
+  WARNING: 'text-warning',
+  ERROR: 'text-danger',
+};
+
+const CATEGORY_BADGE: Record<NotificationCategory, { label: string; cls: string }> = {
+  SYSTEM: { label: '系统', cls: 'bg-glass-3 text-gtext-secondary' },
+  USAGE_ALERT: { label: '用量', cls: 'bg-warning/10 text-warning' },
+  SECURITY: { label: '安全', cls: 'bg-danger/10 text-danger' },
+  APPROVAL: { label: '审批', cls: 'bg-primary/10 text-primary' },
+};
+
+const PAGE_SIZE = 20;
+
+export default function NotificationsPage() {
+  const [activeTab, setActiveTab] = useState<NotificationCategory | 'ALL'>('ALL');
+  const [offset, setOffset] = useState(0);
+
+  const category = activeTab === 'ALL' ? undefined : activeTab;
+
+  const { data, isLoading } = useNotifications(PAGE_SIZE, offset, category);
+  const { data: unreadData } = useUnreadCount(category);
+  const markAsRead = useMarkAsRead();
+  const markAllAsRead = useMarkAllAsRead();
+  const clearRead = useClearRead();
+  const deleteNotif = useDeleteNotification();
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const unreadCount = unreadData?.count ?? 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+
+  const handleTabChange = (tab: NotificationCategory | 'ALL') => {
+    setActiveTab(tab);
+    setOffset(0);
+  };
+
+  return (
+    <div className="space-y-6 p-6">
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">通知中心</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            {unreadCount > 0 ? (
+              <span className="text-warning">{unreadCount} 条未读</span>
+            ) : (
+              '暂无未读通知'
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => markAllAsRead.mutate(category)}
+              disabled={markAllAsRead.isPending}
+            >
+              <Check className="h-4 w-4" />
+              全部已读
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => clearRead.mutate(category)}
+            disabled={clearRead.isPending}
+          >
+            <Trash2 className="h-4 w-4" />
+            清空已读
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => (window.location.href = '/settings/profile#notifications')}
+          >
+            <Settings2 className="h-4 w-4" />
+            偏好设置
+          </Button>
+        </div>
+      </div>
+
+      {/* Category tabs */}
+      <div className="flex gap-1 rounded-glass-sm border border-glassline bg-glass-1 p-1">
+        {CATEGORY_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => handleTabChange(tab.key)}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors',
+              activeTab === tab.key
+                ? 'bg-primary text-white shadow-sm'
+                : 'text-gtext-secondary hover:bg-glass-2 hover:text-gtext-primary',
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Notification list */}
+      <Card>
+        {isLoading ? (
+          <div className="py-16">
+            <CenteredSpinner label="加载中…" />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center py-16 text-gtext-muted">
+            <Bell className="mb-3 h-10 w-10 opacity-20" />
+            <p className="text-sm">暂无通知</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-glassline">
+            {items.map((notif) => {
+              const titleColor = notif.severity
+                ? SEVERITY_STYLES[notif.severity]
+                : 'text-gtext-primary';
+              const badge = notif.category ? CATEGORY_BADGE[notif.category] : null;
+
+              return (
+                <div
+                  key={notif.id}
+                  className={cn(
+                    'group flex items-start gap-3 px-5 py-4 transition-colors hover:bg-glass-2',
+                    !notif.read && 'bg-glass-2/40',
+                  )}
+                >
+                  {/* Unread dot */}
+                  <div className="mt-2 shrink-0">
+                    <div
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        !notif.read ? 'bg-primary' : 'bg-transparent',
+                      )}
+                    />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className={cn('text-sm font-medium', titleColor)}>
+                        {notif.title}
+                      </h4>
+                      {badge && (
+                        <span className={cn('rounded px-1.5 py-0.5 text-xs', badge.cls)}>
+                          {badge.label}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm text-gtext-secondary">{notif.message}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-4">
+                      <span className="text-xs text-gtext-muted">
+                        {formatDistanceToNow(new Date(notif.createdAt), {
+                          addSuffix: true,
+                          locale: zhCN,
+                        })}
+                      </span>
+                      {notif.actionUrl && (
+                        <Link
+                          href={notif.actionUrl}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          查看详情
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons (appear on hover) */}
+                  <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    {!notif.read && (
+                      <button
+                        onClick={() => markAsRead.mutate(notif.id)}
+                        className="rounded p-1.5 text-gtext-muted hover:bg-glass-3 hover:text-gtext-primary"
+                        title="标记已读"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteNotif.mutate(notif.id)}
+                      className="rounded p-1.5 text-gtext-muted hover:bg-danger/10 hover:text-danger"
+                      title="删除"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-glassline px-5 py-3">
+            <span className="text-sm text-gtext-muted">
+              第 {currentPage} / {totalPages} 页，共 {total} 条
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              >
+                上一页
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={offset + PAGE_SIZE >= total}
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+              >
+                下一页
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

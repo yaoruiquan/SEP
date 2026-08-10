@@ -75,6 +75,10 @@ model Enterprise {
   accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
   modelConfig    EnterpriseModelConfig?
+  settings       EnterpriseSetting?
+  customRoles    CustomRole[]
+  apiKeys        EnterpriseApiKey[]
+  apiCallLogs    ApiCallLog[]
 
   @@map("enterprises")
 }
@@ -137,6 +141,10 @@ model EnterpriseMember {
 
   /// 岗位名称，自由文本
   position String?
+
+  /// 自定义角色（Phase 4）。为空表示使用默认角色权限。
+  customRoleId String?
+  customRole   CustomRole? @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1075,6 +1083,106 @@ model EnterpriseModelConfig {
   enterprise Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
   @@map("enterprise_model_configs")
+}
+
+// ============================================================================
+// Phase 4: Enterprise Settings / Custom Roles / API Keys
+// ============================================================================
+
+/// 企业安全与集成设置。每家企业最多一条。
+model EnterpriseSetting {
+  id           String @id @default(cuid())
+  enterpriseId String @unique
+
+  // 内容安全
+  sensitiveWordsEnabled Boolean  @default(false)
+  sensitiveWords        String[] @default([])
+
+  // 网络安全
+  ipWhitelist String[] @default([])
+
+  // 会话安全
+  sessionTimeoutMinutes       Int  @default(480)
+  forcePasswordRotationDays   Int?
+
+  // Webhook
+  webhookUrl    String?
+  webhookSecret String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enterprise Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  @@map("enterprise_settings")
+}
+
+/// 企业自定义角色，用于精细化权限控制。
+model CustomRole {
+  id           String @id @default(cuid())
+  enterpriseId String
+
+  name        String
+  description String?
+  permissions String[] @default([])
+  /// 内置角色（平台预置，企业只读）
+  isBuiltin   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enterprise Enterprise       @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  members    EnterpriseMember[]
+
+  @@unique([enterpriseId, name])
+  @@map("custom_roles")
+}
+
+/// 企业 API Key，用于程序化接入。Key 仅在创建时明文返回一次，存储 bcrypt 哈希。
+model EnterpriseApiKey {
+  id           String @id @default(cuid())
+  enterpriseId String
+
+  name      String
+  /// 前缀，用于列表展示（如 sk-ent-xxxx）
+  keyPrefix String
+  /// bcrypt 哈希，不可逆
+  keyHash   String
+  scopes    String[] @default([])
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdBy String
+  createdAt DateTime @default(now())
+
+  enterprise Enterprise  @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  logs       ApiCallLog[]
+
+  @@index([enterpriseId])
+  @@map("enterprise_api_keys")
+}
+
+/// API 调用日志，用于审计与用量统计。
+model ApiCallLog {
+  id           String @id @default(cuid())
+  enterpriseId String
+
+  apiKeyId   String?
+  method     String
+  path       String
+  statusCode Int
+  durationMs Int
+  ip         String?
+
+  createdAt DateTime @default(now())
+
+  enterprise Enterprise        @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  apiKey     EnterpriseApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@index([enterpriseId, createdAt])
+  @@map("api_call_logs")
 }
 
 // ============================================================================
