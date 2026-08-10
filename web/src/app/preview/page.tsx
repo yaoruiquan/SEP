@@ -16,7 +16,7 @@ export default function ComponentPreviewPage() {
   const [currentStep, setCurrentStep] = useState(1);
 
   const steps: Step[] = [
-    { id: '1', title: '选择员工', description: '从市场选择数字员工' },
+    { id: '1', title: '选择员工', description: '从市场选择硅基员工' },
     { id: '2', title: '配置信息', description: '设置名称和描述' },
     { id: '3', title: '绑定能力', description: '为员工绑定能力' },
     { id: '4', title: '确认招募', description: '确认信息并完成' },
@@ -248,7 +248,7 @@ export default function ComponentPreviewPage() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-600">员工类型</span>
-                <span className="text-neutral-900">数字员工</span>
+                <span className="text-neutral-900">硅基员工</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-600">绑定能力</span>

@@ -9,7 +9,6 @@ import {
   MonitorPlay,
   Boxes,
   Store,
-  CreditCard,
   Settings,
   LogOut,
   Menu,
@@ -28,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { StatusDot } from '@/components/ui/status-dot';
 import { AuroraBackground } from '@/components/ui/aurora-background';
 import { ThemeLogo } from '@/components/ui/theme-logo';
+import { nav } from '@/locales/zh-CN';
 import { cn } from '@/lib/utils';
 import { NavItem, type NavLink } from './nav-item';
 import { ShellTopbar, type CrumbMap } from './shell-topbar';
@@ -58,54 +58,55 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     links: [
-      { href: '/dashboard', label: '工作台', icon: LayoutDashboard, exact: true },
+      { href: '/dashboard', label: nav.dashboard, icon: LayoutDashboard, exact: true },
     ],
   },
   {
     title: '组织',
     adminOnly: true,
     links: [
-      { href: '/departments', label: '部门管理', icon: GitBranch },
-      { href: '/members', label: '成员管理', icon: Users },
+      { href: '/departments', label: nav.departments, icon: GitBranch },
+      // 碳基员工（真人成员），与下方「硅基员工」组形成对比
+      { href: '/members', label: nav.members, icon: Users },
     ],
   },
   {
-    title: '员工',
+    title: '硅基员工',
     links: [
-      // 使用者视角：我被授权的实例。普通成员的核心页面
-      { href: '/my-employees', label: '我的员工', icon: MonitorPlay },
-      { href: '/marketplace', label: '员工市场', icon: Store },
-      // 管理视角：实例的创建/停用/升级/授权。普通成员进去全是点不动的按钮
-      { href: '/instances', label: '员工实例', icon: Boxes, adminOnly: true },
-      // 订阅所有人可见（能看到公司订了什么），但改只有管理员能改
-      { href: '/subscriptions', label: '我的订阅', icon: CreditCard },
+      // 使用者视角：我被授权使用的硅基员工。普通成员的核心页面
+      { href: '/my-employees', label: nav.myEmployees, icon: MonitorPlay },
+      { href: '/marketplace', label: nav.marketplace, icon: Store },
+      // 管理视角：雇佣关系（买） + 员工授权（分配给碳基员工）
+      { href: '/subscriptions', label: nav.subscriptions, icon: Users, adminOnly: true },
+      { href: '/instances', label: nav.instances, icon: Boxes, adminOnly: true },
     ],
   },
   {
     title: '工作',
     links: [
-      { href: '/chat', label: '对话中心', icon: MessageSquare },
-      { href: '/tasks', label: '任务中心', icon: ListTodo },
+      { href: '/chat', label: nav.chat, icon: MessageSquare },
+      { href: '/tasks', label: nav.tasks, icon: ListTodo },
     ],
   },
   {
     title: '协作',
     links: [
-      { href: '/permissions', label: '权限管理', icon: Shield },
-      { href: '/knowledge', label: '知识库', icon: BookOpen },
+      { href: '/permissions', label: nav.permissions, icon: Shield },
+      // 决策 2：此处保留为批量维护入口，授权主入口在硅基员工详情页
+      { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
     ],
   },
   {
     title: '账务',
     links: [
-      { href: '/usage', label: '用量统计', icon: BarChart3 },
-      { href: '/analytics/cost', label: '成本分析', icon: BarChart3, adminOnly: true },
+      { href: '/usage', label: nav.usage, icon: BarChart3 },
+      { href: '/analytics/cost', label: nav.costAnalytics, icon: BarChart3, adminOnly: true },
     ],
   },
   {
     title: '设置',
     adminOnly: true,
-    links: [{ href: '/settings/models', label: '模型配置', icon: Cpu }],
+    links: [{ href: '/settings/models', label: nav.modelConfig, icon: Cpu }],
   },
 ];
 
@@ -235,7 +236,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <div onClick={() => setSidebarOpen(false)}>
-                <NavItem href="/settings" label="个人设置" icon={Settings} />
+                <NavItem href="/settings" label={nav.personalSettings} icon={Settings} />
               </div>
               <Button
                 variant="ghost"

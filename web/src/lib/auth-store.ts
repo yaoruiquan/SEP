@@ -69,9 +69,13 @@ export const authAccessor = {
  * 登录后的默认落地页。
  *
  * 平台运营人员（全局 ADMIN）不属于任何企业，进运营端；
- * 有企业归属的进企业台；两者都不是的只能逛市场
- * —— 理论上注册流程保证了每个普通账号都有企业，
- * 但历史数据或后端异常时不该白屏，故给市场兜底。
+ * 有企业归属的进企业台。
+ *
+ * **「无归属」是正常状态，不是异常**：被原企业移除、或主动离职的账号
+ * 都会落在这里。曾经这条分支兜底去 /marketplace，结果是用户进了一个
+ * 什么都点不动的市场页，看不到自己为什么用不了企业功能、也不知道
+ * 下一步该干什么。/no-enterprise 才是这个状态的正主 ——
+ * 它解释现状并给出两条出路（等邀请 / 开新公司）。
  */
 export function defaultHomeFor(
   user: AuthUser | null,
@@ -79,5 +83,5 @@ export function defaultHomeFor(
 ): string {
   if (user?.role === 'ADMIN') return '/admin';
   if (enterprise) return '/dashboard';
-  return '/marketplace';
+  return '/no-enterprise';
 }

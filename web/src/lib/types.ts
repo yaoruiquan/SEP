@@ -155,6 +155,62 @@ export interface EnterpriseMember {
   department: { id: string; name: string } | null;
 }
 
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
+
+export interface EnterpriseInvitation {
+  id: string;
+  email: string;
+  role: EnterpriseRole;
+  position: string | null;
+  status: InvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+  /** 仅 ACCEPTED 有值 */
+  acceptedAt?: string | null;
+  department: { id: string; name: string } | null;
+}
+
+/**
+ * 创建邀请的响应。`token` 是**一次性明文**，只在此响应里出现 ——
+ * 列表接口不返回它（库里只存 SHA-256 摘要）。
+ * 所以 UI 必须在拿到响应时立刻把链接呈现给管理员，关闭后无法找回。
+ */
+export interface CreatedInvitation extends EnterpriseInvitation {
+  token: string;
+}
+
+/**
+ * `GET /auth/invitations/verify` 的响应 —— 受邀页在用户还没有账号时就要
+ * 展示「你被邀请加入 X 公司」，所以这个接口是公开的。
+ *
+ * 字段是刻意裁剪过的：只有展示所需的企业名/角色/部门，不含企业组织结构。
+ * 后端对「不存在」与「已失效」返回**同一个** 400 措辞，
+ * 故前端不要试图从错误里区分二者 —— 那个区分本身就是 token 枚举的入口。
+ */
+export interface InvitationPreview {
+  id: string;
+  email: string;
+  role: EnterpriseRole;
+  position: string | null;
+  status: InvitationStatus;
+  expiresAt: string;
+  enterprise: { id: string; name: string; logo: string | null };
+  department: { id: string; name: string } | null;
+}
+
+/**
+ * 移出成员 / 主动离职的处置结果。
+ * `vacatedDepartments` 非空表示这些部门失去了负责人，需要管理员补指派 ——
+ * 后端刻意不阻塞移出，把补动作交给 UI 提示。
+ */
+export interface OffboardResult {
+  id: string;
+  removed: boolean;
+  reclaimedGrants: number;
+  canceledRequests: number;
+  vacatedDepartments: { id: string; name: string }[];
+}
+
 export interface EmployeeInstance {
   id: string;
   name: string;

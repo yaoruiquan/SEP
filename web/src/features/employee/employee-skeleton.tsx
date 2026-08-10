@@ -73,7 +73,7 @@ export function EmployeeListSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-// 我的员工页面卡片骨架屏
+// 我的硅基员工页面卡片骨架屏
 export function MyEmployeeCardSkeleton() {
   return (
     <Card className="border-2">

@@ -12,12 +12,13 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMe, useUpdateProfile, useChangePassword } from '@/features/user/use-user';
-import { useLogout } from '@/features/auth/use-auth';
+import { useLogout, useLeaveEnterprise } from '@/features/auth/use-auth';
+import { useAuthStore } from '@/lib/auth-store';
 import {
   useNotificationPreferences,
   useUpdateNotificationPreferences,
 } from '@/features/notifications/use-notifications';
-import type { ApiError } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-client';
 
 const profileSchema = z.object({
   name: z.string().min(1, '姓名不能为空'),
@@ -250,6 +251,91 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      <LeaveEnterpriseCard />
     </div>
+  );
+}
+
+/**
+ * 主动离职。
+ *
+ * 存在的理由是死锁兜底：若解除归属只有「管理员移除」一个入口，
+ * 前雇主不作为就能把一个账号永久卡住 —— 既进不了新企业（一人一企业），
+ * 也用不了原企业。故不需要原企业审批。
+ *
+ * 唯一管理员离职会让企业永久失去管理能力，后端返回 409 拦住 ——
+ * 这里不预判，直接展示后端措辞。
+ */
+function LeaveEnterpriseCard() {
+  const { enterprise, roleInEnterprise } = useAuthStore();
+  const leave = useLeaveEnterprise();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!enterprise) return null;
+
+  const serverError =
+    leave.error instanceof ApiError
+      ? leave.error.message
+      : leave.error
+        ? '离职失败，请稍后重试'
+        : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>退出企业</CardTitle>
+        <CardDescription>
+          解除与「{enterprise.name}」的归属关系。账号保留，转为「无企业归属」状态，
+          之后可以接受新的企业邀请或自行开通公司。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-lg border border-glassline bg-glass-2 px-3 py-2.5 text-xs leading-relaxed text-fg-muted">
+          <p className="font-medium text-foreground">会发生什么</p>
+          <p className="mt-1">
+            立即回收：你被授权的硅基员工席位、你的部门归属、你提交的待审批申请。
+          </p>
+          <p className="mt-0.5">
+            保留在企业：技能配置、知识库、工作与审批记录 ——
+            这些属于企业，离职不会带走。
+          </p>
+          <p className="mt-0.5">保留在你名下：账号本身与历史对话。</p>
+          {roleInEnterprise === 'ENTERPRISE_ADMIN' && (
+            <p className="mt-1.5 text-warning">
+              你是企业管理员。若你是唯一的管理员，需先指定另一位管理员才能退出。
+            </p>
+          )}
+        </div>
+
+        {serverError && <p className="text-sm text-danger">{serverError}</p>}
+
+        {!confirming ? (
+          <Button variant="danger" size="sm" onClick={() => setConfirming(true)}>
+            退出「{enterprise.name}」
+          </Button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => leave.mutate()}
+              disabled={leave.isPending}
+            >
+              {leave.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              确认退出
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirming(false)}
+              disabled={leave.isPending}
+            >
+              取消
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

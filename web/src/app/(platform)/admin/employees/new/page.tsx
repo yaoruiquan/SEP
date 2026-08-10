@@ -31,7 +31,7 @@ export default function NewEmployeePage() {
     industry: '通用',
     position: '通用',
     avatar: '',
-    systemPrompt: '你是一位专业的数字员工，随时准备协助用户完成各项任务。',
+    systemPrompt: '你是一位专业的硅基员工，随时准备协助用户完成各项任务。',
     modelId: 'gpt-4o',
     maxSteps: 10,
     price: 0,
@@ -126,7 +126,7 @@ export default function NewEmployeePage() {
         </Button>
         <h1 className="text-3xl font-bold">新建员工</h1>
         <p className="text-muted-foreground mt-2">
-          创建一个新的数字员工模板
+          创建一个新的硅基员工模板
         </p>
       </div>
 

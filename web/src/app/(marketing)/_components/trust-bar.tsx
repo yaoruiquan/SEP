@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Reveal } from './reveal';
 
 const STATS = [
-  { value: 156, suffix: '+', label: '数字员工' },
+  { value: 156, suffix: '+', label: '硅基员工' },
   { value: 12847, suffix: '', label: '服务企业' },
   { value: 99.9, suffix: '%', label: '可用性', decimals: 1 },
   { value: 4.9, suffix: '/5', label: '用户评分', decimals: 1 },

@@ -42,7 +42,7 @@ export function useKnowledgeGrants(knowledgeBaseId: string | null) {
   });
 }
 
-/** 企业员工实例列表（用于选择授权对象） */
+/** 企业硅基岗位列表（用于选择授权对象） */
 export function useEmployeeInstances() {
   return useQuery<EmployeeInstance[]>({
     queryKey: ['employee-instances'],

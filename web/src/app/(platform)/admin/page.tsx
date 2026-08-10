@@ -225,7 +225,7 @@ export default function AdminDashboardPage() {
                 <UserPlus className="h-7 w-7" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold">创建数字员工</h3>
+                <h3 className="text-lg font-semibold">创建硅基员工</h3>
                 <p className="text-sm text-fg-muted">上架新员工，组合能力开始服务</p>
               </div>
               <ArrowRight className="h-5 w-5 text-primary" />

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { instanceStatus, subscriptionStatus } from '@/locales/zh-CN';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -20,18 +21,16 @@ export const SUBSCRIPTION_STATUS_META: Record<
   string,
   { label: string; tone: string }
 > = {
-  ACTIVE: { label: '使用中', tone: 'text-success' },
-  PAUSED: { label: '已暂停', tone: 'text-warning' },
-  EXPIRED: { label: '已过期', tone: 'text-fg-subtle' },
+  ACTIVE: { label: subscriptionStatus.ACTIVE, tone: 'text-success' },
+  PAUSED: { label: subscriptionStatus.PAUSED, tone: 'text-warning' },
+  EXPIRED: { label: subscriptionStatus.EXPIRED, tone: 'text-fg-subtle' },
 };
 
-/** 员工实例状态。REVOKED 是终态，不可转回。 */
-export const INSTANCE_STATUS_LABEL: Record<string, string> = {
-  PENDING_ACTIVATION: '待激活',
-  ACTIVE: '运行中',
-  SUSPENDED: '已停用',
-  REVOKED: '已回收',
-};
+/**
+ * 硅基岗位状态（代码层枚举仍为 InstanceStatus，不改动）。
+ * REVOKED 是终态，不可转回。文案来源见 locales/zh-CN.ts。
+ */
+export const INSTANCE_STATUS_LABEL = instanceStatus;
 
 export const INSTANCE_STATUS_STYLE: Record<string, string> = {
   PENDING_ACTIVATION: 'bg-warning/10 text-warning',

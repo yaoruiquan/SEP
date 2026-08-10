@@ -286,9 +286,9 @@ export function ModelConfigForm({
         <TabsContent value="employee" className="mt-4 space-y-6">
           <section className="space-y-4 rounded-lg border border-border bg-card p-6">
             <div>
-              <h3 className="text-lg font-semibold">数字员工模型策略</h3>
+              <h3 className="text-lg font-semibold">硅基员工模型策略</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                决定数字员工执行任务时使用哪个模型
+                决定硅基员工执行任务时使用哪个模型
               </p>
             </div>
             <div className="space-y-2">

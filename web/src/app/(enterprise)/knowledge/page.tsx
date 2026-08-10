@@ -67,7 +67,7 @@ export default function KnowledgePage() {
             知识库
           </h1>
           <p className="mt-1 text-sm text-gtext-muted">
-            管理企业知识，为数字员工提供专业知识支持
+            管理企业知识，为硅基员工提供专业知识支持
           </p>
         </div>
         <Button onClick={() => setDialogOpen(true)}>
@@ -97,7 +97,7 @@ export default function KnowledgePage() {
           description={
             search
               ? '试试其他关键词'
-              : '创建第一个知识库，上传文档或添加知识内容，让数字员工更专业'
+              : '创建第一个知识库，上传文档或添加知识内容，让硅基员工更专业'
           }
           action={
             !search && (

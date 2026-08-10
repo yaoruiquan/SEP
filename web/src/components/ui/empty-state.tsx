@@ -27,7 +27,7 @@ interface EmptyStateProps {
  * <EmptyState
  *   icon={<PackageIcon className="w-12 h-12 text-neutral-400" />}
  *   title="还没有招聘任何员工"
- *   description="从人才市场招聘数字员工，开始自动化您的工作流程"
+ *   description="从人才市场招聘硅基员工，开始自动化您的工作流程"
  *   action={{
  *     label: "去人才市场",
  *     onClick: () => router.push('/market'),

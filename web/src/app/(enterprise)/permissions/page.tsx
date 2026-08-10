@@ -138,7 +138,7 @@ function DepartmentPermissionMatrix() {
   if (instances.length === 0) {
     return (
       <div className="text-center py-12 text-neutral-500">
-        暂无员工实例，请先创建员工
+        暂无硅基员工，请先在「员工授权」创建
       </div>
     );
   }
@@ -221,7 +221,7 @@ function DepartmentPermissionMatrix() {
 }
 
 // ─────────────────────────────────────────────────────────
-// 按成员授权（每个员工实例一张卡片）
+// 按成员授权（每个硅基员工一张卡片）
 // ─────────────────────────────────────────────────────────
 
 function EmployeePermissionMatrix() {
@@ -239,7 +239,7 @@ function EmployeePermissionMatrix() {
   if (instances.length === 0) {
     return (
       <div className="text-center py-12 text-neutral-500">
-        暂无员工实例，请先前往「我的员工」创建
+        暂无硅基员工，请先前往「员工授权」创建
       </div>
     );
   }

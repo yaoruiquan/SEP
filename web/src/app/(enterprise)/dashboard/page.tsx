@@ -185,7 +185,7 @@ export default function DashboardPage() {
           />
           <MetricCard
             variant="glass"
-            title="团队成员"
+            title="碳基员工"
             value={stats.memberCount}
             icon={Users}
             trend={{ direction: 'up', value: 15, label: '较上月' }}
@@ -558,7 +558,7 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <div className="font-semibold text-gtext-primary">邀请成员</div>
-                    <div className="mt-0.5 text-xs text-gtext-muted">添加团队成员</div>
+                    <div className="mt-0.5 text-xs text-gtext-muted">添加碳基员工</div>
                   </div>
                 </div>
               </Link>

@@ -4,7 +4,14 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { RegisterDto, LoginDto, AuthResponse } from 'shared';
+import {
+  RegisterDto,
+  LoginDto,
+  AuthResponse,
+  RegisterByInvitationDto,
+  CreateEnterpriseDto,
+} from 'shared';
+import { InvitationService } from '../enterprise/invitation.service';
 
 const REFRESH_COOKIE = 'refresh_token';
 const ACCESS_EXPIRES = '1h';
@@ -17,6 +24,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
+    private invitations: InvitationService,
   ) {}
 
   // ──────────────── helpers ────────────────
@@ -102,6 +110,161 @@ export class AuthService {
       },
     );
 
+    const token = this.signAccess(user);
+    this.setRefreshCookie(res, this.signRefresh(user.id));
+
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      enterprise: { id: enterprise.id, name: enterprise.name },
+      roleInEnterprise: member.role,
+    };
+  }
+
+  /**
+   * 受邀注册：凭邀请链接加入**已存在**的企业，不创建新公司。
+   *
+   * 与 register 的分工：register 是「开公司」，本方法是「入职」。
+   * 这是第二个人进入企业的第二条途径（第一条是管理员代建账号），
+   * 区别在于密码由本人设置 —— 管理员不接触他人凭据。
+   *
+   * 校验 email 与邀请记录一致是安全要求，不是体验优化：
+   * 否则链接被转发后，任何人都能用它加入企业。
+   *
+   * 三件事必须同时成功或同时失败，故包在事务里：
+   *   ① User                     受邀人本人
+   *   ② EnterpriseMember         按邀请里的角色/部门/岗位落地
+   *   ③ 邀请标记 ACCEPTED         防止同一链接被重复使用
+   *
+   * 不建 ComputeAccount —— 它挂在企业上，加入者共用企业的账户。
+   */
+  async registerByInvitation(
+    dto: RegisterByInvitationDto,
+    res: Response,
+  ): Promise<AuthResponse> {
+    const invitation = await this.invitations.findUsableByToken(dto.token);
+
+    const email = dto.email.toLowerCase().trim();
+    if (invitation.email !== email) {
+      // 措辞不暗示"正确的邮箱是什么"，避免把被邀请人邮箱泄露给持链接的第三方
+      throw new UnauthorizedException('邮箱与邀请不匹配');
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    // 已有账号的人不该走注册 —— 请其登录后在「加入企业」入口用同一链接
+    if (existingUser) {
+      throw new ConflictException('邮箱已被注册，请登录后再接受邀请');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const { user, enterprise, member } = await this.prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.create({
+          data: { email, name: dto.name, password: hashedPassword },
+        });
+
+        const member = await tx.enterpriseMember.create({
+          data: {
+            userId: user.id,
+            enterpriseId: invitation.enterpriseId,
+            role: invitation.role,
+            departmentId: invitation.departmentId,
+            position: invitation.position,
+          },
+        });
+
+        // 条件更新 + count 校验：并发下两个请求同时走到这里，
+        // 只有一个能把 PENDING 改掉，另一个 count=0 → 抛错回滚，
+        // 避免同一链接建出两个成员
+        const claimed = await tx.enterpriseInvitation.updateMany({
+          where: { id: invitation.id, status: 'PENDING' },
+          data: { status: 'ACCEPTED', acceptedAt: new Date() },
+        });
+        if (claimed.count === 0) {
+          throw new ConflictException('该邀请已被使用');
+        }
+
+        const enterprise = await tx.enterprise.findUniqueOrThrow({
+          where: { id: invitation.enterpriseId },
+          select: { id: true, name: true },
+        });
+
+        return { user, enterprise, member };
+      },
+    );
+
+    const token = this.signAccess(user);
+    this.setRefreshCookie(res, this.signRefresh(user.id));
+
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      enterprise: { id: enterprise.id, name: enterprise.name },
+      roleInEnterprise: member.role,
+    };
+  }
+
+  /**
+   * 无企业归属的账号自行开公司。
+   *
+   * 对应状态机里 `[无归属] ── 开新公司 ──> [企业管理员]` 这条边：
+   * 被前公司移除、或主动离职的人，不该为了开自己的公司而注册第二个邮箱。
+   *
+   * 与 register 的差别只在于 User 已存在，故建三样而非四样：
+   *   ① Enterprise       他的新公司（含 ComputeAccount，否则订阅后无处扣费）
+   *   ② EnterpriseMember 角色 = ENTERPRISE_ADMIN
+   *   ③ —— 不建 User
+   *
+   * **已有归属者一律拒绝**：MVP 前端按单企业渲染（取最早一条 membership），
+   * 允许一人多企业会让新建的那家成为"看不见的归属"——
+   * 数据建了，界面永远进不去。要开新公司先退出当前企业。
+   */
+  async createEnterprise(
+    userId: string,
+    dto: CreateEnterpriseDto,
+    res: Response,
+  ): Promise<AuthResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, role: true },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const existing = await this.prisma.enterpriseMember.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        '你已归属企业，如需开新公司请先在个人设置中退出当前企业',
+      );
+    }
+
+    const { enterprise, member } = await this.prisma.$transaction(async (tx) => {
+      const enterprise = await tx.enterprise.create({
+        data: {
+          name: dto.name,
+          computeAccount: { create: { balance: 0 } },
+        },
+      });
+
+      const member = await tx.enterpriseMember.create({
+        data: {
+          userId: user.id,
+          enterpriseId: enterprise.id,
+          role: 'ENTERPRISE_ADMIN',
+        },
+      });
+
+      return { enterprise, member };
+    });
+
+    // 重新签发：access token 本身不带企业信息，但前端要靠这个响应
+    // 把 store 里的 enterprise 从 null 换成新公司，顺带续一次 refresh
     const token = this.signAccess(user);
     this.setRefreshCookie(res, this.signRefresh(user.id));
 

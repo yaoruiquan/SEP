@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Trash2, Plus, Users, Building2 } from 'lucide-react';
+import { Trash2, Plus, Users, Building2, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, api } from '@/lib/api-client';
 import {
   useInstanceGrants,
   useCreateGrant,
@@ -34,11 +34,23 @@ function Modal({
   );
 }
 
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+interface KnowledgeGrant {
+  id: string;
+  knowledgeBaseId: string;
+  knowledgeBase?: { id: string; name: string };
+}
+
 /**
  * 某个实例的授权管理面板。
  *
- * 授权对象**二选一**（部门或成员）—— 后端用 zod refine 强制，两个都传或
- * 都不传返回 400。故 UI 用单选切换而非两个独立下拉，让用户无从踩到那个 400。
+ * 授权对象**三选一**：部门、成员、知识库。
+ * 优化 4：增加知识库授权选项卡。
  */
 export function GrantPanel({
   instance,
@@ -53,14 +65,62 @@ export function GrantPanel({
   const createGrant = useCreateGrant();
   const deleteGrant = useDeleteGrant();
 
-  const [target, setTarget] = useState<'department' | 'member'>('member');
+  const [target, setTarget] = useState<'department' | 'member' | 'knowledge'>('member');
   const [targetId, setTargetId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
 
+  // 知识库列表和授权
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [knowledgeGrants, setKnowledgeGrants] = useState<KnowledgeGrant[]>([]);
+  const [loadingKnowledge, setLoadingKnowledge] = useState(false);
+
   const flatDepts = flattenDepts(depts);
 
-  const handleAdd = () => {
+  // 加载知识库列表和授权
+  const loadKnowledgeData = async () => {
+    setLoadingKnowledge(true);
+    try {
+      const [bases, kGrants] = await Promise.all([
+        api.get<KnowledgeBase[]>('/knowledge'),
+        api.get<KnowledgeGrant[]>(`/knowledge/instance/${instance.id}/grants`),
+      ]);
+      setKnowledgeBases(bases);
+      setKnowledgeGrants(kGrants);
+    } catch (e) {
+      // 静默失败，显示空列表
+    } finally {
+      setLoadingKnowledge(false);
+    }
+  };
+
+  // 当切换到知识库标签时加载数据
+  const handleTargetChange = (newTarget: 'department' | 'member' | 'knowledge') => {
+    setTarget(newTarget);
+    setTargetId('');
+    if (newTarget === 'knowledge' && knowledgeBases.length === 0) {
+      loadKnowledgeData();
+    }
+  };
+
+  const handleAdd = async () => {
     if (!targetId) return;
+
+    if (target === 'knowledge') {
+      // 知识库授权走单独的 API
+      try {
+        await api.post(`/knowledge/${targetId}/grants`, {
+          instanceId: instance.id,
+        });
+        toast.success('已授权知识库');
+        setTargetId('');
+        await loadKnowledgeData(); // 刷新授权列表
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : '授权失败');
+      }
+      return;
+    }
+
+    // 部门/成员授权
     createGrant.mutate(
       {
         instanceId: instance.id,
@@ -79,6 +139,16 @@ export function GrantPanel({
     );
   };
 
+  const handleDeleteKnowledgeGrant = async (grantId: string) => {
+    try {
+      await api.delete(`/knowledge/grants/${grantId}`);
+      toast.success('已撤销授权');
+      await loadKnowledgeData();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '撤销失败');
+    }
+  };
+
   return (
     <Modal title={`授权管理 · ${instance.name}`} onClose={onClose}>
       <div className="space-y-5">
@@ -88,12 +158,13 @@ export function GrantPanel({
           </p>
           {isLoading ? (
             <Spinner />
-          ) : grants.length === 0 ? (
+          ) : grants.length === 0 && knowledgeGrants.length === 0 ? (
             <p className="rounded border border-dashed border-border px-3 py-4 text-center text-sm text-fg-muted">
               还没有任何授权，下面添加
             </p>
           ) : (
             <div className="space-y-1.5">
+              {/* 部门/成员授权 */}
               {grants.map((g) => (
                 <div
                   key={g.id}
@@ -137,6 +208,29 @@ export function GrantPanel({
                   </button>
                 </div>
               ))}
+
+              {/* 知识库授权 */}
+              {knowledgeGrants.map((kg) => (
+                <div
+                  key={kg.id}
+                  className="flex items-center gap-2 rounded border border-border px-3 py-2"
+                >
+                  <BookOpen className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">
+                      {kg.knowledgeBase?.name || '知识库'}
+                    </p>
+                    <p className="text-xs text-fg-subtle">知识库授权</p>
+                  </div>
+                  <button
+                    title="撤销"
+                    onClick={() => handleDeleteKnowledgeGrant(kg.id)}
+                    className="rounded p-1 text-fg-muted hover:bg-danger/10 hover:text-danger"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -148,7 +242,7 @@ export function GrantPanel({
 
           <div className="flex gap-1 rounded border border-border p-0.5">
             <button
-              onClick={() => { setTarget('member'); setTargetId(''); }}
+              onClick={() => handleTargetChange('member')}
               className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
                 target === 'member'
                   ? 'bg-primary-subtle font-medium text-primary'
@@ -158,7 +252,7 @@ export function GrantPanel({
               给个人
             </button>
             <button
-              onClick={() => { setTarget('department'); setTargetId(''); }}
+              onClick={() => handleTargetChange('department')}
               className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
                 target === 'department'
                   ? 'bg-primary-subtle font-medium text-primary'
@@ -167,42 +261,75 @@ export function GrantPanel({
             >
               给部门
             </button>
+            <button
+              onClick={() => handleTargetChange('knowledge')}
+              className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
+                target === 'knowledge'
+                  ? 'bg-primary-subtle font-medium text-primary'
+                  : 'text-fg-muted hover:bg-muted'
+              }`}
+            >
+              知识库
+            </button>
           </div>
 
-          <select
-            className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-          >
-            <option value="">{target === 'member' ? '选择成员…' : '选择部门…'}</option>
-            {target === 'member'
-              ? members.map((m) => (
-                  <option key={m.id} value={m.id}>{m.user.name || m.user.email}</option>
-                ))
-              : flatDepts.map((d) => (
-                  <option key={d.id} value={d.id}>{d.label}</option>
+          {target === 'knowledge' ? (
+            // 知识库选择
+            loadingKnowledge ? (
+              <Spinner />
+            ) : (
+              <select
+                className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+              >
+                <option value="">选择知识库…</option>
+                {knowledgeBases.map((kb) => (
+                  <option key={kb.id} value={kb.id}>
+                    {kb.name}
+                  </option>
                 ))}
-          </select>
+              </select>
+            )
+          ) : (
+            // 部门/成员选择
+            <>
+              <select
+                className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+              >
+                <option value="">{target === 'member' ? '选择成员…' : '选择部门…'}</option>
+                {target === 'member'
+                  ? members.map((m) => (
+                      <option key={m.id} value={m.id}>{m.user.name || m.user.email}</option>
+                    ))
+                  : flatDepts.map((d) => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+              </select>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium">
-              到期时间（留空 = 长期有效）
-            </label>
-            <Input
-              type="datetime-local"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-            />
-          </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">
+                  到期时间（留空 = 长期有效）
+                </label>
+                <Input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                />
+              </div>
+            </>
+          )}
 
           <Button
             size="sm"
             className="w-full"
             onClick={handleAdd}
-            disabled={createGrant.isPending || !targetId}
+            disabled={createGrant.isPending || !targetId || (target === 'knowledge' && loadingKnowledge)}
           >
             <Plus className="h-4 w-4" />
-            开通授权
+            {target === 'knowledge' ? '授权知识库' : '开通授权'}
           </Button>
         </div>
       </div>

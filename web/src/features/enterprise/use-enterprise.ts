@@ -6,6 +6,10 @@ import { qk } from '@/lib/query-keys';
 import type {
   Department,
   EnterpriseMember,
+  EnterpriseInvitation,
+  CreatedInvitation,
+  InvitationStatus,
+  OffboardResult,
   EmployeeInstance,
   InstanceStatus,
   GrantRecord,
@@ -98,14 +102,71 @@ export function useUpdateMember() {
   });
 }
 
+/**
+ * 移出成员。返回处置结果而非空响应 ——
+ * 回收了几个席位、取消了几条申请、哪些部门失去负责人，
+ * 都需要在 UI 上让管理员看见（尤其是无主部门，那是待补的动作）。
+ */
 export function useDeleteMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/enterprise/members/${id}`),
+    mutationFn: (id: string) => api.delete<OffboardResult>(`/enterprise/members/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.members() });
       qc.invalidateQueries({ queryKey: qk.departments });
+      // 席位被回收，「我的硅基员工」与授权列表都可能变化
+      qc.invalidateQueries({ queryKey: qk.myEmployees });
     },
+  });
+}
+
+// ── 邀请 ─────────────────────────────────────────────────────────────────────
+
+/**
+ * 邀请列表。仅企业管理员可读 —— 非管理员调用后端返回 403，
+ * 故调用方须用 `enabled` 关掉，否则页面一进来就弹一条无意义的权限错误。
+ */
+export function useInvitations(
+  status?: InvitationStatus,
+  opts?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: qk.invitations(status),
+    queryFn: () =>
+      api.get<EnterpriseInvitation[]>(
+        status ? `/enterprise/invitations?status=${status}` : '/enterprise/invitations',
+      ),
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+/**
+ * 创建邀请。响应里的 `token` 是一次性明文，**不会**再出现在列表接口里 ——
+ * 调用方必须把返回值直接交给 UI 展示，不能只 invalidate 后靠重新拉取。
+ */
+export function useCreateInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      email: string;
+      role?: 'ENTERPRISE_ADMIN' | 'MEMBER';
+      departmentId?: string;
+      position?: string;
+    }) => api.post<CreatedInvitation>('/enterprise/invitations', body),
+    onSuccess: () => {
+      // 重复邀请同一邮箱会把旧的 PENDING 置为 REVOKED，
+      // 所以不能只往列表里追加，必须整体失效
+      qc.invalidateQueries({ queryKey: qk.invitations() });
+    },
+  });
+}
+
+export function useRevokeInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<{ success: boolean }>(`/enterprise/invitations/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.invitations() }),
   });
 }
 
@@ -162,7 +223,7 @@ export function useUpdateInstance() {
 /**
  * 启用 / 停用 / 回收。
  * REVOKED 是终态，转回会被后端拒绝（409）——
- * 前端对已回收实例应禁用操作而非依赖报错提示。
+ * 前端对已解聘岗位应禁用操作而非依赖报错提示。
  */
 export function useChangeInstanceStatus() {
   const qc = useQueryClient();
@@ -174,7 +235,7 @@ export function useChangeInstanceStatus() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.instances });
-      // 停用会让实例从「我的员工」消失，必须一起失效
+      // 停用会让实例从「我的硅基员工」消失，必须一起失效
       qc.invalidateQueries({ queryKey: qk.myEmployees });
     },
   });
@@ -240,7 +301,7 @@ export function useDeleteGrant() {
   });
 }
 
-// ── 我的员工 ─────────────────────────────────────────────────────────────────
+// ── 我的硅基员工 ─────────────────────────────────────────────────────────────────
 
 export function useMyEmployees() {
   return useQuery({

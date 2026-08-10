@@ -18,7 +18,7 @@ interface StatusDotProps {
  * 圆点走 CSS 变量而不是写死 Tailwind 色阶。
  *
  * 这个组件同时出现在浅色页（/preview、design-preview）和玻璃页
- * （企业端外壳、我的员工列表/详情），两边需要不同的饱和度：
+ * （企业端外壳、我的硅基员工列表/详情），两边需要不同的饱和度：
  * green-500 在深底上偏暗且发脏，深底要用调过的 --gsuccess 一档。
  * 变量在 globals.css 的 `:root` 给浅色值、在 `.theme-glass` 覆盖成深底值，
  * 组件本身不需要知道自己在哪个主题里。

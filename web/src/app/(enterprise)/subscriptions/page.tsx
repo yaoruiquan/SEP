@@ -2,289 +2,252 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
-import { MessageSquare, Trash2, Users, Store, PlayCircle, PauseCircle, XCircle, Download } from 'lucide-react';
+import { Store, UserMinus } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/feedback';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CAPABILITY_TYPE_META, SUBSCRIPTION_STATUS_META } from '@/lib/utils';
-import { useSubscriptions, useUnsubscribe } from '@/features/subscription/use-subscriptions';
-import { useDownloadSkill } from '@/features/capability/use-capability';
+import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
-import { SubscriptionListSkeleton } from '@/features/subscription/subscription-skeleton';
-import type { SubscriptionStatus } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/auth-store';
+import { ApiError } from '@/lib/api-client';
+import { useSubscriptions, useUnsubscribe } from '@/features/subscription/use-subscriptions';
+import { useInstances } from '@/features/enterprise/use-enterprise';
+import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
+import { employment } from '@/locales/zh-CN';
+import type { Subscription } from '@/lib/types';
 
-type FilterTab = 'ALL' | SubscriptionStatus;
-
-const TAB_LABELS: { value: FilterTab; label: string }[] = [
-  { value: 'ALL',     label: '全部' },
-  { value: 'ACTIVE',  label: '进行中' },
-  { value: 'PAUSED',  label: '已暂停' },
-  { value: 'EXPIRED', label: '已过期' },
+/** 职能分类，与市场页对齐 */
+const CATEGORY_TABS = [
+  { label: '全部', value: '' },
+  { label: '人事', value: '人事' },
+  { label: '销售', value: '销售' },
+  { label: '财务', value: '财务' },
+  { label: '运营', value: '运营' },
+  { label: '营销', value: '营销' },
+  { label: '技术', value: '技术' },
 ];
 
-const STATUS_ICON: Record<SubscriptionStatus, React.ReactNode> = {
-  ACTIVE:  <PlayCircle  className="h-3.5 w-3.5" />,
-  PAUSED:  <PauseCircle className="h-3.5 w-3.5" />,
-  EXPIRED: <XCircle     className="h-3.5 w-3.5" />,
-};
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-background shadow-lg">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-fg-muted hover:text-foreground">
+            ✕
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function SubscriptionsPage() {
-  const { data: subs = [], isLoading, isError, error } = useSubscriptions();
+  const { roleInEnterprise } = useAuthStore();
+  const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
+
+  const { data: subs = [], isLoading } = useSubscriptions();
+  const { data: instances = [] } = useInstances();
   const unsubscribe = useUnsubscribe();
-  const downloadSkill = useDownloadSkill();
-  const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
-  const [unsubscribeDialog, setUnsubscribeDialog] = useState<{
-    open: boolean; subId: string; empName: string;
-  }>({ open: false, subId: '', empName: '' });
 
-  // 按状态统计
-  const counts = useMemo(() => ({
-    ALL:     subs.length,
-    ACTIVE:  subs.filter((s) => s.status === 'ACTIVE').length,
-    PAUSED:  subs.filter((s) => s.status === 'PAUSED').length,
-    EXPIRED: subs.filter((s) => s.status === 'EXPIRED').length,
-  }), [subs]);
+  const [releasing, setReleasing] = useState<Subscription | null>(null);
+  const [activeCategory, setActiveCategory] = useState('');
 
-  // 过滤后列表
-  const filtered = useMemo(
-    () => activeTab === 'ALL' ? subs : subs.filter((s) => s.status === activeTab),
-    [subs, activeTab],
-  );
+  /** 每个雇佣关系下在岗的硅基员工数（不含已解聘） */
+  const unitCountByTemplate = instances.reduce<Record<string, number>>((acc, inst) => {
+    if (inst.status !== 'REVOKED') {
+      acc[inst.template.id] = (acc[inst.template.id] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
 
-  const handleUnsubscribe = () => {
-    unsubscribe.mutate(unsubscribeDialog.subId, {
-      onSuccess: () => toast.success(`已取消订阅「${unsubscribeDialog.empName}」`),
-      onError:   (e) => toast.error(`取消失败: ${(e as Error).message}`),
+  /** 按分类筛选 */
+  const filteredSubs = useMemo(() => {
+    if (!activeCategory) return subs;
+    return subs.filter((sub) => {
+      const text = `${sub.employee.position ?? ''} ${sub.employee.industry ?? ''}`;
+      return text.includes(activeCategory);
+    });
+  }, [subs, activeCategory]);
+
+  const handleRelease = () => {
+    if (!releasing) return;
+    const name = releasing.employee.name;
+    unsubscribe.mutate(releasing.id, {
+      onSuccess: () => {
+        toast.success(`已解除与「${name}」的雇佣关系`);
+        setReleasing(null);
+      },
+      onError: (e) => toast.error(e instanceof ApiError ? e.message : '解除失败'),
     });
   };
 
+  if (isLoading) return <CenteredSpinner label="加载中…" />;
+
   return (
     <div className="space-y-6 p-6">
-      {/* 页头 */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">我的订阅</h1>
-          <p className="mt-1 text-sm text-fg-muted">管理你订阅的硅基员工，随时开启对话</p>
+          <h1 className="text-2xl font-bold">{employment.section}</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            {employment.description}
+          </p>
         </div>
         <Link href="/marketplace">
-          <Button variant="outline" size="sm">
+          <Button size="sm">
             <Store className="h-4 w-4" />
-            前往市场
+            前往人才市场
           </Button>
         </Link>
       </div>
 
-      {/* 统计条 */}
-      {!isLoading && !isError && subs.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg border border-border bg-success/10 px-4 py-3 text-center">
-            <div className="text-2xl font-bold text-success">{counts.ACTIVE}</div>
-            <div className="text-xs text-fg-muted mt-0.5">进行中</div>
-          </div>
-          <div className="rounded-lg border border-border bg-warning/10 px-4 py-3 text-center">
-            <div className="text-2xl font-bold text-warning">{counts.PAUSED}</div>
-            <div className="text-xs text-fg-muted mt-0.5">已暂停</div>
-          </div>
-          <div className="rounded-lg border border-border bg-muted px-4 py-3 text-center">
-            <div className="text-2xl font-bold text-fg-muted">{counts.EXPIRED}</div>
-            <div className="text-xs text-fg-muted mt-0.5">已过期</div>
-          </div>
+      {/* 分类筛选 */}
+      {subs.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {CATEGORY_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setActiveCategory(tab.value)}
+              className={cn(
+                'shrink-0 rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
+                activeCategory === tab.value
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-fg-muted hover:bg-muted hover:text-foreground',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* 状态 Tab 过滤 */}
-      {!isLoading && !isError && subs.length > 0 && (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as FilterTab)}>
-          <TabsList className="bg-muted/60">
-            {TAB_LABELS.map(({ value, label }) => (
-              <TabsTrigger key={value} value={value} className="gap-1.5">
-                {label}
-                {counts[value] > 0 && (
-                  <span className="rounded-full bg-background px-1.5 text-xs font-medium">
-                    {counts[value]}
-                  </span>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      )}
-
-      {/* 内容区 */}
-      {isLoading ? (
-        <SubscriptionListSkeleton count={4} />
-      ) : isError ? (
+      {subs.length === 0 ? (
         <EmptyState
-          icon={<Users className="h-8 w-8" />}
-          title="加载失败"
-          description={error?.message || '无法加载订阅列表，请稍后重试。'}
-          action={
-            <Button size="sm" onClick={() => window.location.reload()}>
-              刷新页面
-            </Button>
-          }
-        />
-      ) : subs.length === 0 ? (
-        <EmptyState
-          icon={<Users className="h-8 w-8" />}
-          title="你还没有订阅任何员工"
-          description="去员工广场挑选一位硅基员工开始使用吧。"
+          icon={<Store className="h-8 w-8" />}
+          title="还没有雇佣关系"
+          description="前往硅基人才市场招聘你的第一位硅基员工，雇佣后可在「员工授权」分配给团队里的碳基员工。"
           action={
             <Link href="/marketplace">
-              <Button size="sm">前往员工广场</Button>
+              <Button size="sm">前往硅基人才市场</Button>
             </Link>
           }
         />
-      ) : filtered.length === 0 ? (
+      ) : filteredSubs.length === 0 ? (
         <EmptyState
-          icon={<Users className="h-8 w-8" />}
-          title={`没有${TAB_LABELS.find((t) => t.value === activeTab)?.label}的订阅`}
-          description="切换上方标签查看其他状态的订阅。"
+          icon={<Store className="h-8 w-8" />}
+          title="没有匹配的雇佣关系"
+          description="试试切换到其他分类"
+          action={
+            <Button size="sm" onClick={() => setActiveCategory('')}>
+              查看全部
+            </Button>
+          }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {filtered.map((sub) => {
-            const emp = sub.employee;
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredSubs.map((sub) => {
             const statusMeta = SUBSCRIPTION_STATUS_META[sub.status];
-            const capTypes = Array.from(
-              new Set(emp.bindings?.map((b) => b.capability.type) ?? []),
-            );
-            const isActive = sub.status === 'ACTIVE';
-
+            const count = unitCountByTemplate[sub.employee.id] ?? 0;
             return (
-              <Card
+              <div
                 key={sub.id}
-                className={`overflow-hidden transition-opacity ${
+                className={`rounded-xl border border-border bg-background p-5 ${
                   sub.status === 'EXPIRED' ? 'opacity-60' : ''
                 }`}
               >
-                <CardContent className="flex flex-col gap-4 p-5">
-                  {/* 头部：头像 + 名称 + 状态 */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <Avatar
-                        name={emp.name}
-                        src={emp.avatar}
-                        className="h-12 w-12 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <h3 className="font-semibold">{emp.name}</h3>
-                        <p className="text-xs text-fg-muted">
-                          {emp.position} · {emp.industry}
-                        </p>
-                      </div>
+                <div className="flex items-start gap-3">
+                  <Avatar
+                    name={sub.employee.name}
+                    src={sub.employee.avatar}
+                    className="h-12 w-12 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate font-semibold text-foreground">
+                        {sub.employee.name}
+                      </p>
+                      <Badge className={`shrink-0 ${statusMeta.tone}`}>
+                        {statusMeta.label}
+                      </Badge>
                     </div>
-                    <Badge className={`flex items-center gap-1 shrink-0 ${statusMeta.tone}`}>
-                      {STATUS_ICON[sub.status]}
-                      {statusMeta.label}
-                    </Badge>
+                    <p className="mt-1 truncate text-sm text-fg-muted">
+                      {sub.employee.position}
+                      {sub.employee.industry ? ` · ${sub.employee.industry}` : ''}
+                    </p>
                   </div>
+                </div>
 
-                  {/* 描述 */}
-                  <p className="line-clamp-2 text-sm leading-relaxed text-fg-muted">
-                    {emp.description}
-                  </p>
-
-                  {/* 能力标签 */}
-                  {emp.bindings && emp.bindings.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {emp.bindings.map((binding) => {
-                        const meta = CAPABILITY_TYPE_META[binding.capability.type];
-                        const isSkill = binding.capability.type === 'SKILL';
-                        return (
-                          <Badge
-                            key={binding.id}
-                            className={`text-xs ${meta.tone} ${isSkill ? 'pr-1' : ''}`}
-                          >
-                            <span>{binding.capability.name}</span>
-                            {isSkill && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadSkill.mutate(binding.capability.id, {
-                                    onSuccess: ({ filename }) => {
-                                      toast.success(`下载成功：${filename}`);
-                                    },
-                                    onError: (err) => {
-                                      toast.error(`下载失败：${(err as Error).message}`);
-                                    },
-                                  });
-                                }}
-                                disabled={downloadSkill.isPending}
-                                className="ml-1.5 rounded hover:bg-white/20 p-0.5 transition-colors disabled:opacity-50"
-                                title="下载技能包"
-                              >
-                                <Download className="h-2.5 w-2.5" />
-                              </button>
-                            )}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* 元信息 */}
-                  <div className="text-xs text-fg-subtle">
-                    订阅于{' '}
-                    {formatDistanceToNow(new Date(sub.createdAt), {
-                      addSuffix: true,
-                      locale: zhCN,
-                    })}
+                <div className="mt-4 space-y-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-fg-muted">在岗数量</span>
+                    <span className="font-medium text-foreground">{count} 位</span>
                   </div>
-
-                  {/* 操作 */}
-                  <div className="flex gap-2">
-                    {/* 聊天功能暂未开发，暂时隐藏 */}
-                    {/* {isActive ? (
-                      <Link href={`/chat?employeeId=${emp.id}`} className="flex-1">
-                        <Button variant="secondary" size="sm" className="w-full">
-                          <MessageSquare className="h-4 w-4" />
-                          开始对话
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Link href="/marketplace" className="flex-1">
-                        <Button variant="outline" size="sm" className="w-full">
-                          <Store className="h-4 w-4" />
-                          {sub.status === 'EXPIRED' ? '重新订阅' : '前往市场'}
-                        </Button>
-                      </Link>
-                    )} */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={unsubscribe.isPending}
-                      onClick={() =>
-                        setUnsubscribeDialog({ open: true, subId: sub.id, empName: emp.name })
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div className="flex justify-between">
+                    <span className="text-fg-muted">雇佣开始</span>
+                    <span className="text-foreground">
+                      {new Date(sub.startDate).toLocaleDateString('zh-CN')}
+                    </span>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex justify-between">
+                    <span className="text-fg-muted">雇佣到期</span>
+                    <span className="text-foreground">
+                      {sub.endDate
+                        ? new Date(sub.endDate).toLocaleDateString('zh-CN')
+                        : '长期有效'}
+                    </span>
+                  </div>
+                </div>
+
+                {isAdmin && sub.status === 'ACTIVE' && (
+                  <button
+                    onClick={() => setReleasing(sub)}
+                    disabled={unsubscribe.isPending}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-40"
+                  >
+                    <UserMinus className="h-4 w-4" />
+                    {employment.release}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
       )}
 
-      <ConfirmDialog
-        open={unsubscribeDialog.open}
-        onOpenChange={(open) => setUnsubscribeDialog({ ...unsubscribeDialog, open })}
-        title="取消订阅"
-        description={`确定要取消订阅「${unsubscribeDialog.empName}」吗？取消后将无法继续使用该员工的服务。`}
-        confirmText="确认取消"
-        cancelText="我再想想"
-        variant="danger"
-        loading={unsubscribe.isPending}
-        onConfirm={handleUnsubscribe}
-      />
+      {/* 解除雇佣确认 */}
+      {releasing && (
+        <Modal title={employment.release} onClose={() => setReleasing(null)}>
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-fg-muted">
+              {employment.releaseConfirm(releasing.employee.name)}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setReleasing(null)}>
+                我再想想
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleRelease}
+                disabled={unsubscribe.isPending}
+              >
+                确认解除
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

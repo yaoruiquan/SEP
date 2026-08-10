@@ -21,6 +21,10 @@ export const qk = {
   departments: ['enterprise', 'departments'] as const,
   members: (deptId?: string) =>
     deptId ? ['enterprise', 'members', deptId] : (['enterprise', 'members'] as const),
+  invitations: (status?: string) =>
+    status
+      ? (['enterprise', 'invitations', status] as const)
+      : (['enterprise', 'invitations'] as const),
   deptMembers: (deptId: string, params?: Record<string, unknown>) =>
     ['enterprise', 'departments', deptId, 'members', params ?? {}] as const,
   instances: ['enterprise', 'instances'] as const,

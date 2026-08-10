@@ -79,6 +79,7 @@ model Enterprise {
   customRoles    CustomRole[]
   apiKeys        EnterpriseApiKey[]
   apiCallLogs    ApiCallLog[]
+  invitations    EnterpriseInvitation[]
 
   @@map("enterprises")
 }
@@ -102,7 +103,7 @@ model Department {
   updatedAt DateTime @updatedAt
 
   /// 部门主管（引用 EnterpriseMember）。可为空，由企业管理员设置。
-  leaderId String? @map("leader_id")
+  leaderId String?           @map("leader_id")
   leader   EnterpriseMember? @relation("DepartmentLeader", fields: [leaderId], references: [id], onDelete: SetNull)
 
   // Relations
@@ -111,6 +112,7 @@ model Department {
   grants          EmployeeGrant[]
   knowledgeGrants KnowledgeGrant[]
   modelPolicy     DepartmentModelPolicy?
+  invitations     EnterpriseInvitation[]
 
   @@index([enterpriseId])
   @@index([parentId])
@@ -164,6 +166,66 @@ enum EnterpriseRole {
   ENTERPRISE_ADMIN // 企业管理员：可订阅（花钱）、管组织、审批
   DEPT_MANAGER // 部门负责人：管本部门成员与实例、审批本部门申请
   MEMBER // 普通成员：仅使用被授权的员工，越权需申请
+}
+
+/// 企业邀请。管理员生成一次性链接，被邀请人凭 token 注册并直接落地为企业成员。
+///
+/// 为什么存 tokenHash 而不是明文 token：
+/// 邀请链接等同于一次性登录凭证 —— 明文入库意味着数据库泄露即可冒充任意被邀请人。
+///
+/// 为什么邀请绑定 email：
+/// 否则链接被转发后，任何人都能用它加入企业。受邀注册时校验 email 与本记录一致。
+///
+/// 为什么用 SHA-256 而不是 bcrypt（与 EnterpriseApiKey 的做法不同）：
+/// 校验时只有 token、没有 email/企业上下文，必须能"由 token 直接定位记录"。
+/// bcrypt 加盐后同一输入哈希不同，无法建唯一索引查询，只能全表扫描逐条 compare。
+/// token 是 32 字节 CSPRNG 随机值（非用户口令，无字典可猜），
+/// 对抗离线爆破不需要慢哈希，SHA-256 的确定性正是这里需要的。
+model EnterpriseInvitation {
+  id String @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 被邀请人邮箱。受邀注册时必须与此一致，防止链接转发滥用。
+  email String
+
+  /// token 的 SHA-256 十六进制摘要。明文只在创建响应里返回一次。
+  tokenHash String @unique
+
+  /// 接受邀请后授予的企业内角色
+  role EnterpriseRole @default(MEMBER)
+
+  /// 接受邀请后落入的部门。为空表示不分配。
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  /// 岗位名称，自由文本
+  position String?
+
+  status    InvitationStatus @default(PENDING)
+  expiresAt DateTime
+
+  /// 发起邀请的 User.id。不建反向关系 —— User 侧无查询场景，避免污染。
+  invitedBy String
+
+  createdAt  DateTime  @default(now())
+  acceptedAt DateTime?
+
+  /// 不加 @@unique([enterpriseId, email, status])：
+  /// 撤回/过期后再次邀请同一邮箱会撞第二条 REVOKED 记录，等于禁掉重邀。
+  /// "同一企业同一邮箱最多一条 PENDING" 是偏序约束，Prisma schema 无法表达
+  /// 部分唯一索引，改由 service 层在创建前失效旧 PENDING 记录来保证。
+  @@index([enterpriseId, email])
+  @@index([enterpriseId, status])
+  @@map("enterprise_invitations")
+}
+
+enum InvitationStatus {
+  PENDING // 待接受
+  ACCEPTED // 已接受，已生成 EnterpriseMember
+  EXPIRED // 已过期
+  REVOKED // 被管理员撤回
 }
 
 // ============================================================================
@@ -320,9 +382,21 @@ model AccessRequest {
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  /// 申请人（企业成员）
-  requesterId String
-  requester   EnterpriseMember @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  /// 申请人（企业成员）。成员被移出企业后置为 NULL，而不是连带删除本记录。
+  ///
+  /// 为什么不用 Cascade：审批记录是企业侧的沉淀（"员工走了，东西留在我这里"）。
+  /// 用 Cascade 的话，移除一名成员会静默抹掉他名下所有申请与审批结论，
+  /// 企业再也查不到"当初谁批了这个越权申请"——审计链就断了。
+  requesterId String?
+  requester   EnterpriseMember? @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+
+  /// 申请人身份快照。仅在成员被移除时回填，正常记录留空走 requester 关联。
+  ///
+  /// 这里的冗余是刻意的：requesterId 置空后，审批历史必须还能追溯到人，
+  /// 否则留下的是一条"某人申请过某实例"的无主记录，等于没留。
+  /// 不在创建时就写入，是为了避免同一个人改名后新旧记录显示不一致。
+  requesterEmail String?
+  requesterName  String?
 
   /// 申请使用的实例
   instanceId String
@@ -890,13 +964,13 @@ model KnowledgeBase {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  enterprise  Enterprise           @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-  creator     User                 @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
-  documents   Document[]
-  grants      KnowledgeGrant[]
-  textChunks  TextChunk[]
-  usageLogs   KnowledgeUsageLog[]
-  searchLogs  KnowledgeSearchLog[]
+  enterprise Enterprise           @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  creator    User                 @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
+  documents  Document[]
+  grants     KnowledgeGrant[]
+  textChunks TextChunk[]
+  usageLogs  KnowledgeUsageLog[]
+  searchLogs KnowledgeSearchLog[]
 
   @@index([enterpriseId])
   @@map("knowledge_bases")
@@ -919,7 +993,7 @@ model Document {
   version        Int       @default(1)
   lastError      String?   @db.Text
   processedAt    DateTime?
-  embeddingModel String?   // 向量化时使用的模型 ID，用于追溯
+  embeddingModel String? // 向量化时使用的模型 ID，用于追溯
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   uploader      User          @relation("DocumentUploader", fields: [uploadedBy], references: [id])
@@ -930,10 +1004,10 @@ model Document {
 }
 
 enum DocumentStatus {
-  PENDING     // 等待处理
-  PROCESSING  // 处理中（Phase 2 新增）
-  READY       // 处理完成，可检索
-  FAILED      // 失败，可重试
+  PENDING // 等待处理
+  PROCESSING // 处理中（Phase 2 新增）
+  READY // 处理完成，可检索
+  FAILED // 失败，可重试
 }
 
 // ============================================================================
@@ -948,11 +1022,11 @@ model KnowledgeSearchLog {
   enterpriseId    String
   query           String   @db.Text
   topK            Int
-  hitCount        Int      // 实际返回的结果数量
-  topScore        Float?   // 最高相似度分数
+  hitCount        Int // 实际返回的结果数量
+  topScore        Float? // 最高相似度分数
   strategy        String   @default("vector") // "vector" | "fulltext" | "hybrid"
   isTest          Boolean  @default(false) // true = 来自测试工具，false = 来自实际会话
-  durationMs      Int?     // 检索耗时（ms）
+  durationMs      Int? // 检索耗时（ms）
   createdAt       DateTime @default(now())
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
@@ -1102,8 +1176,8 @@ model EnterpriseSetting {
   ipWhitelist String[] @default([])
 
   // 会话安全
-  sessionTimeoutMinutes       Int  @default(480)
-  forcePasswordRotationDays   Int?
+  sessionTimeoutMinutes     Int  @default(480)
+  forcePasswordRotationDays Int?
 
   // Webhook
   webhookUrl    String?
@@ -1131,7 +1205,7 @@ model CustomRole {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  enterprise Enterprise       @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  enterprise Enterprise         @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
   members    EnterpriseMember[]
 
   @@unique([enterpriseId, name])
@@ -1157,7 +1231,7 @@ model EnterpriseApiKey {
   createdBy String
   createdAt DateTime @default(now())
 
-  enterprise Enterprise  @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  enterprise Enterprise   @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
   logs       ApiCallLog[]
 
   @@index([enterpriseId])
@@ -1219,9 +1293,9 @@ model CostDailyRollup {
 
 /// 部门级模型策略覆盖，优先级高于企业级配置。
 model DepartmentModelPolicy {
-  id               String   @id @default(cuid())
-  departmentId     String   @unique
-  defaultChatModel String?
+  id                String   @id @default(cuid())
+  departmentId      String   @unique
+  defaultChatModel  String?
   allowedChatModels String[] @default([])
 
   createdAt DateTime @default(now())

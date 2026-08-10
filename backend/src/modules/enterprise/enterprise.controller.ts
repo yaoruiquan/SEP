@@ -34,6 +34,9 @@ import {
   MemberCreateDtoSchema,
   MemberUpdateDto,
   MemberUpdateDtoSchema,
+  InvitationCreateDto,
+  InvitationCreateDtoSchema,
+  InvitationStatusValue,
   SetDeptLeaderDto,
   SetDeptLeaderDtoSchema,
   InstanceCreateDto,
@@ -48,6 +51,7 @@ import {
 import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
+import { InvitationService } from "./invitation.service";
 import { InstanceService } from "./instance.service";
 import { GrantService } from "./grant.service";
 import { AccessRequestService } from "./access-request.service";
@@ -64,6 +68,7 @@ export class EnterpriseController {
     private readonly enterprise: EnterpriseService,
     private readonly departments: DepartmentService,
     private readonly members: MemberService,
+    private readonly invitations: InvitationService,
     private readonly instances: InstanceService,
     private readonly grants: GrantService,
     private readonly accessRequests: AccessRequestService,
@@ -197,8 +202,11 @@ export class EnterpriseController {
   @ApiOperation({
     summary: "添加成员（仅企业管理员）",
     description:
-      "第二个人进入企业的唯一途径 —— 注册入口只用于开公司。" +
-      "MVP 由管理员代建账号并设初始密码，暂不做邮件邀请。",
+      "管理员代建账号并设初始密码。想让对方自己设密码请改用邀请链接。" +
+      "邮箱已注册时分三种处置：已是本企业成员 → 409；" +
+      "已注册但无企业归属 → 直接加入，**沿用其原有密码**（响应带 " +
+      "reusedExistingAccount=true，此时请勿把填写的密码转告对方）；" +
+      "已归属其他企业 → 409，需其先退出原企业。",
   })
   @ApiResponse({ status: 201, description: "已添加" })
   @ApiResponse({ status: 409, description: "邮箱已是本企业成员或已归属其他企业" })
@@ -225,13 +233,73 @@ export class EnterpriseController {
   @Delete("members/:id")
   @ApiOperation({
     summary: "移出企业（仅企业管理员）",
-    description: "只删除成员关系，保留 User 账号。",
+    description: [
+      "**回收**：本人名下的 EmployeeGrant 席位、待审批的越权申请（置为 CANCELED）、",
+      "其所主管部门的 leader 归属。",
+      "",
+      "**保留**：已审批的申请及审批结论（申请人身份转为快照字段）、知识库、",
+      "文档、会话与工作记录 —— 员工离职，企业侧沉淀不动。",
+      "",
+      "**User 账号保留**，该用户变为「无企业归属」，可凭原账号接受新邀请。",
+      "",
+      "响应中 `vacatedDepartments` 非空时，这些部门已无主管，需管理员重新指派。",
+    ].join("\n"),
   })
-  @ApiResponse({ status: 200, description: "已移出" })
+  @ApiResponse({
+    status: 200,
+    description: "已移出，返回回收数量与待重新指派的部门",
+  })
   @ApiResponse({ status: 400, description: "不能移除自己" })
   @ApiResponse({ status: 409, description: "企业需保留至少一名管理员" })
   async removeMember(@Request() req: AuthedRequest, @Param("id") id: string) {
     return this.members.remove(req.user.id, id);
+  }
+
+  // ── 企业邀请 ──────────────────────────────────────────────────────────────
+
+  @Get("invitations")
+  @ApiOperation({
+    summary: "本企业邀请列表（仅企业管理员）",
+    description: "顺带把已过期的 PENDING 收敛为 EXPIRED。不返回 token。",
+  })
+  @ApiResponse({ status: 200, description: "邀请列表" })
+  async listInvitations(
+    @Request() req: AuthedRequest,
+    @Query("status") status?: InvitationStatusValue,
+  ) {
+    return this.invitations.list(req.user.id, status);
+  }
+
+  @Post("invitations")
+  @ApiOperation({
+    summary: "创建邀请（仅企业管理员）",
+    description:
+      "返回一次性明文 token，库里只存 SHA-256 摘要。" +
+      "MVP 不发邮件，前端拼成 /join?token=xxx 由管理员自行转达。" +
+      "重复邀请同一邮箱会先作废旧的 PENDING 链接。",
+  })
+  @ApiResponse({ status: 201, description: "已创建，响应含一次性 token" })
+  @ApiResponse({ status: 409, description: "该邮箱已是本企业成员" })
+  async createInvitation(
+    @Request() req: AuthedRequest,
+    @Body(new ZodValidationPipe(InvitationCreateDtoSchema))
+    dto: InvitationCreateDto,
+  ) {
+    return this.invitations.create(req.user.id, dto);
+  }
+
+  @Delete("invitations/:id")
+  @ApiOperation({
+    summary: "撤回邀请（仅企业管理员）",
+    description: "撤回后链接立即失效。已接受的邀请不可撤回，应走移出企业。",
+  })
+  @ApiResponse({ status: 200, description: "已撤回" })
+  @ApiResponse({ status: 409, description: "邀请已被接受或已失效" })
+  async revokeInvitation(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+  ) {
+    return this.invitations.revoke(req.user.id, id);
   }
 
   // ── 员工实例 ──────────────────────────────────────────────────────────────

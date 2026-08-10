@@ -56,7 +56,7 @@ function LoginForm() {
   return (
     <div>
       <h2 className="text-2xl font-semibold text-gtext-primary">欢迎回来</h2>
-      <p className="mt-1 text-sm text-gtext-secondary">登录后进入你的数字员工工作台</p>
+      <p className="mt-1 text-sm text-gtext-secondary">登录后进入你的硅基员工工作台</p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
         <div>

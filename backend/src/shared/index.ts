@@ -408,6 +408,18 @@ export interface ToolCall {
 // ============================================================================
 
 // Auth
+
+/**
+ * 邮箱字段的统一定义 —— 所有身份边界都该用它，不要写裸 z.string().email()。
+ *
+ * 归一化放在 Zod 层而非各 service 里，理由有两条：
+ *   ① 邮箱大小写不敏感。若不归一化，"Bob@x.com" 能绕过"该邮箱已是成员"
+ *      之类的等值检查，建出同一个人的第二条记录。
+ *   ② trim 必须在 email 校验**之前**跑。顺序反了的话，用户在输入框里
+ *      多打一个尾随空格，拿到的是"邮箱格式不正确"这种查不出原因的报错。
+ */
+export const EmailSchema = z.string().trim().toLowerCase().email();
+
 /**
  * 企业自助注册。
  *
@@ -420,7 +432,7 @@ export interface ToolCall {
  * 会创建出第二家公司。
  */
 export const RegisterDtoSchema = z.object({
-  email: z.string().email(),
+  email: EmailSchema,
   password: z.string().min(8),
   name: z.string().optional(),
   /** 公司名称。注册即创建该企业，注册人成为其首个企业管理员。 */
@@ -429,8 +441,24 @@ export const RegisterDtoSchema = z.object({
 
 export type RegisterDto = z.infer<typeof RegisterDtoSchema>;
 
+/**
+ * 已登录且**无企业归属**的账号开新公司。
+ *
+ * 为什么不复用 RegisterDto：注册要建 User（需要 email/password），
+ * 这里 User 已存在，只缺 Enterprise + Member + ComputeAccount。
+ * 让无归属账号带着 email/password 再走一遍注册，等于要求用户
+ * 重新提供已有凭据，且会撞上「邮箱已被注册」。
+ *
+ * 这条路径对应状态机里的 `[无归属] ── 开新公司 ──> [企业管理员]`：
+ * 被前公司移除的人不该为了开自己的公司而换一个邮箱。
+ */
+export const CreateEnterpriseDtoSchema = z.object({
+  name: z.string().min(2).max(100),
+});
+export type CreateEnterpriseDto = z.infer<typeof CreateEnterpriseDtoSchema>;
+
 export const LoginDtoSchema = z.object({
-  email: z.string().email(),
+  email: EmailSchema,
   password: z.string(),
 });
 
@@ -640,7 +668,7 @@ export interface DepartmentTreeNode {
  * （邮件服务尚未接入）。
  */
 export const MemberCreateDtoSchema = z.object({
-  email: z.string().email(),
+  email: EmailSchema,
   name: z.string().min(1).max(50).optional(),
   /** 初始密码，成员首次登录后应自行修改 */
   password: z.string().min(8),
@@ -657,6 +685,57 @@ export const MemberUpdateDtoSchema = z.object({
   position: z.string().max(50).nullable().optional(),
 });
 export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
+
+// ── 企业邀请 ────────────────────────────────────────────────────────────────
+
+export const INVITATION_STATUSES = [
+  'PENDING',
+  'ACCEPTED',
+  'EXPIRED',
+  'REVOKED',
+] as const;
+export const InvitationStatusSchema = z.enum(INVITATION_STATUSES);
+export type InvitationStatusValue = z.infer<typeof InvitationStatusSchema>;
+
+/** 邀请默认有效期（天）。过期后 token 失效，需管理员重新邀请。 */
+export const INVITATION_EXPIRES_DAYS = 7;
+
+/**
+ * 创建邀请。相比 MemberCreateDto 的「管理员代建账号 + 代设密码」，
+ * 邀请制让被邀请人自己设密码 —— 管理员不接触他人凭据。
+ *
+ * MVP 不发邮件（邮件服务未接入），创建响应返回一次性链接，由管理员自行转达。
+ */
+export const InvitationCreateDtoSchema = z.object({
+  email: EmailSchema,
+  role: AssignableEnterpriseRoleSchema.default('MEMBER'),
+  departmentId: z.string().optional(),
+  position: z.string().max(50).optional(),
+});
+export type InvitationCreateDto = z.infer<typeof InvitationCreateDtoSchema>;
+
+/**
+ * 受邀注册。token 来自邀请链接，email 必须与邀请记录一致 ——
+ * 否则链接被转发后任何人都能用它加入企业。
+ */
+export const RegisterByInvitationDtoSchema = z.object({
+  token: z.string().min(1),
+  email: EmailSchema,
+  password: z.string().min(8),
+  name: z.string().min(1).max(50).optional(),
+});
+export type RegisterByInvitationDto = z.infer<
+  typeof RegisterByInvitationDtoSchema
+>;
+
+/**
+ * 已登录用户接受邀请。
+ * 不需要传 email —— 从 JWT 里取当前用户，再与邀请记录比对。
+ */
+export const AcceptInvitationDtoSchema = z.object({
+  token: z.string().min(1),
+});
+export type AcceptInvitationDto = z.infer<typeof AcceptInvitationDtoSchema>;
 
 // ── 员工实例 ────────────────────────────────────────────────────────────────
 
@@ -992,7 +1071,7 @@ export function calculateCost(
 // Client Auth DTOs (P4)
 // ============================================================================
 export const ClientLoginDtoSchema = z.object({
-  email: z.string().email(),
+  email: EmailSchema,
   password: z.string().min(1),
   fingerprint: z.string().min(1).max(256),
   platform: z.enum(['darwin', 'win32', 'linux']).or(z.string()),

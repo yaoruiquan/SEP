@@ -54,7 +54,7 @@ export function KnowledgeGrantsPanel({ knowledgeBaseId }: KnowledgeGrantsPanelPr
         </div>
         <Button variant="primary" onClick={() => setAddDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          授权员工
+          授权员工实例
         </Button>
       </div>
 

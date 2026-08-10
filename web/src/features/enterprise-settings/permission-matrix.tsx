@@ -42,7 +42,7 @@ const PERM_GROUPS: { label: string; perms: string[] }[] = [
     perms: ['api-keys:read', 'api-keys:create', 'api-keys:revoke'],
   },
   {
-    label: '员工实例',
+    label: '硅基岗位',
     perms: [
       'instances:read',
       'instances:create',

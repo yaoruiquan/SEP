@@ -21,7 +21,7 @@ function DashboardMockup() {
         <aside className="flex w-32 flex-col gap-1 border-r border-glassline p-3">
           {[
             { label: '工作台', active: true },
-            { label: '我的员工', active: false },
+            { label: '我的硅基员工', active: false },
             { label: '市场', active: false },
             { label: '设置', active: false },
           ].map(({ label, active }) => (
@@ -147,7 +147,7 @@ export function Hero() {
             </h1>
 
             <p className="animate-fade-up-d2 mb-10 max-w-lg text-lg leading-relaxed text-gtext-secondary">
-              订阅数字员工，像雇佣真人一样简单。
+              订阅硅基员工，像雇佣真人一样简单。
               <br />
               AI 驱动的企业级人才平台，把硅基能力
               <br />

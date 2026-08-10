@@ -292,7 +292,7 @@ export default function DesignPreviewPage() {
                 className="surface-solid-row flex items-center justify-between border-b border-solid-border px-5 py-3 text-sm transition-colors last:border-b-0"
               >
                 <span className="text-gtext-primary">{name}</span>
-                <span className="text-gtext-muted">运行中</span>
+                <span className="text-gtext-muted">工作中</span>
               </div>
             ))}
           </div>

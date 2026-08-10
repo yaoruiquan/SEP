@@ -70,7 +70,7 @@ export function SubscriptionExpiryBanner() {
 
       <div className="flex shrink-0 items-center gap-2">
         <Link
-          href="/subscriptions"
+          href="/instances"
           className={`flex items-center gap-1 rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
             isAnyExpired
               ? 'border-red-300 bg-red-100 hover:bg-red-200 text-red-700'

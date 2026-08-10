@@ -22,7 +22,7 @@ export function CtaBlock() {
               <span className="gradient-text-glass inline-block">今天就让 AI 员工上岗</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gtext-secondary">
-              免费方案无需信用卡，注册后 5 分钟即可完成第一位数字员工的入职。
+              免费方案无需信用卡，注册后 5 分钟即可完成第一位硅基员工的入职。
             </p>
 
             <div className="mt-10 flex flex-wrap items-center justify-center gap-4">

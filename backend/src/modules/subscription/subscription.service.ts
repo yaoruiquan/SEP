@@ -25,7 +25,7 @@ export class SubscriptionService {
    * 规则：
    *  - 模板必须已上架（PUBLISHED）
    *  - 同一企业对同一模板只订阅一次；PAUSED/EXPIRED 时重新激活
-   *  - 多实例在 EmployeeInstance 层展开（一次订阅可开多个实例）
+   *  - 订阅成功后自动创建默认实例（优化 2：减少手动步骤）
    */
   async subscribe(userId: string, dto: SubscriptionCreateDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
@@ -49,27 +49,51 @@ export class SubscriptionService {
       },
     });
 
+    let subscription;
     if (existing) {
       if (existing.status === 'ACTIVE') {
         throw new ConflictException('Already subscribed to this employee');
       }
       // Reactivate paused / expired subscription
-      return this.prisma.subscription.update({
+      subscription = await this.prisma.subscription.update({
         where: { id: existing.id },
         data: { status: 'ACTIVE', startDate: new Date(), endDate: null, config: dto.config ?? undefined },
         include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
       });
+    } else {
+      subscription = await this.prisma.subscription.create({
+        data: {
+          enterpriseId: ctx.enterpriseId,
+          employeeId: dto.employeeId,
+          status: 'ACTIVE',
+          config: dto.config,
+        },
+        include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
+      });
     }
 
-    return this.prisma.subscription.create({
-      data: {
+    // 优化 2：自动创建默认实例
+    const existingInstance = await this.prisma.employeeInstance.findFirst({
+      where: {
         enterpriseId: ctx.enterpriseId,
-        employeeId: dto.employeeId,
-        status: 'ACTIVE',
-        config: dto.config,
+        templateId: dto.employeeId,
       },
-      include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
     });
+
+    if (!existingInstance) {
+      await this.prisma.employeeInstance.create({
+        data: {
+          enterpriseId: ctx.enterpriseId,
+          templateId: dto.employeeId,
+          templateVersion: employee.version,
+          name: employee.name, // 默认使用员工模板名称
+          status: 'ACTIVE', // 直接激活
+          config: null,
+        },
+      });
+    }
+
+    return subscription;
   }
 
   /** 列出【本企业】的有效订阅 */

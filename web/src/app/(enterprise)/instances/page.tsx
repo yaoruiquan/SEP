@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import {
   Plus, MonitorPlay, Pencil, Play, Pause, Trash2, ArrowUpCircle, ShieldCheck,
+  Store,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, api } from '@/lib/api-client';
 import { useSubscriptions } from '@/features/subscription/use-subscriptions';
 import {
   useInstances, useCreateInstance, useUpdateInstance,
@@ -21,7 +23,8 @@ import {
 import { GrantPanel } from '@/features/enterprise/grant-panel';
 import { flattenDepts } from '@/features/enterprise/flatten-depts';
 import { INSTANCE_STATUS_LABEL, INSTANCE_STATUS_STYLE } from '@/lib/utils';
-import type { EmployeeInstance } from '@/lib/types';
+import { employee as employeeCopy, capability } from '@/locales/zh-CN';
+import type { EmployeeInstance, GrantRecord } from '@/lib/types';
 
 function Modal({
   title, onClose, children,
@@ -60,8 +63,33 @@ export default function InstancesPage() {
   const [granting, setGranting] = useState<EmployeeInstance | null>(null);
   const [revoking, setRevoking] = useState<EmployeeInstance | null>(null);
 
+  // 存储每个实例的授权部门列表
+  const [instanceGrants, setInstanceGrants] = useState<Record<string, { deptNames: string[]; memberCount: number }>>({});
+
   const [newForm, setNewForm] = useState({ templateId: '', name: '', departmentId: '' });
   const [editForm, setEditForm] = useState({ name: '', departmentId: '' as string | null });
+
+  // 异步加载每个实例的授权信息
+  React.useEffect(() => {
+    if (!instances.length) return;
+
+    instances.forEach(async (inst) => {
+      try {
+        const grants = await api.get<GrantRecord[]>(`/enterprise/instances/${inst.id}/grants`);
+        const deptNames = grants
+          .filter(g => g.department && !g.expired)
+          .map(g => g.department!.name);
+        const memberCount = grants.filter(g => g.member && !g.expired).length;
+
+        setInstanceGrants(prev => ({
+          ...prev,
+          [inst.id]: { deptNames, memberCount }
+        }));
+      } catch (e) {
+        // 忽略错误，显示默认值
+      }
+    });
+  }, [instances]);
 
   const handleCreate = () => {
     if (!newForm.templateId || !newForm.name.trim()) return;
@@ -73,7 +101,7 @@ export default function InstancesPage() {
       },
       {
         onSuccess: () => {
-          toast.success('实例已创建，激活后即可授权使用');
+          toast.success('硅基员工已配置，上岗后即可授权给碳基员工使用');
           setCreating(false);
           setNewForm({ templateId: '', name: '', departmentId: '' });
         },
@@ -110,6 +138,7 @@ export default function InstancesPage() {
     );
   };
 
+
   const handleUpgrade = (inst: EmployeeInstance) => {
     upgradeInst.mutate(inst.id, {
       onSuccess: (r) =>
@@ -127,39 +156,46 @@ export default function InstancesPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">员工实例</h1>
+          <h1 className="text-2xl font-bold">{employeeCopy.grantConfig}</h1>
           <p className="mt-1 text-sm text-fg-muted">
-            一次订阅可为不同部门分别部署实例。停用不会删除授权，恢复后原授权继续有效。
+            一位硅基员工可在不同部门分别上岗。暂停不会删除授权，恢复后原授权继续有效。
           </p>
         </div>
-        {isAdmin && (
-          <Button
-            size="sm"
-            onClick={() => setCreating(true)}
-            disabled={activeSubs.length === 0}
-            title={activeSubs.length === 0 ? '需先在人才市场订阅员工' : undefined}
-          >
-            <Plus className="h-4 w-4" /> 创建实例
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <Link href="/marketplace">
+            <Button variant="outline" size="sm">
+              <Store className="h-4 w-4" /> {employeeCopy.market}
+            </Button>
+          </Link>
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={() => setCreating(true)}
+              disabled={activeSubs.length === 0}
+              title={activeSubs.length === 0 ? `需先在${employeeCopy.market}招聘硅基员工` : undefined}
+            >
+              <Plus className="h-4 w-4" /> {employeeCopy.addUnit}
+            </Button>
+          )}
+        </div>
       </div>
 
       {instances.length === 0 ? (
         <EmptyState
           icon={<MonitorPlay className="h-8 w-8" />}
-          title="还没有员工实例"
+          title="还没有可授权的硅基员工"
           description={
             activeSubs.length === 0
-              ? '先在人才市场订阅一位员工，再回来创建实例。'
+              ? '先在硅基人才市场招聘一位硅基员工，再回来配置授权。'
               : isAdmin
-                ? '你已有生效订阅，创建实例后即可分配给部门或成员。'
-                : '请联系企业管理员创建实例。'
+                ? '你已雇佣硅基员工，配置后即可授权给部门或碳基员工。'
+                : '请联系企业管理员配置硅基员工。'
           }
           action={
             activeSubs.length === 0 ? (
-              <Link href="/marketplace"><Button size="sm">前往人才市场</Button></Link>
+              <Link href="/marketplace"><Button size="sm">前往硅基人才市场</Button></Link>
             ) : isAdmin ? (
-              <Button size="sm" onClick={() => setCreating(true)}>创建实例</Button>
+              <Button size="sm" onClick={() => setCreating(true)}>{employeeCopy.addUnit}</Button>
             ) : undefined
           }
         />
@@ -168,7 +204,7 @@ export default function InstancesPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/40">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-fg-muted">实例</th>
+                <th className="px-4 py-3 text-left font-medium text-fg-muted">硅基员工</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">状态</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">部门</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">版本</th>
@@ -198,7 +234,12 @@ export default function InstancesPage() {
                         {INSTANCE_STATUS_LABEL[inst.status]}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-fg-muted">{inst.department?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-fg-muted">
+                      {instanceGrants[inst.id]?.deptNames.length > 0
+                        ? instanceGrants[inst.id].deptNames.join(', ')
+                        : '—'}
+                      {instanceGrants[inst.id]?.memberCount > 0 && ` +${instanceGrants[inst.id].memberCount}人`}
+                    </td>
                     <td className="px-4 py-3 text-fg-muted">
                       v{inst.templateVersion}
                       {inst.upgradeAvailable && !revoked && (
@@ -222,7 +263,7 @@ export default function InstancesPage() {
                           )}
                           {inst.status === 'ACTIVE' ? (
                             <button
-                              title="停用"
+                              title={employeeCopy.pause}
                               onClick={() => setStatus(inst, 'SUSPENDED')}
                               className="rounded p-1.5 text-fg-muted hover:bg-muted hover:text-foreground"
                             >
@@ -230,7 +271,7 @@ export default function InstancesPage() {
                             </button>
                           ) : !revoked ? (
                             <button
-                              title="启用"
+                              title={employeeCopy.onboard}
                               onClick={() => setStatus(inst, 'ACTIVE')}
                               className="rounded p-1.5 text-success hover:bg-success/10"
                             >
@@ -257,7 +298,7 @@ export default function InstancesPage() {
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            title="回收（不可撤销）"
+                            title={`${employeeCopy.dismiss}（不可撤销）`}
                             onClick={() => setRevoking(inst)}
                             disabled={revoked}
                             className="rounded p-1.5 text-fg-muted hover:bg-danger/10 hover:text-danger disabled:opacity-40"
@@ -275,28 +316,28 @@ export default function InstancesPage() {
         </div>
       )}
 
-      {/* 创建实例 */}
+      {/* 新增硅基员工 */}
       {creating && (
-        <Modal title="创建员工实例" onClose={() => setCreating(false)}>
+        <Modal title={employeeCopy.addUnit} onClose={() => setCreating(false)}>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium">员工模板 *</label>
+              <label className="mb-1 block text-xs font-medium">硅基员工 *</label>
               <select
                 className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 value={newForm.templateId}
                 onChange={(e) => setNewForm((f) => ({ ...f, templateId: e.target.value }))}
               >
-                <option value="">选择已订阅的员工…</option>
+                <option value="">选择已雇佣的硅基员工…</option>
                 {activeSubs.map((s) => (
                   <option key={s.employee.id} value={s.employee.id}>{s.employee.name}</option>
                 ))}
               </select>
               <p className="mt-1 text-xs text-fg-subtle">
-                只列出生效中的订阅。同一员工可创建多个实例。
+                只列出雇佣关系生效中的硅基人才。同一位可配置多个，分别授权给不同部门。
               </p>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">实例名称 *</label>
+              <label className="mb-1 block text-xs font-medium">员工名称 *</label>
               <Input
                 placeholder="如：技术部文案助手"
                 value={newForm.name}
@@ -335,7 +376,7 @@ export default function InstancesPage() {
         <Modal title={`编辑 · ${editing.name}`} onClose={() => setEditing(null)}>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium">实例名称</label>
+              <label className="mb-1 block text-xs font-medium">员工名称</label>
               <Input
                 value={editForm.name}
                 onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
@@ -362,16 +403,16 @@ export default function InstancesPage() {
         </Modal>
       )}
 
-      {/* 回收确认 */}
+      {/* 解聘确认 */}
       {revoking && (
-        <Modal title="回收实例" onClose={() => setRevoking(null)}>
+        <Modal title={employeeCopy.dismiss} onClose={() => setRevoking(null)}>
           <div className="space-y-4">
             <p className="text-sm text-fg-muted">
-              确定回收{' '}
+              确定解聘{' '}
               <span className="font-medium text-foreground">{revoking.name}</span>？
               <br />
-              回收是<span className="font-medium text-danger">终态，不可撤销</span> ——
-              之后无法恢复启用。若只是暫停使用，请改用「停用」。
+              解聘是<span className="font-medium text-danger">终态，不可撤销</span> ——
+              之后无法重新上岗。若只是暂时不用，请改用「暂停工作」。
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setRevoking(null)}>取消</Button>
@@ -381,7 +422,7 @@ export default function InstancesPage() {
                 onClick={() => setStatus(revoking, 'REVOKED')}
                 disabled={changeStatus.isPending}
               >
-                确认回收
+                确认解聘
               </Button>
             </div>
           </div>

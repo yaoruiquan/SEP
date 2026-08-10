@@ -127,7 +127,7 @@ export function EmployeeShowcase() {
               <span className="gradient-text-glass inline-block">热门硅基员工</span>
             </h2>
             <p className="mt-4 text-gtext-secondary">
-              156 位数字员工覆盖数据、财务、内容、客服等 12 个职能
+              156 位硅基员工覆盖数据、财务、内容、客服等 12 个职能
             </p>
           </div>
         </Reveal>

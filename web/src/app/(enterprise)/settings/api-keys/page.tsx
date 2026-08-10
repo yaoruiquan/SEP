@@ -32,7 +32,7 @@ const API_KEY_SCOPES = ['chat:read', 'knowledge:read', 'instances:read'] as cons
 const SCOPE_LABELS: Record<string, string> = {
   'chat:read': '对话（读）',
   'knowledge:read': '知识库（读）',
-  'instances:read': '员工实例（读）',
+  'instances:read': '硅基员工（读）',
 };
 
 const createKeySchema = z.object({

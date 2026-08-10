@@ -3,8 +3,8 @@ import { MarketHeader } from '@/components/shell/market-header';
 import { AuroraBackground } from '@/components/ui/aurora-background';
 
 export const metadata: Metadata = {
-  title: '员工市场 — 硅基人才平台',
-  description: '浏览、筛选、订阅 AI 数字员工，涵盖人事、销售、财务、技术等职能。',
+  title: '硅基人才市场 — 硅基人才平台',
+  description: '浏览、筛选、订阅 AI 硅基员工，涵盖人事、销售、财务、技术等职能。',
 };
 
 /**

@@ -170,6 +170,14 @@ export class AccessRequestService {
       throw new BadRequestException('该申请已被处理');
     }
 
+    // 申请人已离职（requesterId 被 SetNull）。
+    // 成员移除时会把 PENDING 申请置为 CANCELED，正常走不到这里；
+    // 这道判断是兜底 —— 少了它，下面会建出一条 memberId 为空、
+    // 既不属于任何人也不属于任何部门的悬空授权。
+    if (!request.requesterId) {
+      throw new BadRequestException('申请人已不在本企业，无法批准');
+    }
+
     // 计算授权过期时间
     const expiresAt = request.requestedDays
       ? new Date(Date.now() + request.requestedDays * 24 * 60 * 60 * 1000)

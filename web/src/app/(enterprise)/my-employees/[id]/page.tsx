@@ -31,7 +31,7 @@ export default function EmployeeDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // 从"我的员工"列表中查找当前实例
+  // 从"我的硅基员工"列表中查找当前实例
   const { data: employees = [], isLoading, isError } = useMyEmployees();
   const employee = employees.find(emp => emp.instanceId === instanceId);
 
@@ -57,7 +57,7 @@ export default function EmployeeDetailPage() {
         <EmptyState
           icon={<AlertTriangle className="h-8 w-8 text-danger" />}
           title="加载失败"
-          description="未找到该员工实例或无权访问"
+          description="未找到该硅基员工或无权访问"
           action={
             <Button variant="outline" onClick={() => router.push('/my-employees')}>
               返回
@@ -264,7 +264,7 @@ function OverviewTab({ employee }: { employee: any }) {
       <div>
         <h3 className="text-base font-semibold text-neutral-900 mb-3">员工简介</h3>
         <p className="text-sm text-neutral-700 leading-relaxed">
-          {employee.template.name} - 硅基员工实例
+          {employee.template.name} · 硅基员工
         </p>
       </div>
 
@@ -298,7 +298,7 @@ function OverviewTab({ employee }: { employee: any }) {
       {/* 提示 */}
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
         <p className="text-sm text-blue-900">
-          💡 更多详细信息和能力配置，请访问「员工实例」页面
+          💡 更多详细信息和能力配置，请访问「员工授权」页面
         </p>
       </div>
     </div>
@@ -349,7 +349,7 @@ function ConfigTab({ employee }: { employee: any }) {
     <div className="flex flex-col items-center py-16 text-neutral-400">
       <Sliders className="mb-3 h-10 w-10 opacity-30" />
       <p className="text-sm">配置功能待实现</p>
-      <p className="mt-2 text-xs text-neutral-500">请访问「员工实例」页面进行配置</p>
+      <p className="mt-2 text-xs text-neutral-500">请访问「员工授权」页面进行配置</p>
     </div>
   );
 }
@@ -441,7 +441,7 @@ function CapabilitiesTab() {
   return (
     <div className="flex flex-col items-center py-16 text-neutral-400">
       <Zap className="mb-3 h-10 w-10 opacity-30" />
-      <p className="text-sm">能力信息请访问「员工实例」页面查看</p>
+      <p className="text-sm">能力信息请访问「员工授权」页面查看</p>
     </div>
   );
 }

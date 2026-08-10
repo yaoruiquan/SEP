@@ -75,7 +75,7 @@ export function BentoFeatures() {
               <span className="gradient-text-glass inline-block">核心能力</span>
             </h2>
             <p className="mt-4 text-gtext-secondary">
-              不是工具，是真正融入企业组织的数字员工
+              不是工具，是真正融入企业组织的硅基员工
             </p>
           </div>
         </Reveal>

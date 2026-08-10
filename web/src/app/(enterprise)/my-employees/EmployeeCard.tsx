@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
 import { CAPABILITY_TYPE_META } from '@/lib/utils';
+import { capability } from '@/locales/zh-CN';
 import type { MyEmployee } from '@/lib/types';
 import type { useDownloadPackage } from '@/features/employee/use-packages';
 import { useDownloadSkill } from '@/features/capability/use-capability';
@@ -49,7 +50,7 @@ export const EmployeeCard = memo(function EmployeeCard({
   const handleDownloadSkills = async () => {
     const skills = template.bindings?.filter((b) => b.capability.type === 'SKILL') || [];
     if (skills.length === 0) {
-      toast.error('该员工没有可下载的技能');
+      toast.error('该硅基员工暂无可下载的技能');
       return;
     }
 
@@ -122,7 +123,7 @@ export const EmployeeCard = memo(function EmployeeCard({
         {/* 能力列表 */}
         {template.bindings && template.bindings.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-gtext-secondary">绑定能力</p>
+            <p className="text-xs font-medium text-gtext-secondary">{capability.ownedList}</p>
             <div className="flex flex-wrap gap-1.5">
               {template.bindings.map((binding) => {
                 const meta = CAPABILITY_TYPE_META[binding.capability.type];
@@ -193,11 +194,11 @@ export const EmployeeCard = memo(function EmployeeCard({
               className="w-full"
             >
               <Download className="mr-2 h-4 w-4" />
-              {download.isPending ? '下载中...' : '下载员工包'}
+              {download.isPending ? '下载中...' : '下载硅基员工包'}
             </Button>
           )}
 
-          {/* 下载所有技能按钮 */}
+          {/* 下载技能包（会议决策：企业客户端下载待客户端产物落地后接入） */}
           {template.bindings?.some((b) => b.capability.type === 'SKILL') && (
             <Button
               variant="primary"
@@ -210,7 +211,7 @@ export const EmployeeCard = memo(function EmployeeCard({
               className="w-full bg-success hover:bg-success/90"
             >
               <Download className="mr-2 h-4 w-4" />
-              {downloadSkill.isPending ? '下载中...' : '下载所有技能'}
+              {downloadSkill.isPending ? '下载中...' : capability.downloadPack}
             </Button>
           )}
         </div>

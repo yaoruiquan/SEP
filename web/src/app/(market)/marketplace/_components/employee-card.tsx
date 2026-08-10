@@ -6,6 +6,7 @@ import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
 import { Avatar } from '@/components/ui/avatar';
+import { instanceStatus } from '@/locales/zh-CN';
 import type { MarketEmployee } from '@/lib/types';
 
 // ─── props ────────────────────────────────────────────────────────────────────
@@ -160,7 +161,8 @@ export function EmployeeCard({
         </span>
         <span className="flex items-center gap-1.5">
           <PulsingDot className="h-1.5 w-1.5" />
-          <span className="text-emerald-400">运行中</span>
+          {/* 市场卡片的固定装饰文案：表示该硅基员工可招聘，非实例状态 */}
+          <span className="text-emerald-400">{instanceStatus.ACTIVE}</span>
         </span>
         <span>v{emp.version ?? '1.0'}</span>
       </div>

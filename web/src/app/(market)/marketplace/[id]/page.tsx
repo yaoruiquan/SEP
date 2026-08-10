@@ -68,11 +68,11 @@ const HOW_TO = [
   },
   {
     t: '创建实例',
-    d: '在「员工实例」为具体部门创建实例。同一员工可创建多个实例，各自独立配置、互不影响。',
+    d: '在「硅基岗位」为具体部门创建实例。同一员工可创建多个实例，各自独立配置、互不影响。',
   },
   {
     t: '开通授权',
-    d: '把实例授权给部门或具体成员，可设到期时间。被授权的人在「我的员工」里就能看到它。',
+    d: '把实例授权给部门或具体成员，可设到期时间。被授权的人在「我的硅基员工」里就能看到它。',
   },
   {
     t: '下载到本地运行',
@@ -236,7 +236,7 @@ export default function EmployeeDetailPage() {
       {/* 三 · 我能做什么 */}
       <GlassSection icon={<Wrench className="h-4 w-4" />} title="我能做什么">
         {!emp.bindings || emp.bindings.length === 0 ? (
-          <p className="text-[13px] text-gtext-muted">暂无绑定能力</p>
+          <p className="text-[13px] text-gtext-muted">暂无技能</p>
         ) : (
           <ul className="space-y-2.5">
             {[...emp.bindings]
@@ -327,7 +327,7 @@ export default function EmployeeDetailPage() {
           subscribe.mutate(emp.id, {
             onSuccess: () => {
               setPayOpen(false);
-              toast.success(`已订阅「${emp.name}」，可去「员工实例」创建实例`);
+              toast.success(`已订阅「${emp.name}」，可去「硅基岗位」创建实例`);
             },
             onError: (e) =>
               toast.error(e instanceof ApiError ? e.message : '订阅失败'),

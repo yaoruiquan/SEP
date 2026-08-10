@@ -13,14 +13,15 @@ import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useDownloadPackage } from '@/features/employee/use-packages';
 import { useEmployeeStatus } from '@/lib/websocket';
 import { MyEmployeeListSkeleton } from '@/features/employee/employee-skeleton';
+import { employee as employeeCopy } from '@/locales/zh-CN';
 import { EmployeeCard } from './EmployeeCard';
 
 type SortOption = 'name' | 'recent';
 
 /**
- * 使用者视角：我被授权的实例。
+ * 使用者视角：我被授权使用的硅基员工。
  *
- * 实例的管理（创建/停用/升级/授权）在 /instances，不放这里 ——
+ * 硅基员工的管理（新增/暂停/升级/授权）在 /instances，不放这里 ——
  * 这一页对普通成员是主页面，混入管理表格会让他看到一堆点不动的按钮。
  */
 export default function MyEmployeesPage() {
@@ -41,7 +42,7 @@ export default function MyEmployeesPage() {
   const filteredEmployees = useMemo(() => {
     let result = [...mine];
 
-    // 搜索：实例名称或模板名称
+    // 搜索：员工名称或模板名称
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -65,19 +66,19 @@ export default function MyEmployeesPage() {
         {/* 页头 */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-gtext-primary">我的员工</h1>
+            <h1 className="text-2xl font-semibold text-gtext-primary">{employeeCopy.mine}</h1>
             <p className="mt-1 text-sm text-gtext-secondary">
-              你被授权使用的硅基员工。已停用或授权过期的不会出现在这里。
+              你被授权使用的硅基员工。已暂停或授权过期的不会出现在这里。
             </p>
           </div>
           <div className="flex items-center gap-3">
             <Badge className="border-glassline-brand bg-gbrand-text/12 px-3 py-1.5 text-gbrand-text">
-              {mine.length} 个员工
+              {mine.length} 位硅基员工
             </Badge>
             {isAdmin && (
               <Link href="/instances">
                 <Button variant="glass" size="sm">
-                  管理实例
+                  {employeeCopy.manageUnit}
                 </Button>
               </Link>
             )}
@@ -92,7 +93,7 @@ export default function MyEmployeesPage() {
               <EmptyState
                 icon={<MonitorPlay className="h-12 w-12" />}
                 title="加载失败"
-                description={error?.message || '无法加载员工列表，请稍后重试。'}
+                description={error?.message || '无法加载硅基员工列表，请稍后重试。'}
                 action={{
                   label: '刷新页面',
                   onClick: () => window.location.reload(),
@@ -105,16 +106,16 @@ export default function MyEmployeesPage() {
             <CardContent className="py-12">
               <EmptyState
                 icon={<MonitorPlay className="h-12 w-12" />}
-                title="还没有可用的员工"
+                title="还没有可用的硅基员工"
                 description={
                   isAdmin
-                    ? '去「员工实例」创建实例并给自己或部门开通授权。'
+                    ? '去「员工授权」新增硅基员工并给自己或部门开通授权。'
                     : '请联系企业管理员为你开通授权。'
                 }
                 action={
                   isAdmin
                     ? {
-                        label: '前往员工实例',
+                        label: '前往员工授权',
                         onClick: () => (window.location.href = '/instances'),
                       }
                     : undefined
@@ -131,7 +132,7 @@ export default function MyEmployeesPage() {
                   <div className="relative flex-1 min-w-[240px]">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted pointer-events-none" />
                     <Input
-                      placeholder="搜索员工名称..."
+                      placeholder="搜索硅基员工名称..."
                       className="pl-10"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -174,7 +175,7 @@ export default function MyEmployeesPage() {
                 <CardContent className="py-12">
                   <EmptyState
                     icon={<Search className="h-12 w-12" />}
-                    title="没有找到匹配的员工"
+                    title="没有找到匹配的硅基员工"
                     description="试试调整搜索条件"
                   />
                 </CardContent>

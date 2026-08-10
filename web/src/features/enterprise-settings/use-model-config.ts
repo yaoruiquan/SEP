@@ -135,7 +135,7 @@ export function useSetDepartmentPolicy(departmentId: string) {
 
 /**
  * 解析最终生效的模型配置。
- * 优先级：用户选择 > 员工实例 > 部门覆盖 > 企业配置 > 系统默认。
+ * 优先级：用户选择 > 硅基岗位 > 部门覆盖 > 企业配置 > 系统默认。
  */
 export function useEffectiveModelConfig(
   enterpriseId: string,

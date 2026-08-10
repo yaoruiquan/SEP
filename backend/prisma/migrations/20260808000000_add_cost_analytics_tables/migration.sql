@@ -109,7 +109,11 @@ CREATE TABLE "notifications" (
 );
 
 -- CreateTable
-CREATE TABLE "enterprise_model_configs" (
+-- 幂等修复：本表已由 20260807120000_add_phase4_enterprise_features 创建（该处用了
+-- IF NOT EXISTS）。此处原为裸 CREATE TABLE，导致迁移历史无法从零重放 —— shadow
+-- database 会报 "relation already exists"，进而阻塞所有后续 migrate dev。
+-- 两处列定义逐列一致，加 IF NOT EXISTS 对已应用的库是语义 no-op。
+CREATE TABLE IF NOT EXISTS "enterprise_model_configs" (
     "id" TEXT NOT NULL,
     "enterpriseId" TEXT NOT NULL,
     "defaultChatModel" TEXT NOT NULL DEFAULT 'gemini-3.5-flash-high',
@@ -182,7 +186,8 @@ CREATE INDEX "notifications_userId_createdAt_idx" ON "notifications"("userId", "
 CREATE INDEX "notifications_userId_read_idx" ON "notifications"("userId", "read");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "enterprise_model_configs_enterpriseId_key" ON "enterprise_model_configs"("enterpriseId");
+-- 幂等修复：同上，该索引已由 phase4 迁移创建
+CREATE UNIQUE INDEX IF NOT EXISTS "enterprise_model_configs_enterpriseId_key" ON "enterprise_model_configs"("enterpriseId");
 
 -- CreateIndex
 CREATE INDEX "cost_daily_rollups_enterpriseId_date_idx" ON "cost_daily_rollups"("enterpriseId", "date");
@@ -224,7 +229,16 @@ ALTER TABLE "knowledge_usage_logs" ADD CONSTRAINT "knowledge_usage_logs_sessionI
 ALTER TABLE "notifications" ADD CONSTRAINT "notifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "enterprise_model_configs" ADD CONSTRAINT "enterprise_model_configs_enterpriseId_fkey" FOREIGN KEY ("enterpriseId") REFERENCES "enterprises"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- 幂等修复：该外键已由 phase4 迁移添加。Postgres 的 ADD CONSTRAINT 不支持
+-- IF NOT EXISTS，故用 DO 块先查 pg_constraint。
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'enterprise_model_configs_enterpriseId_fkey'
+  ) THEN
+    ALTER TABLE "enterprise_model_configs" ADD CONSTRAINT "enterprise_model_configs_enterpriseId_fkey" FOREIGN KEY ("enterpriseId") REFERENCES "enterprises"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- AddForeignKey
 ALTER TABLE "department_model_policies" ADD CONSTRAINT "department_model_policies_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "departments"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -1,24 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, AlertTriangle } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
+import { member } from '@/locales/zh-CN';
 import {
   useMembers,
   useDepartments,
   useCreateMember,
   useUpdateMember,
   useDeleteMember,
+  useInvitations,
 } from '@/features/enterprise/use-enterprise';
+import { InvitationPanel } from '@/features/enterprise/invitation-panel';
 import { flattenDepts } from '@/features/enterprise/flatten-depts';
-import type { EnterpriseMember } from '@/lib/types';
+import type { EnterpriseMember, OffboardResult } from '@/lib/types';
 
 function Modal({
   title,
@@ -55,6 +59,9 @@ export default function MembersPage() {
 
   const { data: members = [], isLoading } = useMembers();
   const { data: depts = [] } = useDepartments();
+  // 邀请数只在管理员视角下取 —— 普通成员没有 /enterprise/invitations 权限，
+  // 拉了只会得到 403 并污染错误提示
+  const { data: invitations = [] } = useInvitations(undefined, { enabled: isAdmin });
   const createMember = useCreateMember();
   const updateMember = useUpdateMember();
   const deleteMember = useDeleteMember();
@@ -62,9 +69,20 @@ export default function MembersPage() {
   // 扁平化部门列表（用于下拉）
   const flatDepts = flattenDepts(depts);
 
+  const pendingInvites = invitations.filter((i) => i.status === 'PENDING').length;
+
+  const [tab, setTab] = useState<'members' | 'invitations'>('members');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<EnterpriseMember | null>(null);
   const [removing, setRemoving] = useState<EnterpriseMember | null>(null);
+  /**
+   * 移出后的处置结果。单独留一份 state 而非只弹 toast：
+   * vacatedDepartments 非空意味着有部门失去了负责人 ——
+   * 那是需要管理员补指派的动作，一闪而过的 toast 藏不住这件事。
+   */
+  const [offboarded, setOffboarded] = useState<
+    (OffboardResult & { name: string }) | null
+  >(null);
 
   // 新建表单
   const [newForm, setNewForm] = useState({
@@ -119,8 +137,22 @@ export default function MembersPage() {
 
   const handleRemove = () => {
     if (!removing) return;
+    const name = removing.user.name || removing.user.email;
     deleteMember.mutate(removing.id, {
-      onSuccess: () => { toast.success('已移出企业'); setRemoving(null); },
+      onSuccess: (result) => {
+        setRemoving(null);
+        // 有部门失去负责人时留在弹窗里让管理员补指派，
+        // 否则一条 toast 收尾即可
+        if (result.vacatedDepartments.length > 0) {
+          setOffboarded({ ...result, name });
+        } else {
+          toast.success(
+            result.reclaimedGrants > 0
+              ? `已移出 ${name}，回收 ${result.reclaimedGrants} 个硅基员工席位`
+              : `已移出 ${name}`,
+          );
+        }
+      },
       onError: (e) => toast.error(e instanceof ApiError ? e.message : '移出失败'),
     });
   };
@@ -131,17 +163,30 @@ export default function MembersPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">成员管理</h1>
+          <h1 className="text-2xl font-bold">{member.list}</h1>
           <p className="mt-1 text-sm text-fg-muted">共 {members.length} 名成员</p>
         </div>
-        {isAdmin && (
-          <Button size="sm" onClick={() => setAdding(true)}>
-            <Plus className="h-4 w-4" /> 添加成员
+        {isAdmin && tab === 'members' && (
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" /> 直接添加
           </Button>
         )}
       </div>
 
-      {members.length === 0 ? (
+      {isAdmin && (
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'members' | 'invitations')}>
+          <TabsList>
+            <TabsTrigger value="members">成员 {members.length}</TabsTrigger>
+            <TabsTrigger value="invitations">
+              邀请{pendingInvites > 0 ? ` ${pendingInvites}` : ''}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {tab === 'invitations' && isAdmin ? (
+        <InvitationPanel depts={depts} />
+      ) : members.length === 0 ? (
         <EmptyState icon={<Users className="h-8 w-8" />} title="还没有成员" />
       ) : (
         <div className="rounded-lg border border-border bg-background overflow-hidden">
@@ -351,8 +396,24 @@ export default function MembersPage() {
               <span className="font-medium text-foreground">
                 {removing.user.name || removing.user.email}
               </span>{' '}
-              从企业移出？其 User 账号仍保留，但不再属于本企业。
+              从企业移出？
             </p>
+            {/* 说清「回收什么、留下什么」——
+                管理员最担心的是"移出会不会把资料一起带走" */}
+            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs">
+              <div>
+                <p className="font-medium text-foreground">会立即回收</p>
+                <p className="mt-0.5 text-fg-muted">
+                  其个人的硅基员工席位、待审批的申请；若其为部门负责人，该部门将暂时空缺。
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground">保留在企业</p>
+                <p className="mt-0.5 text-fg-muted">
+                  知识库、技能配置、工作记录与审批历史全部留下，其 User 账号也保留。
+                </p>
+              </div>
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>取消</Button>
               <Button
@@ -362,6 +423,41 @@ export default function MembersPage() {
                 disabled={deleteMember.isPending}
               >
                 确认移出
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 移出后：部门失去负责人，需管理员补指派 */}
+      {offboarded && (
+        <Modal title="已移出，有部门待指派负责人" onClose={() => setOffboarded(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-fg-muted">
+              <span className="font-medium text-foreground">{offboarded.name}</span>{' '}
+              已移出企业
+              {offboarded.reclaimedGrants > 0 &&
+                `，回收 ${offboarded.reclaimedGrants} 个硅基员工席位`}
+              {offboarded.canceledRequests > 0 &&
+                `，取消 ${offboarded.canceledRequests} 条待审批申请`}
+              。
+            </p>
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">
+                  以下部门当前没有负责人，请到「部门管理」重新指派：
+                </p>
+                <ul className="mt-1.5 space-y-0.5 text-fg-muted">
+                  {offboarded.vacatedDepartments.map((d) => (
+                    <li key={d.id}>· {d.name}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setOffboarded(null)}>
+                知道了
               </Button>
             </div>
           </div>

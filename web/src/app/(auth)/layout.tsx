@@ -27,7 +27,7 @@ export default function AuthLayout({
             订阅硅基员工<br />调度硅基能力
           </h1>
           <p className="text-lg leading-relaxed text-gtext-secondary">
-            像招募团队一样订阅数字员工，用一句话驱动 Agent、RPA、技能与 AI 应用，把重复工作交给硅基劳动力。
+            像招募团队一样订阅硅基员工，用一句话驱动 Agent、RPA、技能与 AI 应用，把重复工作交给硅基劳动力。
           </p>
         </div>
 

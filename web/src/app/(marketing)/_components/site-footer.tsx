@@ -5,7 +5,7 @@ const COLUMNS = [
   {
     title: '产品',
     links: [
-      { label: '员工市场', href: '/marketplace' },
+      { label: '硅基人才市场', href: '/marketplace' },
       { label: '功能特性', href: '#features' },
       { label: '定价方案', href: '#pricing' },
       { label: '更新日志', href: '/changelog' },
@@ -64,7 +64,7 @@ export function SiteFooter() {
               <span className="text-sm font-semibold text-gtext-primary">硅基人才平台</span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-gtext-muted">
-              把 AI 能力包装成可招聘、可管理、可审计的数字员工。
+              把 AI 能力包装成可招聘、可管理、可审计的硅基员工。
             </p>
           </div>
 

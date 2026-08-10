@@ -54,7 +54,7 @@ function SuccessScreen({
 
       {/* hint */}
       <p className="max-w-xs rounded-glass-lg border border-glassline bg-glass-2 px-4 py-3 text-xs text-gtext-muted leading-relaxed">
-        接下来，企业管理员可以在「员工实例」中为员工创建实例并分配给部门或成员使用。
+        接下来，企业管理员可以在「硅基岗位」中为员工创建实例并分配给部门或成员使用。
       </p>
 
       {/* CTAs */}
