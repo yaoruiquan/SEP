@@ -27,7 +27,7 @@ export const SUBSCRIPTION_STATUS_META: Record<
 };
 
 /**
- * 硅基岗位状态（代码层枚举仍为 InstanceStatus，不改动）。
+ * 员工实例状态（代码层枚举仍为 InstanceStatus，不改动）。
  * REVOKED 是终态，不可转回。文案来源见 locales/zh-CN.ts。
  */
 export const INSTANCE_STATUS_LABEL = instanceStatus;

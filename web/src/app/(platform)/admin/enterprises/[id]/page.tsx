@@ -309,7 +309,7 @@ export default function EnterpriseDetailPage() {
         {activeTab === 'instances' && (
           <Card variant="solid">
             <CardHeader>
-              <CardTitle>硅基岗位 ({enterprise.instances.length})</CardTitle>
+              <CardTitle>员工实例 ({enterprise.instances.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full text-sm">

@@ -68,7 +68,7 @@ const HOW_TO = [
   },
   {
     t: '创建实例',
-    d: '在「硅基岗位」为具体部门创建实例。同一员工可创建多个实例，各自独立配置、互不影响。',
+    d: '在「员工授权」为具体部门创建实例。同一员工可创建多个实例，各自独立配置、互不影响。',
   },
   {
     t: '开通授权',
@@ -327,7 +327,7 @@ export default function EmployeeDetailPage() {
           subscribe.mutate(emp.id, {
             onSuccess: () => {
               setPayOpen(false);
-              toast.success(`已订阅「${emp.name}」，可去「硅基岗位」创建实例`);
+              toast.success(`已订阅「${emp.name}」，可去「员工授权」创建实例`);
             },
             onError: (e) =>
               toast.error(e instanceof ApiError ? e.message : '订阅失败'),
