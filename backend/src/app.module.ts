@@ -20,6 +20,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/enterprise-model-config.module';
 import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.module';
 import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterprise-settings.module';
+import { CartModule } from './modules/cart/cart.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterpri
     EnterpriseModelConfigModule,
     CostAnalyticsModule,
     EnterpriseSettingsModule,
+    CartModule,
   ],
   controllers: [],
   providers: [],

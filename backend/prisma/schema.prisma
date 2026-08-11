@@ -80,6 +80,8 @@ model Enterprise {
   apiKeys        EnterpriseApiKey[]
   apiCallLogs    ApiCallLog[]
   invitations    EnterpriseInvitation[]
+  orders         Order[]
+  cartItems      CartItem[]
 
   @@map("enterprises")
 }
@@ -253,7 +255,12 @@ model DigitalEmployee {
   version String @default("1.0.0")
 
   // Pricing (暂时简化，不做复杂计费)
-  price Float?
+  price Float? // 保留兼容存量数据
+
+  /// 年费（元）。会议示例：5000 元/年
+  annualPriceCNY     Decimal? @db.Decimal(12, 2)
+  /// 订阅赠送的初始算力额度（元）。会议示例：1000 点 = 1000 元算力
+  includedComputeCNY Decimal  @default(0) @db.Decimal(12, 2)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -265,6 +272,8 @@ model DigitalEmployee {
   sessions      ConversationSession[]
   instances     EmployeeInstance[]
   packages      EmployeePackage[]
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
 
   @@map("digital_employees")
 }
@@ -1314,4 +1323,150 @@ model DepartmentModelPolicy {
   department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
   @@map("department_model_policies")
+}
+
+// ============================================================================
+// Order & Cart (订单与购物车)
+// ============================================================================
+
+/// 订单状态
+enum OrderStatus {
+  PENDING  // 待支付
+  PAID     // 已支付
+  CLOSED   // 已关闭（超时/取消）
+  REFUNDED // 已退款
+}
+
+/// 支付渠道
+enum PayChannel {
+  ALIPAY // 支付宝
+  WECHAT // 微信支付
+  MANUAL // 线下/手动
+}
+
+/// 订单：企业购买数字员工的订单记录
+model Order {
+  id String @id @default(cuid())
+
+  /// 订单号（业务唯一标识，用于对外展示和支付回调匹配）
+  orderNo String @unique
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 下单人（EnterpriseMember.id 或 User.id，这里简化存 User.id）
+  createdBy String
+
+  status OrderStatus @default(PENDING)
+
+  /// 订单总金额（元）
+  totalAmount Decimal @db.Decimal(12, 2)
+
+  /// 支付渠道
+  payChannel PayChannel?
+
+  /// 支付流水号（第三方支付平台返回的 trade_no）
+  payTradeNo String?
+
+  /// 支付完成时间
+  paidAt DateTime?
+
+  /// 订单关闭时间（超时/取消/退款）
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  items OrderItem[]
+
+  @@index([enterpriseId, createdAt(sort: Desc)])
+  @@map("orders")
+}
+
+/// 订单明细：每一项对应一个数字员工的订阅
+model OrderItem {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 快照字段：下单时的员工名称（防止后续改名影响订单显示）
+  employeeName String
+
+  /// 快照字段：下单时的单价（元/年）
+  unitPrice Decimal @db.Decimal(12, 2)
+
+  /// 订阅周期（月），默认 12 个月
+  periodMonths Int @default(12)
+
+  /// 数量（同一员工可订阅多份）
+  quantity Int @default(1)
+
+  /// 快照字段：该订阅赠送的算力额度（元）
+  includedComputeCNY Decimal @default(0) @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/// 购物车：企业选择待订阅的员工
+model CartItem {
+  id String @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 订阅周期（月），默认 12 个月
+  periodMonths Int @default(12)
+
+  /// 数量
+  quantity Int @default(1)
+
+  /// 加车人（User.id）
+  addedBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// 同一企业对同一员工只能加一次车（修改数量而非重复添加）
+  @@unique([enterpriseId, employeeId])
+  @@index([enterpriseId])
+  @@map("cart_items")
+}
+
+/// 支付回调通知：记录第三方支付平台的异步通知原始数据
+model PaymentNotify {
+  id String @id @default(cuid())
+
+  /// 支付渠道
+  channel PayChannel
+
+  /// 商户订单号（我方 Order.orderNo）
+  outTradeNo String
+
+  /// 支付平台流水号（支付宝 trade_no / 微信 transaction_id）
+  tradeNo String
+
+  /// 回调原始报文（JSON 字符串，用于审计和补单）
+  rawBody String @db.Text
+
+  /// 签名是否验证通过
+  verified Boolean
+
+  /// 是否已处理（防止重复消费）
+  processed Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  /// 同一支付流水号只记录一次（幂等性保证）
+  @@unique([channel, tradeNo])
+  @@index([outTradeNo])
+  @@map("payment_notifies")
 }
