@@ -31,6 +31,12 @@ describe('SubscriptionService', () => {
         create: jest.fn((a: any) => Promise.resolve({ id: 'sub-new', ...a.data })),
         update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
       },
+      // subscribe() 成功后会自动补一个默认实例（service 的「优化 2」）。
+      // 默认返回 null = 该模板还没实例，走创建分支。
+      employeeInstance: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn((a: any) => Promise.resolve({ id: 'inst-new', ...a.data })),
+      },
     };
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),
