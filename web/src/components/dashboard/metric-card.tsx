@@ -26,7 +26,7 @@ interface MetricCardProps {
  * @example
  * ```tsx
  * <MetricCard
- *   title="AI 员工"
+ *   title="硅基员工"
  *   value={12}
  *   icon={Bot}
  *   trend={{ direction: 'up', value: 20, label: '较上月' }}

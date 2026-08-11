@@ -11,6 +11,7 @@ import {
   useCreateMember,
   useMarkOnboardingCompleted,
 } from '@/features/enterprise/use-enterprise';
+import { employee as employeeCopy, member as memberCopy } from '@/locales/zh-CN';
 
 interface Props {
   onClose: () => void;
@@ -147,7 +148,7 @@ export function OnboardingModal({ onClose }: Props) {
               <div>
                 <h2 className="text-2xl font-bold">欢迎来到硅基员工平台！</h2>
                 <p className="mt-2 text-fg-muted">
-                  让我们用 3 步快速开始，体验 AI 员工的强大能力
+                  让我们用 3 步快速开始，体验{employeeCopy.entity}的强大能力
                 </p>
               </div>
               <Button onClick={nextStep} className="w-full" size="lg">
@@ -212,7 +213,7 @@ export function OnboardingModal({ onClose }: Props) {
                 </div>
                 <h2 className="mt-4 text-xl font-bold">邀请团队成员</h2>
                 <p className="mt-2 text-sm text-fg-muted">
-                  邀请同事加入，一起使用 AI 员工
+                  邀请{memberCopy.entity}加入，一起使用{employeeCopy.entity}
                 </p>
               </div>
               <div>
@@ -256,9 +257,9 @@ export function OnboardingModal({ onClose }: Props) {
                 <Briefcase className="h-8 w-8 text-primary" />
               </div>
               <div>
-                <h2 className="text-xl font-bold">招聘你的第一个 AI 员工</h2>
+                <h2 className="text-xl font-bold">招聘你的第一位{employeeCopy.entity}</h2>
                 <p className="mt-2 text-sm text-fg-muted">
-                  去人才市场看看，挑选一个适合的 AI 员工
+                  去{employeeCopy.market}看看，挑选一位合适的人选
                 </p>
               </div>
               <Button onClick={goToMarketplace} className="w-full" size="lg">

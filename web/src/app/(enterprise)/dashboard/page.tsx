@@ -35,6 +35,7 @@ import {
   CHART_TOOLTIP_LABEL_STYLE,
   CHART_CURSOR_FILL,
 } from '@/lib/chart-theme';
+import { employee as employeeCopy } from '@/locales/zh-CN';
 
 // 模型分布饼图颜色
 const MODEL_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -178,7 +179,7 @@ export default function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             variant="glass"
-            title="AI 员工"
+            title={employeeCopy.entity}
             value={stats.employeeCount}
             icon={Bot}
             trend={{ direction: 'up', value: 20, label: '较上月' }}
@@ -379,7 +380,7 @@ export default function DashboardPage() {
               <div className="py-12">
                 <EmptyState
                   title="暂无数据"
-                  description="开始使用 AI 员工后，使用趋势将显示在这里。"
+                  description={`${employeeCopy.entity}上岗后，使用趋势将显示在这里。`}
                 />
               </div>
             ) : (
@@ -444,7 +445,7 @@ export default function DashboardPage() {
                 <div className="py-12">
                   <EmptyState
                     title="暂无数据"
-                    description="开始使用 AI 员工后，热门员工将显示在这里。"
+                    description={`${employeeCopy.entity}上岗后，热门员工将显示在这里。`}
                   />
                 </div>
               ) : (

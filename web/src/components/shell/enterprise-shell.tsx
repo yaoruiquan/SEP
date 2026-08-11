@@ -75,11 +75,15 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       // 使用者视角：我被授权使用的硅基员工。普通成员的核心页面
       { href: '/my-employees', label: nav.myEmployees, icon: MonitorPlay },
-      { href: '/marketplace', label: nav.marketplace, icon: Store },
       // 管理视角：雇佣关系（买） + 员工授权（分配给碳基员工）
       { href: '/subscriptions', label: nav.subscriptions, icon: Users, adminOnly: true },
       { href: '/instances', label: nav.instances, icon: Boxes, adminOnly: true },
     ],
+  },
+  {
+    // 独立成组、紧跟「硅基员工」：逛市场是「招人」，上一组是「管已招的人」，
+    // 相邻但不同层级 —— 不塞进上一组，避免与「我的员工/订阅/实例」混为一类
+    links: [{ href: '/marketplace', label: nav.marketplace, icon: Store }],
   },
   {
     title: '工作',
