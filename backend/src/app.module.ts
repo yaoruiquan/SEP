@@ -21,6 +21,7 @@ import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/e
 import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.module';
 import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterprise-settings.module';
 import { CartModule } from './modules/cart/cart.module';
+import { PaymentModule } from './modules/payment/payment.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { CartModule } from './modules/cart/cart.module';
     CostAnalyticsModule,
     EnterpriseSettingsModule,
     CartModule,
+    PaymentModule,
   ],
   controllers: [],
   providers: [],
