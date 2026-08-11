@@ -70,8 +70,19 @@ export class DocumentService {
     const filename = `${randomUUID()}${ext}`;
     const storagePath = path.join(this.uploadDir, filename);
 
-    // 保存文件到磁盘
-    await fs.writeFile(storagePath, file.buffer);
+    // 保存文件到磁盘（从 multer 临时文件复制）
+    if (file.buffer) {
+      // memoryStorage 模式
+      await fs.writeFile(storagePath, file.buffer);
+    } else if (file.path) {
+      // diskStorage 模式 - 读取临时文件并复制
+      const data = await fs.readFile(file.path);
+      await fs.writeFile(storagePath, data);
+      // 删除临时文件
+      await fs.unlink(file.path).catch(() => {});
+    } else {
+      throw new BadRequestException('File data not available');
+    }
 
     // 创建文档记录
     const document = await this.prisma.document.create({

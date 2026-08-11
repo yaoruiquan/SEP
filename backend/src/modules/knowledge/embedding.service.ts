@@ -1,127 +1,175 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+
+/**
+ * Embedding 服务 - Phase 2 重构
+ * 独立于 sub2api，支持 TEI 容器部署
+ */
+
+export interface EmbeddingResponse {
+  embedding: Float32Array;
+  model: string;
+}
 
 @Injectable()
-export class EmbeddingService {
+export class EmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(EmbeddingService.name);
-  private openai: OpenAI;
+
+  private provider: string;
+  private baseUrl: string;
   private model: string;
+  private dimension: number;
 
-  constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get('OPENAI_API_KEY');
+  constructor(private config: ConfigService) {}
 
-    if (!apiKey) {
-      this.logger.warn('OPENAI_API_KEY not configured, embedding disabled');
-      return;
-    }
+  onModuleInit() {
+    this.provider = this.config.get('EMBEDDING_PROVIDER', 'tei');
+    this.baseUrl = this.config.get('EMBEDDING_BASE_URL', 'http://localhost:8080');
+    this.model = this.config.get('EMBEDDING_MODEL', 'BAAI/bge-small-zh-v1.5');
+    this.dimension = parseInt(this.config.get('EMBEDDING_DIMENSION', '1024'), 10);
 
-    this.openai = new OpenAI({
-      apiKey,
-      baseURL: this.configService.get('OPENAI_BASE_URL') || 'https://api.openai.com/v1',
-    });
-
-    // 使用 text-embedding-3-small 模型（性价比高）
-    this.model = this.configService.get('OPENAI_EMBEDDING_MODEL') || 'text-embedding-3-small';
-
-    this.logger.log(`EmbeddingService initialized with model: ${this.model}`);
+    this.logger.log(
+      `EmbeddingService initialized: provider=${this.provider}, model=${this.model}, dimension=${this.dimension}`
+    );
   }
 
   /**
-   * 检查服务是否可用
+   * 单条文本 embedding
    */
-  isAvailable(): boolean {
-    return !!this.openai;
+  async embed(text: string): Promise<EmbeddingResponse> {
+    const results = await this.embedBatch([text]);
+    return results[0];
   }
 
   /**
-   * 将单个文本转换为向量
-   * @param text 输入文本
-   * @param modelOverride 可选：覆盖默认模型（如企业配置的 embeddingModel）
+   * 批量 embedding
    */
-  async embedText(text: string, modelOverride?: string): Promise<number[]> {
-    if (!this.isAvailable()) {
-      throw new Error('Embedding service not available');
+  async embedBatch(texts: string[]): Promise<EmbeddingResponse[]> {
+    if (texts.length === 0) {
+      return [];
     }
-
-    const model = modelOverride || this.model;
 
     try {
-      const response = await this.openai.embeddings.create({
-        model,
-        input: text,
-      });
-
-      return response.data[0].embedding;
+      switch (this.provider) {
+        case 'tei':
+          return await this.embedWithTEI(texts);
+        case 'openai':
+          return await this.embedWithOpenAI(texts);
+        case 'wasm':
+          return await this.embedWithWASM(texts);
+        default:
+          throw new Error(`Unsupported embedding provider: ${this.provider}`);
+      }
     } catch (error) {
-      this.logger.error(`Failed to embed text: ${error.message}`);
+      this.logger.error(`Embedding failed: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * 批量将文本转换为向量
-   * @param texts 文本数组
-   * @param modelOverride 可选：覆盖默认模型（如企业配置的 embeddingModel）
-   * @param batchSizeOverride 可选：覆盖默认批次大小（如企业配置的 embeddingBatchSize）
-   * @returns 向量数组
+   * TEI 容器 embedding（主要方案）
    */
-  async embedBatch(
-    texts: string[],
-    modelOverride?: string,
-    batchSizeOverride?: number,
-  ): Promise<number[][]> {
-    if (!this.isAvailable()) {
-      throw new Error('Embedding service not available');
+  private async embedWithTEI(texts: string[]): Promise<EmbeddingResponse[]> {
+    const response = await fetch(`${this.baseUrl}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputs: texts }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`TEI embedding failed: ${response.statusText} - ${error}`);
     }
 
-    if (texts.length === 0) {
-      return [];
-    }
+    const data = await response.json();
 
-    const model = modelOverride || this.model;
-    // OpenAI API 支持批量处理，但有限制（最多 2048 个输入）
-    const batchSize = batchSizeOverride ?? 100;
-    const results: number[][] = [];
-
-    for (let i = 0; i < texts.length; i += batchSize) {
-      const batch = texts.slice(i, i + batchSize);
-
-      try {
-        const response = await this.openai.embeddings.create({
-          model,
-          input: batch,
-        });
-
-        const embeddings = response.data.map((item) => item.embedding);
-        results.push(...embeddings);
-
-        this.logger.log(`Embedded batch ${i / batchSize + 1}: ${batch.length} texts`);
-      } catch (error) {
-        this.logger.error(`Failed to embed batch starting at ${i}: ${error.message}`);
-        throw error;
-      }
-
-      // 添加小延迟避免触发速率限制
-      if (i + batchSize < texts.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
-
-    return results;
+    // TEI 返回格式：[[0.1, 0.2, ...], [...]]
+    return data.map((embedding: number[]) => ({
+      embedding: new Float32Array(embedding),
+      model: this.model,
+    }));
   }
 
   /**
-   * 获取向量维度（text-embedding-3-small 是 1536 维）
+   * OpenAI API embedding（备用方案）
    */
-  getVectorDimension(): number {
-    if (this.model === 'text-embedding-3-small') {
-      return 1536;
-    } else if (this.model === 'text-embedding-3-large') {
-      return 3072;
-    } else if (this.model === 'text-embedding-ada-002') {
-      return 1536;
+  private async embedWithOpenAI(texts: string[]): Promise<EmbeddingResponse[]> {
+    const apiKey = this.config.get('OPENAI_API_KEY');
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY not configured for OpenAI provider');
     }
-    return 1536; // 默认
+
+    const response = await fetch(`${this.baseUrl}/v1/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        input: texts,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenAI embedding failed: ${response.statusText} - ${error}`);
+    }
+
+    const data = await response.json();
+
+    // OpenAI 返回格式：{data: [{embedding: [...]}]}
+    return data.data.map((item: any) => ({
+      embedding: new Float32Array(item.embedding),
+      model: this.model,
+    }));
+  }
+
+  /**
+   * WASM embedding（降级方案，使用 @xenova/transformers）
+   */
+  private async embedWithWASM(texts: string[]): Promise<EmbeddingResponse[]> {
+    // 动态导入以避免初始化开销
+    const { pipeline } = await import('@xenova/transformers');
+
+    const extractor = await pipeline('feature-extraction', this.model);
+    const results = await extractor(texts, { pooling: 'mean', normalize: true });
+
+    return texts.map((_, i) => ({
+      embedding: new Float32Array(results[i].data),
+      model: this.model,
+    }));
+  }
+
+  /**
+   * 获取当前 embedding 维度
+   */
+  getDimension(): number {
+    return this.dimension;
+  }
+
+  /**
+   * 获取当前模型标识
+   */
+  getModel(): string {
+    return this.model;
+  }
+
+  /**
+   * 检查服务是否可用
+   */
+  async isAvailable(): Promise<boolean> {
+    try {
+      if (this.provider === 'tei') {
+        const response = await fetch(`${this.baseUrl}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000),
+        });
+        return response.ok;
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

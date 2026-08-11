@@ -42,6 +42,7 @@ export const TestSearchDtoSchema = z.object({
   topK: z.number().int().min(1).max(20).optional().default(5),
   scoreThreshold: z.number().min(0).max(1).optional().default(0.5),
   useRerank: z.boolean().optional().default(false),
+  strategy: z.enum(['lexical', 'vector', 'hybrid', 'auto']).optional().default('auto'),
 });
 export type TestSearchDto = z.infer<typeof TestSearchDtoSchema>;
 

@@ -38,7 +38,7 @@ export function useTextChunks(knowledgeBaseId: string | null, search?: string) {
       if (!knowledgeBaseId) throw new Error('No knowledge base ID');
       const params = search ? `?search=${encodeURIComponent(search)}` : '';
       const data = await api.get<TextChunk[]>(
-        `/knowledge/${knowledgeBaseId}/chunks${params}`
+        `/knowledge-bases/${knowledgeBaseId}/chunks${params}`
       );
       return data;
     },
@@ -55,7 +55,7 @@ export function useTextChunk(knowledgeBaseId: string | null, chunkId: string | n
     queryFn: async () => {
       if (!knowledgeBaseId || !chunkId) throw new Error('Missing IDs');
       const data = await api.get<TextChunk>(
-        `/knowledge/${knowledgeBaseId}/chunks/${chunkId}`
+        `/knowledge-bases/${knowledgeBaseId}/chunks/${chunkId}`
       );
       return data;
     },
@@ -71,7 +71,7 @@ export function useCreateTextChunk(knowledgeBaseId: string) {
 
   return useMutation({
     mutationFn: async (data: CreateTextChunkDto) => {
-      return await api.post<TextChunk>(`/knowledge/${knowledgeBaseId}/chunks`, data);
+      return await api.post<TextChunk>(`/knowledge-bases/${knowledgeBaseId}/chunks`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['text-chunks', knowledgeBaseId] });
@@ -89,7 +89,7 @@ export function useUpdateTextChunk(knowledgeBaseId: string) {
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateTextChunkDto }) => {
       return await api.patch<TextChunk>(
-        `/knowledge/${knowledgeBaseId}/chunks/${id}`,
+        `/knowledge-bases/${knowledgeBaseId}/chunks/${id}`,
         data
       );
     },
@@ -110,7 +110,7 @@ export function useDeleteTextChunk(knowledgeBaseId: string) {
 
   return useMutation({
     mutationFn: async (chunkId: string) => {
-      await api.delete(`/knowledge/${knowledgeBaseId}/chunks/${chunkId}`);
+      await api.delete(`/knowledge-bases/${knowledgeBaseId}/chunks/${chunkId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['text-chunks', knowledgeBaseId] });

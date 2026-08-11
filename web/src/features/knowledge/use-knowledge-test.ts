@@ -90,7 +90,7 @@ export function useReprocessDocument(knowledgeBaseId: string) {
   return useMutation({
     mutationFn: (documentId: string) =>
       api.post<{ message: string }>(
-        `/knowledge/${knowledgeBaseId}/documents/${documentId}/reprocess`,
+        `/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/reprocess`,
         {},
       ),
     onSuccess: () => {

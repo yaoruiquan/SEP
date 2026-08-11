@@ -1,171 +1,229 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Pinecone } from '@pinecone-database/pinecone';
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 
-interface VectorMetadata {
-  knowledgeBaseId: string;
-  chunkId: string;
-  content: string;
-  source: string;
-}
+/**
+ * Vector 存储服务 - Phase 2 重构
+ * LRU 缓存（内存）+ Postgres bytea（持久化）
+ */
 
 interface SearchResult {
-  id: string;
+  chunkId: string;
   score: number;
-  metadata: VectorMetadata;
 }
 
 @Injectable()
-export class VectorService implements OnModuleInit {
+export class VectorService {
   private readonly logger = new Logger(VectorService.name);
-  private pinecone: Pinecone;
-  private indexName: string;
 
-  constructor(private configService: ConfigService) {
-    this.indexName = this.configService.get('PINECONE_INDEX') || 'sep-knowledge';
-  }
+  // LRU 缓存：enterpriseId -> Map<chunkId, vector>
+  private cache = new Map<string, Map<string, Float32Array>>();
+  private cacheOrder = new Map<string, number>(); // enterpriseId -> timestamp
+  private readonly maxCacheSize = 5; // 最多缓存 5 个企业
+  private readonly maxMemoryMB = 600; // 最大内存占用 600MB
 
-  async onModuleInit() {
-    const apiKey = this.configService.get('PINECONE_API_KEY');
-
-    if (!apiKey) {
-      this.logger.warn('PINECONE_API_KEY not configured, vector search disabled');
-      return;
-    }
-
-    try {
-      this.pinecone = new Pinecone({
-        apiKey,
-      });
-
-      this.logger.log('Pinecone initialized successfully');
-    } catch (error) {
-      this.logger.error('Failed to initialize Pinecone', error);
-    }
-  }
+  constructor(private prisma: PrismaService) {}
 
   /**
-   * 检查向量数据库是否可用
-   */
-  isAvailable(): boolean {
-    return !!this.pinecone;
-  }
-
-  /**
-   * 插入或更新向量
-   */
-  async upsertVectors(vectors: Array<{
-    id: string;
-    values: number[];
-    metadata: VectorMetadata;
-  }>) {
-    if (!this.isAvailable()) {
-      throw new Error('Vector service not available');
-    }
-
-    const index = this.pinecone.index(this.indexName);
-
-    await index.upsert({ records: vectors as any });
-
-    this.logger.log(`Upserted ${vectors.length} vectors to ${this.indexName}`);
-  }
-
-  /**
-   * 查询相似向量
+   * 向量检索（热路径）
    */
   async search(
-    queryVector: number[],
+    queryVector: Float32Array,
+    enterpriseId: string,
     knowledgeBaseIds: string[],
-    topK: number = 5,
-    scoreThreshold: number = 0.7,
+    topK: number,
   ): Promise<SearchResult[]> {
-    if (!this.isAvailable()) {
-      this.logger.warn('Vector service not available, returning empty results');
-      return [];
+    const startTime = Date.now();
+
+    // 1. 尝试从缓存读取
+    const cached = this.cache.get(enterpriseId);
+    if (cached) {
+      this.logger.debug(`Cache HIT for enterprise ${enterpriseId}`);
+      this.updateCacheOrder(enterpriseId);
+      return this.searchInMemory(queryVector, cached, knowledgeBaseIds, topK);
     }
 
-    const index = this.pinecone.index(this.indexName);
+    // 2. 缓存未命中，从 Postgres 加载
+    this.logger.debug(`Cache MISS for enterprise ${enterpriseId}, loading from DB`);
+    const vectors = await this.loadVectorsFromDB(enterpriseId, knowledgeBaseIds);
 
-    // 构建过滤条件：只搜索指定知识库的向量
-    const filter = {
-      knowledgeBaseId: { $in: knowledgeBaseIds },
-    };
+    // 3. 写入缓存
+    this.addToCache(enterpriseId, vectors);
 
-    const queryResponse = await index.query({
-      vector: queryVector,
-      topK,
-      filter,
-      includeMetadata: true,
-    });
-
-    // 过滤低分结果
-    const results = queryResponse.matches
-      .filter((match) => match.score >= scoreThreshold)
-      .map((match) => ({
-        id: match.id,
-        score: match.score,
-        metadata: match.metadata as unknown as VectorMetadata,
-      }));
+    // 4. 执行检索
+    const results = this.searchInMemory(queryVector, vectors, knowledgeBaseIds, topK);
 
     this.logger.log(
-      `Search completed: ${results.length}/${queryResponse.matches.length} results above threshold ${scoreThreshold}`,
+      `Vector search completed in ${Date.now() - startTime}ms (${results.length} results)`
     );
 
     return results;
   }
 
   /**
-   * 删除向量（按 ID）
+   * 从 Postgres 加载向量
    */
-  async deleteVectors(ids: string[]) {
-    if (!this.isAvailable()) {
-      throw new Error('Vector service not available');
-    }
-
-    const index = this.pinecone.index(this.indexName);
-
-    await index.deleteMany(ids);
-
-    this.logger.log(`Deleted ${ids.length} vectors from ${this.indexName}`);
-  }
-
-  /**
-   * 删除知识库的所有向量
-   */
-  async deleteByKnowledgeBase(knowledgeBaseId: string) {
-    if (!this.isAvailable()) {
-      throw new Error('Vector service not available');
-    }
-
-    const index = this.pinecone.index(this.indexName);
-
-    await index.deleteMany({
-      filter: { knowledgeBaseId },
-    });
-
-    this.logger.log(`Deleted all vectors for knowledge base ${knowledgeBaseId}`);
-  }
-
-  /**
-   * 删除文档的所有向量（通过 source 前缀匹配）
-   */
-  async deleteByDocument(knowledgeBaseId: string, documentId: string) {
-    if (!this.isAvailable()) {
-      throw new Error('Vector service not available');
-    }
-
-    const index = this.pinecone.index(this.indexName);
-
-    // 使用 metadata 过滤删除
-    await index.deleteMany({
-      filter: {
-        knowledgeBaseId,
-        source: documentId,
+  private async loadVectorsFromDB(
+    enterpriseId: string,
+    knowledgeBaseIds: string[],
+  ): Promise<Map<string, Float32Array>> {
+    const chunks = await this.prisma.textChunk.findMany({
+      where: {
+        knowledgeBase: {
+          enterpriseId,
+          id: { in: knowledgeBaseIds },
+        },
+        embedding: { not: null },
+      },
+      select: {
+        id: true,
+        embedding: true,
+        knowledgeBaseId: true,
       },
     });
 
+    const vectorMap = new Map<string, Float32Array>();
+
+    for (const chunk of chunks) {
+      if (chunk.embedding) {
+        // Buffer → Float32Array
+        const vector = new Float32Array(
+          new Uint8Array(chunk.embedding).buffer
+        );
+        vectorMap.set(chunk.id, vector);
+      }
+    }
+
     this.logger.log(
-      `Deleted all vectors for document ${documentId} in knowledge base ${knowledgeBaseId}`,
+      `Loaded ${vectorMap.size} vectors from DB for enterprise ${enterpriseId}`
     );
+
+    return vectorMap;
+  }
+
+  /**
+   * 内存中向量检索（brute-force cosine similarity）
+   */
+  private searchInMemory(
+    queryVector: Float32Array,
+    vectors: Map<string, Float32Array>,
+    knowledgeBaseIds: string[],
+    topK: number,
+  ): SearchResult[] {
+    const results: SearchResult[] = [];
+
+    for (const [chunkId, vector] of vectors.entries()) {
+      const score = this.cosineSimilarity(queryVector, vector);
+      results.push({ chunkId, score });
+    }
+
+    // 按分数降序排序
+    results.sort((a, b) => b.score - a.score);
+
+    return results.slice(0, topK);
+  }
+
+  /**
+   * 余弦相似度计算
+   */
+  private cosineSimilarity(a: Float32Array, b: Float32Array): number {
+    if (a.length !== b.length) {
+      throw new Error('Vector dimension mismatch');
+    }
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+    return denominator === 0 ? 0 : dotProduct / denominator;
+  }
+
+  /**
+   * 添加到 LRU 缓存
+   */
+  private addToCache(enterpriseId: string, vectors: Map<string, Float32Array>): void {
+    // 检查内存占用
+    const vectorSizeMB = (vectors.size * 1024 * 4) / (1024 * 1024); // Float32 = 4 bytes
+
+    if (vectorSizeMB > this.maxMemoryMB) {
+      this.logger.warn(
+        `Enterprise ${enterpriseId} vectors too large (${vectorSizeMB.toFixed(2)}MB), skipping cache`
+      );
+      return;
+    }
+
+    // LRU 驱逐
+    if (this.cache.size >= this.maxCacheSize) {
+      const oldestKey = this.getOldestCacheKey();
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+        this.cacheOrder.delete(oldestKey);
+        this.logger.debug(`Evicted enterprise ${oldestKey} from cache`);
+      }
+    }
+
+    this.cache.set(enterpriseId, vectors);
+    this.cacheOrder.set(enterpriseId, Date.now());
+  }
+
+  /**
+   * 更新缓存访问时间
+   */
+  private updateCacheOrder(enterpriseId: string): void {
+    this.cacheOrder.set(enterpriseId, Date.now());
+  }
+
+  /**
+   * 获取最久未使用的缓存键
+   */
+  private getOldestCacheKey(): string | undefined {
+    let oldestKey: string | undefined;
+    let oldestTime = Infinity;
+
+    for (const [key, time] of this.cacheOrder.entries()) {
+      if (time < oldestTime) {
+        oldestTime = time;
+        oldestKey = key;
+      }
+    }
+
+    return oldestKey;
+  }
+
+  /**
+   * 使缓存失效（文档更新后调用）
+   */
+  invalidateCache(enterpriseId: string, knowledgeBaseId?: string): void {
+    if (knowledgeBaseId) {
+      this.logger.log(`Invalidating cache for KB ${knowledgeBaseId}`);
+    } else {
+      this.logger.log(`Invalidating cache for enterprise ${enterpriseId}`);
+    }
+
+    this.cache.delete(enterpriseId);
+    this.cacheOrder.delete(enterpriseId);
+  }
+
+  /**
+   * 获取缓存统计
+   */
+  getCacheStats() {
+    const entries = Array.from(this.cache.entries()).map(([enterpriseId, vectors]) => ({
+      enterpriseId,
+      vectorCount: vectors.size,
+      sizeMB: ((vectors.size * 1024 * 4) / (1024 * 1024)).toFixed(2),
+    }));
+
+    return {
+      cachedEnterprises: this.cache.size,
+      maxSize: this.maxCacheSize,
+      entries,
+    };
   }
 }

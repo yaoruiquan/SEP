@@ -25,7 +25,7 @@ export function useDocuments(knowledgeBaseId: string | null) {
     queryKey: ['documents', knowledgeBaseId],
     queryFn: async () => {
       if (!knowledgeBaseId) throw new Error('No knowledge base ID');
-      const data = await api.get<Document[]>(`/knowledge/${knowledgeBaseId}/documents`);
+      const data = await api.get<Document[]>(`/knowledge-bases/${knowledgeBaseId}/documents`);
       return data;
     },
     enabled: !!knowledgeBaseId,
@@ -41,7 +41,7 @@ export function useDocument(knowledgeBaseId: string | null, documentId: string |
     queryFn: async () => {
       if (!knowledgeBaseId || !documentId) throw new Error('Missing IDs');
       const data = await api.get<Document>(
-        `/knowledge/${knowledgeBaseId}/documents/${documentId}`
+        `/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`
       );
       return data;
     },
@@ -60,7 +60,7 @@ export function useUploadDocument(knowledgeBaseId: string) {
       const formData = new FormData();
       formData.append('file', file);
       return await uploadForm<Document>(
-        `/knowledge/${knowledgeBaseId}/documents/upload`,
+        `/knowledge-bases/${knowledgeBaseId}/documents`,
         formData
       );
     },
@@ -79,7 +79,7 @@ export function useDeleteDocument(knowledgeBaseId: string) {
 
   return useMutation({
     mutationFn: async (documentId: string) => {
-      await api.delete(`/knowledge/${knowledgeBaseId}/documents/${documentId}`);
+      await api.delete(`/knowledge-bases/documents/${documentId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
@@ -93,5 +93,5 @@ export function useDeleteDocument(knowledgeBaseId: string) {
  */
 export function downloadDocument(knowledgeBaseId: string, documentId: string) {
   // 直接用浏览器下载，因为有认证
-  window.open(`/api/knowledge/${knowledgeBaseId}/documents/${documentId}/download`, '_blank');
+  window.open(`/api/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/download`, '_blank');
 }

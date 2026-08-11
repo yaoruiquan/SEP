@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -27,7 +28,9 @@ type AuthedRequest = { user: { id: string; userId?: string } };
 
 /** 从 JWT payload 中取出 userId（兼容两种字段名） */
 function userId(req: AuthedRequest): string {
-  return req.user.userId ?? req.user.id;
+  // req.user is the result of JwtStrategy.validate() which returns the full user object
+  // The id field is the userId
+  return req.user.id;
 }
 
 @ApiTags('Knowledge - Test & Analytics')
@@ -48,7 +51,9 @@ export class KnowledgeTestController {
       where: { userId: uid },
       select: { enterpriseId: true },
     });
-    if (!member) throw new Error('用户不属于任何企业');
+    if (!member) {
+      throw new NotFoundException('用户不属于任何企业');
+    }
     return member.enterpriseId;
   }
 

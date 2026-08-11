@@ -8,6 +8,7 @@ export const KnowledgeSearchDtoSchema = z.object({
   instanceId: z.string().cuid('Invalid instance ID'),
   topK: z.number().int().min(1).max(20).optional().default(5),
   scoreThreshold: z.number().min(0).max(1).optional().default(0.7),
+  strategy: z.enum(['lexical', 'vector', 'hybrid', 'auto']).optional().default('auto'),
 });
 
 export type KnowledgeSearchDto = z.infer<typeof KnowledgeSearchDtoSchema>;
@@ -33,6 +34,7 @@ export const SearchByKnowledgeBaseDtoSchema = z.object({
   knowledgeBaseIds: z.array(z.string().cuid()).min(1, 'At least one knowledge base required'),
   topK: z.number().int().min(1).max(20).optional().default(5),
   scoreThreshold: z.number().min(0).max(1).optional().default(0.7),
+  strategy: z.enum(['lexical', 'vector', 'hybrid', 'auto']).optional().default('auto'),
 });
 
 export type SearchByKnowledgeBaseDto = z.infer<typeof SearchByKnowledgeBaseDtoSchema>;

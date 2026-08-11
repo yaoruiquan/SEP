@@ -18,7 +18,7 @@ import { CreateTextChunkDto, UpdateTextChunkDto } from './dto/text-chunk.dto';
 @ApiTags('Knowledge - Text Chunks')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('knowledge/:knowledgeBaseId/chunks')
+@Controller('knowledge-bases/:knowledgeBaseId/chunks')
 export class TextChunkController {
   constructor(private textChunkService: TextChunkService) {}
 

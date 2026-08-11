@@ -30,7 +30,7 @@ import { KnowledgeService } from './knowledge.service';
 type AuthedRequest = { user: { id: string } };
 
 @ApiTags('Knowledge Base')
-@Controller('knowledge')
+@Controller('knowledge-bases')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class KnowledgeController {

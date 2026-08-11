@@ -24,7 +24,7 @@ import { extname, join } from 'path';
 @ApiTags('Knowledge - Documents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('knowledge/:knowledgeBaseId/documents')
+@Controller('knowledge-bases/:knowledgeBaseId/documents')
 export class DocumentController {
   constructor(
     private documentService: DocumentService,
@@ -65,7 +65,7 @@ export class DocumentController {
     @UploadedFile() file: Express.Multer.File,
     @Request() req,
   ) {
-    const userId = req.user.userId;
+    const userId = req.user.id; // JWT strategy sets req.user.id
     return this.documentService.uploadDocument(knowledgeBaseId, file, userId);
   }
 

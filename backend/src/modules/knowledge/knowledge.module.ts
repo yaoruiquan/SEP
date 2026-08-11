@@ -14,6 +14,9 @@ import { DocumentProcessorService } from './document-processor.service';
 import { KnowledgeSearchService } from './knowledge-search.service';
 import { KnowledgeTestService } from './knowledge-test.service';
 import { KnowledgeAnalyticsService } from './knowledge-analytics.service';
+import { TextTokenizer } from './text-tokenizer.service';
+import { BM25Scorer } from './bm25-scorer.service';
+import { LexicalSearchService } from './lexical-search.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
 
@@ -21,10 +24,10 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
   imports: [PrismaModule, EnterpriseModule],
   controllers: [
     KnowledgeController,
+    KnowledgeTestController,  // Must be before DocumentController to match /documents/status
     DocumentController,
     TextChunkController,
     SearchController,
-    KnowledgeTestController,
   ],
   providers: [
     KnowledgeService,
@@ -37,6 +40,9 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     KnowledgeSearchService,
     KnowledgeTestService,
     KnowledgeAnalyticsService,
+    TextTokenizer,
+    BM25Scorer,
+    LexicalSearchService,
   ],
   exports: [
     KnowledgeService,
@@ -49,6 +55,9 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     KnowledgeSearchService,
     KnowledgeTestService,
     KnowledgeAnalyticsService,
+    TextTokenizer,
+    BM25Scorer,
+    LexicalSearchService,
   ],
 })
 export class KnowledgeModule {}

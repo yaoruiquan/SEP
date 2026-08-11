@@ -55,14 +55,14 @@ export interface KnowledgeGrant {
 export function useKnowledgeBases() {
   return useQuery<KnowledgeBase[]>({
     queryKey: ['knowledge-bases'],
-    queryFn: () => api.get<KnowledgeBase[]>('/knowledge'),
+    queryFn: () => api.get<KnowledgeBase[]>('/knowledge-bases'),
   });
 }
 
 export function useKnowledgeBase(id: string | undefined) {
   return useQuery({
     queryKey: ['knowledge-base', id],
-    queryFn: () => api.get(`/knowledge/${id}`),
+    queryFn: () => api.get(`/knowledge-bases/${id}`),
     enabled: !!id,
   });
 }
@@ -72,7 +72,7 @@ export function useCreateKnowledgeBase() {
 
   return useMutation({
     mutationFn: (data: { name: string; description?: string }) =>
-      api.post<KnowledgeBase>('/knowledge', data),
+      api.post<KnowledgeBase>('/knowledge-bases', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
     },
@@ -84,7 +84,7 @@ export function useUpdateKnowledgeBase() {
 
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string; name?: string; description?: string | null }) =>
-      api.patch(`/knowledge/${id}`, data),
+      api.patch(`/knowledge-bases/${id}`, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-base', vars.id] });
@@ -96,7 +96,7 @@ export function useDeleteKnowledgeBase() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/knowledge/${id}`),
+    mutationFn: (id: string) => api.delete(`/knowledge-bases/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
     },
@@ -106,7 +106,7 @@ export function useDeleteKnowledgeBase() {
 export function useDocuments(knowledgeBaseId: string | undefined) {
   return useQuery<Document[]>({
     queryKey: ['documents', knowledgeBaseId],
-    queryFn: () => api.get<Document[]>(`/knowledge/${knowledgeBaseId}/documents`),
+    queryFn: () => api.get<Document[]>(`/knowledge-bases/${knowledgeBaseId}/documents`),
     enabled: !!knowledgeBaseId,
   });
 }
@@ -118,7 +118,7 @@ export function useUploadDocument() {
     mutationFn: ({ knowledgeBaseId, file }: { knowledgeBaseId: string; file: File }) => {
       const formData = new FormData();
       formData.append('file', file);
-      return api.post(`/knowledge/${knowledgeBaseId}/documents`, formData, {
+      return api.post(`/knowledge-bases/${knowledgeBaseId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
     },
@@ -134,7 +134,7 @@ export function useDeleteDocument() {
 
   return useMutation({
     mutationFn: ({ documentId, knowledgeBaseId }: { documentId: string; knowledgeBaseId: string }) =>
-      api.delete(`/knowledge/documents/${documentId}`),
+      api.delete(`/knowledge-bases/documents/${documentId}`),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['documents', vars.knowledgeBaseId] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-base', vars.knowledgeBaseId] });
@@ -145,7 +145,7 @@ export function useDeleteDocument() {
 export function useKnowledgeGrants(knowledgeBaseId: string | undefined) {
   return useQuery<KnowledgeGrant[]>({
     queryKey: ['knowledge-grants', knowledgeBaseId],
-    queryFn: () => api.get<KnowledgeGrant[]>(`/knowledge/${knowledgeBaseId}/grants`),
+    queryFn: () => api.get<KnowledgeGrant[]>(`/knowledge-bases/${knowledgeBaseId}/grants`),
     enabled: !!knowledgeBaseId,
   });
 }
@@ -162,7 +162,7 @@ export function useCreateGrant() {
       instanceId?: string;
       departmentId?: string;
     }) =>
-      api.post(`/knowledge/${knowledgeBaseId}/grants`, data),
+      api.post(`/knowledge-bases/${knowledgeBaseId}/grants`, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-grants', vars.knowledgeBaseId] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-base', vars.knowledgeBaseId] });
@@ -175,7 +175,7 @@ export function useDeleteGrant() {
 
   return useMutation({
     mutationFn: ({ grantId, knowledgeBaseId }: { grantId: string; knowledgeBaseId: string }) =>
-      api.delete(`/knowledge/grants/${grantId}`),
+      api.delete(`/knowledge-bases/grants/${grantId}`),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-grants', vars.knowledgeBaseId] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-base', vars.knowledgeBaseId] });

@@ -19,7 +19,7 @@ export function useKnowledgeBases() {
   return useQuery<KnowledgeBase[]>({
     queryKey: ['knowledge-bases'],
     queryFn: async () => {
-      const data = await api.get<KnowledgeBase[]>('/knowledge');
+      const data = await api.get<KnowledgeBase[]>('/knowledge-bases');
       return data;
     },
   });
@@ -33,7 +33,7 @@ export function useKnowledgeBase(id: string | null) {
     queryKey: ['knowledge-bases', id],
     queryFn: async () => {
       if (!id) throw new Error('No knowledge base ID');
-      const data = await api.get<KnowledgeBaseDetail>(`/knowledge/${id}`);
+      const data = await api.get<KnowledgeBaseDetail>(`/knowledge-bases/${id}`);
       return data;
     },
     enabled: !!id,
@@ -48,7 +48,7 @@ export function useCreateKnowledgeBase() {
 
   return useMutation({
     mutationFn: async (data: CreateKnowledgeBaseDto) => {
-      return await api.post<KnowledgeBase>('/knowledge', data);
+      return await api.post<KnowledgeBase>('/knowledge-bases', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
@@ -64,7 +64,7 @@ export function useUpdateKnowledgeBase() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateKnowledgeBaseDto }) => {
-      return await api.patch<KnowledgeBase>(`/knowledge/${id}`, data);
+      return await api.patch<KnowledgeBase>(`/knowledge-bases/${id}`, data);
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
@@ -81,7 +81,7 @@ export function useDeleteKnowledgeBase() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/knowledge/${id}`);
+      await api.delete(`/knowledge-bases/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });

@@ -20,7 +20,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 @ApiTags('Knowledge Search')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('knowledge/search')
+@Controller('knowledge-bases/search')
 export class SearchController {
   constructor(private readonly searchService: KnowledgeSearchService) {}
 
@@ -41,11 +41,14 @@ export class SearchController {
       dto.instanceId,
       dto.topK,
       dto.scoreThreshold,
+      dto.strategy,
     );
 
     return {
       query: dto.query,
       instanceId: dto.instanceId,
+      strategy: searchResponse.strategy,
+      durationMs: searchResponse.durationMs,
       results: searchResponse.results,
       count: searchResponse.count,
     };
@@ -68,6 +71,7 @@ export class SearchController {
       dto.knowledgeBaseIds,
       dto.topK,
       dto.scoreThreshold,
+      dto.strategy,
     );
 
     return {

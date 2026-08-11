@@ -82,10 +82,11 @@ export class KnowledgeTestService {
       [knowledgeBaseId],
       dto.topK,
       dto.scoreThreshold,
+      dto.strategy || 'auto',
     );
     const durationMs = Date.now() - start;
 
-    const strategy = this.searchService.isVectorAvailable() ? 'vector' : 'fulltext';
+    const strategy = dto.strategy || 'auto';
 
     // 记录检索日志（isTest=true）
     await this.prisma.knowledgeSearchLog.create({

@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentParserService } from './document-parser.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
+import { TextTokenizer } from './text-tokenizer.service';
 import { TextChunker } from './text-chunker.util';
 
 @Injectable()
@@ -14,10 +15,11 @@ export class DocumentProcessorService {
     private parser: DocumentParserService,
     private embedding: EmbeddingService,
     private vector: VectorService,
+    private tokenizer: TextTokenizer,
   ) {}
 
   /**
-   * 处理文档：解析 → 分块 → 向量化 → 存储
+   * 处理文档：解析 → 分块 → 向量化 → 存储（Phase 2 重构）
    */
   async processDocument(documentId: string) {
     this.logger.log(`Processing document: ${documentId}`);
@@ -62,51 +64,57 @@ export class DocumentProcessorService {
         throw new Error('Failed to chunk document');
       }
 
-      // 4. 生成向量
-      if (!this.embedding.isAvailable()) {
+      // 4. 检查 Embedding 服务是否可用
+      const embeddingAvailable = await this.embedding.isAvailable();
+
+      if (!embeddingAvailable) {
         this.logger.warn('Embedding service not available, storing chunks without vectors');
         await this.storeChunksWithoutVectors(document, chunks);
         return;
       }
 
+      // 5. 生成向量
       this.logger.log('Generating embeddings...');
-      const embeddings = await this.embedding.embedBatch(chunks);
+      const embeddingResults = await this.embedding.embedBatch(chunks);
+      const model = this.embedding.getModel();
 
-      // 5. 存储文本片段到数据库
-      const textChunks = await Promise.all(
-        chunks.map((content, index) =>
-          this.prisma.textChunk.create({
+      // 6. 分词（用于 BM25）
+      const tokenizedChunks = chunks.map((chunk) => this.tokenizer.tokenize(chunk));
+
+      // 7. 存储文本片段 + 向量到数据库（Phase 2：单一存储）
+      await Promise.all(
+        chunks.map((content, index) => {
+          const embeddingBuffer = Buffer.from(embeddingResults[index].embedding.buffer) as any;
+
+          return this.prisma.textChunk.create({
             data: {
               knowledgeBaseId: document.knowledgeBaseId,
+              documentId: document.id,
               content,
               source: document.filename,
               tags: [],
               createdBy: document.uploadedBy,
+              embedding: embeddingBuffer,
+              embeddingModel: model,
+              tokens: tokenizedChunks[index],
             },
-          }),
-        ),
+          });
+        }),
       );
 
-      this.logger.log(`Stored ${textChunks.length} text chunks`);
+      this.logger.log(`Stored ${chunks.length} text chunks with embeddings and tokens`);
 
-      // 6. 存储向量到 Pinecone
-      if (this.vector.isAvailable()) {
-        const vectors = textChunks.map((chunk, index) => ({
-          id: chunk.id,
-          values: embeddings[index],
-          metadata: {
-            knowledgeBaseId: document.knowledgeBaseId,
-            chunkId: chunk.id,
-            content: chunk.content.substring(0, 500), // 只存储前 500 字符作为预览
-            source: document.filename,
-          },
-        }));
+      // 8. 使缓存失效（让向量服务重新加载）
+      const kb = await this.prisma.knowledgeBase.findUnique({
+        where: { id: document.knowledgeBaseId },
+        select: { enterpriseId: true },
+      });
 
-        await this.vector.upsertVectors(vectors);
-        this.logger.log(`Upserted ${vectors.length} vectors to Pinecone`);
+      if (kb) {
+        this.vector.invalidateCache(kb.enterpriseId, document.knowledgeBaseId);
       }
 
-      // 7. 更新文档状态为完成
+      // 9. 更新文档状态为完成
       await this.prisma.document.update({
         where: { id: documentId },
         data: { status: 'READY' },
@@ -127,18 +135,22 @@ export class DocumentProcessorService {
   }
 
   /**
-   * 当 Embedding 服务不可用时，只存储文本片段
+   * 当 Embedding 服务不可用时，只存储文本片段 + tokens
    */
   private async storeChunksWithoutVectors(document: any, chunks: string[]) {
+    const tokenizedChunks = chunks.map((chunk) => this.tokenizer.tokenize(chunk));
+
     await Promise.all(
-      chunks.map((content) =>
+      chunks.map((content, index) =>
         this.prisma.textChunk.create({
           data: {
             knowledgeBaseId: document.knowledgeBaseId,
+            documentId: document.id,
             content,
             source: document.filename,
             tags: [],
             createdBy: document.uploadedBy,
+            tokens: tokenizedChunks[index],
           },
         }),
       ),
@@ -156,7 +168,7 @@ export class DocumentProcessorService {
    * 重新处理文档
    */
   async reprocessDocument(documentId: string) {
-    // 删除旧的文本片段和向量
+    // 删除旧的文本片段（cascade 会自动删除）
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: { knowledgeBase: true },
@@ -166,18 +178,13 @@ export class DocumentProcessorService {
       throw new Error('Document not found');
     }
 
-    // 删除关联的文本片段
+    // 删除关联的文本片段（Phase 2：通过 documentId 删除）
     await this.prisma.textChunk.deleteMany({
-      where: {
-        knowledgeBaseId: document.knowledgeBaseId,
-        source: document.filename,
-      },
+      where: { documentId },
     });
 
-    // 删除向量
-    if (this.vector.isAvailable()) {
-      await this.vector.deleteByDocument(document.knowledgeBaseId, document.id);
-    }
+    // 使缓存失效
+    this.vector.invalidateCache(document.knowledgeBase.enterpriseId, document.knowledgeBaseId);
 
     // 重新处理
     await this.processDocument(documentId);
