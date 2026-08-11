@@ -997,6 +997,7 @@ model Document {
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   uploader      User          @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+  chunks        TextChunk[] // Phase 2: 反向关联生成的文本片段
 
   @@index([knowledgeBaseId])
   @@index([knowledgeBaseId, status]) // 批量查询状态时加速
@@ -1056,19 +1057,28 @@ model KnowledgeGrant {
 model TextChunk {
   id              String   @id @default(cuid())
   knowledgeBaseId String
+  documentId      String? // Phase 2: 关联文档（手动创建为 null）
   title           String?
   content         String   @db.Text
   source          String // "manual" or document ID
   tags            String[] // User-defined tags
-  vectorId        String? // Vector database ID
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+
+  // Phase 2: Vector + Lexical fields
+  embedding      Bytes? // 768/1024 维向量，存为二进制
+  embeddingModel String? // 如 "bge-small-zh-v1.5"
+  tokens         String[] // 预分词结果，用于 BM25
+
+  vectorId  String? // 外部向量库 ID（Phase 1 遗留，Phase 2 不用）
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document      Document?     @relation(fields: [documentId], references: [id], onDelete: Cascade)
   creator       User?         @relation("TextChunkCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([knowledgeBaseId])
+  @@index([documentId])
   @@map("text_chunks")
 }
 

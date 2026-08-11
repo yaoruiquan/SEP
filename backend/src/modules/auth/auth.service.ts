@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
@@ -12,6 +17,7 @@ import {
   CreateEnterpriseDto,
 } from 'shared';
 import { InvitationService } from '../enterprise/invitation.service';
+import { DefaultDepartmentsService } from '../enterprise/default-departments.service';
 
 const REFRESH_COOKIE = 'refresh_token';
 const ACCESS_EXPIRES = '1h';
@@ -20,11 +26,14 @@ const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
     private invitations: InvitationService,
+    private defaultDepartments: DefaultDepartmentsService,
   ) {}
 
   // ──────────────── helpers ────────────────
@@ -45,6 +54,22 @@ export class AuthService {
       { sub: userId, type: 'refresh' },
       { secret: this.jwtSecret, expiresIn: REFRESH_EXPIRES },
     );
+  }
+
+  /**
+   * 铺默认部门树。**吞掉异常**：部门缺了管理员自己能建，
+   * 但企业已经建成、邮箱已被占用，此时上抛会让用户既登不进去也重注册不了。
+   * 失败只记日志，注册照常返回。
+   */
+  private async seedDefaultDepartments(enterpriseId: string): Promise<void> {
+    try {
+      await this.defaultDepartments.createDefaultDepartments(enterpriseId);
+    } catch (error) {
+      this.logger.error(
+        `企业 ${enterpriseId} 默认部门创建失败，企业已建成但部门页为空`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private setRefreshCookie(res: Response, token: string): void {
@@ -109,6 +134,11 @@ export class AuthService {
         return { user, enterprise, member };
       },
     );
+
+    // 默认部门树在事务外铺：它是开箱即用的便利，不是注册的必要条件。
+    // 挤进事务会把一个三写的短事务拉成十几条 insert；失败若上抛，
+    // 则用户卡在"邮箱已占用但公司没建成"的死状态。
+    await this.seedDefaultDepartments(enterprise.id);
 
     const token = this.signAccess(user);
     this.setRefreshCookie(res, this.signRefresh(user.id));
@@ -262,6 +292,9 @@ export class AuthService {
 
       return { enterprise, member };
     });
+
+    // 同 register：默认部门是便利，不该拖垮开公司流程。见 seedDefaultDepartments
+    await this.seedDefaultDepartments(enterprise.id);
 
     // 重新签发：access token 本身不带企业信息，但前端要靠这个响应
     // 把 store 里的 enterprise 从 null 换成新公司，顺带续一次 refresh

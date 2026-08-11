@@ -24,6 +24,7 @@ describe('AuthService.createEnterprise', () => {
   let jwt: any;
   let config: any;
   let invitations: any;
+  let defaultDepartments: any;
   let res: any;
   let svc: AuthService;
 
@@ -54,9 +55,12 @@ describe('AuthService.createEnterprise', () => {
     };
     config = { get: jest.fn().mockReturnValue(undefined) };
     invitations = { findUsableByToken: jest.fn() };
+    defaultDepartments = {
+      createDefaultDepartments: jest.fn().mockResolvedValue(undefined),
+    };
     res = { cookie: jest.fn() };
 
-    svc = new AuthService(prisma, jwt, config, invitations);
+    svc = new AuthService(prisma, jwt, config, invitations, defaultDepartments);
   });
 
   it('一个事务里建出企业 + 算力账户 + 管理员成员', async () => {
@@ -144,5 +148,36 @@ describe('AuthService.createEnterprise', () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.enterprise.create).not.toHaveBeenCalled();
+  });
+
+  it('建完企业后铺默认部门树 —— 新企业的部门页不该是空的', async () => {
+    await svc.createEnterprise(USER.id, { name: '新公司' }, res);
+
+    expect(defaultDepartments.createDefaultDepartments).toHaveBeenCalledWith(
+      'ent-new',
+    );
+  });
+
+  it('默认部门建失败不连坐：企业照样建成，用户照样拿到 token', async () => {
+    // 部门只是开箱即用的便利，缺了可以自己建；
+    // 让它把整个开公司流程拖挂，等于用锦上添花换掉了地基
+    defaultDepartments.createDefaultDepartments.mockRejectedValue(
+      new Error('部门表写入失败'),
+    );
+
+    const result = await svc.createEnterprise(USER.id, { name: '新公司' }, res);
+
+    expect(result.enterprise).toEqual({ id: 'ent-new', name: '新公司' });
+    expect(result.roleInEnterprise).toBe('ENTERPRISE_ADMIN');
+    expect(result.token).toBe('access-jwt');
+    expect(res.cookie).toHaveBeenCalledTimes(1);
+  });
+
+  it('默认部门在事务之外建 —— 不占着事务连接跑 16 条 insert', async () => {
+    await svc.createEnterprise(USER.id, { name: '新公司' }, res);
+
+    // tx 里只该有企业和成员两张表被写；部门若挤进事务，
+    // 会把一个三写的短事务拉成 16 条 insert 的长事务
+    expect(tx.department).toBeUndefined();
   });
 });
