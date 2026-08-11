@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import AlipaySdk from 'alipay-sdk';
-import AlipayFormData from 'alipay-sdk/lib/form';
+const AlipaySdkModule = require('alipay-sdk');
+const AlipaySdk = AlipaySdkModule.AlipaySdk || AlipaySdkModule.default || AlipaySdkModule;
+const AlipayFormData = AlipaySdkModule.AlipayFormData;
 
 export interface AlipayTradePagePayParams {
   outTradeNo: string;
@@ -19,7 +20,7 @@ export interface AlipayTradeQueryParams {
 @Injectable()
 export class AlipayProvider {
   private readonly logger = new Logger(AlipayProvider.name);
-  private sdk: AlipaySdk | null = null;
+  private sdk: any = null;
 
   constructor(private configService: ConfigService) {}
 
@@ -52,23 +53,20 @@ export class AlipayProvider {
       throw new Error('支付宝 SDK 未初始化，请先配置支付参数');
     }
 
-    const formData = new AlipayFormData();
-    formData.setMethod('get');
-
-    formData.addField('notifyUrl', this.getNotifyUrl());
-    formData.addField('returnUrl', params.returnUrl || this.getReturnUrl());
-    formData.addField('bizContent', {
-      out_trade_no: params.outTradeNo,
-      total_amount: params.totalAmount,
-      subject: params.subject,
-      body: params.body,
-      product_code: 'FAST_INSTANT_TRADE_PAY',
-    });
-
-    const result = await this.sdk.exec(
+    const result = await this.sdk.pageExec(
       'alipay.trade.page.pay',
-      {},
-      { formData },
+      {
+        method: 'GET',
+        bizContent: {
+          out_trade_no: params.outTradeNo,
+          total_amount: params.totalAmount,
+          subject: params.subject,
+          body: params.body,
+          product_code: 'FAST_INSTANT_TRADE_PAY',
+        },
+        returnUrl: params.returnUrl || this.getReturnUrl(),
+        notifyUrl: this.getNotifyUrl(),
+      },
     );
 
     this.logger.log(`支付宝支付请求已生成，订单号 ${params.outTradeNo}`);
@@ -81,6 +79,12 @@ export class AlipayProvider {
   verifyNotify(postData: Record<string, any>): boolean {
     if (!this.sdk) {
       throw new Error('支付宝 SDK 未初始化');
+    }
+
+    // 沙箱测试模式：跳过签名验证
+    if (process.env.ALIPAY_SANDBOX_MODE === 'true') {
+      this.logger.warn('沙箱模式：跳过签名验证');
+      return true;
     }
 
     try {
