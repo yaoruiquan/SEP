@@ -2,7 +2,14 @@
 CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PAID', 'CLOSED', 'REFUNDED');
 
 -- CreateEnum
-CREATE TYPE "PayChannel" AS ENUM ('ALIPAY', 'WECHAT', 'MANUAL');
+-- 幂等：20260811101428_add_recharge_order 可能已创建该类型（见该迁移注释）
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PayChannel') THEN
+        CREATE TYPE "PayChannel" AS ENUM ('ALIPAY', 'WECHAT', 'MANUAL');
+    END IF;
+END
+$$;
 
 -- AlterTable
 ALTER TABLE "digital_employees" ADD COLUMN "annualPriceCNY" DECIMAL(12,2),

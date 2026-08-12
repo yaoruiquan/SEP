@@ -1,6 +1,17 @@
 -- CreateEnum
 CREATE TYPE "RechargeOrderStatus" AS ENUM ('PENDING', 'PAID', 'CLOSED');
 
+-- CreateEnum
+-- 说明：PayChannel 同时被本迁移与 20260811134914_add_order_and_cart 使用，
+-- 而后者时间戳更晚。在全新库上按序重放时本迁移会先执行，故此处幂等创建。
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PayChannel') THEN
+        CREATE TYPE "PayChannel" AS ENUM ('ALIPAY', 'WECHAT', 'MANUAL');
+    END IF;
+END
+$$;
+
 -- CreateTable
 CREATE TABLE "recharge_orders" (
     "id" TEXT NOT NULL,
