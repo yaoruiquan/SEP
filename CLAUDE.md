@@ -10,8 +10,7 @@ Employee is an agent (Vercel AI SDK) that orchestrates one or more **Silicon Cap
 (硅基能力)** — reusable units of type `agent` / `rpa` / `skill` / `ai-app`, each hidden
 behind a single `execute()` interface via the adapter pattern.
 
-Full requirements/architecture live in `docs/architecture/`. See the **Doc caveat** below
-before trusting them.
+Full requirements/architecture live in `docs/architecture/` — note that some concepts there may be outdated; always verify against actual code.
 
 ## Tech stack
 
@@ -48,20 +47,14 @@ before trusting them.
 
 ## Commands
 
+Key Prisma commands (run in `backend/` or via `pnpm` from root):
 ```bash
-pnpm install                    # 安装所有 workspace 依赖
-docker-compose up -d            # 启动 PostgreSQL + Redis
-
-pnpm db:generate                # 重新生成 Prisma Client（改 schema 后执行）
-pnpm db:migrate                 # 创建并应用迁移
-pnpm db:studio                  # Prisma Studio
-
-pnpm dev:backend                # 后端 :3001，Swagger 在 /api/docs
-pnpm dev:web                    # 前端（Next.js，待开发）
-pnpm build                      # 全量构建
+pnpm db:generate    # 重新生成 Prisma Client（改 schema 后执行）
+pnpm db:migrate     # 创建并应用迁移
+pnpm db:studio      # Prisma Studio
 ```
 
-Prisma 命令在 `backend/` 内也可直接运行（读 `backend/.env`）。
+Standard commands: `pnpm install`, `docker-compose up -d`, `pnpm dev:backend`, `pnpm dev:web`, `pnpm build`.
 
 ## Repo layout & where things go
 
@@ -234,58 +227,8 @@ Types: `feat` `fix` `refactor` `chore` `docs` `test` `perf`
 
 Never connect to DeepSeek / OpenAI / etc. directly from app code — always via sub2api.
 
-## Doc caveat (read before following docs/)
-
-`docs/` was written in the planning phase. Some concepts there — a separate `Gateway`
-process, `ModelRelayClient`, `new-api`, `CapabilityVersion`, `SecretProfile`,
-`provider-execution-worker` — do **not** reflect the current code and may be
-over-engineered for now. Concretely: `ModelRelayClient`/`new-api` = **sub2api**; there is
-**no separate Gateway process** (the backend calls providers directly). When a doc
-conflicts with the code or the user, the code and the user win — confirm before building
-infrastructure a doc describes but the code doesn't have.
-
-## Key docs
-
-- Requirements/architecture: `docs/architecture/硅基人才平台-需求与架构规格书-v2.md`
-- Tech-selection rationale: `docs/architecture/技术选型决策文档.md`
-- OpenCode HTTP contract: `docs/对接/OpenCode执行后端-协作与接口契约.md`
-- Progress reports: `docs/progress/`
-
-<!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+**ALWAYS use code-review-graph MCP tools BEFORE Grep/Glob/Read.** The graph gives structural context (callers, dependencies, test coverage) that file scanning cannot. Use `/mcp` to list available tools.
 
-### When to use graph tools FIRST
-
-- **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
-- **Understanding impact**: `get_impact_radius_tool` instead of manually tracing imports
-- **Code review**: `detect_changes_tool` + `get_review_context_tool` instead of reading entire files
-- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview_tool` + `list_communities_tool`
-
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
-### Key Tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `detect_changes_tool` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context_tool` | Need source snippets for review — token-efficient |
-| `get_impact_radius_tool` | Understanding blast radius of a change |
-| `get_affected_flows_tool` | Finding which execution paths are impacted |
-| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
-| `get_architecture_overview_tool` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes_tool` for code review.
-3. Use `get_affected_flows_tool` to understand impact.
-4. Use `query_graph_tool` pattern="tests_for" to check coverage.
+Key scenarios: code review (`detect_changes_tool`), impact analysis (`get_impact_radius_tool`), finding relationships (`query_graph_tool`), architecture overview (`get_architecture_overview_tool`).
