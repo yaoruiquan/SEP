@@ -117,6 +117,8 @@ export interface MarketEmployee {
   position: string;
   avatar: string | null;
   price: number | null;
+  annualPriceCNY: number | null;
+  includedComputeCNY: number;
   version: string;
   publishedAt: string | null;
   bindings: {
@@ -152,7 +154,7 @@ export interface EnterpriseMember {
   position: string | null;
   createdAt: string;
   user: { id: string; email: string; name: string | null; avatar: string | null };
-  department: { id: string; name: string } | null;
+  department: { id: string; name: string; parent: { id: string; name: string } | null } | null;
 }
 
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';

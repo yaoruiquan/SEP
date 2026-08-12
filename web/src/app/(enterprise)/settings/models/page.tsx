@@ -26,9 +26,9 @@ export default function ModelsSettingsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-6 py-4">
-        <h1 className="text-2xl font-bold">模型配置</h1>
+        <h1 className="text-2xl font-bold">模型偏好</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          配置企业级模型策略、白名单与预算控制
+          查看企业允许使用的模型列表和当前默认模型
         </p>
       </div>
 
@@ -45,8 +45,16 @@ export default function ModelsSettingsPage() {
           ) : configQuery.data && modelsQuery.data ? (
             <>
               {!isAdmin && (
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200">
+                  以下是企业管理员配置的模型策略，当前为只读视图。
+                </div>
+              )}
+              {isAdmin && (
                 <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                  只有企业管理员可以修改模型配置，当前为只读视图。
+                  <p className="font-medium">企业管理员权限</p>
+                  <p className="mt-1">
+                    你可以修改全局模型策略。修改后将影响所有成员的模型使用权限。
+                  </p>
                 </div>
               )}
               <ModelConfigForm

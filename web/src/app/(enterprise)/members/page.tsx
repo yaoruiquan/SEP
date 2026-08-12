@@ -225,7 +225,13 @@ export default function MembersPage() {
                       {ROLE_LABEL[m.role] ?? m.role}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-fg-muted">{m.department?.name ?? '—'}</td>
+                  <td className="px-4 py-3 text-fg-muted">
+                    {m.department
+                      ? m.department.parent
+                        ? `${m.department.parent.name} > ${m.department.name}`
+                        : m.department.name
+                      : '—'}
+                  </td>
                   <td className="px-4 py-3 text-fg-muted">{m.position ?? '—'}</td>
                   {isAdmin && (
                     <td className="px-4 py-3">

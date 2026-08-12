@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
 import { ThemeLogo } from '@/components/ui/theme-logo';
 import { useAuthStore, defaultHomeFor } from '@/lib/auth-store';
+import { CartButton } from '@/components/cart-button';
 
 /**
  * 人才市场顶栏。市场是**公开**的（未登录可浏览），
@@ -38,12 +39,15 @@ export function MarketHeader() {
 
         <nav className="flex items-center gap-2">
           {loggedIn ? (
-            <Link
-              href={defaultHomeFor(user, enterprise)}
-              className={cn(buttonVariants({ variant: 'glass', size: 'sm' }))}
-            >
-              {enterprise ? enterprise.name : '控制台'}
-            </Link>
+            <>
+              <CartButton />
+              <Link
+                href={defaultHomeFor(user, enterprise)}
+                className={cn(buttonVariants({ variant: 'glass', size: 'sm' }))}
+              >
+                {enterprise ? enterprise.name : '控制台'}
+              </Link>
+            </>
           ) : (
             <>
               <Link

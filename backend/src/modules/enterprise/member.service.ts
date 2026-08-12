@@ -32,7 +32,13 @@ export class MemberService {
         position: true,
         createdAt: true,
         user: { select: { id: true, email: true, name: true, avatar: true } },
-        department: { select: { id: true, name: true } },
+        department: {
+          select: {
+            id: true,
+            name: true,
+            parent: { select: { id: true, name: true } },
+          },
+        },
       },
     });
   }

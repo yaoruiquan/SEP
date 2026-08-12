@@ -11,17 +11,18 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/toast';
 import {
   useComputeAccount,
   useComputeStats,
   useComputeTransactions,
-  useRecharge,
+  useCreateRechargeOrder,
   type TransactionListParams,
   type ComputeTransaction,
 } from '@/features/compute/use-compute';
+import { useCreateRechargeAlipayPayment } from '@/features/order/use-order';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -41,7 +42,7 @@ function exportCsv(transactions: ComputeTransaction[]) {
     format(new Date(tx.createdAt), 'yyyy-MM-dd HH:mm:ss'),
     TYPE_LABELS[tx.type] ?? tx.type,
     `"${(tx.description ?? '').replace(/"/g, '""')}"`,
-    (tx.type === 'RECHARGE' ? '' : '-') + Math.abs(tx.amount).toFixed(2),
+    (tx.type === 'RECHARGE' ? '' : '-') + (Math.abs(tx.amount) / 100).toFixed(2),
   ].join(','));
 
   const csv = [header, ...rows].join('\n');
@@ -56,7 +57,8 @@ function exportCsv(transactions: ComputeTransaction[]) {
 
 // ── Balance alert ─────────────────────────────────────────────────────────────
 function BalanceAlert({ balance, onRecharge }: { balance: number; onRecharge: () => void }) {
-  const level = balance >= 100 ? 'safe' : balance >= 20 ? 'warning' : 'danger';
+  // balance 是微单位（× 100），阈值也按微单位判断：10000 = ¥100, 2000 = ¥20
+  const level = balance >= 10000 ? 'safe' : balance >= 2000 ? 'warning' : 'danger';
   if (level === 'safe') return null;
 
   const style =
@@ -73,7 +75,7 @@ function BalanceAlert({ balance, onRecharge }: { balance: number; onRecharge: ()
             {level === 'danger' ? '余额严重不足，请尽快充值' : '余额偏低，建议及时充值'}
           </p>
           <p className="text-xs text-neutral-600 mt-0.5">
-            当前余额 ¥{balance.toFixed(2)}，不足时员工将无法调用模型。
+            当前余额 ¥{(balance / 100).toFixed(2)}，不足时员工将无法调用模型。
           </p>
         </div>
       </div>
@@ -84,26 +86,43 @@ function BalanceAlert({ balance, onRecharge }: { balance: number; onRecharge: ()
 
 // ── Recharge dialog ───────────────────────────────────────────────────────────
 function RechargeDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const recharge = useRecharge();
   const [amount, setAmount] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createOrder = useCreateRechargeOrder();
+  const createPayment = useCreateRechargeAlipayPayment();
 
   const handleConfirm = async () => {
     const n = parseFloat(amount);
     if (!n || n <= 0) { toast.error('请输入有效的充值金额'); return; }
+
+    setIsSubmitting(true);
     try {
-      await recharge.mutateAsync({ amount: n, description: '账户充值' });
-      toast.success(`充值成功，已增加 ¥${n.toFixed(2)}`);
+      // 1. 创建充值订单
+      const order = await createOrder.mutateAsync({ amount: n });
+
+      // 2. 创建支付宝支付
+      const payment = await createPayment.mutateAsync(order.orderNo);
+
+      // 3. 跳转到支付宝支付页面
+      window.location.href = payment.paymentForm;
+
+      // 关闭弹窗（用户会跳转到支付宝页面）
       onClose();
       setAmount('');
-    } catch {
-      toast.error('充值失败，请重试');
+    } catch (error) {
+      toast.error('创建充值订单失败，请重试');
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <div className="p-6">
-        <h2 className="text-xl font-semibold mb-4">充值算力</h2>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>充值算力</DialogTitle>
+        </DialogHeader>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">充值金额（元）</label>
@@ -124,13 +143,13 @@ function RechargeDialog({ open, onClose }: { open: boolean; onClose: () => void 
             ))}
           </div>
         </div>
-        <div className="flex justify-end gap-2 mt-6">
+        <DialogFooter>
           <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button onClick={handleConfirm} disabled={recharge.isPending}>
-            {recharge.isPending ? '充值中...' : '确认充值'}
+          <Button onClick={handleConfirm} disabled={isSubmitting}>
+            {isSubmitting ? '处理中...' : '确认充值'}
           </Button>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -196,6 +215,8 @@ export default function UsagePage() {
   }
 
   const balance = stats?.balance ?? 0;
+  // 后端存储的是微单位（× 100），显示时需除以 100
+  const fmtAmount = (n: number) => (n / 100).toFixed(2);
 
   return (
     <div className="p-6 space-y-6">
@@ -223,7 +244,7 @@ export default function UsagePage() {
           <CardContent>
             <div className="flex items-baseline gap-2">
               <Wallet className="w-5 h-5 text-primary" />
-              <span className="text-2xl font-bold">¥{balance.toFixed(2)}</span>
+              <span className="text-2xl font-bold">¥{fmtAmount(balance)}</span>
             </div>
           </CardContent>
         </Card>
@@ -234,7 +255,7 @@ export default function UsagePage() {
           <CardContent>
             <div className="flex items-baseline gap-2">
               <ArrowDownLeft className="w-5 h-5 text-gwarning" />
-              <span className="text-2xl font-bold">¥{(stats?.todayConsume ?? 0).toFixed(2)}</span>
+              <span className="text-2xl font-bold">¥{fmtAmount(stats?.todayConsume ?? 0)}</span>
             </div>
           </CardContent>
         </Card>
@@ -245,7 +266,7 @@ export default function UsagePage() {
           <CardContent>
             <div className="flex items-baseline gap-2">
               <Zap className="w-5 h-5 text-gneon-purple" />
-              <span className="text-2xl font-bold">¥{(stats?.monthConsume ?? 0).toFixed(2)}</span>
+              <span className="text-2xl font-bold">¥{fmtAmount(stats?.monthConsume ?? 0)}</span>
             </div>
           </CardContent>
         </Card>
@@ -381,7 +402,7 @@ export default function UsagePage() {
                       'text-sm font-semibold shrink-0 ml-4',
                       tx.type === 'RECHARGE' ? 'text-emerald-600' : 'text-orange-500',
                     )}>
-                      {tx.type === 'RECHARGE' ? '+' : '-'}¥{Math.abs(tx.amount).toFixed(2)}
+                      {tx.type === 'RECHARGE' ? '+' : '-'}¥{fmtAmount(Math.abs(tx.amount))}
                     </p>
                   </div>
                 ))}

@@ -10,17 +10,19 @@ import {
   KeyRound,
   Plug,
   CreditCard,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
   { href: '/settings/profile', label: '个人资料', icon: User },
+  { href: '/settings/models', label: '模型偏好', icon: Cpu },
+  { href: '/settings/billing', label: '账单与套餐', icon: CreditCard },
   { href: '/settings/organization', label: '企业信息', icon: Building2 },
   { href: '/settings/security', label: '安全策略', icon: Shield },
   { href: '/settings/roles', label: '角色权限', icon: Users },
   { href: '/settings/api-keys', label: 'API 密钥', icon: KeyRound },
   { href: '/settings/integrations', label: '集成与 Webhook', icon: Plug },
-  { href: '/settings/billing', label: '账单与套餐', icon: CreditCard },
 ];
 
 export default function SettingsLayout({

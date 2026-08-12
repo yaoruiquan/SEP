@@ -34,6 +34,8 @@ import { ShellTopbar, type CrumbMap } from './shell-topbar';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLogout } from '@/features/auth/use-auth';
 import { NotificationBell } from '@/components/notification-bell';
+import { CartButton } from '@/components/cart-button';
+import Link from 'next/link';
 
 /** 单条导航项，可单独标记仅管理员可见 */
 type GuardedNavLink = NavLink & { adminOnly?: boolean };
@@ -81,11 +83,6 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // 独立成组、紧跟「硅基员工」：逛市场是「招人」，上一组是「管已招的人」，
-    // 相邻但不同层级 —— 不塞进上一组，避免与「我的员工/订阅/实例」混为一类
-    links: [{ href: '/marketplace', label: nav.marketplace, icon: Store }],
-  },
-  {
     title: '工作',
     links: [
       { href: '/chat', label: nav.chat, icon: MessageSquare },
@@ -107,11 +104,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/analytics/cost', label: nav.costAnalytics, icon: BarChart3, adminOnly: true },
     ],
   },
-  {
-    title: '设置',
-    adminOnly: true,
-    links: [{ href: '/settings/models', label: nav.modelConfig, icon: Cpu }],
-  },
 ];
 
 /** 顶栏面包屑用的「路径段 → 中文名」映射，从 NAV_GROUPS 推导 + 补上非导航路由 */
@@ -121,6 +113,11 @@ const CRUMBS: CrumbMap = {
       g.links.map((l) => [l.href.replace(/^\//, ''), l.label] as const),
     ),
   ),
+  marketplace: nav.marketplace,
+  cart: '购物车',
+  checkout: '确认订单',
+  payment: '支付',
+  result: '支付结果',
   settings: '设置',
   models: '模型配置',
   chat: '对话',
@@ -282,9 +279,19 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           roleLabel={isAdmin ? '企业管理员' : '企业成员'}
           hamburgerGutter
         >
+          <Link
+            href="/marketplace"
+            className="group relative hidden shrink-0 items-center gap-1.5 rounded-glass-pill border-2 border-gradient-to-r from-[#6366F1] via-[#A855F7] to-[#EC4899] bg-gradient-to-r from-[#6366F1]/10 via-[#A855F7]/10 to-[#EC4899]/10 px-4 py-2 text-sm font-bold shadow-lg shadow-primary/20 ring-2 ring-primary/20 transition-all hover:scale-105 hover:ring-primary/40 hover:shadow-xl hover:shadow-primary/30 sm:inline-flex"
+          >
+            <Store className="h-4 w-4 text-primary" />
+            <span className="bg-gradient-to-r from-[#6366F1] via-[#A855F7] to-[#EC4899] bg-clip-text text-transparent">
+              {nav.marketplace}
+            </span>
+          </Link>
+          <CartButton />
           <NotificationBell />
         </ShellTopbar>
-        {children}
+        <div className="p-6">{children}</div>
       </main>
     </AuroraBackground>
   );
