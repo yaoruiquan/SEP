@@ -62,6 +62,7 @@ export function useChatStream() {
     async (
       conversationId: string,
       content: string,
+      targetEmployeeId?: string, // 🆕 多员工协作：指定处理该消息的员工
       onDone?: (info: DoneInfo) => void,
     ): Promise<void> => {
       const controller = new AbortController();
@@ -74,6 +75,7 @@ export function useChatStream() {
         for await (const e of streamMessage(
           conversationId,
           content,
+          targetEmployeeId,
           controller.signal,
         )) {
           applyEvent(e, setState, (info) => {

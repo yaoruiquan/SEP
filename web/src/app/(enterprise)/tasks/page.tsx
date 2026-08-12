@@ -283,8 +283,8 @@ export default function TasksPage() {
           setPanelOpen(true);
           reset();
 
-          // Start streaming
-          send(conv.id, content, (done) => {
+          // Start streaming (no targetEmployeeId, use conversation's default employee)
+          send(conv.id, content, undefined, (done) => {
             // Remove from running tasks when complete
             setRunningTasks((prev) => {
               const next = new Map(prev);

@@ -919,6 +919,7 @@ export type ConversationUpdateDto = z.infer<typeof ConversationUpdateDtoSchema>;
 
 export const MessageSendDtoSchema = z.object({
   content: z.string().min(1).max(10000),
+  targetEmployeeId: z.string().optional(), // 指定处理该消息的员工（多员工协作）
 });
 
 export type MessageSendDto = z.infer<typeof MessageSendDtoSchema>;

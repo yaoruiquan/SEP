@@ -737,6 +737,9 @@ model Message {
   // 计算公式：(inputTokens * pricingInputPer1M + outputTokens * pricingOutputPer1M) / 1,000,000
   cost Decimal? @db.Decimal(10, 6)
 
+  // 多员工协作：记录实际处理该消息的员工 ID（如果切换了员工）
+  metadata Json?
+
   createdAt DateTime @default(now())
 
   @@index([sessionId, createdAt])

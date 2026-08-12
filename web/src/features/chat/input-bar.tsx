@@ -1,15 +1,26 @@
 'use client';
 
 import { useRef, useState, useCallback, type KeyboardEvent } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Square, AtSign, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 
 interface InputBarProps {
-  onSend: (text: string) => void;
+  onSend: (text: string, targetEmployeeId?: string) => void;
   onStop?: () => void;
   streaming?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  defaultEmployeeId: string; // 会话默认员工
+  defaultEmployeeName: string;
+  availableEmployees?: Array<{ id: string; name: string; avatar: string | null }>; // 可切换的员工列表
 }
 
 export function InputBar({
@@ -18,8 +29,12 @@ export function InputBar({
   streaming,
   disabled,
   placeholder = '给你的碳基员工发消息…（Enter 发送，Shift+Enter 换行）',
+  defaultEmployeeId,
+  defaultEmployeeName,
+  availableEmployees = [],
 }: InputBarProps) {
   const [value, setValue] = useState('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const autoGrow = useCallback(() => {
@@ -32,12 +47,13 @@ export function InputBar({
   const submit = useCallback(() => {
     const text = value.trim();
     if (!text || streaming || disabled) return;
-    onSend(text);
+    onSend(text, selectedEmployeeId ?? undefined);
     setValue('');
+    setSelectedEmployeeId(null); // 发送后重置员工选择
     requestAnimationFrame(() => {
       if (taRef.current) taRef.current.style.height = 'auto';
     });
-  }, [value, streaming, disabled, onSend]);
+  }, [value, streaming, disabled, selectedEmployeeId, onSend]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -46,10 +62,60 @@ export function InputBar({
     }
   };
 
-  const charCount = value.length;
+  const targetEmployee = availableEmployees.find((e) => e.id === selectedEmployeeId);
+  const showEmployeeSelector = availableEmployees.length > 1; // 多于1个员工时才显示选择器
 
   return (
     <div className="border-t border-border bg-background px-4 py-3">
+      {/* 🆕 员工选择器（多员工协作） */}
+      {showEmployeeSelector && (
+        <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2">
+          <Select
+            value={selectedEmployeeId ?? defaultEmployeeId}
+            onValueChange={(val) =>
+              setSelectedEmployeeId(val === defaultEmployeeId ? null : val)
+            }
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="选择员工" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={defaultEmployeeId}>
+                {selectedEmployeeId === null && '✓ '}
+                {defaultEmployeeName}
+              </SelectItem>
+              {availableEmployees
+                .filter((e) => e.id !== defaultEmployeeId)
+                .map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {selectedEmployeeId === emp.id && '✓ '}
+                    {emp.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+
+          {targetEmployee && (
+            <Badge variant="default" className="gap-1 bg-muted text-foreground">
+              <AtSign className="h-3 w-3" />
+              {targetEmployee.name}
+              <button
+                onClick={() => setSelectedEmployeeId(null)}
+                className="ml-1 rounded-full hover:bg-muted"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+
+          <span className="text-xs text-fg-subtle">
+            {targetEmployee
+              ? `本条消息将由 ${targetEmployee.name} 处理`
+              : `当前员工：${defaultEmployeeName}`}
+          </span>
+        </div>
+      )}
+
       <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-white px-3 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
         <textarea
           ref={taRef}

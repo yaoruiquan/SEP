@@ -127,6 +127,7 @@ export class ConversationController {
         id,
         dto.content,
         req.user.id,
+        dto.targetEmployeeId, // 传递目标员工 ID（多员工协作）
       );
 
       for await (const sseEvent of generator) {

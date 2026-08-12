@@ -14,6 +14,7 @@ export interface SseEvent {
 export async function* streamMessage(
   sessionId: string,
   content: string,
+  targetEmployeeId?: string, // 🆕 多员工协作：指定处理该消息的员工
   signal?: AbortSignal,
 ): AsyncGenerator<SseEvent> {
   const token = authAccessor.getToken();
@@ -25,7 +26,7 @@ export async function* streamMessage(
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, targetEmployeeId }),
   });
 
   if (!res.ok || !res.body) {

@@ -13,6 +13,7 @@ import { CapabilityService } from "../capability/capability.service";
 import { AdapterInput } from "../capability/adapters/adapter.interface";
 import { SessionLockService } from "./session-lock.service";
 import { ConversationService } from "./conversation.service";
+import { SubscriptionService } from "../subscription/subscription.service";
 import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import { KnowledgeSearchService } from "../knowledge/knowledge-search.service";
 import { EnterpriseModelConfigService } from "../enterprise-model-config/enterprise-model-config.service";
@@ -40,6 +41,7 @@ export class ConversationStreamService {
     private readonly capabilityService: CapabilityService,
     private readonly sessionLockService: SessionLockService,
     private readonly conversationService: ConversationService,
+    private readonly subscriptionService: SubscriptionService,
     private readonly configService: ConfigService,
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
@@ -53,6 +55,7 @@ export class ConversationStreamService {
     sessionId: string,
     content: string,
     userId: string,
+    targetEmployeeId?: string, // 指定处理该消息的员工（多员工协作）
   ): AsyncGenerator<SseEvent> {
     // 1. 验证会话归属 + 加载 employee 配置
     const session = await this.prisma.conversationSession.findUnique({
@@ -81,7 +84,46 @@ export class ConversationStreamService {
     if (!session) throw new NotFoundException(`Session ${sessionId} not found`);
     if (session.userId !== userId) throw new ForbiddenException();
 
-    const employee = session.employee;
+    // 🆕 多员工协作：如果指定了 targetEmployeeId，切换到目标员工
+    let activeEmployee = session.employee;
+    let actualEmployeeId = session.employeeId;
+
+    if (targetEmployeeId && targetEmployeeId !== session.employeeId) {
+      // 验证用户是否订阅了目标员工
+      await this.subscriptionService.assertActiveSubscription(userId, targetEmployeeId);
+
+      // 加载目标员工配置（包含其绑定的技能）
+      const targetEmployee = await this.prisma.digitalEmployee.findUnique({
+        where: { id: targetEmployeeId },
+        include: {
+          bindings: {
+            include: {
+              capability: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  inputSchema: true,
+                },
+              },
+            },
+            orderBy: { priority: "asc" },
+          },
+        },
+      });
+
+      if (!targetEmployee) {
+        throw new NotFoundException(`Employee ${targetEmployeeId} not found`);
+      }
+
+      activeEmployee = targetEmployee;
+      actualEmployeeId = targetEmployeeId;
+      this.logger.log(
+        `[Multi-Employee] Session ${sessionId} switching from ${session.employee.name} to ${targetEmployee.name}`,
+      );
+    }
+
+    const employee = activeEmployee;
 
     // 1a. 解析企业上下文（用于预算检查 + 模型解析，仅解析一次）
     const enterpriseCtx = await this.enterpriseContext.resolve(userId);
@@ -101,9 +143,18 @@ export class ConversationStreamService {
     const lockValue = await this.sessionLockService.acquireLock(sessionId);
 
     try {
-      // 3. 持久化用户消息
+      // 3. 持久化用户消息（标记实际处理者）
       await this.prisma.message.create({
-        data: { sessionId, role: "USER", content },
+        data: {
+          sessionId,
+          role: "USER",
+          content,
+          // 🆕 如果切换了员工，记录实际处理者（前端可据此显示"@员工名"标签）
+          metadata:
+            actualEmployeeId !== session.employeeId
+              ? ({ handledBy: actualEmployeeId } as unknown as object)
+              : undefined,
+        },
       });
 
       // 4. 加载历史消息（最近 20 条，已含刚写入的本轮用户消息）

@@ -10,6 +10,7 @@ import { InputBar } from './input-bar';
 import { ModelSwitcher } from './model-switcher';
 import { useChatStream } from './use-chat-stream';
 import { useConversation } from './use-conversations';
+import { useSubscribedEmployees } from './use-subscribed-employees';
 import { useAuthStore } from '@/lib/auth-store';
 import { useModelConfig } from '@/features/enterprise-settings/use-model-config';
 import type { Message } from '@/lib/types';
@@ -35,6 +36,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const enterprise = useAuthStore((s) => s.enterprise);
   const { data: modelConfig } = useModelConfig(enterprise?.id ?? '');
 
+  // 🆕 多员工协作：加载用户订阅的所有员工
+  const { data: subscribedEmployees = [] } = useSubscribedEmployees();
+
   const employee = conversation?.employee;
   const persisted: Message[] = conversation?.messages ?? [];
 
@@ -55,9 +59,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [persisted.length, state.text, state.reasoning, state.toolCalls, pendingUser]);
 
-  const handleSend = (text: string) => {
+  const handleSend = (text: string, targetEmployeeId?: string) => {
     setPendingUser({ id: `pending-${Date.now()}`, content: text });
-    send(conversationId, text, () => {
+    send(conversationId, text, targetEmployeeId, () => {
       // on completion, refetch canonical history (includes persisted tool calls)
       qc.invalidateQueries({ queryKey: qk.conversation(conversationId) });
       qc.invalidateQueries({ queryKey: qk.conversations });
@@ -148,6 +152,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         onSend={handleSend}
         onStop={stop}
         streaming={state.streaming}
+        defaultEmployeeId={employee?.id ?? ''}
+        defaultEmployeeName={employee?.name ?? '员工'}
+        availableEmployees={subscribedEmployees}
       />
     </div>
   );
