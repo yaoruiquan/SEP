@@ -101,35 +101,21 @@ jobs:
             echo "构建前端镜像..."
             docker compose --env-file /opt/sep/.env build --no-cache sep-web
 
-            # 启动基础设施（数据库、Redis）
-            echo ""
-            echo "启动基础设施（PostgreSQL + Redis）..."
-            docker compose --env-file /opt/sep/.env up -d sep-postgres sep-redis
-
-            # 等待数据库就绪
-            echo "等待数据库就绪..."
-            sleep 10
-
             # 运行数据库迁移（可选）
             if [ "${{ github.event.inputs.run_migrations }}" = "true" ]; then
               echo ""
               echo "运行数据库迁移..."
-              docker compose --env-file /opt/sep/.env run --rm sep-backend pnpm db:migrate || echo "⚠️ 迁移可能已执行或无新迁移"
+              docker compose --env-file /opt/sep/.env run --rm sep-migrate || echo "⚠️ 迁移可能已执行或无新迁移"
             fi
 
-            # 启动后端
+            # 启动所有服务
             echo ""
-            echo "启动后端服务..."
-            docker compose --env-file /opt/sep/.env up -d sep-backend
+            echo "启动所有服务（后端 + 前端）..."
+            docker compose --env-file /opt/sep/.env up -d sep-backend sep-web
 
-            # 等待后端健康检查
-            echo "等待后端健康检查..."
+            # 等待服务启动
+            echo "等待服务启动（15秒）..."
             sleep 15
-
-            # 启动前端
-            echo ""
-            echo "启动前端服务..."
-            docker compose --env-file /opt/sep/.env up -d sep-web
 
             # 8. 显示最终状态
             echo ""
