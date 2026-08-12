@@ -1,8 +1,10 @@
 'use client';
 
-import { Building2 } from 'lucide-react';
+import { Building2, ExternalLink, DollarSign, Lock } from 'lucide-react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton, EmptyState } from '@/components/ui/feedback';
 import { useAllEnterprises } from '@/features/admin/use-admin';
 
@@ -52,32 +54,68 @@ export default function EnterprisesPage() {
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-fg-muted">
                   <th className="px-5 py-2 text-left font-medium">企业名称</th>
-                  <th className="px-5 py-2 text-left font-medium">联系邮箱</th>
+                  <th className="px-5 py-2 text-left font-medium">企业简介</th>
+                  <th className="px-5 py-2 text-left font-medium">算力余额</th>
                   <th className="px-5 py-2 text-left font-medium">成员数</th>
                   <th className="px-5 py-2 text-left font-medium">订阅数</th>
+                  <th className="px-5 py-2 text-left font-medium">状态</th>
                   <th className="px-5 py-2 text-left font-medium">注册时间</th>
+                  <th className="px-5 py-2 text-center font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {enterprises.map((ent) => (
-                  <tr
-                    key={ent.id}
-                    className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40"
-                  >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 shrink-0 text-fg-subtle" />
-                        <span className="font-medium">{ent.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-fg-muted">{ent.contactEmail}</td>
-                    <td className="px-5 py-3 text-fg-muted">{ent._count.members}</td>
-                    <td className="px-5 py-3 text-fg-muted">{ent._count.subscriptions}</td>
-                    <td className="px-5 py-3 text-fg-muted">
-                      {new Date(ent.createdAt).toLocaleDateString('zh-CN')}
-                    </td>
-                  </tr>
-                ))}
+                {enterprises.map((ent) => {
+                  const balance = ent.computeAccount?.balance ?? 0;
+                  const isSuspended = ent.metadata?.suspended === true;
+
+                  return (
+                    <tr
+                      key={ent.id}
+                      className="border-b border-border last:border-0 odd:bg-muted/20 transition-colors hover:bg-muted/40"
+                    >
+                      <td className="px-5 py-3">
+                        <Link
+                          href={`/admin/enterprises/${ent.id}`}
+                          className="flex items-center gap-2 hover:text-primary transition-colors"
+                        >
+                          <Building2 className="h-4 w-4 shrink-0 text-fg-subtle" />
+                          <span className="font-medium">{ent.name}</span>
+                        </Link>
+                      </td>
+                      <td className="px-5 py-3 text-fg-muted">{ent.description || '-'}</td>
+                      <td className="px-5 py-3">
+                        <span className={balance < 100 ? 'text-warning font-medium' : 'text-fg-muted'}>
+                          ¥{balance.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-fg-muted">{ent._count.members}</td>
+                      <td className="px-5 py-3 text-fg-muted">{ent._count.subscriptions}</td>
+                      <td className="px-5 py-3">
+                        {isSuspended ? (
+                          <Badge className="bg-danger text-white">
+                            <Lock className="mr-1 h-3 w-3" />
+                            已冻结
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-success/10 text-success">正常</Badge>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-fg-muted">
+                        {new Date(ent.createdAt).toLocaleDateString('zh-CN')}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <Link href={`/admin/enterprises/${ent.id}`}>
+                            <Button variant="outline" size="sm">
+                              <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                              查看详情
+                            </Button>
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

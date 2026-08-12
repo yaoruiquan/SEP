@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import type { RechargeCreateDto } from 'shared';
+import { format } from 'date-fns';
 
 @Injectable()
 export class ComputeService {
@@ -133,6 +134,9 @@ export class ComputeService {
 
   // ── 充值 ──────────────────────────────────────────────────────────────────
 
+  /**
+   * @deprecated 旧的模拟充值接口，已废弃。请使用 createRechargeOrder() 创建支付订单。
+   */
   async recharge(userId: string, data: RechargeCreateDto) {
     const account = await this.getAccount(userId);
 
@@ -153,6 +157,113 @@ export class ComputeService {
     });
 
     return transaction;
+  }
+
+  // ── 充值订单（新接口） ────────────────────────────────────────────────────
+
+  /**
+   * 创建充值订单（生成订单号，返回给 PaymentService 生成支付 URL）
+   */
+  async createRechargeOrder(userId: string, amount: number) {
+    const account = await this.getAccount(userId);
+
+    // 生成订单号：RCH + yyyyMMddHHmmss + 6位随机数
+    const orderNo = this.generateRechargeOrderNo();
+
+    const order = await this.prisma.rechargeOrder.create({
+      data: {
+        orderNo,
+        accountId: account.id,
+        amount,
+        status: 'PENDING',
+      },
+    });
+
+    return order;
+  }
+
+  /**
+   * 查询充值订单（支持订单号或订单ID）
+   */
+  async getRechargeOrder(userId: string, orderNoOrId: string) {
+    const account = await this.getAccount(userId);
+
+    const order = await this.prisma.rechargeOrder.findFirst({
+      where: {
+        OR: [{ id: orderNoOrId }, { orderNo: orderNoOrId }],
+        accountId: account.id,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('充值订单不存在');
+    }
+
+    return order;
+  }
+
+  /**
+   * 充值订单履约（支付回调成功后调用）
+   */
+  async fulfillRechargeOrder(orderNo: string, payTradeNo: string, payChannel: 'ALIPAY' | 'WECHAT') {
+    const order = await this.prisma.rechargeOrder.findUnique({
+      where: { orderNo },
+      include: { account: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`充值订单不存在: ${orderNo}`);
+    }
+
+    if (order.status === 'PAID') {
+      // 幂等：已支付的订单不重复处理
+      return order;
+    }
+
+    // 事务：更新订单状态 + 创建交易记录 + 更新余额
+    return this.prisma.$transaction(async (tx) => {
+      // 1. 更新订单状态
+      const updatedOrder = await tx.rechargeOrder.update({
+        where: { id: order.id },
+        data: {
+          status: 'PAID',
+          payChannel,
+          payTradeNo,
+          paidAt: new Date(),
+        },
+      });
+
+      // 2. 创建充值交易记录
+      await tx.computeTransaction.create({
+        data: {
+          accountId: order.accountId,
+          type: 'RECHARGE',
+          amount: Number(order.amount),
+          description: `充值订单 ${orderNo}`,
+        },
+      });
+
+      // 3. 更新账户余额
+      await tx.computeAccount.update({
+        where: { id: order.accountId },
+        data: {
+          balance: { increment: Number(order.amount) },
+        },
+      });
+
+      return updatedOrder;
+    });
+  }
+
+  /**
+   * 生成充值订单号
+   */
+  private generateRechargeOrderNo(): string {
+    const timestamp = format(new Date(), 'yyyyMMddHHmmss');
+    const random = Math.floor(Math.random() * 1000000)
+      .toString()
+      .padStart(6, '0');
+    return `RCH${timestamp}${random}`;
   }
 
   // ── 消费（内部调用，由对话服务调用）─────────────────────────────────────

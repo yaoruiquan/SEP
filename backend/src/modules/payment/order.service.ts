@@ -15,11 +15,17 @@ export class OrderService {
 
   /**
    * 从购物车创建订单
+   * @param itemIds 可选，仅为指定的购物车项创建订单
    */
-  async createFromCart(enterpriseId: string, createdBy: string) {
+  async createFromCart(enterpriseId: string, createdBy: string, itemIds?: string[]) {
     // 1. 获取购物车内容
+    const where: any = { enterpriseId };
+    if (itemIds && itemIds.length > 0) {
+      where.id = { in: itemIds };
+    }
+
     const cartItems = await this.prisma.cartItem.findMany({
-      where: { enterpriseId },
+      where,
       include: {
         employee: {
           select: {

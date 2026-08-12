@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Param,
   Query,
   UseGuards,
@@ -36,11 +37,14 @@ export class OrderController {
   @ApiOperation({ summary: '从购物车创建订单' })
   @ApiResponse({ status: 201, description: '订单创建成功' })
   @ApiResponse({ status: 400, description: '购物车为空或包含未审核员工' })
-  async createFromCart(@Request() req) {
-    const { enterpriseId } =
-      await this.enterpriseContext.assertEnterpriseAdmin(req.user.id);
+  async createFromCart(
+    @Request() req,
+    @Body(new ZodValidationPipe(CreateOrderFromCartDtoSchema)) body: { itemIds?: string[] },
+  ) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
 
-    return this.orderService.createFromCart(enterpriseId, req.user.id);
+    return this.orderService.createFromCart(ctx.enterpriseId, req.user.id, body.itemIds);
   }
 
   @Get()

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Query,
+  Param,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { RechargeCreateDtoSchema, type RechargeCreateDto } from 'shared';
 import { ComputeService } from './compute.service';
+import { CreateRechargeOrderDtoSchema } from './dto/recharge.dto';
+import type { CreateRechargeOrderDto } from './dto/recharge.dto';
 
 type AuthedRequest = { user: { id: string } };
 
@@ -57,7 +60,7 @@ export class ComputeController {
   }
 
   @Post('recharge')
-  @ApiOperation({ summary: '充值算力（企业管理员）' })
+  @ApiOperation({ summary: '充值算力（企业管理员）- 已废弃，请使用 POST /compute/recharge/orders' })
   @ApiResponse({ status: 201, description: '充值成功' })
   async recharge(
     @Request() req: AuthedRequest,
@@ -65,5 +68,40 @@ export class ComputeController {
     dto: RechargeCreateDto,
   ) {
     return this.compute.recharge(req.user.id, dto);
+  }
+
+  @Post('recharge/orders')
+  @ApiOperation({ summary: '创建充值订单（返回订单信息，由前端发起支付）' })
+  @ApiResponse({ status: 201, description: '订单创建成功' })
+  async createRechargeOrder(
+    @Request() req: AuthedRequest,
+    @Body(new ZodValidationPipe(CreateRechargeOrderDtoSchema))
+    dto: CreateRechargeOrderDto,
+  ) {
+    const order = await this.compute.createRechargeOrder(req.user.id, dto.amount);
+    return {
+      orderId: order.id,
+      orderNo: order.orderNo,
+      amount: order.amount,
+      status: order.status,
+    };
+  }
+
+  @Get('recharge/orders/:orderNo')
+  @ApiOperation({ summary: '查询充值订单状态（前端轮询）' })
+  @ApiResponse({ status: 200, description: '订单信息' })
+  async getRechargeOrder(
+    @Request() req: AuthedRequest,
+    @Param('orderNo') orderNo: string,
+  ) {
+    const order = await this.compute.getRechargeOrder(req.user.id, orderNo);
+    return {
+      orderId: order.id,
+      orderNo: order.orderNo,
+      amount: order.amount,
+      status: order.status,
+      paidAt: order.paidAt,
+      createdAt: order.createdAt,
+    };
   }
 }

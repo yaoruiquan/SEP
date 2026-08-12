@@ -174,6 +174,7 @@ export default function AdminEmployeesPage() {
                     <tr className="border-b border-border bg-muted/40 text-fg-muted">
                       <th className="px-5 py-2 text-left font-medium">员工</th>
                       <th className="px-5 py-2 text-left font-medium">行业 / 岗位</th>
+                      <th className="px-5 py-2 text-left font-medium">定价</th>
                       <th className="px-5 py-2 text-left font-medium">状态</th>
                       <th className="px-5 py-2 text-left font-medium">绑定能力</th>
                       <th className="px-5 py-2 text-right font-medium">操作</th>
@@ -193,6 +194,20 @@ export default function AdminEmployeesPage() {
                         </td>
                         <td className="px-5 py-3 text-fg-muted">
                           {emp.industry} / {emp.position}
+                        </td>
+                        <td className="px-5 py-3">
+                          {emp.annualPriceCNY && Number(emp.annualPriceCNY) > 0 ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">
+                                ¥{Number(emp.annualPriceCNY).toLocaleString()}/年
+                              </span>
+                              <span className="text-xs text-fg-subtle">
+                                含 ¥{Number(emp.includedComputeCNY || 0).toLocaleString()} 算力
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-success">免费</span>
+                          )}
                         </td>
                         <td className="px-5 py-3">
                           <StatusBadge status={emp.status} />

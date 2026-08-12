@@ -22,6 +22,7 @@ import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.mod
 import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterprise-settings.module';
 import { CartModule } from './modules/cart/cart.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { AnnouncementModule } from './modules/announcement/announcement.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { PaymentModule } from './modules/payment/payment.module';
     EnterpriseSettingsModule,
     CartModule,
     PaymentModule,
+    AnnouncementModule,
   ],
   controllers: [],
   providers: [],

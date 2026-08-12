@@ -3,10 +3,13 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderService } from './order.service';
 import { AlipayProvider } from './alipay.provider';
+import { ComputeService } from '../compute/compute.service';
 
 @Injectable()
 export class PaymentService {
@@ -16,6 +19,8 @@ export class PaymentService {
     private prisma: PrismaService,
     private orderService: OrderService,
     private alipayProvider: AlipayProvider,
+    @Inject(forwardRef(() => ComputeService))
+    private computeService: ComputeService,
   ) {}
 
   /**
@@ -59,7 +64,7 @@ export class PaymentService {
   }
 
   /**
-   * 发起支付宝支付
+   * 发起支付宝支付（员工订阅订单）
    */
   async createAlipayPayment(orderId: string, returnUrl?: string) {
     const order = await this.prisma.order.findUnique({
@@ -110,7 +115,49 @@ export class PaymentService {
   }
 
   /**
-   * 处理支付宝异步通知（幂等）
+   * 发起支付宝支付（充值订单）
+   */
+  async createRechargeAlipayPayment(orderNo: string, returnUrl?: string) {
+    const order = await this.prisma.rechargeOrder.findUnique({
+      where: { orderNo },
+    });
+
+    if (!order) {
+      throw new NotFoundException('充值订单不存在');
+    }
+
+    if (order.status !== 'PENDING') {
+      throw new BadRequestException(
+        `订单状态为 ${order.status}，无法支付`,
+      );
+    }
+
+    // 确保支付宝 SDK 已初始化
+    await this.initializeAlipay();
+
+    // 生成支付表单
+    const subject = '算力充值';
+    const body = `充值金额: ¥${order.amount}`;
+
+    const paymentForm = await this.alipayProvider.pagePayment({
+      outTradeNo: order.orderNo,
+      totalAmount: order.amount.toString(),
+      subject,
+      body,
+      returnUrl,
+    });
+
+    this.logger.log(`充值订单 ${order.orderNo} 支付请求已生成`);
+
+    return {
+      orderId: order.id,
+      orderNo: order.orderNo,
+      paymentForm,
+    };
+  }
+
+  /**
+   * 处理支付宝异步通知（幂等）- 支持订单支付和充值支付
    */
   async handleAlipayNotify(postData: Record<string, any>) {
     // 1. 验证签名
@@ -154,24 +201,31 @@ export class PaymentService {
       return { success: true, message: '状态不需要处理' };
     }
 
-    // 4. 查询订单
-    const order = await this.orderService.findByOrderNo(outTradeNo);
-    if (!order) {
-      this.logger.error(`订单 ${outTradeNo} 不存在`);
-      return { success: false, message: '订单不存在' };
-    }
-
-    // 5. 履约
+    // 4. 根据订单号前缀区分订单类型
     try {
-      await this.orderService.fulfill(order.id, tradeNo);
+      if (outTradeNo.startsWith('RCH')) {
+        // 充值订单
+        await this.computeService.fulfillRechargeOrder(outTradeNo, tradeNo, 'ALIPAY');
+        this.logger.log(`充值订单 ${outTradeNo} 支付成功，履约完成`);
+      } else if (outTradeNo.startsWith('ORD')) {
+        // 员工订阅订单
+        const order = await this.orderService.findByOrderNo(outTradeNo);
+        if (!order) {
+          this.logger.error(`订单 ${outTradeNo} 不存在`);
+          return { success: false, message: '订单不存在' };
+        }
+        await this.orderService.fulfill(order.id, tradeNo);
+        this.logger.log(`订单 ${outTradeNo} 支付成功，履约完成`);
+      } else {
+        this.logger.error(`未知订单类型: ${outTradeNo}`);
+        return { success: false, message: '未知订单类型' };
+      }
 
       // 标记通知已处理
       await this.prisma.paymentNotify.updateMany({
         where: { channel: 'ALIPAY', tradeNo },
         data: { processed: true },
       });
-
-      this.logger.log(`订单 ${outTradeNo} 支付成功，履约完成`);
 
       return { success: true, message: '处理成功' };
     } catch (error) {

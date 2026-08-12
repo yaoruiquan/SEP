@@ -39,6 +39,7 @@ model User {
   uploadedDocuments       Document[]            @relation("DocumentUploader")
   createdTextChunks       TextChunk[]           @relation("TextChunkCreator")
   notifications           Notification[]
+  createdAnnouncements    Announcement[]        @relation("AnnouncementCreator")
 
   @@map("users")
 }
@@ -799,6 +800,7 @@ model ComputeAccount {
 
   // Relations
   transactions ComputeTransaction[]
+  rechargeOrders RechargeOrder[]
 
   @@map("compute_accounts")
 }
@@ -1337,6 +1339,13 @@ enum OrderStatus {
   REFUNDED // 已退款
 }
 
+/// 充值订单状态
+enum RechargeOrderStatus {
+  PENDING  // 待支付
+  PAID     // 已支付
+  CLOSED   // 已关闭（超时/取消）
+}
+
 /// 支付渠道
 enum PayChannel {
   ALIPAY // 支付宝
@@ -1448,7 +1457,7 @@ model PaymentNotify {
   /// 支付渠道
   channel PayChannel
 
-  /// 商户订单号（我方 Order.orderNo）
+  /// 商户订单号（我方 Order.orderNo 或 RechargeOrder.orderNo）
   outTradeNo String
 
   /// 支付平台流水号（支付宝 trade_no / 微信 transaction_id）
@@ -1469,4 +1478,80 @@ model PaymentNotify {
   @@unique([channel, tradeNo])
   @@index([outTradeNo])
   @@map("payment_notifies")
+}
+
+/// 充值订单：企业算力充值的订单记录
+model RechargeOrder {
+  id String @id @default(cuid())
+
+  /// 订单号（业务唯一标识，用于对外展示和支付回调匹配，格式：RCH + yyyyMMddHHmmss + 6位随机数）
+  orderNo String @unique
+
+  accountId String
+  account   ComputeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// 充值金额（元）
+  amount Decimal @db.Decimal(12, 2)
+
+  status RechargeOrderStatus @default(PENDING)
+
+  /// 支付渠道
+  payChannel PayChannel?
+
+  /// 支付流水号（第三方支付平台返回的 trade_no）
+  payTradeNo String?
+
+  /// 支付完成时间
+  paidAt DateTime?
+
+  /// 订单关闭时间（超时/取消）
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("recharge_orders")
+}
+
+// ============================================================================
+// Announcement (公告系统)
+// ============================================================================
+
+/// 公告：平台运营发布的全局公告
+model Announcement {
+  id      String           @id @default(cuid())
+  title   String
+  content String           @db.Text
+  type    AnnouncementType @default(INFO)
+
+  /// 优先级，数字越大越靠前
+  priority Int @default(0)
+
+  /// 生效时间（为空表示立即生效）
+  startTime DateTime?
+
+  /// 过期时间（为空表示永久有效）
+  endTime DateTime?
+
+  /// 是否已发布
+  published Boolean @default(false)
+
+  /// 创建者
+  createdById String
+  createdBy   User   @relation("AnnouncementCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, startTime, endTime])
+  @@index([priority])
+  @@map("announcements")
+}
+
+enum AnnouncementType {
+  INFO // 信息
+  WARNING // 警告
+  ERROR // 错误
+  SUCCESS // 成功
 }

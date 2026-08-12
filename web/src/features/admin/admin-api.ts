@@ -116,7 +116,8 @@ export interface EmployeeListItem {
   avatar: string | null;
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   version: string;
-  price: number | null;
+  annualPriceCNY: number | null;
+  includedComputeCNY: number;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
@@ -148,10 +149,10 @@ export interface EmployeeDetail {
   avatar: string | null;
   systemPrompt: string;
   modelId: string;
-  maxSteps: number;
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   version: string;
-  price: number | null;
+  annualPriceCNY: number | null;
+  includedComputeCNY: number;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
@@ -179,8 +180,8 @@ export interface CreateEmployeeRequest {
   avatar?: string;
   systemPrompt?: string;
   modelId?: string;
-  maxSteps?: number;
-  price?: number;
+  annualPriceCNY?: number;
+  includedComputeCNY?: number;
 }
 
 export interface UpdateEmployeeRequest {
@@ -191,8 +192,8 @@ export interface UpdateEmployeeRequest {
   avatar?: string;
   systemPrompt?: string;
   modelId?: string;
-  maxSteps?: number;
-  price?: number;
+  annualPriceCNY?: number;
+  includedComputeCNY?: number;
 }
 
 export interface ComputeTransaction {

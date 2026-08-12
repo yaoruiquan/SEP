@@ -103,7 +103,13 @@ export class EnterpriseContextService {
         id: true,
         name: true,
         description: true,
+        metadata: true,
         createdAt: true,
+        computeAccount: {
+          select: {
+            balance: true,
+          },
+        },
         _count: {
           select: {
             members: true,

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Zap } from 'lucide-react';
+import { Zap, ShoppingCart } from 'lucide-react';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
@@ -18,6 +18,8 @@ interface EmployeeCardProps {
   subscribing: boolean;
   onSubscribe: () => void;
   onClick: () => void;
+  onAddToCart?: () => void;
+  addingToCart?: boolean;
 }
 
 // ─── component ───────────────────────────────────────────────────────────────
@@ -29,6 +31,8 @@ export function EmployeeCard({
   subscribing,
   onSubscribe,
   onClick,
+  onAddToCart,
+  addingToCart = false,
 }: EmployeeCardProps) {
   const capTypes = Array.from(new Set(emp.bindings?.map((b) => b.capability.type) ?? []));
   const visibleTypes = capTypes.slice(0, 3);
@@ -112,10 +116,10 @@ export function EmployeeCard({
       {/* ── price + subscribe ───────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          {emp.price && emp.price > 0 ? (
+          {emp.annualPriceCNY && Number(emp.annualPriceCNY) > 0 ? (
             <span className="text-[15px] font-semibold text-gtext-primary">
-              ¥{emp.price}
-              <span className="text-[12px] font-normal text-gtext-muted">/月</span>
+              ¥{Number(emp.annualPriceCNY).toLocaleString()}
+              <span className="text-[12px] font-normal text-gtext-muted">/年</span>
             </span>
           ) : (
             <span className="text-[13px] font-medium text-emerald-400">免费</span>
@@ -125,32 +129,48 @@ export function EmployeeCard({
           </p>
         </div>
 
-        {subscribed ? (
-          <Link href="/my-employees" onClick={(e) => e.stopPropagation()}>
-            <Button variant="glass" size="sm" className="shrink-0">
-              管理
-            </Button>
-          </Link>
-        ) : loggedIn ? (
-          <Button
-            variant="glass-primary"
-            size="sm"
-            className="shrink-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-            disabled={subscribing}
-            onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
-          >
-            订阅
-          </Button>
-        ) : (
-          <Link
-            href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Button variant="glass" size="sm" className="shrink-0">
-              登录
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {subscribed ? (
+            <Link href="/my-employees" onClick={(e) => e.stopPropagation()}>
+              <Button variant="glass" size="sm" className="shrink-0">
+                管理
+              </Button>
+            </Link>
+          ) : loggedIn ? (
+            <>
+              {onAddToCart && (
+                <Button
+                  variant="glass"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={addingToCart}
+                  onClick={(e) => { e.stopPropagation(); onAddToCart(); }}
+                  title="加入购物车"
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                variant="glass-primary"
+                size="sm"
+                className="shrink-0"
+                disabled={subscribing}
+                onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
+              >
+                订阅
+              </Button>
+            </>
+          ) : (
+            <Link
+              href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Button variant="glass" size="sm" className="shrink-0">
+                登录
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* ── stats row ───────────────────────────────────────────────── */}

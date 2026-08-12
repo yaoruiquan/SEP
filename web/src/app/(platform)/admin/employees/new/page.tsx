@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { adminApi } from '@/features/admin/admin-api';
 import { useAvailableCapabilities, useBindCapabilities } from '@/features/admin/use-admin';
+import { useEnabledModels } from '@/features/admin/use-models';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,8 +34,8 @@ export default function NewEmployeePage() {
     avatar: '',
     systemPrompt: '你是一位专业的硅基员工，随时准备协助用户完成各项任务。',
     modelId: 'gpt-4o',
-    maxSteps: 10,
-    price: 0,
+    annualPriceCNY: 0,
+    includedComputeCNY: 0,
   });
 
   const { data: capabilitiesData, isLoading: capabilitiesLoading } = useAvailableCapabilities();
@@ -42,6 +43,7 @@ export default function NewEmployeePage() {
   // Hook 已经提取了 items 数组，添加防御性检查
   const capabilities = Array.isArray(capabilitiesData) ? capabilitiesData : [];
   const bindCapabilitiesMutation = useBindCapabilities();
+  const { data: enabledModels, isLoading: modelsLoading } = useEnabledModels();
 
   const industries = [
     '通用',
@@ -67,14 +69,6 @@ export default function NewEmployeePage() {
     '人力资源',
     '财务',
     '行政',
-  ];
-
-  const models = [
-    { id: 'gpt-4o', label: 'GPT-4o' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-opus', label: 'Claude 3 Opus' },
   ];
 
   const handleSubmit = async (submitForReview: boolean) => {
@@ -219,54 +213,72 @@ export default function NewEmployeePage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="modelId">模型</Label>
-              <Select
-                value={formData.modelId}
-                onValueChange={(value) => setFormData({ ...formData, modelId: value })}
-              >
-                <SelectTrigger id="modelId">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((model) => (
+          <div className="space-y-2">
+            <Label htmlFor="modelId">模型</Label>
+            <Select
+              value={formData.modelId}
+              onValueChange={(value) => setFormData({ ...formData, modelId: value })}
+              disabled={modelsLoading}
+            >
+              <SelectTrigger id="modelId">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {modelsLoading ? (
+                  <div className="p-2 text-center text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                  </div>
+                ) : !enabledModels || enabledModels.length === 0 ? (
+                  <div className="p-2 text-center text-sm text-muted-foreground">
+                    暂无可用模型
+                  </div>
+                ) : (
+                  enabledModels.map((model) => (
                     <SelectItem key={model.id} value={model.id}>
                       {model.label}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="annualPriceCNY">年费（元）*</Label>
+              <Input
+                id="annualPriceCNY"
+                type="number"
+                min={0}
+                step={0.01}
+                value={formData.annualPriceCNY}
+                onChange={(e) =>
+                  setFormData({ ...formData, annualPriceCNY: parseFloat(e.target.value) || 0 })
+                }
+                placeholder="5000"
+              />
+              <p className="text-xs text-muted-foreground">
+                企业订阅此员工的年费
+              </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="maxSteps">最大步数</Label>
+              <Label htmlFor="includedComputeCNY">赠送算力（元）*</Label>
               <Input
-                id="maxSteps"
+                id="includedComputeCNY"
                 type="number"
-                min={1}
-                max={50}
-                value={formData.maxSteps}
+                min={0}
+                step={0.01}
+                value={formData.includedComputeCNY}
                 onChange={(e) =>
-                  setFormData({ ...formData, maxSteps: parseInt(e.target.value) || 10 })
+                  setFormData({ ...formData, includedComputeCNY: parseFloat(e.target.value) || 0 })
                 }
+                placeholder="1000"
               />
+              <p className="text-xs text-muted-foreground">
+                订阅后赠送的初始算力额度
+              </p>
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="price">价格（元/月）</Label>
-            <Input
-              id="price"
-              type="number"
-              min={0}
-              step={0.01}
-              value={formData.price}
-              onChange={(e) =>
-                setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })
-              }
-              placeholder="0.00"
-            />
           </div>
 
           <div className="space-y-4 pt-4 border-t">

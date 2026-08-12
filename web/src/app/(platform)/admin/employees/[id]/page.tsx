@@ -170,6 +170,23 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-fg-muted">年费</label>
+                  <p className="mt-1 text-sm font-medium">
+                    {employee.annualPriceCNY && Number(employee.annualPriceCNY) > 0
+                      ? `¥${Number(employee.annualPriceCNY).toLocaleString()}`
+                      : '免费'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-fg-muted">赠送算力</label>
+                  <p className="mt-1 text-sm">
+                    ¥{Number(employee.includedComputeCNY || 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-fg-muted">System Prompt</label>
                 <pre className="mt-1 text-xs bg-muted p-3 rounded overflow-x-auto">
@@ -177,15 +194,9 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                 </pre>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-fg-muted">模型</label>
-                  <p className="mt-1 text-sm">{employee.modelId}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-fg-muted">Max Steps</label>
-                  <p className="mt-1 text-sm">{employee.maxSteps}</p>
-                </div>
+              <div>
+                <label className="text-sm font-medium text-fg-muted">模型</label>
+                <p className="mt-1 text-sm">{employee.modelId}</p>
               </div>
             </CardContent>
           </Card>

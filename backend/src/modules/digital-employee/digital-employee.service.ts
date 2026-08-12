@@ -125,7 +125,9 @@ export class DigitalEmployeeService {
       industry: true,
       position: true,
       avatar: true,
-      price: true,
+      price: true, // DEPRECATED - 保留兼容旧数据
+      annualPriceCNY: true,
+      includedComputeCNY: true,
       version: true,
       publishedAt: true,
       bindings: {

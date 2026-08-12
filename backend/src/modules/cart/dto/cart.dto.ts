@@ -4,7 +4,7 @@ import { z } from 'zod';
  * 加入购物车 DTO
  */
 export const AddToCartDtoSchema = z.object({
-  employeeId: z.string().cuid(),
+  employeeId: z.string().min(1), // 放宽验证：支持 cuid 和自定义 ID（如 demo-emp-skills）
   periodMonths: z.number().int().min(1).max(36).default(12),
   quantity: z.number().int().min(1).max(99).default(1),
 });

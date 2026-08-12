@@ -74,6 +74,38 @@ export function useComputeTransactions(params?: TransactionListParams) {
   });
 }
 
+export interface RechargeOrder {
+  orderId: string;
+  orderNo: string;
+  amount: number;
+  status: 'PENDING' | 'PAID' | 'CLOSED';
+  paidAt?: string;
+  createdAt: string;
+}
+
+export function useCreateRechargeOrder() {
+  return useMutation({
+    mutationFn: (data: { amount: number }) =>
+      api.post<RechargeOrder>('/compute/recharge/orders', data),
+  });
+}
+
+export function useRechargeOrder(orderNo: string | null) {
+  return useQuery<RechargeOrder>({
+    queryKey: ['compute', 'recharge', 'order', orderNo],
+    queryFn: () => api.get<RechargeOrder>(`/compute/recharge/orders/${orderNo}`),
+    enabled: !!orderNo,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // 如果订单状态为 PENDING，每 2 秒轮询一次
+      return data?.status === 'PENDING' ? 2000 : false;
+    },
+  });
+}
+
+/**
+ * @deprecated 旧的模拟充值接口，已废弃。请使用 useCreateRechargeOrder() 创建支付订单。
+ */
 export function useRecharge() {
   const queryClient = useQueryClient();
 

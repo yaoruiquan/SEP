@@ -172,8 +172,12 @@ export function useUnbindCapability() {
 export interface EnterpriseListItem {
   id: string;
   name: string;
-  contactEmail: string;
+  description: string | null;
+  metadata: any;
   createdAt: string;
+  computeAccount: {
+    balance: number;
+  } | null;
   _count: {
     members: number;
     subscriptions: number;

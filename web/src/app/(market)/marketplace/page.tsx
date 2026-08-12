@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployees } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
+import { useAddToCart } from '@/features/cart/use-cart';
 import type { MarketEmployee } from '@/lib/types';
 import { EmployeeCard } from './_components/employee-card';
 import { EmployeeDrawer } from './_components/employee-drawer';
@@ -59,6 +60,7 @@ export default function MarketplacePage() {
   // 订阅列表需登录 —— 访客不请求，否则每次都白跑一轮 401 + refresh
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   const subscribe = useSubscribe();
+  const addToCart = useAddToCart();
   const subscribedIds = useMemo(
     () => new Set(subs.map((s) => s.employee.id)),
     [subs],
@@ -159,6 +161,20 @@ export default function MarketplacePage() {
   function closePaymentModal() {
     setPayingEmp(null);
     setSubscribeSucceeded(false);
+  }
+
+  /** 加入购物车 */
+  function handleAddToCart(emp: MarketEmployee) {
+    addToCart.mutate(
+      { employeeId: emp.id, quantity: 1, periodMonths: 12 },
+      {
+        onSuccess: () => {
+          toast.success(`${emp.name} 已加入购物车`);
+        },
+        onError: (e) =>
+          toast.error(e instanceof ApiError ? e.message : '加入购物车失败'),
+      },
+    );
   }
 
   return (
@@ -279,6 +295,8 @@ export default function MarketplacePage() {
                     subscribing={subscribe.isPending}
                     onSubscribe={() => doSubscribe(emp)}
                     onClick={() => setDrawerId(emp.id)}
+                    onAddToCart={() => handleAddToCart(emp)}
+                    addingToCart={addToCart.isPending}
                   />
                 ))}
               </div>

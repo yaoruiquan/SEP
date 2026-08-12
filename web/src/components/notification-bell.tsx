@@ -29,6 +29,7 @@ import {
 } from '@/features/notifications/use-notifications';
 import { useNotifications as useNotificationsRealtime } from '@/hooks/use-realtime';
 import { useQueryClient } from '@tanstack/react-query';
+import { useActiveAnnouncements } from '@/features/announcement/use-announcements';
 
 const SEVERITY_STYLES = {
   INFO: 'text-gtext-secondary',
@@ -58,11 +59,13 @@ const CATEGORY_BADGE: Record<NotificationCategory, { label: string; cls: string 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotificationCategory | 'ALL'>('ALL');
+  const [dismissedAnnouncements, setDismissedAnnouncements] = useState<Set<string>>(new Set());
 
   const activeCategory = activeTab === 'ALL' ? undefined : activeTab;
 
   const { data: unreadData } = useUnreadCount();
   const { data: notificationsData, isLoading } = useNotifications(20, 0, activeCategory);
+  const { data: announcements } = useActiveAnnouncements();
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
@@ -70,6 +73,11 @@ export function NotificationBell() {
 
   const unreadCount = unreadData?.count ?? 0;
   const notifications = notificationsData?.items ?? [];
+
+  // 过滤未关闭的公告
+  const visibleAnnouncements = (announcements ?? []).filter(
+    (a) => !dismissedAnnouncements.has(a.id)
+  );
 
   // WebSocket 实时更新
   useNotificationsRealtime(() => {
@@ -95,6 +103,10 @@ export function NotificationBell() {
   const handleMarkAllAsRead = useCallback(() => {
     markAllAsRead.mutate(activeCategory);
   }, [markAllAsRead, activeCategory]);
+
+  const handleDismissAnnouncement = useCallback((id: string) => {
+    setDismissedAnnouncements((prev) => new Set([...prev, id]));
+  }, []);
 
   // 点击外部关闭
   useEffect(() => {
@@ -150,6 +162,21 @@ export function NotificationBell() {
             </div>
           </div>
 
+          {/* Announcements Section */}
+          {visibleAnnouncements.length > 0 && (
+            <div className="border-b border-glassline">
+              <div className="max-h-[200px] space-y-2 overflow-y-auto scroll-thin p-3">
+                {visibleAnnouncements.map((announcement) => (
+                  <AnnouncementCard
+                    key={announcement.id}
+                    announcement={announcement}
+                    onDismiss={handleDismissAnnouncement}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Category tabs */}
           <div className="flex gap-0.5 border-b border-glassline px-2 py-1.5">
             {CATEGORY_TABS.map((tab) => (
@@ -204,6 +231,59 @@ export function NotificationBell() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ANNOUNCEMENT_TYPE_STYLES = {
+  INFO: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-700 dark:text-blue-300', icon: 'text-blue-600' },
+  WARNING: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-300', icon: 'text-yellow-600' },
+  ERROR: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-700 dark:text-red-300', icon: 'text-red-600' },
+  SUCCESS: { bg: 'bg-green-500/10', border: 'border-green-500/20', text: 'text-green-700 dark:text-green-300', icon: 'text-green-600' },
+};
+
+const ANNOUNCEMENT_TYPE_ICONS = {
+  INFO: Bell,
+  WARNING: ShieldAlert,
+  ERROR: ShieldAlert,
+  SUCCESS: CheckSquare,
+};
+
+interface AnnouncementCardProps {
+  announcement: {
+    id: string;
+    title: string;
+    content: string;
+    type: 'INFO' | 'WARNING' | 'ERROR' | 'SUCCESS';
+  };
+  onDismiss: (id: string) => void;
+}
+
+function AnnouncementCard({ announcement, onDismiss }: AnnouncementCardProps) {
+  const styles = ANNOUNCEMENT_TYPE_STYLES[announcement.type];
+  const Icon = ANNOUNCEMENT_TYPE_ICONS[announcement.type];
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border p-3',
+        styles.bg,
+        styles.border,
+        styles.text
+      )}
+    >
+      <Icon className={cn('h-4 w-4 shrink-0 mt-0.5', styles.icon)} />
+      <div className="min-w-0 flex-1">
+        <h4 className="text-sm font-semibold">{announcement.title}</h4>
+        <p className="mt-0.5 text-xs opacity-90 line-clamp-2">{announcement.content}</p>
+      </div>
+      <button
+        onClick={() => onDismiss(announcement.id)}
+        className="shrink-0 rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+        aria-label="关闭"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

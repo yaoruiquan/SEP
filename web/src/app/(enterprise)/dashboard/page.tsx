@@ -208,14 +208,14 @@ export default function DashboardPage() {
         </div>
 
         {/* 第一行：模型分布 + Token使用趋势 */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 items-stretch">
           {/* 模型分布 */}
-          <Card className="glass-card-interactive">
+          <Card className="glass-card-interactive h-full flex flex-col">
             <CardHeader>
               <CardTitle className="text-base font-semibold">模型分布</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Tabs value={modelTab} onValueChange={setModelTab} className="w-full">
+            <CardContent className="flex-1">
+              <Tabs value={modelTab} onValueChange={setModelTab} className="w-full h-full flex flex-col">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="chart">模型分布</TabsTrigger>
                   <TabsTrigger value="table">用户消费榜</TabsTrigger>
@@ -276,11 +276,11 @@ export default function DashboardPage() {
           </Card>
 
           {/* Token 使用趋势 */}
-          <Card className="glass-card-interactive">
+          <Card className="glass-card-interactive h-full flex flex-col">
             <CardHeader>
               <CardTitle className="text-base font-semibold">Token 使用趋势</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               <ResponsiveContainer width="100%" height={320}>
                 <LineChart data={tokenTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
@@ -434,13 +434,13 @@ export default function DashboardPage() {
         </Card>
 
         {/* 第三行：热门员工 + 最近活动 */}
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="glass-card-interactive">
+        <div className="grid gap-4 lg:grid-cols-2 items-stretch">
+          <Card className="glass-card-interactive h-full flex flex-col">
             <CardHeader>
               <CardTitle className="text-base font-semibold">热门员工 Top 5</CardTitle>
               <CardDescription>按调用次数排序</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               {stats.topEmployees.length === 0 ? (
                 <div className="py-12">
                   <EmptyState
@@ -491,12 +491,12 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="glass-card-interactive">
+          <Card className="glass-card-interactive h-full flex flex-col">
             <CardHeader>
               <CardTitle className="text-base font-semibold">最近活动</CardTitle>
               <CardDescription>最近 10 条操作记录</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               {stats.recentActivities.length === 0 ? (
                 <div className="py-12">
                   <EmptyState

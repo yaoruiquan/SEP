@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';import {
+import Link from 'next/link';
+import {
   Bell,
   Check,
   Trash2,
@@ -10,6 +11,7 @@ import Link from 'next/link';import {
   BarChart2,
   ShieldAlert,
   CheckSquare,
+  X,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -27,6 +29,7 @@ import {
   type NotificationCategory,
   type NotificationSeverity,
 } from '@/features/notifications/use-notifications';
+import { useActiveAnnouncements } from '@/features/announcement/use-announcements';
 
 const CATEGORY_TABS: Array<{
   key: NotificationCategory | 'ALL';
@@ -53,16 +56,32 @@ const CATEGORY_BADGE: Record<NotificationCategory, { label: string; cls: string 
   APPROVAL: { label: '审批', cls: 'bg-primary/10 text-primary' },
 };
 
+const ANNOUNCEMENT_TYPE_STYLES = {
+  INFO: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-700 dark:text-blue-300', icon: 'text-blue-600' },
+  WARNING: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-300', icon: 'text-yellow-600' },
+  ERROR: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-700 dark:text-red-300', icon: 'text-red-600' },
+  SUCCESS: { bg: 'bg-green-500/10', border: 'border-green-500/20', text: 'text-green-700 dark:text-green-300', icon: 'text-green-600' },
+};
+
+const ANNOUNCEMENT_TYPE_ICONS = {
+  INFO: Bell,
+  WARNING: ShieldAlert,
+  ERROR: ShieldAlert,
+  SUCCESS: CheckSquare,
+};
+
 const PAGE_SIZE = 20;
 
 export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<NotificationCategory | 'ALL'>('ALL');
   const [offset, setOffset] = useState(0);
+  const [dismissedAnnouncements, setDismissedAnnouncements] = useState<Set<string>>(new Set());
 
   const category = activeTab === 'ALL' ? undefined : activeTab;
 
   const { data, isLoading } = useNotifications(PAGE_SIZE, offset, category);
   const { data: unreadData } = useUnreadCount(category);
+  const { data: announcements } = useActiveAnnouncements();
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const clearRead = useClearRead();
@@ -74,9 +93,17 @@ export default function NotificationsPage() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
+  const visibleAnnouncements = (announcements ?? []).filter(
+    (a) => !dismissedAnnouncements.has(a.id)
+  );
+
   const handleTabChange = (tab: NotificationCategory | 'ALL') => {
     setActiveTab(tab);
     setOffset(0);
+  };
+
+  const handleDismissAnnouncement = (id: string) => {
+    setDismissedAnnouncements((prev) => new Set([...prev, id]));
   };
 
   return (
@@ -143,6 +170,22 @@ export default function NotificationsPage() {
           </button>
         ))}
       </div>
+
+      {/* Announcements Section */}
+      {visibleAnnouncements.length > 0 && (
+        <Card>
+          <div className="space-y-3 p-4">
+            <h2 className="text-sm font-semibold text-gtext-primary">系统公告</h2>
+            {visibleAnnouncements.map((announcement) => (
+              <AnnouncementCard
+                key={announcement.id}
+                announcement={announcement}
+                onDismiss={handleDismissAnnouncement}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Notification list */}
       <Card>
@@ -264,6 +307,45 @@ export default function NotificationsPage() {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+interface AnnouncementCardProps {
+  announcement: {
+    id: string;
+    title: string;
+    content: string;
+    type: 'INFO' | 'WARNING' | 'ERROR' | 'SUCCESS';
+  };
+  onDismiss: (id: string) => void;
+}
+
+function AnnouncementCard({ announcement, onDismiss }: AnnouncementCardProps) {
+  const styles = ANNOUNCEMENT_TYPE_STYLES[announcement.type];
+  const Icon = ANNOUNCEMENT_TYPE_ICONS[announcement.type];
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border p-3',
+        styles.bg,
+        styles.border,
+        styles.text
+      )}
+    >
+      <Icon className={cn('h-4 w-4 shrink-0 mt-0.5', styles.icon)} />
+      <div className="min-w-0 flex-1">
+        <h4 className="text-sm font-semibold">{announcement.title}</h4>
+        <p className="mt-0.5 text-sm opacity-90">{announcement.content}</p>
+      </div>
+      <button
+        onClick={() => onDismiss(announcement.id)}
+        className="shrink-0 rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+        aria-label="关闭"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

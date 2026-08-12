@@ -1,43 +1,43 @@
-"use client";
+'use client';
 
-import { useState, useMemo } from "react";
-import { RefreshCw, AlertTriangle, Play, ChevronDown, ChevronUp } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/feedback";
-import { toast } from "@/components/ui/toast";
+import { useState, useMemo } from 'react';
+import { RefreshCw, AlertTriangle, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/feedback';
+import { toast } from '@/components/ui/toast';
 import {
   usePlatformModels,
   useSyncModels,
   useUpdatePlatformModel,
   useTestModel,
-} from "@/features/model/use-models";
+} from '@/features/model/use-models';
 
 // 厂商分组配置
 const VENDOR_CONFIG = {
-  OpenAI: { label: "OpenAI", color: "#10a37f" },
-  Anthropic: { label: "Anthropic", color: "#c5a572" },
-  Google: { label: "Google", color: "#4285f4" },
-  Meta: { label: "Meta", color: "#0668e1" },
-  Other: { label: "其他", color: "#64748b" },
+  OpenAI: { label: 'OpenAI', color: '#10a37f' },
+  Anthropic: { label: 'Anthropic', color: '#c5a572' },
+  Google: { label: 'Google', color: '#4285f4' },
+  Meta: { label: 'Meta', color: '#0668e1' },
+  Other: { label: '其他', color: '#64748b' },
 };
 
 // 根据 modelId 推断厂商
 function inferVendor(modelId: string): keyof typeof VENDOR_CONFIG {
-  if (modelId.startsWith("gpt-") || modelId.startsWith("o1-") || modelId.startsWith("text-")) {
-    return "OpenAI";
+  if (modelId.startsWith('gpt-') || modelId.startsWith('o1-') || modelId.startsWith('text-')) {
+    return 'OpenAI';
   }
-  if (modelId.startsWith("claude-")) {
-    return "Anthropic";
+  if (modelId.startsWith('claude-')) {
+    return 'Anthropic';
   }
-  if (modelId.startsWith("gemini-") || modelId.startsWith("palm-")) {
-    return "Google";
+  if (modelId.startsWith('gemini-') || modelId.startsWith('palm-')) {
+    return 'Google';
   }
-  if (modelId.startsWith("llama-")) {
-    return "Meta";
+  if (modelId.startsWith('llama-')) {
+    return 'Meta';
   }
-  return "Other";
+  return 'Other';
 }
 
 export default function ModelsPageNew() {

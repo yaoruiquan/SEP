@@ -4,6 +4,7 @@ import { z } from 'zod';
  * 从购物车创建订单
  */
 export const CreateOrderFromCartDtoSchema = z.object({
+  itemIds: z.array(z.string()).optional(), // 可选，指定购物车项ID，不传则为全部
   // 未来可扩展：优惠券、备注等
 });
 

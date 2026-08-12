@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Search } from 'lucide-react';
+import { Download, Search, Plus, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/feedback';
-import { useComputeTransactions } from '@/features/admin/use-admin';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { useComputeTransactions, useAllEnterprises, useCreditAdjustment } from '@/features/admin/use-admin';
 import type { ComputeTransaction } from '@/features/admin/admin-api';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +18,11 @@ export default function AdminComputePage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
+  const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
+  const [selectedEnterpriseId, setSelectedEnterpriseId] = useState('');
+  const [rechargeAmount, setRechargeAmount] = useState('');
+  const [rechargeNote, setRechargeNote] = useState('');
+  const [enterpriseSearchTerm, setEnterpriseSearchTerm] = useState('');
 
   const { data, isLoading } = useComputeTransactions({
     type: tab,
@@ -26,12 +33,66 @@ export default function AdminComputePage() {
     pageSize: 20,
   });
 
+  const { data: allTransactions } = useComputeTransactions({
+    pageSize: 9999,
+  });
+
+  const { data: enterprises } = useAllEnterprises();
+  const creditAdjustmentMutation = useCreditAdjustment();
+
   const handleReset = () => {
     setEnterpriseId('');
     setStartDate('');
     setEndDate('');
     setPage(1);
   };
+
+  const handleQuickRecharge = async () => {
+    if (!selectedEnterpriseId || !rechargeAmount || parseFloat(rechargeAmount) <= 0) {
+      alert('请选择企业并输入有效的充值金额');
+      return;
+    }
+
+    try {
+      await creditAdjustmentMutation.mutateAsync({
+        id: selectedEnterpriseId,
+        data: {
+          amount: parseFloat(rechargeAmount),
+          type: 'RECHARGE',
+          note: rechargeNote || '运营端快速充值',
+        },
+      });
+
+      alert('充值成功');
+      setRechargeDialogOpen(false);
+      setSelectedEnterpriseId('');
+      setRechargeAmount('');
+      setRechargeNote('');
+      setEnterpriseSearchTerm('');
+    } catch (error: any) {
+      alert(error?.message || '充值失败');
+    }
+  };
+
+  const filteredEnterprises = enterprises?.filter((ent) =>
+    ent.name.toLowerCase().includes(enterpriseSearchTerm.toLowerCase())
+  );
+
+  const stats = allTransactions?.data
+    ? allTransactions.data.reduce(
+        (acc, txn) => {
+          if (txn.type === 'RECHARGE') {
+            acc.totalRecharge += txn.amount;
+          } else if (txn.type === 'CONSUME') {
+            acc.totalConsume += Math.abs(txn.amount);
+          }
+          return acc;
+        },
+        { totalRecharge: 0, totalConsume: 0 }
+      )
+    : { totalRecharge: 0, totalConsume: 0 };
+
+  const totalBalance = enterprises?.reduce((sum, ent) => sum + (ent.computeAccount?.balance ?? 0), 0) ?? 0;
 
   const exportCSV = () => {
     if (!data?.data || data.data.length === 0) {
@@ -80,11 +141,142 @@ export default function AdminComputePage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">算力管理</h1>
-        <Button onClick={exportCSV} size="sm" variant="secondary">
-          <Download className="mr-2 h-4 w-4" />
-          导出 CSV
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setRechargeDialogOpen(true)} size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            快速充值
+          </Button>
+          <Button onClick={exportCSV} size="sm" variant="secondary">
+            <Download className="mr-2 h-4 w-4" />
+            导出 CSV
+          </Button>
+        </div>
       </div>
+
+      {/* Statistics Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card variant="solid">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-fg-muted">累计充值</p>
+                <p className="text-2xl font-semibold mt-1">¥{stats.totalRecharge.toFixed(2)}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center">
+                <TrendingUp className="h-6 w-6 text-success" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card variant="solid">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-fg-muted">累计消费</p>
+                <p className="text-2xl font-semibold mt-1">¥{stats.totalConsume.toFixed(2)}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-danger/10 flex items-center justify-center">
+                <TrendingDown className="h-6 w-6 text-danger" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card variant="solid">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-fg-muted">当前总余额</p>
+                <p className="text-2xl font-semibold mt-1">¥{totalBalance.toFixed(2)}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <DollarSign className="h-6 w-6 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Recharge Dialog */}
+      <Dialog open={rechargeDialogOpen} onOpenChange={setRechargeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>快速充值</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="enterprise">选择企业</Label>
+              <Input
+                id="enterprise-search"
+                placeholder="搜索企业名称..."
+                value={enterpriseSearchTerm}
+                onChange={(e) => setEnterpriseSearchTerm(e.target.value)}
+                className="mb-2"
+              />
+              <div className="border rounded-md max-h-48 overflow-y-auto">
+                {!enterprises ? (
+                  <div className="p-4 text-center text-sm text-fg-muted">加载中...</div>
+                ) : filteredEnterprises && filteredEnterprises.length > 0 ? (
+                  filteredEnterprises.map((ent) => (
+                    <button
+                      key={ent.id}
+                      onClick={() => setSelectedEnterpriseId(ent.id)}
+                      className={cn(
+                        'w-full px-4 py-2 text-left text-sm hover:bg-muted/40 transition-colors border-b last:border-0',
+                        selectedEnterpriseId === ent.id && 'bg-primary/10 font-medium'
+                      )}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span>{ent.name}</span>
+                        <span className="text-xs text-fg-muted">
+                          余额: ¥{(ent.computeAccount?.balance ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-sm text-fg-muted">无匹配企业</div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="amount">充值金额（元）</Label>
+              <Input
+                id="amount"
+                type="number"
+                placeholder="请输入充值金额"
+                value={rechargeAmount}
+                onChange={(e) => setRechargeAmount(e.target.value)}
+                min="0"
+                step="0.01"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="note">备注（可选）</Label>
+              <Input
+                id="note"
+                placeholder="请输入备注信息"
+                value={rechargeNote}
+                onChange={(e) => setRechargeNote(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRechargeDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleQuickRecharge}
+              disabled={creditAdjustmentMutation.isPending || !selectedEnterpriseId || !rechargeAmount}
+            >
+              {creditAdjustmentMutation.isPending ? '充值中...' : '确认充值'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Custom Tab Navigation */}
       <div className="flex gap-2 border-b">
