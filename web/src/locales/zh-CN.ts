@@ -129,7 +129,6 @@ export const nav = {
   knowledge: knowledge.management,
   usage: '用量统计',
   costAnalytics: '成本分析',
-  modelConfig: '模型配置',
   personalSettings: '个人设置',
 } as const;
 

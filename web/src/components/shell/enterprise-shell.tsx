@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
-  Cpu,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
