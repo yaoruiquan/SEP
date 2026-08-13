@@ -40,13 +40,14 @@ export function useAttachmentUpload() {
   const itemsRef = useRef<PendingAttachment[]>([]);
   const [limitError, setLimitError] = useState<string | null>(null);
 
+  // itemsRef 是唯一事实源，setItems 只负责把它发布给渲染。
+  // 不走 setItems(prev => …) 是因为那个 updater 的执行时机由 React 决定：
+  // 上传 resolve 得比提交更早时，prev 里还没有那条 entry，map 会匹配不到 id
+  // 而把状态更新静默丢掉。改成先动 ref 再发布，就与提交时机无关了。
   const commit = useCallback(
     (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => {
-      setItems((prev) => {
-        const next = updater(prev);
-        itemsRef.current = next;
-        return next;
-      });
+      itemsRef.current = updater(itemsRef.current);
+      setItems(itemsRef.current);
     },
     [],
   );
@@ -68,13 +69,11 @@ export function useAttachmentUpload() {
         );
       }
 
-      for (const file of accepted) {
-        const id = nextId();
+      const entries: PendingAttachment[] = accepted.map((file) => {
         const kind = attachmentTypeOf(file.name);
         const validationError = validateFile(file);
-
-        const entry: PendingAttachment = {
-          id,
+        return {
+          id: nextId(),
           name: file.name,
           size: file.size,
           type: kind,
@@ -85,8 +84,14 @@ export function useAttachmentUpload() {
           status: validationError ? 'error' : 'uploading',
           error: validationError ?? undefined,
         };
-        commit((prev) => [...prev, entry]);
+      });
 
+      // 同步推进 —— 同一个 tick 里连续选两次文件时，上面的 room 判断必须
+      // 看到已加进来的那批，否则会放进超过上限的附件。
+      commit((prev) => [...prev, ...entries]);
+
+      for (const [i, file] of accepted.entries()) {
+        const { id, error: validationError } = entries[i];
         if (validationError) continue;
 
         // 逐个上传而非一次批量：某个文件失败时只标红它自己，
