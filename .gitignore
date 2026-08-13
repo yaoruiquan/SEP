@@ -38,6 +38,11 @@ coverage/
 .cache/
 temp/
 
+# 用户上传的文件（本地存储驱动的落盘目录）—— 属于运行时数据，不入仓库。
+# 注意：backend/uploads/knowledge 和 skills 下已有 21 个文件在历史里被跟踪，
+# 本规则只挡新文件，清理历史需要单独处理。
+backend/uploads/
+
 # Prisma
 packages/database/migrations/
 !packages/database/migrations/.gitkeep
