@@ -9,6 +9,8 @@ import { ModelModule } from '../model/model.module';
 import { SettingModule } from '../setting/setting.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
+import { UploadModule } from '../upload/upload.module';
+import { AttachmentContextService } from './attachment-context.service';
 
 @Module({
   imports: [
@@ -18,12 +20,15 @@ import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterpri
     SettingModule,
     KnowledgeModule,
     EnterpriseModelConfigModule,
+    // 附件：归属校验（UploadService）+ 取回字节（StorageService）
+    UploadModule,
   ],
   controllers: [ConversationController],
   providers: [
     ConversationService,
     ConversationStreamService,
     SessionLockService,
+    AttachmentContextService,
   ],
   exports: [ConversationService],
 })

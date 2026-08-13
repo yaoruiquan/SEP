@@ -1,5 +1,6 @@
 import { API_BASE } from './api-client';
 import { authAccessor } from './auth-store';
+import type { MessageAttachment } from './types';
 
 export interface SseEvent {
   event: string;
@@ -16,6 +17,8 @@ export async function* streamMessage(
   content: string,
   targetEmployeeId?: string, // 🆕 多员工协作：指定处理该消息的员工
   signal?: AbortSignal,
+  // 🆕 多模态：文件已在选中时上传完毕，这里只传元数据记录
+  attachments?: MessageAttachment[],
 ): AsyncGenerator<SseEvent> {
   const token = authAccessor.getToken();
   const res = await fetch(`${API_BASE}/conversations/${sessionId}/messages`, {
@@ -26,7 +29,13 @@ export async function* streamMessage(
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ content, targetEmployeeId }),
+    body: JSON.stringify({
+      content,
+      targetEmployeeId,
+      // 后端 Zod 校验 attachments 为 `.optional()`，空数组也合法，
+      // 但省略掉能让「纯文本消息」的请求体保持原样
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    }),
   });
 
   if (!res.ok || !res.body) {

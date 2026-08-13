@@ -23,6 +23,7 @@ import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterpri
 import { CartModule } from './modules/cart/cart.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { AnnouncementModule } from './modules/announcement/announcement.module';
     CartModule,
     PaymentModule,
     AnnouncementModule,
+    UploadModule,
   ],
   controllers: [],
   providers: [],

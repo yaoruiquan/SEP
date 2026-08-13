@@ -917,10 +917,49 @@ export const ConversationUpdateDtoSchema = z.object({
 
 export type ConversationUpdateDto = z.infer<typeof ConversationUpdateDtoSchema>;
 
-export const MessageSendDtoSchema = z.object({
-  content: z.string().min(1).max(10000),
-  targetEmployeeId: z.string().optional(), // 指定处理该消息的员工（多员工协作）
+/** 附件类别，与后端上传白名单（upload.constants.ts）保持一致 */
+export const ATTACHMENT_TYPES = ['image', 'document', 'video'] as const;
+export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
+
+/**
+ * 消息附件。前端不自造这个对象 —— 必须是 POST /upload/files 的返回值，
+ * 否则 key 指向的对象不存在。url 有时效，key 才是永久标识。
+ */
+export const MessageAttachmentSchema = z.object({
+  type: z.enum(ATTACHMENT_TYPES),
+  key: z.string().min(1),
+  // 绝对地址（OSS 驱动）或根相对路径（本地驱动，前端拼 /api 前缀走同源代理）。
+  // 不能只收 .url()：本地驱动返回的就是 /uploads/...，那样所有本地上传都发不出去。
+  url: z
+    .string()
+    .min(1)
+    .refine(
+      (v) => /^https?:\/\//i.test(v) || v.startsWith('/'),
+      { message: '附件地址须为 http(s) 绝对地址或根相对路径' },
+    ),
+  name: z.string().min(1).max(255),
+  size: z.number().int().nonnegative(),
+  mimeType: z.string().optional(),
 });
+
+export type MessageAttachment = z.infer<typeof MessageAttachmentSchema>;
+
+/** 单条消息最多携带的附件数，与 upload.constants.ts 的 MAX_FILES_PER_REQUEST 对齐 */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+
+export const MessageSendDtoSchema = z.object({
+  // 带附件时允许空文本（"看看这张图"式的纯附件消息），
+  // 但不能既没文本也没附件
+  content: z.string().max(10000),
+  targetEmployeeId: z.string().optional(), // 指定处理该消息的员工（多员工协作）
+  attachments: z
+    .array(MessageAttachmentSchema)
+    .max(MAX_ATTACHMENTS_PER_MESSAGE)
+    .optional(),
+}).refine(
+  (dto) => dto.content.trim().length > 0 || (dto.attachments?.length ?? 0) > 0,
+  { message: '消息内容和附件不能同时为空', path: ['content'] },
+);
 
 export type MessageSendDto = z.infer<typeof MessageSendDtoSchema>;
 
@@ -1219,3 +1258,4 @@ export const CostAlertSchema = z.object({
   acknowledged: z.boolean(),
 });
 export type CostAlert = z.infer<typeof CostAlertSchema>;
+

@@ -7,8 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 import { ToolCallBlock } from './tool-call-block';
+import { AttachmentDisplay } from './attachment-display';
 import type { LiveToolCall } from './use-chat-stream';
-import type { Message, ToolCallRecord, KnowledgeSource } from '@/lib/types';
+import type {
+  Message,
+  MessageAttachment,
+  ToolCallRecord,
+  KnowledgeSource,
+} from '@/lib/types';
 
 interface MessageBubbleProps {
   role: 'user' | 'assistant';
@@ -16,6 +22,7 @@ interface MessageBubbleProps {
   reasoning?: string;
   toolCalls?: (LiveToolCall | ToolCallRecord)[] | null;
   knowledgeSources?: KnowledgeSource[] | null;
+  attachments?: MessageAttachment[] | null;
   employeeName?: string | null;
   employeeAvatar?: string | null;
   streaming?: boolean;
@@ -27,15 +34,26 @@ export function MessageBubble({
   reasoning,
   toolCalls,
   knowledgeSources,
+  attachments,
   employeeName,
   employeeAvatar,
   streaming,
 }: MessageBubbleProps) {
   if (role === 'user') {
+    const hasAttachments = !!attachments && attachments.length > 0;
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-[15px] leading-relaxed text-primary-foreground">
-          {content}
+        <div
+          className={cn(
+            'max-w-[75%] space-y-2 rounded-2xl rounded-tr-sm bg-primary px-3 py-2.5 text-[15px] leading-relaxed text-primary-foreground',
+            // 纯附件消息（content 为空）不需要文字行的左右内边距对齐
+            hasAttachments && !content && 'py-2',
+          )}
+        >
+          {hasAttachments && (
+            <AttachmentDisplay attachments={attachments} onPrimary />
+          )}
+          {content && <div className="whitespace-pre-wrap px-1">{content}</div>}
         </div>
       </div>
     );

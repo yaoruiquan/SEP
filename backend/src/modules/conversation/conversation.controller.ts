@@ -23,7 +23,13 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConversationService } from './conversation.service';
 import { ConversationStreamService } from './conversation-stream.service';
-import { ConversationCreateDto, ConversationUpdateDto, MessageSendDto } from 'shared';
+import {
+  ConversationCreateDto,
+  ConversationUpdateDto,
+  MessageSendDto,
+  MessageSendDtoSchema,
+} from 'shared';
+import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string; email: string; role: string };
@@ -112,7 +118,10 @@ export class ConversationController {
   @ApiResponse({ status: 200, description: 'SSE 事件流' })
   async sendMessage(
     @Param('id') id: string,
-    @Body() dto: MessageSendDto,
+    // 显式挂 Zod 管道：全局 ValidationPipe 只认 class-validator 装饰的类，
+    // MessageSendDto 是 z.infer 出来的类型，不挂管道等于完全不校验
+    // （attachments 会原样落库并回渲染给前端）。
+    @Body(new ZodValidationPipe(MessageSendDtoSchema)) dto: MessageSendDto,
     @Request() req: AuthenticatedRequest,
     @Res() res: Response,
   ) {
@@ -128,6 +137,7 @@ export class ConversationController {
         dto.content,
         req.user.id,
         dto.targetEmployeeId, // 传递目标员工 ID（多员工协作）
+        dto.attachments, // 多模态附件
       );
 
       for await (const sseEvent of generator) {
