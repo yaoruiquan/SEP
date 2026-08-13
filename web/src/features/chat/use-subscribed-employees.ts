@@ -17,7 +17,7 @@ interface SubscribedEmployee {
  */
 export function useSubscribedEmployees() {
   return useQuery({
-    queryKey: qk.subscriptions,
+    queryKey: qk.subscribedEmployees,
     queryFn: async (): Promise<SubscribedEmployee[]> => {
       const response = await api.get<any[]>('/subscriptions');
 
