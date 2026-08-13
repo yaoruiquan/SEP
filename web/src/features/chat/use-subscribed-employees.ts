@@ -19,29 +19,19 @@ export function useSubscribedEmployees() {
   return useQuery({
     queryKey: qk.subscriptions,
     queryFn: async (): Promise<SubscribedEmployee[]> => {
-      try {
-        const response = await api.get<any[]>('/subscriptions');
-        console.log('[useSubscribedEmployees] Raw response:', response);
+      const response = await api.get<any[]>('/subscriptions');
 
-        if (!Array.isArray(response)) {
-          console.warn('[useSubscribedEmployees] Response is not an array:', response);
-          return [];
-        }
+      if (!Array.isArray(response)) return [];
 
-        const employees = response.map((sub: any) => ({
+      return response
+        .filter((sub: any) => sub?.employee?.id)
+        .map((sub: any) => ({
           id: sub.employee.id,
           name: sub.employee.name,
-          avatar: sub.employee.avatar,
+          avatar: sub.employee.avatar ?? null,
           industry: sub.employee.industry,
           position: sub.employee.position,
         }));
-
-        console.log('[useSubscribedEmployees] Parsed employees:', employees);
-        return employees;
-      } catch (error) {
-        console.error('[useSubscribedEmployees] Error fetching subscriptions:', error);
-        return [];
-      }
     },
   });
 }

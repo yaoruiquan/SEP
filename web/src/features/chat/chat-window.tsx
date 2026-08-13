@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot } from 'lucide-react';
 import { qk } from '@/lib/query-keys';
@@ -13,7 +13,7 @@ import { useConversation } from './use-conversations';
 import { useSubscribedEmployees } from './use-subscribed-employees';
 import { useAuthStore } from '@/lib/auth-store';
 import { useModelConfig } from '@/features/enterprise-settings/use-model-config';
-import type { Message } from '@/lib/types';
+import type { Message, MessageAttachment } from '@/lib/types';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -23,6 +23,7 @@ interface ChatWindowProps {
 interface PendingUser {
   id: string;
   content: string;
+  attachments?: MessageAttachment[];
 }
 
 export function ChatWindow({ conversationId }: ChatWindowProps) {
@@ -30,17 +31,58 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const { data: conversation, isLoading } = useConversation(conversationId);
   const { state, send, stop } = useChatStream();
   const [pendingUser, setPendingUser] = useState<PendingUser | null>(null);
+  // 本轮流式回复的作者，用于让实时气泡显示正确的员工而非会话默认员工
+  const [streamingAuthorId, setStreamingAuthorId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 企业模型策略：用于 ModelSwitcher 的白名单 + 锁定控制
   const enterprise = useAuthStore((s) => s.enterprise);
   const { data: modelConfig } = useModelConfig(enterprise?.id ?? '');
 
-  // 🆕 多员工协作：加载用户订阅的所有员工
+  // 多员工协作：加载用户订阅的所有员工
   const { data: subscribedEmployees = [] } = useSubscribedEmployees();
 
   const employee = conversation?.employee;
   const persisted: Message[] = conversation?.messages ?? [];
+
+  // 会话默认员工排在首位，其余订阅员工去重跟在后面
+  const employees = useMemo(() => {
+    const list = employee
+      ? [
+          {
+            id: employee.id,
+            name: employee.name,
+            avatar: employee.avatar ?? null,
+            position: subscribedEmployees.find((s) => s.id === employee.id)?.position,
+          },
+        ]
+      : [];
+    for (const sub of subscribedEmployees) {
+      if (sub.id !== employee?.id) {
+        list.push({
+          id: sub.id,
+          name: sub.name,
+          avatar: sub.avatar,
+          position: sub.position,
+        });
+      }
+    }
+    return list;
+  }, [employee, subscribedEmployees]);
+
+  const employeeById = useMemo(
+    () => new Map(employees.map((e) => [e.id, e])),
+    [employees],
+  );
+
+  /** 消息的实际作者；handledBy 缺失时（旧数据）归属会话默认员工 */
+  const authorOf = (m: Message) =>
+    (m.metadata?.handledBy ? employeeById.get(m.metadata.handledBy) : undefined) ??
+    employee;
+
+  /** 本轮流式回复的作者；streamingAuthorId 未设置时归属会话默认员工 */
+  const streamingAuthor =
+    (streamingAuthorId ? employeeById.get(streamingAuthorId) : undefined) ?? employee;
 
   // clear the optimistic bubble + local stream once the refetched history includes it
   useEffect(() => {
@@ -59,22 +101,33 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [persisted.length, state.text, state.reasoning, state.toolCalls, pendingUser]);
 
-  const handleSend = (text: string, targetEmployeeId?: string) => {
-    setPendingUser({ id: `pending-${Date.now()}`, content: text });
-    send(conversationId, text, targetEmployeeId, () => {
-      // on completion, refetch canonical history (includes persisted tool calls)
-      qc.invalidateQueries({ queryKey: qk.conversation(conversationId) });
-      qc.invalidateQueries({ queryKey: qk.conversations });
-      // 清空 pendingUser,避免重复显示
-      setPendingUser(null);
-    });
+  const handleSend = (
+    text: string,
+    targetEmployeeId?: string,
+    attachments?: MessageAttachment[],
+  ) => {
+    setPendingUser({ id: `pending-${Date.now()}`, content: text, attachments });
+    setStreamingAuthorId(targetEmployeeId ?? employee?.id ?? null);
+    send(
+      conversationId,
+      text,
+      targetEmployeeId,
+      () => {
+        // on completion, refetch canonical history (includes persisted tool calls)
+        qc.invalidateQueries({ queryKey: qk.conversation(conversationId) });
+        qc.invalidateQueries({ queryKey: qk.conversations });
+        // 清空 pendingUser,避免重复显示
+        setPendingUser(null);
+      },
+      attachments,
+    );
   };
 
   const isEmpty = persisted.length === 0 && !pendingUser && !showLiveAssistant;
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-border px-6 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="z-10 flex flex-shrink-0 items-center gap-3 border-b border-border bg-white px-6 py-3">
         <Bot className="h-5 w-5 text-primary" />
         <div className="flex-1">
           <h2 className="text-sm font-semibold text-foreground">
@@ -96,7 +149,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
         {isLoading ? (
           <CenteredSpinner label="加载会话…" />
         ) : isEmpty ? (
@@ -111,20 +164,28 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
             {persisted
               .filter((m) => m.role !== 'TOOL')
-              .map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  role={m.role.toLowerCase() as 'user' | 'assistant'}
-                  content={m.content}
-                  toolCalls={m.toolCalls}
-                  knowledgeSources={m.knowledgeSources}
-                  employeeName={employee?.name}
-                  employeeAvatar={employee?.avatar}
-                />
-              ))}
+              .map((m) => {
+                const author = authorOf(m);
+                return (
+                  <MessageBubble
+                    key={m.id}
+                    role={m.role.toLowerCase() as 'user' | 'assistant'}
+                    content={m.content}
+                    toolCalls={m.toolCalls}
+                    knowledgeSources={m.knowledgeSources}
+                    attachments={m.attachments}
+                    employeeName={author?.name}
+                    employeeAvatar={author?.avatar}
+                  />
+                );
+              })}
 
             {pendingUser && (
-              <MessageBubble role="user" content={pendingUser.content} />
+              <MessageBubble
+                role="user"
+                content={pendingUser.content}
+                attachments={pendingUser.attachments}
+              />
             )}
 
             {showLiveAssistant && (
@@ -133,8 +194,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                 content={state.text}
                 reasoning={state.reasoning}
                 toolCalls={state.toolCalls}
-                employeeName={employee?.name}
-                employeeAvatar={employee?.avatar}
+                employeeName={streamingAuthor?.name}
+                employeeAvatar={streamingAuthor?.avatar}
                 streaming={state.streaming}
               />
             )}
@@ -148,14 +209,15 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         )}
       </div>
 
-      <InputBar
-        onSend={handleSend}
-        onStop={stop}
-        streaming={state.streaming}
-        defaultEmployeeId={employee?.id ?? ''}
-        defaultEmployeeName={employee?.name ?? '员工'}
-        availableEmployees={subscribedEmployees}
-      />
+      <div className="z-20 flex-shrink-0 border-t bg-white">
+        <InputBar
+          onSend={handleSend}
+          onStop={stop}
+          streaming={state.streaming}
+          defaultEmployeeId={employee?.id ?? ''}
+          employees={employees}
+        />
+      </div>
     </div>
   );
 }
