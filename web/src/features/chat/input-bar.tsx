@@ -67,56 +67,57 @@ export function InputBar({
 
   return (
     <div className="border-t border-border bg-background px-4 py-3">
-      {/* 🆕 员工选择器（多员工协作） */}
-      {showEmployeeSelector && (
-        <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2">
-          <Select
-            value={selectedEmployeeId ?? defaultEmployeeId}
-            onValueChange={(val) =>
-              setSelectedEmployeeId(val === defaultEmployeeId ? null : val)
-            }
-          >
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="选择员工" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={defaultEmployeeId}>
-                {selectedEmployeeId === null && '✓ '}
-                {defaultEmployeeName}
-              </SelectItem>
-              {availableEmployees
-                .filter((e) => e.id !== defaultEmployeeId)
-                .map((emp) => (
-                  <SelectItem key={emp.id} value={emp.id}>
-                    {selectedEmployeeId === emp.id && '✓ '}
-                    {emp.name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
+      <div className="mx-auto max-w-3xl">
+        {/* 🆕 员工选择器（多员工协作） */}
+        {showEmployeeSelector && (
+          <div className="mb-3 flex items-center gap-2">
+            <Select
+              value={selectedEmployeeId ?? defaultEmployeeId}
+              onValueChange={(val) =>
+                setSelectedEmployeeId(val === defaultEmployeeId ? null : val)
+              }
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="选择员工" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={defaultEmployeeId}>
+                  {selectedEmployeeId === null && '✓ '}
+                  {defaultEmployeeName}
+                </SelectItem>
+                {availableEmployees
+                  .filter((e) => e.id !== defaultEmployeeId)
+                  .map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {selectedEmployeeId === emp.id && '✓ '}
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
 
-          {targetEmployee && (
-            <Badge variant="default" className="gap-1 bg-muted text-foreground">
-              <AtSign className="h-3 w-3" />
-              {targetEmployee.name}
-              <button
-                onClick={() => setSelectedEmployeeId(null)}
-                className="ml-1 rounded-full hover:bg-muted"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          )}
+            {targetEmployee && (
+              <Badge variant="default" className="gap-1 bg-muted text-foreground">
+                <AtSign className="h-3 w-3" />
+                {targetEmployee.name}
+                <button
+                  onClick={() => setSelectedEmployeeId(null)}
+                  className="ml-1 rounded-full hover:bg-border"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
 
-          <span className="text-xs text-fg-subtle">
-            {targetEmployee
-              ? `本条消息将由 ${targetEmployee.name} 处理`
-              : `当前员工：${defaultEmployeeName}`}
-          </span>
-        </div>
-      )}
+            <span className="text-xs text-fg-subtle">
+              {targetEmployee
+                ? `本条消息将由 ${targetEmployee.name} 处理`
+                : `当前员工：${defaultEmployeeName}`}
+            </span>
+          </div>
+        )}
 
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-white px-3 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
+        <div className="flex items-end gap-2 rounded-2xl border border-border bg-white px-3 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
         <textarea
           ref={taRef}
           rows={1}
