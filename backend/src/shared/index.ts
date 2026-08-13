@@ -928,7 +928,15 @@ export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 export const MessageAttachmentSchema = z.object({
   type: z.enum(ATTACHMENT_TYPES),
   key: z.string().min(1),
-  url: z.string().url(),
+  // 绝对地址（OSS 驱动）或根相对路径（本地驱动，前端拼 /api 前缀走同源代理）。
+  // 不能只收 .url()：本地驱动返回的就是 /uploads/...，那样所有本地上传都发不出去。
+  url: z
+    .string()
+    .min(1)
+    .refine(
+      (v) => /^https?:\/\//i.test(v) || v.startsWith('/'),
+      { message: '附件地址须为 http(s) 绝对地址或根相对路径' },
+    ),
   name: z.string().min(1).max(255),
   size: z.number().int().nonnegative(),
   mimeType: z.string().optional(),
