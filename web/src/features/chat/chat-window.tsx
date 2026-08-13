@@ -8,7 +8,7 @@ import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { MessageBubble } from './message-bubble';
 import { InputBar } from './input-bar';
 import { ModelSwitcher } from './model-switcher';
-import { useChatStream } from './use-chat-stream';
+import { useChatStream, type SendOutcome } from './use-chat-stream';
 import { useConversation } from './use-conversations';
 import { useSubscribedEmployees } from './use-subscribed-employees';
 import { useAuthStore } from '@/lib/auth-store';
@@ -101,14 +101,14 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [persisted.length, state.text, state.reasoning, state.toolCalls, pendingUser]);
 
-  const handleSend = (
+  const handleSend = async (
     text: string,
     targetEmployeeId?: string,
     attachments?: MessageAttachment[],
-  ) => {
+  ): Promise<SendOutcome> => {
     setPendingUser({ id: `pending-${Date.now()}`, content: text, attachments });
     setStreamingAuthorId(targetEmployeeId ?? employee?.id ?? null);
-    send(
+    const outcome = await send(
       conversationId,
       text,
       targetEmployeeId,
@@ -121,6 +121,16 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       },
       attachments,
     );
+
+    // 发送失败时这条消息没落库，乐观气泡必须撤掉 —— 留着的话界面上有条
+    // 刷新就消失的假消息，正是"记录不见了"的观感来源。文字和附件由
+    // InputBar 依据返回值还原，用户不用重新输入、重新上传。
+    if (outcome === 'failed') {
+      setPendingUser(null);
+      setStreamingAuthorId(null);
+    }
+
+    return outcome;
   };
 
   const isEmpty = persisted.length === 0 && !pendingUser && !showLiveAssistant;

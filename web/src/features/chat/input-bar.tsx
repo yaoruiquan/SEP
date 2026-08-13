@@ -14,14 +14,19 @@ import { EmployeeSwitcher, type SwitchableEmployee } from './employee-switcher';
 import { FilePreview } from './file-preview';
 import { FileUploadButton } from './file-upload-button';
 import { useAttachmentUpload } from './use-attachment-upload';
+import type { SendOutcome } from './use-chat-stream';
 import type { MessageAttachment } from '@/lib/types';
 
 interface InputBarProps {
+  /**
+   * 发送回调。返回 {@link SendOutcome} 决定输入框怎么处理：`failed` 时
+   * 输入框会把文字和附件还原回去。返回 void 视作成功（老调用方兼容）。
+   */
   onSend: (
     text: string,
     targetEmployeeId?: string,
     attachments?: MessageAttachment[],
-  ) => void;
+  ) => void | SendOutcome | Promise<void | SendOutcome>;
   onStop?: () => void;
   streaming?: boolean;
   disabled?: boolean;
@@ -67,21 +72,36 @@ export function InputBar({
     !streaming &&
     !disabled;
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     const text = value.trim();
     if (!canSend) return;
-    // 选择保持不变：连续追问同一位员工是主要用法，每条都要重选很别扭
-    onSend(
-      text,
-      activeEmployeeId || undefined,
-      attachments.ready.length > 0 ? attachments.ready : undefined,
-    );
+
+    const ready = attachments.ready;
+    // 先摘走再发：输入框立刻空出来（发送中还留着旧内容很别扭），但快照留
+    // 在手里，发送失败时原样放回，用户不必重打字、重传文件。
+    const snapshot = attachments.detach();
     setValue('');
-    attachments.clear();
     requestAnimationFrame(() => {
       if (taRef.current) taRef.current.style.height = 'auto';
     });
-  }, [value, canSend, activeEmployeeId, onSend, attachments]);
+
+    // 选择保持不变：连续追问同一位员工是主要用法，每条都要重选很别扭
+    const outcome = await onSend(
+      text,
+      activeEmployeeId || undefined,
+      ready.length > 0 ? ready : undefined,
+    );
+
+    // 只有 failed 才还原。aborted 是用户自己点的停止，那条消息已经发出去
+    // 并落库了，还原会导致重复发送。
+    if (outcome === 'failed') {
+      setValue(text);
+      attachments.restore(snapshot);
+      requestAnimationFrame(() => autoGrow());
+    } else {
+      attachments.dispose(snapshot);
+    }
+  }, [value, canSend, activeEmployeeId, onSend, attachments, autoGrow]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

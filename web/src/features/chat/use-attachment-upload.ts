@@ -134,15 +134,39 @@ export function useAttachmentUpload() {
     [commit],
   );
 
-  const clear = useCallback(() => {
+  /**
+   * 摘下当前所有附件并返回快照，**不吊销 previewUrl**。
+   *
+   * 发送流程要的是"先从输入框拿走，等确认发送成功再真正丢弃"：发送失败时
+   * 用 restore 原样放回，用户不必重新上传（文件可能有几十兆）。预览地址
+   * 一旦 revoke 就无法复活，所以吊销这一步留给 dispose。
+   */
+  const detach = useCallback((): PendingAttachment[] => {
+    const snapshot = itemsRef.current;
     setLimitError(null);
-    commit((prev) => {
-      for (const it of prev) {
-        if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
-      }
-      return [];
-    });
+    commit(() => []);
+    return snapshot;
   }, [commit]);
+
+  /** 把 detach 的快照放回输入框（发送失败时用） */
+  const restore = useCallback(
+    (snapshot: PendingAttachment[]) => {
+      if (snapshot.length === 0) return;
+      commit((prev) => [...snapshot, ...prev]);
+    },
+    [commit],
+  );
+
+  /** 真正释放快照占用的预览地址（确认不再需要还原后调用） */
+  const dispose = useCallback((snapshot: PendingAttachment[]) => {
+    for (const it of snapshot) {
+      if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+    }
+  }, []);
+
+  const clear = useCallback(() => {
+    dispose(detach());
+  }, [detach, dispose]);
 
   /** 已上传成功、可随消息发送的记录 */
   const ready = items
@@ -158,5 +182,8 @@ export function useAttachmentUpload() {
     addFiles,
     remove,
     clear,
+    detach,
+    restore,
+    dispose,
   };
 }

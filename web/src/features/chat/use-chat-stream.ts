@@ -42,6 +42,15 @@ export interface DoneInfo {
   };
 }
 
+/**
+ * 发送结果。调用方需要区分这三种情况才能决定输入框怎么处理：
+ * - `ok`：正常收完流，清空输入框。
+ * - `failed`：请求没建立或中途断了，消息大概率没落库 —— 必须把用户的
+ *   文字和附件还回去，否则用户得重新打字、重新上传一遍。
+ * - `aborted`：用户自己点了停止，消息已经发出去了，不能还原（会重复）。
+ */
+export type SendOutcome = 'ok' | 'failed' | 'aborted';
+
 export function useChatStream() {
   const [state, setState] = useState<StreamState>(EMPTY);
   const abortRef = useRef<AbortController | null>(null);
@@ -57,6 +66,7 @@ export function useChatStream() {
   /**
    * Send a message and stream the assistant reply.
    * Resolves once the stream completes. onDone fires with final metadata.
+   * 返回值见 {@link SendOutcome} —— 调用方靠它决定要不要还原输入框。
    */
   const send = useCallback(
     async (
@@ -65,7 +75,7 @@ export function useChatStream() {
       targetEmployeeId?: string, // 🆕 多员工协作：指定处理该消息的员工
       onDone?: (info: DoneInfo) => void,
       attachments?: MessageAttachment[], // 🆕 多模态附件
-    ): Promise<void> => {
+    ): Promise<SendOutcome> => {
       const controller = new AbortController();
       abortRef.current = controller;
       setState({ ...EMPTY, streaming: true });
@@ -87,19 +97,20 @@ export function useChatStream() {
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           setState((s) => ({ ...s, streaming: false }));
-          return;
+          return 'aborted';
         }
         setState((s) => ({
           ...s,
           streaming: false,
           error: (err as Error).message || '连接中断',
         }));
-        return;
+        return 'failed';
       }
 
       abortRef.current = null;
       setState((s) => ({ ...s, streaming: false }));
       onDone?.(doneInfo);
+      return 'ok';
     },
     [],
   );

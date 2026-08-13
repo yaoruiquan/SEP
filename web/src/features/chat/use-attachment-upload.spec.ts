@@ -438,4 +438,165 @@ describe('useAttachmentUpload', () => {
       expect(result.current.ready).toHaveLength(2);
     });
   });
+
+  /**
+   * 发送失败时不能把用户上传好的文件丢掉 —— 几十兆重传一遍是真实的痛。
+   * detach 摘走但不吊销预览地址，restore 原样放回，dispose 才真正释放。
+   */
+  describe('detach / restore / dispose（发送失败不丢附件）', () => {
+    it('detach 返回快照并清空输入框，但不吊销 previewUrl', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('a.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('a.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      let snapshot: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        snapshot = result.current.detach();
+      });
+
+      expect(result.current.items).toHaveLength(0);
+      expect(snapshot).toHaveLength(1);
+      expect(snapshot[0].attachment).toEqual(attachmentFor('a.png'));
+      // 关键：还没 revoke，否则还原回去预览就是死链
+      expect(global.URL.revokeObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('restore 把快照原样放回，ready 恢复可发送', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('a.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('a.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      let snapshot: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        snapshot = result.current.detach();
+      });
+      act(() => result.current.restore(snapshot));
+
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.ready).toHaveLength(1);
+      expect(result.current.ready[0]).toEqual(attachmentFor('a.png'));
+    });
+
+    it('restore 空快照是无操作', () => {
+      const { result } = renderHook(() => useAttachmentUpload());
+      act(() => result.current.restore([]));
+      expect(result.current.items).toHaveLength(0);
+    });
+
+    it('还原后再次 detach 拿到的还是同一批', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('a.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('a.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      let first: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        first = result.current.detach();
+      });
+      act(() => result.current.restore(first));
+
+      let second: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        second = result.current.detach();
+      });
+
+      expect(second).toHaveLength(1);
+      expect(second[0].id).toBe(first[0].id);
+    });
+
+    it('还原后 restore 的项排在新选文件之前（顺序不乱）', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('old.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('old.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      let snapshot: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        snapshot = result.current.detach();
+      });
+      act(() => result.current.addFiles([fakeFile('new.png')]));
+      act(() => result.current.restore(snapshot));
+
+      expect(result.current.items.map((it) => it.name)).toEqual([
+        'old.png',
+        'new.png',
+      ]);
+    });
+
+    it('dispose 吊销快照里的预览地址', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('a.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('a.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      let snapshot: ReturnType<typeof result.current.detach> = [];
+      act(() => {
+        snapshot = result.current.detach();
+      });
+      act(() => result.current.dispose(snapshot));
+
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('clear 仍然等价于 detach + dispose（老行为不变）', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('a.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() => result.current.addFiles([fakeFile('a.png')]));
+      await waitFor(() => expect(result.current.ready).toHaveLength(1));
+
+      act(() => result.current.clear());
+
+      expect(result.current.items).toHaveLength(0);
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('detach 会清掉数量上限提示', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('x.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() =>
+        result.current.addFiles(
+          Array.from({ length: 6 }, (_, i) => fakeFile(`f${i}.png`)),
+        ),
+      );
+      expect(result.current.limitError).not.toBeNull();
+
+      act(() => {
+        result.current.detach();
+      });
+      expect(result.current.limitError).toBeNull();
+    });
+
+    it('detach 后重新选择文件，上限按空计算', async () => {
+      mockUpload.mockResolvedValue(attachmentFor('x.png'));
+      const { result } = renderHook(() => useAttachmentUpload());
+
+      act(() =>
+        result.current.addFiles(
+          Array.from({ length: 5 }, (_, i) => fakeFile(`a${i}.png`)),
+        ),
+      );
+      expect(result.current.items).toHaveLength(5);
+
+      act(() => {
+        result.current.detach();
+      });
+      act(() =>
+        result.current.addFiles(
+          Array.from({ length: 5 }, (_, i) => fakeFile(`b${i}.png`)),
+        ),
+      );
+
+      expect(result.current.items).toHaveLength(5);
+      expect(result.current.limitError).toBeNull();
+    });
+  });
 });
