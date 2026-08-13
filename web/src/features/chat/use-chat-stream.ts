@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { streamMessage, type SseEvent } from '@/lib/sse';
-import type { ToolCallRecord } from '@/lib/types';
+import type { MessageAttachment, ToolCallRecord } from '@/lib/types';
 
 /** A live tool invocation surfaced during streaming. */
 export interface LiveToolCall {
@@ -64,6 +64,7 @@ export function useChatStream() {
       content: string,
       targetEmployeeId?: string, // 🆕 多员工协作：指定处理该消息的员工
       onDone?: (info: DoneInfo) => void,
+      attachments?: MessageAttachment[], // 🆕 多模态附件
     ): Promise<void> => {
       const controller = new AbortController();
       abortRef.current = controller;
@@ -77,6 +78,7 @@ export function useChatStream() {
           content,
           targetEmployeeId,
           controller.signal,
+          attachments,
         )) {
           applyEvent(e, setState, (info) => {
             doneInfo = info;

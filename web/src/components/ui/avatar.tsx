@@ -9,7 +9,7 @@ interface AvatarProps {
 /** Circular avatar; falls back to the first character of the name. */
 export function Avatar({ name, src, className }: AvatarProps) {
   const initial = (name?.trim()?.[0] ?? '?').toUpperCase();
-  if (src) {
+  if (src && src.trim()) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img

@@ -8,7 +8,12 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ModelService } from '../model/model.service';
-import { ConversationCreateDto, ConversationUpdateDto } from 'shared';
+import {
+  ConversationCreateDto,
+  ConversationUpdateDto,
+  type MessageAttachment,
+} from 'shared';
+import { StorageService } from '../upload/storage/storage.service';
 
 @Injectable()
 export class ConversationService {
@@ -18,6 +23,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly subscriptionService: SubscriptionService,
     private readonly modelService: ModelService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(userId: string, dto: ConversationCreateDto) {
@@ -81,6 +87,9 @@ export class ConversationService {
             role: true,
             content: true,
             toolCalls: true,
+            knowledgeSources: true,
+            metadata: true,
+            attachments: true,
             createdAt: true,
           },
         },
@@ -90,7 +99,43 @@ export class ConversationService {
     if (!session) throw new NotFoundException(`Session ${sessionId} not found`);
     if (session.userId !== userId) throw new ForbiddenException();
 
-    return session;
+    return {
+      ...session,
+      messages: await this.withFreshAttachmentUrls(session.messages),
+    };
+  }
+
+  /**
+   * 重签附件访问链接。
+   *
+   * 存库的 url 只有 1 小时有效期，历史会话直接回传会渲染成裂图。key 是
+   * 永久标识，所以每次读取会话时按 key 重新签发。
+   */
+  private async withFreshAttachmentUrls<
+    T extends { attachments: unknown },
+  >(messages: T[]): Promise<T[]> {
+    return Promise.all(
+      messages.map(async (message) => {
+        const attachments = message.attachments as MessageAttachment[] | null;
+        if (!attachments || attachments.length === 0) return message;
+
+        const refreshed = await Promise.all(
+          attachments.map(async (att) => {
+            try {
+              return { ...att, url: await this.storage.getSignedUrl(att.key) };
+            } catch (err) {
+              // 重签失败（对象已被清理等）不该让整个会话打不开
+              this.logger.warn(
+                `附件重签失败 ${att.key}: ${(err as Error).message}`,
+              );
+              return att;
+            }
+          }),
+        );
+
+        return { ...message, attachments: refreshed };
+      }),
+    );
   }
 
   async update(sessionId: string, userId: string, dto: ConversationUpdateDto) {
@@ -138,7 +183,9 @@ export class ConversationService {
 
     // 只在 title 从未设置（null），且消息数 ≤ 2（用户+AI 第一轮）时生成
     if (session.title === null && session._count.messages <= 2) {
-      const autoTitle = firstUserMessage.slice(0, 20).trim();
+      // 纯附件消息（content 为空）取不到文字，回退到固定文案，
+      // 否则标题会是空串，会话列表里显示成一片空白
+      const autoTitle = firstUserMessage.slice(0, 20).trim() || '附件消息';
       await this.prisma.conversationSession.update({
         where: { id: sessionId },
         data: { title: autoTitle },
