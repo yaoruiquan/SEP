@@ -29,10 +29,18 @@ interface PendingUser {
 export function ChatWindow({ conversationId }: ChatWindowProps) {
   const qc = useQueryClient();
   const { data: conversation, isLoading } = useConversation(conversationId);
-  const { state, send, stop } = useChatStream();
+  const { state, send, stop, reset } = useChatStream();
   const [pendingUser, setPendingUser] = useState<PendingUser | null>(null);
   // 本轮流式回复的作者，用于让实时气泡显示正确的员工而非会话默认员工
   const [streamingAuthorId, setStreamingAuthorId] = useState<string | null>(null);
+  // 本轮回复落库后的 id（后端 done 事件给的）。历史里出现这条 id 就说明
+  // 权威副本已到位，实时气泡必须让位 —— 否则同一段回复会挂两遍。
+  const [settledMessageId, setSettledMessageId] = useState<string | null>(null);
+  // 发送轮次。refetch 是异步的，期间用户可能又发了一条；收尾逻辑靠它确认
+  // 「我还是最新那一轮」，不去清掉后一轮的状态。
+  const sendSeqRef = useRef(0);
+  // 本轮开始时历史里有多少条消息，供 messageId 缺失时的兜底判据用
+  const [baselineCount, setBaselineCount] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 企业模型策略：用于 ModelSwitcher 的白名单 + 锁定控制
@@ -92,8 +100,23 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persisted.length]);
 
+  /**
+   * 本轮回复的权威副本是否已经在历史里。
+   *
+   * 首选按 done 事件给的 messageId 精确比对；老后端或异常情况下拿不到 id 时，
+   * 退回「历史比本轮开始时变长了」这个兜底判据 —— 不能只看「最后一条是助手
+   * 消息」，因为进入会话时最后一条本来就常常是助手消息，那样流一停就会把
+   * 实时气泡撤掉，refetch 还没落地，回复会闪一下不见。
+   *
+   * 两条路都不做文本比对：内容偶然一致时的误判代价太高。
+   */
+  const liveReplyPersisted = settledMessageId
+    ? persisted.some((m) => m.id === settledMessageId)
+    : baselineCount !== null && persisted.length > baselineCount;
+
   const showLiveAssistant =
-    state.streaming || !!state.text || !!state.error || state.toolCalls.length > 0;
+    !liveReplyPersisted &&
+    (state.streaming || !!state.text || !!state.error || state.toolCalls.length > 0);
 
   // auto-scroll to bottom on new content
   useEffect(() => {
@@ -106,18 +129,34 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     targetEmployeeId?: string,
     attachments?: MessageAttachment[],
   ): Promise<SendOutcome> => {
+    const seq = ++sendSeqRef.current;
     setPendingUser({ id: `pending-${Date.now()}`, content: text, attachments });
     setStreamingAuthorId(targetEmployeeId ?? employee?.id ?? null);
+    // 新一轮开始：清掉上一轮的落库标记，记下当前历史长度作为兜底基线
+    setSettledMessageId(null);
+    setBaselineCount(persisted.length);
+
     const outcome = await send(
       conversationId,
       text,
       targetEmployeeId,
-      () => {
+      async (info) => {
+        // 记下落库 id：历史刷回来时靠它判断实时气泡该不该撤
+        setSettledMessageId(info.messageId ?? null);
+
         // on completion, refetch canonical history (includes persisted tool calls)
-        qc.invalidateQueries({ queryKey: qk.conversation(conversationId) });
-        qc.invalidateQueries({ queryKey: qk.conversations });
-        // 清空 pendingUser,避免重复显示
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: qk.conversation(conversationId) }),
+          qc.invalidateQueries({ queryKey: qk.conversations }),
+        ]);
+
+        // 期间用户又发了新消息，后一轮的状态不能被这一轮的收尾清掉
+        if (sendSeqRef.current !== seq) return;
+
+        // 权威副本已在界面上，本地这份可以退场了。等 refetch 落地后再清，
+        // 顺序反了会有一帧「两条都没有」的空档。
         setPendingUser(null);
+        reset();
       },
       attachments,
     );
@@ -128,6 +167,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     if (outcome === 'failed') {
       setPendingUser(null);
       setStreamingAuthorId(null);
+      setBaselineCount(null);
     }
 
     return outcome;

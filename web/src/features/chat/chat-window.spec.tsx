@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatWindow } from './chat-window';
 import { useAuthStore } from '@/lib/auth-store';
@@ -16,6 +16,7 @@ import type { Message, MessageAttachment } from '@/lib/types';
 
 const sendSpy = vi.fn();
 const stopSpy = vi.fn();
+const resetSpy = vi.fn();
 
 let conversationData: unknown = undefined;
 let conversationLoading = false;
@@ -36,7 +37,12 @@ vi.mock('./use-conversations', () => ({
 }));
 
 vi.mock('./use-chat-stream', () => ({
-  useChatStream: () => ({ state: streamState, send: sendSpy, stop: stopSpy }),
+  useChatStream: () => ({
+    state: streamState,
+    send: sendSpy,
+    stop: stopSpy,
+    reset: resetSpy,
+  }),
 }));
 
 vi.mock('./use-subscribed-employees', () => ({
@@ -152,9 +158,28 @@ const inputBar = () => screen.getByTestId('input-bar');
 const employeesPassedToInput = () =>
   JSON.parse(inputBar().getAttribute('data-employees') ?? '[]');
 
+/**
+ * 让 sendSpy 表现得像真的收完了流：调用方传进来的 onDone（第 4 个参数）
+ * 会被立刻触发，带上后端 done 事件里的 messageId。
+ */
+function sendResolvesWith(messageId?: string) {
+  sendSpy.mockImplementation(
+    async (
+      _convId: string,
+      _text: string,
+      _target: string | undefined,
+      onDone?: (info: { messageId?: string; toolCalls: unknown[] }) => void,
+    ) => {
+      await onDone?.({ messageId, toolCalls: [] });
+      return 'ok';
+    },
+  );
+}
+
 describe('ChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sendSpy.mockResolvedValue('ok');
     conversationLoading = false;
     subscribedData = [];
     streamState = {
@@ -406,6 +431,145 @@ describe('ChatWindow', () => {
 
       const live = bubbles().find((b) => b.getAttribute('data-streaming') === '1');
       expect(live).toHaveAttribute('data-author', '小艾');
+    });
+  });
+
+  /**
+   * 回归：流收完后 state.text 还留着整段回复，而刷新回来的历史里已经有了
+   * 同一条消息 —— 两者同时渲染就是界面上「回复出现两遍、重进会话又只有一遍」
+   * 的根因。判据用后端 done 事件给的 messageId：历史里出现这条 id，
+   * 说明权威副本已到位，实时气泡必须让位。
+   */
+  describe('实时气泡与落库消息不重复', () => {
+    const assistantBubbles = () =>
+      bubbles().filter((b) => b.getAttribute('data-role') === 'assistant');
+
+    it('落库消息到位后实时气泡撤掉，回复只显示一遍', async () => {
+      streamState = { ...streamState, streaming: false, text: '这是一只红小龙虾。' };
+      // onDone 触发时把「刷新回来的历史」换上，模拟 refetch 落地
+      sendSpy.mockImplementation(
+        async (
+          _c: string,
+          _t: string,
+          _e: string | undefined,
+          onDone?: (i: { messageId?: string; toolCalls: unknown[] }) => void,
+        ) => {
+          conversationData = {
+            ...(conversationData as object),
+            messages: [
+              message({ id: 'u-1', role: 'USER', content: '这是什么' }),
+              message({ id: 'a-1', role: 'ASSISTANT', content: '这是一只红小龙虾。' }),
+            ],
+          };
+          await onDone?.({ messageId: 'a-1', toolCalls: [] });
+          return 'ok';
+        },
+      );
+      renderWindow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      await waitFor(() => {
+        expect(assistantBubbles()).toHaveLength(1);
+      });
+      expect(
+        assistantBubbles().filter((b) =>
+          b.textContent?.includes('这是一只红小龙虾。'),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('落库消息还没回来时实时气泡保留，不出现空档', async () => {
+      streamState = { ...streamState, streaming: false, text: '这是一只红小龙虾。' };
+      // 历史仍是空的：refetch 还没落地
+      sendResolvesWith('a-1');
+      renderWindow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      // 权威副本没到位，实时气泡得继续顶着，否则用户会看到回复闪一下消失
+      expect(assistantBubbles()).toHaveLength(1);
+      expect(screen.getByText('这是一只红小龙虾。')).toBeInTheDocument();
+    });
+
+    it('done 事件没带 messageId 时靠历史增长兜底，同样不重复', async () => {
+      streamState = { ...streamState, streaming: false, text: '这是一只红小龙虾。' };
+      sendSpy.mockImplementation(
+        async (
+          _c: string,
+          _t: string,
+          _e: string | undefined,
+          onDone?: (i: { messageId?: string; toolCalls: unknown[] }) => void,
+        ) => {
+          conversationData = {
+            ...(conversationData as object),
+            messages: [
+              message({ id: 'u-1', role: 'USER', content: '这是什么' }),
+              message({ id: 'a-1', role: 'ASSISTANT', content: '这是一只红小龙虾。' }),
+            ],
+          };
+          await onDone?.({ toolCalls: [] }); // 没有 messageId
+          return 'ok';
+        },
+      );
+      renderWindow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      await waitFor(() => {
+        expect(assistantBubbles()).toHaveLength(1);
+      });
+    });
+
+    it('收完流后清空流式状态，不留给下一轮', async () => {
+      streamState = { ...streamState, streaming: false, text: '这是一只红小龙虾。' };
+      sendResolvesWith('a-1');
+      renderWindow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      await waitFor(() => {
+        expect(resetSpy).toHaveBeenCalled();
+      });
+    });
+
+    it('乐观用户气泡在历史到位后撤掉，用户消息也只有一条', async () => {
+      sendSpy.mockImplementation(
+        async (
+          _c: string,
+          _t: string,
+          _e: string | undefined,
+          onDone?: (i: { messageId?: string; toolCalls: unknown[] }) => void,
+        ) => {
+          conversationData = {
+            ...(conversationData as object),
+            messages: [
+              message({ id: 'u-1', role: 'USER', content: '你好' }),
+              message({ id: 'a-1', role: 'ASSISTANT', content: '你好呀' }),
+            ],
+          };
+          await onDone?.({ messageId: 'a-1', toolCalls: [] });
+          return 'ok';
+        },
+      );
+      renderWindow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      await waitFor(() => {
+        const users = bubbles().filter((b) => b.getAttribute('data-role') === 'user');
+        expect(users).toHaveLength(1);
+      });
     });
   });
 
