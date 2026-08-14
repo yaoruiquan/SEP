@@ -166,7 +166,7 @@ export default function MarketplacePage() {
   /** 加入购物车 */
   function handleAddToCart(emp: MarketEmployee) {
     addToCart.mutate(
-      { employeeId: emp.id, quantity: 1, periodMonths: 12 },
+      { employeeId: emp.id, periodMonths: 12 },
       {
         onSuccess: () => {
           toast.success(`${emp.name} 已加入购物车`);
@@ -185,7 +185,7 @@ export default function MarketplacePage() {
           <span className="gradient-text-glass inline-block">硅基人才市场</span>
         </h1>
         <p className="mx-auto max-w-xl text-[15px] text-gtext-secondary">
-          按职能、能力类型和预算挑选硅基员工，订阅后即可为部门创建实例。
+          按职能、能力类型和预算挑选硅基员工，雇佣后即可授权给部门与成员。
         </p>
 
         <div className="relative mx-auto max-w-xl">

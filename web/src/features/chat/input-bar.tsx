@@ -118,50 +118,51 @@ export function InputBar({
         )}
 
         <div className="flex items-end gap-2 rounded-2xl border border-border bg-white px-3 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
-        <textarea
-          ref={taRef}
-          rows={1}
-          value={value}
-          disabled={disabled}
-          placeholder={placeholder}
-          onChange={(e) => {
-            setValue(e.target.value);
-            autoGrow();
-          }}
-          onKeyDown={onKeyDown}
-          className="max-h-[200px] flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed outline-none placeholder:text-fg-subtle disabled:opacity-50 scroll-thin"
-        />
-        {streaming ? (
-          <button
-            type="button"
-            onClick={onStop}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-border"
-            aria-label="停止生成"
-          >
-            <Square className="h-4 w-4 fill-current" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!value.trim() || disabled}
-            className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
-              value.trim() && !disabled
-                ? 'bg-primary text-primary-foreground hover:bg-primary-hover'
-                : 'bg-muted text-fg-subtle',
-            )}
-            aria-label="发送"
-          >
-            <ArrowUp className="h-5 w-5" />
-          </button>
+          <textarea
+            ref={taRef}
+            rows={1}
+            value={value}
+            disabled={disabled}
+            placeholder={placeholder}
+            onChange={(e) => {
+              setValue(e.target.value);
+              autoGrow();
+            }}
+            onKeyDown={onKeyDown}
+            className="max-h-[200px] flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed outline-none placeholder:text-fg-subtle disabled:opacity-50 scroll-thin"
+          />
+          {streaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-border"
+              aria-label="停止生成"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!value.trim() || disabled}
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
+                value.trim() && !disabled
+                  ? 'bg-primary text-primary-foreground hover:bg-primary-hover'
+                  : 'bg-muted text-fg-subtle',
+              )}
+              aria-label="发送"
+            >
+              <ArrowUp className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+        {value.length > 0 && (
+          <div className="mt-1 px-1 text-right text-[11px] text-fg-subtle">
+            {value.length} 字
+          </div>
         )}
       </div>
-      {value.length > 0 && (
-        <div className="mx-auto mt-1 max-w-3xl px-1 text-right text-[11px] text-fg-subtle">
-          {value.length} 字
-        </div>
-      )}
     </div>
   );
 }

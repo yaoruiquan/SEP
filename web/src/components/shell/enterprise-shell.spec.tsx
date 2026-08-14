@@ -6,9 +6,12 @@ import { useAuthStore } from '@/lib/auth-store';
 // 断言引用文案单一来源，避免文案调整后测试与实现漂移
 import { nav } from '@/locales/zh-CN';
 
-// next/navigation 在测试环境没有 router 上下文，NavItem 用 usePathname 判高亮
+// next/navigation 在测试环境没有 router 上下文。
+// usePathname：NavItem 用它判高亮。
+// useRouter：外壳里的 CartButton 在渲染期就调用，缺了会直接抛错。
 vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
 }));
 
 // logout 会发请求，这里只关心导航渲染
@@ -101,15 +104,17 @@ describe('EnterpriseShell 导航角色过滤', () => {
     expect(screen.getByText('示例科技')).toBeInTheDocument();
   });
 
-  it('「员工授权」仅管理员可见 —— 普通成员进去全是点不动的按钮', () => {
+  // 收敛后雇佣关系只有一个入口（原「员工授权」/instances 已并入 /subscriptions），
+  // 雇佣、暂停、升级、授权都在这一处，所以这里只需断言这一个入口的可见性。
+  it('「雇佣管理」仅管理员可见 —— 普通成员进去全是点不动的按钮', () => {
     setRole('ENTERPRISE_ADMIN');
     const { unmount } = renderShell();
-    expect(screen.getByText(nav.instances)).toBeInTheDocument();
+    expect(screen.getByText(nav.subscriptions)).toBeInTheDocument();
     unmount();
 
     setRole('MEMBER');
     renderShell();
-    expect(screen.queryByText(nav.instances)).not.toBeInTheDocument();
+    expect(screen.queryByText(nav.subscriptions)).not.toBeInTheDocument();
     // 但「我的硅基员工」仍在 —— 这是成员的主页面
     expect(screen.getByText(nav.myEmployees)).toBeInTheDocument();
   });

@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { instanceStatus, subscriptionStatus } from '@/locales/zh-CN';
+import { subscriptionStatus } from '@/locales/zh-CN';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -27,14 +27,13 @@ export const SUBSCRIPTION_STATUS_META: Record<
 };
 
 /**
- * 员工实例状态（代码层枚举仍为 InstanceStatus，不改动）。
- * REVOKED 是终态，不可转回。文案来源见 locales/zh-CN.ts。
+ * 雇佣关系状态的徽标样式。收敛后只剩三态，EXPIRED 是终态。
+ * 文案来源见 locales/zh-CN.ts。
  */
-export const INSTANCE_STATUS_LABEL = instanceStatus;
+export const SUBSCRIPTION_STATUS_LABEL = subscriptionStatus;
 
-export const INSTANCE_STATUS_STYLE: Record<string, string> = {
-  PENDING_ACTIVATION: 'bg-warning/10 text-warning',
+export const SUBSCRIPTION_STATUS_STYLE: Record<string, string> = {
   ACTIVE: 'bg-success/10 text-success',
-  SUSPENDED: 'bg-muted text-fg-muted',
-  REVOKED: 'bg-danger/10 text-danger',
+  PAUSED: 'bg-muted text-fg-muted',
+  EXPIRED: 'bg-danger/10 text-danger',
 };

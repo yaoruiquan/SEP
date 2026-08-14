@@ -29,7 +29,6 @@ export class EnterpriseService {
           select: {
             members: true,
             departments: true,
-            instances: true,
             subscriptions: true,
           },
         },
@@ -98,8 +97,8 @@ export class EnterpriseService {
 
     // 1. 关键指标
     const [employeeCount, memberCount, callCount] = await Promise.all([
-      // 员工实例数
-      this.prisma.employeeInstance.count({
+      // 雇佣关系数（收敛后订阅即雇佣关系）
+      this.prisma.subscription.count({
         where: { enterpriseId, status: "ACTIVE" },
       }),
       // 成员数
@@ -164,35 +163,40 @@ export class EnterpriseService {
       where: {
         accountId: account.id,
         type: "CONSUME",
-        metadata: { path: ["instanceId"], not: null },
+        // 必须与 gateway 写入的 key 一致（收敛前是 instanceId）——
+        // 过滤条件和下面的读取用不同 key 会让 Top5 永远为空
+        metadata: { path: ["subscriptionId"], not: null },
       },
       select: { metadata: true },
     });
 
-    // 统计每个 instanceId 的调用次数
-    const instanceCallCount = new Map<string, number>();
+    // 统计每个 subscriptionId 的调用次数
+    const subscriptionCallCount = new Map<string, number>();
     topEmployees.forEach((t: any) => {
-      const instanceId = t.metadata?.instanceId;
-      if (instanceId) {
-        instanceCallCount.set(instanceId, (instanceCallCount.get(instanceId) || 0) + 1);
+      const subscriptionId = t.metadata?.subscriptionId;
+      if (subscriptionId) {
+        subscriptionCallCount.set(
+          subscriptionId,
+          (subscriptionCallCount.get(subscriptionId) || 0) + 1,
+        );
       }
     });
 
     // 取 Top 5
-    const topInstanceIds = Array.from(instanceCallCount.entries())
+    const topSubscriptionIds = Array.from(subscriptionCallCount.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([id]) => id);
 
-    const topInstancesData = await this.prisma.employeeInstance.findMany({
-      where: { id: { in: topInstanceIds }, enterpriseId },
-      select: { id: true, name: true },
+    const topSubscriptionsData = await this.prisma.subscription.findMany({
+      where: { id: { in: topSubscriptionIds }, enterpriseId },
+      select: { id: true, name: true, employee: { select: { name: true } } },
     });
 
-    const topEmployeesResult = topInstancesData.map((inst) => ({
-      id: inst.id,
-      name: inst.name,
-      calls: instanceCallCount.get(inst.id) || 0,
+    const topEmployeesResult = topSubscriptionsData.map((sub) => ({
+      id: sub.id,
+      name: sub.name ?? sub.employee.name,
+      calls: subscriptionCallCount.get(sub.id) || 0,
     }));
 
     // 4. 最近活动（最近 10 条消费记录）
@@ -211,14 +215,14 @@ export class EnterpriseService {
 
     const activities = await Promise.all(
       recentActivities.map(async (activity: any) => {
-        const instanceId = activity.metadata?.instanceId;
+        const subscriptionId = activity.metadata?.subscriptionId;
         const memberId = activity.metadata?.memberId;
 
-        const [instance, member] = await Promise.all([
-          instanceId
-            ? this.prisma.employeeInstance.findUnique({
-                where: { id: instanceId },
-                select: { name: true },
+        const [subscription, member] = await Promise.all([
+          subscriptionId
+            ? this.prisma.subscription.findUnique({
+                where: { id: subscriptionId },
+                select: { name: true, employee: { select: { name: true } } },
               })
             : null,
           memberId
@@ -232,7 +236,7 @@ export class EnterpriseService {
         return {
           type: "consume",
           actor: member?.user.name || "未知成员",
-          target: instance?.name || "未知员工",
+          target: subscription?.name ?? subscription?.employee.name ?? "未知员工",
           time: activity.createdAt.toISOString(),
         };
       }),

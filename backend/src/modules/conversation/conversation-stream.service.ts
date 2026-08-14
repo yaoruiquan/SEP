@@ -131,13 +131,18 @@ export class ConversationStreamService {
     // 1b. 预算硬阻断：超额且开启了 hardStopOnBudget 时，直接 403，不加锁不落库
     await this.modelConfig.assertBudgetAllowsNewSession(enterpriseCtx.enterpriseId);
 
-    // 获取员工实例 ID（用于知识库检索 + 模型解析）
-    // 注意：一个员工模板可能有多个实例，这里只取第一个
-    const instance = await this.prisma.employeeInstance.findFirst({
-      where: { templateId: employee.id },
+    // 获取雇佣关系（订阅）ID，用于知识库检索 + 模型解析。
+    // 收敛后「一企业一员工一雇佣关系」，唯一约束保证这里最多命中一条。
+    const subscription = await this.prisma.subscription.findUnique({
+      where: {
+        enterpriseId_employeeId: {
+          enterpriseId: enterpriseCtx.enterpriseId,
+          employeeId: employee.id,
+        },
+      },
       select: { id: true },
     });
-    const employeeInstanceId = instance?.id;
+    const subscriptionId = subscription?.id;
 
     // 2. 获取分布式锁（防并发）
     const lockValue = await this.sessionLockService.acquireLock(sessionId);
@@ -177,12 +182,12 @@ export class ConversationStreamService {
         knowledgeBaseId: string;
       }> = [];
 
-      // 只有当员工实例存在时才进行知识库检索
-      if (employeeInstanceId) {
+      // 只有当雇佣关系存在时才进行知识库检索
+      if (subscriptionId) {
         try {
           const searchResult = await this.knowledgeSearch.search(
             content,
-            employeeInstanceId,
+            subscriptionId,
             3, // topK: 检索 3 个最相关的文本块
             0.7, // scoreThreshold: 相似度阈值
           );
@@ -245,7 +250,7 @@ export class ConversationStreamService {
       const effective = await this.modelConfig.resolveEffectiveModel({
         userId,
         userSelectedModel: session.modelId ?? undefined,
-        employeeInstanceId,
+        subscriptionId,
         employeeTemplateModel: employee.modelId,
         departmentId: enterpriseCtx.departmentId ?? undefined,
       });

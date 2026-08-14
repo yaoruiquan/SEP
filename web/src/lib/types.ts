@@ -51,14 +51,30 @@ export interface DigitalEmployee {
   _count?: { bindings?: number; subscriptions?: number };
 }
 
+/**
+ * 雇佣关系。收敛后订阅即雇佣关系，取代了原先的 EmployeeInstance ——
+ * 「一企业一员工一雇佣关系」，部门差异化由授权记录的 departmentId 表达，
+ * 而非开多份雇佣关系。
+ */
 export interface Subscription {
   id: string;
+  /** 企业内自定义称呼；后端在未自定义时已回落为模板名，故非空 */
+  name: string;
   status: SubscriptionStatus;
+  /** 雇佣时锁定的模板版本 */
+  templateVersion: string;
+  /** 模板当前最新版本 */
+  latestVersion: string;
+  /** 提示式升级：不自动跟进，由企业主动确认 */
+  upgradeAvailable: boolean;
   config: Record<string, unknown> | null;
   startDate: string;
   endDate: string | null;
   createdAt: string;
-  employee: DigitalEmployee;
+  employee: Pick<
+    DigitalEmployee,
+    'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'status' | 'version'
+  >;
 }
 
 export interface ConversationSession {
@@ -136,7 +152,6 @@ export interface MarketEmployee {
 
 // ── 企业组织 ──────────────────────────────────────────────────────────────────
 
-export type InstanceStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
 export type EnterpriseRole = 'ENTERPRISE_ADMIN' | 'DEPT_MANAGER' | 'MEMBER';
 
 export interface Department {
@@ -213,19 +228,6 @@ export interface OffboardResult {
   vacatedDepartments: { id: string; name: string }[];
 }
 
-export interface EmployeeInstance {
-  id: string;
-  name: string;
-  status: InstanceStatus;
-  templateVersion: string;
-  latestVersion: string;
-  upgradeAvailable: boolean;
-  template: { id: string; name: string; avatar: string | null };
-  department: { id: string; name: string } | null;
-  config: Record<string, unknown> | null;
-  createdAt: string;
-}
-
 export interface GrantRecord {
   id: string;
   department: { id: string; name: string } | null;
@@ -236,10 +238,10 @@ export interface GrantRecord {
 }
 
 export interface MyEmployee {
-  instanceId: string;
+  subscriptionId: string;
   name: string;
   templateVersion: string;
-  template: {
+  employee: {
     id: string;
     name: string;
     avatar: string | null;

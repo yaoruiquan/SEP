@@ -194,8 +194,9 @@ export function PublishPackageDialog({
             {versionErr && (
               <p className="mt-1 text-xs text-danger">{versionErr}</p>
             )}
+            {/* 提示式升级：只提示，不自动跟进已有雇佣关系锁定的版本 */}
             <p className="mt-1 text-xs text-fg-subtle">
-              格式 x.y.z。发布后模板版本同步更新，触发已有实例的升级提示。
+              格式 x.y.z。发布后模板版本同步更新，已雇佣的企业会收到升级提示。
             </p>
           </div>
 

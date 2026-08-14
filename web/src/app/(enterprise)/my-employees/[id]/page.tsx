@@ -21,26 +21,26 @@ import {
 /**
  * 员工详情页
  * 路由：/my-employees/[id]
- * 注意：id 是 instanceId，不是 employeeId
+ * 注意：id 是 subscriptionId（雇佣关系 id），不是 employeeId
  */
 export default function EmployeeDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const instanceId = params.id as string;
+  const subscriptionId = params.id as string;
   const [activeTab, setActiveTab] = useState('overview');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // 从"我的硅基员工"列表中查找当前实例
+  // 从"我的硅基员工"列表中查找当前这段雇佣关系
   const { data: employees = [], isLoading, isError } = useMyEmployees();
-  const employee = employees.find(emp => emp.instanceId === instanceId);
+  const employee = employees.find((emp) => emp.subscriptionId === subscriptionId);
 
   // 暂时禁用更新和删除功能（需要后端API支持）
   // const updateEmployee = useUpdateEmployee();
   // const deleteEmployee = useDeleteEmployee();
 
   // const handleDelete = () => {
-  //   deleteEmployee.mutate(instanceId, {
+  //   deleteEmployee.mutate(subscriptionId, {
   //     onSuccess: () => {
   //       router.push('/my-employees');
   //     },
@@ -122,7 +122,7 @@ export default function EmployeeDetailPage() {
                 <div className="relative">
                   <Avatar
                     name={employee.name}
-                    src={employee.template.avatar}
+                    src={employee.employee.avatar}
                     className="w-24 h-24 text-2xl"
                   />
                 </div>
@@ -130,7 +130,7 @@ export default function EmployeeDetailPage() {
                   {employee.name}
                 </h2>
                 <p className="text-sm text-neutral-600 mt-1">
-                  {employee.template.name} · v{employee.templateVersion}
+                  {employee.employee.name} · v{employee.templateVersion}
                 </p>
               </div>
 
@@ -232,7 +232,7 @@ export default function EmployeeDetailPage() {
                   <LogsTab />
                 </TabsContent>
                 <TabsContent value="monitoring" className="mt-6">
-                  <MonitoringTab employeeId={instanceId} />
+                  <MonitoringTab employeeId={subscriptionId} />
                 </TabsContent>
               </Tabs>
             </Card>
@@ -264,7 +264,7 @@ function OverviewTab({ employee }: { employee: any }) {
       <div>
         <h3 className="text-base font-semibold text-neutral-900 mb-3">员工简介</h3>
         <p className="text-sm text-neutral-700 leading-relaxed">
-          {employee.template.name} · 硅基员工
+          {employee.employee.name} · 硅基员工
         </p>
       </div>
 
@@ -273,8 +273,8 @@ function OverviewTab({ employee }: { employee: any }) {
         <h3 className="text-base font-semibold text-neutral-900 mb-3">基本信息</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-neutral-600">实例ID：</span>
-            <span className="font-medium font-mono text-xs">{employee.instanceId}</span>
+            <span className="text-neutral-600">雇佣关系ID：</span>
+            <span className="font-medium font-mono text-xs">{employee.subscriptionId}</span>
           </div>
           <div>
             <span className="text-neutral-600">模板版本：</span>

@@ -6,7 +6,6 @@ import { z } from 'zod';
 export const AddToCartDtoSchema = z.object({
   employeeId: z.string().min(1), // 放宽验证：支持 cuid 和自定义 ID（如 demo-emp-skills）
   periodMonths: z.number().int().min(1).max(36).default(12),
-  quantity: z.number().int().min(1).max(99).default(1),
 });
 
 export type AddToCartDto = z.infer<typeof AddToCartDtoSchema>;
@@ -16,7 +15,6 @@ export type AddToCartDto = z.infer<typeof AddToCartDtoSchema>;
  */
 export const UpdateCartItemDtoSchema = z.object({
   periodMonths: z.number().int().min(1).max(36).optional(),
-  quantity: z.number().int().min(1).max(99).optional(),
 });
 
 export type UpdateCartItemDto = z.infer<typeof UpdateCartItemDtoSchema>;
@@ -31,9 +29,10 @@ export const CartItemResponseSchema = z.object({
   employeeAvatar: z.string().nullable(),
   unitPrice: z.number(), // annualPriceCNY
   periodMonths: z.number(),
-  quantity: z.number(),
-  subtotal: z.number(), // unitPrice * quantity * (periodMonths / 12)
-  includedComputeCNY: z.number(), // 该项赠送的总算力
+  /** 恒为 1。收敛后一员工一雇佣关系，保留字段仅为兼容既有前端渲染。 */
+  quantity: z.literal(1),
+  subtotal: z.number(), // unitPrice * (periodMonths / 12)
+  includedComputeCNY: z.number(), // 该项赠送的算力
   addedAt: z.date(),
 });
 

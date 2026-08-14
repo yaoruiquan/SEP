@@ -10,9 +10,9 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { ClientInstanceGuard } from '../client/client-instance.guard';
-import { ClientInstance } from '../client/client-instance.decorator';
-import type { ClientInstanceClaims } from '../client/client-instance.guard';
+import { ClientEmploymentGuard } from '../client/client-employment.guard';
+import { ClientEmployment } from '../client/client-employment.decorator';
+import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { GatewayService } from './gateway.service';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ChatCompletionRequestSchema } from 'shared';
@@ -25,16 +25,16 @@ export class GatewayController {
 
   @Post('chat/completions')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ClientInstanceGuard)
+  @UseGuards(ClientEmploymentGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '模型网关（OpenAI 兼容）' })
   async chatCompletions(
     @Body(new ZodValidationPipe(ChatCompletionRequestSchema)) dto: ChatCompletionRequest,
-    @ClientInstance() claims: ClientInstanceClaims,
+    @ClientEmployment() claims: ClientEmploymentClaims,
     @Res() res: Response,
   ) {
     // 1. 验证 + 授权
-    const { enterpriseId, instanceId, memberId, allowedModels } =
+    const { enterpriseId, subscriptionId, memberId, allowedModels } =
       await this.gatewayService.validateAndAuthorize(claims);
 
     // 2. 检查模型白名单
@@ -115,7 +115,7 @@ export class GatewayController {
         setImmediate(() =>
           this.gatewayService.recordTransaction({
             enterpriseId,
-            instanceId,
+            subscriptionId,
             memberId,
             modelId: dto.model,
             usage,
@@ -134,7 +134,7 @@ export class GatewayController {
         setImmediate(() =>
           this.gatewayService.recordTransaction({
             enterpriseId,
-            instanceId,
+            subscriptionId,
             memberId,
             modelId: dto.model,
             usage,

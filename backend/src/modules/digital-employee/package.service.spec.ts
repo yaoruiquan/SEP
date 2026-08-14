@@ -164,7 +164,7 @@ describe('PackageService', () => {
       expect(r.version).toBe('1.0.0');
     });
 
-    it('授权查询限定本企业 + 该模板 + 实例 ACTIVE + 未过期', async () => {
+    it('授权查询限定本企业 + 该员工 + 雇佣关系 ACTIVE + 未过期', async () => {
       prisma.employeePackage.findFirst.mockResolvedValue(pkgRow);
       prisma.employeeGrant.findFirst.mockResolvedValue({ id: 'g-1' });
 
@@ -177,9 +177,9 @@ describe('PackageService', () => {
       });
 
       const where = prisma.employeeGrant.findFirst.mock.calls[0][0].where;
-      expect(where.instance).toMatchObject({
+      expect(where.subscription).toMatchObject({
         enterpriseId: 'ent-a',
-        templateId: 'emp-1',
+        employeeId: 'emp-1',
         status: 'ACTIVE',
       });
       // 两条授权路径都算

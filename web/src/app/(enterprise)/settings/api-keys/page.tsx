@@ -28,11 +28,12 @@ import {
 import type { CreateApiKeyResponse } from '@/features/enterprise-settings/use-enterprise-settings';
 import type { ApiError } from '@/lib/api-client';
 
-const API_KEY_SCOPES = ['chat:read', 'knowledge:read', 'instances:read'] as const;
+// 必须与后端 CREATE_API_KEY_SCOPES 保持一致，否则创建时会被 zod 拒
+const API_KEY_SCOPES = ['chat:read', 'knowledge:read', 'subscriptions:read'] as const;
 const SCOPE_LABELS: Record<string, string> = {
   'chat:read': '对话（读）',
   'knowledge:read': '知识库（读）',
-  'instances:read': '硅基员工（读）',
+  'subscriptions:read': '硅基员工（读）',
 };
 
 const createKeySchema = z.object({

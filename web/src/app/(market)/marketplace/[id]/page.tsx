@@ -63,16 +63,17 @@ function GlassSection({
 
 const HOW_TO = [
   {
-    t: '企业订阅',
-    d: '由企业管理员订阅该员工，获得使用权。订阅是企业级的，一次订阅可在多处部署。',
+    t: '企业雇佣',
+    d: '由企业管理员雇佣该员工，获得使用权。雇佣是企业级的，一次雇佣可在多处部署。',
   },
   {
-    t: '创建实例',
-    d: '在「员工授权」为具体部门创建实例。同一员工可创建多个实例，各自独立配置、互不影响。',
-  },
-  {
+    // 收敛后不再创建实例：一企业一员工一段雇佣关系，部门差异化落在授权记录上
     t: '开通授权',
-    d: '把实例授权给部门或具体成员，可设到期时间。被授权的人在「我的硅基员工」里就能看到它。',
+    d: '在「雇佣管理」把 TA 授权给部门或具体成员，可设到期时间。同一位员工可同时服务多个部门。',
+  },
+  {
+    t: '开始使用',
+    d: '被授权的人在「我的硅基员工」里就能看到 TA，直接发起任务或对话。',
   },
   {
     t: '下载到本地运行',
@@ -199,9 +200,9 @@ export default function EmployeeDetailPage() {
                 <Check className="h-4 w-4" />
                 本企业已订阅
               </span>
-              {/* 订阅后的下一步是建实例，不是聊天（会话已暂停） */}
-              <Link href="/instances">
-                <Button variant="glass" size="sm">去创建实例</Button>
+              {/* 雇佣后的下一步是把员工授权给团队，不是聊天（会话已暂停） */}
+              <Link href="/subscriptions">
+                <Button variant="glass" size="sm">去分配授权</Button>
               </Link>
             </>
           ) : loggedIn ? (
@@ -327,7 +328,7 @@ export default function EmployeeDetailPage() {
           subscribe.mutate(emp.id, {
             onSuccess: () => {
               setPayOpen(false);
-              toast.success(`已订阅「${emp.name}」，可去「员工授权」创建实例`);
+              toast.success(`已雇佣「${emp.name}」，可去「雇佣管理」开通授权`);
             },
             onError: (e) =>
               toast.error(e instanceof ApiError ? e.message : '订阅失败'),

@@ -31,12 +31,6 @@ describe('SubscriptionService', () => {
         create: jest.fn((a: any) => Promise.resolve({ id: 'sub-new', ...a.data })),
         update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
       },
-      // subscribe() 成功后会自动补一个默认实例（service 的「优化 2」）。
-      // 默认返回 null = 该模板还没实例，走创建分支。
-      employeeInstance: {
-        findFirst: jest.fn().mockResolvedValue(null),
-        create: jest.fn((a: any) => Promise.resolve({ id: 'inst-new', ...a.data })),
-      },
     };
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),
@@ -95,7 +89,15 @@ describe('SubscriptionService', () => {
       const where = prisma.subscription.findMany.mock.calls[0][0].where;
       // 少了这个条件就是跨企业数据泄露
       expect(where.enterpriseId).toBe('ent-acme');
-      expect(where.status).toBe('ACTIVE');
+    });
+
+    it('列表不按 status 过滤 —— 管理台要能看到暂停的关系才能恢复它', async () => {
+      prisma.subscription.findMany.mockResolvedValue([]);
+
+      await svc.findAll('user-acme-boss');
+
+      const where = prisma.subscription.findMany.mock.calls[0][0].where;
+      expect(where.status).toBeUndefined();
     });
 
     it('订阅创建时 enterpriseId 取自服务端上下文，不取自入参', async () => {
@@ -195,6 +197,259 @@ describe('SubscriptionService', () => {
       await expect(
         svc.assertActiveSubscription('user-acme-boss', 'emp-1'),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('复活已终止的雇佣关系时不刷新 templateVersion —— 停用期间的模板变更要照样提示', async () => {
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'APPROVED',
+        version: '3.0.0',
+      });
+      prisma.subscription.findUnique.mockResolvedValue({
+        id: 'sub-old',
+        enterpriseId: 'ent-acme',
+        status: 'EXPIRED',
+        templateVersion: '1.0.0',
+      });
+
+      await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
+
+      const data = prisma.subscription.update.mock.calls[0][0].data;
+      expect(data.status).toBe('ACTIVE');
+      // 写进去就等于把「员工已变过」这件事静默吞掉
+      expect(data).not.toHaveProperty('templateVersion');
+    });
+  });
+
+  // ── 收敛后从实例层移回订阅的行为 ────────────────────────────────────────
+
+  describe('findAll 的升级提示', () => {
+    const row = (templateVersion: string, latest: string, name: string | null = null) => ({
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      templateVersion,
+      name,
+      employee: { id: 'emp-1', name: '客服小美', avatar: null, version: latest },
+    });
+
+    it('锁定版本与模板当前版本不同时提示可升级', async () => {
+      prisma.subscription.findMany.mockResolvedValue([row('1.0.0', '1.1.0')]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.upgradeAvailable).toBe(true);
+      expect(r.latestVersion).toBe('1.1.0');
+    });
+
+    it('版本相同时不提示', async () => {
+      prisma.subscription.findMany.mockResolvedValue([row('1.1.0', '1.1.0')]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.upgradeAvailable).toBe(false);
+    });
+
+    it('降级发布也提示 —— 只比相等，不做语义化版本比较', async () => {
+      prisma.subscription.findMany.mockResolvedValue([row('2.0.0', '1.0.0')]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.upgradeAvailable).toBe(true);
+    });
+
+    it('未自定义称呼时回落到模板名', async () => {
+      prisma.subscription.findMany.mockResolvedValue([row('1.0.0', '1.0.0', null)]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.name).toBe('客服小美');
+    });
+
+    it('有自定义称呼时优先展示它', async () => {
+      prisma.subscription.findMany.mockResolvedValue([
+        row('1.0.0', '1.0.0', '小美'),
+      ]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.name).toBe('小美');
+    });
+  });
+
+  describe('changeStatus', () => {
+    const active = {
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      templateVersion: '1.0.0',
+    };
+
+    it('ACTIVE → PAUSED 允许', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(active);
+
+      const r = await svc.changeStatus('sub-1', 'u1', 'PAUSED');
+      expect(r.changed).toBe(true);
+    });
+
+    it('❗EXPIRED 是终态，不能转回 ACTIVE', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...active,
+        status: 'EXPIRED',
+      });
+
+      await expect(svc.changeStatus('sub-1', 'u1', 'ACTIVE')).rejects.toThrow(
+        /不能从 EXPIRED 变为 ACTIVE/,
+      );
+    });
+
+    it('状态未变化时不写库', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(active);
+
+      const r = await svc.changeStatus('sub-1', 'u1', 'ACTIVE');
+      expect(r.changed).toBe(false);
+      expect(prisma.subscription.update).not.toHaveBeenCalled();
+    });
+
+    it('终止时落下 endDate，恢复时清空 —— 否则列表会显示一个过去的到期日', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(active);
+      await svc.changeStatus('sub-1', 'u1', 'EXPIRED');
+      expect(prisma.subscription.update.mock.calls[0][0].data.endDate).toEqual(
+        expect.any(Date),
+      );
+
+      prisma.subscription.update.mockClear();
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...active,
+        status: 'PAUSED',
+      });
+      await svc.changeStatus('sub-1', 'u1', 'ACTIVE');
+      expect(prisma.subscription.update.mock.calls[0][0].data.endDate).toBeNull();
+    });
+
+    it('❗普通成员不能改状态', async () => {
+      ctxSvc.resolve.mockResolvedValue(ACME_STAFF);
+
+      await expect(svc.changeStatus('sub-1', 'u1', 'PAUSED')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('❗不能改别家企业的雇佣关系状态', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...active,
+        enterpriseId: 'ent-globex',
+      });
+
+      await expect(svc.changeStatus('sub-1', 'u1', 'PAUSED')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('upgrade', () => {
+    const sub = {
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      templateVersion: '1.0.0',
+    };
+
+    it('升级到模板最新版并回报变更前后版本', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '2.0.0' });
+
+      const r = await svc.upgrade('sub-1', 'u1');
+      expect(r.from).toBe('1.0.0');
+      expect(r.to).toBe('2.0.0');
+      // 配置不自动迁移，前端要提示重新检查
+      expect(r.configReviewRequired).toBe(true);
+    });
+
+    it('❗升级不迁移 config', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '2.0.0' });
+
+      await svc.upgrade('sub-1', 'u1');
+
+      const data = prisma.subscription.update.mock.calls[0][0].data;
+      expect(Object.keys(data)).toEqual(['templateVersion']);
+    });
+
+    it('已是最新版时报 409', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '1.0.0' });
+
+      await expect(svc.upgrade('sub-1', 'u1')).rejects.toThrow(/已是最新版本/);
+    });
+
+    it('已过期的雇佣关系不可升级', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...sub,
+        status: 'EXPIRED',
+      });
+
+      await expect(svc.upgrade('sub-1', 'u1')).rejects.toThrow(/不可升级/);
+    });
+
+    it('❗普通成员不能升级', async () => {
+      ctxSvc.resolve.mockResolvedValue(ACME_STAFF);
+
+      await expect(svc.upgrade('sub-1', 'u1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('update', () => {
+    const sub = {
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      templateVersion: '1.0.0',
+    };
+
+    it('可改自定义称呼', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+
+      await svc.update('sub-1', 'u1', { name: '小美' });
+
+      expect(prisma.subscription.update.mock.calls[0][0].data.name).toBe('小美');
+    });
+
+    it('name 传 null 表示恢复展示模板名', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+
+      await svc.update('sub-1', 'u1', { name: null });
+
+      expect(prisma.subscription.update.mock.calls[0][0].data.name).toBeNull();
+    });
+
+    it('未传的字段不写库 —— 避免把 config 覆盖成 undefined', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(sub);
+
+      await svc.update('sub-1', 'u1', { name: '小美' });
+
+      const data = prisma.subscription.update.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('config');
+    });
+
+    it('已过期的雇佣关系不可修改', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...sub,
+        status: 'EXPIRED',
+      });
+
+      await expect(svc.update('sub-1', 'u1', { name: 'x' })).rejects.toThrow(
+        /不可修改/,
+      );
+    });
+
+    it('❗普通成员不能修改', async () => {
+      ctxSvc.resolve.mockResolvedValue(ACME_STAFF);
+
+      await expect(svc.update('sub-1', 'u1', { name: 'x' })).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 });

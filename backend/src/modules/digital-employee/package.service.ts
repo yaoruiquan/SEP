@@ -10,7 +10,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PackagePublishDto, PackageView, InstancePackageInfo, PACKAGE_MAX_BYTES } from 'shared';
+import { PackagePublishDto, PackageView, EmploymentPackageInfo, PACKAGE_MAX_BYTES } from 'shared';
 
 /** 上传文件的最小形状，避免依赖 Express.Multer 的全局类型 */
 export interface UploadedZip {
@@ -197,39 +197,39 @@ export class PackageService {
    * 权限判定同 resolveDownload，但返回的是 packageRef（客户端直接 pi install）
    * 而非 ZIP 下载流。ZIP 作为兜底通道，仅在 packageRef 不存在时提示可手动下载。
    */
-  async getForInstance(params: {
-    instanceId: string;
+  async getForSubscription(params: {
+    subscriptionId: string;
     isPlatformAdmin: boolean;
     enterpriseId?: string;
     memberId?: string;
     departmentId?: string | null;
-  }): Promise<InstancePackageInfo> {
-    const { instanceId, isPlatformAdmin } = params;
+  }): Promise<EmploymentPackageInfo> {
+    const { subscriptionId, isPlatformAdmin } = params;
 
-    // 先取实例及其模板 ID
-    const inst = await this.prisma.employeeInstance.findUnique({
-      where: { id: instanceId },
-      select: { templateId: true, status: true },
+    // 先取订阅及其员工 ID
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { employeeId: true, status: true },
     });
-    if (!inst) throw new NotFoundException('实例不存在');
+    if (!sub) throw new NotFoundException('订阅不存在');
 
     // 权限校验（非平台运营需验证授权）
     if (!isPlatformAdmin) {
-      const ok = await this.hasActiveGrant(inst.templateId, params);
-      if (!ok) throw new NotFoundException('实例不存在'); // 不泄漏存在性
+      const ok = await this.hasActiveGrant(sub.employeeId, params);
+      if (!ok) throw new NotFoundException('订阅不存在'); // 不泄漏存在性
     }
 
     // 取最新包
     const pkg = await this.prisma.employeePackage.findFirst({
-      where: { employeeId: inst.templateId },
+      where: { employeeId: sub.employeeId },
       orderBy: { createdAt: 'desc' },
       select: { version: true, packageRef: true, storagePath: true, sha256: true },
     });
-    if (!pkg) throw new NotFoundException('该实例对应的员工尚无可用包');
+    if (!pkg) throw new NotFoundException('该订阅对应的员工尚无可用包');
 
     return {
       version: pkg.version,
-      packageRef: pkg.packageRef as InstancePackageInfo['packageRef'],
+      packageRef: pkg.packageRef as EmploymentPackageInfo['packageRef'],
       zipAvailable: !!pkg.storagePath,
       sha256: pkg.sha256,
     };
@@ -250,7 +250,7 @@ export class PackageService {
 
   /**
    * 调用者对该模板是否有生效授权。
-   * 与 GrantService.myEmployees 的判定保持一致：实例必须 ACTIVE，
+   * 与 GrantService.myEmployees 的判定保持一致：订阅必须 ACTIVE，
    * 授权未过期，直接授权与部门授权都算。
    */
   private async hasActiveGrant(
@@ -267,9 +267,9 @@ export class PackageService {
       where: {
         OR: targets,
         AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
-        instance: {
+        subscription: {
           enterpriseId: p.enterpriseId,
-          templateId: employeeId,
+          employeeId: employeeId,
           status: 'ACTIVE',
         },
       },

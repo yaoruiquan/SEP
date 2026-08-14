@@ -1,5 +1,8 @@
 /**
- * 创建员工实例数据
+ * 补数据小工具：给演示用户所属企业批量建立雇佣关系。
+ *
+ * 收敛前叫 create-instances.ts，建的是 EmployeeInstance；该模型已删除，
+ * 现在直接建 Subscription（雇佣关系本身即权限锚点）。
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -7,7 +10,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 创建员工实例数据...\n');
+  console.log('🌱 创建雇佣关系数据...\n');
 
   // 1. 找到演示用户和企业
   const testUser = await prisma.user.findUnique({
@@ -34,40 +37,43 @@ async function main() {
 
   console.log('✅ 找到企业:', enterprise.name);
 
-  // 2. 找到所有员工模板
+  // 2. 找到所有已上架员工
   const employees = await prisma.digitalEmployee.findMany({
     where: { status: 'APPROVED' },
     take: 5,
   });
 
-  console.log(`✅ 找到 ${employees.length} 个员工模板\n`);
+  console.log(`✅ 找到 ${employees.length} 个员工\n`);
 
-  // 3. 为每个模板创建实例
+  // 3. 逐个雇佣。一企业一员工只有一段雇佣关系，
+  //    唯一约束 (enterpriseId, employeeId) 保证重复执行幂等
   for (const employee of employees) {
-    const existing = await prisma.employeeInstance.findFirst({
+    const existing = await prisma.subscription.findUnique({
       where: {
-        templateId: employee.id,
-        enterpriseId: enterprise.id,
+        enterpriseId_employeeId: {
+          enterpriseId: enterprise.id,
+          employeeId: employee.id,
+        },
       },
     });
 
     if (!existing) {
-      await prisma.employeeInstance.create({
+      await prisma.subscription.create({
         data: {
-          templateId: employee.id,
+          employeeId: employee.id,
           enterpriseId: enterprise.id,
-          name: employee.name, // 使用默认名称
+          // 雇佣时锁定版本：模板发新版只提示，不自动跟进
           templateVersion: employee.version,
           status: 'ACTIVE',
         },
       });
-      console.log(`✅ 创建实例: ${employee.name}`);
+      console.log(`✅ 已雇佣: ${employee.name}`);
     } else {
-      console.log(`⏭️  实例已存在: ${employee.name}`);
+      console.log(`⏭️  已在册: ${employee.name}`);
     }
   }
 
-  console.log('\n🎉 员工实例创建完成！');
+  console.log('\n🎉 雇佣关系创建完成！');
   console.log('🚀 刷新页面查看效果\n');
 }
 

@@ -37,7 +37,8 @@ async function main() {
         position: '助理',
         systemPrompt: '你是一个有帮助的AI助手',
         modelId: 'gpt-4o',
-        status: 'PUBLISHED',
+        // EmployeeStatus 没有 PUBLISHED，「已上架」是 APPROVED
+        status: 'APPROVED',
         version: '1.0.0',
       },
     });

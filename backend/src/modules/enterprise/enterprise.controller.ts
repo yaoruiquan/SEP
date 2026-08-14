@@ -39,12 +39,6 @@ import {
   InvitationStatusValue,
   SetDeptLeaderDto,
   SetDeptLeaderDtoSchema,
-  InstanceCreateDto,
-  InstanceCreateDtoSchema,
-  InstanceUpdateDto,
-  InstanceUpdateDtoSchema,
-  InstanceStatusUpdateDto,
-  InstanceStatusUpdateDtoSchema,
   GrantCreateDto,
   GrantCreateDtoSchema,
 } from "shared";
@@ -52,7 +46,6 @@ import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InvitationService } from "./invitation.service";
-import { InstanceService } from "./instance.service";
 import { GrantService } from "./grant.service";
 import { AccessRequestService } from "./access-request.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
@@ -69,7 +62,6 @@ export class EnterpriseController {
     private readonly departments: DepartmentService,
     private readonly members: MemberService,
     private readonly invitations: InvitationService,
-    private readonly instances: InstanceService,
     private readonly grants: GrantService,
     private readonly accessRequests: AccessRequestService,
     private readonly enterpriseCtx: EnterpriseContextService,
@@ -302,116 +294,38 @@ export class EnterpriseController {
     return this.invitations.revoke(req.user.id, id);
   }
 
-  // ── 员工实例 ──────────────────────────────────────────────────────────────
-
-  @Get("instances")
-  @ApiOperation({
-    summary: "本企业员工实例列表",
-    description:
-      "upgradeAvailable 表示模板已发新版而此实例仍锁在旧版（提示式升级）。",
-  })
-  @ApiResponse({ status: 200, description: "实例列表" })
-  async listInstances(@Request() req: AuthedRequest) {
-    return this.instances.list(req.user.id);
-  }
-
-  @Post("instances")
-  @ApiOperation({
-    summary: "创建员工实例（仅企业管理员）",
-    description:
-      "需本企业对该模板有生效中的订阅。一次订阅可开多个实例 —— " +
-      "同一模板可按部门各部署一份，互不影响。",
-  })
-  @ApiResponse({ status: 201, description: "已创建，初始状态 PENDING_ACTIVATION" })
-  @ApiResponse({ status: 400, description: "未订阅该模板或订阅未生效" })
-  @ApiResponse({ status: 404, description: "模板或部门不存在" })
-  async createInstance(
-    @Request() req: AuthedRequest,
-    @Body(new ZodValidationPipe(InstanceCreateDtoSchema))
-    dto: InstanceCreateDto,
-  ) {
-    return this.instances.create(req.user.id, dto);
-  }
-
-  @Patch("instances/:id")
-  @ApiOperation({ summary: "改名 / 换部门 / 改配置（仅企业管理员）" })
-  @ApiResponse({ status: 200, description: "已更新" })
-  @ApiResponse({ status: 404, description: "实例不存在或不属于本企业" })
-  @ApiResponse({ status: 409, description: "已回收的实例不可修改" })
-  async updateInstance(
-    @Request() req: AuthedRequest,
-    @Param("id") id: string,
-    @Body(new ZodValidationPipe(InstanceUpdateDtoSchema))
-    dto: InstanceUpdateDto,
-  ) {
-    return this.instances.update(req.user.id, id, dto);
-  }
-
-  @Patch("instances/:id/status")
-  @ApiOperation({
-    summary: "启用 / 停用 / 回收实例（仅企业管理员）",
-    description:
-      "停用与回收不删除授权记录 —— 实例非 ACTIVE 时授权一律不生效，" +
-      "恢复启用后原授权继续有效。REVOKED 为终态，不可转回。",
-  })
-  @ApiResponse({ status: 200, description: "已变更；changed=false 表示状态未变" })
-  @ApiResponse({ status: 409, description: "非法状态流转" })
-  async changeInstanceStatus(
-    @Request() req: AuthedRequest,
-    @Param("id") id: string,
-    @Body(new ZodValidationPipe(InstanceStatusUpdateDtoSchema))
-    dto: InstanceStatusUpdateDto,
-  ) {
-    return this.instances.changeStatus(req.user.id, id, dto.status);
-  }
-
-  @Post("instances/:id/upgrade")
-  @ApiOperation({
-    summary: "升级实例到模板最新版（仅企业管理员）",
-    description:
-      "只更新版本号，不自动迁移 config；返回 configReviewRequired 提示复核配置。",
-  })
-  @ApiResponse({ status: 200, description: "已升级" })
-  @ApiResponse({ status: 409, description: "已是最新版本或实例已回收" })
-  async upgradeInstance(
-    @Request() req: AuthedRequest,
-    @Param("id") id: string,
-  ) {
-    return this.instances.upgrade(req.user.id, id);
-  }
-
   // ── 员工授权 ──────────────────────────────────────────────────────────────
 
   @Get("my-employees")
   @ApiOperation({
-    summary: "我可以使用的员工实例（使用者视角）",
+    summary: "我可以使用的员工（使用者视角）",
     description:
-      "合并直接授权给我 + 授权给我所在部门的实例，已停用/回收或已过期的不返回。" +
-      "同一实例两条路径都命中时只返回一条，直接授权优先。",
+      "合并直接授权给我 + 授权给我所在部门的雇佣关系，非 ACTIVE 或已过期的不返回。" +
+      "同一雇佣关系两条路径都命中时只返回一条，直接授权优先。",
   })
-  @ApiResponse({ status: 200, description: "可用实例列表" })
+  @ApiResponse({ status: 200, description: "可用员工列表" })
   async myEmployees(@Request() req: AuthedRequest) {
     return this.grants.myEmployees(req.user.id);
   }
 
-  @Get("instances/:id/grants")
-  @ApiOperation({ summary: "某实例的授权列表（管理员视角）" })
+  @Get("subscriptions/:id/grants")
+  @ApiOperation({ summary: "某雇佣关系的授权列表（管理员视角）" })
   @ApiResponse({ status: 200, description: "授权列表，expired=true 的已标灰" })
-  @ApiResponse({ status: 404, description: "实例不存在或不属于本企业" })
+  @ApiResponse({ status: 404, description: "雇佣关系不存在或不属于本企业" })
   async listGrants(
     @Request() req: AuthedRequest,
     @Param("id") id: string,
   ) {
-    return this.grants.listForInstance(req.user.id, id);
+    return this.grants.listForSubscription(req.user.id, id);
   }
 
-  @Post("instances/:id/grants")
+  @Post("subscriptions/:id/grants")
   @ApiOperation({
     summary: "开通授权（仅企业管理员）",
     description: "授权对象二选一：departmentId 或 memberId，不能同时填或都不填。",
   })
   @ApiResponse({ status: 201, description: "已开通" })
-  @ApiResponse({ status: 400, description: "实例已回收 / 授权对象不在本企业" })
+  @ApiResponse({ status: 400, description: "雇佣关系已失效 / 授权对象不在本企业" })
   @ApiResponse({ status: 409, description: "该授权已存在" })
   async createGrant(
     @Request() req: AuthedRequest,
@@ -424,7 +338,7 @@ export class EnterpriseController {
   @Delete("grants/:id")
   @ApiOperation({
     summary: "收回授权（仅企业管理员）",
-    description: "只删除该授权记录，不影响实例状态。",
+    description: "只删除该授权记录，不影响雇佣关系状态。",
   })
   @ApiResponse({ status: 200, description: "已收回" })
   @ApiResponse({ status: 404, description: "授权记录不存在或不属于本企业" })
@@ -476,10 +390,10 @@ export class EnterpriseController {
   @ApiResponse({ status: 201, description: "申请已提交" })
   @ApiResponse({ status: 400, description: "已有权限或重复申请" })
   @ApiResponse({ status: 403, description: "不属于任何企业" })
-  @ApiResponse({ status: 404, description: "员工实例不存在" })
+  @ApiResponse({ status: 404, description: "员工订阅不存在" })
   async createAccessRequest(
     @Request() req: AuthedRequest,
-    @Body() dto: { instanceId: string; reason?: string; requestedDays?: number },
+    @Body() dto: { subscriptionId: string; reason?: string; requestedDays?: number },
   ) {
     return this.accessRequests.create(req.user.id, dto);
   }

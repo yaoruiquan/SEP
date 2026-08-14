@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Download, Settings, Key, BarChart3 } from 'lucide-react';
+import { Download, Key, BarChart3 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,12 +29,21 @@ export const EmployeeCard = memo(function EmployeeCard({
 }: EmployeeCardProps) {
   const router = useRouter();
   const downloadSkill = useDownloadSkill();
-  const { instanceId, name, templateVersion, template, department, grantSource, expiresAt, packageAvailable } =
-    employee;
+  const {
+    subscriptionId,
+    name,
+    templateVersion,
+    employee: template,
+    department,
+    grantSource,
+    expiresAt,
+    packageAvailable,
+  } = employee;
 
   const handleDownload = () => {
     download.mutate(
-      instanceId,
+      // 包挂在员工模板上，不是雇佣关系上 —— 传 subscriptionId 会 404
+      template.id,
       {
         onSuccess: ({ filename, sha256 }) => {
           const message = sha256
@@ -68,7 +77,7 @@ export const EmployeeCard = memo(function EmployeeCard({
     <Card className="glass-card-interactive group h-full overflow-hidden">
       {/* 卡片头部 - 点击进入详情 */}
       <div
-        onClick={() => router.push(`/my-employees/${instanceId}`)}
+        onClick={() => router.push(`/my-employees/${subscriptionId}`)}
         className="cursor-pointer"
       >
         <CardHeader className="border-b border-glassline bg-gradient-to-br from-gbrand-text/10 via-transparent to-transparent p-5">
@@ -142,37 +151,26 @@ export const EmployeeCard = memo(function EmployeeCard({
 
         {/* 操作按钮 */}
         <div className="space-y-2">
-          {/* 管理员操作 */}
+          {/* 管理员操作。管理动作都收在雇佣关系页，这里只做跳转 */}
           {isAdmin && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="glass"
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/instances?selected=${instanceId}`);
-                }}
-              >
-                <Settings className="h-3.5 w-3.5" />
-                <span className="ml-1.5 text-xs">配置</span>
-              </Button>
-              <Button
-                variant="glass"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  router.push(`/instances?selected=${instanceId}&tab=grants`);
+                  router.push('/subscriptions');
                 }}
               >
                 <Key className="h-3.5 w-3.5" />
-                <span className="ml-1.5 text-xs">授权</span>
+                <span className="ml-1.5 text-xs">管理授权</span>
               </Button>
               <Button
                 variant="glass"
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/usage?instanceId=${instanceId}`);
+                  router.push('/usage');
                 }}
               >
                 <BarChart3 className="h-3.5 w-3.5" />

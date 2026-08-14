@@ -10,8 +10,6 @@ import type {
   CreatedInvitation,
   InvitationStatus,
   OffboardResult,
-  EmployeeInstance,
-  InstanceStatus,
   GrantRecord,
   MyEmployee,
 } from '@/lib/types';
@@ -170,103 +168,19 @@ export function useRevokeInvitation() {
   });
 }
 
-// ── 实例 ─────────────────────────────────────────────────────────────────────
+// ── 雇佣关系（订阅）─────────────────────────────────────────────────────────
 
-export function useInstances(opts?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: qk.instances,
-    queryFn: () => api.get<EmployeeInstance[]>('/enterprise/instances'),
-    enabled: opts?.enabled ?? true,
-  });
-}
-
-/**
- * 创建实例。前置条件是本企业对该模板有**生效中的订阅** ——
- * 没订阅后端返回 400，这是「订阅=使用权、实例=部署一份」的体现。
- * 同一模板可建多个实例（按部门各部署一份），后端无唯一约束。
- */
-export function useCreateInstance() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: {
-      templateId: string;
-      name: string;
-      departmentId?: string;
-      config?: Record<string, unknown>;
-    }) => api.post<EmployeeInstance>('/enterprise/instances', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.instances });
-      qc.invalidateQueries({ queryKey: qk.myEmployees });
-    },
-  });
-}
-
-export function useUpdateInstance() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      ...body
-    }: {
-      id: string;
-      name?: string;
-      departmentId?: string | null;
-      config?: Record<string, unknown>;
-    }) => api.patch<EmployeeInstance>(`/enterprise/instances/${id}`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.instances });
-      qc.invalidateQueries({ queryKey: qk.myEmployees });
-    },
-  });
-}
-
-/**
- * 启用 / 停用 / 回收。
- * REVOKED 是终态，转回会被后端拒绝（409）——
- * 前端对已解聘岗位应禁用操作而非依赖报错提示。
- */
-export function useChangeInstanceStatus() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: InstanceStatus }) =>
-      api.patch<{ id: string; status: InstanceStatus; changed: boolean }>(
-        `/enterprise/instances/${id}/status`,
-        { status },
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.instances });
-      // 停用会让实例从「我的硅基员工」消失，必须一起失效
-      qc.invalidateQueries({ queryKey: qk.myEmployees });
-    },
-  });
-}
-
-/** 升级到模板最新版。只改版本号，不迁移 config（决策 14）。 */
-export function useUpgradeInstance() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post<{
-        id: string;
-        templateVersion: string;
-        from: string;
-        to: string;
-        configReviewRequired: boolean;
-      }>(`/enterprise/instances/${id}/upgrade`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.instances });
-      qc.invalidateQueries({ queryKey: qk.myEmployees });
-    },
-  });
-}
+// 雇佣关系本体的 hooks 统一住在 features/subscription/use-subscriptions.ts，
+// 这里只保留挂在雇佣关系上的授权。
 
 // ── 授权 ─────────────────────────────────────────────────────────────────────
 
-export function useInstanceGrants(instanceId: string) {
+export function useSubscriptionGrants(subscriptionId: string) {
   return useQuery({
-    queryKey: qk.instanceGrants(instanceId),
-    queryFn: () => api.get<GrantRecord[]>(`/enterprise/instances/${instanceId}/grants`),
-    enabled: Boolean(instanceId),
+    queryKey: qk.subscriptionGrants(subscriptionId),
+    queryFn: () =>
+      api.get<GrantRecord[]>(`/enterprise/subscriptions/${subscriptionId}/grants`),
+    enabled: Boolean(subscriptionId),
   });
 }
 
@@ -274,16 +188,20 @@ export function useCreateGrant() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
-      instanceId,
+      subscriptionId,
       ...body
     }: {
-      instanceId: string;
+      subscriptionId: string;
       departmentId?: string;
       memberId?: string;
       expiresAt?: string;
-    }) => api.post<GrantRecord>(`/enterprise/instances/${instanceId}/grants`, body),
-    onSuccess: (_, { instanceId }) => {
-      qc.invalidateQueries({ queryKey: qk.instanceGrants(instanceId) });
+    }) =>
+      api.post<GrantRecord>(
+        `/enterprise/subscriptions/${subscriptionId}/grants`,
+        body,
+      ),
+    onSuccess: (_, { subscriptionId }) => {
+      qc.invalidateQueries({ queryKey: qk.subscriptionGrants(subscriptionId) });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
     },
   });
@@ -292,10 +210,10 @@ export function useCreateGrant() {
 export function useDeleteGrant() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ grantId }: { grantId: string; instanceId: string }) =>
+    mutationFn: ({ grantId }: { grantId: string; subscriptionId: string }) =>
       api.delete(`/enterprise/grants/${grantId}`),
-    onSuccess: (_, { instanceId }) => {
-      qc.invalidateQueries({ queryKey: qk.instanceGrants(instanceId) });
+    onSuccess: (_, { subscriptionId }) => {
+      qc.invalidateQueries({ queryKey: qk.subscriptionGrants(subscriptionId) });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
     },
   });
@@ -322,7 +240,7 @@ export interface EnterpriseInfo {
   _count: {
     members: number;
     departments: number;
-    instances: number;
+    /** 雇佣关系数。收敛后即「在册硅基员工数」 */
     subscriptions: number;
   };
 }

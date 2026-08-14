@@ -159,7 +159,7 @@ export function useCreateGrant() {
       ...data
     }: {
       knowledgeBaseId: string;
-      instanceId?: string;
+      subscriptionId?: string;
       departmentId?: string;
     }) =>
       api.post(`/knowledge-bases/${knowledgeBaseId}/grants`, data),

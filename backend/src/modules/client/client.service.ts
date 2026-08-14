@@ -35,10 +35,10 @@ export interface ClientAuthResponse {
   }>;
 }
 
-export interface ClientInstanceTokenResponse {
-  instanceToken: string;
+export interface ClientEmploymentTokenResponse {
+  employmentToken: string;
   expiresIn: number;
-  instance: {
+  employment: {
     id: string;
     name: string;
     templateId: string;
@@ -46,7 +46,7 @@ export interface ClientInstanceTokenResponse {
   };
 }
 
-export interface ClientInstanceListItem {
+export interface ClientEmploymentListItem {
   id: string;
   name: string;
   status: string;
@@ -181,12 +181,12 @@ export class ClientService {
   }
 
   /**
-   * P4.2 实例令牌刷新：验证 refresh token + 检查实例可用性 → 签发短期 client-instance JWT
+   * P4.2 雇佣令牌刷新：验证 refresh token + 检查订阅可用性 → 签发短期 client-employment JWT
    *
-   * client-instance JWT 包含 userId + enterpriseId + instanceId + memberId，
+   * client-employment JWT 包含 userId + enterpriseId + subscriptionId + memberId，
    * 供员工包执行时作为身份凭据。TTL 从系统配置读取（默认 15 分钟）。
    */
-  async refreshInstanceToken(dto: ClientTokenDto): Promise<ClientInstanceTokenResponse> {
+  async refreshInstanceToken(dto: ClientTokenDto): Promise<ClientEmploymentTokenResponse> {
     // 1. 验证 refresh token
     let payload: any;
     try {
@@ -214,22 +214,23 @@ export class ClientService {
       throw new UnauthorizedException('Device has been revoked');
     }
 
-    // 3. 检查实例是否存在且 ACTIVE
-    const instance = await this.prisma.employeeInstance.findUnique({
-      where: { id: dto.instanceId },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        templateId: true,
-        enterpriseId: true,
+    // 3. 检查订阅是否存在且 ACTIVE
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: dto.subscriptionId },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
-    if (!instance) {
-      throw new NotFoundException(`Instance ${dto.instanceId} not found`);
+    if (!subscription) {
+      throw new NotFoundException(`Subscription ${dto.subscriptionId} not found`);
     }
-    if (instance.status !== 'ACTIVE') {
-      throw new BadRequestException('Instance is not active');
+    if (subscription.status !== 'ACTIVE') {
+      throw new BadRequestException('Subscription is not active');
     }
 
     // 4. 检查用户是否属于该企业
@@ -237,7 +238,7 @@ export class ClientService {
       where: {
         userId_enterpriseId: {
           userId,
-          enterpriseId: instance.enterpriseId,
+          enterpriseId: subscription.enterpriseId,
         },
       },
       select: { id: true },
@@ -255,66 +256,62 @@ export class ClientService {
       throw new BadRequestException('Invalid CLIENT_TOKEN_TTL_MINUTES setting');
     }
 
-    // 6. 签发 client-instance JWT
-    const instanceToken = this.jwtService.sign(
+    // 6. 签发 client-employment JWT
+    const employmentToken = this.jwtService.sign(
       {
         sub: userId,
-        enterpriseId: instance.enterpriseId,
-        instanceId: instance.id,
+        enterpriseId: subscription.enterpriseId,
+        subscriptionId: subscription.id,
         memberId: membership.id,
-        type: 'client-instance',
+        type: 'client-employment',
       },
       { secret: this.jwtSecret, expiresIn: `${ttlMinutes}m` },
     );
 
     return {
-      instanceToken,
+      employmentToken,
       expiresIn: ttlMinutes * 60, // seconds
-      instance: {
-        id: instance.id,
-        name: instance.name,
-        templateId: instance.templateId,
-        status: instance.status,
+      employment: {
+        id: subscription.id,
+        name: subscription.employee.name,
+        templateId: subscription.employee.id,
+        status: subscription.status,
       },
     };
   }
 
   /**
-   * P4.4 客户端实例清单：列出当前用户企业的所有 ACTIVE 实例
+   * P4.4 客户端订阅清单：列出当前用户企业的所有 ACTIVE 订阅
    *
-   * 与 EnterpriseModule 的 InstanceService.list() 逻辑相似，但只返回 ACTIVE 实例，
-   * 且精简字段（客户端不需要 upgradeAvailable、config 等管理端信息）。
+   * 返回 ACTIVE 订阅及其模板信息，客户端不需要 config 等管理端信息。
    */
-  async listInstances(userId: string): Promise<ClientInstanceListItem[]> {
+  async listInstances(userId: string): Promise<ClientEmploymentListItem[]> {
     const ctx = await this.enterpriseContext.resolve(userId);
 
-    const instances = await this.prisma.employeeInstance.findMany({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: {
         enterpriseId: ctx.enterpriseId,
         status: 'ACTIVE',
       },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        templateVersion: true,
-        template: {
+      include: {
+        employee: {
           select: {
             id: true,
             name: true,
             avatar: true,
           },
         },
-        department: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
       },
     });
 
-    return instances;
+    return subscriptions.map(sub => ({
+      id: sub.id,
+      name: sub.employee.name,
+      status: sub.status,
+      templateVersion: sub.templateVersion,
+      template: sub.employee,
+      department: null,
+    }));
   }
 }

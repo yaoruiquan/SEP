@@ -37,36 +37,38 @@ export class KnowledgeSearchService {
    */
   async search(
     query: string,
-    instanceId: string,
+    subscriptionId: string,
     topK: number = 5,
     scoreThreshold: number = 0.7,
     strategy: SearchStrategy = 'auto',
   ): Promise<SearchResponse> {
     const startTime = Date.now();
-    this.logger.log(`Searching: "${query}" (instance: ${instanceId}, strategy: ${strategy})`);
+    this.logger.log(
+      `Searching: "${query}" (subscription: ${subscriptionId}, strategy: ${strategy})`,
+    );
 
     // 1. 安全边界：获取授权 + 企业隔离
-    const instance = await this.prisma.employeeInstance.findUnique({
-      where: { id: instanceId },
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
     });
 
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
+    if (!subscription) {
+      throw new Error(`Subscription ${subscriptionId} not found`);
     }
 
-    const enterpriseId = instance.enterpriseId;
+    const enterpriseId = subscription.enterpriseId;
 
     // 2. 获取授权的知识库（企业前置过滤）
     const grants = await this.prisma.knowledgeGrant.findMany({
       where: {
-        instanceId,
+        subscriptionId,
         knowledgeBase: { enterpriseId },
       },
       select: { knowledgeBaseId: true },
     });
 
     if (grants.length === 0) {
-      this.logger.warn(`No knowledge bases granted to instance ${instanceId}`);
+      this.logger.warn(`No knowledge bases granted to subscription ${subscriptionId}`);
       return { count: 0, results: [], strategy: 'lexical', durationMs: Date.now() - startTime };
     }
 

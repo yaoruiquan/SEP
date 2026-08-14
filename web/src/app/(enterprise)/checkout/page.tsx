@@ -114,10 +114,9 @@ export default function CheckoutPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-medium text-gtext-primary">{item.employeeName}</h3>
+                    {/* 收敛后一员工一雇佣关系，没有数量维度 */}
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gtext-secondary">
                       <span>¥{item.unitPrice.toLocaleString()} / 年</span>
-                      <span>×</span>
-                      <span>{item.quantity} 位</span>
                       <span>×</span>
                       <span>{item.periodMonths} 个月</span>
                     </div>

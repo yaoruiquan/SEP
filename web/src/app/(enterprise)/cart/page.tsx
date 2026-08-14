@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShoppingCart, Trash2, Plus, Minus, ArrowRight, PackageOpen } from 'lucide-react';
+import { ShoppingCart, Trash2, ArrowRight, PackageOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
@@ -23,18 +23,6 @@ export default function CartPage() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [removeItemId, setRemoveItemId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  const handleQuantityChange = (itemId: string, currentQty: number, delta: number) => {
-    const newQty = currentQty + delta;
-    if (newQty < 1 || newQty > 99) return;
-
-    updateItem.mutate(
-      { itemId, dto: { quantity: newQty } },
-      {
-        onError: (err) => toast.error((err as Error).message),
-      },
-    );
-  };
 
   const handlePeriodChange = (itemId: string, months: number) => {
     updateItem.mutate(
@@ -232,33 +220,11 @@ export default function CartPage() {
                         </div>
                       </div>
 
-                      {/* 实例数量调整 + 小计 */}
+                      {/* 小计。收敛后一员工一雇佣关系，没有数量可调 */}
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-gtext-secondary">实例数量：</span>
-                          <div className="flex items-center gap-2 rounded-lg border border-glassline bg-glass-1 p-1">
-                            <button
-                              onClick={() => handleQuantityChange(item.id, item.quantity, -1)}
-                              disabled={item.quantity <= 1 || updateItem.isPending}
-                              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-glass-3 disabled:opacity-40"
-                            >
-                              <Minus className="h-3.5 w-3.5" />
-                            </button>
-                            <span className="min-w-[2ch] text-center text-sm font-medium text-gtext-primary">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => handleQuantityChange(item.id, item.quantity, 1)}
-                              disabled={item.quantity >= 99 || updateItem.isPending}
-                              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-glass-3 disabled:opacity-40"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <span className="text-xs text-gtext-muted">
-                            订阅后创建 {item.quantity} 个独立实例
-                          </span>
-                        </div>
+                        <span className="text-xs text-gtext-muted">
+                          雇佣后可授权给多个部门与成员
+                        </span>
 
                         <div className="text-right">
                           <div className="text-lg font-semibold text-gbrand-text">

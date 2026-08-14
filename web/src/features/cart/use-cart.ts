@@ -10,7 +10,6 @@ export interface CartItem {
   employeeAvatar: string | null;
   unitPrice: number;
   periodMonths: number;
-  quantity: number;
   subtotal: number;
   includedComputeCNY: number;
   addedAt: string;
@@ -23,15 +22,14 @@ export interface CartSummary {
   itemCount: number;
 }
 
+// 收敛后一企业一员工只有一段雇佣关系，数量恒为 1，故不再有 quantity
 export interface AddToCartDto {
   employeeId: string;
   periodMonths?: number;
-  quantity?: number;
 }
 
 export interface UpdateCartItemDto {
   periodMonths?: number;
-  quantity?: number;
 }
 
 // ── API ────────────────────────────────────────────────────────────────────

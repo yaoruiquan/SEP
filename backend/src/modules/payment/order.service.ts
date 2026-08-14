@@ -61,7 +61,7 @@ export class OrderService {
     const orderItems = cartItems.map((cartItem) => {
       const unitPrice = cartItem.employee.annualPriceCNY || new Decimal(0);
       const periodFactor = new Decimal(cartItem.periodMonths).div(12);
-      const subtotal = unitPrice.mul(cartItem.quantity).mul(periodFactor);
+      const subtotal = unitPrice.mul(periodFactor);
       totalAmount = totalAmount.add(subtotal);
 
       return {
@@ -69,10 +69,8 @@ export class OrderService {
         employeeName: cartItem.employee.name,
         unitPrice,
         periodMonths: cartItem.periodMonths,
-        quantity: cartItem.quantity,
-        includedComputeCNY: cartItem.employee.includedComputeCNY.mul(
-          cartItem.quantity,
-        ),
+        quantity: 1,
+        includedComputeCNY: cartItem.employee.includedComputeCNY,
       };
     });
 
@@ -245,6 +243,18 @@ export class OrderService {
         const endDate = new Date(now);
         endDate.setMonth(endDate.getMonth() + item.periodMonths);
 
+        // 锁定履约时刻的模板版本。不能写死版本号 —— templateVersion 是
+        // 「提示式升级」的基准，写错会让模板发新版后永远提示可升级。
+        const employee = await tx.digitalEmployee.findUnique({
+          where: { id: item.employeeId },
+          select: { version: true },
+        });
+        if (!employee) {
+          throw new NotFoundException(
+            `订单项对应的员工 ${item.employeeId} 不存在`,
+          );
+        }
+
         // upsert Subscription（因为 unique constraint，必须用 upsert 而非 create）
         const subscription = await tx.subscription.upsert({
           where: {
@@ -264,25 +274,13 @@ export class OrderService {
             status: 'ACTIVE',
             startDate: now,
             endDate,
+            templateVersion: employee.version,
+            name: item.employeeName,
           },
         });
 
-        // 创建员工实例（按 quantity）
-        const instances = [];
-        for (let i = 0; i < item.quantity; i++) {
-          const instance = await tx.employeeInstance.create({
-            data: {
-              enterpriseId: order.enterpriseId,
-              templateId: item.employeeId,
-              templateVersion: '1.0.0', // TODO: 从 DigitalEmployee 读取实际版本
-              name: `${item.employeeName}`,
-            },
-          });
-          instances.push(instance);
-        }
-
         this.logger.log(
-          `订阅 ${subscription.id} 已生效，创建 ${instances.length} 个实例`,
+          `订阅 ${subscription.id} 已激活`,
         );
 
         // 充值算力（如果有赠送）

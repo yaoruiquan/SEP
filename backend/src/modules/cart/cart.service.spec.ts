@@ -56,7 +56,6 @@ describe('CartService', () => {
           enterpriseId: 'ent-1',
           employeeId: 'emp-1',
           periodMonths: 12,
-          quantity: 2,
           createdAt: new Date(),
           employee: {
             id: 'emp-1',
@@ -71,10 +70,58 @@ describe('CartService', () => {
       const result = await service.getCart('ent-1');
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].subtotal).toBe(10000); // 5000 * 2 * (12/12)
-      expect(result.items[0].includedComputeCNY).toBe(2000); // 1000 * 2
-      expect(result.totalAmount).toBe(10000);
-      expect(result.totalIncludedCompute).toBe(2000);
+      expect(result.items[0].subtotal).toBe(5000); // 5000 * (12/12)
+      expect(result.items[0].includedComputeCNY).toBe(1000);
+      expect(result.totalAmount).toBe(5000);
+      expect(result.totalIncludedCompute).toBe(1000);
+    });
+
+    it('小计按周期折算 —— 半年只付一半', async () => {
+      prisma.cartItem.findMany.mockResolvedValue([
+        {
+          id: 'cart-1',
+          enterpriseId: 'ent-1',
+          employeeId: 'emp-1',
+          periodMonths: 6,
+          createdAt: new Date(),
+          employee: {
+            id: 'emp-1',
+            name: '销售助手',
+            avatar: null,
+            annualPriceCNY: 5000,
+            includedComputeCNY: 1000,
+          },
+        },
+      ]);
+
+      const result = await service.getCart('ent-1');
+
+      expect(result.items[0].subtotal).toBe(2500); // 5000 * (6/12)
+      // 赠送算力不随周期折算
+      expect(result.items[0].includedComputeCNY).toBe(1000);
+    });
+
+    it('quantity 恒为 1 —— 收敛后一员工一雇佣关系', async () => {
+      prisma.cartItem.findMany.mockResolvedValue([
+        {
+          id: 'cart-1',
+          enterpriseId: 'ent-1',
+          employeeId: 'emp-1',
+          periodMonths: 12,
+          createdAt: new Date(),
+          employee: {
+            id: 'emp-1',
+            name: '销售助手',
+            avatar: null,
+            annualPriceCNY: 5000,
+            includedComputeCNY: 1000,
+          },
+        },
+      ]);
+
+      const result = await service.getCart('ent-1');
+
+      expect(result.items[0].quantity).toBe(1);
     });
   });
 
@@ -89,7 +136,6 @@ describe('CartService', () => {
         service.addToCart('ent-1', 'user-1', {
           employeeId: 'emp-1',
           periodMonths: 12,
-          quantity: 1,
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -108,40 +154,51 @@ describe('CartService', () => {
         service.addToCart('ent-1', 'user-1', {
           employeeId: 'emp-1',
           periodMonths: 12,
-          quantity: 1,
         }),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('已在购物车应累加数量', async () => {
+    it('❗已在购物车应拒绝而非累加 —— 一员工一雇佣关系，买多份无意义', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
-      prisma.cartItem.findUnique.mockResolvedValue({
-        id: 'cart-1',
-        quantity: 1,
+      prisma.cartItem.findUnique.mockResolvedValue({ id: 'cart-1' });
+
+      await expect(
+        service.addToCart('ent-1', 'user-1', {
+          employeeId: 'emp-1',
+          periodMonths: 12,
+        }),
+      ).rejects.toThrow(ConflictException);
+
+      // 不能悄悄改成 update
+      expect(prisma.cartItem.update).not.toHaveBeenCalled();
+      expect(prisma.cartItem.create).not.toHaveBeenCalled();
+    });
+
+    it('已过期订阅可以重新加车 —— 只有 ACTIVE 才算已雇佣', async () => {
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'APPROVED',
       });
-      prisma.cartItem.update.mockResolvedValue({
-        id: 'cart-1',
-        quantity: 2,
+      prisma.subscription.findUnique.mockResolvedValue({
+        id: 'sub-1',
+        status: 'EXPIRED',
       });
+      prisma.cartItem.findUnique.mockResolvedValue(null);
+      prisma.cartItem.create.mockResolvedValue({ id: 'cart-new' });
 
       const result = await service.addToCart('ent-1', 'user-1', {
         employeeId: 'emp-1',
         periodMonths: 12,
-        quantity: 1,
       });
 
-      expect(result.message).toContain('已更新购物车数量');
-      expect(prisma.cartItem.update).toHaveBeenCalledWith({
-        where: { id: 'cart-1' },
-        data: expect.objectContaining({ quantity: 2 }),
-      });
+      expect(result.message).toContain('已加入购物车');
     });
 
-    it('首次加车应创建记录', async () => {
+    it('首次加车应创建记录，且不写 quantity', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
@@ -155,11 +212,17 @@ describe('CartService', () => {
       const result = await service.addToCart('ent-1', 'user-1', {
         employeeId: 'emp-1',
         periodMonths: 12,
-        quantity: 1,
       });
 
       expect(result.message).toContain('已加入购物车');
-      expect(prisma.cartItem.create).toHaveBeenCalled();
+      const createArg = prisma.cartItem.create.mock.calls[0][0];
+      expect(createArg.data).not.toHaveProperty('quantity');
+      expect(createArg.data).toMatchObject({
+        enterpriseId: 'ent-1',
+        employeeId: 'emp-1',
+        periodMonths: 12,
+        addedBy: 'user-1',
+      });
     });
   });
 

@@ -135,18 +135,21 @@ export function useSetDepartmentPolicy(departmentId: string) {
 
 /**
  * 解析最终生效的模型配置。
- * 优先级：用户选择 > 员工实例 > 部门覆盖 > 企业配置 > 系统默认。
+ * 优先级：用户选择 > 雇佣关系 > 部门覆盖 > 企业配置 > 系统默认。
+ *
+ * 参数名必须与后端 @Query('subscriptionId') 一致 —— 收敛前叫 employeeInstanceId，
+ * 名字不对不会报错，只会静默丢掉这一层优先级。
  */
 export function useEffectiveModelConfig(
   enterpriseId: string,
-  opts?: { departmentId?: string; employeeInstanceId?: string; userSelectedModel?: string },
+  opts?: { departmentId?: string; subscriptionId?: string; userSelectedModel?: string },
 ) {
   return useQuery({
     queryKey: qk.effectiveModelConfig(enterpriseId, opts),
     queryFn: () => {
       const params = new URLSearchParams();
       if (opts?.departmentId) params.set('departmentId', opts.departmentId);
-      if (opts?.employeeInstanceId) params.set('employeeInstanceId', opts.employeeInstanceId);
+      if (opts?.subscriptionId) params.set('subscriptionId', opts.subscriptionId);
       if (opts?.userSelectedModel) params.set('userSelectedModel', opts.userSelectedModel);
 
       const qs = params.toString();
