@@ -12,6 +12,7 @@ import {
   SubscriptionStatusValue,
 } from 'shared';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { WalletService } from '../wallet/wallet.service';
 
 /** 允许的状态流转。EXPIRED 是终态。 */
 const ALLOWED_TRANSITIONS: Record<
@@ -30,6 +31,7 @@ export class SubscriptionService {
   constructor(
     private prisma: PrismaService,
     private enterpriseContext: EnterpriseContextService,
+    private walletService: WalletService,
   ) {}
 
   /**
@@ -42,6 +44,7 @@ export class SubscriptionService {
    *  - 模板必须已上架（PUBLISHED）
    *  - 同一企业对同一模板只订阅一次；PAUSED/EXPIRED 时重新激活
    *  - 订阅本身即雇佣关系，创建时锁定模板版本，不再另建实例
+   *  - 从钱包扣款（年费），记录交易 ID
    */
   async subscribe(userId: string, dto: SubscriptionCreateDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
@@ -55,6 +58,11 @@ export class SubscriptionService {
       throw new BadRequestException('Cannot subscribe to an unapproved employee');
     }
 
+    // 检查是否设置了年费
+    if (!employee.annualPriceCNY || employee.annualPriceCNY.toNumber() <= 0) {
+      throw new BadRequestException('Employee does not have a valid annual price');
+    }
+
     // Upsert: reactivate existing or create new
     const existing = await this.prisma.subscription.findUnique({
       where: {
@@ -65,24 +73,42 @@ export class SubscriptionService {
       },
     });
 
+    const amount = employee.annualPriceCNY.toNumber();
+
     let subscription;
     if (existing) {
       if (existing.status === 'ACTIVE') {
         throw new ConflictException('Already subscribed to this employee');
       }
+
+      // 从钱包扣款（复活订阅也要重新付费）
+      const transaction = await this.walletService.consume(
+        ctx.enterpriseId,
+        amount,
+        'subscription',
+        existing.id,
+        `重新订阅【${employee.name}】`,
+      );
+
       // 复活暂停 / 已终止的雇佣关系。
       // 刻意不刷新 templateVersion：停用期间模板可能已发新版，保留旧版本
       // 会让列表立刻给出升级提示，企业能知道「离开这段时间员工变了」。
       // 若在此改成当前版本，这次变更就被静默吞掉了。
       subscription = await this.prisma.subscription.update({
         where: { id: existing.id },
-        data: { status: 'ACTIVE', startDate: new Date(), endDate: null, config: dto.config ?? undefined },
+        data: {
+          status: 'ACTIVE',
+          startDate: new Date(),
+          endDate: null,
+          config: dto.config ?? undefined,
+          walletTransactionId: transaction.id,
+        },
         include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
       });
     } else {
-      // 收敛后订阅即雇佣关系，创建时就锁定模板版本并落默认称呼，
-      // 不再需要额外建实例。
-      subscription = await this.prisma.subscription.create({
+      // 先从钱包扣款，再创建订阅记录（订阅 ID 还不存在，先用 null，后面再关联）
+      // 为了获得订阅 ID，先创建订阅，再扣款，再更新订阅关联交易 ID
+      const tempSubscription = await this.prisma.subscription.create({
         data: {
           enterpriseId: ctx.enterpriseId,
           employeeId: dto.employeeId,
@@ -91,6 +117,21 @@ export class SubscriptionService {
           name: employee.name,
           config: dto.config,
         },
+      });
+
+      // 扣款
+      const transaction = await this.walletService.consume(
+        ctx.enterpriseId,
+        amount,
+        'subscription',
+        tempSubscription.id,
+        `订阅【${employee.name}】`,
+      );
+
+      // 关联交易记录
+      subscription = await this.prisma.subscription.update({
+        where: { id: tempSubscription.id },
+        data: { walletTransactionId: transaction.id },
         include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
       });
     }
@@ -283,6 +324,65 @@ export class SubscriptionService {
     return this.prisma.subscription.update({
       where: { id: sub.id },
       data: { status: 'EXPIRED', endDate: new Date() },
+    });
+  }
+
+  /**
+   * 解雇员工（TERMINATED）：7 天试用期内全额退款，之后不退款。
+   *
+   * 试用期计算：从 startDate 起 7 天内
+   * 退款金额：试用期内 = 全额（年费），试用期外 = 0
+   */
+  async terminate(id: string, userId: string, reason?: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
+    const sub = await this.findOne(id, userId);
+
+    if (sub.status !== 'ACTIVE') {
+      throw new ConflictException('Only active subscriptions can be terminated');
+    }
+
+    // 获取员工信息（用于退款金额和描述）
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: sub.employeeId },
+      select: { name: true, annualPriceCNY: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    // 计算是否在试用期内（7 天）
+    const now = new Date();
+    const trialEndDate = new Date(sub.startDate);
+    trialEndDate.setDate(trialEndDate.getDate() + 7);
+    const isWithinTrial = now <= trialEndDate;
+
+    let refundAmount = 0;
+    let refundTransactionId: string | null = null;
+
+    if (isWithinTrial && employee.annualPriceCNY) {
+      // 试用期内全额退款
+      refundAmount = employee.annualPriceCNY.toNumber();
+      const refundTransaction = await this.walletService.refund(
+        ctx.enterpriseId,
+        refundAmount,
+        'subscription',
+        sub.id,
+        `解雇【${employee.name}】- 试用期退款`,
+      );
+      refundTransactionId = refundTransaction.id;
+    }
+
+    // 更新订阅状态为 TERMINATED
+    return this.prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        status: 'TERMINATED',
+        endDate: now,
+        terminatedAt: now,
+        terminatedBy: userId,
+        terminatedReason: reason || (isWithinTrial ? 'trial_refund' : 'user_cancel'),
+        refundAmount: refundAmount > 0 ? refundAmount : null,
+        refundTransactionId,
+      },
     });
   }
 

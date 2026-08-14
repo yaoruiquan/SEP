@@ -24,6 +24,7 @@ import { CartModule } from './modules/cart/cart.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { UploadModule } from './modules/upload/upload.module';
     PaymentModule,
     AnnouncementModule,
     UploadModule,
+    WalletModule,
   ],
   controllers: [],
   providers: [],

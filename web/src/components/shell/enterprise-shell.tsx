@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
+  Wallet,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -100,6 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '账务',
     links: [
+      { href: '/wallet', label: '企业钱包', icon: Wallet, adminOnly: true },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
       { href: '/analytics/cost', label: nav.costAnalytics, icon: BarChart3, adminOnly: true },
     ],
@@ -121,6 +123,8 @@ const CRUMBS: CrumbMap = {
   settings: '设置',
   models: '模型配置',
   chat: '对话',
+  wallet: '企业钱包',
+  recharge: '充值',
   new: '新建',
   edit: '编辑',
 };

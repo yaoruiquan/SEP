@@ -20,6 +20,7 @@ const ACME_STAFF = { ...ACME, memberId: 'mem-acme-staff', role: 'MEMBER' as cons
 describe('SubscriptionService', () => {
   let prisma: any;
   let ctxSvc: any;
+  let walletSvc: any;
   let svc: SubscriptionService;
 
   beforeEach(() => {
@@ -39,7 +40,11 @@ describe('SubscriptionService', () => {
       }),
       assertCanApprove: jest.fn(),
     };
-    svc = new SubscriptionService(prisma, ctxSvc);
+    walletSvc = {
+      consume: jest.fn(),
+      refund: jest.fn(),
+    } as any;
+    svc = new SubscriptionService(prisma, ctxSvc, walletSvc);
   });
 
   describe('多租户隔离（越权路径）', () => {
@@ -100,12 +105,16 @@ describe('SubscriptionService', () => {
       expect(where.status).toBeUndefined();
     });
 
-    it('订阅创建时 enterpriseId 取自服务端上下文，不取自入参', async () => {
+    it('订阅创建时 enterpriseId 取自服务端上下文,不取自入参', async () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
+      walletSvc.consume.mockResolvedValue({ id: 'tx-1' });
 
       // 恶意入参试图指定别家企业
       await svc.subscribe('user-acme-boss', {
@@ -121,8 +130,12 @@ describe('SubscriptionService', () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
+      walletSvc.consume.mockResolvedValue({ id: 'tx-1' });
 
       await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
 
@@ -150,8 +163,12 @@ describe('SubscriptionService', () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
       });
       prisma.subscription.findUnique.mockResolvedValue(null);
+      walletSvc.consume.mockResolvedValue({ id: 'tx-1' });
 
       await expect(
         svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never),
@@ -203,7 +220,9 @@ describe('SubscriptionService', () => {
       prisma.digitalEmployee.findUnique.mockResolvedValue({
         id: 'emp-1',
         status: 'APPROVED',
+        name: 'Test Employee',
         version: '3.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
       });
       prisma.subscription.findUnique.mockResolvedValue({
         id: 'sub-old',
@@ -211,6 +230,7 @@ describe('SubscriptionService', () => {
         status: 'EXPIRED',
         templateVersion: '1.0.0',
       });
+      walletSvc.consume.mockResolvedValue({ id: 'tx-1' });
 
       await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
 

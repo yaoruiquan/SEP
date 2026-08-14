@@ -72,6 +72,7 @@ model Enterprise {
   members        EnterpriseMember[]
   subscriptions  Subscription[]
   computeAccount ComputeAccount?
+  wallet         EnterpriseWallet?
   accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
   modelConfig    EnterpriseModelConfig?
@@ -618,6 +619,16 @@ model Subscription {
   // 企业侧订阅配置
   config Json?
 
+  /// 新增：钱包支付记录
+  walletTransactionId String? @unique // 关联扣款记录
+
+  /// 新增：终止信息
+  terminatedAt     DateTime?
+  terminatedBy     String? // 操作人 userId
+  terminatedReason String? // 'trial_refund'（试用期退款）, 'user_cancel'（用户主动）
+  refundAmount     Decimal? @db.Decimal(10, 2) // 退款金额
+  refundTransactionId String? @unique // 退款交易记录
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -639,9 +650,10 @@ model Subscription {
 ///   SUSPENDED          → PAUSED
 ///   REVOKED            → EXPIRED
 enum SubscriptionStatus {
-  ACTIVE // 激活
-  PAUSED // 暂停（企业主动停用）
-  EXPIRED // 过期 / 已退订
+  ACTIVE     // 激活
+  PAUSED     // 暂停（企业主动停用）
+  EXPIRED    // 过期 / 已退订
+  TERMINATED // 已解雇（新增：明确区分主动解雇与自然过期）
 }
 
 // ============================================================================
@@ -754,11 +766,138 @@ enum ExecutionStatus {
 }
 
 // ============================================================================
-// Compute Platform (算力平台)
+// Unified Wallet (统一钱包) - Phase 1
+// ============================================================================
+
+/// 企业钱包：统一的资金池，所有充值、订阅、算力消费都从这里扣款。
+model EnterpriseWallet {
+  id           String @id @default(cuid())
+  enterpriseId String @unique
+
+  /// 可用余额（使用 Decimal 避免浮点精度问题）
+  balance      Decimal @default(0) @db.Decimal(10, 2)
+
+  /// 冻结金额（退款处理中、订单待支付等）
+  frozenAmount Decimal @default(0) @db.Decimal(10, 2)
+
+  /// 乐观锁版本号（防止并发余额错乱）
+  version Int @default(0)
+
+  /// 累计统计（只增不减，用于展示）
+  totalDeposit Decimal @default(0) @db.Decimal(10, 2) // 累计充值
+  totalConsume Decimal @default(0) @db.Decimal(10, 2) // 累计消费
+  totalRefund  Decimal @default(0) @db.Decimal(10, 2) // 累计退款
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enterprise   Enterprise          @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("enterprise_wallets")
+}
+
+/// 钱包交易记录：每笔收支都有明确记录，带余额快照用于审计。
+model WalletTransaction {
+  id       String @id @default(cuid())
+  walletId String
+
+  /// 交易类型
+  type WalletTransactionType
+
+  /// 交易金额（正数=入账，负数=出账）
+  amount Decimal @db.Decimal(10, 2)
+
+  /// 交易前后余额快照（审计用）
+  balanceBefore Decimal @db.Decimal(10, 2)
+  balanceAfter  Decimal @db.Decimal(10, 2)
+
+  /// 关联业务实体
+  relatedType String? // 'subscription', 'compute', 'payment_order'
+  relatedId   String? // 订阅 ID / 支付订单 ID
+
+  /// 支付相关
+  paymentMethod  String? // 'alipay', 'wechat', 'balance'
+  paymentOrderId String? @unique
+
+  /// 描述和元数据
+  description String? // 人类可读描述："订阅【内容营销专员】"
+  metadata    Json?   // 扩展信息
+
+  createdAt DateTime @default(now())
+  createdBy String? // 操作人 userId（管理员调整时记录）
+
+  wallet EnterpriseWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([relatedType, relatedId])
+  @@index([paymentOrderId])
+  @@map("wallet_transactions")
+}
+
+enum WalletTransactionType {
+  DEPOSIT    // 充值（支付宝入账）
+  CONSUME    // 消费（订阅员工、算力消耗）
+  REFUND     // 退款（解雇员工、取消订阅）
+  ADJUSTMENT // 调整（管理员手动调整）
+  FREEZE     // 冻结（预留）
+  UNFREEZE   // 解冻（预留）
+}
+
+/// 支付订单：充值、订阅支付的订单记录。
+model PaymentOrder {
+  id           String @id @default(cuid())
+  enterpriseId String
+
+  /// 订单号
+  orderNo String  @unique // 平台订单号（自己生成）
+  tradeNo String? @unique // 支付宝交易号（回调时填充）
+
+  /// 金额和状态
+  amount Decimal       @db.Decimal(10, 2)
+  status PaymentStatus
+  method PaymentMethod // 'alipay', 'wechat'
+
+  /// 业务类型
+  businessType String  // 'recharge'（纯充值）, 'subscription'（订阅支付）
+  relatedId    String? // 如果是订阅支付，关联订阅 ID
+
+  /// 支付宝回调数据
+  notifyData Json?
+  notifyTime DateTime?
+
+  /// 时间戳
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+  closedAt  DateTime?
+
+  @@index([enterpriseId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("payment_orders")
+}
+
+enum PaymentStatus {
+  PENDING   // 待支付（已创建，等待支付宝回调）
+  PAID      // 已支付（回调成功，已入账）
+  FAILED    // 支付失败
+  REFUNDING // 退款中
+  REFUNDED  // 已退款
+  CLOSED    // 已关闭（超时未支付）
+}
+
+enum PaymentMethod {
+  ALIPAY  // 支付宝
+  WECHAT  // 微信支付
+  BALANCE // 余额支付（预留）
+}
+
+// ============================================================================
+// Compute Platform (算力平台) - 保留兼容
 // ============================================================================
 
 /// 算力账户。主体是【企业】—— 套餐含算力额度，按企业结算。
 ///
+/// ⚠️ 收敛后余额统一到 EnterpriseWallet，此表保留用于统计和历史记录。
 /// ⚠️ 多租户隔离要点：ComputeTransaction 自身没有 enterpriseId，
 /// 必须经 accountId → ComputeAccount.enterpriseId 校验归属，
 /// 否则拿到别家的 accountId 就能查别家账单。
@@ -768,13 +907,14 @@ model ComputeAccount {
   enterpriseId String     @unique
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
+  /// ⚠️ 废弃字段（保留兼容），真实余额从 EnterpriseWallet.balance 读取
   balance Float @default(0) // 余额（人民币）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  transactions ComputeTransaction[]
+  transactions   ComputeTransaction[]
   rechargeOrders RechargeOrder[]
 
   @@map("compute_accounts")

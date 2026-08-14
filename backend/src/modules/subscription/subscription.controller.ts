@@ -113,4 +113,17 @@ export class SubscriptionController {
   ) {
     return this.subscriptionService.unsubscribe(id, req.user.id);
   }
+
+  @Post(':id/terminate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '解雇员工（TERMINATED）：7 天试用期内全额退款' })
+  @ApiResponse({ status: 200, description: 'Terminated with refund info' })
+  @ApiResponse({ status: 409, description: 'Subscription not active' })
+  async terminate(
+    @Param('id') id: string,
+    @Body('reason') reason: string | undefined,
+    @Request() req: { user: { id: string } },
+  ) {
+    return this.subscriptionService.terminate(id, req.user.id, reason);
+  }
 }

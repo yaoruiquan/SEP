@@ -1,0 +1,89 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../api-client';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export interface WalletBalance {
+  balance: number;
+  frozenAmount: number;
+  totalDeposit: number;
+  totalConsume: number;
+  totalRefund: number;
+}
+
+export interface WalletTransaction {
+  id: string;
+  walletId: string;
+  type: 'DEPOSIT' | 'CONSUME' | 'REFUND';
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  relatedType?: 'subscription' | 'compute';
+  relatedId?: string;
+  paymentMethod?: string;
+  paymentOrderId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface TransactionListResponse {
+  items: WalletTransaction[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface TransactionFilters {
+  type?: 'DEPOSIT' | 'CONSUME' | 'REFUND';
+  page?: number;
+  limit?: number;
+}
+
+// ── Hooks ──────────────────────────────────────────────────────────────────
+
+/**
+ * 获取企业钱包余额和统计
+ */
+export function useWalletBalance() {
+  return useQuery<WalletBalance>({
+    queryKey: ['wallet', 'balance'],
+    queryFn: () => api.get<WalletBalance>('/wallet/balance'),
+  });
+}
+
+/**
+ * 获取钱包交易记录
+ */
+export function useWalletTransactions(filters: TransactionFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.type) params.set('type', filters.type);
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.limit) params.set('limit', String(filters.limit));
+
+  const queryString = params.toString();
+  const path = `/wallet/transactions${queryString ? `?${queryString}` : ''}`;
+
+  return useQuery<TransactionListResponse>({
+    queryKey: ['wallet', 'transactions', filters],
+    queryFn: () => api.get<TransactionListResponse>(path),
+  });
+}
+
+/**
+ * 创建充值订单（返回支付 URL）
+ */
+export function useCreateRechargeOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (amount: number) =>
+      api.post<{ orderId: string; payUrl: string }>('/wallet/recharge', { amount }),
+    onSuccess: () => {
+      // 充值订单创建后，余额还没变，但可以预刷新交易列表
+      queryClient.invalidateQueries({ queryKey: ['wallet', 'transactions'] });
+    },
+  });
+}

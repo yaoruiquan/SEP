@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { WalletService } from '../wallet/wallet.service';
 import type { RechargeCreateDto } from 'shared';
 import { format } from 'date-fns';
 
@@ -9,10 +10,14 @@ export class ComputeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly enterpriseCtx: EnterpriseContextService,
+    private readonly walletService: WalletService,
   ) {}
 
   // ── 账户信息 ──────────────────────────────────────────────────────────────
 
+  /**
+   * @deprecated 使用 WalletService.getBalance() 替代
+   */
   async getAccount(userId: string) {
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
 
@@ -33,31 +38,34 @@ export class ComputeService {
   // ── 统计数据 ──────────────────────────────────────────────────────────────
 
   async getStats(userId: string) {
-    const account = await this.getAccount(userId);
+    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
+
+    // 从钱包获取余额
+    const walletBalance = await this.walletService.getBalance(enterpriseId);
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // 今日消费
-    const todayConsumeResult = await this.prisma.computeTransaction.aggregate({
+    // 今日消费 - 从钱包交易记录统计
+    const todayTransactions = await this.prisma.walletTransaction.findMany({
       where: {
-        accountId: account.id,
+        wallet: { enterpriseId },
         type: 'CONSUME',
+        relatedType: 'compute',
         createdAt: { gte: todayStart },
       },
-      _sum: { amount: true },
     });
 
     // 本月消费
-    const monthConsumeResult = await this.prisma.computeTransaction.aggregate({
+    const monthTransactions = await this.prisma.walletTransaction.findMany({
       where: {
-        accountId: account.id,
+        wallet: { enterpriseId },
         type: 'CONSUME',
+        relatedType: 'compute',
         createdAt: { gte: monthStart },
       },
-      _sum: { amount: true },
     });
 
     // 最近30天趋势
@@ -65,19 +73,21 @@ export class ComputeService {
       SELECT
         DATE("createdAt") as date,
         SUM(ABS(amount)) as amount
-      FROM compute_transactions
+      FROM wallet_transactions wt
+      INNER JOIN enterprise_wallets ew ON wt."walletId" = ew.id
       WHERE
-        "accountId" = ${account.id}
-        AND type = 'CONSUME'
-        AND "createdAt" >= ${last30Days}
+        ew."enterpriseId" = ${enterpriseId}
+        AND wt.type = 'CONSUME'
+        AND wt."relatedType" = 'compute'
+        AND wt."createdAt" >= ${last30Days}
       GROUP BY DATE("createdAt")
       ORDER BY date ASC
     `;
 
     return {
-      balance: account.balance,
-      todayConsume: Math.abs(todayConsumeResult._sum.amount || 0),
-      monthConsume: Math.abs(monthConsumeResult._sum.amount || 0),
+      balance: walletBalance.balance,
+      todayConsume: todayTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0),
+      monthConsume: monthTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0),
       trendData: trendData.map((d) => ({
         date: d.date,
         amount: Math.abs(Number(d.amount)),
@@ -97,19 +107,31 @@ export class ComputeService {
       pageSize?: number;
     },
   ) {
-    const account = await this.getAccount(userId);
+    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
 
-    const where: any = { accountId: account.id };
+    // 将类型映射到钱包交易类型
+    const typeMap = {
+      RECHARGE: 'DEPOSIT',
+      CONSUME: 'CONSUME',
+      REFUND: 'REFUND',
+    };
+
+    // 构建查询条件
+    const where: any = {
+      wallet: { enterpriseId },
+      relatedType: 'compute', // 只查算力相关的交易
+    };
+
     if (params?.type) {
-      where.type = params.type;
+      where.type = typeMap[params.type];
     }
+
     if (params?.startDate || params?.endDate) {
       where.createdAt = {};
       if (params.startDate) {
         where.createdAt.gte = new Date(params.startDate);
       }
       if (params?.endDate) {
-        // include the full end day
         const end = new Date(params.endDate);
         end.setHours(23, 59, 59, 999);
         where.createdAt.lte = end;
@@ -120,8 +142,8 @@ export class ComputeService {
     const pageSize = params?.pageSize || 20;
 
     const [total, transactions] = await Promise.all([
-      this.prisma.computeTransaction.count({ where }),
-      this.prisma.computeTransaction.findMany({
+      this.prisma.walletTransaction.count({ where }),
+      this.prisma.walletTransaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         take: pageSize,
@@ -208,7 +230,7 @@ export class ComputeService {
   async fulfillRechargeOrder(orderNo: string, payTradeNo: string, payChannel: 'ALIPAY' | 'WECHAT') {
     const order = await this.prisma.rechargeOrder.findUnique({
       where: { orderNo },
-      include: { account: true },
+      include: { account: { include: { enterprise: true } } },
     });
 
     if (!order) {
@@ -220,7 +242,7 @@ export class ComputeService {
       return order;
     }
 
-    // 事务：更新订单状态 + 创建交易记录 + 更新余额
+    // 事务：更新订单状态 + 钱包充值
     return this.prisma.$transaction(async (tx) => {
       // 1. 更新订单状态
       const updatedOrder = await tx.rechargeOrder.update({
@@ -233,23 +255,14 @@ export class ComputeService {
         },
       });
 
-      // 2. 创建充值交易记录
-      await tx.computeTransaction.create({
-        data: {
-          accountId: order.accountId,
-          type: 'RECHARGE',
-          amount: Number(order.amount),
-          description: `充值订单 ${orderNo}`,
-        },
-      });
-
-      // 3. 更新账户余额
-      await tx.computeAccount.update({
-        where: { id: order.accountId },
-        data: {
-          balance: { increment: Number(order.amount) },
-        },
-      });
+      // 2. 通过 WalletService 处理充值（统一入口）
+      // 注意：tx 是 Prisma 事务上下文，WalletService 内部会使用同一个事务
+      await this.walletService.deposit(
+        order.account.enterpriseId,
+        Number(order.amount),
+        order.id,
+        `充值订单 ${orderNo}`,
+      );
 
       return updatedOrder;
     });
@@ -274,33 +287,13 @@ export class ComputeService {
     sessionId?: string,
     description?: string,
   ) {
-    let account = await this.prisma.computeAccount.findUnique({
-      where: { enterpriseId },
-    });
-
-    if (!account) {
-      account = await this.prisma.computeAccount.create({
-        data: { enterpriseId, balance: 0 },
-      });
-    }
-
-    // 创建消费记录（金额为负数）
-    const transaction = await this.prisma.computeTransaction.create({
-      data: {
-        accountId: account.id,
-        type: 'CONSUME',
-        amount: -Math.abs(amount),
-        sessionId,
-        description: description || '对话消费',
-      },
-    });
-
-    // 更新余额（可以为负数，允许透支）
-    await this.prisma.computeAccount.update({
-      where: { id: account.id },
-      data: { balance: { decrement: amount } },
-    });
-
-    return transaction;
+    // 使用钱包服务消费
+    return this.walletService.consume(
+      enterpriseId,
+      amount,
+      'compute',
+      sessionId || null,
+      description || '对话消费',
+    );
   }
 }
