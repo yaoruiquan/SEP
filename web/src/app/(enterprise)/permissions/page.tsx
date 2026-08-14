@@ -11,7 +11,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
-import { useInstances, useMembers, useDepartments } from '@/features/enterprise/use-enterprise';
+import { useMembers, useDepartments } from '@/features/enterprise/use-enterprise';
+import { useSubscriptions } from '@/features/subscription/use-subscriptions';
 import {
   usePendingAccessRequests,
   useApproveAccessRequest,
@@ -19,10 +20,10 @@ import {
   useCreateGrant,
   useDeleteGrant,
   useEmployeeGrants,
-  useAllInstanceGrants,
+  useAllSubscriptionGrants,
   type GrantRecord,
 } from '@/features/permissions/use-permissions';
-import type { EmployeeInstance, EnterpriseMember, Department } from '@/lib/types';
+import type { Subscription, EnterpriseMember, Department } from '@/lib/types';
 import { api } from '@/lib/api-client';
 
 /**
@@ -82,36 +83,39 @@ export default function PermissionsPage() {
 }
 
 // ─────────────────────────────────────────────────────────
-// 按部门授权（实例 × 部门 矩阵）
+// 按部门授权（雇佣关系 × 部门 矩阵）
 // ─────────────────────────────────────────────────────────
 
 function DepartmentPermissionMatrix() {
   const { data: departments = [], isLoading: deptsLoading } = useDepartments();
-  const { data: instances = [], isLoading: instsLoading } = useInstances();
+  const { data: allSubs = [], isLoading: subsLoading } = useSubscriptions();
   const createGrant = useCreateGrant();
   const deleteGrant = useDeleteGrant();
 
-  // 并行获取所有实例的 grants
-  const grantsResults = useAllInstanceGrants(instances.map((i) => i.id));
+  // 已解聘的不该出现在授权矩阵里 —— 点了也只会被后端拒
+  const subs = allSubs.filter((s) => s.status !== 'EXPIRED');
 
-  // instanceId → GrantRecord[]
-  const instanceGrants = new Map<string, GrantRecord[]>();
-  instances.forEach((inst, idx) => {
-    instanceGrants.set(inst.id, grantsResults[idx]?.data ?? []);
+  // 并行获取所有雇佣关系的 grants
+  const grantsResults = useAllSubscriptionGrants(subs.map((s) => s.id));
+
+  // subscriptionId → GrantRecord[]
+  const subGrants = new Map<string, GrantRecord[]>();
+  subs.forEach((sub, idx) => {
+    subGrants.set(sub.id, grantsResults[idx]?.data ?? []);
   });
 
-  const isLoading = deptsLoading || instsLoading;
+  const isLoading = deptsLoading || subsLoading;
   const isBusy = createGrant.isPending || deleteGrant.isPending;
 
-  const toggleDeptGrant = async (instanceId: string, deptId: string) => {
-    const grants = instanceGrants.get(instanceId) ?? [];
+  const toggleDeptGrant = async (subscriptionId: string, deptId: string) => {
+    const grants = subGrants.get(subscriptionId) ?? [];
     const existing = grants.find((g) => g.department?.id === deptId && !g.expired);
     try {
       if (existing) {
-        await deleteGrant.mutateAsync({ grantId: existing.id, instanceId });
+        await deleteGrant.mutateAsync({ grantId: existing.id, subscriptionId });
         toast.success('已撤销部门授权');
       } else {
-        await createGrant.mutateAsync({ instanceId, departmentId: deptId });
+        await createGrant.mutateAsync({ subscriptionId, departmentId: deptId });
         toast.success('已授权该部门');
       }
     } catch {
@@ -135,10 +139,10 @@ function DepartmentPermissionMatrix() {
     );
   }
 
-  if (instances.length === 0) {
+  if (subs.length === 0) {
     return (
       <div className="text-center py-12 text-neutral-500">
-        暂无硅基员工，请先在「员工授权」创建
+        暂无硅基员工，请先在「雇佣关系」雇佣
       </div>
     );
   }
@@ -146,9 +150,9 @@ function DepartmentPermissionMatrix() {
   return (
     <div className="space-y-4">
       {departments.map((dept) => {
-        // 统计该部门有多少实例的授权
-        const grantedCount = instances.filter((inst) => {
-          const grants = instanceGrants.get(inst.id) ?? [];
+        // 统计该部门被授权了多少位硅基员工
+        const grantedCount = subs.filter((sub) => {
+          const grants = subGrants.get(sub.id) ?? [];
           return grants.some((g) => g.department?.id === dept.id && !g.expired);
         }).length;
 
@@ -167,21 +171,21 @@ function DepartmentPermissionMatrix() {
                 </div>
               </div>
               <Badge className="bg-success/10 text-success border border-success/20">
-                {grantedCount} / {instances.length} 个员工已授权
+                {grantedCount} / {subs.length} 个员工已授权
               </Badge>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {instances.map((instance) => {
-                const grants = instanceGrants.get(instance.id) ?? [];
+              {subs.map((sub) => {
+                const grants = subGrants.get(sub.id) ?? [];
                 const grant = grants.find((g) => g.department?.id === dept.id);
                 const hasActive = !!grant && !grant.expired;
                 const hasExpired = !!grant && grant.expired;
 
                 return (
                   <button
-                    key={instance.id}
-                    onClick={() => !isBusy && toggleDeptGrant(instance.id, dept.id)}
+                    key={sub.id}
+                    onClick={() => !isBusy && toggleDeptGrant(sub.id, dept.id)}
                     disabled={isBusy}
                     className={[
                       'p-3 rounded-lg border-2 transition-all text-left',
@@ -195,7 +199,7 @@ function DepartmentPermissionMatrix() {
                   >
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-sm font-medium text-neutral-900 truncate pr-1">
-                        {instance.name}
+                        {sub.name}
                       </span>
                       {hasActive ? (
                         <Check className="w-4 h-4 text-success flex-shrink-0" />
@@ -203,8 +207,9 @@ function DepartmentPermissionMatrix() {
                         <div className="w-4 h-4 rounded border-2 border-neutral-300 flex-shrink-0" />
                       )}
                     </div>
+                    {/* 雇佣关系不再挂部门（部门就是这张矩阵的另一维），改为展示岗位 */}
                     <p className="text-xs text-neutral-500 truncate">
-                      {instance.department?.name ?? '未分配部门'}
+                      {sub.employee.position}
                     </p>
                     {hasExpired && (
                       <span className="text-xs text-warning mt-1 block">授权已过期</span>
@@ -225,10 +230,10 @@ function DepartmentPermissionMatrix() {
 // ─────────────────────────────────────────────────────────
 
 function EmployeePermissionMatrix() {
-  const { data: instances = [], isLoading: instancesLoading } = useInstances();
+  const { data: allSubs = [], isLoading: subsLoading } = useSubscriptions();
   const { data: members = [], isLoading: membersLoading } = useMembers();
 
-  if (instancesLoading || membersLoading) {
+  if (subsLoading || membersLoading) {
     return (
       <div className="flex items-center justify-center py-12 text-neutral-500">
         加载中...
@@ -236,20 +241,23 @@ function EmployeePermissionMatrix() {
     );
   }
 
-  if (instances.length === 0) {
+  // 已解聘的不该出现在授权矩阵里 —— 点了也只会被后端拒
+  const subs = allSubs.filter((s) => s.status !== 'EXPIRED');
+
+  if (subs.length === 0) {
     return (
       <div className="text-center py-12 text-neutral-500">
-        暂无硅基员工，请先前往「员工授权」创建
+        暂无硅基员工，请先在「雇佣关系」雇佣
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {instances.map((instance) => (
-        <InstancePermissionCard
-          key={instance.id}
-          instance={instance}
+      {subs.map((sub) => (
+        <SubscriptionPermissionCard
+          key={sub.id}
+          subscription={sub}
           members={members}
         />
       ))}
@@ -257,15 +265,15 @@ function EmployeePermissionMatrix() {
   );
 }
 
-/** 单个实例的授权卡片，独立管理自己的 grants 查询 */
-function InstancePermissionCard({
-  instance,
+/** 单段雇佣关系的授权卡片，独立管理自己的 grants 查询 */
+function SubscriptionPermissionCard({
+  subscription,
   members,
 }: {
-  instance: EmployeeInstance;
+  subscription: Subscription;
   members: EnterpriseMember[];
 }) {
-  const { data: grants = [], isLoading } = useEmployeeGrants(instance.id);
+  const { data: grants = [], isLoading } = useEmployeeGrants(subscription.id);
   const createGrant = useCreateGrant();
   const deleteGrant = useDeleteGrant();
 
@@ -275,10 +283,10 @@ function InstancePermissionCard({
     const existing = grants.find((g) => g.member?.id === memberId && !g.expired);
     try {
       if (existing) {
-        await deleteGrant.mutateAsync({ grantId: existing.id, instanceId: instance.id });
+        await deleteGrant.mutateAsync({ grantId: existing.id, subscriptionId: subscription.id });
         toast.success('已撤销授权');
       } else {
-        await createGrant.mutateAsync({ instanceId: instance.id, memberId });
+        await createGrant.mutateAsync({ subscriptionId: subscription.id, memberId });
         toast.success('已授权');
       }
     } catch {
@@ -288,15 +296,18 @@ function InstancePermissionCard({
 
   return (
     <Card className="p-6">
-      {/* 实例信息头 */}
+      {/* 雇佣关系信息头 */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <Avatar name={instance.name} src={instance.template?.avatar ?? null} className="w-11 h-11" />
+          <Avatar
+            name={subscription.name}
+            src={subscription.employee.avatar ?? null}
+            className="w-11 h-11"
+          />
           <div>
-            <h3 className="font-semibold text-neutral-900">{instance.name}</h3>
-            <p className="text-sm text-neutral-500">
-              {instance.department?.name ?? '未分配部门'}
-            </p>
+            <h3 className="font-semibold text-neutral-900">{subscription.name}</h3>
+            {/* 部门是这张矩阵的另一维，雇佣关系本身不挂部门，这里展示岗位 */}
+            <p className="text-sm text-neutral-500">{subscription.employee.position}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -443,7 +454,7 @@ function PendingApprovals() {
                       <p className="font-medium text-neutral-900">
                         {req.requester.user.name}
                         <span className="text-neutral-500 font-normal"> 申请使用 </span>
-                        <span className="text-primary">{req.instance.employee.name}</span>
+                        <span className="text-primary">{req.subscription.employee.name}</span>
                       </p>
                       <p className="text-xs text-neutral-500">
                         {req.requester.department?.name ?? '未分配部门'}

@@ -18,7 +18,7 @@ describe('EnterpriseService', () => {
             computeAccount: {
               findUnique: jest.fn(),
             },
-            employeeInstance: {
+            subscription: {
               count: jest.fn(),
               findMany: jest.fn(),
               findUnique: jest.fn(),
@@ -91,7 +91,7 @@ describe('EnterpriseService', () => {
         updatedAt: new Date(),
       });
 
-      jest.spyOn(prisma.employeeInstance, 'count').mockResolvedValue(5);
+      jest.spyOn(prisma.subscription, 'count').mockResolvedValue(5);
       jest.spyOn(prisma.enterpriseMember, 'count').mockResolvedValue(10);
       jest
         .spyOn(prisma.computeTransaction, 'count')
@@ -100,7 +100,7 @@ describe('EnterpriseService', () => {
         .spyOn(prisma.computeTransaction, 'findMany')
         .mockResolvedValue([]);
       jest
-        .spyOn(prisma.employeeInstance, 'findMany')
+        .spyOn(prisma.subscription, 'findMany')
         .mockResolvedValue([]);
 
       const result = await service.getDashboardStats('user-1');

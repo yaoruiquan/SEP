@@ -224,7 +224,7 @@ async function seedTemplates(caps: Awaited<ReturnType<typeof seedCapabilities>>)
     },
   });
 
-  // 模板 2：用于演示「同企业多实例」（决策 16）
+  // 模板 2：用于演示「一个企业雇佣多名员工」
   const researchEmp = await prisma.digitalEmployee.upsert({
     where: { id: 'demo-emp-research' },
     update: { status: 'APPROVED' as any },
@@ -265,15 +265,27 @@ async function seedTemplates(caps: Awaited<ReturnType<typeof seedCapabilities>>)
   return { skillsEmp, researchEmp };
 }
 
-// ── 订阅与实例 ──────────────────────────────────────────────────────────────
+// ── 雇佣关系与授权 ──────────────────────────────────────────────────────────
 
-async function seedSubscriptionsAndInstances(
+/**
+ * 雇佣关系（Subscription）+ 授权（EmployeeGrant）。
+ *
+ * 收敛后不再有 EmployeeInstance：一企业一员工只有一段雇佣关系，
+ * 「同一员工在不同部门各来一份」由多条 EmployeeGrant 的 departmentId 表达。
+ */
+async function seedSubscriptionsAndGrants(
   ents: Awaited<ReturnType<typeof seedEnterprises>>,
   tpls: Awaited<ReturnType<typeof seedTemplates>>,
 ) {
-  // 甲企业订阅两个模板
-  for (const emp of [tpls.skillsEmp, tpls.researchEmp]) {
-    await prisma.subscription.upsert({
+  // 甲企业雇佣两个员工。
+  // 注：id 用 create 里的字面量不可靠 —— 反复 seed 时命中 update 分支，
+  // 老行仍是自动 cuid。这里取 upsert 的返回值，两种情况都对。
+  const acmeSubs: Record<string, string> = {};
+  for (const [emp, id] of [
+    [tpls.skillsEmp, 'demo-sub-acme-copy'],
+    [tpls.researchEmp, 'demo-sub-acme-research'],
+  ] as const) {
+    const sub = await prisma.subscription.upsert({
       where: {
         enterpriseId_employeeId: {
           enterpriseId: ents.acme.id,
@@ -282,43 +294,19 @@ async function seedSubscriptionsAndInstances(
       },
       update: { status: 'ACTIVE' as any },
       create: {
+        id,
         enterpriseId: ents.acme.id,
         employeeId: emp.id,
         status: 'ACTIVE' as any,
+        // 雇佣时锁定的版本：模板发新版只提示，不自动跟进
+        templateVersion: '1.0.0',
       },
     });
+    acmeSubs[emp.id] = sub.id;
   }
 
-  // 实例：同一模板开两个实例（决策 16 —— 不同部门各一份）
-  await prisma.employeeInstance.upsert({
-    where: { id: 'demo-inst-copy-tech' },
-    update: {},
-    create: {
-      id: 'demo-inst-copy-tech',
-      enterpriseId: ents.acme.id,
-      templateId: tpls.skillsEmp.id,
-      templateVersion: '1.0.0',
-      name: '技术部文案助手',
-      departmentId: ents.techDept.id,
-      status: 'ACTIVE' as any,
-    },
-  });
-  await prisma.employeeInstance.upsert({
-    where: { id: 'demo-inst-copy-ops' },
-    update: {},
-    create: {
-      id: 'demo-inst-copy-ops',
-      enterpriseId: ents.acme.id,
-      templateId: tpls.skillsEmp.id,
-      templateVersion: '1.0.0',
-      name: '运营部文案助手',
-      departmentId: ents.opsDept.id,
-      status: 'ACTIVE' as any,
-    },
-  });
-
-  // 乙企业也订阅同一模板 —— 用于验证实例不会跨企业泄漏
-  await prisma.subscription.upsert({
+  // 乙企业也雇佣同一员工 —— 用于验证雇佣关系不会跨企业泄漏
+  const globexSub = await prisma.subscription.upsert({
     where: {
       enterpriseId_employeeId: {
         enterpriseId: ents.globex.id,
@@ -327,35 +315,31 @@ async function seedSubscriptionsAndInstances(
     },
     update: { status: 'ACTIVE' as any },
     create: {
+      id: 'demo-sub-globex-copy',
       enterpriseId: ents.globex.id,
       employeeId: tpls.skillsEmp.id,
       status: 'ACTIVE' as any,
-    },
-  });
-  const globexInstance = await prisma.employeeInstance.upsert({
-    where: { id: 'demo-inst-globex' },
-    update: {},
-    create: {
-      id: 'demo-inst-globex',
-      enterpriseId: ents.globex.id,
-      templateId: tpls.skillsEmp.id,
       templateVersion: '1.0.0',
       name: '乙企业文案助手',
-      status: 'ACTIVE' as any,
     },
   });
 
-  // 授权：技术部实例授权给技术部（部门级）
-  // 注：EmployeeGrant 的唯一约束含 nullable 字段（memberId），
-  // Prisma upsert 不允许 where 条件里有 null，改用 createMany skipDuplicates。
+  // 授权：文案助手同时授给技术部和运营部。
+  // 收敛前这里是「同一模板开两个实例，各挂一个部门」，现在是
+  // 同一段雇佣关系下两条部门授权 —— 部门差异化落在授权记录上。
+  //
+  // 注：EmployeeGrant 的唯一约束是两个部分唯一索引（含 NULL 列），
+  // Prisma upsert 的 where 不接受 null，故用 createMany skipDuplicates。
+  const copySubId = acmeSubs[tpls.skillsEmp.id];
   await prisma.employeeGrant.createMany({
     data: [
-      { instanceId: 'demo-inst-copy-tech', departmentId: 'demo-dept-tech' },
+      { subscriptionId: copySubId, departmentId: ents.techDept.id },
+      { subscriptionId: copySubId, departmentId: ents.opsDept.id },
     ],
     skipDuplicates: true,
   });
 
-  return { globexInstance };
+  return { globexSub };
 }
 
 // ── 员工包（下载演示数据）──────────────────────────────────────────────────
@@ -452,7 +436,7 @@ async function main() {
   const ents = await seedEnterprises(users);
   const caps = await seedCapabilities(users.platformAdmin.id);
   const tpls = await seedTemplates(caps);
-  await seedSubscriptionsAndInstances(ents, tpls);
+  await seedSubscriptionsAndGrants(ents, tpls);
   await seedEmployeePackages(tpls, users.platformAdmin.id);
 
   // 初始化系统配置
@@ -511,7 +495,7 @@ async function main() {
   console.log('  甲·成员   staff@acme.local      技术部（只能用被授权的）');
   console.log('  乙·管理员 boss@globex.local     另一家公司（越权对照）');
   console.log('');
-  console.log('  越权测试：用甲企业 token 访问 demo-inst-globex 必须失败');
+  console.log('  越权测试：用甲企业 token 访问 demo-sub-globex-copy 必须失败');
 }
 
 main()

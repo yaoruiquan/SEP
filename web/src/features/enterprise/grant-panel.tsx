@@ -8,14 +8,14 @@ import { Spinner } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { ApiError, api } from '@/lib/api-client';
 import {
-  useInstanceGrants,
+  useSubscriptionGrants,
   useCreateGrant,
   useDeleteGrant,
   useDepartments,
   useMembers,
 } from './use-enterprise';
 import { flattenDepts } from './flatten-depts';
-import type { EmployeeInstance } from '@/lib/types';
+import type { Subscription } from '@/lib/types';
 
 function Modal({
   title, onClose, children,
@@ -46,20 +46,24 @@ interface KnowledgeGrant {
   knowledgeBase?: { id: string; name: string };
 }
 
+/** 知识库接口的实际前缀是 knowledge-bases，不是 knowledge */
+const KB_BASE = '/knowledge-bases';
+
 /**
- * 某个实例的授权管理面板。
+ * 某段雇佣关系的授权管理面板。
  *
  * 授权对象**三选一**：部门、成员、知识库。
- * 优化 4：增加知识库授权选项卡。
+ * 收敛后部门差异化就落在这里 —— 同一位硅基员工授权给不同部门，
+ * 靠多条授权记录表达，而非多份雇佣关系。
  */
 export function GrantPanel({
-  instance,
+  subscription,
   onClose,
 }: {
-  instance: EmployeeInstance;
+  subscription: Subscription;
   onClose: () => void;
 }) {
-  const { data: grants = [], isLoading } = useInstanceGrants(instance.id);
+  const { data: grants = [], isLoading } = useSubscriptionGrants(subscription.id);
   const { data: depts = [] } = useDepartments();
   const { data: members = [] } = useMembers();
   const createGrant = useCreateGrant();
@@ -81,8 +85,10 @@ export function GrantPanel({
     setLoadingKnowledge(true);
     try {
       const [bases, kGrants] = await Promise.all([
-        api.get<KnowledgeBase[]>('/knowledge'),
-        api.get<KnowledgeGrant[]>(`/knowledge/instance/${instance.id}/grants`),
+        api.get<KnowledgeBase[]>(KB_BASE),
+        api.get<KnowledgeGrant[]>(
+          `${KB_BASE}/grants/by-subscription/${subscription.id}`,
+        ),
       ]);
       setKnowledgeBases(bases);
       setKnowledgeGrants(kGrants);
@@ -108,8 +114,8 @@ export function GrantPanel({
     if (target === 'knowledge') {
       // 知识库授权走单独的 API
       try {
-        await api.post(`/knowledge/${targetId}/grants`, {
-          instanceId: instance.id,
+        await api.post(`${KB_BASE}/${targetId}/grants`, {
+          subscriptionId: subscription.id,
         });
         toast.success('已授权知识库');
         setTargetId('');
@@ -123,7 +129,7 @@ export function GrantPanel({
     // 部门/成员授权
     createGrant.mutate(
       {
-        instanceId: instance.id,
+        subscriptionId: subscription.id,
         ...(target === 'department' ? { departmentId: targetId } : { memberId: targetId }),
         // datetime-local 是本地时间，转 ISO 再交给后端
         ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
@@ -141,7 +147,7 @@ export function GrantPanel({
 
   const handleDeleteKnowledgeGrant = async (grantId: string) => {
     try {
-      await api.delete(`/knowledge/grants/${grantId}`);
+      await api.delete(`${KB_BASE}/grants/${grantId}`);
       toast.success('已撤销授权');
       await loadKnowledgeData();
     } catch (e) {
@@ -150,7 +156,7 @@ export function GrantPanel({
   };
 
   return (
-    <Modal title={`授权管理 · ${instance.name}`} onClose={onClose}>
+    <Modal title={`授权管理 · ${subscription.name}`} onClose={onClose}>
       <div className="space-y-5">
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-fg-subtle">
@@ -194,7 +200,7 @@ export function GrantPanel({
                     title="收回"
                     onClick={() =>
                       deleteGrant.mutate(
-                        { grantId: g.id, instanceId: instance.id },
+                        { grantId: g.id, subscriptionId: subscription.id },
                         {
                           onSuccess: () => toast.success('已收回'),
                           onError: (e) =>

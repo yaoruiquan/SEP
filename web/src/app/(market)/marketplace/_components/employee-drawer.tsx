@@ -30,10 +30,11 @@ function avatarGradient(position: string, industry: string) {
 
 // ─── how-to steps ─────────────────────────────────────────────────────────────
 
+// 收敛后只剩两步：雇佣（企业级，一次一位）→ 授权（部门/成员，可多条）
 const HOW_TO = [
-  { t: '企业订阅', d: '由管理员订阅，订阅是企业级的，一次开通全企业可用。' },
-  { t: '创建实例', d: '在「员工授权」为具体部门或场景创建独立实例。' },
-  { t: '授权成员', d: '把实例授权给部门或成员，被授权人在「我的硅基员工」里即可使用。' },
+  { t: '企业雇佣', d: '由管理员雇佣，雇佣是企业级的，一次开通全企业可用。' },
+  { t: '授权部门与成员', d: '在「雇佣管理」把 TA 授权给部门或成员，同一位员工可同时服务多个部门。' },
+  { t: '开始使用', d: '被授权的人在「我的硅基员工」里即可看到并使用 TA。' },
 ];
 
 // ─── props ────────────────────────────────────────────────────────────────────
@@ -282,8 +283,8 @@ function DrawerContent({
               <Check className="h-4 w-4" />
               本企业已订阅
             </span>
-            <Link href="/instances" className="ml-auto">
-              <Button variant="glass" size="sm">去创建实例</Button>
+            <Link href="/subscriptions" className="ml-auto">
+              <Button variant="glass" size="sm">去分配授权</Button>
             </Link>
           </div>
         ) : loggedIn ? (

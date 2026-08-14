@@ -17,7 +17,7 @@ export class AccessRequestService {
   async create(
     userId: string,
     data: {
-      instanceId: string;
+      subscriptionId: string;
       reason?: string;
       requestedDays?: number;
     },
@@ -32,24 +32,24 @@ export class AccessRequestService {
       throw new ForbiddenException('您不属于任何企业');
     }
 
-    // 检查实例是否存在且属于同一企业
-    const instance = await this.prisma.employeeInstance.findUnique({
-      where: { id: data.instanceId },
-      include: { template: true },
+    // 检查订阅是否存在且属于同一企业
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: data.subscriptionId },
+      include: { employee: true },
     });
 
-    if (!instance) {
-      throw new NotFoundException('员工实例不存在');
+    if (!subscription) {
+      throw new NotFoundException('雇佣关系不存在');
     }
 
-    if (instance.enterpriseId !== member.enterpriseId) {
+    if (subscription.enterpriseId !== member.enterpriseId) {
       throw new ForbiddenException('不能申请其他企业的员工');
     }
 
     // 检查是否已有权限
     const existingGrant = await this.prisma.employeeGrant.findFirst({
       where: {
-        instanceId: data.instanceId,
+        subscriptionId: data.subscriptionId,
         memberId: member.id,
       },
     });
@@ -61,7 +61,7 @@ export class AccessRequestService {
     // 检查是否有待审批的申请
     const pendingRequest = await this.prisma.accessRequest.findFirst({
       where: {
-        instanceId: data.instanceId,
+        subscriptionId: data.subscriptionId,
         requesterId: member.id,
         status: 'PENDING',
       },
@@ -76,7 +76,7 @@ export class AccessRequestService {
       data: {
         enterpriseId: member.enterpriseId,
         requesterId: member.id,
-        instanceId: data.instanceId,
+        subscriptionId: data.subscriptionId,
         reason: data.reason,
         requestedDays: data.requestedDays,
         status: 'PENDING',
@@ -88,9 +88,9 @@ export class AccessRequestService {
             department: { select: { name: true } },
           },
         },
-        instance: {
+        subscription: {
           include: {
-            template: { select: { name: true } },
+            employee: { select: { name: true } },
           },
         },
       },
@@ -128,9 +128,9 @@ export class AccessRequestService {
             department: { select: { id: true, name: true } },
           },
         },
-        instance: {
+        subscription: {
           include: {
-            template: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
           },
         },
       },
@@ -146,7 +146,7 @@ export class AccessRequestService {
       where: { id: requestId },
       include: {
         requester: { include: { enterprise: true } },
-        instance: true,
+        subscription: true,
       },
     });
 
@@ -201,9 +201,9 @@ export class AccessRequestService {
               department: { select: { name: true } },
             },
           },
-          instance: {
+          subscription: {
             include: {
-              template: { select: { name: true } },
+              employee: { select: { name: true } },
             },
           },
         },
@@ -212,7 +212,7 @@ export class AccessRequestService {
       // 创建授权
       await tx.employeeGrant.create({
         data: {
-          instanceId: request.instanceId,
+          subscriptionId: request.subscriptionId,
           memberId: request.requesterId,
           expiresAt,
         },
@@ -268,9 +268,9 @@ export class AccessRequestService {
             department: { select: { name: true } },
           },
         },
-        instance: {
+        subscription: {
           include: {
-            template: { select: { name: true } },
+            employee: { select: { name: true } },
           },
         },
       },
@@ -292,9 +292,9 @@ export class AccessRequestService {
     return this.prisma.accessRequest.findMany({
       where: { requesterId: member.id },
       include: {
-        instance: {
+        subscription: {
           include: {
-            template: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
           },
         },
         reviewer: { select: { id: true, name: true, email: true } },

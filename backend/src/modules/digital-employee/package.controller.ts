@@ -117,18 +117,18 @@ export class PackageController {
 
   // ── 成员端：下载 ──────────────────────────────────────────────────────────
 
-  @Get('enterprise/instances/:id/package')
+  @Get('enterprise/subscriptions/:id/package')
   @ApiOperation({
-    summary: 'P3.2：获取实例可安装的包信息（客户端用）',
+    summary: 'P3.2：获取雇佣关系可安装的包信息（客户端用）',
     description:
       '返回 packageRef（客户端用 pi install）+ ZIP 可用性（兜底通道）。\n' +
-      '权限同下载接口：企业成员需对该实例有未过期授权，平台运营无需授权。',
+      '权限同下载接口：企业成员需对该雇佣关系有未过期授权，平台运营无需授权。',
   })
-  @ApiParam({ name: 'id', description: '实例 ID' })
+  @ApiParam({ name: 'id', description: '雇佣关系（订阅）ID' })
   @ApiResponse({ status: 200, description: 'packageRef + version + zipAvailable' })
-  @ApiResponse({ status: 404, description: '实例不存在 / 无授权 / 无可用包' })
-  async getInstancePackage(
-    @Param('id') instanceId: string,
+  @ApiResponse({ status: 404, description: '雇佣关系不存在 / 无授权 / 无可用包' })
+  async getSubscriptionPackage(
+    @Param('id') subscriptionId: string,
     @Request() req: AuthedRequest,
   ) {
     const isPlatformAdmin = req.user.role === 'ADMIN';
@@ -136,8 +136,8 @@ export class PackageController {
       ? undefined
       : await this.enterpriseCtx.resolve(req.user.id);
 
-    return this.packages.getForInstance({
-      instanceId,
+    return this.packages.getForSubscription({
+      subscriptionId,
       isPlatformAdmin,
       enterpriseId: context?.enterpriseId,
       memberId: context?.memberId,

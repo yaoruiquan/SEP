@@ -7,7 +7,8 @@ export interface EnterpriseListItem {
   logo: string | null;
   balance: number;
   memberCount: number;
-  instanceCount: number;
+  /** 雇佣关系数。收敛后即「在册硅基员工数」 */
+  subscriptionCount: number;
   suspended: boolean;
   createdAt: string;
   updatedAt: string;
@@ -51,22 +52,24 @@ export interface EnterpriseDetail {
       name: string;
     } | null;
   }>;
-  instances: Array<{
+  /**
+   * 雇佣关系。收敛后订阅即雇佣关系，不再有中间的实例层，
+   * 也不挂部门 —— 部门差异化落在授权记录上。
+   */
+  subscriptions: Array<{
     id: string;
-    name: string;
+    /** 企业自定义称呼，未定制时为 null，展示时回落到 employee.name */
+    name: string | null;
     status: string;
-    templateId: string;
+    employeeId: string;
+    /** 雇佣时锁定的模板版本 */
     templateVersion: string;
     createdAt: string;
-    template: {
+    employee: {
       id: string;
       name: string;
       description: string;
     };
-    department: {
-      id: string;
-      name: string;
-    } | null;
   }>;
   computeAccount: {
     id: string;
@@ -166,8 +169,8 @@ export interface EmployeeDetail {
     };
   }>;
   _count: {
+    /** 雇佣该员工的企业数 */
     subscriptions: number;
-    instances: number;
     sessions: number;
   };
 }

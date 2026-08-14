@@ -30,12 +30,12 @@ export const ENTERPRISE_PERMISSIONS = [
   'api-keys:read',
   'api-keys:create',
   'api-keys:revoke',
-  // 员工实例
-  'instances:read',
-  'instances:create',
-  'instances:update',
-  'instances:delete',
-  'instances:grant',
+  // 雇佣关系（收敛前叫 instances，EmployeeInstance 模型已删除）
+  'subscriptions:read',
+  'subscriptions:create',
+  'subscriptions:update',
+  'subscriptions:delete',
+  'subscriptions:grant',
   // 费用与统计
   'costs:read',
   // 知识库
@@ -56,13 +56,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, EnterprisePermission[]> = 
     'members:read',
     'members:update',
     'departments:read',
-    'instances:read',
-    'instances:grant',
+    'subscriptions:read',
+    'subscriptions:grant',
     'costs:read',
     'knowledge:read',
   ],
   MEMBER: [
-    'instances:read',
+    'subscriptions:read',
     'knowledge:read',
   ],
 };
@@ -148,7 +148,7 @@ export type AssignCustomRoleDto = z.infer<typeof AssignCustomRoleDtoSchema>;
 export const CREATE_API_KEY_SCOPES = [
   'chat:read',
   'knowledge:read',
-  'instances:read',
+  'subscriptions:read',
 ] as const;
 export type ApiKeyScope = (typeof CREATE_API_KEY_SCOPES)[number];
 

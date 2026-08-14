@@ -5,7 +5,8 @@ import { z } from 'zod';
  */
 export const KnowledgeSearchDtoSchema = z.object({
   query: z.string().min(1, 'Query cannot be empty').max(1000),
-  instanceId: z.string().cuid('Invalid instance ID'),
+  /** 雇佣关系 id（收敛前是 instanceId）——检索范围＝这段关系被授权的知识库 */
+  subscriptionId: z.string().cuid('Invalid subscription ID'),
   topK: z.number().int().min(1).max(20).optional().default(5),
   scoreThreshold: z.number().min(0).max(1).optional().default(0.7),
   strategy: z.enum(['lexical', 'vector', 'hybrid', 'auto']).optional().default('auto'),

@@ -24,8 +24,8 @@ describe('OrderService', () => {
       subscription: {
         upsert: jest.fn(),
       },
-      employeeInstance: {
-        create: jest.fn(),
+      digitalEmployee: {
+        findUnique: jest.fn(),
       },
       computeAccount: {
         findUnique: jest.fn(),
@@ -61,7 +61,6 @@ describe('OrderService', () => {
         {
           employeeId: 'emp-1',
           periodMonths: 12,
-          quantity: 1,
           employee: {
             id: 'emp-1',
             name: '销售助手',
@@ -83,7 +82,6 @@ describe('OrderService', () => {
           enterpriseId: 'ent-1',
           employeeId: 'emp-1',
           periodMonths: 12,
-          quantity: 2,
           employee: {
             id: 'emp-1',
             name: '销售助手',
@@ -97,7 +95,7 @@ describe('OrderService', () => {
       prisma.order.create.mockResolvedValue({
         id: 'order-1',
         orderNo: '20260811120000123456',
-        totalAmount: new Decimal(10000),
+        totalAmount: new Decimal(5000),
       });
 
       const result = await service.createFromCart('ent-1', 'user-1');
@@ -115,7 +113,7 @@ describe('OrderService', () => {
                 employeeName: '销售助手',
                 unitPrice: expect.any(Decimal),
                 periodMonths: 12,
-                quantity: 2,
+                quantity: 1,
               }),
             ],
           },
@@ -124,6 +122,34 @@ describe('OrderService', () => {
       });
 
       expect(result.id).toBe('order-1');
+    });
+
+    it('总金额不再乘数量 —— 一员工一份，只按周期折算', async () => {
+      prisma.cartItem.findMany.mockResolvedValue([
+        {
+          enterpriseId: 'ent-1',
+          employeeId: 'emp-1',
+          periodMonths: 6,
+          employee: {
+            id: 'emp-1',
+            name: '销售助手',
+            annualPriceCNY: new Decimal(5000),
+            includedComputeCNY: new Decimal(1000),
+            status: 'APPROVED',
+          },
+        },
+      ]);
+      prisma.order.create.mockResolvedValue({ id: 'order-1' });
+
+      await service.createFromCart('ent-1', 'user-1');
+
+      const data = prisma.order.create.mock.calls[0][0].data;
+      // 5000 * (6/12) = 2500
+      expect(data.totalAmount.toString()).toBe('2500');
+      // 赠送算力取单份，不随周期或数量放大
+      expect(
+        data.items.create[0].includedComputeCNY.toString(),
+      ).toBe('1000');
     });
   });
 
@@ -207,7 +233,6 @@ describe('OrderService', () => {
             employeeId: 'emp-1',
             employeeName: '销售助手',
             periodMonths: 12,
-            quantity: 2,
             includedComputeCNY: new Decimal(2000),
             employee: {},
           },
@@ -217,7 +242,7 @@ describe('OrderService', () => {
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: 'PAID' });
       prisma.subscription.upsert.mockResolvedValue({ id: 'sub-1' });
-      prisma.employeeInstance.create.mockResolvedValue({ id: 'inst-1' });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '2.1.0' });
       prisma.computeAccount.findUnique.mockResolvedValue({
         id: 'acc-1',
         balance: 5000,
@@ -236,11 +261,106 @@ describe('OrderService', () => {
       });
 
       expect(prisma.subscription.upsert).toHaveBeenCalled();
-      expect(prisma.employeeInstance.create).toHaveBeenCalledTimes(2);
       expect(prisma.computeAccount.update).toHaveBeenCalled();
       expect(prisma.cartItem.deleteMany).toHaveBeenCalledWith({
         where: { enterpriseId: 'ent-1' },
       });
+    });
+
+    it('❗履约只建雇佣关系，不再按数量创建实例', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        orderNo: '20260811120000123456',
+        enterpriseId: 'ent-1',
+        status: 'PENDING',
+        items: [
+          {
+            id: 'item-1',
+            employeeId: 'emp-1',
+            employeeName: '销售助手',
+            periodMonths: 12,
+            includedComputeCNY: new Decimal(0),
+            employee: {},
+          },
+        ],
+      };
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({ ...mockOrder, status: 'PAID' });
+      prisma.subscription.upsert.mockResolvedValue({ id: 'sub-1' });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '2.1.0' });
+      prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.fulfill('order-1', 'alipay-123');
+
+      // 一个订单项 → 恰好一次 upsert，不循环建实例
+      expect(prisma.subscription.upsert).toHaveBeenCalledTimes(1);
+      expect(prisma.employeeInstance).toBeUndefined();
+    });
+
+    it('雇佣关系锁定履约时刻的模板版本，而非写死版本号', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        orderNo: '20260811120000123456',
+        enterpriseId: 'ent-1',
+        status: 'PENDING',
+        items: [
+          {
+            id: 'item-1',
+            employeeId: 'emp-1',
+            employeeName: '销售助手',
+            periodMonths: 12,
+            includedComputeCNY: new Decimal(0),
+            employee: {},
+          },
+        ],
+      };
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({ ...mockOrder, status: 'PAID' });
+      prisma.subscription.upsert.mockResolvedValue({ id: 'sub-1' });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: '2.1.0' });
+      prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.fulfill('order-1', 'alipay-123');
+
+      const upsertArg = prisma.subscription.upsert.mock.calls[0][0];
+      expect(upsertArg.create).toMatchObject({
+        enterpriseId: 'ent-1',
+        employeeId: 'emp-1',
+        status: 'ACTIVE',
+        templateVersion: '2.1.0',
+        name: '销售助手',
+      });
+    });
+
+    it('订单项对应的员工已被删除时报 404，不落半份雇佣关系', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        orderNo: '20260811120000123456',
+        enterpriseId: 'ent-1',
+        status: 'PENDING',
+        items: [
+          {
+            id: 'item-1',
+            employeeId: 'emp-gone',
+            employeeName: '销售助手',
+            periodMonths: 12,
+            includedComputeCNY: new Decimal(0),
+            employee: {},
+          },
+        ],
+      };
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({ ...mockOrder, status: 'PAID' });
+      prisma.digitalEmployee.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.fulfill('order-1', 'alipay-123'),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prisma.subscription.upsert).not.toHaveBeenCalled();
     });
   });
 });

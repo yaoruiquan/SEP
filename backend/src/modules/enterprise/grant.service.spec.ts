@@ -18,15 +18,13 @@ const ADMIN_CTX = {
 };
 
 /** 造一条 findMany 返回的授权行 */
-const grantRow = (instanceId: string, expiresAt: Date | null = null) => ({
+const grantRow = (subscriptionId: string, expiresAt: Date | null = null) => ({
   expiresAt,
-  instance: {
-    id: instanceId,
-    name: `实例 ${instanceId}`,
+  subscription: {
+    id: subscriptionId,
+    name: `雇佣关系 ${subscriptionId}`,
     templateVersion: "1.0.0",
-    departmentId: "d-1",
-    department: { id: "d-1", name: "客服部" },
-    template: { id: "t1", name: "客服", avatar: null },
+    employee: { id: "t1", name: "客服", avatar: null },
   },
 });
 
@@ -44,7 +42,7 @@ describe("GrantService", () => {
         create: jest.fn(),
         delete: jest.fn(),
       },
-      employeeInstance: { findUnique: jest.fn() },
+      subscription: { findUnique: jest.fn() },
       department: { findUnique: jest.fn() },
       enterpriseMember: { findUnique: jest.fn() },
     };
@@ -79,15 +77,15 @@ describe("GrantService", () => {
       const rows = await service.myEmployees("u1");
 
       expect(rows).toHaveLength(2);
-      expect(rows.find((r) => r.instanceId === "i-direct")?.grantSource).toBe(
+      expect(rows.find((r) => r.subscriptionId === "i-direct")?.grantSource).toBe(
         "DIRECT",
       );
-      expect(rows.find((r) => r.instanceId === "i-dept")?.grantSource).toBe(
+      expect(rows.find((r) => r.subscriptionId === "i-dept")?.grantSource).toBe(
         "DEPARTMENT",
       );
     });
 
-    it("同一实例两条路径都命中时只返回一条，直接授权优先", async () => {
+    it("同一雇佣关系两条路径都命中时只返回一条，直接授权优先", async () => {
       prisma.employeeGrant.findMany
         .mockResolvedValueOnce([grantRow("i-same")])
         .mockResolvedValueOnce([grantRow("i-same")]);
@@ -111,11 +109,11 @@ describe("GrantService", () => {
       expect(rows).toHaveLength(1);
     });
 
-    it("只查 ACTIVE 实例且过滤未过期授权", async () => {
+    it("只查 ACTIVE 雇佣关系且过滤未过期授权", async () => {
       await service.myEmployees("u1");
 
       const where = prisma.employeeGrant.findMany.mock.calls[0][0].where;
-      expect(where.instance).toMatchObject({
+      expect(where.subscription).toMatchObject({
         enterpriseId: "ent-a",
         status: "ACTIVE",
       });
@@ -160,7 +158,7 @@ describe("GrantService", () => {
 
   describe("create", () => {
     beforeEach(() => {
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+      prisma.subscription.findUnique.mockResolvedValue({
         id: "i1",
         enterpriseId: "ent-a",
         status: "ACTIVE",
@@ -186,7 +184,7 @@ describe("GrantService", () => {
       expect(prisma.employeeGrant.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            instanceId: "i1",
+            subscriptionId: "i1",
             departmentId: "d-1",
             memberId: null,
           }),
@@ -194,17 +192,30 @@ describe("GrantService", () => {
       );
     });
 
-    it("已回收的实例不可授权", async () => {
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+    it("已失效的雇佣关系不可授权", async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
         id: "i1",
         enterpriseId: "ent-a",
-        status: "REVOKED",
+        status: "EXPIRED",
       });
 
       await expect(
         service.create("u1", "i1", { departmentId: "d-1" }),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.employeeGrant.create).not.toHaveBeenCalled();
+    });
+
+    it("雇佣关系失效时先于授权对象校验 —— 主体失效就不必再查部门", async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        id: "i1",
+        enterpriseId: "ent-a",
+        status: "EXPIRED",
+      });
+
+      await expect(
+        service.create("u1", "i1", { departmentId: "d-not-exist" }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.department.findUnique).not.toHaveBeenCalled();
     });
 
     it("跨企业部门返回 404", async () => {
@@ -268,7 +279,7 @@ describe("GrantService", () => {
     it("收回本企业的授权", async () => {
       prisma.employeeGrant.findUnique.mockResolvedValue({
         id: "g1",
-        instance: { enterpriseId: "ent-a" },
+        subscription: { enterpriseId: "ent-a" },
       });
       prisma.employeeGrant.delete.mockResolvedValue({ id: "g1" });
 
@@ -283,7 +294,7 @@ describe("GrantService", () => {
     it("跨企业授权返回 404 且不删除", async () => {
       prisma.employeeGrant.findUnique.mockResolvedValue({
         id: "g9",
-        instance: { enterpriseId: "ent-b" },
+        subscription: { enterpriseId: "ent-b" },
       });
 
       await expect(service.remove("u1", "g9")).rejects.toThrow(
@@ -293,9 +304,9 @@ describe("GrantService", () => {
     });
   });
 
-  describe("listForInstance", () => {
+  describe("listForSubscription", () => {
     it("过期记录标 expired=true 但仍返回", async () => {
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+      prisma.subscription.findUnique.mockResolvedValue({
         id: "i1",
         enterpriseId: "ent-a",
         status: "ACTIVE",
@@ -321,7 +332,7 @@ describe("GrantService", () => {
         },
       ]);
 
-      const rows = await service.listForInstance("u1", "i1");
+      const rows = await service.listForSubscription("u1", "i1");
 
       expect(rows).toHaveLength(2);
       expect(rows.find((r) => r.id === "g-expired")?.expired).toBe(true);

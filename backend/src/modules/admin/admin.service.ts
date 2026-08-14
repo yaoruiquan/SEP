@@ -32,27 +32,15 @@ export class AdminService {
             }
           },
         },
-        instances: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            templateId: true,
-            templateVersion: true,
-            createdAt: true,
-            template: {
+        subscriptions: {
+          include: {
+            employee: {
               select: {
                 id: true,
                 name: true,
                 description: true,
               }
             },
-            department: {
-              select: {
-                id: true,
-                name: true,
-              }
-            }
           },
         },
         computeAccount: {
@@ -256,7 +244,7 @@ export class AdminService {
           _count: {
             select: {
               members: true,
-              instances: true,
+              subscriptions: true,
             },
           },
         },
@@ -270,7 +258,7 @@ export class AdminService {
         ...e,
         balance: e.computeAccount?.balance || 0,
         memberCount: e._count.members,
-        instanceCount: e._count.instances,
+        subscriptionCount: e._count.subscriptions,
         suspended: (e.metadata as any)?.suspended === true,
       })),
       total,
@@ -634,7 +622,6 @@ export class AdminService {
         _count: {
           select: {
             subscriptions: true,
-            instances: true,
             sessions: true,
           },
         },

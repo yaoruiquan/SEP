@@ -27,8 +27,8 @@ export class SearchController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '检索知识库内容（按员工实例授权）',
-    description: '根据用户查询和数字员工实例 ID，检索该员工授权的所有知识库中的相关内容',
+    summary: '检索知识库内容（按雇佣关系授权）',
+    description: '根据用户查询和雇佣关系 ID，检索该段雇佣关系被授权的所有知识库中的相关内容',
   })
   @ApiResponse({ status: 200, description: '返回检索结果列表' })
   @ApiResponse({ status: 401, description: '未授权' })
@@ -38,7 +38,7 @@ export class SearchController {
   ) {
     const searchResponse = await this.searchService.search(
       dto.query,
-      dto.instanceId,
+      dto.subscriptionId,
       dto.topK,
       dto.scoreThreshold,
       dto.strategy,
@@ -46,7 +46,7 @@ export class SearchController {
 
     return {
       query: dto.query,
-      instanceId: dto.instanceId,
+      subscriptionId: dto.subscriptionId,
       strategy: searchResponse.strategy,
       durationMs: searchResponse.durationMs,
       results: searchResponse.results,

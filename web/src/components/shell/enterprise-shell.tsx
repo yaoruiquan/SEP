@@ -77,9 +77,9 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       // 使用者视角：我被授权使用的硅基员工。普通成员的核心页面
       { href: '/my-employees', label: nav.myEmployees, icon: MonitorPlay },
-      // 管理视角：雇佣关系（买） + 员工授权（分配给碳基员工）
-      { href: '/subscriptions', label: nav.subscriptions, icon: Users, adminOnly: true },
-      { href: '/instances', label: nav.instances, icon: Boxes, adminOnly: true },
+      // 管理视角：雇佣关系一个入口管到底 ——
+      // 雇佣（买）、暂停/恢复、升级、授权给碳基员工都在这里
+      { href: '/subscriptions', label: nav.subscriptions, icon: Boxes, adminOnly: true },
     ],
   },
   {

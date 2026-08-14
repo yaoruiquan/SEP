@@ -148,8 +148,19 @@ export class KnowledgeController {
     return this.knowledge.listGrants(req.user.id, id);
   }
 
+  // 静态前缀，放在 @Get(':id') 之后不会被它截走（那个只匹配单段路径）
+  @Get('grants/by-subscription/:subscriptionId')
+  @ApiOperation({ summary: '获取某段雇佣关系已被授权的知识库' })
+  @ApiResponse({ status: 200, description: '授权列表' })
+  async listGrantsBySubscription(
+    @Request() req: AuthedRequest,
+    @Param('subscriptionId') subscriptionId: string,
+  ) {
+    return this.knowledge.listGrantsBySubscription(req.user.id, subscriptionId);
+  }
+
   @Post(':id/grants')
-  @ApiOperation({ summary: '授权知识库给员工实例或部门' })
+  @ApiOperation({ summary: '授权知识库给雇佣关系或部门' })
   @ApiResponse({ status: 201, description: '授权成功' })
   async createGrant(
     @Request() req: AuthedRequest,

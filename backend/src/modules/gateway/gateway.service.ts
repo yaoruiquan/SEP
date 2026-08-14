@@ -18,30 +18,30 @@ export class GatewayService {
   ) {}
 
   /**
-   * 验证实例令牌 + 检查授权和余额
-   * @returns { enterpriseId, instanceId, memberId, modelWhitelist }
+   * 验证订阅令牌 + 检查授权和余额
+   * @returns { enterpriseId, subscriptionId, memberId, modelWhitelist }
    */
   async validateAndAuthorize(claims: {
     sub: string;
     enterpriseId: string;
-    instanceId: string;
+    subscriptionId: string;
     memberId: string;
-  }): Promise<{ enterpriseId: string; instanceId: string; memberId: string; allowedModels: string[] }> {
-    const { enterpriseId, instanceId, memberId } = claims;
+  }): Promise<{ enterpriseId: string; subscriptionId: string; memberId: string; allowedModels: string[] }> {
+    const { enterpriseId, subscriptionId, memberId } = claims;
 
-    // 1. 检查实例状态
-    const instance = await this.prisma.employeeInstance.findFirst({
-      where: { id: instanceId, enterpriseId, status: 'ACTIVE' },
+    // 1. 检查订阅状态
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { id: subscriptionId, enterpriseId, status: 'ACTIVE' },
     });
-    if (!instance) {
-      throw new ForbiddenException('实例不存在、已停用或不属于该企业');
+    if (!subscription) {
+      throw new ForbiddenException('订阅不存在、已停用或不属于该企业');
     }
 
     // 2. 检查授权
     const now = new Date();
     const grant = await this.prisma.employeeGrant.findFirst({
       where: {
-        instanceId,
+        subscriptionId,
         AND: [
           {
             OR: [
@@ -56,7 +56,7 @@ export class GatewayService {
       },
     });
     if (!grant) {
-      throw new ForbiddenException('无该实例的使用授权或授权已过期');
+      throw new ForbiddenException('无该订阅的使用授权或授权已过期');
     }
 
     // 3. 检查企业余额（允许小额透支）
@@ -75,7 +75,7 @@ export class GatewayService {
     });
     const allowedModels = models.map((m) => m.id);
 
-    return { enterpriseId, instanceId, memberId, allowedModels };
+    return { enterpriseId, subscriptionId, memberId, allowedModels };
   }
 
   /**
@@ -103,7 +103,7 @@ export class GatewayService {
    */
   async recordTransaction(params: {
     enterpriseId: string;
-    instanceId: string;
+    subscriptionId: string;
     memberId: string;
     modelId: string;
     usage: ChatCompletionUsage;
@@ -138,7 +138,7 @@ export class GatewayService {
             type: 'CONSUME',
             description: `模型调用：${params.modelId}`,
             metadata: {
-              instanceId: params.instanceId,
+              subscriptionId: params.subscriptionId,
               memberId: params.memberId,
               usage: params.usage as any,
             },
@@ -151,7 +151,7 @@ export class GatewayService {
         }),
       ]);
 
-      this.logger.log(`记账成功：instanceId=${params.instanceId}, cost=${cost.toFixed(4)} CNY`);
+      this.logger.log(`记账成功：subscriptionId=${params.subscriptionId}, cost=${cost.toFixed(4)} CNY`);
     } catch (error) {
       this.logger.error(`记账失败：${error.message}`, error.stack);
       // 不抛错，允许继续

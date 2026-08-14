@@ -21,7 +21,7 @@ type SortOption = 'name' | 'recent';
 /**
  * 使用者视角：我被授权使用的硅基员工。
  *
- * 硅基员工的管理（新增/暂停/升级/授权）在 /instances，不放这里 ——
+ * 硅基员工的管理（雇佣/暂停/升级/授权）在 /subscriptions，不放这里 ——
  * 这一页对普通成员是主页面，混入管理表格会让他看到一堆点不动的按钮。
  */
 export default function MyEmployeesPage() {
@@ -48,7 +48,7 @@ export default function MyEmployeesPage() {
       result = result.filter(
         (emp) =>
           emp.name.toLowerCase().includes(query) ||
-          emp.template.name.toLowerCase().includes(query),
+          emp.employee.name.toLowerCase().includes(query),
       );
     }
 
@@ -76,7 +76,7 @@ export default function MyEmployeesPage() {
               {mine.length} 位硅基员工
             </Badge>
             {isAdmin && (
-              <Link href="/instances">
+              <Link href="/subscriptions">
                 <Button variant="glass" size="sm">
                   {employeeCopy.manageUnit}
                 </Button>
@@ -109,14 +109,14 @@ export default function MyEmployeesPage() {
                 title="还没有可用的硅基员工"
                 description={
                   isAdmin
-                    ? '去「员工授权」新增硅基员工并给自己或部门开通授权。'
+                    ? '去「雇佣关系」雇一位硅基员工，再给自己或部门开通授权。'
                     : '请联系企业管理员为你开通授权。'
                 }
                 action={
                   isAdmin
                     ? {
-                        label: '前往员工授权',
-                        onClick: () => (window.location.href = '/instances'),
+                        label: '前往雇佣关系',
+                        onClick: () => (window.location.href = '/subscriptions'),
                       }
                     : undefined
                 }
@@ -184,11 +184,11 @@ export default function MyEmployeesPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredEmployees.map((emp) => (
                   <EmployeeCard
-                    key={emp.instanceId}
+                    key={emp.subscriptionId}
                     employee={emp}
                     isAdmin={isAdmin}
                     download={download}
-                    status={employeeStatuses[emp.instanceId] || 'offline'}
+                    status={employeeStatuses[emp.subscriptionId] || 'offline'}
                   />
                 ))}
               </div>

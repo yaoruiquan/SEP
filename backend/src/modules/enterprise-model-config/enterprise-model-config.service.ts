@@ -125,8 +125,9 @@ export class EnterpriseModelConfigService {
   async resolveEffectiveModel(opts: {
     userId: string;
     userSelectedModel?: string;
-    employeeInstanceId?: string;
-    /** 员工模板自带模型：实例未单独配置时的兜底（FOLLOW_TEMPLATE 语义） */
+    /** 雇佣关系 id。收敛前是 employeeInstanceId。 */
+    subscriptionId?: string;
+    /** 员工模板自带模型：订阅未单独配置时的兜底（FOLLOW_TEMPLATE 语义） */
     employeeTemplateModel?: string | null;
     departmentId?: string;
   }): Promise<EffectiveModelConfig> {
@@ -174,17 +175,17 @@ export class EnterpriseModelConfigService {
     }
 
     // 2. 员工自带模型（仅 FOLLOW_TEMPLATE 策略下生效）
-    //    实例 config.modelId 优先于模板 modelId：实例是管理员对单个员工的微调。
+    //    订阅 config.modelId 优先于模板 modelId：订阅是管理员对单个员工的微调。
     //    FORCE_DEFAULT 时整段跳过，让企业默认值压过员工自带配置。
     if (config.employeeModelPolicy === 'FOLLOW_TEMPLATE') {
       let modelId: string | null = null;
 
-      if (opts.employeeInstanceId) {
-        const instance = await this.prisma.employeeInstance.findUnique({
-          where: { id: opts.employeeInstanceId },
+      if (opts.subscriptionId) {
+        const subscription = await this.prisma.subscription.findUnique({
+          where: { id: opts.subscriptionId },
           select: { config: true },
         });
-        const raw = instance?.config as { modelId?: unknown } | null;
+        const raw = subscription?.config as { modelId?: unknown } | null;
         if (typeof raw?.modelId === 'string') modelId = raw.modelId;
       }
 

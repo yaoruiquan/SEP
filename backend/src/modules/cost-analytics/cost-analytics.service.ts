@@ -420,10 +420,10 @@ export class CostAnalyticsService {
     for (const r of rows) {
       await this.prisma.costDailyRollup.upsert({
         where: {
-          enterpriseId_departmentId_employeeInstanceId_modelId_date: {
+          enterpriseId_departmentId_subscriptionId_modelId_date: {
             enterpriseId: r.enterpriseId,
             departmentId: r.departmentId,
-            employeeInstanceId: null,
+            subscriptionId: null,
             modelId: r.modelId,
             date: dayStart,
           },
@@ -431,7 +431,7 @@ export class CostAnalyticsService {
         create: {
           enterpriseId: r.enterpriseId,
           departmentId: r.departmentId,
-          employeeInstanceId: null,
+          subscriptionId: null,
           modelId: r.modelId,
           date: dayStart,
           inputTokens: r.inputTokens,

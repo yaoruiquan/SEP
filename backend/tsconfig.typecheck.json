@@ -1,0 +1,16 @@
+{
+  // 类型检查专用：把 prisma/*.ts 也纳入。
+  //
+  // 为什么不直接改 tsconfig.json 的 include —— 那个是 `nest build` 用的，
+  // 加进去会把 prisma 脚本一起编译进 dist 并改变目录结构。
+  //
+  // 这些脚本一直在 include 之外，所以收敛删掉 EmployeeInstance 之后
+  // `pnpm db:seed` 已经坏了却没人发现（tsc 从没看过它们）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": ["src/**/*", "prisma/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

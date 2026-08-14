@@ -85,7 +85,7 @@ async function main() {
   console.log('\n✅ 部门创建完成\n');
 
   // ============================================================================
-  // 2. 创建工作台模拟数据（通过创建员工实例和调用记录）
+  // 2. 创建工作台模拟数据（通过建立雇佣关系和调用记录）
   // ============================================================================
 
   console.log('📊 创建工作台模拟数据...\n');
@@ -120,32 +120,37 @@ async function main() {
   });
 
   if (templates.length === 0) {
-    console.log('⚠️  未找到数字员工模板，跳过员工实例创建');
+    console.log('⚠️  未找到数字员工模板，跳过雇佣关系创建');
     return;
   }
 
   console.log(`找到 ${templates.length} 个数字员工模板\n`);
 
-  // 创建员工实例
-  const instances = [];
+  // 建立雇佣关系。收敛后不再有 EmployeeInstance，
+  // 一企业一员工一段关系，故按 (enterpriseId, employeeId) 幂等 upsert，
+  // 也不再有「实例1/实例2」这种同模板多份的命名
+  const subscriptions = [];
   for (let i = 0; i < Math.min(templates.length, 3); i++) {
     const template = templates[i];
-    const instance = await prisma.employeeInstance.upsert({
-      where: { id: `demo-instance-${i}` },
+    const subscription = await prisma.subscription.upsert({
+      where: {
+        enterpriseId_employeeId: {
+          enterpriseId: enterprise.id,
+          employeeId: template.id,
+        },
+      },
       update: {},
       create: {
-        id: `demo-instance-${i}`,
-        name: `${template.name}实例${i + 1}`,
         enterpriseId: enterprise.id,
-        templateId: template.id,
+        employeeId: template.id,
         templateVersion: '1.0.0',
       },
     });
-    instances.push(instance);
-    console.log(`  ├─ 创建实例: ${instance.name}`);
+    subscriptions.push({ ...subscription, employeeName: template.name });
+    console.log(`  ├─ 已雇佣: ${template.name}`);
   }
 
-  console.log('\n✅ 员工实例创建完成\n');
+  console.log('\n✅ 雇佣关系创建完成\n');
 
   // 获取企业的计算账户
   const computeAccount = await prisma.computeAccount.findFirst({
@@ -180,7 +185,8 @@ async function main() {
       const sessionsPerDay = Math.floor(Math.random() * 4) + 2;
 
       for (let i = 0; i < sessionsPerDay; i++) {
-        const instance = instances[Math.floor(Math.random() * instances.length)];
+        const subscription =
+          subscriptions[Math.floor(Math.random() * subscriptions.length)];
         const sessionTime = new Date(date);
         sessionTime.setHours(Math.floor(Math.random() * 24));
         sessionTime.setMinutes(Math.floor(Math.random() * 60));
@@ -212,8 +218,10 @@ async function main() {
               amount: -cost,
               sessionId: session.id,
               description: `对话消费`,
+              // key 必须与 gateway 运行时写入的一致（收敛前是 instanceId），
+              // 否则工作台「热门员工 Top5」读不到这批模拟数据
               metadata: {
-                instanceId: instance.id,
+                subscriptionId: subscription.id,
                 memberId: bossMember.id,
               },
               createdAt: txTime,

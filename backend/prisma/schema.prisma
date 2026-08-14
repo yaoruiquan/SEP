@@ -72,7 +72,6 @@ model Enterprise {
   members        EnterpriseMember[]
   subscriptions  Subscription[]
   computeAccount ComputeAccount?
-  instances      EmployeeInstance[]
   accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
   modelConfig    EnterpriseModelConfig?
@@ -111,7 +110,6 @@ model Department {
 
   // Relations
   members         EnterpriseMember[]
-  instances       EmployeeInstance[]
   grants          EmployeeGrant[]
   knowledgeGrants KnowledgeGrant[]
   modelPolicy     DepartmentModelPolicy?
@@ -271,7 +269,6 @@ model DigitalEmployee {
   bindings      EmployeeCapabilityBinding[]
   subscriptions Subscription[]
   sessions      ConversationSession[]
-  instances     EmployeeInstance[]
   packages      EmployeePackage[]
   orderItems    OrderItem[]
   cartItems     CartItem[]
@@ -288,73 +285,21 @@ enum EmployeeStatus {
 }
 
 // ============================================================================
-// Employee Instance (企业员工实例) —— P1 模板与实例分离
+// Employee Grant (雇佣关系的授权)
 // ============================================================================
 
-/// 企业订阅某个员工后产生的企业专属实例。
-///
-/// 与 DigitalEmployee（市场侧模板）的区别：模板是"市场上卖的东西"，
-/// 实例是"某家企业拿到的东西"，拥有企业内名称、部门、配置与状态。
-///
-/// ⚠️ 不能用 @@unique([enterpriseId, templateId]) —— 同一企业允许订阅
-/// 同一模板的多个实例（如不同部门各一份）。
-model EmployeeInstance {
-  id String @id @default(cuid())
-
-  enterpriseId String
-  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-
-  /// 来源模板
-  templateId String
-  template   DigitalEmployee @relation(fields: [templateId], references: [id], onDelete: Restrict)
-
-  /// 订阅时锁定的模板版本。
-  /// 必须存版本而非只存 templateId —— 否则无法实现「提示式升级」
-  /// （模板发新版不自动跟进，仅提示企业主动确认）。
-  templateVersion String
-
-  /// 企业内自定义名称，如「视频工程师」
-  name         String
-  /// 归属部门。为空表示企业级共享实例。
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-
-  status InstanceStatus @default(PENDING_ACTIVATION)
-
-  /// 企业侧配置：启用的知识库、模型路由、初始化资料等。
-  /// 结构由模板的配置模式定义（员工包清单），故用 Json 承载。
-  config Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  grants          EmployeeGrant[]
-  accessRequests  AccessRequest[]
-  knowledgeGrants KnowledgeGrant[]
-
-  @@index([enterpriseId])
-  @@index([templateId])
-  @@index([departmentId])
-  @@map("employee_instances")
-}
-
-enum InstanceStatus {
-  PENDING_ACTIVATION // 已订阅未激活
-  ACTIVE // 正常可用
-  SUSPENDED // 企业主动停用
-  REVOKED // 已回收（订阅到期/退订）
-}
-
-/// 员工实例的授权：某实例授权给哪个部门或哪个成员。
+/// 雇佣关系的授权：企业雇佣的某个员工授权给哪个部门或哪个成员。
 ///
 /// 二者互斥：departmentId 与 memberId 恰有一个非空。
 /// 授权给部门 = 该部门所有成员可用；授权给成员 = 仅该成员可用。
 model EmployeeGrant {
   id String @id @default(cuid())
 
-  instanceId String
-  instance   EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  /// 授权所属的雇佣关系（Subscription）。
+  /// 曾经指向 EmployeeInstance，2026-08 收敛后直接挂在订阅上 ——
+  /// 「企业订阅了某员工」本身即雇佣关系，无需中间的实例对象。
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   /// 授权对象之一：部门
   departmentId String?
@@ -372,14 +317,14 @@ model EmployeeGrant {
   updatedAt DateTime @updatedAt
 
   /// ⚠️ 唯一约束不在这里 —— 授权对象二选一，三列必有一列为 NULL，
-  /// 而 Postgres 视 NULL 互不相等，`@@unique([instanceId, departmentId, memberId])`
+  /// 而 Postgres 视 NULL 互不相等，`@@unique([subscriptionId, departmentId, memberId])`
   /// 永不生效（实测重复开通返回 201 而非 409）。
   /// 真正的约束是两个**部分唯一索引**，见迁移
-  /// `20260728093000_fix_grant_unique_null_semantics`：
-  ///   UNIQUE (instanceId, departmentId) WHERE departmentId IS NOT NULL
-  ///   UNIQUE (instanceId, memberId)     WHERE memberId     IS NOT NULL
+  /// `20260813_converge_employee_instance`：
+  ///   UNIQUE (subscriptionId, departmentId) WHERE departmentId IS NOT NULL
+  ///   UNIQUE (subscriptionId, memberId)     WHERE memberId     IS NOT NULL
   /// Prisma schema 无法表达 WHERE 子句，故不要在此处「补回」@@unique。
-  @@index([instanceId])
+  @@index([subscriptionId])
   @@index([departmentId])
   @@index([memberId])
   @@map("employee_grants")
@@ -408,9 +353,9 @@ model AccessRequest {
   requesterEmail String?
   requesterName  String?
 
-  /// 申请使用的实例
-  instanceId String
-  instance   EmployeeInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  /// 申请使用的雇佣关系（企业雇佣的某个员工）
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   /// 申请理由 / 任务说明
   reason        String? @db.Text
@@ -430,7 +375,7 @@ model AccessRequest {
 
   @@index([enterpriseId])
   @@index([requesterId])
-  @@index([instanceId])
+  @@index([subscriptionId])
   @@map("access_requests")
 }
 
@@ -638,11 +583,16 @@ model EmployeeCapabilityBinding {
 }
 
 // ============================================================================
-// Subscription (订阅)
+// Subscription (雇佣关系)
 // ============================================================================
 
-/// 订阅。主体是【企业】而非个人 —— 订阅要花企业的钱，
+/// 订阅 = 雇佣关系。主体是【企业】而非个人 —— 订阅要花企业的钱，
 /// 只有企业管理员能发起（其他角色走 AccessRequest 申请）。
+///
+/// 2026-08 收敛：原先「订阅 → EmployeeInstance → 授权」三层，中间的实例
+/// 对象除了当权限锚点外无实际职责（name/departmentId/config 均无写入路径，
+/// status 与订阅状态语义重叠），故并入本模型。企业雇佣了某个员工，
+/// 这条雇佣关系本身即权限锚点。
 model Subscription {
   id String @id @default(cuid())
 
@@ -654,6 +604,14 @@ model Subscription {
 
   status SubscriptionStatus @default(ACTIVE)
 
+  /// 雇佣时锁定的模板版本。
+  /// 必须存版本而非只读模板当前版本 —— 否则无法实现「提示式升级」
+  /// （模板发新版不自动跟进，仅提示企业主动确认）。
+  templateVersion String
+
+  /// 企业内自定义称呼，如「小助手」。为空则展示模板名称。
+  name String?
+
   startDate DateTime  @default(now())
   endDate   DateTime?
 
@@ -663,17 +621,27 @@ model Subscription {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// 注意：这里保留唯一约束是因为「同一企业对同一模板只订阅一次」，
-  /// 而多实例是在 EmployeeInstance 层面展开（一次订阅可开多个实例）。
+  // Relations
+  grants          EmployeeGrant[]
+  knowledgeGrants KnowledgeGrant[]
+  accessRequests  AccessRequest[]
+
+  /// 一个企业对同一员工只雇佣一次。收敛后这条约束即是「一员工一雇佣关系」
+  /// 的全部含义 —— 部门差异化由 KnowledgeGrant.departmentId 表达，
+  /// 而非开多份雇佣关系。
   @@unique([enterpriseId, employeeId])
   @@index([enterpriseId])
   @@map("subscriptions")
 }
 
+/// 原 InstanceStatus 的四态并入此处：
+///   PENDING_ACTIVATION → ACTIVE（雇佣关系存在即生效）
+///   SUSPENDED          → PAUSED
+///   REVOKED            → EXPIRED
 enum SubscriptionStatus {
   ACTIVE // 激活
-  PAUSED // 暂停
-  EXPIRED // 过期
+  PAUSED // 暂停（企业主动停用）
+  EXPIRED // 过期 / 已退订
 }
 
 // ============================================================================
@@ -1055,20 +1023,33 @@ model KnowledgeSearchLog {
   @@map("knowledge_search_logs")
 }
 
+/// 知识库授权：某知识库对哪个雇佣关系 / 哪个部门可见。
+///
+/// 两个维度可以叠加使用，语义是「交集」而非「并集」：
+///   - 只填 subscriptionId：该员工在全企业范围内都能检索这个知识库
+///   - subscriptionId + departmentId：该员工仅在该部门成员使用时才能检索
+///
+/// 部门维度是收敛掉 EmployeeInstance 后承接「部门差异化」的方式 ——
+/// 从前靠给同一模板开多个实例、各挂各的知识库来实现，现在一份雇佣关系
+/// 配多条带部门的授权即可，不必维护多份雇佣关系。
 model KnowledgeGrant {
   id              String   @id @default(cuid())
   knowledgeBaseId String
-  instanceId      String?
+  subscriptionId  String?
   departmentId    String?
   createdAt       DateTime @default(now())
 
-  knowledgeBase KnowledgeBase     @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-  instance      EmployeeInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  department    Department?       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  subscription  Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
-  @@unique([knowledgeBaseId, instanceId])
-  @@unique([knowledgeBaseId, departmentId])
+  /// ⚠️ 不加 @@unique —— Postgres 视 NULL 互不相等，带可空列的复合唯一
+  /// 在对应列为 NULL 时永不触发。真正覆盖「同一知识库 + 同一雇佣关系 + 同一
+  /// 部门」唯一性的是迁移 `20260813_converge_employee_instance` 里的三个
+  /// 部分唯一索引（WHERE subscriptionId IS NOT NULL / WHERE departmentId IS NOT NULL）。
   @@index([knowledgeBaseId])
+  @@index([subscriptionId])
+  @@index([departmentId])
   @@map("knowledge_grants")
 }
 
@@ -1293,17 +1274,19 @@ model ApiCallLog {
 
 /// 按天预聚合的成本数据，避免全表扫描 messages。
 /// 由 CostAnalyticsCronService 每小时增量更新（当天），每日 00:30 固化前一天。
-/// enterpriseId + departmentId + employeeInstanceId + modelId + date 五元组唯一。
+/// enterpriseId + departmentId + subscriptionId + modelId + date 五元组唯一。
 model CostDailyRollup {
-  id                 String   @id @default(cuid())
-  enterpriseId       String
+  id             String   @id @default(cuid())
+  enterpriseId   String
   /// 若消息来自归属某部门的用户，此处非空
-  departmentId       String?
-  /// 保留以备后续 ConversationSession 挂载 instanceId 后回填，暂为 null
-  employeeInstanceId String?
-  modelId            String
+  departmentId   String?
+  /// 产生该成本的雇佣关系。收敛前此列名为 employeeInstanceId 且恒为 null
+  /// （会话从未挂过实例）；现在由 (enterpriseId, employeeId) 直接定位雇佣关系，
+  /// 可以真正回填。
+  subscriptionId String?
+  modelId        String
   /// 精确到「日」的 Date（UTC 00:00:00）
-  date               DateTime @db.Date
+  date           DateTime @db.Date
 
   inputTokens  BigInt  @default(0)
   outputTokens BigInt  @default(0)
@@ -1314,7 +1297,7 @@ model CostDailyRollup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([enterpriseId, departmentId, employeeInstanceId, modelId, date])
+  @@unique([enterpriseId, departmentId, subscriptionId, modelId, date])
   @@index([enterpriseId, date])
   @@map("cost_daily_rollups")
 }
@@ -1419,7 +1402,8 @@ model OrderItem {
   /// 订阅周期（月），默认 12 个月
   periodMonths Int @default(12)
 
-  /// 数量（同一员工可订阅多份）
+  /// 历史快照，恒为 1。收敛 EmployeeInstance 后「一企业一员工只雇佣一次」，
+  /// 数量概念不再存在；此列保留是为了不改写已成交订单的记录形状。
   quantity Int @default(1)
 
   /// 快照字段：该订阅赠送的算力额度（元）
@@ -1442,16 +1426,14 @@ model CartItem {
   /// 订阅周期（月），默认 12 个月
   periodMonths Int @default(12)
 
-  /// 数量
-  quantity Int @default(1)
-
   /// 加车人（User.id）
   addedBy String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// 同一企业对同一员工只能加一次车（修改数量而非重复添加）
+  /// 同一企业对同一员工只能加一次车。收敛后「一企业一员工一雇佣关系」，
+  /// 重复加车直接 409，没有「累加数量」这回事。
   @@unique([enterpriseId, employeeId])
   @@index([enterpriseId])
   @@map("cart_items")

@@ -8,7 +8,7 @@ export interface AccessRequest {
   id: string;
   enterpriseId: string;
   requesterId: string;
-  instanceId: string;
+  subscriptionId: string;
   reason: string | null;
   requestedDays: number | null;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -29,7 +29,7 @@ export interface AccessRequest {
       name: string;
     } | null;
   };
-  instance: {
+  subscription: {
     id: string;
     employee: {
       id: string;
@@ -44,26 +44,27 @@ export interface AccessRequest {
 }
 
 /**
- * 获取单个实例的授权列表
+ * 获取单个雇佣关系的授权列表
  */
-export function useEmployeeGrants(instanceId: string) {
+export function useEmployeeGrants(subscriptionId: string) {
   return useQuery<GrantRecord[]>({
-    queryKey: ['grants', instanceId],
-    queryFn: () => api.get<GrantRecord[]>(`/enterprise/instances/${instanceId}/grants`),
-    enabled: !!instanceId,
+    queryKey: ['grants', subscriptionId],
+    queryFn: () =>
+      api.get<GrantRecord[]>(`/enterprise/subscriptions/${subscriptionId}/grants`),
+    enabled: !!subscriptionId,
     staleTime: 30_000,
   });
 }
 
 /**
- * 并行获取多个实例的授权列表（用于部门视图）
+ * 并行获取多个雇佣关系的授权列表（用于部门视图）
  */
-export function useAllInstanceGrants(instanceIds: string[]) {
+export function useAllSubscriptionGrants(subscriptionIds: string[]) {
   return useQueries({
-    queries: instanceIds.map((id) => ({
+    queries: subscriptionIds.map((id) => ({
       queryKey: ['grants', id],
-      queryFn: () => api.get<GrantRecord[]>(`/enterprise/instances/${id}/grants`),
-      enabled: instanceIds.length > 0,
+      queryFn: () => api.get<GrantRecord[]>(`/enterprise/subscriptions/${id}/grants`),
+      enabled: subscriptionIds.length > 0,
       staleTime: 30_000,
     })),
   });
@@ -77,18 +78,23 @@ export function useCreateGrant() {
 
   return useMutation({
     mutationFn: (data: {
-      instanceId: string;
+      subscriptionId: string;
       departmentId?: string | null;
       memberId?: string | null;
       expiresAt?: string | null;
     }) =>
-      api.post<GrantRecord>(`/enterprise/instances/${data.instanceId}/grants`, {
-        departmentId: data.departmentId ?? null,
-        memberId: data.memberId ?? null,
-        expiresAt: data.expiresAt ?? null,
-      }),
+      api.post<GrantRecord>(
+        `/enterprise/subscriptions/${data.subscriptionId}/grants`,
+        {
+          departmentId: data.departmentId ?? null,
+          memberId: data.memberId ?? null,
+          expiresAt: data.expiresAt ?? null,
+        },
+      ),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['grants', vars.instanceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['grants', vars.subscriptionId],
+      });
     },
   });
 }
@@ -100,10 +106,12 @@ export function useDeleteGrant() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { grantId: string; instanceId: string }) =>
+    mutationFn: (params: { grantId: string; subscriptionId: string }) =>
       api.delete(`/enterprise/grants/${params.grantId}`),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['grants', vars.instanceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['grants', vars.subscriptionId],
+      });
     },
   });
 }
@@ -115,8 +123,11 @@ export function useCreateAccessRequest() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: { instanceId: string; reason?: string; requestedDays?: number }) =>
-      api.post<AccessRequest>('/enterprise/access-requests', data),
+    mutationFn: (data: {
+      subscriptionId: string;
+      reason?: string;
+      requestedDays?: number;
+    }) => api.post<AccessRequest>('/enterprise/access-requests', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['access-requests'] });
     },

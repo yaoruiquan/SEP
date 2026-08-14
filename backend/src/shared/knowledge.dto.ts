@@ -25,10 +25,10 @@ export const DocumentUploadDtoSchema = z.object({
 export type DocumentUploadDto = z.infer<typeof DocumentUploadDtoSchema>;
 
 export const KnowledgeGrantCreateDtoSchema = z.object({
-  instanceId: z.string().optional(),
+  subscriptionId: z.string().optional(),
   departmentId: z.string().optional(),
-}).refine(data => data.instanceId || data.departmentId, {
-  message: 'Either instanceId or departmentId must be provided',
+}).refine(data => data.subscriptionId || data.departmentId, {
+  message: 'Either subscriptionId or departmentId must be provided',
 });
 export type KnowledgeGrantCreateDto = z.infer<typeof KnowledgeGrantCreateDtoSchema>;
 

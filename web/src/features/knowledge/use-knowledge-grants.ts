@@ -6,13 +6,14 @@ import { api } from '@/lib/api-client';
 export interface KnowledgeGrant {
   id: string;
   knowledgeBaseId: string;
-  instanceId: string | null;
+  subscriptionId: string | null;
   departmentId: string | null;
   createdAt: string;
-  instance?: {
+  subscription?: {
     id: string;
-    name: string;
-    template: { id: string; name: string };
+    /** 企业自定义称呼，可能为空 */
+    name: string | null;
+    employee: { id: string; name: string };
   } | null;
   department?: {
     id: string;
@@ -20,11 +21,12 @@ export interface KnowledgeGrant {
   } | null;
 }
 
-export interface EmployeeInstance {
+/** 授权对象：雇佣关系。收敛后即「本企业在册的某个硅基员工」 */
+export interface GrantableSubscription {
   id: string;
   name: string;
   status: string;
-  template: {
+  employee: {
     id: string;
     name: string;
     avatar: string | null;
@@ -42,11 +44,11 @@ export function useKnowledgeGrants(knowledgeBaseId: string | null) {
   });
 }
 
-/** 企业员工实例列表（用于选择授权对象） */
-export function useEmployeeInstances() {
-  return useQuery<EmployeeInstance[]>({
-    queryKey: ['employee-instances'],
-    queryFn: () => api.get<EmployeeInstance[]>('/enterprise/instances'),
+/** 企业雇佣关系列表（用于选择授权对象） */
+export function useGrantableSubscriptions() {
+  return useQuery<GrantableSubscription[]>({
+    queryKey: ['subscriptions'],
+    queryFn: () => api.get<GrantableSubscription[]>('/subscriptions'),
   });
 }
 
@@ -54,7 +56,7 @@ export function useEmployeeInstances() {
 export function useCreateGrant(knowledgeBaseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { instanceId?: string; departmentId?: string }) =>
+    mutationFn: (payload: { subscriptionId?: string; departmentId?: string }) =>
       api.post<KnowledgeGrant>(`/knowledge-bases/${knowledgeBaseId}/grants`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['knowledge-grants', knowledgeBaseId] });

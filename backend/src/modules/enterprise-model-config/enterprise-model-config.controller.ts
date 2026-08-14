@@ -63,13 +63,13 @@ export class EnterpriseModelConfigController {
   async getEffective(
     @Request() req: AuthedRequest,
     @Query('departmentId') departmentId?: string,
-    @Query('employeeInstanceId') employeeInstanceId?: string,
+    @Query('subscriptionId') subscriptionId?: string,
     @Query('userSelectedModel') userSelectedModel?: string,
   ) {
     return this.service.resolveEffectiveModel({
       userId: req.user.id,
       departmentId,
-      employeeInstanceId,
+      subscriptionId,
       userSelectedModel,
     });
   }

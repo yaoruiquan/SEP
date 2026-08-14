@@ -595,6 +595,29 @@ export const SubscriptionCreateDtoSchema = z.object({
 
 export type SubscriptionCreateDto = z.infer<typeof SubscriptionCreateDtoSchema>;
 
+/**
+ * 修改雇佣关系。收敛后没有 departmentId ——
+ * 部门差异化由 EmployeeGrant / KnowledgeGrant 的 departmentId 表达，
+ * 雇佣关系本身不挂部门。
+ */
+export const SubscriptionUpdateDtoSchema = z.object({
+  /** 企业内自定义称呼。传 null 恢复为展示模板名。 */
+  name: z.string().min(1).max(50).nullable().optional(),
+  config: z.record(z.any()).optional(),
+});
+
+export type SubscriptionUpdateDto = z.infer<typeof SubscriptionUpdateDtoSchema>;
+
+/** 雇佣关系状态。收敛后 InstanceStatus 已并入此枚举。 */
+export const SUBSCRIPTION_STATUSES = ['ACTIVE', 'PAUSED', 'EXPIRED'] as const;
+export type SubscriptionStatusValue = (typeof SUBSCRIPTION_STATUSES)[number];
+
+export const SubscriptionStatusDtoSchema = z.object({
+  status: z.enum(SUBSCRIPTION_STATUSES),
+});
+
+export type SubscriptionStatusDto = z.infer<typeof SubscriptionStatusDtoSchema>;
+
 // ============================================================================
 // Enterprise Organization DTOs（P1 企业组织管理）
 // ============================================================================
@@ -737,52 +760,6 @@ export const AcceptInvitationDtoSchema = z.object({
 });
 export type AcceptInvitationDto = z.infer<typeof AcceptInvitationDtoSchema>;
 
-// ── 员工实例 ────────────────────────────────────────────────────────────────
-
-export const INSTANCE_STATUSES = [
-  'PENDING_ACTIVATION',
-  'ACTIVE',
-  'SUSPENDED',
-  'REVOKED',
-] as const;
-export const InstanceStatusSchema = z.enum(INSTANCE_STATUSES);
-export type InstanceStatusValue = z.infer<typeof InstanceStatusSchema>;
-
-/**
- * 创建员工实例。
- *
- * 订阅是**企业级**的（一个模板订阅一次），实例是**部门/岗位级**的 ——
- * 一次订阅可开多个实例（决策 8），如技术部与运营部各一份，
- * 各自独立命名与配置。
- */
-export const InstanceCreateDtoSchema = z.object({
-  /** 来源模板 id。必须是本企业已订阅且订阅有效的模板。 */
-  templateId: z.string(),
-  /** 企业内名称，如「视频工程师」 */
-  name: z.string().min(1).max(50),
-  /** 归属部门。省略表示企业级共享实例。 */
-  departmentId: z.string().optional(),
-  config: z.record(z.any()).optional(),
-});
-export type InstanceCreateDto = z.infer<typeof InstanceCreateDtoSchema>;
-
-export const InstanceUpdateDtoSchema = z.object({
-  name: z.string().min(1).max(50).optional(),
-  /** 调整归属部门。传 null 表示改为企业级共享。 */
-  departmentId: z.string().nullable().optional(),
-  config: z.record(z.any()).optional(),
-});
-export type InstanceUpdateDto = z.infer<typeof InstanceUpdateDtoSchema>;
-
-/** 实例状态变更。REVOKED 为终态，不可再转回。 */
-export const InstanceStatusUpdateDtoSchema = z.object({
-  status: InstanceStatusSchema,
-});
-export type InstanceStatusUpdateDto = z.infer<
-  typeof InstanceStatusUpdateDtoSchema
->;
-
-/** 实例视图，含升级提示信息。 */
 // ── 员工授权 ────────────────────────────────────────────────────────────────
 
 /**
@@ -790,7 +767,7 @@ export type InstanceStatusUpdateDto = z.infer<
  *
  * 用 refine 而非两个独立可选字段，是因为「都不传」会造出一条谁都匹配不上的
  * 死记录，「都传」的语义又无法定义（是且还是或？）。DB 层的
- * `@@unique([instanceId, departmentId, memberId])` 挡不住这两种情况。
+ * `@@unique([subscriptionId, departmentId, memberId])` 挡不住这两种情况。
  */
 export const GrantCreateDtoSchema = z
   .object({
@@ -817,16 +794,23 @@ export interface GrantView {
 }
 
 /**
- * 「我的员工」—— 当前成员可用的实例。
+ * 「我的员工」—— 当前成员可用的雇佣关系。
  *
- * 与 InstanceView 的区别：这是**使用者视角**，不含配置/升级等管理信息，
- * 但多一个 grantSource 说明「为什么我能用这个」。
+ * 这是**使用者视角**，不含配置/升级等管理信息，但多一个 grantSource
+ * 说明「为什么我能用这个」。
  */
 export interface MyEmployeeView {
-  instanceId: string;
+  /** 雇佣关系 id（收敛前是 instanceId）。所有下游操作都以此为锚点。 */
+  subscriptionId: string;
+  /** 企业自定义称呼，未设置时回落到模板名 */
   name: string;
   templateVersion: string;
-  template: { id: string; name: string; avatar: string | null };
+  /** 员工模板。收敛前此字段名为 template。 */
+  employee: { id: string; name: string; avatar: string | null };
+  /**
+   * 授权来源部门。收敛后语义变了 —— 从前是「实例归属哪个部门」，
+   * 现在是「这条授权发给哪个部门」，DIRECT 授权时为 null。
+   */
   department: { id: string; name: string } | null;
   /** 授权来源：直接给我的，还是给我所在部门的 */
   grantSource: 'DIRECT' | 'DEPARTMENT';
@@ -872,8 +856,8 @@ export interface PackageView {
   createdAt: Date;
 }
 
-/** 客户端获取实例可安装的包信息（P3.2） */
-export interface InstancePackageInfo {
+/** 客户端获取雇佣关系可安装的包信息（P3.2） */
+export interface EmploymentPackageInfo {
   version: string;
   packageRef: { type: 'npm' | 'git'; spec: string } | null;
   /** ZIP 通道是否可用（packageRef 不存在时客户端可提示手动下载）*/
@@ -884,11 +868,14 @@ export interface InstancePackageInfo {
 /** 员工包大小上限。ZIP 里只装 skills 与说明，20MB 足够且能挡住误传大文件。 */
 export const PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
 
-export interface InstanceView {
+/**
+ * 订阅视图（管理台）。收敛后订阅即雇佣关系，取代了原先的 InstanceView。
+ */
+export interface SubscriptionView {
   id: string;
   name: string;
-  status: InstanceStatusValue;
-  /** 实例锁定的模板版本 */
+  status: 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+  /** 订阅锁定的模板版本 */
   templateVersion: string;
   /** 模板当前最新版本 */
   latestVersion: string;
@@ -897,8 +884,7 @@ export interface InstanceView {
    * 由企业在管理台主动确认。
    */
   upgradeAvailable: boolean;
-  template: { id: string; name: string; avatar: string | null };
-  department: { id: string; name: string } | null;
+  employee: { id: string; name: string; avatar: string | null };
   config: Record<string, unknown> | null;
   createdAt: Date;
 }
@@ -1121,7 +1107,7 @@ export type ClientLoginDto = z.infer<typeof ClientLoginDtoSchema>;
 
 export const ClientTokenDtoSchema = z.object({
   refreshToken: z.string().min(1),
-  instanceId: z.string().min(1),
+  subscriptionId: z.string().min(1),
 });
 export type ClientTokenDto = z.infer<typeof ClientTokenDtoSchema>;
 

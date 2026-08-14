@@ -53,7 +53,8 @@ describe('AdminService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         members: [],
-        instances: [],
+        // 收敛后企业下挂的是雇佣关系，不再有中间的实例层
+        subscriptions: [],
         computeAccount: {
           id: 'acc1',
           balance: 100,
@@ -303,7 +304,7 @@ describe('AdminService', () => {
           updatedAt: new Date(),
           metadata: {},
           computeAccount: { balance: 100 },
-          _count: { members: 5, instances: 3 },
+          _count: { members: 5, subscriptions: 3 },
         },
       ];
 
@@ -321,7 +322,7 @@ describe('AdminService', () => {
             id: 'ent1',
             balance: 100,
             memberCount: 5,
-            instanceCount: 3,
+            subscriptionCount: 3,
             suspended: false,
           }),
         ]),

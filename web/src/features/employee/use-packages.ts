@@ -18,7 +18,7 @@ export function useEmployeePackages(employeeId: string | undefined) {
 /**
  * 发布新版本（仅平台运营）。
  * 后端会在同一事务里落库并更新 DigitalEmployee.version，
- * 故成功后要一并失效员工列表与实例列表 —— 后者的升级提示会变。
+ * 故成功后要一并失效员工列表与雇佣关系列表 —— 后者的升级提示会变。
  */
 export function usePublishPackage() {
   const qc = useQueryClient();
@@ -49,7 +49,7 @@ export function usePublishPackage() {
     onSuccess: (_r, { employeeId }) => {
       qc.invalidateQueries({ queryKey: qk.employeePackages(employeeId) });
       qc.invalidateQueries({ queryKey: qk.employees() });
-      qc.invalidateQueries({ queryKey: qk.instances });
+      qc.invalidateQueries({ queryKey: qk.subscriptions });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
     },
   });
@@ -57,7 +57,7 @@ export function usePublishPackage() {
 
 /**
  * 下载某模板的最新员工包。
- * 需对该模板的某个 ACTIVE 实例有未过期授权（运营除外）。
+ * 需对该员工有 ACTIVE 雇佣关系 + 未过期授权（运营除外）。
  */
 export function useDownloadPackage() {
   return useMutation({

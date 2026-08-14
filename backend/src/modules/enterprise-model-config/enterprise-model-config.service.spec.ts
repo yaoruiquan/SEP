@@ -60,7 +60,7 @@ describe('EnterpriseModelConfigService', () => {
       department: {
         findUnique: jest.fn().mockResolvedValue({ enterpriseId: 'ent-acme' }),
       },
-      employeeInstance: { findUnique: jest.fn().mockResolvedValue(null) },
+      subscription: { findUnique: jest.fn().mockResolvedValue(null) },
       platformModel: { findMany: jest.fn().mockResolvedValue([]) },
       computeAccount: { findUnique: jest.fn().mockResolvedValue({ id: 'acct-1' }) },
       computeTransaction: {
@@ -181,45 +181,45 @@ describe('EnterpriseModelConfigService', () => {
       expect(r.allowUserSwitchModel).toBe(false);
     });
 
-    it('② FOLLOW_TEMPLATE 下走员工实例自带模型', async () => {
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+    it('② FOLLOW_TEMPLATE 下走雇佣关系自带模型', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
         config: { modelId: 'gpt-4o-mini' },
       });
 
       const r = await svc.resolveEffectiveModel({
         userId: 'u1',
-        employeeInstanceId: 'inst-1',
+        subscriptionId: 'sub-1',
       });
 
       expect(r.chatModel).toBe('gpt-4o-mini');
       expect(r.source).toBe('EMPLOYEE_INSTANCE');
     });
 
-    it('FORCE_DEFAULT 下忽略员工实例模型，强制企业默认', async () => {
+    it('FORCE_DEFAULT 下忽略雇佣关系模型，强制企业默认', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
         makeConfig({ employeeModelPolicy: 'FORCE_DEFAULT' }),
       );
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+      prisma.subscription.findUnique.mockResolvedValue({
         config: { modelId: 'gpt-4o-mini' },
       });
 
       const r = await svc.resolveEffectiveModel({
         userId: 'u1',
-        employeeInstanceId: 'inst-1',
+        subscriptionId: 'sub-1',
       });
 
       expect(r.chatModel).toBe('gemini-3.5-flash-high');
       expect(r.source).toBe('ENTERPRISE');
     });
 
-    it('实例 config 里 modelId 不是字符串时不当成有效值', async () => {
-      prisma.employeeInstance.findUnique.mockResolvedValue({
+    it('雇佣关系 config 里 modelId 不是字符串时不当成有效值', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
         config: { modelId: 42 },
       });
 
       const r = await svc.resolveEffectiveModel({
         userId: 'u1',
-        employeeInstanceId: 'inst-1',
+        subscriptionId: 'sub-1',
       });
 
       expect(r.source).toBe('ENTERPRISE');

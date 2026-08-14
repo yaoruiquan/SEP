@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
-import { EnterpriseContextService } from "./enterprise-context.service";
+import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import { PackageService } from "../digital-employee/package.service";
 import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 
@@ -31,7 +31,10 @@ export class GrantService {
     const rows = await this.prisma.employeeGrant.findMany({
       where: { subscriptionId },
       orderBy: { createdAt: "desc" },
-      include: {
+      select: {
+        id: true,
+        expiresAt: true,
+        createdAt: true,
         department: { select: { id: true, name: true } },
         member: {
           select: {
@@ -106,7 +109,10 @@ export class GrantService {
           memberId: dto.memberId ?? null,
           expiresAt,
         },
-        include: {
+        select: {
+          id: true,
+          expiresAt: true,
+          createdAt: true,
           department: { select: { id: true, name: true } },
           member: {
             select: {
@@ -149,7 +155,7 @@ export class GrantService {
    * 收回授权（企业管理员专用）。
    *
    * 注意：收回授权**不影响**雇佣关系状态，只删除这条授权记录。
-   * 如果要让整个雇佣关系下线，用 PATCH /subscriptions/:id/status 改成 PAUSED。
+   * 如果要让整个雇佣关系下线，用 PATCH /subscriptions/:id/status 改成 SUSPENDED。
    */
   async remove(userId: string, grantId: string): Promise<{ id: string }> {
     const context = await this.ctx.resolve(userId);
@@ -158,7 +164,8 @@ export class GrantService {
     // 先查再删，确保这条授权属于本企业
     const grant = await this.prisma.employeeGrant.findUnique({
       where: { id: grantId },
-      include: {
+      select: {
+        id: true,
         subscription: { select: { enterpriseId: true } },
       },
     });
@@ -182,7 +189,7 @@ export class GrantService {
    * 2. 授权给我所在部门（departmentId = 我的 departmentId）
    *
    * 过滤条件：
-   * - 雇佣关系处于 ACTIVE 状态（暂停/过期的即使授权也不能用）
+   * - 雇佣关系处于 ACTIVE 状态（停用/回收的即使授权也不能用）
    * - 授权未过期（expiresAt 为空或 > now）
    *
    * 同一雇佣关系如果两条路径都命中，只返回一条，直接授权优先。
@@ -306,14 +313,14 @@ export class GrantService {
     subscriptionId: string,
     enterpriseId: string,
   ) {
-    const sub = await this.prisma.subscription.findUnique({
+    const subscription = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
       select: { id: true, enterpriseId: true, status: true },
     });
-    if (!sub || sub.enterpriseId !== enterpriseId) {
+    if (!subscription || subscription.enterpriseId !== enterpriseId) {
       throw new NotFoundException(`雇佣关系 ${subscriptionId} 不存在`);
     }
-    return sub;
+    return subscription;
   }
 
   private async assertDeptInEnterprise(id: string, enterpriseId: string) {

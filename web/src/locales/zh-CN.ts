@@ -16,7 +16,7 @@ export const employee = {
   entity: '硅基员工',
   market: '硅基人才市场',
   mine: '我的员工',
-  /** 企业内配置的工作单元。代码层仍是 EmployeeInstance，展示层就叫「硅基员工」 */
+  /** 企业与某个硅基员工的雇佣关系（后端 Subscription），展示层就叫「硅基员工」 */
   unit: '硅基员工',
   /** 管理员页：把硅基员工授权给碳基员工使用 */
   grantConfig: '员工授权',
@@ -31,6 +31,14 @@ export const employee = {
   manageUnit: '管理硅基员工',
   /** 单个硅基员工的终态回收，区别于「解除雇佣」（后者是整个模板的雇佣关系） */
   recycle: '回收席位',
+
+  /**
+   * 市场卡片上的招聘状态装饰文案。
+   *
+   * 与 subscriptionStatus 无关 —— 那个描述「本企业与某员工的雇佣关系」，
+   * 这里描述「这位员工在市场上可不可招」，别再借用状态映射表。
+   */
+  hireable: '可雇佣',
 } as const;
 
 /**
@@ -85,21 +93,17 @@ export const knowledge = {
 } as const;
 
 /**
- * 硅基员工状态。key 为后端 InstanceStatus 枚举值，不可改动。
- * REVOKED 是终态，不可转回。
+ * 雇佣关系状态。key 为后端 SubscriptionStatus 枚举值，不可改动。
+ *
+ * 收敛后 InstanceStatus 已并入此枚举（PENDING_ACTIVATION→ACTIVE、
+ * SUSPENDED→PAUSED、REVOKED→EXPIRED），故只剩这三个值。
+ * 措辞取雇佣视角而非订阅视角 —— 企业看到的是「这个员工在不在岗」。
+ * EXPIRED 是终态，不可转回。
  */
-export const instanceStatus: Record<string, string> = {
-  PENDING_ACTIVATION: '待上岗',
-  ACTIVE: '工作中',
-  SUSPENDED: '已暂停',
-  REVOKED: '已解聘',
-};
-
-/** 订阅状态。key 为后端 SubscriptionStatus 枚举值。 */
 export const subscriptionStatus: Record<string, string> = {
-  ACTIVE: '生效中',
+  ACTIVE: '工作中',
   PAUSED: '已暂停',
-  EXPIRED: '已过期',
+  EXPIRED: '已解聘',
 };
 
 /** 拟人化提示文案 */
@@ -122,7 +126,6 @@ export const nav = {
   myEmployees: employee.mine,
   marketplace: employee.market,
   subscriptions: employment.section,
-  instances: employee.grantConfig,
   chat: '对话中心',
   tasks: '任务中心',
   permissions: '权限管理',
@@ -138,7 +141,6 @@ export const zhCN = {
   member,
   capability,
   knowledge,
-  instanceStatus,
   subscriptionStatus,
   messages,
   nav,

@@ -45,11 +45,11 @@ export class CartService {
         ? parseFloat(item.employee.includedComputeCNY.toString())
         : 0;
 
-      // 小计 = 单价 × 数量 × (周期月数 / 12)
+      // 小计 = 单价 × (周期月数 / 12)
       const subtotal =
-        unitPrice * item.quantity * (item.periodMonths / 12);
-      // 赠送算力 = 单份算力 × 数量
-      const includedComputeCNY = includedComputePerUnit * item.quantity;
+        unitPrice * (item.periodMonths / 12);
+      // 赠送算力 = 单份算力
+      const includedComputeCNY = includedComputePerUnit;
 
       return {
         id: item.id,
@@ -58,7 +58,7 @@ export class CartService {
         employeeAvatar: item.employee.avatar,
         unitPrice,
         periodMonths: item.periodMonths,
-        quantity: item.quantity,
+        quantity: 1,
         subtotal,
         includedComputeCNY,
         addedAt: item.createdAt,
@@ -80,7 +80,10 @@ export class CartService {
   }
 
   /**
-   * 加入购物车（已在购物车则累加 quantity）
+   * 加入购物车。
+   *
+   * 收敛后「一企业一员工一雇佣关系」，同一员工买多份没有意义，
+   * 故重复加车直接 409，而非累加数量。
    */
   async addToCart(
     enterpriseId: string,
@@ -125,16 +128,8 @@ export class CartService {
     });
 
     if (existing) {
-      // 累加数量
-      const updated = await this.prisma.cartItem.update({
-        where: { id: existing.id },
-        data: {
-          quantity: existing.quantity + dto.quantity,
-          periodMonths: dto.periodMonths, // 更新为最新的周期
-          updatedAt: new Date(),
-        },
-      });
-      return { id: updated.id, message: '已更新购物车数量' };
+      // 已在购物车，提示不能重复加入
+      throw new ConflictException('该员工已在购物车中');
     }
 
     // 4. 新增
@@ -143,7 +138,6 @@ export class CartService {
         enterpriseId,
         employeeId: dto.employeeId,
         periodMonths: dto.periodMonths,
-        quantity: dto.quantity,
         addedBy: userId,
       },
     });
@@ -152,7 +146,7 @@ export class CartService {
   }
 
   /**
-   * 更新购物车项（改数量/周期）
+   * 更新购物车项（改周期）
    */
   async updateCartItem(
     enterpriseId: string,
@@ -174,7 +168,6 @@ export class CartService {
     await this.prisma.cartItem.update({
       where: { id: itemId },
       data: {
-        ...(dto.quantity !== undefined && { quantity: dto.quantity }),
         ...(dto.periodMonths !== undefined && {
           periodMonths: dto.periodMonths,
         }),

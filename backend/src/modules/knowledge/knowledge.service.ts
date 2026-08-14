@@ -45,11 +45,11 @@ export class KnowledgeService {
         },
         grants: {
           include: {
-            instance: {
+            subscription: {
               select: {
                 id: true,
                 name: true,
-                template: { select: { id: true, name: true } },
+                employee: { select: { id: true, name: true } },
               },
             },
             department: { select: { id: true, name: true } },
@@ -175,14 +175,41 @@ export class KnowledgeService {
     return this.prisma.knowledgeGrant.findMany({
       where: { knowledgeBaseId },
       include: {
-        instance: {
+        subscription: {
           select: {
             id: true,
             name: true,
-            template: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
           },
         },
         department: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 某段雇佣关系被授权了哪些知识库。
+   *
+   * 与 listGrants 反向 —— 那个按知识库看「授给了谁」，
+   * 这个按雇佣关系看「能读哪些库」，雇佣关系的授权面板需要后者。
+   */
+  async listGrantsBySubscription(userId: string, subscriptionId: string) {
+    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
+
+    // 越权访问别家企业的雇佣关系直接挡掉，不能靠 where 过滤后返空数组糊过去
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { enterpriseId: true },
+    });
+    if (!subscription || subscription.enterpriseId !== enterpriseId) {
+      throw new ForbiddenException('Invalid subscription');
+    }
+
+    return this.prisma.knowledgeGrant.findMany({
+      where: { subscriptionId },
+      include: {
+        knowledgeBase: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -195,15 +222,15 @@ export class KnowledgeService {
   ) {
     await this.getById(userId, knowledgeBaseId); // 验证权限
 
-    // 验证实例或部门存在且属于本企业
+    // 验证订阅或部门存在且属于本企业
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
 
-    if (data.instanceId) {
-      const instance = await this.prisma.employeeInstance.findUnique({
-        where: { id: data.instanceId },
+    if (data.subscriptionId) {
+      const subscription = await this.prisma.subscription.findUnique({
+        where: { id: data.subscriptionId },
       });
-      if (!instance || instance.enterpriseId !== enterpriseId) {
-        throw new ForbiddenException('Invalid instance');
+      if (!subscription || subscription.enterpriseId !== enterpriseId) {
+        throw new ForbiddenException('Invalid subscription');
       }
     }
 
@@ -219,15 +246,15 @@ export class KnowledgeService {
     return this.prisma.knowledgeGrant.create({
       data: {
         knowledgeBaseId,
-        instanceId: data.instanceId,
+        subscriptionId: data.subscriptionId,
         departmentId: data.departmentId,
       },
       include: {
-        instance: {
+        subscription: {
           select: {
             id: true,
             name: true,
-            template: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
           },
         },
         department: { select: { id: true, name: true } },

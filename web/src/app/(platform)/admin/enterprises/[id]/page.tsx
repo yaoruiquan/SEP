@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SUBSCRIPTION_STATUS_LABEL, SUBSCRIPTION_STATUS_STYLE } from '@/lib/utils';
 import {
   Building2,
   Users,
@@ -35,7 +36,9 @@ export default function EnterpriseDetailPage() {
   const suspendEnterprise = useSuspendEnterprise();
   const resumeEnterprise = useResumeEnterprise();
 
-  const [activeTab, setActiveTab] = useState<'members' | 'instances' | 'transactions'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'subscriptions' | 'transactions'>(
+    'members',
+  );
 
   // Credit dialog state
   const [creditDialogOpen, setCreditDialogOpen] = useState(false);
@@ -217,11 +220,11 @@ export default function EnterpriseDetailPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">实例数量</CardTitle>
+            <CardTitle className="text-sm font-medium">在册员工</CardTitle>
             <Bot className="h-4 w-4 text-fg-muted" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{enterprise.instances.length}</div>
+            <div className="text-2xl font-bold">{enterprise.subscriptions.length}</div>
           </CardContent>
         </Card>
       </div>
@@ -241,13 +244,13 @@ export default function EnterpriseDetailPage() {
           </button>
           <button
             className={`px-4 py-2 font-medium ${
-              activeTab === 'instances'
+              activeTab === 'subscriptions'
                 ? 'border-b-2 border-primary text-primary'
                 : 'text-fg-muted hover:text-foreground'
             }`}
-            onClick={() => setActiveTab('instances')}
+            onClick={() => setActiveTab('subscriptions')}
           >
-            实例
+            雇佣关系
           </button>
           <button
             className={`px-4 py-2 font-medium ${
@@ -306,45 +309,36 @@ export default function EnterpriseDetailPage() {
           </Card>
         )}
 
-        {activeTab === 'instances' && (
+        {activeTab === 'subscriptions' && (
           <Card variant="solid">
             <CardHeader>
-              <CardTitle>员工实例 ({enterprise.instances.length})</CardTitle>
+              <CardTitle>雇佣关系 ({enterprise.subscriptions.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-fg-muted">
-                    <th className="px-5 py-2 text-left font-medium">名称</th>
-                    <th className="px-5 py-2 text-left font-medium">模板</th>
+                    <th className="px-5 py-2 text-left font-medium">称呼</th>
+                    <th className="px-5 py-2 text-left font-medium">员工</th>
                     <th className="px-5 py-2 text-left font-medium">版本</th>
-                    <th className="px-5 py-2 text-left font-medium">部门</th>
                     <th className="px-5 py-2 text-left font-medium">状态</th>
-                    <th className="px-5 py-2 text-left font-medium">创建时间</th>
+                    <th className="px-5 py-2 text-left font-medium">雇佣时间</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {enterprise.instances.map((instance) => (
-                    <tr key={instance.id} className="border-b border-border last:border-0">
-                      <td className="px-5 py-3 font-medium">{instance.name}</td>
-                      <td className="px-5 py-3">{instance.template.name}</td>
-                      <td className="px-5 py-3 font-mono text-xs">
-                        {instance.templateVersion}
-                      </td>
-                      <td className="px-5 py-3">{instance.department?.name || '-'}</td>
+                  {enterprise.subscriptions.map((sub) => (
+                    <tr key={sub.id} className="border-b border-border last:border-0">
+                      {/* 未自定义称呼时回落到员工名 */}
+                      <td className="px-5 py-3 font-medium">{sub.name ?? sub.employee.name}</td>
+                      <td className="px-5 py-3">{sub.employee.name}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{sub.templateVersion}</td>
                       <td className="px-5 py-3">
-                        <Badge
-                          className={
-                            instance.status === 'ACTIVE'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-muted text-foreground'
-                          }
-                        >
-                          {instance.status}
+                        <Badge className={SUBSCRIPTION_STATUS_STYLE[sub.status] ?? ''}>
+                          {SUBSCRIPTION_STATUS_LABEL[sub.status] ?? sub.status}
                         </Badge>
                       </td>
                       <td className="px-5 py-3 text-fg-muted">
-                        {new Date(instance.createdAt).toLocaleString('zh-CN')}
+                        {new Date(sub.createdAt).toLocaleString('zh-CN')}
                       </td>
                     </tr>
                   ))}

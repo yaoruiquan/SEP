@@ -45,7 +45,7 @@ function SuccessScreen({
 
       {/* title */}
       <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold text-gtext-primary">订阅成功！</h2>
+        <h2 className="text-xl font-semibold text-gtext-primary">雇佣成功！</h2>
         <p className="text-sm text-gtext-secondary">
           <span className="font-medium text-gtext-primary">「{empName}」</span>{' '}
           已加入你的员工列表
@@ -54,7 +54,7 @@ function SuccessScreen({
 
       {/* hint */}
       <p className="max-w-xs rounded-glass-lg border border-glassline bg-glass-2 px-4 py-3 text-xs text-gtext-muted leading-relaxed">
-        接下来，企业管理员可以在「员工授权」中为员工创建实例并分配给部门或成员使用。
+        接下来，企业管理员可以在「雇佣管理」中把 TA 授权给部门或成员使用。
       </p>
 
       {/* CTAs */}
@@ -145,10 +145,10 @@ export function PaymentModal({
                   id="payment-modal-title"
                   className="text-lg font-semibold text-gtext-primary"
                 >
-                  确认订阅
+                  确认雇佣
                 </h2>
                 <p className="mt-1 text-sm text-gtext-secondary">
-                  订阅后可为部门创建实例
+                  雇佣后可授权给部门与成员
                 </p>
               </div>
 
@@ -216,7 +216,7 @@ export function PaymentModal({
                       处理中...
                     </>
                   ) : isFree ? (
-                    '免费订阅'
+                    '免费雇佣'
                   ) : (
                     '确认支付'
                   )}
