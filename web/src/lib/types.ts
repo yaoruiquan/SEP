@@ -4,6 +4,7 @@ export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
 export type EmployeeStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
 export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type CapabilityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 export type UserRole = 'USER' | 'ADMIN';
 
 export interface UserProfile {
@@ -425,4 +426,36 @@ export interface CostAlert {
   message: string;
   triggeredAt: string;
   acknowledged: boolean;
+}
+
+// ── Subscription Request (P0) ──────────────────────────────────────────────────
+
+/**
+ * 订阅申请。普通员工申请订阅硅基员工，管理员审批通过后自动创建订阅并授权。
+ */
+export interface SubscriptionRequest {
+  id: string;
+  enterpriseId: string;
+  requesterId: string | null;
+  requesterEmail: string | null;
+  requesterName: string | null;
+  employeeId: string;
+  employee: Pick<DigitalEmployee, 'id' | 'name' | 'avatar'>;
+  reason: string | null;
+  requestedDays: number | null;
+  status: RequestStatus;
+  reviewerId: string | null;
+  reviewer: { id: string; name: string | null; email: string } | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  subscriptionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** 申请人关联的成员信息（仅 pending 列表返回） */
+  requester?: {
+    id: string;
+    userId: string;
+    role: EnterpriseRole;
+    user: { name: string | null; email: string };
+  };
 }

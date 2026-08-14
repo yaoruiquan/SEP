@@ -15,6 +15,8 @@ interface EmployeeCardProps {
   emp: MarketEmployee;
   subscribed: boolean;
   loggedIn: boolean;
+  /** 企业管理员直接订阅；普通成员提交申请 */
+  isAdmin?: boolean;
   subscribing: boolean;
   onSubscribe: () => void;
   onClick: () => void;
@@ -28,6 +30,7 @@ export function EmployeeCard({
   emp,
   subscribed,
   loggedIn,
+  isAdmin = true,
   subscribing,
   onSubscribe,
   onClick,
@@ -157,7 +160,7 @@ export function EmployeeCard({
                 disabled={subscribing}
                 onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
               >
-                订阅
+                {isAdmin ? '订阅' : '申请订阅'}
               </Button>
             </>
           ) : (

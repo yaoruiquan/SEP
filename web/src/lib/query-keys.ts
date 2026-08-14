@@ -41,4 +41,8 @@ export const qk = {
     ['enterprise', enterpriseId, 'available-models'] as const,
   effectiveModelConfig: (enterpriseId?: string, opts?: Record<string, unknown>) =>
     ['enterprise', enterpriseId ?? 'unknown', 'effective-model-config', opts ?? {}] as const,
+  // Subscription Requests (P0)
+  subscriptionRequests: ['subscription-requests'] as const,
+  mySubscriptionRequests: ['subscription-requests', 'my'] as const,
+  pendingSubscriptionRequests: ['subscription-requests', 'pending'] as const,
 };

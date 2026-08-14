@@ -27,10 +27,18 @@ import {
   useChangeSubscriptionStatus,
   useUpgradeSubscription,
 } from '@/features/subscription/use-subscriptions';
+import {
+  usePendingSubscriptionRequests,
+  useApproveSubscriptionRequest,
+  useRejectSubscriptionRequest,
+} from '@/features/subscription-request/use-subscription-requests';
 import { GrantPanel } from '@/features/enterprise/grant-panel';
 import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { employment, employee as employeeCopy } from '@/locales/zh-CN';
-import type { Subscription } from '@/lib/types';
+import type { Subscription, SubscriptionRequest } from '@/lib/types';
+
+/** 顶部 Tab：订阅列表 / 订阅申请 */
+type TopTab = 'subscriptions' | 'requests';
 
 /** 职能分类，与市场页对齐 */
 const CATEGORY_TABS = [
@@ -72,17 +80,29 @@ export default function SubscriptionsPage() {
   const { roleInEnterprise } = useAuthStore();
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
+  const [topTab, setTopTab] = useState<TopTab>('subscriptions');
+
   const { data: subs = [], isLoading } = useSubscriptions();
+  const { data: pendingRequests = [], isLoading: loadingRequests } =
+    usePendingSubscriptionRequests();
   const unsubscribe = useUnsubscribe();
   const updateSub = useUpdateSubscription();
   const changeStatus = useChangeSubscriptionStatus();
   const upgradeSub = useUpgradeSubscription();
+  const approveRequest = useApproveSubscriptionRequest();
+  const rejectRequest = useRejectSubscriptionRequest();
 
   const [releasing, setReleasing] = useState<Subscription | null>(null);
   const [renaming, setRenaming] = useState<Subscription | null>(null);
   const [granting, setGranting] = useState<Subscription | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
+
+  // 审批 Modal 状态
+  const [approving, setApproving] = useState<SubscriptionRequest | null>(null);
+  const [rejecting, setRejecting] = useState<SubscriptionRequest | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [approvedDays, setApprovedDays] = useState<number | undefined>(undefined);
 
   /** 按分类筛选 */
   const filteredSubs = useMemo(() => {
@@ -147,6 +167,45 @@ export default function SubscriptionsPage() {
     });
   };
 
+  const handleApprove = () => {
+    if (!approving) return;
+    approveRequest.mutate(
+      {
+        id: approving.id,
+        dto: { reviewNote: reviewNote.trim() || undefined, approvedDays },
+      },
+      {
+        onSuccess: () => {
+          toast.success(`已通过「${approving.employee.name}」的订阅申请`);
+          setApproving(null);
+          setReviewNote('');
+          setApprovedDays(undefined);
+        },
+        onError: (e) => toast.error(e instanceof ApiError ? e.message : '审批失败'),
+      },
+    );
+  };
+
+  const handleReject = () => {
+    if (!rejecting) return;
+    const note = reviewNote.trim();
+    if (!note) {
+      toast.error('拒绝时必须填写原因');
+      return;
+    }
+    rejectRequest.mutate(
+      { id: rejecting.id, dto: { reviewNote: note } },
+      {
+        onSuccess: () => {
+          toast.success(`已拒绝「${rejecting.employee.name}」的订阅申请`);
+          setRejecting(null);
+          setReviewNote('');
+        },
+        onError: (e) => toast.error(e instanceof ApiError ? e.message : '拒绝失败'),
+      },
+    );
+  };
+
   if (isLoading) return <CenteredSpinner label="加载中…" />;
 
   return (
@@ -166,8 +225,49 @@ export default function SubscriptionsPage() {
         </Link>
       </div>
 
-      {/* 分类筛选 */}
-      {subs.length > 0 && (
+      {/* 顶部 Tab */}
+      {isAdmin && (
+        <div className="flex gap-2 border-b border-border">
+          <button
+            onClick={() => setTopTab('subscriptions')}
+            className={cn(
+              'relative px-4 py-2 text-sm font-medium transition-colors',
+              topTab === 'subscriptions'
+                ? 'text-primary'
+                : 'text-fg-muted hover:text-foreground',
+            )}
+          >
+            订阅列表
+            {topTab === 'subscriptions' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+            )}
+          </button>
+          <button
+            onClick={() => setTopTab('requests')}
+            className={cn(
+              'relative px-4 py-2 text-sm font-medium transition-colors',
+              topTab === 'requests'
+                ? 'text-primary'
+                : 'text-fg-muted hover:text-foreground',
+            )}
+          >
+            订阅申请
+            {pendingRequests.length > 0 && (
+              <Badge className="ml-1.5 bg-warning/10 text-warning">
+                {pendingRequests.length}
+              </Badge>
+            )}
+            {topTab === 'requests' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+            )}
+          </button>
+        </div>
+      )}
+
+      {topTab === 'subscriptions' ? (
+        <>
+          {/* 分类筛选 */}
+          {subs.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           {CATEGORY_TABS.map((tab) => (
             <button
@@ -342,6 +442,86 @@ export default function SubscriptionsPage() {
           })}
         </div>
       )}
+        </>
+      ) : (
+        /* 订阅申请 Tab */
+        <>
+          {loadingRequests ? (
+            <CenteredSpinner label="加载中…" />
+          ) : pendingRequests.length === 0 ? (
+            <EmptyState
+              icon={<Store className="h-8 w-8" />}
+              title="暂无待审批申请"
+              description="当有成员申请订阅硅基员工时，会显示在这里"
+            />
+          ) : (
+            <div className="space-y-4">
+              {pendingRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="rounded-xl border border-border bg-background p-5"
+                >
+                  <div className="flex items-start gap-4">
+                    <Avatar
+                      name={req.employee.name}
+                      src={req.employee.avatar}
+                      className="h-14 w-14 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-foreground">
+                            {req.employee.name}
+                          </p>
+                          <p className="mt-0.5 text-sm text-fg-muted">
+                            申请人：{req.requesterName ?? req.requesterEmail ?? '未知'}
+                          </p>
+                        </div>
+                        <Badge className="shrink-0 bg-warning/10 text-warning">
+                          待审批
+                        </Badge>
+                      </div>
+                      {req.reason && (
+                        <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                          <p className="text-xs font-medium text-fg-muted">使用场景</p>
+                          <p className="mt-1 text-sm leading-relaxed text-foreground">
+                            {req.reason}
+                          </p>
+                        </div>
+                      )}
+                      {req.requestedDays && (
+                        <p className="mt-2 text-xs text-fg-muted">
+                          期望订阅时长：{req.requestedDays} 天
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs text-fg-subtle">
+                        申请时间：{new Date(req.createdAt).toLocaleString('zh-CN')}
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => setApproving(req)}
+                          disabled={approveRequest.isPending || rejectRequest.isPending}
+                        >
+                          通过
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRejecting(req)}
+                          disabled={approveRequest.isPending || rejectRequest.isPending}
+                        >
+                          拒绝
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {/* 解除雇佣确认 */}
       {releasing && (
@@ -396,6 +576,129 @@ export default function SubscriptionsPage() {
 
       {granting && (
         <GrantPanel subscription={granting} onClose={() => setGranting(null)} />
+      )}
+
+      {/* 审批通过 Modal */}
+      {approving && (
+        <Modal
+          title={`通过订阅申请 · ${approving.employee.name}`}
+          onClose={() => {
+            setApproving(null);
+            setReviewNote('');
+            setApprovedDays(undefined);
+          }}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium">
+                审批备注 <span className="text-fg-subtle">(可选)</span>
+              </label>
+              <textarea
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                placeholder="可选：记录审批原因或备注"
+                className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-primary focus:outline-none"
+                rows={3}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium">
+                订阅时长 <span className="text-fg-subtle">(可选)</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: '永久', value: undefined },
+                  { label: '30 天', value: 30 },
+                  { label: '90 天', value: 90 },
+                  { label: '180 天', value: 180 },
+                  { label: '365 天', value: 365 },
+                ].map((opt) => (
+                  <button
+                    key={opt.label}
+                    onClick={() => setApprovedDays(opt.value)}
+                    className={cn(
+                      'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                      approvedDays === opt.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-muted/30 text-fg-muted hover:bg-muted',
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-fg-subtle">
+                不选择则使用申请人期望的时长（{approving.requestedDays ?? '永久'}）
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setApproving(null);
+                  setReviewNote('');
+                  setApprovedDays(undefined);
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApprove}
+                disabled={approveRequest.isPending}
+              >
+                确认通过
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 拒绝 Modal */}
+      {rejecting && (
+        <Modal
+          title={`拒绝订阅申请 · ${rejecting.employee.name}`}
+          onClose={() => {
+            setRejecting(null);
+            setReviewNote('');
+          }}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-danger">
+                拒绝原因 <span className="text-fg-subtle">(必填)</span>
+              </label>
+              <textarea
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                placeholder="请说明拒绝原因，申请人将看到此信息"
+                className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-danger focus:outline-none"
+                rows={4}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setRejecting(null);
+                  setReviewNote('');
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleReject}
+                disabled={!reviewNote.trim() || rejectRequest.isPending}
+              >
+                确认拒绝
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

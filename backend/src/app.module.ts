@@ -25,6 +25,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { SubscriptionRequestModule } from './modules/subscription-request/subscription-request.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
     AnnouncementModule,
     UploadModule,
     WalletModule,
+    SubscriptionRequestModule,
   ],
   controllers: [],
   providers: [],

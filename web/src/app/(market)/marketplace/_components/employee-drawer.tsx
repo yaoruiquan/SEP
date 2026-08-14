@@ -43,6 +43,8 @@ interface EmployeeDrawerProps {
   emp: MarketEmployee | null;
   subscribed: boolean;
   loggedIn: boolean;
+  /** 企业管理员直接订阅；普通成员提交申请 */
+  isAdmin?: boolean;
   subscribing: boolean;
   onSubscribe: () => void;
   onClose: () => void;
@@ -54,6 +56,7 @@ export function EmployeeDrawer({
   emp,
   subscribed,
   loggedIn,
+  isAdmin = true,
   subscribing,
   onSubscribe,
   onClose,
@@ -102,7 +105,7 @@ export function EmployeeDrawer({
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
-        {emp && <DrawerContent emp={emp} subscribed={subscribed} loggedIn={loggedIn} subscribing={subscribing} onSubscribe={onSubscribe} onClose={onClose} />}
+        {emp && <DrawerContent emp={emp} subscribed={subscribed} loggedIn={loggedIn} isAdmin={isAdmin} subscribing={subscribing} onSubscribe={onSubscribe} onClose={onClose} />}
       </div>
     </>
   );
@@ -114,6 +117,7 @@ function DrawerContent({
   emp,
   subscribed,
   loggedIn,
+  isAdmin = true,
   subscribing,
   onSubscribe,
   onClose,
@@ -295,7 +299,7 @@ function DrawerContent({
             disabled={subscribing}
             onClick={onSubscribe}
           >
-            立即订阅
+            {isAdmin ? '立即订阅' : '申请订阅'}
           </Button>
         ) : (
           <Link

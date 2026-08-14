@@ -12,8 +12,13 @@ import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployee } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
+import {
+  useMySubscriptionRequests,
+  useCreateSubscriptionRequest,
+} from '@/features/subscription-request/use-subscription-requests';
 import { toast } from '@/components/ui/toast';
 import { PaymentModal } from '@/components/ui/payment-modal';
+import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
 import { ApiError } from '@/lib/api-client';
 
 // ─── avatar gradient（与卡片/抽屉同一套映射）──────────────────────────────────
@@ -99,8 +104,18 @@ export default function EmployeeDetailPage() {
 
   // 支付弹窗开关。Hook 必须在早退分支之前声明。
   const [payOpen, setPayOpen] = useState(false);
+  // 订阅申请弹窗开关
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
 
   const subscribed = subs.some((s) => s.employee.id === id);
+
+  // 查询我对该员工的订阅申请（仅登录用户）
+  const { data: myRequests = [] } = useMySubscriptionRequests();
+  const hasPendingRequest = myRequests.some(
+    (r) => r.employeeId === id && r.status === 'PENDING'
+  );
+
+  const createRequest = useCreateSubscriptionRequest();
 
   if (isLoading) {
     return (
@@ -194,6 +209,12 @@ export default function EmployeeDetailPage() {
       {/* 二 · 如何获得（前置：访客最想知道的下一步动作） */}
       <GlassSection icon={<Package className="h-4 w-4" />} title="如何获得">
         <div className="flex flex-wrap items-center gap-3">
+          {/* 智能按钮逻辑：
+              - 已订阅 + 已授权 → 已授权使用（禁用）
+              - 已订阅 + 未授权 → 申请授权（AccessRequest 流程，暂未实现）
+              - 未订阅 + 有待审批申请 → 订阅申请审批中（禁用）
+              - 未订阅 + 无待审批申请 → 申请订阅（打开 SubscriptionRequestModal）
+          */}
           {subscribed ? (
             <>
               <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-400">
@@ -205,14 +226,17 @@ export default function EmployeeDetailPage() {
                 <Button variant="glass" size="sm">去分配授权</Button>
               </Link>
             </>
+          ) : hasPendingRequest ? (
+            <Button variant="glass" size="sm" disabled>
+              订阅申请审批中
+            </Button>
           ) : loggedIn ? (
             <Button
               variant="glass-primary"
               size="sm"
-              disabled={subscribe.isPending}
-              onClick={() => setPayOpen(true)}
+              onClick={() => setRequestModalOpen(true)}
             >
-              订阅该员工
+              申请订阅
             </Button>
           ) : (
             <Link href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}>
@@ -335,6 +359,27 @@ export default function EmployeeDetailPage() {
           })
         }
         onClose={() => setPayOpen(false)}
+      />
+
+      {/* ── 订阅申请弹窗 ─────────────────────────────────────────────── */}
+      <SubscriptionRequestModal
+        open={requestModalOpen}
+        emp={emp}
+        submitting={createRequest.isPending}
+        onClose={() => setRequestModalOpen(false)}
+        onSubmit={({ reason, requestedDays }) => {
+          createRequest.mutate(
+            { employeeId: emp.id, reason, requestedDays },
+            {
+              onSuccess: () => {
+                setRequestModalOpen(false);
+                toast.success('订阅申请已提交，等待管理员审批');
+              },
+              onError: (e) =>
+                toast.error(e instanceof ApiError ? e.message : '提交申请失败'),
+            }
+          );
+        }}
       />
     </div>
   );

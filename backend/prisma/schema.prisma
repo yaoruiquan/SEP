@@ -39,7 +39,8 @@ model User {
   uploadedDocuments       Document[]            @relation("DocumentUploader")
   createdTextChunks       TextChunk[]           @relation("TextChunkCreator")
   notifications           Notification[]
-  createdAnnouncements    Announcement[]        @relation("AnnouncementCreator")
+  createdAnnouncements         Announcement[]              @relation("AnnouncementCreator")
+  reviewedSubscriptionRequests SubscriptionRequest[]       @relation("SubscriptionRequestReviewer")
 
   @@map("users")
 }
@@ -80,9 +81,10 @@ model Enterprise {
   customRoles    CustomRole[]
   apiKeys        EnterpriseApiKey[]
   apiCallLogs    ApiCallLog[]
-  invitations    EnterpriseInvitation[]
-  orders         Order[]
-  cartItems      CartItem[]
+  invitations          EnterpriseInvitation[]
+  orders               Order[]
+  cartItems            CartItem[]
+  subscriptionRequests SubscriptionRequest[]
 
   @@map("enterprises")
 }
@@ -154,9 +156,10 @@ model EnterpriseMember {
   updatedAt DateTime @updatedAt
 
   // Relations
-  grants          EmployeeGrant[]
-  requestedAccess AccessRequest[] @relation("AccessRequestRequester")
-  ledDepartments  Department[]    @relation("DepartmentLeader")
+  grants                   EmployeeGrant[]
+  requestedAccess          AccessRequest[]         @relation("AccessRequestRequester")
+  subscriptionRequests     SubscriptionRequest[]   @relation("SubscriptionRequestRequester")
+  ledDepartments           Department[]            @relation("DepartmentLeader")
 
   @@unique([userId, enterpriseId])
   @@index([enterpriseId])
@@ -267,12 +270,13 @@ model DigitalEmployee {
   publishedAt DateTime?
 
   // Relations
-  bindings      EmployeeCapabilityBinding[]
-  subscriptions Subscription[]
-  sessions      ConversationSession[]
-  packages      EmployeePackage[]
-  orderItems    OrderItem[]
-  cartItems     CartItem[]
+  bindings             EmployeeCapabilityBinding[]
+  subscriptions      Subscription[]
+  subscriptionRequests SubscriptionRequest[]
+  sessions             ConversationSession[]
+  packages             EmployeePackage[]
+  orderItems           OrderItem[]
+  cartItems            CartItem[]
 
   @@map("digital_employees")
 }
@@ -633,9 +637,10 @@ model Subscription {
   updatedAt DateTime @updatedAt
 
   // Relations
-  grants          EmployeeGrant[]
-  knowledgeGrants KnowledgeGrant[]
-  accessRequests  AccessRequest[]
+  grants             EmployeeGrant[]
+  knowledgeGrants  KnowledgeGrant[]
+  accessRequests   AccessRequest[]
+  fromRequests     SubscriptionRequest[]
 
   /// 一个企业对同一员工只雇佣一次。收敛后这条约束即是「一员工一雇佣关系」
   /// 的全部含义 —— 部门差异化由 KnowledgeGrant.departmentId 表达，
@@ -643,6 +648,53 @@ model Subscription {
   @@unique([enterpriseId, employeeId])
   @@index([enterpriseId])
   @@map("subscriptions")
+}
+
+/// 订阅申请。普通员工申请订阅硅基员工，管理员审批通过后自动创建订阅并授权。
+model SubscriptionRequest {
+  id String @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 申请人（企业成员）。成员被移出企业后置为 NULL。
+  requesterId String?
+  requester   EnterpriseMember? @relation("SubscriptionRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+
+  /// 申请人身份快照（成员被移除后回填）
+  requesterEmail String?
+  requesterName  String?
+
+  /// 申请订阅的硅基员工模板
+  employeeId String
+  employee   DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 申请理由 / 使用场景说明
+  reason String? @db.Text
+
+  /// 期望订阅时长（天），null = 永久
+  requestedDays Int?
+
+  status RequestStatus @default(PENDING)
+
+  /// 审批人（企业管理员或平台管理员）
+  reviewerId String?
+  reviewer   User?     @relation("SubscriptionRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewNote String?   @db.Text
+  reviewedAt DateTime?
+
+  /// 审批通过后创建的订阅 ID（用于追溯）
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enterpriseId])
+  @@index([requesterId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("subscription_requests")
 }
 
 /// 原 InstanceStatus 的四态并入此处：
@@ -1264,6 +1316,9 @@ enum NotificationType {
   SUCCESS
   WARNING
   ERROR
+  SUBSCRIPTION_REQUEST_CREATED
+  SUBSCRIPTION_REQUEST_APPROVED
+  SUBSCRIPTION_REQUEST_REJECTED
 }
 
 // ============================================================================

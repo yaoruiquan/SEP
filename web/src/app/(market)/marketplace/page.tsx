@@ -10,6 +10,8 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployees } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
 import { useAddToCart } from '@/features/cart/use-cart';
+import { useCreateSubscriptionRequest } from '@/features/subscription-request/use-subscription-requests';
+import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
 import type { MarketEmployee } from '@/lib/types';
 import { EmployeeCard } from './_components/employee-card';
 import { EmployeeDrawer } from './_components/employee-drawer';
@@ -33,8 +35,9 @@ function matchesCategory(emp: MarketEmployee, keyword: string) {
 }
 
 export default function MarketplacePage() {
-  const { token, hydrated } = useAuthStore();
+  const { token, hydrated, roleInEnterprise } = useAuthStore();
   const loggedIn = hydrated && Boolean(token);
+  const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [sort, setSort] = useState<SortMode>('');
@@ -42,6 +45,8 @@ export default function MarketplacePage() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
   const [subscribeSucceeded, setSubscribeSucceeded] = useState(false);
+  // 普通成员的"申请订阅" modal 状态
+  const [requestingEmp, setRequestingEmp] = useState<MarketEmployee | null>(null);
 
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -61,6 +66,7 @@ export default function MarketplacePage() {
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   const subscribe = useSubscribe();
   const addToCart = useAddToCart();
+  const createRequest = useCreateSubscriptionRequest();
   const subscribedIds = useMemo(
     () => new Set(subs.map((s) => s.employee.id)),
     [subs],
@@ -138,11 +144,15 @@ export default function MarketplacePage() {
     : null;
 
   /**
-   * 点「订阅」不直接下单 —— 先弹支付确认，让用户看清价格再掏钱。
-   * 免费员工也走这一步：确认页同时承担「订阅是企业级操作」的告知作用。
+   * 点「订阅/申请订阅」入口。
+   * 管理员 → PaymentModal 直接下单；普通成员 → SubscriptionRequestModal 提交申请。
    */
   function doSubscribe(emp: MarketEmployee) {
-    setPayingEmp(emp);
+    if (isAdmin) {
+      setPayingEmp(emp);
+    } else {
+      setRequestingEmp(emp);
+    }
   }
 
   /** 支付确认后才真正调订阅接口。成功则切换到引导界面，失败留在弹窗里让用户重试。 */
@@ -161,6 +171,23 @@ export default function MarketplacePage() {
   function closePaymentModal() {
     setPayingEmp(null);
     setSubscribeSucceeded(false);
+  }
+
+  /** 普通成员提交订阅申请 */
+  function handleSubmitRequest(data: { reason: string; requestedDays?: number }) {
+    const emp = requestingEmp;
+    if (!emp) return;
+    createRequest.mutate(
+      { employeeId: emp.id, ...data },
+      {
+        onSuccess: () => {
+          toast.success(`已提交「${emp.name}」的订阅申请，等待管理员审批`);
+          setRequestingEmp(null);
+        },
+        onError: (e) =>
+          toast.error(e instanceof ApiError ? e.message : '提交申请失败'),
+      },
+    );
   }
 
   /** 加入购物车 */
@@ -292,7 +319,8 @@ export default function MarketplacePage() {
                     emp={emp}
                     subscribed={subscribedIds.has(emp.id)}
                     loggedIn={loggedIn}
-                    subscribing={subscribe.isPending}
+                    isAdmin={isAdmin}
+                    subscribing={subscribe.isPending || createRequest.isPending}
                     onSubscribe={() => doSubscribe(emp)}
                     onClick={() => setDrawerId(emp.id)}
                     onAddToCart={() => handleAddToCart(emp)}
@@ -310,12 +338,13 @@ export default function MarketplacePage() {
         emp={drawerEmp}
         subscribed={drawerEmp ? subscribedIds.has(drawerEmp.id) : false}
         loggedIn={loggedIn}
-        subscribing={subscribe.isPending}
+        isAdmin={isAdmin}
+        subscribing={subscribe.isPending || createRequest.isPending}
         onSubscribe={() => drawerEmp && doSubscribe(drawerEmp)}
         onClose={() => setDrawerId(null)}
       />
 
-      {/* ── 支付确认 ─────────────────────────────────────────────────── */}
+      {/* ── 支付确认（仅管理员直接订阅） ─────────────────────────────── */}
       {payingEmp && (
         <PaymentModal
           open
@@ -326,6 +355,15 @@ export default function MarketplacePage() {
           onClose={closePaymentModal}
         />
       )}
+
+      {/* ── 申请订阅（普通成员） ─────────────────────────────────────── */}
+      <SubscriptionRequestModal
+        open={Boolean(requestingEmp)}
+        emp={requestingEmp}
+        onClose={() => setRequestingEmp(null)}
+        onSubmit={handleSubmitRequest}
+        submitting={createRequest.isPending}
+      />
     </div>
   );
 }

@@ -1,0 +1,19 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", {
+      "tsconfig": {
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true
+      }
+    }]
+  },
+  "moduleNameMapper": {
+    "^shared$": "<rootDir>/../src/shared",
+    "^ai$": "<rootDir>/mocks/ai.mock.js",
+    "^@ai-sdk/(.*)$": "<rootDir>/mocks/ai-sdk.mock.js"
+  }
+}
