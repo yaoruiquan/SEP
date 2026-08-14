@@ -99,11 +99,10 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: '账务',
+    title: '服务',
     links: [
       { href: '/wallet', label: '企业钱包', icon: Wallet, adminOnly: true },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
-      { href: '/analytics/cost', label: nav.costAnalytics, icon: BarChart3, adminOnly: true },
     ],
   },
 ];

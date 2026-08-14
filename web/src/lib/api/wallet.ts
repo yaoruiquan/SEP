@@ -4,20 +4,20 @@ import { api } from '../api-client';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface WalletBalance {
-  balance: number;
-  frozenAmount: number;
-  totalDeposit: number;
-  totalConsume: number;
-  totalRefund: number;
+  balance: string; // Prisma Decimal 序列化为字符串
+  frozenAmount: string;
+  totalDeposit: string;
+  totalConsume: string;
+  totalRefund: string;
 }
 
 export interface WalletTransaction {
   id: string;
   walletId: string;
   type: 'DEPOSIT' | 'CONSUME' | 'REFUND';
-  amount: number;
-  balanceBefore: number;
-  balanceAfter: number;
+  amount: string; // Prisma Decimal 序列化为字符串
+  balanceBefore: string;
+  balanceAfter: string;
   relatedType?: 'subscription' | 'compute';
   relatedId?: string;
   paymentMethod?: string;

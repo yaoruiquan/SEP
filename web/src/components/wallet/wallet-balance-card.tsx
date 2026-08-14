@@ -73,11 +73,11 @@ export function WalletBalanceCard() {
         <div>
           <p className="text-sm text-gray-600 mb-1">当前余额</p>
           <p className="text-3xl font-bold text-gray-900">
-            ¥{balance.balance.toFixed(2)}
+            ¥{Number(balance.balance).toFixed(2)}
           </p>
-          {balance.frozenAmount > 0 && (
+          {Number(balance.frozenAmount) > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              冻结金额: ¥{balance.frozenAmount.toFixed(2)}
+              冻结金额: ¥{Number(balance.frozenAmount).toFixed(2)}
             </p>
           )}
         </div>
@@ -90,7 +90,7 @@ export function WalletBalanceCard() {
               累计充值
             </div>
             <p className="text-sm font-semibold text-gray-900">
-              ¥{balance.totalDeposit.toFixed(2)}
+              ¥{Number(balance.totalDeposit).toFixed(2)}
             </p>
           </div>
 
@@ -100,7 +100,7 @@ export function WalletBalanceCard() {
               累计消费
             </div>
             <p className="text-sm font-semibold text-gray-900">
-              ¥{balance.totalConsume.toFixed(2)}
+              ¥{Number(balance.totalConsume).toFixed(2)}
             </p>
           </div>
 
@@ -110,7 +110,7 @@ export function WalletBalanceCard() {
               累计退款
             </div>
             <p className="text-sm font-semibold text-gray-900">
-              ¥{balance.totalRefund.toFixed(2)}
+              ¥{Number(balance.totalRefund).toFixed(2)}
             </p>
           </div>
         </div>

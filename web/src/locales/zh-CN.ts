@@ -131,7 +131,6 @@ export const nav = {
   permissions: '权限管理',
   knowledge: knowledge.management,
   usage: '用量统计',
-  costAnalytics: '成本分析',
   personalSettings: '个人设置',
 } as const;
 

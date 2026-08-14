@@ -22,7 +22,7 @@ export interface ComputeTransaction {
 }
 
 export interface ComputeStats {
-  balance: number;
+  balance: string; // Decimal as string from wallet
   todayConsume: number;
   monthConsume: number;
   trendData: Array<{ date: string; amount: number }>;
@@ -116,6 +116,92 @@ export function useRecharge() {
       queryClient.invalidateQueries({ queryKey: ['compute', 'account'] });
       queryClient.invalidateQueries({ queryKey: ['compute', 'stats'] });
       queryClient.invalidateQueries({ queryKey: ['compute', 'transactions'] });
+    },
+  });
+}
+
+// ── Consumption Logs ───────────────────────────────────────────────────────
+
+export interface ConsumptionLogDetail {
+  sessionId?: string;
+  conversationTitle?: string;
+  tokenCount?: number;
+  modelName?: string;
+  subscriptionId?: string;
+  planName?: string;
+  billingCycle?: string;
+}
+
+export interface ConsumptionLog {
+  id: string;
+  createdAt: string;
+  type: 'COMPUTE' | 'SUBSCRIPTION';
+  amount: string;
+  employeeName: string;
+  employeeId: string;
+  memberName: string | null;
+  memberId: string | null;
+  detail: ConsumptionLogDetail;
+}
+
+export interface ConsumptionLogQuery {
+  type?: 'COMPUTE' | 'SUBSCRIPTION';
+  employeeId?: string;
+  memberId?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ConsumptionLogResponse {
+  logs: ConsumptionLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface TopConsumer {
+  employeeId: string;
+  employeeName: string;
+  employeeAvatar: string | null;
+  totalAmount: string;
+  callCount: number;
+  percentage: number;
+}
+
+export interface TopConsumersResponse {
+  consumers: TopConsumer[];
+  totalAmount: string;
+}
+
+export function useConsumptionLogs(query: ConsumptionLogQuery) {
+  return useQuery<ConsumptionLogResponse>({
+    queryKey: ['compute', 'consumption-logs', query],
+    queryFn: () => {
+      const sp = new URLSearchParams();
+      if (query.type) sp.append('type', query.type);
+      if (query.employeeId) sp.append('employeeId', query.employeeId);
+      if (query.memberId) sp.append('memberId', query.memberId);
+      if (query.startDate) sp.append('startDate', query.startDate);
+      if (query.endDate) sp.append('endDate', query.endDate);
+      if (query.page) sp.append('page', query.page.toString());
+      if (query.pageSize) sp.append('pageSize', query.pageSize.toString());
+
+      const qs = sp.toString();
+      return api.get(`/compute/consumption-logs${qs ? `?${qs}` : ''}`);
+    },
+  });
+}
+
+export function useTopConsumers(limit = 5) {
+  return useQuery<TopConsumersResponse>({
+    queryKey: ['compute', 'top-consumers', limit],
+    queryFn: () => {
+      const sp = new URLSearchParams();
+      sp.append('limit', limit.toString());
+      return api.get(`/compute/top-consumers?${sp.toString()}`);
     },
   });
 }

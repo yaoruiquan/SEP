@@ -180,10 +180,10 @@ function TransactionItem({ transaction }: { transaction: any }) {
       </div>
       <div className="text-right">
         <p className={`text-sm font-semibold ${colorClass}`}>
-          {isPositive ? '+' : ''}¥{Math.abs(transaction.amount).toFixed(2)}
+          {isPositive ? '+' : ''}¥{Math.abs(Number(transaction.amount)).toFixed(2)}
         </p>
         <p className="text-xs text-gray-500">
-          余额 ¥{transaction.balanceAfter.toFixed(2)}
+          余额 ¥{Number(transaction.balanceAfter).toFixed(2)}
         </p>
       </div>
     </div>

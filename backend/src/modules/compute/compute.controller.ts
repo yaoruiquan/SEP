@@ -15,6 +15,8 @@ import { RechargeCreateDtoSchema, type RechargeCreateDto } from 'shared';
 import { ComputeService } from './compute.service';
 import { CreateRechargeOrderDtoSchema } from './dto/recharge.dto';
 import type { CreateRechargeOrderDto } from './dto/recharge.dto';
+import { ConsumptionLogQuerySchema } from './dto/consumption-log.dto';
+import type { ConsumptionLogQuery } from './dto/consumption-log.dto';
 
 type AuthedRequest = { user: { id: string } };
 
@@ -103,5 +105,44 @@ export class ComputeController {
       paidAt: order.paidAt,
       createdAt: order.createdAt,
     };
+  }
+
+  @Get('consumption-logs')
+  @ApiOperation({ summary: '获取消费日志（算力+订阅，支持多维度筛选）' })
+  @ApiResponse({ status: 200, description: '消费日志列表' })
+  async getConsumptionLogs(
+    @Request() req: AuthedRequest,
+    @Query('type') type?: 'COMPUTE' | 'SUBSCRIPTION',
+    @Query('employeeId') employeeId?: string,
+    @Query('memberId') memberId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const query: ConsumptionLogQuery = {
+      type,
+      employeeId,
+      memberId,
+      startDate,
+      endDate,
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20,
+    };
+
+    return this.compute.getConsumptionLogs(req.user.id, query);
+  }
+
+  @Get('top-consumers')
+  @ApiOperation({ summary: '获取 Top 消费员工排行（最近30天算力消费）' })
+  @ApiResponse({ status: 200, description: 'Top 消费者列表' })
+  async getTopConsumers(
+    @Request() req: AuthedRequest,
+    @Query('limit') limit?: string,
+  ) {
+    return this.compute.getTopConsumers(
+      req.user.id,
+      limit ? parseInt(limit, 10) : 5,
+    );
   }
 }

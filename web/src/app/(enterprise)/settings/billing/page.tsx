@@ -35,8 +35,9 @@ import { zhCN } from 'date-fns/locale';
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmtAmount(n: number) {
-  return (n / 100).toFixed(4); // stored as micro-units, display as 算力
+function fmtAmount(n: number | string) {
+  const num = typeof n === 'string' ? Number(n) : n;
+  return (num / 100).toFixed(4); // stored as micro-units, display as 算力
 }
 
 function txBadge(type: ComputeTransaction['type']) {
