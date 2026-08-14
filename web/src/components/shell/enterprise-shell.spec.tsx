@@ -6,12 +6,11 @@ import { useAuthStore } from '@/lib/auth-store';
 // 断言引用文案单一来源，避免文案调整后测试与实现漂移
 import { nav } from '@/locales/zh-CN';
 
-// next/navigation 在测试环境没有 router 上下文。
-// usePathname：NavItem 用它判高亮。
-// useRouter：外壳里的 CartButton 在渲染期就调用，缺了会直接抛错。
+// next/navigation 在测试环境没有 router 上下文：NavItem 用 usePathname 判高亮，
+// 顶栏里的 CartButton 用 useRouter 跳购物车 —— 少 mock 一个整个 shell 都渲染不出来。
 vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }));
 
 // logout 会发请求，这里只关心导航渲染

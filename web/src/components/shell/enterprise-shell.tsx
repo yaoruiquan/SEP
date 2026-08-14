@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
@@ -124,9 +125,20 @@ const CRUMBS: CrumbMap = {
   edit: '编辑',
 };
 
+/**
+ * 这些路由自己管理高度与滚动（聊天窗口需要输入框固定在底部），
+ * 内容区不能再加 p-6，也不能是滚动容器 —— 否则会把子元素顶出视口。
+ */
+const FULL_HEIGHT_ROUTES = ['/chat'];
+
 export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const { user, enterprise, roleInEnterprise } = useAuthStore();
+  const pathname = usePathname();
   const logout = useLogout();
+
+  const isFullHeight = FULL_HEIGHT_ROUTES.some(
+    (r) => pathname === r || pathname?.startsWith(`${r}/`),
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -269,8 +281,16 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* 内容区是滚动容器 —— sticky 顶栏必须是它的直接子元素才能吸住 */}
-      <main className="flex-1 overflow-y-auto scroll-thin">
+      {/* 内容区是滚动容器 —— sticky 顶栏必须是它的直接子元素才能吸住。
+          全高路由例外：由页面自己管理滚动，这里只做不滚动的 flex 容器。 */}
+      <main
+        className={cn(
+          'flex-1 min-w-0',
+          isFullHeight
+            ? 'flex h-full flex-col overflow-hidden'
+            : 'overflow-y-auto scroll-thin',
+        )}
+      >
         <ShellTopbar
           crumbs={CRUMBS}
           rootLabel="工作台"
@@ -290,7 +310,11 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           <CartButton />
           <NotificationBell />
         </ShellTopbar>
-        <div className="p-6">{children}</div>
+        {isFullHeight ? (
+          <div className="min-h-0 flex-1">{children}</div>
+        ) : (
+          <div className="p-6">{children}</div>
+        )}
       </main>
     </AuroraBackground>
   );

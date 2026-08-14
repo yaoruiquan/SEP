@@ -8,6 +8,10 @@ export const qk = {
   employeePackages: (id: string) =>
     ['digital-employees', id, 'packages'] as const,
   subscriptions: ['subscriptions'] as const,
+  // 拍平成员工形状的订阅列表（聊天页的员工选择器用）。必须与 subscriptions
+  // 分开缓存 —— 同 key 不同形状会互相覆盖：谁先加载谁赢，另一方读到的
+  // 对象缺字段（头像变 ?、id 变订阅 id 导致去重失效和路由到错员工）。
+  subscribedEmployees: ['subscriptions', 'as-employees'] as const,
   // 人才市场（公开接口，与管理端 employees 分开缓存 —— 字段不同）
   marketEmployees: (search: string) => ['market', 'employees', search] as const,
   marketEmployee: (id: string) => ['market', 'employees', id] as const,

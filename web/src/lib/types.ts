@@ -98,12 +98,34 @@ export interface ToolCallRecord {
   [key: string]: unknown;
 }
 
+export type AttachmentType = 'image' | 'document' | 'video';
+
+/**
+ * 消息附件 —— 与后端 `MessageAttachmentSchema` 一一对应。
+ *
+ * `key` 是存储对象的永久标识，`url` 是有时效的签名链接。会话详情接口每次
+ * 读取都会按 key 重签 url，所以渲染时直接用 url；只有长时间停留在页面上
+ * 才可能过期，那时用 key 走 `POST /upload/refresh-url` 重取。
+ */
+export interface MessageAttachment {
+  type: AttachmentType;
+  key: string;
+  url: string;
+  name: string;
+  size: number;
+  mimeType?: string;
+}
+
 export interface Message {
   id: string;
   role: 'USER' | 'ASSISTANT' | 'TOOL';
   content: string;
   toolCalls?: ToolCallRecord[] | null;
   knowledgeSources?: KnowledgeSource[] | null;
+  /** 多模态附件（仅用户消息） */
+  attachments?: MessageAttachment[] | null;
+  /** 多员工协作：实际处理该消息的员工 ID，缺失时归属会话默认员工 */
+  metadata?: { handledBy?: string } | null;
   createdAt: string;
 }
 

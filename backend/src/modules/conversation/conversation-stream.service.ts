@@ -22,8 +22,11 @@ import {
   calculateCost,
   parseUsdToCnyRate,
   SETTING_KEYS,
+  type MessageAttachment,
 } from "shared";
 import { SettingService } from "../setting/setting.service";
+import { UploadService } from "../upload/upload.service";
+import { AttachmentContextService } from "./attachment-context.service";
 import {
   SseEvent,
   ModelMessage,
@@ -47,6 +50,8 @@ export class ConversationStreamService {
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly knowledgeSearch: KnowledgeSearchService,
     private readonly modelConfig: EnterpriseModelConfigService,
+    private readonly uploadService: UploadService,
+    private readonly attachmentContext: AttachmentContextService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -56,6 +61,7 @@ export class ConversationStreamService {
     content: string,
     userId: string,
     targetEmployeeId?: string, // 指定处理该消息的员工（多员工协作）
+    attachments?: MessageAttachment[], // 多模态附件（图片/文档/视频）
   ): AsyncGenerator<SseEvent> {
     // 1. 验证会话归属 + 加载 employee 配置
     const session = await this.prisma.conversationSession.findUnique({
@@ -83,6 +89,16 @@ export class ConversationStreamService {
 
     if (!session) throw new NotFoundException(`Session ${sessionId} not found`);
     if (session.userId !== userId) throw new ForbiddenException();
+
+    // 附件归属校验：attachments 是前端回传的，必须确认这些存储键属于本人，
+    // 否则可以借发消息引用他人文件（前缀含 userId，见 StorageService.buildKey）
+    const safeAttachments = attachments ?? [];
+    if (safeAttachments.length > 0) {
+      await this.uploadService.assertOwnership(
+        safeAttachments.map((a) => a.key),
+        userId,
+      );
+    }
 
     // 🆕 多员工协作：如果指定了 targetEmployeeId，切换到目标员工
     let activeEmployee = session.employee;
@@ -125,6 +141,11 @@ export class ConversationStreamService {
 
     const employee = activeEmployee;
 
+    // 逐条消息记录实际处理者。无条件写入（而非仅在切换时写）：
+    // 前端要按作者渲染每条气泡，"缺失即默认员工"的隐式约定会让
+    // 历史记录在会话默认员工变化后错误归属。
+    const handledByMetadata = { handledBy: actualEmployeeId } as unknown as object;
+
     // 1a. 解析企业上下文（用于预算检查 + 模型解析，仅解析一次）
     const enterpriseCtx = await this.enterpriseContext.resolve(userId);
 
@@ -148,16 +169,16 @@ export class ConversationStreamService {
     const lockValue = await this.sessionLockService.acquireLock(sessionId);
 
     try {
-      // 3. 持久化用户消息（标记实际处理者）
+      // 3. 持久化用户消息（标记实际处理者 + 附件）
       await this.prisma.message.create({
         data: {
           sessionId,
           role: "USER",
           content,
-          // 🆕 如果切换了员工，记录实际处理者（前端可据此显示"@员工名"标签）
-          metadata:
-            actualEmployeeId !== session.employeeId
-              ? ({ handledBy: actualEmployeeId } as unknown as object)
+          metadata: handledByMetadata,
+          attachments:
+            safeAttachments.length > 0
+              ? (safeAttachments as unknown as object[])
               : undefined,
         },
       });
@@ -165,6 +186,8 @@ export class ConversationStreamService {
       // 4. 加载历史消息（最近 20 条，已含刚写入的本轮用户消息）
       // 注意：本轮用户消息在上一步已落库，loadMessages 会把它一并读出，
       // 所以这里不能再 push 一次 —— 否则模型会连续看到两条一样的用户消息。
+      // 只有最后一条（本轮）带图片字节：历史图片每轮重传会线性推高 input token，
+      // 而且多数上游对历史图片并不敏感，退化成文件名说明足够。
       const messages = await this.loadMessages(sessionId, 20);
 
       // 5. 构建工具映射
@@ -182,8 +205,9 @@ export class ConversationStreamService {
         knowledgeBaseId: string;
       }> = [];
 
-      // 只有当雇佣关系存在时才进行知识库检索
-      if (subscriptionId) {
+      // 只有当雇佣关系存在、且有查询文本时才检索知识库
+      // （纯附件消息 content 为空，空串检索没有意义还会白跑一次 embedding）
+      if (subscriptionId && content.trim().length > 0) {
         try {
           const searchResult = await this.knowledgeSearch.search(
             content,
@@ -361,6 +385,7 @@ export class ConversationStreamService {
               sessionId,
               role: "ASSISTANT",
               content: "❌ 对话生成失败,请稍后重试",
+              metadata: handledByMetadata,
             },
           });
           break; // 中断循环
@@ -422,6 +447,7 @@ export class ConversationStreamService {
                 knowledgeSources.length > 0
                   ? (knowledgeSources as unknown as object)
                   : null,
+              metadata: handledByMetadata,
             },
           });
 
@@ -466,6 +492,7 @@ export class ConversationStreamService {
             role: "ASSISTANT",
             content: accumulatedText,
             toolCalls: storedToolCalls as unknown as object,
+            metadata: handledByMetadata,
           },
         });
 
@@ -595,6 +622,7 @@ export class ConversationStreamService {
             content: fallbackContent,
             inputTokens: null,
             outputTokens: null,
+            metadata: handledByMetadata,
           },
         });
         yield { event: "done", data: { messageId: saved.id, usage: {} } };
@@ -623,14 +651,45 @@ export class ConversationStreamService {
       where: { sessionId },
       orderBy: { createdAt: "desc" },
       take: limit,
-      select: { role: true, content: true, toolCalls: true },
+      select: {
+        role: true,
+        content: true,
+        toolCalls: true,
+        attachments: true,
+      },
     });
 
     rows.reverse(); // 最早的在前
     const messages: ModelMessage[] = [];
+    // 最后一条用户消息即本轮 —— 只有它带图片字节
+    const lastUserIndex = rows.reduce(
+      (acc, row, i) => (row.role === "USER" ? i : acc),
+      -1,
+    );
 
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
       if (row.role === "USER") {
+        const attachments = (row.attachments ?? []) as unknown as
+          | MessageAttachment[]
+          | null;
+
+        if (attachments && attachments.length > 0) {
+          const ctx = await this.attachmentContext.build(attachments, {
+            includeImageBytes: index === lastUserIndex,
+          });
+          if (ctx.parts.length > 0) {
+            // 文本部件放最前，附件跟在后面 —— 模型更容易把问题与材料对应上
+            const parts = row.content
+              ? [{ type: "text" as const, text: row.content }, ...ctx.parts]
+              : ctx.parts;
+            messages.push({
+              role: "user",
+              content: parts as never,
+            });
+            continue;
+          }
+        }
+
         messages.push({ role: "user", content: row.content });
       } else if (row.role === "ASSISTANT") {
         if (row.toolCalls) {

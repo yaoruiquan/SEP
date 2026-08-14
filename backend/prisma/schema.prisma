@@ -694,6 +694,10 @@ model Message {
   // Knowledge sources (RAG - stores retrieved knowledge chunks used in this response)
   knowledgeSources Json?
 
+  // 多模态附件（用户消息）：[{ type, key, url, name, size, mimeType }]
+  // key 是存储对象的永久标识，url 是签名链接（有时效），过期后按 key 重签
+  attachments Json?
+
   // Token usage (for billing)
   inputTokens  Int?
   outputTokens Int?
