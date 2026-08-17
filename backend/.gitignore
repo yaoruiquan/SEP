@@ -1,2 +1,3 @@
 # 上传的员工包 —— 运行时数据，不入库
-storage/
+# 注意：锚定到 backend/ 顶层，避免误伤源码目录 src/modules/upload/storage/
+/storage/
