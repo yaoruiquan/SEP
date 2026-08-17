@@ -59,6 +59,12 @@ services:
       # 文件上传
       - UPLOAD_PATH=/app/uploads
 
+      # 支付宝回调地址（生产）
+      - API_BASE_URL=https://longdaoSEP.cn/api
+      - WEB_BASE_URL=https://longdaoSEP.cn
+      - FRONTEND_URL=https://longdaoSEP.cn
+      - ALIPAY_SANDBOX_MODE=false
+
       # 时区
       - TZ=Asia/Shanghai
 

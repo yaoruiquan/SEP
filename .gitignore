@@ -48,3 +48,6 @@ packages/database/migrations/
 !packages/database/migrations/.gitkeep
 # Added by code-review-graph
 .code-review-graph/
+
+# Secrets —— 含真实生产密钥（应用私钥明文）的脚本，禁止提交
+backend/scripts/switch-to-production-alipay.sql

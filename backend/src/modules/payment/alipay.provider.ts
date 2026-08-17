@@ -40,6 +40,9 @@ export class AlipayProvider {
       gateway: config.gateway || 'https://openapi.alipay.com/gateway.do',
       charset: 'utf-8',
       signType: 'RSA2',
+      // 应用私钥为 PKCS#8（Alipay 开放平台标准格式），用 PRIVATE KEY 头包裹；
+      // 否则 SDK 默认用 RSA PRIVATE KEY 头，在较严格的 OpenSSL 上会解析失败。
+      keyType: 'PKCS8',
     });
 
     this.logger.log('支付宝 SDK 已初始化');

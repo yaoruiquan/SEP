@@ -160,6 +160,15 @@ export class PaymentService {
    * 处理支付宝异步通知（幂等）- 支持订单支付和充值支付
    */
   async handleAlipayNotify(postData: Record<string, any>) {
+    // 0. 确保 SDK 已初始化：异步通知可能先于任何下单请求到达（如后端重启后），
+    //    否则 verifyNotify 会因 SDK 未初始化抛异常导致 500，回调永远失败。
+    try {
+      await this.initializeAlipay();
+    } catch (error) {
+      this.logger.error('支付宝 SDK 初始化失败，无法校验通知', error);
+      return { success: false, message: '支付宝配置初始化失败' };
+    }
+
     // 1. 验证签名
     const isValid = this.alipayProvider.verifyNotify(postData);
     if (!isValid) {
