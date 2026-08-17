@@ -31,6 +31,12 @@ export class SubscriptionRequestResponseDto {
   @ApiProperty({ enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] })
   status: string;
 
+  @ApiProperty({
+    enum: ['SUBSCRIBE', 'GRANT'],
+    description: '申请类型：SUBSCRIBE=订阅（付费）；GRANT=授权（免费）',
+  })
+  kind: string;
+
   @ApiProperty()
   reviewerId: string | null;
 

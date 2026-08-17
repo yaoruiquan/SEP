@@ -444,6 +444,8 @@ export interface SubscriptionRequest {
   reason: string | null;
   requestedDays: number | null;
   status: RequestStatus;
+  /** 申请类型：SUBSCRIBE=订阅（付费）；GRANT=授权（免费） */
+  kind: 'SUBSCRIBE' | 'GRANT';
   reviewerId: string | null;
   reviewer: { id: string; name: string | null; email: string } | null;
   reviewNote: string | null;

@@ -221,10 +221,11 @@ export function useDeleteGrant() {
 
 // ── 我的硅基员工 ─────────────────────────────────────────────────────────────────
 
-export function useMyEmployees() {
+export function useMyEmployees(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: qk.myEmployees,
     queryFn: () => api.get<MyEmployee[]>('/enterprise/my-employees'),
+    enabled: options?.enabled ?? true,
   });
 }
 

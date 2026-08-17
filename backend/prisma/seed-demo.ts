@@ -479,13 +479,13 @@ async function main() {
     where: {
       userId_enterpriseId: {
         userId: bossAcme.id,
-        enterpriseId: enterpriseAcme.id,
+        enterpriseId: acmeEnterprise.id,
       },
     },
     update: {},
     create: {
       userId: bossAcme.id,
-      enterpriseId: enterpriseAcme.id,
+      enterpriseId: acmeEnterprise.id,
       totalTokens: 50_000,
       usedTokens: 0,
       status: 'ACTIVE',
@@ -499,13 +499,13 @@ async function main() {
     where: {
       userId_enterpriseId: {
         userId: staffAcme.id,
-        enterpriseId: enterpriseAcme.id,
+        enterpriseId: acmeEnterprise.id,
       },
     },
     update: {},
     create: {
       userId: staffAcme.id,
-      enterpriseId: enterpriseAcme.id,
+      enterpriseId: acmeEnterprise.id,
       totalTokens: 30_000,
       usedTokens: 0,
       status: 'ACTIVE',
@@ -518,7 +518,7 @@ async function main() {
   // 9.2 订阅配额（硅基员工自带 - Priority 1）
   // 为已创建的订阅添加配额
   const acmeSubscriptions = await prisma.subscription.findMany({
-    where: { enterpriseId: enterpriseAcme.id },
+    where: { enterpriseId: acmeEnterprise.id },
   });
 
   for (const sub of acmeSubscriptions) {
@@ -527,7 +527,7 @@ async function main() {
       update: {},
       create: {
         subscriptionId: sub.id,
-        enterpriseId: enterpriseAcme.id,
+        enterpriseId: acmeEnterprise.id,
         totalTokens: 100_000,
         usedTokens: 0,
         status: 'ACTIVE',
@@ -542,7 +542,7 @@ async function main() {
     update: {},
     create: {
       id: 'demo-quota-acme-standard',
-      enterpriseId: enterpriseAcme.id,
+      enterpriseId: acmeEnterprise.id,
       type: 'STANDARD',
       totalTokens: 1_000_000,
       usedTokens: 0,
@@ -557,7 +557,7 @@ async function main() {
     update: {},
     create: {
       id: 'demo-quota-globex-standard',
-      enterpriseId: enterpriseGlobex.id,
+      enterpriseId: globexEnterprise.id,
       type: 'STANDARD',
       totalTokens: 500_000,
       usedTokens: 0,

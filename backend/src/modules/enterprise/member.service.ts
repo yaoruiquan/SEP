@@ -220,11 +220,11 @@ export class MemberService {
    *
    *   回收（跟人走的授权，必须立即失效）
    *     · EmployeeGrant 中 memberId = 本人的记录 —— 个人席位
-   *     · PENDING 的 AccessRequest —— 非成员的申请无从批准，置为 CANCELED
+   *     · PENDING 的 SubscriptionRequest —— 非成员的申请无从批准，置为 CANCELED
    *     · 其所主管的部门 —— leaderId 置空，并在响应里报出待重新指派
    *
    *   保留（留在企业，这正是会议强调的"员工走了，东西全部沉淀在我这里"）
-   *     · 已审批的 AccessRequest 及审批结论 —— 审计链
+   *     · 已审批的 SubscriptionRequest 及审批结论 —— 审计链
    *     · 知识库、文档、技能覆写 —— 挂在 Enterprise 上，与成员身份无关
    *     · 会话与工作记录 —— 挂在 User 上，User 不删
    *
@@ -329,19 +329,10 @@ export class MemberService {
     const memberId = member.id;
 
     return this.prisma.$transaction(async (tx) => {
-      // 身份快照必须在删除**之前**写入：删除后 requesterId 已被
-      // SetNull 置空，再也定位不到这些行是谁的。
-      await tx.accessRequest.updateMany({
-        where: { requesterId: memberId },
-        data: {
-          requesterEmail: member.user.email,
-          requesterName: member.user.name,
-        },
-      });
-
-      // 待审批的申请随人一起终结 —— 留着会让审批人批出一条
-      // memberId 为空的悬空授权。
-      const canceled = await tx.accessRequest.updateMany({
+      // 待审批的使用申请随人一起终结 —— 留着会让审批人批出一条
+      // requesterId 为空的悬空申请。已审批的保留：requesterId 已被
+      // SetNull 置空，但 requesterEmail/Name 快照在创建时已写入，审计链不断。
+      const canceled = await tx.subscriptionRequest.updateMany({
         where: { requesterId: memberId, status: "PENDING" },
         data: { status: "CANCELED" },
       });

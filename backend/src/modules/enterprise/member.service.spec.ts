@@ -53,7 +53,7 @@ describe('MemberService', () => {
         ),
         delete: jest.fn().mockResolvedValue({}),
       },
-      accessRequest: {
+      subscriptionRequest: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       employeeGrant: {
@@ -395,47 +395,25 @@ describe('MemberService', () => {
       expect(where.departmentId).toBeUndefined();
     });
 
-    it('❗审批历史保留，申请人身份转为快照 —— 沉淀不能随人消失', async () => {
+    it('❗审批历史保留：只取消 PENDING，已审批的申请不动', async () => {
       prisma.enterpriseMember.findUnique.mockResolvedValue(staff);
 
       await svc.remove('u1', 'mem-staff');
 
-      expect(tx.accessRequest.updateMany).toHaveBeenCalledWith({
-        where: { requesterId: 'mem-staff' },
-        data: { requesterEmail: 'staff@acme.local', requesterName: '张三' },
+      // 只把 PENDING 置为 CANCELED，从不删除申请行 —— 已审批的沉淀保留
+      expect(tx.subscriptionRequest.updateMany).toHaveBeenCalledWith({
+        where: { requesterId: 'mem-staff', status: 'PENDING' },
+        data: { status: 'CANCELED' },
       });
-    });
-
-    it('❗快照必须写在删除之前，否则 requesterId 已被置空、再也定位不到', async () => {
-      prisma.enterpriseMember.findUnique.mockResolvedValue(staff);
-      const order: string[] = [];
-      tx.accessRequest.updateMany.mockImplementation(() => {
-        order.push('snapshot');
-        return Promise.resolve({ count: 0 });
-      });
-      tx.enterpriseMember.delete.mockImplementation(() => {
-        order.push('delete');
-        return Promise.resolve({});
-      });
-
-      await svc.remove('u1', 'mem-staff');
-
-      expect(order[0]).toBe('snapshot');
-      expect(order[order.length - 1]).toBe('delete');
+      expect(tx.subscriptionRequest.deleteMany).toBeUndefined();
     });
 
     it('待审批的申请置为 CANCELED —— 非成员的申请无从批准', async () => {
       prisma.enterpriseMember.findUnique.mockResolvedValue(staff);
-      tx.accessRequest.updateMany
-        .mockResolvedValueOnce({ count: 5 }) // 快照
-        .mockResolvedValueOnce({ count: 2 }); // 取消 PENDING
+      tx.subscriptionRequest.updateMany.mockResolvedValueOnce({ count: 2 });
 
       const res = await svc.remove('u1', 'mem-staff');
 
-      expect(tx.accessRequest.updateMany).toHaveBeenCalledWith({
-        where: { requesterId: 'mem-staff', status: 'PENDING' },
-        data: { status: 'CANCELED' },
-      });
       expect(res.canceledRequests).toBe(2);
     });
 
@@ -496,14 +474,14 @@ describe('MemberService', () => {
       expect(res.enterprise).toEqual({ id: 'ent-acme', name: '示例科技' });
     });
 
-    it('❗审批历史照样保留快照 —— 主动离职不等于可以抹掉沉淀', async () => {
+    it('❗审批历史照样保留 —— 主动离职只取消 PENDING，不动已审批沉淀', async () => {
       prisma.enterpriseMember.findUnique.mockResolvedValue(self);
 
       await svc.leaveEnterprise('u1');
 
-      expect(tx.accessRequest.updateMany).toHaveBeenCalledWith({
-        where: { requesterId: 'mem-boss' },
-        data: { requesterEmail: 'me@acme.local', requesterName: '我' },
+      expect(tx.subscriptionRequest.updateMany).toHaveBeenCalledWith({
+        where: { requesterId: 'mem-boss', status: 'PENDING' },
+        data: { status: 'CANCELED' },
       });
     });
 

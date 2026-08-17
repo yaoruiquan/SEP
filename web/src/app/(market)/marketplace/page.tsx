@@ -9,8 +9,10 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployees } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
+import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useAddToCart } from '@/features/cart/use-cart';
-import { useCreateSubscriptionRequest } from '@/features/subscription-request/use-subscription-requests';
+import { useCreateSubscriptionRequest, useMySubscriptionRequests } from '@/features/subscription-request/use-subscription-requests';
+import { MyRequestsModal } from '@/features/subscription-request/my-requests-modal';
 import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
 import type { MarketEmployee } from '@/lib/types';
 import { EmployeeCard } from './_components/employee-card';
@@ -47,6 +49,15 @@ export default function MarketplacePage() {
   const [subscribeSucceeded, setSubscribeSucceeded] = useState(false);
   // 普通成员的"申请订阅" modal 状态
   const [requestingEmp, setRequestingEmp] = useState<MarketEmployee | null>(null);
+  // 「我的申请」弹窗
+  const [myRequestsOpen, setMyRequestsOpen] = useState(false);
+
+  // 我的申请（用于角标显示待审批数）
+  const { data: myRequests = [] } = useMySubscriptionRequests({ enabled: loggedIn });
+  const pendingRequestCount = useMemo(
+    () => myRequests.filter((r) => r.status === 'PENDING').length,
+    [myRequests],
+  );
 
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -64,12 +75,18 @@ export default function MarketplacePage() {
 
   // 订阅列表需登录 —— 访客不请求，否则每次都白跑一轮 401 + refresh
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
+  // 我已获授权的员工（用于区分「企业已订阅」与「我可用」）
+  const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
   const subscribe = useSubscribe();
   const addToCart = useAddToCart();
   const createRequest = useCreateSubscriptionRequest();
   const subscribedIds = useMemo(
     () => new Set(subs.map((s) => s.employee.id)),
     [subs],
+  );
+  const grantedToMeIds = useMemo(
+    () => new Set(myEmployees.map((m) => m.employee.id)),
+    [myEmployees],
   );
 
   function patchFilters(next: Partial<FilterState>) {
@@ -181,7 +198,7 @@ export default function MarketplacePage() {
       { employeeId: emp.id, ...data },
       {
         onSuccess: () => {
-          toast.success(`已提交「${emp.name}」的订阅申请，等待管理员审批`);
+          toast.success(`已提交「${emp.name}」的使用申请，等待管理员审批`);
           setRequestingEmp(null);
         },
         onError: (e) =>
@@ -236,13 +253,28 @@ export default function MarketplacePage() {
       {/* ── tabs ─────────────────────────────────────────────────────── */}
       <div className="flex items-end justify-between gap-4 border-b border-glassline">
         <CategoryTabs active={activeTab} onChange={handleTab} />
-        <button
-          onClick={() => setMobileFilterOpen((v) => !v)}
-          className="mb-2 flex shrink-0 items-center gap-1.5 rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary transition-colors hover:text-gtext-primary lg:hidden"
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          筛选
-        </button>
+        <div className="mb-2 flex shrink-0 items-center gap-2">
+          {loggedIn && (
+            <button
+              onClick={() => setMyRequestsOpen(true)}
+              className="flex items-center gap-1.5 rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary transition-colors hover:text-gtext-primary"
+            >
+              我的申请
+              {pendingRequestCount > 0 && (
+                <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-white">
+                  {pendingRequestCount}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => setMobileFilterOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary transition-colors hover:text-gtext-primary lg:hidden"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            筛选
+          </button>
+        </div>
       </div>
 
       {/* ── body: filter + grid ──────────────────────────────────────── */}
@@ -318,6 +350,7 @@ export default function MarketplacePage() {
                     key={emp.id}
                     emp={emp}
                     subscribed={subscribedIds.has(emp.id)}
+                    grantedToMe={grantedToMeIds.has(emp.id)}
                     loggedIn={loggedIn}
                     isAdmin={isAdmin}
                     subscribing={subscribe.isPending || createRequest.isPending}
@@ -337,6 +370,7 @@ export default function MarketplacePage() {
       <EmployeeDrawer
         emp={drawerEmp}
         subscribed={drawerEmp ? subscribedIds.has(drawerEmp.id) : false}
+        grantedToMe={drawerEmp ? grantedToMeIds.has(drawerEmp.id) : false}
         loggedIn={loggedIn}
         isAdmin={isAdmin}
         subscribing={subscribe.isPending || createRequest.isPending}
@@ -364,6 +398,9 @@ export default function MarketplacePage() {
         onSubmit={handleSubmitRequest}
         submitting={createRequest.isPending}
       />
+
+      {/* ── 我的申请（申请记录 + 审批状态） ──────────────────────────── */}
+      <MyRequestsModal open={myRequestsOpen} onClose={() => setMyRequestsOpen(false)} />
     </div>
   );
 }

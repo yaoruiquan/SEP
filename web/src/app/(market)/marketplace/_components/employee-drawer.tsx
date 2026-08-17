@@ -43,6 +43,8 @@ interface EmployeeDrawerProps {
   emp: MarketEmployee | null;
   subscribed: boolean;
   loggedIn: boolean;
+  /** 当前成员是否已被授权使用（仅普通成员视角有意义） */
+  grantedToMe?: boolean;
   /** 企业管理员直接订阅；普通成员提交申请 */
   isAdmin?: boolean;
   subscribing: boolean;
@@ -56,6 +58,7 @@ export function EmployeeDrawer({
   emp,
   subscribed,
   loggedIn,
+  grantedToMe = false,
   isAdmin = true,
   subscribing,
   onSubscribe,
@@ -105,7 +108,7 @@ export function EmployeeDrawer({
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
-        {emp && <DrawerContent emp={emp} subscribed={subscribed} loggedIn={loggedIn} isAdmin={isAdmin} subscribing={subscribing} onSubscribe={onSubscribe} onClose={onClose} />}
+        {emp && <DrawerContent emp={emp} subscribed={subscribed} loggedIn={loggedIn} grantedToMe={grantedToMe} isAdmin={isAdmin} subscribing={subscribing} onSubscribe={onSubscribe} onClose={onClose} />}
       </div>
     </>
   );
@@ -117,6 +120,7 @@ function DrawerContent({
   emp,
   subscribed,
   loggedIn,
+  grantedToMe = false,
   isAdmin = true,
   subscribing,
   onSubscribe,
@@ -281,14 +285,36 @@ function DrawerContent({
           </Link>
         </div>
 
-        {subscribed ? (
+        {isAdmin ? (
+          subscribed ? (
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-400">
+                <Check className="h-4 w-4" />
+                本企业已订阅
+              </span>
+              <Link href="/subscriptions" className="ml-auto">
+                <Button variant="glass" size="sm">管理授权</Button>
+              </Link>
+            </div>
+          ) : (
+            <Button
+              variant="glass-primary"
+              size="sm"
+              className="w-full"
+              disabled={subscribing}
+              onClick={onSubscribe}
+            >
+              立即订阅
+            </Button>
+          )
+        ) : grantedToMe ? (
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-400">
               <Check className="h-4 w-4" />
-              本企业已订阅
+              已授权使用
             </span>
-            <Link href="/subscriptions" className="ml-auto">
-              <Button variant="glass" size="sm">去分配授权</Button>
+            <Link href="/my-employees" className="ml-auto">
+              <Button variant="glass" size="sm">去使用</Button>
             </Link>
           </div>
         ) : loggedIn ? (
@@ -299,7 +325,7 @@ function DrawerContent({
             disabled={subscribing}
             onClick={onSubscribe}
           >
-            {isAdmin ? '立即订阅' : '申请订阅'}
+            申请使用
           </Button>
         ) : (
           <Link
@@ -307,7 +333,7 @@ function DrawerContent({
             className="block"
           >
             <Button variant="glass-primary" size="sm" className="w-full">
-              登录后订阅
+              登录后申请
             </Button>
           </Link>
         )}

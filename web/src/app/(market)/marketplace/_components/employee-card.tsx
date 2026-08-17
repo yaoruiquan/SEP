@@ -15,6 +15,8 @@ interface EmployeeCardProps {
   emp: MarketEmployee;
   subscribed: boolean;
   loggedIn: boolean;
+  /** 当前成员是否已被授权使用（仅普通成员视角有意义） */
+  grantedToMe?: boolean;
   /** 企业管理员直接订阅；普通成员提交申请 */
   isAdmin?: boolean;
   subscribing: boolean;
@@ -30,6 +32,7 @@ export function EmployeeCard({
   emp,
   subscribed,
   loggedIn,
+  grantedToMe = false,
   isAdmin = true,
   subscribing,
   onSubscribe,
@@ -133,10 +136,28 @@ export function EmployeeCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {subscribed ? (
+          {isAdmin ? (
+            subscribed ? (
+              <Link href="/subscriptions" onClick={(e) => e.stopPropagation()}>
+                <Button variant="glass" size="sm" className="shrink-0">
+                  管理
+                </Button>
+              </Link>
+            ) : (
+              <Button
+                variant="glass-primary"
+                size="sm"
+                className="shrink-0"
+                disabled={subscribing}
+                onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
+              >
+                订阅
+              </Button>
+            )
+          ) : grantedToMe ? (
             <Link href="/my-employees" onClick={(e) => e.stopPropagation()}>
               <Button variant="glass" size="sm" className="shrink-0">
-                管理
+                使用
               </Button>
             </Link>
           ) : loggedIn ? (
@@ -160,7 +181,7 @@ export function EmployeeCard({
                 disabled={subscribing}
                 onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
               >
-                {isAdmin ? '订阅' : '申请订阅'}
+                申请使用
               </Button>
             </>
           ) : (

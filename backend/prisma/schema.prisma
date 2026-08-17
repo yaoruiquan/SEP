@@ -33,7 +33,6 @@ model User {
   /// 企业成员身份。MVP 阶段每个用户恰好一条记录（不做多企业切换），
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
   memberships             EnterpriseMember[]
-  approvedRequests        AccessRequest[]       @relation("AccessRequestReviewer")
   devices                 Device[]
   createdKnowledgeBases   KnowledgeBase[]       @relation("KnowledgeBaseCreator")
   uploadedDocuments       Document[]            @relation("DocumentUploader")
@@ -79,7 +78,6 @@ model Enterprise {
   userQuotas     UserQuota[]
   subscriptionQuotas SubscriptionQuota[]
   wallet         EnterpriseWallet?
-  accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
   modelConfig    EnterpriseModelConfig?
   settings       EnterpriseSetting?
@@ -162,7 +160,6 @@ model EnterpriseMember {
 
   // Relations
   grants                   EmployeeGrant[]
-  requestedAccess          AccessRequest[]         @relation("AccessRequestRequester")
   subscriptionRequests     SubscriptionRequest[]   @relation("SubscriptionRequestRequester")
   ledDepartments           Department[]            @relation("DepartmentLeader")
 
@@ -338,55 +335,6 @@ model EmployeeGrant {
   @@index([departmentId])
   @@index([memberId])
   @@map("employee_grants")
-}
-
-/// 跨部门/越权调用申请。非管理员想用未授权的员工时发起。
-model AccessRequest {
-  id String @id @default(cuid())
-
-  enterpriseId String
-  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
-
-  /// 申请人（企业成员）。成员被移出企业后置为 NULL，而不是连带删除本记录。
-  ///
-  /// 为什么不用 Cascade：审批记录是企业侧的沉淀（"员工走了，东西留在我这里"）。
-  /// 用 Cascade 的话，移除一名成员会静默抹掉他名下所有申请与审批结论，
-  /// 企业再也查不到"当初谁批了这个越权申请"——审计链就断了。
-  requesterId String?
-  requester   EnterpriseMember? @relation("AccessRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
-
-  /// 申请人身份快照。仅在成员被移除时回填，正常记录留空走 requester 关联。
-  ///
-  /// 这里的冗余是刻意的：requesterId 置空后，审批历史必须还能追溯到人，
-  /// 否则留下的是一条"某人申请过某实例"的无主记录，等于没留。
-  /// 不在创建时就写入，是为了避免同一个人改名后新旧记录显示不一致。
-  requesterEmail String?
-  requesterName  String?
-
-  /// 申请使用的雇佣关系（企业雇佣的某个员工）
-  subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-
-  /// 申请理由 / 任务说明
-  reason        String? @db.Text
-  /// 期望使用期限（天），审批时据此签发限时授权
-  requestedDays Int?
-
-  status RequestStatus @default(PENDING)
-
-  /// 审批人（平台 User，因审批者可能是企业管理员）
-  reviewerId String?
-  reviewer   User?     @relation("AccessRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  reviewNote String?   @db.Text
-  reviewedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([enterpriseId])
-  @@index([requesterId])
-  @@index([subscriptionId])
-  @@map("access_requests")
 }
 
 enum RequestStatus {
@@ -597,7 +545,7 @@ model EmployeeCapabilityBinding {
 // ============================================================================
 
 /// 订阅 = 雇佣关系。主体是【企业】而非个人 —— 订阅要花企业的钱，
-/// 只有企业管理员能发起（其他角色走 AccessRequest 申请）。
+/// 只有企业管理员能发起（其他角色走 SubscriptionRequest 申请）。
 ///
 /// 2026-08 收敛：原先「订阅 → EmployeeInstance → 授权」三层，中间的实例
 /// 对象除了当权限锚点外无实际职责（name/departmentId/config 均无写入路径，
@@ -644,7 +592,6 @@ model Subscription {
   // Relations
   grants             EmployeeGrant[]
   knowledgeGrants  KnowledgeGrant[]
-  accessRequests   AccessRequest[]
   fromRequests     SubscriptionRequest[]
   subscriptionQuota SubscriptionQuota?
 
@@ -656,7 +603,8 @@ model Subscription {
   @@map("subscriptions")
 }
 
-/// 订阅申请。普通员工申请订阅硅基员工，管理员审批通过后自动创建订阅并授权。
+/// 使用申请（原「订阅申请」）。普通员工申请使用某硅基员工。
+/// kind=SUBSCRIBE 时审批通过后创建订阅并授权；kind=GRANT 时企业已订阅，审批通过后仅授权。
 model SubscriptionRequest {
   id String @id @default(cuid())
 
@@ -681,6 +629,10 @@ model SubscriptionRequest {
   /// 期望订阅时长（天），null = 永久
   requestedDays Int?
 
+  /// 申请类型：SUBSCRIBE=企业尚未订阅（审批通过后订阅+授权，扣费）；
+  /// GRANT=企业已订阅（审批通过后仅授权，免费）。由后端按当时订阅状态自动判定。
+  kind SubscriptionRequestKind @default(SUBSCRIBE)
+
   status RequestStatus @default(PENDING)
 
   /// 审批人（企业管理员或平台管理员）
@@ -701,6 +653,13 @@ model SubscriptionRequest {
   @@index([employeeId])
   @@index([status])
   @@map("subscription_requests")
+}
+
+/// 订阅申请的类型：区分「申请订阅新员工」与「申请使用已订阅员工」。
+/// 两条审批流已收敛到同一张 subscription_requests 表，靠本字段区分展示与审批后果。
+enum SubscriptionRequestKind {
+  SUBSCRIBE // 企业尚未订阅该员工 → 审批通过后订阅（扣费）+ 授权
+  GRANT // 企业已订阅该员工 → 审批通过后仅授权（免费）
 }
 
 /// 原 InstanceStatus 的四态并入此处：

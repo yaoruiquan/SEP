@@ -23,7 +23,8 @@
     "db:generate": "pnpm --filter backend db:generate",
     "db:studio": "pnpm --filter backend db:studio",
     "db:reset": "pnpm --filter backend db:reset",
-    "db:seed": "pnpm --filter backend db:seed"
+    "db:seed": "pnpm --filter backend db:seed",
+    "kill-dev": "bash scripts/kill-dev.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

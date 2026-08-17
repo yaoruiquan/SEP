@@ -251,7 +251,7 @@ export default function SubscriptionsPage() {
                 : 'text-fg-muted hover:text-foreground',
             )}
           >
-            订阅申请
+            使用申请
             {pendingRequests.length > 0 && (
               <Badge className="ml-1.5 bg-warning/10 text-warning">
                 {pendingRequests.length}
@@ -448,7 +448,7 @@ export default function SubscriptionsPage() {
       )}
         </>
       ) : (
-        /* 订阅申请 Tab */
+        /* 使用申请 Tab（统一承载订阅申请与授权申请） */
         <>
           {loadingRequests ? (
             <CenteredSpinner label="加载中…" />
@@ -456,7 +456,7 @@ export default function SubscriptionsPage() {
             <EmptyState
               icon={<Store className="h-8 w-8" />}
               title="暂无待审批申请"
-              description="当有成员申请订阅硅基员工时，会显示在这里"
+              description="当有成员申请使用硅基员工时，会显示在这里"
             />
           ) : (
             <div className="space-y-4">
@@ -481,9 +481,20 @@ export default function SubscriptionsPage() {
                             申请人：{req.requesterName ?? req.requesterEmail ?? '未知'}
                           </p>
                         </div>
-                        <Badge className="shrink-0 bg-warning/10 text-warning">
-                          待审批
-                        </Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge
+                            className={
+                              req.kind === 'GRANT'
+                                ? 'bg-success/10 text-success'
+                                : 'bg-primary/10 text-primary'
+                            }
+                          >
+                            {req.kind === 'GRANT' ? '仅授权（免费）' : '新订阅（付费）'}
+                          </Badge>
+                          <Badge className="bg-warning/10 text-warning">
+                            待审批
+                          </Badge>
+                        </div>
                       </div>
                       {req.reason && (
                         <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
@@ -495,7 +506,7 @@ export default function SubscriptionsPage() {
                       )}
                       {req.requestedDays && (
                         <p className="mt-2 text-xs text-fg-muted">
-                          期望订阅时长：{req.requestedDays} 天
+                          期望使用时长：{req.requestedDays} 天
                         </p>
                       )}
                       <p className="mt-1 text-xs text-fg-subtle">
@@ -585,7 +596,7 @@ export default function SubscriptionsPage() {
       {/* 审批通过 Modal */}
       {approving && (
         <Modal
-          title={`通过订阅申请 · ${approving.employee.name}`}
+          title={`通过使用申请 · ${approving.employee.name}`}
           onClose={() => {
             setApproving(null);
             setReviewNote('');
@@ -593,6 +604,18 @@ export default function SubscriptionsPage() {
           }}
         >
           <div className="space-y-4">
+            <div
+              className={cn(
+                'rounded-lg border px-3 py-2 text-sm',
+                approving.kind === 'GRANT'
+                  ? 'border-success/30 bg-success/5 text-success'
+                  : 'border-primary/30 bg-primary/5 text-primary',
+              )}
+            >
+              {approving.kind === 'GRANT'
+                ? '企业已订阅该员工，通过后直接开通使用权限，不产生费用。'
+                : '企业尚未订阅该员工，通过后将完成订阅（付费）并开通使用权限。'}
+            </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium">
                 审批备注 <span className="text-fg-subtle">(可选)</span>
@@ -607,7 +630,7 @@ export default function SubscriptionsPage() {
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium">
-                订阅时长 <span className="text-fg-subtle">(可选)</span>
+                使用时长 <span className="text-fg-subtle">(可选)</span>
               </label>
               <div className="flex flex-wrap gap-2">
                 {[

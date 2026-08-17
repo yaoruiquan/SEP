@@ -40,7 +40,7 @@ export class SubscriptionService {
    * 企业订阅一个市场员工模板。
    *
    * 订阅主体是【企业】而非个人 —— 订阅要花企业的钱，
-   * 故要求 ENTERPRISE_ADMIN 角色；其他角色应走 AccessRequest 申请流程。
+   * 故要求 ENTERPRISE_ADMIN 角色；其他角色应走 SubscriptionRequest 申请流程。
    *
    * 规则：
    *  - 模板必须已上架（PUBLISHED）

@@ -12,6 +12,7 @@ import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { useMarketEmployee } from '@/features/employee/use-employees';
 import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
+import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import {
   useMySubscriptionRequests,
   useCreateSubscriptionRequest,
@@ -19,6 +20,7 @@ import {
 import { toast } from '@/components/ui/toast';
 import { PaymentModal } from '@/components/ui/payment-modal';
 import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
+import { MyRequestsModal } from '@/features/subscription-request/my-requests-modal';
 import { ApiError } from '@/lib/api-client';
 
 // ─── avatar gradient（与卡片/抽屉同一套映射）──────────────────────────────────
@@ -100,14 +102,20 @@ export default function EmployeeDetailPage() {
   const { data: emp, isLoading, isError } = useMarketEmployee(id);
   // 访客不请求订阅列表
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
+  // 访客不请求「我已被授权」列表 —— 用于判断是否已有使用权限
+  const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
   const subscribe = useSubscribe();
 
   // 支付弹窗开关。Hook 必须在早退分支之前声明。
   const [payOpen, setPayOpen] = useState(false);
   // 订阅申请弹窗开关
   const [requestModalOpen, setRequestModalOpen] = useState(false);
+  // 「我的申请」弹窗
+  const [myRequestsOpen, setMyRequestsOpen] = useState(false);
 
   const subscribed = subs.some((s) => s.employee.id === id);
+  // 我是否已被授权使用（直接或经部门）
+  const alreadyGrantedToMe = myEmployees.some((m) => m.employee.id === id);
 
   // 查询我对该员工的订阅申请（仅登录用户）
   const { data: myRequests = [] } = useMySubscriptionRequests();
@@ -209,38 +217,46 @@ export default function EmployeeDetailPage() {
       {/* 二 · 如何获得（前置：访客最想知道的下一步动作） */}
       <GlassSection icon={<Package className="h-4 w-4" />} title="如何获得">
         <div className="flex flex-wrap items-center gap-3">
-          {/* 智能按钮逻辑：
-              - 已订阅 + 已授权 → 已授权使用（禁用）
-              - 已订阅 + 未授权 → 申请授权（AccessRequest 流程，暂未实现）
-              - 未订阅 + 有待审批申请 → 订阅申请审批中（禁用）
-              - 未订阅 + 无待审批申请 → 申请订阅（打开 SubscriptionRequestModal）
+          {/* 统一入口：
+              - 我已有使用权限 → 已授权使用（禁用）
+              - 有 PENDING 申请 → 申请审批中（禁用）
+              - 其余（未订阅 / 已订阅但未授权给我）→ 申请使用（后端自动判定订阅 or 授权）
           */}
-          {subscribed ? (
-            <>
-              <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-400">
-                <Check className="h-4 w-4" />
-                本企业已订阅
-              </span>
-              {/* 雇佣后的下一步是把员工授权给团队，不是聊天（会话已暂停） */}
-              <Link href="/subscriptions">
-                <Button variant="glass" size="sm">去分配授权</Button>
-              </Link>
-            </>
+          {alreadyGrantedToMe ? (
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-400">
+              <Check className="h-4 w-4" />
+              已授权使用
+            </span>
           ) : hasPendingRequest ? (
-            <Button variant="glass" size="sm" disabled>
-              订阅申请审批中
-            </Button>
+            <>
+              <Button variant="glass" size="sm" disabled>
+                申请审批中
+              </Button>
+              <button
+                onClick={() => setMyRequestsOpen(true)}
+                className="text-[12px] text-gbrand-text underline underline-offset-2 hover:text-gtext-primary"
+              >
+                查看我的申请
+              </button>
+            </>
           ) : loggedIn ? (
-            <Button
-              variant="glass-primary"
-              size="sm"
-              onClick={() => setRequestModalOpen(true)}
-            >
-              申请订阅
-            </Button>
+            <>
+              <Button
+                variant="glass-primary"
+                size="sm"
+                onClick={() => setRequestModalOpen(true)}
+              >
+                申请使用
+              </Button>
+              {subscribed && (
+                <span className="text-[12px] text-gtext-secondary">
+                  本企业已订阅，通过后直接开通授权（免费）
+                </span>
+              )}
+            </>
           ) : (
             <Link href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}>
-              <Button variant="glass-primary" size="sm">登录后订阅</Button>
+              <Button variant="glass-primary" size="sm">登录后申请</Button>
             </Link>
           )}
 
@@ -254,8 +270,16 @@ export default function EmployeeDetailPage() {
           )}
         </div>
         <p className="mt-3 text-[12px] text-gtext-muted">
-          订阅由企业管理员操作，作用于整个企业；普通成员如需使用，请联系管理员开通授权。
+          申请通过后即可使用：企业未订阅时由管理员完成订阅并授权，企业已订阅时直接为你开通授权。
         </p>
+        {loggedIn && (
+          <button
+            onClick={() => setMyRequestsOpen(true)}
+            className="mt-2 text-[12px] text-gbrand-text underline underline-offset-2 hover:text-gtext-primary"
+          >
+            查看我的申请记录与审批状态 →
+          </button>
+        )}
       </GlassSection>
 
       {/* 三 · 我能做什么 */}
@@ -373,7 +397,7 @@ export default function EmployeeDetailPage() {
             {
               onSuccess: () => {
                 setRequestModalOpen(false);
-                toast.success('订阅申请已提交，等待管理员审批');
+                toast.success('使用申请已提交，等待管理员审批');
               },
               onError: (e) =>
                 toast.error(e instanceof ApiError ? e.message : '提交申请失败'),
@@ -381,6 +405,9 @@ export default function EmployeeDetailPage() {
           );
         }}
       />
+
+      {/* ── 我的申请（申请记录 + 审批状态） ──────────────────────────── */}
+      <MyRequestsModal open={myRequestsOpen} onClose={() => setMyRequestsOpen(false)} />
     </div>
   );
 }

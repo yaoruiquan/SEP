@@ -49,6 +49,7 @@ describe('SubscriptionRequestService', () => {
     reason: '需要用于市场推广',
     requestedDays: 30,
     status: RequestStatus.PENDING,
+    kind: 'SUBSCRIBE' as const,
     reviewerId: null,
     reviewNote: null,
     reviewedAt: null,
@@ -66,6 +67,9 @@ describe('SubscriptionRequestService', () => {
       },
       subscription: {
         findUnique: jest.fn(),
+      },
+      employeeGrant: {
+        findFirst: jest.fn(),
       },
       subscriptionRequest: {
         findFirst: jest.fn(),
@@ -129,12 +133,16 @@ describe('SubscriptionRequestService', () => {
       });
 
       expect(result).toEqual(mockRequest);
-      expect(prisma.subscriptionRequest.create).toHaveBeenCalled();
+      expect(prisma.subscriptionRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ kind: 'SUBSCRIBE' }),
+        }),
+      );
       expect(notifications.createBatch).toHaveBeenCalledWith(
         ['admin-1'],
         expect.objectContaining({
           type: 'SUBSCRIPTION_REQUEST_CREATED',
-          title: '新的订阅申请',
+          title: '新的使用申请',
         }),
       );
     });
@@ -148,10 +156,32 @@ describe('SubscriptionRequestService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw ConflictException if already subscribed', async () => {
+    it('企业已订阅时创建 GRANT 申请（不报冲突）', async () => {
       enterpriseContext.resolve.mockResolvedValue(mockContext);
       prisma.digitalEmployee.findUnique.mockResolvedValue(mockEmployee as any);
-      prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE' } as any);
+      prisma.subscription.findUnique.mockResolvedValue({ id: 'sub-1', status: 'ACTIVE' } as any);
+      prisma.employeeGrant.findFirst.mockResolvedValue(null);
+      prisma.subscriptionRequest.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({ email: 'user@example.com', name: 'Test User' } as any);
+      prisma.subscriptionRequest.create.mockResolvedValue(mockRequest as any);
+      prisma.enterpriseMember.findMany.mockResolvedValue([{ userId: 'admin-1' }] as any);
+      notifications.createBatch.mockResolvedValue(undefined as any);
+
+      const result = await service.createRequest('user-1', { employeeId: 'emp-1' });
+
+      expect(result).toEqual(mockRequest);
+      expect(prisma.subscriptionRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ kind: 'GRANT' }),
+        }),
+      );
+    });
+
+    it('已持有有效授权时再申请应报冲突', async () => {
+      enterpriseContext.resolve.mockResolvedValue(mockContext);
+      prisma.digitalEmployee.findUnique.mockResolvedValue(mockEmployee as any);
+      prisma.subscription.findUnique.mockResolvedValue({ id: 'sub-1', status: 'ACTIVE' } as any);
+      prisma.employeeGrant.findFirst.mockResolvedValue({ id: 'grant-1' } as any);
 
       await expect(
         service.createRequest('user-1', { employeeId: 'emp-1' }),

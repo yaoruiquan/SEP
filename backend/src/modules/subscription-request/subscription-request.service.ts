@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RequestStatus } from '@prisma/client';
+import { RequestStatus, SubscriptionRequestKind } from '@prisma/client';
 import {
   CreateSubscriptionRequestDto,
   ApproveSubscriptionRequestDto,
@@ -45,8 +45,9 @@ export class SubscriptionRequestService {
       throw new BadRequestException('Cannot request unapproved employee');
     }
 
-    // 检查企业是否已订阅此员工
-    const existingSubscription = await this.prisma.subscription.findUnique({
+    // 企业对该员工的订阅状态决定申请类型：
+    //   ACTIVE → GRANT（仅授权，免费）；否则 → SUBSCRIBE（订阅 + 授权，扣费）
+    const subscription = await this.prisma.subscription.findUnique({
       where: {
         enterpriseId_employeeId: {
           enterpriseId: ctx.enterpriseId,
@@ -55,13 +56,35 @@ export class SubscriptionRequestService {
       },
     });
 
-    if (existingSubscription && existingSubscription.status === 'ACTIVE') {
-      throw new ConflictException(
-        'Enterprise already subscribed to this employee. Use access request for authorization.',
-      );
+    const kind =
+      subscription && subscription.status === 'ACTIVE'
+        ? SubscriptionRequestKind.GRANT
+        : SubscriptionRequestKind.SUBSCRIBE;
+
+    // 已有 ACTIVE 订阅时，检查申请人是否已持有有效授权（直接或经部门）。
+    // 已有权限还来申请是无意义的重复，直接拒绝，避免审批队列被刷屏。
+    if (kind === SubscriptionRequestKind.GRANT && ctx.memberId && subscription) {
+      const now = new Date();
+      const alreadyGranted = await this.prisma.employeeGrant.findFirst({
+        where: {
+          subscriptionId: subscription.id,
+          AND: [
+            {
+              OR: [
+                { memberId: ctx.memberId },
+                ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
+              ],
+            },
+            { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          ],
+        },
+      });
+      if (alreadyGranted) {
+        throw new ConflictException('你已有该员工的使用权限');
+      }
     }
 
-    // 检查是否有未处理的申请（同企业、同员工、同申请人）
+    // 检查是否有未处理的申请（同企业、同员工、同申请人）—— 两类申请统一去重
     const pendingRequest = await this.prisma.subscriptionRequest.findFirst({
       where: {
         enterpriseId: ctx.enterpriseId,
@@ -91,6 +114,7 @@ export class SubscriptionRequestService {
         employeeId: dto.employeeId,
         reason: dto.reason,
         requestedDays: dto.requestedDays,
+        kind,
         status: RequestStatus.PENDING,
       },
       include: {
@@ -99,7 +123,7 @@ export class SubscriptionRequestService {
       },
     });
 
-    // 通知企业管理员
+    // 通知企业管理员（文案按类型区分）
     const admins = await this.prisma.enterpriseMember.findMany({
       where: {
         enterpriseId: ctx.enterpriseId,
@@ -109,12 +133,14 @@ export class SubscriptionRequestService {
     });
 
     if (admins.length > 0) {
+      const action =
+        kind === SubscriptionRequestKind.GRANT ? '申请使用' : '申请订阅';
       await this.notifications.createBatch(
         admins.map((a) => a.userId),
         {
           type: 'SUBSCRIPTION_REQUEST_CREATED',
-          title: '新的订阅申请',
-          message: `${requester?.name ?? requester?.email ?? '成员'} 申请订阅「${employee.name}」`,
+          title: '新的使用申请',
+          message: `${requester?.name ?? requester?.email ?? '成员'} ${action}「${employee.name}」`,
           relatedType: 'SUBSCRIPTION_REQUEST',
           relatedId: request.id,
         },
@@ -212,12 +238,15 @@ export class SubscriptionRequestService {
 
       // 通知申请人（事务外，失败不影响审批结果）
       if (request.requester?.userId) {
+        const isGrant = request.kind === SubscriptionRequestKind.GRANT;
         await this.notifications
           .create({
             userId: request.requester.userId,
             type: 'SUBSCRIPTION_REQUEST_APPROVED',
-            title: '订阅申请已通过',
-            message: `您申请订阅「${request.employee.name}」已通过审批，现在可以使用了`,
+            title: isGrant ? '使用申请已通过' : '订阅申请已通过',
+            message: isGrant
+              ? `您申请使用「${request.employee.name}」已通过审批，现在可以使用了`
+              : `您申请订阅「${request.employee.name}」已通过审批，现在可以使用了`,
             relatedType: 'SUBSCRIPTION',
             relatedId: subscription.id,
           })
@@ -283,12 +312,13 @@ export class SubscriptionRequestService {
       });
 
       if (requesterMember) {
+        const isGrant = request.kind === SubscriptionRequestKind.GRANT;
         await this.notifications
           .create({
             userId: requesterMember.userId,
             type: 'SUBSCRIPTION_REQUEST_REJECTED',
-            title: '订阅申请已拒绝',
-            message: `您申请订阅「${request.employee.name}」已被拒绝${dto.reviewNote ? `：${dto.reviewNote}` : ''}`,
+            title: isGrant ? '使用申请已拒绝' : '订阅申请已拒绝',
+            message: `${isGrant ? '您申请使用' : '您申请订阅'}「${request.employee.name}」已被拒绝${dto.reviewNote ? `：${dto.reviewNote}` : ''}`,
             relatedType: 'SUBSCRIPTION_REQUEST',
             relatedId: requestId,
           })

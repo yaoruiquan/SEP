@@ -32,6 +32,10 @@ describe('SubscriptionService', () => {
         create: jest.fn((a: any) => Promise.resolve({ id: 'sub-new', ...a.data })),
         update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
       },
+      employeeGrant: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+      },
     };
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),

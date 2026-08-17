@@ -58,7 +58,7 @@ export function SubscriptionRequestModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="申请订阅"
+        aria-label="申请使用"
         className={cn(
           'fixed left-1/2 top-1/2 z-[70] w-full max-w-[480px] -translate-x-1/2 -translate-y-1/2',
           'rounded-glass-2xl border border-glassline bg-glass-1 shadow-glass-xl backdrop-blur-glass-xl',
@@ -67,7 +67,7 @@ export function SubscriptionRequestModal({
       >
         {/* header */}
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gtext-primary">申请订阅</h2>
+          <h2 className="text-lg font-semibold text-gtext-primary">申请使用</h2>
           <button
             onClick={handleClose}
             className="rounded-glass-md p-1.5 text-gtext-muted transition-colors hover:bg-glass-2 hover:text-gtext-primary"
@@ -117,7 +117,7 @@ export function SubscriptionRequestModal({
           {/* duration */}
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-gtext-primary">
-              期望订阅时长
+              期望使用时长
             </label>
             <div className="flex flex-wrap gap-2">
               {DURATION_OPTIONS.map((opt) => (
@@ -138,7 +138,7 @@ export function SubscriptionRequestModal({
               ))}
             </div>
             <p className="mt-1 text-[12px] text-gtext-muted">
-              不选择则默认与订阅到期时间一致
+              不选择则默认长期有效
             </p>
           </div>
         </div>
@@ -159,7 +159,7 @@ export function SubscriptionRequestModal({
         </div>
 
         <p className="mt-3 text-center text-[12px] text-gtext-muted">
-          提交后将通知企业管理员审批，审批通过后自动创建订阅并授权
+          提交后将通知企业管理员审批，审批通过后即可使用
         </p>
       </div>
     </>

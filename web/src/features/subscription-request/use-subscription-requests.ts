@@ -39,10 +39,11 @@ export function useCreateSubscriptionRequest() {
 /**
  * 查询我的申请（申请人）
  */
-export function useMySubscriptionRequests() {
+export function useMySubscriptionRequests(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: qk.mySubscriptionRequests,
     queryFn: () => api.get<SubscriptionRequest[]>('/subscription-requests/my'),
+    enabled: options?.enabled ?? true,
   });
 }
 

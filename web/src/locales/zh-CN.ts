@@ -130,7 +130,6 @@ export const nav = {
   subscriptions: employment.section,
   chat: '对话中心',
   tasks: '任务中心',
-  permissions: '权限管理',
   knowledge: knowledge.management,
   usage: '用量统计',
   personalSettings: '个人设置',
