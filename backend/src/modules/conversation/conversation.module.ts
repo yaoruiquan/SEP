@@ -10,6 +10,7 @@ import { SettingModule } from '../setting/setting.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
 import { UploadModule } from '../upload/upload.module';
+import { ComputeQuotaModule } from '../compute-quota/compute-quota.module';
 import { AttachmentContextService } from './attachment-context.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { AttachmentContextService } from './attachment-context.service';
     SettingModule,
     KnowledgeModule,
     EnterpriseModelConfigModule,
+    ComputeQuotaModule,
     // 附件：归属校验（UploadService）+ 取回字节（StorageService）
     UploadModule,
   ],

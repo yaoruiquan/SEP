@@ -44,7 +44,10 @@ describe('SubscriptionService', () => {
       consume: jest.fn(),
       refund: jest.fn(),
     } as any;
-    svc = new SubscriptionService(prisma, ctxSvc, walletSvc);
+    const quotaSvc = {
+      createSubscriptionQuota: jest.fn(),
+    } as any;
+    svc = new SubscriptionService(prisma, ctxSvc, walletSvc, quotaSvc);
   });
 
   describe('多租户隔离（越权路径）', () => {

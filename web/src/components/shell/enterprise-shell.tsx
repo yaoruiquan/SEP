@@ -15,13 +15,13 @@ import {
   Menu,
   X,
   BarChart3,
-  Shield,
   BookOpen,
   ListTodo,
   ChevronLeft,
   ChevronRight,
   MessageSquare,
   Wallet,
+  Gauge,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -69,12 +69,12 @@ const NAV_GROUPS: NavGroup[] = [
     adminOnly: true,
     links: [
       { href: '/departments', label: nav.departments, icon: GitBranch },
-      // 碳基员工（真人成员），与下方「硅基员工」组形成对比
+      // 碳基员工（真人成员），与下方「员工」组形成对比
       { href: '/members', label: nav.members, icon: Users },
     ],
   },
   {
-    title: '硅基员工',
+    title: '员工',
     links: [
       // 使用者视角：我被授权使用的硅基员工。普通成员的核心页面
       { href: '/my-employees', label: nav.myEmployees, icon: MonitorPlay },
@@ -93,7 +93,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '协作',
     links: [
-      { href: '/permissions', label: nav.permissions, icon: Shield },
       // 决策 2：此处保留为批量维护入口，授权主入口在硅基员工详情页
       { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
     ],
@@ -102,6 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: '服务',
     links: [
       { href: '/wallet', label: '企业钱包', icon: Wallet, adminOnly: true },
+      { href: '/compute-quota', label: '算力配额', icon: Gauge, adminOnly: true },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
     ],
   },
@@ -123,6 +123,7 @@ const CRUMBS: CrumbMap = {
   models: '模型配置',
   chat: '对话',
   wallet: '企业钱包',
+  'compute-quota': '算力配额',
   recharge: '充值',
   new: '新建',
   edit: '编辑',

@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ModelService } from '../model/model.service';
+import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
 import {
   ConversationCreateDto,
   ConversationUpdateDto,
@@ -24,6 +25,7 @@ export class ConversationService {
     private readonly subscriptionService: SubscriptionService,
     private readonly modelService: ModelService,
     private readonly storage: StorageService,
+    private readonly quotaService: ComputeQuotaService,
   ) {}
 
   async create(userId: string, dto: ConversationCreateDto) {
@@ -38,6 +40,12 @@ export class ConversationService {
 
     // 必须持有有效订阅
     await this.subscriptionService.assertActiveSubscription(userId, dto.employeeId);
+
+    // 对话前检查配额（乐观检查）
+    const quotaCheck = await this.quotaService.checkQuotaBeforeConversation(userId);
+    if (!quotaCheck.allowed) {
+      throw new BadRequestException(quotaCheck.reason);
+    }
 
     const session = await this.prisma.conversationSession.create({
       data: {

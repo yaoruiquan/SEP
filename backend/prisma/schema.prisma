@@ -41,6 +41,8 @@ model User {
   notifications           Notification[]
   createdAnnouncements         Announcement[]              @relation("AnnouncementCreator")
   reviewedSubscriptionRequests SubscriptionRequest[]       @relation("SubscriptionRequestReviewer")
+  userQuotas                   UserQuota[]
+  allocatedUserQuotas          UserQuota[]                 @relation("UserQuotaAllocator")
 
   @@map("users")
 }
@@ -73,6 +75,9 @@ model Enterprise {
   members        EnterpriseMember[]
   subscriptions  Subscription[]
   computeAccount ComputeAccount?
+  computeQuotas  ComputeQuota[]
+  userQuotas     UserQuota[]
+  subscriptionQuotas SubscriptionQuota[]
   wallet         EnterpriseWallet?
   accessRequests AccessRequest[]
   knowledgeBases KnowledgeBase[]
@@ -641,6 +646,7 @@ model Subscription {
   knowledgeGrants  KnowledgeGrant[]
   accessRequests   AccessRequest[]
   fromRequests     SubscriptionRequest[]
+  subscriptionQuota SubscriptionQuota?
 
   /// 一个企业对同一员工只雇佣一次。收敛后这条约束即是「一员工一雇佣关系」
   /// 的全部含义 —— 部门差异化由 KnowledgeGrant.departmentId 表达，
@@ -972,6 +978,89 @@ model ComputeAccount {
   @@map("compute_accounts")
 }
 
+// ============================================================================
+// Three-tier Quota System (三级配额体系)
+// ============================================================================
+
+/// 用户个人配额（碳基员工）- Priority 0（最优先）
+/// 管理员给每个用户分配的个人token预算，一次性分配，用完需管理员补充
+/// 用户使用任何硅基员工都先从这里扣除
+model UserQuota {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  totalTokens  Int      // 分配的总量
+  usedTokens   Int      @default(0)
+  status       String   @default("ACTIVE")  // ACTIVE | EXHAUSTED
+
+  allocatedAt  DateTime @default(now()) // 分配时间
+  allocatedBy  String?  // 分配者（管理员 userId）
+  allocator    User?    @relation("UserQuotaAllocator", fields: [allocatedBy], references: [id], onDelete: SetNull)
+  notes        String?  @db.Text // 分配备注
+
+  transactions ComputeTransaction[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, enterpriseId])
+  @@index([userId])
+  @@index([enterpriseId, status])
+  @@map("user_quotas")
+}
+
+/// 订阅配额（硅基员工自带）- Priority 1
+/// 订阅创建时自动生成，按订阅时长一次性分配，用完后fallback到企业池
+model SubscriptionQuota {
+  id             String   @id @default(cuid())
+  subscriptionId String   @unique
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  enterpriseId   String
+  enterprise     Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  totalTokens    Int      // 订阅自带的token量
+  usedTokens     Int      @default(0)
+  status         String   @default("ACTIVE")  // ACTIVE | EXHAUSTED
+
+  transactions   ComputeTransaction[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([subscriptionId])
+  @@index([enterpriseId, status])
+  @@map("subscription_quotas")
+}
+
+/// 企业配额池（兜底）- Priority 2（最低优先级）
+/// 前两级配额都用完后才使用，企业充值/购买的token池
+model ComputeQuota {
+  id           String   @id @default(cuid())
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  type         String   // STANDARD | PREMIUM | CUSTOM (FREE移除，改为UserQuota)
+  totalTokens  Int      // 配额总量
+  usedTokens   Int      @default(0)
+
+  expiresAt    DateTime? // null = 永久有效
+  status       String   @default("ACTIVE")  // ACTIVE | EXPIRED | EXHAUSTED
+  priority     Int      @default(2)  // 企业池固定为priority=2
+
+  transactions ComputeTransaction[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([enterpriseId, status])
+  @@map("compute_quotas")
+}
+
 model ComputeTransaction {
   id String @id @default(cuid())
 
@@ -984,12 +1073,28 @@ model ComputeTransaction {
   // 关联信息
   sessionId String? // 如果是对话消费，关联会话
 
+  // 三级配额关联（互斥，只能关联一个）
+  quotaId           String? // 企业配额池ID
+  quota             ComputeQuota? @relation(fields: [quotaId], references: [id], onDelete: SetNull)
+  userQuotaId       String? // 用户个人配额ID
+  userQuota         UserQuota? @relation(fields: [userQuotaId], references: [id], onDelete: SetNull)
+  subscriptionQuotaId String? // 订阅配额ID
+  subscriptionQuota   SubscriptionQuota? @relation(fields: [subscriptionQuotaId], references: [id], onDelete: SetNull)
+
+  quotaTier String? // USER | SUBSCRIPTION | ENTERPRISE (标注从哪一级扣的)
+  quotaType String? // 配额类型显示名，如 "李明个人配额" / "市场调研员订阅配额" / "STANDARD企业池"
+
+  tokens    Int? // 本次消费的 token 数（老数据可为 null）
+
   description String?
   metadata    Json?
 
   createdAt DateTime @default(now())
 
   @@index([accountId, createdAt])
+  @@index([quotaId])
+  @@index([userQuotaId])
+  @@index([subscriptionQuotaId])
   @@map("compute_transactions")
 }
 

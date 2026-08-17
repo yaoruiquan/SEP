@@ -123,7 +123,9 @@ export const nav = {
   dashboard: '工作台',
   departments: '部门管理',
   members: member.list,
-  myEmployees: employee.mine,
+  // 侧边栏入口：普通成员的核心页面。组标题已收敛为「员工」，
+  // 这里用「硅基员工」点明是数字员工（区别于上方「碳基员工」）。
+  myEmployees: employee.entity,
   marketplace: employee.market,
   subscriptions: employment.section,
   chat: '对话中心',

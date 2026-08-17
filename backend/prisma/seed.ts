@@ -144,6 +144,115 @@ async function seedEnterprises(users: Awaited<ReturnType<typeof seedUsers>>) {
   return { acme, globex, techDept, opsDept, bossMember, devMember, staffMember };
 }
 
+// ── 算力配额 ────────────────────────────────────────────────────────────────
+
+async function seedComputeQuotas(ents: Awaited<ReturnType<typeof seedEnterprises>>) {
+  // ACME 企业配额：FREE + STANDARD
+  await prisma.computeQuota.upsert({
+    where: { id: 'acme-quota-free' },
+    update: {},
+    create: {
+      id: 'acme-quota-free',
+      enterpriseId: ents.acme.id,
+      type: 'FREE',
+      totalTokens: 100000, // 10 万 tokens 免费配额
+      usedTokens: 0,
+      priority: 0, // 最高优先级，优先消耗
+      expiresAt: null, // 永久有效
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.computeQuota.upsert({
+    where: { id: 'acme-quota-standard' },
+    update: {},
+    create: {
+      id: 'acme-quota-standard',
+      enterpriseId: ents.acme.id,
+      type: 'STANDARD',
+      totalTokens: 1000000, // 100 万 tokens 标准配额
+      usedTokens: 0,
+      priority: 1, // 次优先级，免费用完后消耗
+      expiresAt: null, // 永久有效
+      status: 'ACTIVE',
+    },
+  });
+
+  // Globex 企业配额：FREE
+  await prisma.computeQuota.upsert({
+    where: { id: 'globex-quota-free' },
+    update: {},
+    create: {
+      id: 'globex-quota-free',
+      enterpriseId: ents.globex.id,
+      type: 'FREE',
+      totalTokens: 50000, // 5 万 tokens 免费配额
+      usedTokens: 0,
+      priority: 0,
+      expiresAt: null,
+      status: 'ACTIVE',
+    },
+  });
+
+  // ── 三级配额体系 (UserQuota + SubscriptionQuota) ──────────────────────────
+  // Priority: 0 = UserQuota (碳基员工个人配额，优先扣)
+  //          1 = SubscriptionQuota (硅基员工订阅配额)
+  //          2 = ComputeQuota (企业池，兜底)
+
+  // ACME 企业的 UserQuota（碳基员工个人配额）
+  await prisma.userQuota.upsert({
+    where: { id: 'acme-user-quota-boss' },
+    update: {},
+    create: {
+      id: 'acme-user-quota-boss',
+      userId: ents.bossMember.userId,
+      enterpriseId: ents.acme.id,
+      totalTokens: 50000,
+      usedTokens: 0,
+      status: 'ACTIVE',
+      allocatedBy: ents.bossMember.userId, // 自己给自己分配
+      notes: '企业管理员个人配额',
+    },
+  });
+
+  await prisma.userQuota.upsert({
+    where: { id: 'acme-user-quota-staff' },
+    update: {},
+    create: {
+      id: 'acme-user-quota-staff',
+      userId: ents.staffMember.userId,
+      enterpriseId: ents.acme.id,
+      totalTokens: 30000,
+      usedTokens: 0,
+      status: 'ACTIVE',
+      allocatedBy: ents.bossMember.userId,
+      notes: '普通员工个人配额',
+    },
+  });
+
+  // Globex 企业的 UserQuota
+  // 注意：seedEnterprises 没有返回 globex 的 boss member，需要查询
+  const globexBossMember = await prisma.enterpriseMember.findFirst({
+    where: { enterpriseId: ents.globex.id, role: 'ENTERPRISE_ADMIN' as any },
+  });
+  if (globexBossMember) {
+    await prisma.userQuota.upsert({
+      where: { id: 'globex-user-quota-boss' },
+      update: {},
+      create: {
+        id: 'globex-user-quota-boss',
+        userId: globexBossMember.userId,
+        enterpriseId: ents.globex.id,
+        totalTokens: 20000,
+        usedTokens: 0,
+        status: 'ACTIVE',
+        allocatedBy: globexBossMember.userId,
+        notes: '企业管理员个人配额',
+      },
+    });
+  }
+}
+
 // ── 能力 ────────────────────────────────────────────────────────────────────
 
 async function seedCapabilities(contributorId: string) {
@@ -303,6 +412,19 @@ async function seedSubscriptionsAndGrants(
       },
     });
     acmeSubs[emp.id] = sub.id;
+
+    // 为每个订阅创建配额（硅基员工自带配额，priority=1）
+    await prisma.subscriptionQuota.upsert({
+      where: { subscriptionId: sub.id },
+      update: {},
+      create: {
+        subscriptionId: sub.id,
+        enterpriseId: ents.acme.id,
+        totalTokens: 100000, // 每个订阅 10 万 tokens
+        usedTokens: 0,
+        status: 'ACTIVE',
+      },
+    });
   }
 
   // 乙企业也雇佣同一员工 —— 用于验证雇佣关系不会跨企业泄漏
@@ -321,6 +443,19 @@ async function seedSubscriptionsAndGrants(
       status: 'ACTIVE' as any,
       templateVersion: '1.0.0',
       name: '乙企业文案助手',
+    },
+  });
+
+  // 为 Globex 订阅创建配额
+  await prisma.subscriptionQuota.upsert({
+    where: { subscriptionId: globexSub.id },
+    update: {},
+    create: {
+      subscriptionId: globexSub.id,
+      enterpriseId: ents.globex.id,
+      totalTokens: 80000, // Globex 订阅 8 万 tokens
+      usedTokens: 0,
+      status: 'ACTIVE',
     },
   });
 
@@ -434,6 +569,7 @@ async function main() {
 
   const users = await seedUsers();
   const ents = await seedEnterprises(users);
+  await seedComputeQuotas(ents);
   const caps = await seedCapabilities(users.platformAdmin.id);
   const tpls = await seedTemplates(caps);
   await seedSubscriptionsAndGrants(ents, tpls);

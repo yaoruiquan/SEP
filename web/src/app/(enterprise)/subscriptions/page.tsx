@@ -329,7 +329,22 @@ export default function SubscriptionsPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="truncate font-semibold text-foreground">{sub.name}</p>
+                      <div className="flex min-w-0 items-center gap-1">
+                        <p className="truncate font-semibold text-foreground">{sub.name}</p>
+                        {isAdmin && !dismissed && (
+                          <button
+                            title="改称呼"
+                            onClick={() => {
+                              setRenaming(sub);
+                              // 与模板同名说明没自定义过，输入框留空更好改
+                              setRenameValue(sub.name === sub.employee.name ? '' : sub.name);
+                            }}
+                            className="shrink-0 rounded p-0.5 text-fg-muted opacity-60 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                       <Badge className={`shrink-0 ${statusMeta.tone}`}>
                         {statusMeta.label}
                       </Badge>
@@ -414,17 +429,6 @@ export default function SubscriptionsPage() {
                           <Play className="h-4 w-4" />
                         </button>
                       )}
-                      <button
-                        title="改称呼"
-                        onClick={() => {
-                          setRenaming(sub);
-                          // 与模板同名说明没自定义过，输入框留空更好改
-                          setRenameValue(sub.name === sub.employee.name ? '' : sub.name);
-                        }}
-                        className="rounded-lg border border-border p-2 text-fg-muted hover:bg-muted hover:text-foreground"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
                     </div>
 
                     <button

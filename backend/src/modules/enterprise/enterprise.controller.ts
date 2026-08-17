@@ -47,7 +47,6 @@ import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
 import { InvitationService } from "./invitation.service";
 import { GrantService } from "./grant.service";
-import { AccessRequestService } from "./access-request.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
 
 type AuthedRequest = { user: { id: string } };
@@ -63,7 +62,6 @@ export class EnterpriseController {
     private readonly members: MemberService,
     private readonly invitations: InvitationService,
     private readonly grants: GrantService,
-    private readonly accessRequests: AccessRequestService,
     private readonly enterpriseCtx: EnterpriseContextService,
   ) {}
 
@@ -381,64 +379,6 @@ export class EnterpriseController {
   })
   async markOnboardingCompleted(@Request() req: AuthedRequest) {
     return this.enterprise.markOnboardingCompleted(req.user.id);
-  }
-
-  // ── 访问申请 (跨部门员工使用) ────────────────────────────────────────────────
-
-  @Post("access-requests")
-  @ApiOperation({ summary: "提交员工访问申请（普通成员申请使用跨部门员工）" })
-  @ApiResponse({ status: 201, description: "申请已提交" })
-  @ApiResponse({ status: 400, description: "已有权限或重复申请" })
-  @ApiResponse({ status: 403, description: "不属于任何企业" })
-  @ApiResponse({ status: 404, description: "员工订阅不存在" })
-  async createAccessRequest(
-    @Request() req: AuthedRequest,
-    @Body() dto: { subscriptionId: string; reason?: string; requestedDays?: number },
-  ) {
-    return this.accessRequests.create(req.user.id, dto);
-  }
-
-  @Get("access-requests/pending")
-  @ApiOperation({ summary: "获取待审批列表（管理员/部门负责人）" })
-  @ApiResponse({ status: 200, description: "待审批申请列表" })
-  @ApiResponse({ status: 403, description: "无权查看" })
-  async listPendingAccessRequests(@Request() req: AuthedRequest) {
-    return this.accessRequests.listPending(req.user.id);
-  }
-
-  @Get("access-requests/my")
-  @ApiOperation({ summary: "获取我的申请历史" })
-  @ApiResponse({ status: 200, description: "申请历史列表" })
-  async myAccessRequests(@Request() req: AuthedRequest) {
-    return this.accessRequests.myRequests(req.user.id);
-  }
-
-  @Post("access-requests/:id/approve")
-  @ApiOperation({ summary: "批准访问申请（管理员/部门负责人）" })
-  @ApiResponse({ status: 200, description: "已批准，授权已创建" })
-  @ApiResponse({ status: 400, description: "申请已被处理" })
-  @ApiResponse({ status: 403, description: "无权审批" })
-  @ApiResponse({ status: 404, description: "申请不存在" })
-  async approveAccessRequest(
-    @Request() req: AuthedRequest,
-    @Param("id") id: string,
-    @Body() dto: { reviewNote?: string },
-  ) {
-    return this.accessRequests.approve(req.user.id, id, dto.reviewNote);
-  }
-
-  @Post("access-requests/:id/reject")
-  @ApiOperation({ summary: "拒绝访问申请（管理员/部门负责人）" })
-  @ApiResponse({ status: 200, description: "已拒绝" })
-  @ApiResponse({ status: 400, description: "申请已被处理" })
-  @ApiResponse({ status: 403, description: "无权审批" })
-  @ApiResponse({ status: 404, description: "申请不存在" })
-  async rejectAccessRequest(
-    @Request() req: AuthedRequest,
-    @Param("id") id: string,
-    @Body() dto: { reviewNote?: string },
-  ) {
-    return this.accessRequests.reject(req.user.id, id, dto.reviewNote);
   }
 
   // ── P3.3：运营端 ──────────────────────────────────────────────────────────

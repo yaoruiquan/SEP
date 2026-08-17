@@ -17,6 +17,7 @@ import { SubscriptionService } from "../subscription/subscription.service";
 import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import { KnowledgeSearchService } from "../knowledge/knowledge-search.service";
 import { EnterpriseModelConfigService } from "../enterprise-model-config/enterprise-model-config.service";
+import { ComputeQuotaService } from "../compute-quota/compute-quota.service";
 import {
   DEFAULT_MODEL_ID,
   calculateCost,
@@ -52,6 +53,7 @@ export class ConversationStreamService {
     private readonly modelConfig: EnterpriseModelConfigService,
     private readonly uploadService: UploadService,
     private readonly attachmentContext: AttachmentContextService,
+    private readonly quotaService: ComputeQuotaService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -846,27 +848,23 @@ export class ConversationStreamService {
         update: {},
       });
 
-      // 创建消费记录（负数表示消费）
-      await this.prisma.computeTransaction.create({
-        data: {
-          accountId: account.id,
-          type: "CONSUME",
-          amount: -costCNY,
-          sessionId,
-          description: `${modelId} 对话消费${isFallback ? "（保底价）" : ""}`,
-          // 存 rate：汇率可被修改，旧账单需能复核当时的换算依据
-          metadata: {
-            inputTokens,
-            outputTokens,
-            costUSD,
-            costCNY,
-            isFallback,
-            rate,
-          },
-        },
-      });
+      // 对话后消费配额（按优先级扣费，支持跨配额扣除）
+      const totalTokens = inputTokens + outputTokens;
+      const quotaResults = await this.quotaService.consumeQuota(
+        userId,
+        totalTokens,
+        sessionId,
+      );
 
-      // 更新账户余额
+      // 三级配额消费已在 consumeQuota 内部创建交易记录，这里无需重复创建
+      // 只记录本次消费使用了哪些配额层级
+      if (quotaResults.length > 0) {
+        this.logger.log(
+          `[Quota Consumed] Session ${sessionId} consumed ${totalTokens} tokens across ${quotaResults.length} tier(s): ${quotaResults.map(r => r.tier).join(' → ')}`,
+        );
+      }
+
+      // 更新账户余额（保留兼容，实际余额已统一到 EnterpriseWallet）
       await this.prisma.computeAccount.update({
         where: { id: account.id },
         data: { balance: { decrement: costCNY } },

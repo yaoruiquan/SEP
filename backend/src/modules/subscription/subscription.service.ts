@@ -13,6 +13,7 @@ import {
 } from 'shared';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { WalletService } from '../wallet/wallet.service';
+import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
 
 /** 允许的状态流转。EXPIRED 是终态。 */
 const ALLOWED_TRANSITIONS: Record<
@@ -32,6 +33,7 @@ export class SubscriptionService {
     private prisma: PrismaService,
     private enterpriseContext: EnterpriseContextService,
     private walletService: WalletService,
+    private computeQuotaService: ComputeQuotaService,
   ) {}
 
   /**
@@ -105,6 +107,24 @@ export class SubscriptionService {
         },
         include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
       });
+
+      // 复活订阅时，检查是否已有授权记录，没有则创建
+      const existingGrant = await this.prisma.employeeGrant.findFirst({
+        where: {
+          subscriptionId: existing.id,
+          memberId: ctx.memberId,
+        },
+      });
+      if (!existingGrant) {
+        const expiresAt = subscription.endDate || null;
+        await this.prisma.employeeGrant.create({
+          data: {
+            subscriptionId: subscription.id,
+            memberId: ctx.memberId,
+            expiresAt,
+          },
+        });
+      }
     } else {
       // 先从钱包扣款，再创建订阅记录（订阅 ID 还不存在，先用 null，后面再关联）
       // 为了获得订阅 ID，先创建订阅，再扣款，再更新订阅关联交易 ID
@@ -134,6 +154,25 @@ export class SubscriptionService {
         data: { walletTransactionId: transaction.id },
         include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
       });
+
+      // 为订阅者（管理员）自动创建授权，无需手动分配
+      const expiresAt = subscription.endDate || null;
+      await this.prisma.employeeGrant.create({
+        data: {
+          subscriptionId: subscription.id,
+          memberId: ctx.memberId,
+          expiresAt,
+        },
+      });
+
+      // 自动创建订阅配额（硅基员工自带配额，priority=1）
+      // TODO: 从产品定价配置中获取 token 量，这里暂时硬编码为 100,000
+      const subscriptionTokens = 100_000;
+      await this.computeQuotaService.createSubscriptionQuota(
+        subscription.id,
+        ctx.enterpriseId,
+        subscriptionTokens,
+      );
     }
 
     return subscription;
