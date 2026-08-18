@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authAccessor } from '@/lib/auth-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -147,6 +147,60 @@ export function useOrder(orderId: string | null) {
     queryFn: () => fetchOrder(orderId!),
     enabled: !!orderId,
     staleTime: 10_000,
+  });
+}
+
+/**
+ * 支付结果页专用：订单未支付时自动轮询。
+ *
+ * 与 useOrder 的区别是 staleTime 归零且带 refetchInterval——
+ * 否则 10 秒缓存会让轮询拿到的一直是同一份旧数据。
+ */
+export function usePollingOrder(orderId: string | null) {
+  return useQuery({
+    queryKey: ['order', orderId],
+    queryFn: () => fetchOrder(orderId!),
+    enabled: !!orderId,
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'PENDING' ? 2000 : false;
+    },
+  });
+}
+
+/**
+ * 主动向支付宝核对订阅订单状态（兜底）。
+ *
+ * 异步通知可能丢失，导致用户已付款但订阅始终不生效。
+ * 结果页在 PENDING 时定期调用它，把这种情况救回来。
+ */
+export function useReconcileOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const token = authAccessor.getToken();
+      const res = await fetch(`${API_BASE}/payment/alipay/reconcile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Failed to reconcile order');
+      }
+      return res.json() as Promise<{ status: string; reconciled: boolean }>;
+    },
+    onSuccess: (result, orderId) => {
+      if (result.reconciled) {
+        queryClient.invalidateQueries({ queryKey: ['order', orderId] });
+        queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+      }
+    },
   });
 }
 

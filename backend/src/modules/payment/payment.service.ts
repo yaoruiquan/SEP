@@ -7,6 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 import { OrderService } from './order.service';
 import { AlipayProvider } from './alipay.provider';
 import { ComputeService } from '../compute/compute.service';
@@ -17,6 +18,7 @@ export class PaymentService {
 
   constructor(
     private prisma: PrismaService,
+    private configService: ConfigService,
     private orderService: OrderService,
     private alipayProvider: AlipayProvider,
     @Inject(forwardRef(() => ComputeService))
@@ -102,7 +104,9 @@ export class PaymentService {
       totalAmount: order.totalAmount.toString(),
       subject,
       body,
-      returnUrl,
+      // 同充值订单：支付宝回跳不会带 orderId，结果页依赖它定位订单，
+      // 必须在此显式拼入，否则回跳后页面查不到订单。
+      returnUrl: returnUrl ?? this.buildOrderReturnUrl(order.id),
     });
 
     this.logger.log(`订单 ${order.orderNo} 支付请求已生成`);
@@ -144,7 +148,10 @@ export class PaymentService {
       totalAmount: order.amount.toString(),
       subject,
       body,
-      returnUrl,
+      // 支付宝同步回跳只会附加它自己的参数（out_trade_no/trade_no/sign 等），
+      // 不会凭空产生 orderNo。结果页依赖 orderNo 定位订单，故必须在此显式拼入，
+      // 否则回跳后页面拿不到订单号，只能显示「缺少订单号」。
+      returnUrl: returnUrl ?? this.buildRechargeReturnUrl(order.orderNo),
     });
 
     this.logger.log(`充值订单 ${order.orderNo} 支付请求已生成`);
@@ -154,6 +161,24 @@ export class PaymentService {
       orderNo: order.orderNo,
       paymentForm,
     };
+  }
+
+  /**
+   * 构造充值结果页回跳地址（带订单号）
+   */
+  private buildRechargeReturnUrl(orderNo: string): string {
+    const webUrl = this.configService.get<string>('WEB_BASE_URL');
+    return `${webUrl}/payment/recharge/result?orderNo=${encodeURIComponent(orderNo)}`;
+  }
+
+  /**
+   * 构造订阅订单结果页回跳地址（带订单 ID）
+   *
+   * 注意结果页用的是 orderId（非 orderNo），与充值页不同。
+   */
+  private buildOrderReturnUrl(orderId: string): string {
+    const webUrl = this.configService.get<string>('WEB_BASE_URL');
+    return `${webUrl}/payment/result?orderId=${encodeURIComponent(orderId)}`;
   }
 
   /**
@@ -183,23 +208,42 @@ export class PaymentService {
     } = postData;
 
     // 2. 幂等检查：插入通知记录（唯一约束防止重复处理）
-    try {
-      await this.prisma.paymentNotify.create({
-        data: {
-          channel: 'ALIPAY',
-          outTradeNo,
-          tradeNo,
-          rawBody: JSON.stringify(postData),
-          verified: true,
-          processed: false,
-        },
-      });
-    } catch (error) {
-      // 唯一约束冲突 = 已处理过
-      this.logger.warn(
-        `支付宝通知 ${tradeNo} 已处理过，跳过`,
-      );
+    //
+    // 注意：这里只把「已成功履约」的通知视为可跳过。早期实现一律跳过，
+    // 导致履约失败（如回调早于订单落库）的记录留在表里且 processed=false，
+    // 后续支付宝重试全部被误判为「已处理」并返回 success —— 支付宝随即停止重试，
+    // 钱扣了却永远不入账。故此处需区分 processed 真伪。
+    const existingNotify = await this.prisma.paymentNotify.findFirst({
+      where: { channel: 'ALIPAY', tradeNo },
+    });
+
+    if (existingNotify?.processed) {
+      this.logger.warn(`支付宝通知 ${tradeNo} 已成功处理过，跳过`);
       return { success: true, message: '通知已处理' };
+    }
+
+    if (existingNotify) {
+      // 之前收到过但未履约成功：放行本次重试，不再重复插入记录。
+      this.logger.warn(
+        `支付宝通知 ${tradeNo} 曾处理失败（processed=false），本次重试将重新履约`,
+      );
+    } else {
+      try {
+        await this.prisma.paymentNotify.create({
+          data: {
+            channel: 'ALIPAY',
+            outTradeNo,
+            tradeNo,
+            rawBody: JSON.stringify(postData),
+            verified: true,
+            processed: false,
+          },
+        });
+      } catch (error) {
+        // 并发下的唯一约束冲突：另一请求正在处理同一通知，本次直接让支付宝重试。
+        this.logger.warn(`支付宝通知 ${tradeNo} 并发写入冲突，交由重试处理`);
+        return { success: false, message: '并发处理中，请重试' };
+      }
     }
 
     // 3. 仅处理支付成功状态
@@ -252,5 +296,108 @@ export class PaymentService {
     const result = await this.alipayProvider.queryTrade({ outTradeNo: orderNo });
 
     return result;
+  }
+
+  /**
+   * 主动查单兜底（对账）
+   *
+   * 异步通知并非绝对可靠：可能因网络、回调地址配错、服务重启而丢失，
+   * 同步回跳也可能因用户提前关闭页面而不发生。此方法直接向支付宝核对
+   * 真实交易状态，若已支付但本地仍为 PENDING，则补执行履约。
+   *
+   * 结果页轮询会调用它，把「支付宝已收钱、平台没入账」的窗口收敛掉。
+   */
+  async reconcileRechargeOrder(orderNo: string) {
+    const order = await this.prisma.rechargeOrder.findUnique({
+      where: { orderNo },
+    });
+
+    if (!order) {
+      throw new NotFoundException('充值订单不存在');
+    }
+
+    // 已是终态，无需对账
+    if (order.status !== 'PENDING') {
+      return { status: order.status, reconciled: false };
+    }
+
+    await this.initializeAlipay();
+
+    const trade = await this.queryAlipayTrade(orderNo);
+    if (!trade.paid) {
+      return { status: order.status, reconciled: false };
+    }
+
+    // 支付宝确认已收款，但本地仍 PENDING —— 补履约。
+    // fulfillRechargeOrder 自身对已履约订单幂等，重复调用安全。
+    this.logger.warn(
+      `充值订单 ${orderNo} 支付宝显示已支付但本地为 PENDING，触发主动履约（tradeNo=${trade.tradeNo}）`,
+    );
+    await this.computeService.fulfillRechargeOrder(
+      orderNo,
+      trade.tradeNo,
+      'ALIPAY',
+    );
+
+    return { status: 'PAID', reconciled: true };
+  }
+
+  /**
+   * 主动查单兜底（订阅订单对账）
+   *
+   * 与充值订单同理：异步通知可能丢失，导致用户已付款但订阅始终未生效。
+   * 此方法向支付宝核对真实状态，确认已收款则补执行 orderService.fulfill。
+   */
+  async reconcileOrder(orderNo: string) {
+    const order = await this.orderService.findByOrderNo(orderNo);
+
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+
+    // 已是终态，无需对账
+    if (order.status !== 'PENDING') {
+      return { status: order.status, reconciled: false };
+    }
+
+    await this.initializeAlipay();
+
+    const trade = await this.queryAlipayTrade(orderNo);
+    if (!trade.paid) {
+      return { status: order.status, reconciled: false };
+    }
+
+    // fulfill 对已履约订单幂等（status === 'PAID' 时直接返回），重复调用安全。
+    this.logger.warn(
+      `订阅订单 ${orderNo} 支付宝显示已支付但本地为 PENDING，触发主动履约（tradeNo=${trade.tradeNo}）`,
+    );
+    await this.orderService.fulfill(order.id, trade.tradeNo);
+
+    return { status: 'PAID', reconciled: true };
+  }
+
+  /**
+   * 向支付宝查询交易真实状态。
+   *
+   * 查不到交易（ACQ.TRADE_NOT_EXIST）是正常情况——用户可能尚未付款，
+   * 故吞掉异常并返回未支付，让调用方继续等待而非报错。
+   */
+  private async queryAlipayTrade(
+    outTradeNo: string,
+  ): Promise<{ paid: boolean; tradeNo?: string }> {
+    let trade: any;
+    try {
+      trade = await this.alipayProvider.queryTrade({ outTradeNo });
+    } catch (error) {
+      this.logger.warn(`订单 ${outTradeNo} 查单失败或交易不存在`);
+      return { paid: false };
+    }
+
+    const tradeStatus = trade?.tradeStatus ?? trade?.trade_status;
+    const tradeNo = trade?.tradeNo ?? trade?.trade_no;
+    const paid =
+      tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED';
+
+    return { paid, tradeNo };
   }
 }

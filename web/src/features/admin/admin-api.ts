@@ -516,6 +516,49 @@ export const adminApi = {
   submitCapabilityForReview: (capabilityId: string) => {
     return api.post<OperationResponse>(`/admin/capabilities/${capabilityId}/submit`);
   },
+
+  /**
+   * 获取所有可用的头像风格列表
+   */
+  getAvatarStyles: () => {
+    return api.get<{
+      styles: Array<{
+        id: string;
+        name: string;
+        description: string;
+        category: string;
+        recommended: boolean;
+        examples: string[];
+      }>;
+      total: number;
+      recommended: Array<{
+        id: string;
+        name: string;
+        description: string;
+        category: string;
+        recommended: boolean;
+        examples: string[];
+      }>;
+    }>('/admin/employees/avatar-styles');
+  },
+
+  /**
+   * 批量更新所有员工的头像风格
+   */
+  batchUpdateAvatarStyle: (styleId: string) => {
+    return api.patch<{
+      success: boolean;
+      updated: number;
+      style: string;
+    }>('/admin/employees/batch-update-avatar-style', { styleId });
+  },
+
+  /**
+   * 更新单个员工的头像风格
+   */
+  updateEmployeeAvatarStyle: (employeeId: string, styleId: string) => {
+    return api.patch<EmployeeDetail>(`/admin/employees/${employeeId}/avatar-style`, { styleId });
+  },
 };
 
 // Binding related types

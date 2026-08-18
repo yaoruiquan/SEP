@@ -3,13 +3,22 @@ const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3001';
 
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'api.dicebear.com',
+        pathname: '/**',
+      },
+    ],
+  },
   // Proxy API calls to the NestJS backend so the browser talks same-origin
   // (keeps the refresh-token httpOnly cookie first-party, avoids CORS in dev).
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: `${API_ORIGIN}/:path*`,
+        destination: `${API_ORIGIN}/api/:path*`,
       },
     ];
   },

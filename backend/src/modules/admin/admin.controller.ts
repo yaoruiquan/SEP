@@ -288,6 +288,13 @@ export class AdminController {
     });
   }
 
+  @Get('employees/avatar-styles')
+  @ApiOperation({ summary: '获取所有可用的头像风格列表' })
+  @ApiResponse({ status: 200, description: '返回所有 DiceBear 风格及推荐列表' })
+  getAvatarStyles() {
+    return this.adminService.getAvatarStyles();
+  }
+
   @Get('employees/:id')
   @ApiOperation({ summary: '获取员工详情（运营端）' })
   @ApiResponse({ status: 200, description: '返回员工详情' })
@@ -389,6 +396,32 @@ export class AdminController {
   @ApiResponse({ status: 404, description: '绑定不存在' })
   removeBinding(@Param('id') id: string) {
     return this.adminService.removeBinding(id);
+  }
+
+  @Patch('employees/batch-update-avatar-style')
+  @ApiOperation({ summary: '批量更新所有员工的头像风格' })
+  @ApiResponse({ status: 200, description: '更新成功，返回更新数量' })
+  @ApiResponse({ status: 400, description: '头像风格不存在' })
+  batchUpdateAvatarStyle(
+    @Body(new ZodValidationPipe(z.object({ styleId: z.string().min(1, '风格ID不能为空') })))
+    dto: { styleId: string },
+    @Request() req: any,
+  ) {
+    return this.adminService.batchUpdateAvatarStyle(dto.styleId, req.user.id);
+  }
+
+  @Patch('employees/:id/avatar-style')
+  @ApiOperation({ summary: '更新单个员工的头像风格' })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({ status: 400, description: '头像风格不存在' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  updateEmployeeAvatarStyle(
+    @Param('id') employeeId: string,
+    @Body(new ZodValidationPipe(z.object({ styleId: z.string().min(1, '风格ID不能为空') })))
+    dto: { styleId: string },
+    @Request() req: any,
+  ) {
+    return this.adminService.updateEmployeeAvatarStyle(employeeId, dto.styleId, req.user.id);
   }
 
   @Get('capabilities')

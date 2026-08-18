@@ -28,6 +28,20 @@ const RechargeAlipayPaymentDtoSchema = z.object({
 
 type RechargeAlipayPaymentDto = z.infer<typeof RechargeAlipayPaymentDtoSchema>;
 
+// 主动对账请求 DTO
+const ReconcileRechargeDtoSchema = z.object({
+  orderNo: z.string(),
+});
+
+type ReconcileRechargeDto = z.infer<typeof ReconcileRechargeDtoSchema>;
+
+// 订阅订单对账请求 DTO（结果页用 orderId 定位）
+const ReconcileOrderDtoSchema = z.object({
+  orderId: z.string(),
+});
+
+type ReconcileOrderDto = z.infer<typeof ReconcileOrderDtoSchema>;
+
 @ApiTags('payment')
 @Controller('payment')
 export class PaymentController {
@@ -48,11 +62,8 @@ export class PaymentController {
   ) {
     const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
 
-    // 验证订单归属
-    const order = await this.paymentService['orderService'].findOne(
-      dto.orderId,
-      enterpriseId,
-    );
+    // 验证订单归属：findOne 查不到会抛 404，故此调用本身即是鉴权
+    await this.paymentService['orderService'].findOne(dto.orderId, enterpriseId);
 
     return this.paymentService.createAlipayPayment(dto.orderId);
   }
@@ -95,5 +106,57 @@ export class PaymentController {
 
     // 支付宝要求返回固定字符串
     return result.success ? 'success' : 'fail';
+  }
+
+  @Post('alipay/recharge/reconcile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '主动向支付宝核对充值订单状态（异步通知丢失时的兜底）',
+  })
+  @ApiResponse({ status: 200, description: '返回最新订单状态' })
+  @ApiResponse({ status: 404, description: '充值订单不存在' })
+  async reconcileRecharge(
+    @Request() req,
+    @Body(new ZodValidationPipe(ReconcileRechargeDtoSchema))
+    dto: ReconcileRechargeDto,
+  ) {
+    const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
+
+    // 验证订单归属，防止越权查询他人订单
+    const order = await this.paymentService['prisma'].rechargeOrder.findUnique({
+      where: { orderNo: dto.orderNo },
+      include: { account: true },
+    });
+
+    if (!order || order.account.enterpriseId !== enterpriseId) {
+      throw new NotFoundException('充值订单不存在');
+    }
+
+    return this.paymentService.reconcileRechargeOrder(dto.orderNo);
+  }
+
+  @Post('alipay/reconcile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '主动向支付宝核对订阅订单状态（异步通知丢失时的兜底）',
+  })
+  @ApiResponse({ status: 200, description: '返回最新订单状态' })
+  @ApiResponse({ status: 404, description: '订单不存在' })
+  async reconcileOrder(
+    @Request() req,
+    @Body(new ZodValidationPipe(ReconcileOrderDtoSchema))
+    dto: ReconcileOrderDto,
+  ) {
+    const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
+
+    // 验证订单归属：findOne 查不到会抛 404，故此调用本身即是鉴权
+    const order = await this.paymentService['orderService'].findOne(
+      dto.orderId,
+      enterpriseId,
+    );
+
+    return this.paymentService.reconcileOrder(order.orderNo);
   }
 }

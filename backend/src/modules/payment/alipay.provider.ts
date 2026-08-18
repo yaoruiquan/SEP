@@ -129,6 +129,8 @@ export class AlipayProvider {
    */
   private getReturnUrl(): string {
     const webUrl = this.configService.get<string>('WEB_BASE_URL');
-    return `${webUrl}/payment/result`;
+    // 注意：/payment/result 页面并不存在，实际结果页是 /payment/recharge/result。
+    // 调用方（payment.service）应显式传入带 orderNo 的 returnUrl；此处仅作兜底。
+    return `${webUrl}/payment/recharge/result`;
   }
 }

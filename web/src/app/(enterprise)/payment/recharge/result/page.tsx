@@ -5,14 +5,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useRechargeOrder } from '@/features/compute/use-compute';
+import { useRechargeOrder, useReconcileRechargeOrder } from '@/features/compute/use-compute';
 
 export default function RechargeResultPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const orderNo = searchParams.get('orderNo');
+  // 支付宝同步回跳带的是 out_trade_no（它不会产生 orderNo）。
+  // 后端已在 returnUrl 里显式拼入 orderNo，这里同时兼容 out_trade_no 作为兜底，
+  // 避免任一侧遗漏就退化成「缺少订单号」。
+  const orderNo = searchParams.get('orderNo') ?? searchParams.get('out_trade_no');
 
   const { data: order, isLoading } = useRechargeOrder(orderNo);
+  const reconcile = useReconcileRechargeOrder();
 
   useEffect(() => {
     if (order?.status === 'PAID') {
@@ -23,6 +27,22 @@ export default function RechargeResultPage() {
       return () => clearTimeout(timer);
     }
   }, [order?.status, router]);
+
+  // 兜底对账：订单仍为 PENDING 时，每 5 秒主动向支付宝核对一次真实交易状态。
+  // 异步通知一旦丢失，本地轮询会永远停在 PENDING；主动查单能把这种情况救回来。
+  useEffect(() => {
+    if (!orderNo || order?.status !== 'PENDING') return;
+
+    const timer = setInterval(() => {
+      if (!reconcile.isPending) {
+        reconcile.mutate(orderNo);
+      }
+    }, 5000);
+
+    return () => clearInterval(timer);
+    // reconcile 为 mutation 实例，引用稳定，无需纳入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderNo, order?.status]);
 
   if (!orderNo) {
     return (

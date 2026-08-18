@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TransactionType } from '@prisma/client';
+import { DICEBEAR_STYLES, generateAvatarUrl, generateSeedFromName } from '../../shared/dicebear-styles';
 
 @Injectable()
 export class AdminService {
@@ -1233,6 +1234,101 @@ export class AdminService {
       data: {
         status: 'PENDING', // 进入待审核
       },
+    });
+  }
+
+  /**
+   * 获取所有可用的头像风格列表
+   */
+  async getAvatarStyles() {
+    // 为每个风格生成3个示例头像
+    const stylesWithExamples = DICEBEAR_STYLES.map(style => ({
+      ...style,
+      examples: [
+        generateAvatarUrl(style.id, `example-1-${style.id}`),
+        generateAvatarUrl(style.id, `example-2-${style.id}`),
+        generateAvatarUrl(style.id, `example-3-${style.id}`),
+      ],
+    }));
+
+    return {
+      styles: stylesWithExamples,
+      total: stylesWithExamples.length,
+      recommended: stylesWithExamples.filter(s => s.recommended),
+    };
+  }
+
+  /**
+   * 批量更新所有员工的头像风格
+   */
+  async batchUpdateAvatarStyle(styleId: string, operatorId: string) {
+    // 验证风格是否存在
+    const style = DICEBEAR_STYLES.find(s => s.id === styleId);
+    if (!style) {
+      throw new BadRequestException(`头像风格 ${styleId} 不存在`);
+    }
+
+    // 获取所有员工
+    const employees = await this.prisma.digitalEmployee.findMany({
+      select: { id: true, name: true, position: true },
+    });
+
+    if (employees.length === 0) {
+      return { success: true, updated: 0 };
+    }
+
+    // 批量更新
+    const updatePromises = employees.map(emp => {
+      const seed = generateSeedFromName(emp.position || emp.name);
+      const avatarUrl = generateAvatarUrl(styleId, seed);
+
+      return this.prisma.digitalEmployee.update({
+        where: { id: emp.id },
+        data: { avatar: avatarUrl },
+      });
+    });
+
+    await Promise.all(updatePromises);
+
+    return {
+      success: true,
+      updated: employees.length,
+      style: style.name,
+    };
+  }
+
+  /**
+   * 更新单个员工的头像风格
+   */
+  async updateEmployeeAvatarStyle(
+    employeeId: string,
+    styleId: string,
+    operatorId: string,
+  ) {
+    // 验证风格是否存在
+    const style = DICEBEAR_STYLES.find(s => s.id === styleId);
+    if (!style) {
+      throw new BadRequestException(`头像风格 ${styleId} 不存在`);
+    }
+
+    // 验证员工是否存在
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, name: true, position: true },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('员工不存在');
+    }
+
+    // 生成新头像 URL
+    const seed = generateSeedFromName(employee.position || employee.name);
+    const avatarUrl = generateAvatarUrl(styleId, seed);
+
+    // 更新
+    return this.prisma.digitalEmployee.update({
+      where: { id: employeeId },
+      data: { avatar: avatarUrl },
     });
   }
 }

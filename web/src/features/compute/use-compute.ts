@@ -104,6 +104,34 @@ export function useRechargeOrder(orderNo: string | null) {
 }
 
 /**
+ * 主动向支付宝核对订单状态（兜底）。
+ *
+ * 异步通知可能丢失（回调地址错配、服务重启、网络问题），
+ * 只靠轮询本地状态会永远停在 PENDING。此 hook 让结果页在等待若干秒后
+ * 主动触发一次对账，把「支付宝已收钱、平台未入账」的情况救回来。
+ */
+export function useReconcileRechargeOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (orderNo: string) =>
+      api.post<{ status: string; reconciled: boolean }>(
+        '/payment/alipay/recharge/reconcile',
+        { orderNo },
+      ),
+    onSuccess: (result, orderNo) => {
+      if (result.reconciled) {
+        // 对账补履约成功，刷新订单与余额
+        queryClient.invalidateQueries({
+          queryKey: ['compute', 'recharge', 'order', orderNo],
+        });
+        queryClient.invalidateQueries({ queryKey: ['compute', 'account'] });
+      }
+    },
+  });
+}
+
+/**
  * @deprecated 旧的模拟充值接口，已废弃。请使用 useCreateRechargeOrder() 创建支付订单。
  */
 export function useRecharge() {

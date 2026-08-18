@@ -144,15 +144,29 @@ export function EmployeeCard({
                 </Button>
               </Link>
             ) : (
-              <Button
-                variant="glass-primary"
-                size="sm"
-                className="shrink-0"
-                disabled={subscribing}
-                onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
-              >
-                订阅
-              </Button>
+              <>
+                {onAddToCart && (
+                  <Button
+                    variant="glass"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={addingToCart}
+                    onClick={(e) => { e.stopPropagation(); onAddToCart(); }}
+                    title="加入购物车"
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="glass-primary"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={subscribing}
+                  onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
+                >
+                  订阅
+                </Button>
+              </>
             )
           ) : grantedToMe ? (
             <Link href="/my-employees" onClick={(e) => e.stopPropagation()}>
@@ -161,29 +175,15 @@ export function EmployeeCard({
               </Button>
             </Link>
           ) : loggedIn ? (
-            <>
-              {onAddToCart && (
-                <Button
-                  variant="glass"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={addingToCart}
-                  onClick={(e) => { e.stopPropagation(); onAddToCart(); }}
-                  title="加入购物车"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                variant="glass-primary"
-                size="sm"
-                className="shrink-0"
-                disabled={subscribing}
-                onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
-              >
-                申请使用
-              </Button>
-            </>
+            <Button
+              variant="glass-primary"
+              size="sm"
+              className="shrink-0"
+              disabled={subscribing}
+              onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
+            >
+              申请使用
+            </Button>
           ) : (
             <Link
               href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}

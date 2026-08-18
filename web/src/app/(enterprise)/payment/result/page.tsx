@@ -1,40 +1,51 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, XCircle, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useOrder } from '@/features/order/use-order';
+import { usePollingOrder, useReconcileOrder } from '@/features/order/use-order';
 
 export default function PaymentResultPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
-  const [pollingCount, setPollingCount] = useState(0);
 
-  const { data: order, isLoading } = useOrder(orderId);
+  const { data: order, isLoading } = usePollingOrder(orderId);
+  const reconcile = useReconcileOrder();
 
-  // 轮询订单状态（最多10次，每次间隔2秒）
+  // 兜底对账：订单仍为 PENDING 时，每 5 秒主动向支付宝核对一次真实交易状态。
+  // 异步通知一旦丢失，仅靠轮询本地状态会永远停在 PENDING。
   useEffect(() => {
-    if (!orderId || !order) return;
+    if (!orderId || order?.status !== 'PENDING') return;
 
-    if (order.status === 'PAID') {
-      // 支付成功，停止轮询
-      return;
-    }
+    const timer = setInterval(() => {
+      if (!reconcile.isPending) {
+        reconcile.mutate(orderId);
+      }
+    }, 5000);
 
-    if (pollingCount >= 10) {
-      // 超过轮询次数，停止
-      return;
-    }
+    return () => clearInterval(timer);
+    // reconcile 为 mutation 实例，引用稳定，无需纳入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, order?.status]);
 
-    const timer = setTimeout(() => {
-      setPollingCount((prev) => prev + 1);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [order, orderId, pollingCount]);
+  if (!orderId) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <Card className="glass-card w-full max-w-md">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center gap-4">
+              <XCircle className="h-12 w-12 text-destructive" />
+              <p className="text-sm text-gtext-secondary">缺少订单号</p>
+              <Button onClick={() => router.push('/orders')}>返回订单列表</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isLoading || !order) {
     return (

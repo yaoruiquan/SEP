@@ -246,6 +246,7 @@ model DigitalEmployee {
   industry    String // 行业（电商/金融/医疗等）
   position    String // 岗位（运营/客服/数据分析等）
   avatar      String?
+  avatarStyle String? // 头像风格（adventurer/avataaars/bottts等，来自 DiceBear）
 
   // Agent Configuration
   systemPrompt String @db.Text // Agent 人设

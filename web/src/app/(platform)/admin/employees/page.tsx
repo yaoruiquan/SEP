@@ -22,7 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/features/admin/admin-api';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Archive, Upload, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, Archive, Upload, Users, Palette } from 'lucide-react';
 
 type EmployeeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED';
 
@@ -122,10 +122,19 @@ export default function AdminEmployeesPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">员工管理</h1>
-        <Button onClick={() => router.push('/admin/employees/new')}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建员工
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push('/admin/employees/avatar-styles')}
+          >
+            <Palette className="h-4 w-4 mr-2" />
+            头像风格
+          </Button>
+          <Button onClick={() => router.push('/admin/employees/new')}>
+            <Plus className="h-4 w-4 mr-2" />
+            新建员工
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v: any) => setTab(v)}>

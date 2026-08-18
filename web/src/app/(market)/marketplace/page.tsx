@@ -254,7 +254,7 @@ export default function MarketplacePage() {
       <div className="flex items-end justify-between gap-4 border-b border-glassline">
         <CategoryTabs active={activeTab} onChange={handleTab} />
         <div className="mb-2 flex shrink-0 items-center gap-2">
-          {loggedIn && (
+          {loggedIn && !isAdmin && (
             <button
               onClick={() => setMyRequestsOpen(true)}
               className="flex items-center gap-1.5 rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary transition-colors hover:text-gtext-primary"

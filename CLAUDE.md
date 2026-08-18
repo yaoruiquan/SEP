@@ -31,19 +31,9 @@ Full requirements/architecture live in `docs/architecture/` — note that some c
 
 ### Frontend (`web/` — ✅ 已实现)
 
-| Area | Choice | Notes |
-|------|--------|-------|
-| Framework | Next.js 15 App Router | 已实现两个路由组: `(enterprise)` 企业端, `(platform)` 运营端 |
-| UI components | Shadcn/ui + Tailwind CSS | 已实现 20+ 组件: Button/Card/Dialog/Switch/Badge/Input 等 |
-| Server state | TanStack Query v5 | API 调用, 缓存, 自动失效已实现 |
-| Client state | Zustand | 认证状态管理 (auth-store) |
-| Forms | react-hook-form + zod | 表单验证已实现 |
-| Data tables | - | 使用原生 table + 卡片布局 |
-| Chat rendering | react-markdown + highlight.js | 待实现（聊天功能） |
-| Auth storage | LocalStorage + API | access token 存储，JWT 认证 |
-| Date/time | date-fns | 已使用 |
-| Charts | recharts ^3.10 | Dashboard 数据可视化 |
-| Drag & Drop | @dnd-kit | 能力绑定拖拽排序 |
+Next.js 15 App Router · Shadcn/ui + Tailwind · TanStack Query v5（服务端状态）·
+Zustand（认证状态）· react-hook-form + zod · recharts（图表）· @dnd-kit（拖拽）·
+date-fns。聊天渲染 react-markdown + highlight.js（待实现）。
 
 ## Commands
 
@@ -60,27 +50,14 @@ Standard commands: `pnpm install`, `docker-compose up -d`, `pnpm dev:backend`, `
 
 ```
 SEP/
-├── backend/                NestJS API（主要开发目标）
-│   ├── prisma/
-│   │   ├── schema.prisma   数据库 Schema（14 个核心实体）
-│   │   └── migrations/     自动生成，不要手动修改
-│   ├── src/
-│   │   ├── shared/         Zod DTO + 共享 TS 类型（原 contracts 包）
-│   │   ├── prisma/         PrismaService（全局注入）
-│   │   ├── modules/        业务模块，每个功能一个目录
-│   │   └── main.ts
-│   ├── .env                DATABASE_URL（本地 Prisma CLI 用）
-│   └── package.json
-│
-├── web/                    Next.js 前端（待开发）
-│   └── src/app/
-│       ├── (user)/         用户端路由组
-│       ├── (admin)/        运营端路由组
-│       └── (contributor)/  贡献者端路由组
-│
+├── backend/                NestJS API
+│   ├── prisma/             schema.prisma（14 实体）+ migrations/（勿手改）
+│   ├── src/shared/         Zod DTO + 共享类型
+│   ├── src/prisma/         PrismaService（全局注入）
+│   └── src/modules/        业务模块，一功能一目录
+├── web/                    Next.js 前端（(enterprise) / (platform) 两个路由组）
 ├── docs/                   架构文档（规划期产物，以代码为准）
-├── docker-compose.yml      本地开发：PostgreSQL + Redis
-├── .env                    根环境变量（后端运行时读这个）
+├── docker-compose.yml      PostgreSQL + Redis
 └── pnpm-workspace.yaml     ["backend", "web"]
 ```
 
@@ -158,51 +135,14 @@ Within the same module, relative imports are fine. Never `new PrismaClient()` in
 
 ## Frontend conventions (Next.js / web/)
 
-> `web/` is not yet scaffolded. These conventions apply once it is.
+**Route groups** — `(enterprise)` 企业端 · `(platform)` 运营端，各自独立 layout。
 
-**Route groups** — three isolated panels, each with its own layout:
-```
-web/src/app/
-├── (user)/          用户端：chat, subscription, profile
-├── (admin)/         运营端：capability review, user management, billing
-└── (contributor)/   贡献者端：capability upload, version management
-```
+**Component layout** — co-locate by feature: `components/` 全局 UI · `features/<domain>/`
+业务组件 · `lib/` API client + query hooks。
 
-**Auth — httpOnly cookie**
-- Access token stored **in memory** (Zustand store), never in `localStorage`
-- Refresh token in **httpOnly cookie** set by the backend `/auth/login` response
-- Swagger testing still uses `Authorization: Bearer <token>` header — unaffected
-- On page reload, call `GET /auth/refresh` to rehydrate the in-memory token
-
-**Server state with TanStack Query**
-```typescript
-// ✅ All API calls go through query/mutation hooks
-const { data: me } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
-const updateProfile = useMutation({ mutationFn: patchProfile });
-
-// ✅ SSE streaming (conversation) uses useQuery with a custom fetcher
-```
-
-**Zod schema reuse** — import shared schemas from `backend/src/shared/` (or a symlinked
-package once `web/` is set up). Never re-define validation logic in the frontend:
-```typescript
-import { RegisterDtoSchema } from '@sep/shared';   // shared Zod schema
-const form = useForm({ resolver: zodResolver(RegisterDtoSchema) });
-```
-
-**Component file layout** — co-locate by feature, not by type:
-```
-web/src/
-├── components/          global reusable UI only (Button, Modal, etc.)
-├── features/
-│   ├── chat/            ChatWindow, MessageBubble, InputBar
-│   ├── capability/      CapabilityCard, UploadForm
-│   └── employee/        EmployeeSelector, BindingPanel
-└── lib/                 API client, query hooks, utils
-```
-
-**Streaming (SSE)** — Layer 5 conversation uses `streamText` on the backend via NestJS SSE
-(`@Sse`). The frontend consumes it with `EventSource` or `fetch` + `ReadableStream`.
+- 所有 API 调用走 TanStack Query 的 query/mutation hook，不裸调 fetch
+- Zod schema 从 `backend/src/shared/` 复用，前端不重复定义校验逻辑
+- SSE 流式对话：后端 `@Sse` + `streamText`，前端 `fetch` + `ReadableStream`
 
 ## Git commits
 

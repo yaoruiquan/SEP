@@ -101,6 +101,11 @@ export const SETTING_KEYS = {
   ADMIN_NOTIFICATION_EMAIL: "ADMIN_NOTIFICATION_EMAIL",
   ABNORMAL_USAGE_THRESHOLD: "ABNORMAL_USAGE_THRESHOLD",
   SYSTEM_MAINTENANCE_NOTICE: "SYSTEM_MAINTENANCE_NOTICE",
+  // 支付宝配置
+  ALIPAY_APP_ID: "alipay.appId",
+  ALIPAY_PRIVATE_KEY: "alipay.privateKey",
+  ALIPAY_PUBLIC_KEY: "alipay.publicKey",
+  ALIPAY_GATEWAY: "alipay.gateway",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -108,6 +113,7 @@ export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 /** 哪些配置项是敏感值（加密存储、接口打码）。 */
 export const SECRET_SETTING_KEYS: readonly SettingKey[] = [
   SETTING_KEYS.SUB2API_API_KEY,
+  SETTING_KEYS.ALIPAY_PRIVATE_KEY,
 ];
 
 /** 管理端可编辑的配置项元信息（用于渲染设置表单）。 */
@@ -330,6 +336,35 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     secret: false,
     envFallback: "SYSTEM_MAINTENANCE_NOTICE",
     placeholder: "",
+  },
+  // 支付宝配置
+  {
+    key: SETTING_KEYS.ALIPAY_APP_ID,
+    label: "支付宝应用ID",
+    secret: false,
+    envFallback: "ALIPAY_APP_ID",
+    placeholder: "202400012345678",
+  },
+  {
+    key: SETTING_KEYS.ALIPAY_PRIVATE_KEY,
+    label: "支付宝应用私钥",
+    secret: true,
+    envFallback: "ALIPAY_PRIVATE_KEY",
+    placeholder: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...",
+  },
+  {
+    key: SETTING_KEYS.ALIPAY_PUBLIC_KEY,
+    label: "支付宝公钥",
+    secret: false,
+    envFallback: "ALIPAY_PUBLIC_KEY",
+    placeholder: "MIIBIjANBgkqhkiG9w0BAQEFAAOC...",
+  },
+  {
+    key: SETTING_KEYS.ALIPAY_GATEWAY,
+    label: "支付宝网关地址",
+    secret: false,
+    envFallback: "ALIPAY_GATEWAY",
+    placeholder: "https://openapi.alipay.com/gateway.do",
   },
 ];
 

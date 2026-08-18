@@ -7,6 +7,8 @@ import {
   UseGuards,
   Request,
   NotFoundException,
+  ServiceUnavailableException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { WalletService } from './wallet.service';
@@ -21,6 +23,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 @UseGuards(JwtAuthGuard)
 @Controller('wallet')
 export class WalletController {
+  private readonly logger = new Logger(WalletController.name);
+
   constructor(
     private readonly walletService: WalletService,
     private readonly enterpriseContext: EnterpriseContextService,
@@ -101,12 +105,15 @@ export class WalletController {
         payUrl: result.paymentForm,
       };
     } catch (error) {
-      // 如果支付宝未配置，返回模拟数据（开发环境）
-      return {
-        orderId: order.id,
-        orderNo: order.orderNo,
-        payUrl: `https://mock-alipay.com/pay?amount=${dto.amount}&orderNo=${order.orderNo}`,
-      };
+      // 支付宝未配置时不要伪造一个不存在的支付页（曾经返回 mock-alipay.com，
+      // 浏览器直接「无法访问此网站」，看起来像支付挂了，实际是配置缺失）。
+      // 明确抛错，让前端提示「请先在系统设置里配置支付宝」。
+      this.logger.error(
+        `充值订单 ${order.orderNo} 发起支付失败：${error.message}`,
+      );
+      throw new ServiceUnavailableException(
+        '支付渠道未配置或不可用，请联系管理员在系统设置中配置支付宝参数',
+      );
     }
   }
 
