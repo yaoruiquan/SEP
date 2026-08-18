@@ -29,11 +29,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # 知识库 Embedding 模型服务（TEI），独立容器部署。
+  # 后端通过 EMBEDDING_BASE_URL=http://localhost:8080 连接（compose 内可用 http://embedding:8080）。
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.5
+    container_name: sep-embedding
+    command: --model-id BAAI/bge-small-zh-v1.5 --port 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - tei_models:/data        # 模型持久化，避免重复下载
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s        # 首次需下载模型，给足启动时间
+
   # NOTE: sub2api (token 中转站) 与 OpenCode Skills Service 都是【外部独立服务】，
   # 部署在各自的服务器上，不由本 compose 管理。
   # 通过 .env 里的 SUB2API_BASE_URL / OPENCODE_API_BASE_URL 连接。
-  # 本 compose 只负责本地开发的有状态依赖：PostgreSQL + Redis。
+  # 本 compose 只负责本地开发的有状态依赖：PostgreSQL + Redis + TEI。
 
 volumes:
   postgres_data:
   redis_data:
+  tei_models:
