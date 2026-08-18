@@ -29,33 +29,48 @@ services:
       timeout: 5s
       retries: 5
 
-  # 知识库 Embedding 模型服务（TEI），独立容器部署。
+  # 知识库 Embedding 模型服务，独立容器部署。
   # 后端通过 EMBEDDING_BASE_URL=http://localhost:8080 连接（compose 内可用 http://embedding:8080）。
-  embedding:
-    image: ghcr.io/huggingface/text-embeddings-inference:1.5
-    container_name: sep-embedding
-    command: --model-id BAAI/bge-small-zh-v1.5 --port 8080
-    ports:
-      - "8080:8080"
-    volumes:
-      - tei_models:/data        # 模型持久化，避免重复下载
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 120s        # 首次需下载模型，给足启动时间
+  #
+  # ⚠️  ARM64 (Apple Silicon) 平台限制：
+  # - michaelf34/infinity:latest 仅支持 x86_64，无 ARM64 镜像
+  # - HuggingFace TEI 同样仅支持 x86_64
+  #
+  # 🔧 临时方案（开发环境）：
+  #    使用 sub2api 的 text-embedding-3-small 模型（需消耗 token）
+  #    配置：EMBEDDING_PROVIDER=openai, EMBEDDING_BASE_URL=<sub2api-url>
+  #
+  # 🚀 生产环境（x86_64 Linux 服务器）：
+  #    取消下面注释，启用 Infinity 容器本地推理
+  #
+  # embedding:
+  #   image: michaelf34/infinity:latest
+  #   container_name: sep-embedding
+  #   platform: linux/amd64
+  #   command: v2 --model-id BAAI/bge-small-zh-v1.5 --port 8080
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - embedding_models:/app/.cache
+  #   environment:
+  #     - HF_HOME=/app/.cache
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 1G
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 120s
 
   # NOTE: sub2api (token 中转站) 与 OpenCode Skills Service 都是【外部独立服务】，
   # 部署在各自的服务器上，不由本 compose 管理。
   # 通过 .env 里的 SUB2API_BASE_URL / OPENCODE_API_BASE_URL 连接。
-  # 本 compose 只负责本地开发的有状态依赖：PostgreSQL + Redis + TEI。
+  # 本 compose 只负责本地开发的有状态依赖：PostgreSQL + Redis + Embedding。
 
 volumes:
   postgres_data:
   redis_data:
-  tei_models:
+  embedding_models:
