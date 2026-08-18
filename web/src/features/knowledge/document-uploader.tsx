@@ -29,9 +29,11 @@ export function DocumentUploader({ knowledgeBaseId, onUploadComplete }: Document
     'application/msword',
     'text/plain',
     'text/markdown',
+    'image/png',
+    'image/jpeg',
   ];
 
-  const acceptedExtensions = '.pdf,.doc,.docx,.txt,.md';
+  const acceptedExtensions = '.pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg';
 
   const handleFiles = useCallback((newFiles: FileList | null) => {
     if (!newFiles) return;
@@ -39,7 +41,7 @@ export function DocumentUploader({ knowledgeBaseId, onUploadComplete }: Document
     const fileArray = Array.from(newFiles);
     const validFiles = fileArray.filter((file) => {
       // 检查文件类型
-      if (!acceptedTypes.includes(file.type) && !file.name.match(/\.(pdf|doc|docx|txt|md)$/i)) {
+      if (!acceptedTypes.includes(file.type) && !file.name.match(/\.(pdf|doc|docx|txt|md|png|jpe?g)$/i)) {
         return false;
       }
       // 检查文件大小（10MB）
@@ -148,7 +150,7 @@ export function DocumentUploader({ knowledgeBaseId, onUploadComplete }: Document
           点击或拖拽文件到这里上传
         </p>
         <p className="text-sm text-gtext-muted">
-          支持 PDF、Word、TXT、Markdown 格式，单个文件最大 10MB
+          支持 PDF、Word、TXT、Markdown、图片（PNG/JPG，OCR 识别文字）格式，单个文件最大 10MB
         </p>
         <input
           id="file-input"
