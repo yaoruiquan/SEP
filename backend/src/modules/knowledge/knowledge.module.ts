@@ -11,6 +11,7 @@ import { VectorService } from './vector.service';
 import { EmbeddingService } from './embedding.service';
 import { DocumentParserService } from './document-parser.service';
 import { DocumentProcessorService } from './document-processor.service';
+import { KnowledgeQueueService } from './knowledge-queue.service';
 import { KnowledgeSearchService } from './knowledge-search.service';
 import { KnowledgeTestService } from './knowledge-test.service';
 import { KnowledgeAnalyticsService } from './knowledge-analytics.service';
@@ -37,6 +38,7 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     EmbeddingService,
     DocumentParserService,
     DocumentProcessorService,
+    KnowledgeQueueService,
     KnowledgeSearchService,
     KnowledgeTestService,
     KnowledgeAnalyticsService,
@@ -52,6 +54,7 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     EmbeddingService,
     DocumentParserService,
     DocumentProcessorService,
+    KnowledgeQueueService,
     KnowledgeSearchService,
     KnowledgeTestService,
     KnowledgeAnalyticsService,

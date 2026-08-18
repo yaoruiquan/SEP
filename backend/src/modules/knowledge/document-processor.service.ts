@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentParserService } from './document-parser.service';
 import { EmbeddingService } from './embedding.service';
@@ -34,10 +39,10 @@ export class DocumentProcessorService {
         throw new Error('Document not found');
       }
 
-      // 更新状态为处理中
+      // 更新状态为处理中（并清除上一次的失败原因）
       await this.prisma.document.update({
         where: { id: documentId },
-        data: { status: 'PENDING' },
+        data: { status: 'PROCESSING', lastError: null },
       });
 
       // 2. 解析文档
@@ -117,17 +122,18 @@ export class DocumentProcessorService {
       // 9. 更新文档状态为完成
       await this.prisma.document.update({
         where: { id: documentId },
-        data: { status: 'READY' },
+        data: { status: 'READY', lastError: null },
       });
 
       this.logger.log(`Document processing completed: ${documentId}`);
     } catch (error) {
-      this.logger.error(`Failed to process document ${documentId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to process document ${documentId}: ${message}`);
 
-      // 更新文档状态为失败
-      await this.prisma.document.update({
+      // 更新文档状态为失败 + 记录失败原因
+      await this.prisma.document.updateMany({
         where: { id: documentId },
-        data: { status: 'FAILED' },
+        data: { status: 'FAILED', lastError: message.slice(0, 2000) },
       });
 
       throw error;
@@ -156,26 +162,43 @@ export class DocumentProcessorService {
       ),
     );
 
+    const degradationReason = 'Embedding 服务不可用，已降级为仅词法检索存储（无向量）';
     await this.prisma.document.update({
       where: { id: document.id },
-      data: { status: 'READY' },
+      data: { status: 'READY', lastError: degradationReason },
     });
 
-    this.logger.log('Stored chunks without vectors (embedding service unavailable)');
+    // B3：可用性可见性 —— 记录降级原因（日志 + lastError）
+    this.logger.warn(
+      `[embedding unavailable] Document ${document.id} stored without vectors: ${degradationReason}`,
+    );
   }
 
   /**
-   * 重新处理文档
+   * 重新处理文档（Phase A2：状态守卫 + 原子抢占）
+   *
+   * 仅 READY / FAILED 可重处理；PROCESSING 直接抛 409。
+   * 用 updateMany 条件更新原子抢占为 PROCESSING，count=0 视为抢占失败，
+   * 避免与正在处理中的任务竞态产生脏 chunks。
    */
   async reprocessDocument(documentId: string) {
-    // 删除旧的文本片段（cascade 会自动删除）
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: { knowledgeBase: true },
     });
 
     if (!document) {
-      throw new Error('Document not found');
+      throw new NotFoundException(`Document ${documentId} not found`);
+    }
+
+    // 状态守卫 + 原子抢占（仅当 READY / FAILED 时才允许）
+    const claimed = await this.prisma.document.updateMany({
+      where: { id: documentId, status: { in: ['READY', 'FAILED'] } },
+      data: { status: 'PROCESSING', lastError: null },
+    });
+
+    if (claimed.count === 0) {
+      throw new ConflictException('文档正在处理中');
     }
 
     // 删除关联的文本片段（Phase 2：通过 documentId 删除）
@@ -186,7 +209,7 @@ export class DocumentProcessorService {
     // 使缓存失效
     this.vector.invalidateCache(document.knowledgeBase.enterpriseId, document.knowledgeBaseId);
 
-    // 重新处理
+    // 重新处理（processDocument 内部会幂等地再次置为 PROCESSING）
     await this.processDocument(documentId);
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DocumentProcessorService } from './document-processor.service';
+import { KnowledgeQueueService } from './knowledge-queue.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 export class DocumentService {
   constructor(
     private prisma: PrismaService,
-    private processor: DocumentProcessorService,
+    private queue: KnowledgeQueueService,
   ) {}
 
   // 文件上传保存目录
@@ -43,18 +43,21 @@ export class DocumentService {
       throw new NotFoundException('Knowledge base not found');
     }
 
-    // 验证文件类型
+    // 验证文件类型（Phase C1：新增图片 OCR 支持）
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword',
       'text/plain',
       'text/markdown',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
     ];
 
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException(
-        'Unsupported file type. Supported: PDF, Word, TXT, Markdown',
+        'Unsupported file type. Supported: PDF, Word, TXT, Markdown, PNG, JPEG',
       );
     }
 
@@ -98,10 +101,8 @@ export class DocumentService {
       },
     });
 
-    // 触发异步处理（不等待完成）
-    this.processor.processDocument(document.id).catch((error) => {
-      console.error(`Failed to process document ${document.id}:`, error);
-    });
+    // 入队异步处理（BullMQ，不等待完成）
+    await this.queue.enqueue(document.id);
 
     return document;
   }

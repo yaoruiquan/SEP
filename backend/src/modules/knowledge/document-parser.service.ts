@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
@@ -12,9 +12,22 @@ export interface ParsedDocument {
   };
 }
 
+/**
+ * tesseract.js Worker 的最小结构类型。
+ * 避免在文件头静态 import tesseract.js（体积大、初始化有下载成本），
+ * 只在真正解析图片时才动态加载，并用结构类型约束其关键方法。
+ */
+interface OcrWorker {
+  recognize(input: Buffer | string): Promise<{ data: { text: string } }>;
+  terminate(): Promise<unknown>;
+}
+
 @Injectable()
-export class DocumentParserService {
+export class DocumentParserService implements OnModuleDestroy {
   private readonly logger = new Logger(DocumentParserService.name);
+
+  /** 惰性单例 OCR worker（chi_sim+eng），避免每次解析图片都重新初始化/下载 */
+  private ocrWorkerPromise: Promise<OcrWorker> | null = null;
 
   /**
    * 解析文档文件
@@ -32,6 +45,12 @@ export class DocumentParserService {
         case 'text/plain':
         case 'text/markdown':
           return await this.parseText(filePath);
+
+        // Phase C1：图片 OCR → 复用现有文本管道
+        case 'image/png':
+        case 'image/jpeg':
+        case 'image/jpg':
+          return await this.parseImage(filePath);
 
         default:
           throw new Error(`Unsupported mime type: ${mimeType}`);
@@ -83,6 +102,54 @@ export class DocumentParserService {
     return {
       text,
     };
+  }
+
+  /**
+   * 解析图片（Phase C1：tesseract.js OCR，中文 chi_sim + 英文 eng）
+   *
+   * 提取到的文本交给 processor 的 cleanText + chunkByParagraphs 与纯文本一致。
+   * 若识别结果过短（<10 字符），由 processor 按现有规则拒绝，不产生空 chunk。
+   */
+  private async parseImage(filePath: string): Promise<ParsedDocument> {
+    const buffer = await fs.readFile(filePath);
+    const worker = await this.getOcrWorker();
+    const { data } = await worker.recognize(buffer);
+
+    return {
+      text: data?.text ?? '',
+    };
+  }
+
+  /**
+   * 获取（惰性初始化）单例 OCR worker。
+   * 初始化失败时重置 promise，允许下次重试。
+   */
+  private getOcrWorker(): Promise<OcrWorker> {
+    if (!this.ocrWorkerPromise) {
+      this.ocrWorkerPromise = (async () => {
+        this.logger.log('Initializing OCR worker (tesseract.js chi_sim+eng)...');
+        const { createWorker } = await import('tesseract.js');
+        const worker = await createWorker('chi_sim+eng');
+        this.logger.log('OCR worker ready');
+        return worker as unknown as OcrWorker;
+      })().catch((err) => {
+        this.ocrWorkerPromise = null;
+        throw err;
+      });
+    }
+    return this.ocrWorkerPromise;
+  }
+
+  async onModuleDestroy() {
+    if (this.ocrWorkerPromise) {
+      try {
+        const worker = await this.ocrWorkerPromise;
+        await worker.terminate();
+        this.logger.log('OCR worker terminated');
+      } catch (e) {
+        this.logger.warn(`Failed to terminate OCR worker: ${e.message}`);
+      }
+    }
   }
 
   /**

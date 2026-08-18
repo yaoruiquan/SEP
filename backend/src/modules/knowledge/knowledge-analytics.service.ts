@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmbeddingService } from './embedding.service';
 
 export interface TopChunk {
   chunkId: string;
@@ -21,6 +22,8 @@ export interface AnalyticsResponse {
   zeroHitQueries: string[];
   /** 从未被检索到的文档（source 未出现在任何结果中） */
   neverHitDocuments: { id: string; originalName: string }[];
+  /** Embedding 服务当前是否可用（B3：可用性可见性） */
+  embeddingAvailable: boolean;
   recentLogs: {
     id: string;
     query: string;
@@ -37,7 +40,10 @@ export interface AnalyticsResponse {
 export class KnowledgeAnalyticsService {
   private readonly logger = new Logger(KnowledgeAnalyticsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly embedding: EmbeddingService,
+  ) {}
 
   async getAnalytics(
     knowledgeBaseId: string,
@@ -132,6 +138,7 @@ export class KnowledgeAnalyticsService {
       zeroHitRate: Math.round(zeroHitRate * 1000) / 1000,
       zeroHitQueries,
       neverHitDocuments,
+      embeddingAvailable: await this.embedding.isAvailable(),
       recentLogs,
     };
   }
