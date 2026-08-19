@@ -13,6 +13,8 @@ interface ModelSwitcherProps {
   currentModelId: string | null;
   /** 员工默认模型（会话未指定时的兜底显示） */
   employeeModelId?: string | null;
+  /** 企业默认模型（员工未设置时的最终兜底） */
+  enterpriseDefaultModel?: string | null;
   /** 企业 ID，用于拉取可用模型白名单 */
   enterpriseId: string;
   /** 企业配置的模型白名单；空数组 = 不限制 */
@@ -30,6 +32,7 @@ export function ModelSwitcher({
   conversationId,
   currentModelId,
   employeeModelId,
+  enterpriseDefaultModel,
   enterpriseId,
   allowedChatModels = [],
   canSwitch = true,
@@ -54,8 +57,8 @@ export function ModelSwitcher({
     },
   });
 
-  // 生效模型：会话级 > 员工默认
-  const effective = currentModelId ?? employeeModelId ?? '';
+  // 生效模型：会话级 > 员工默认 > 企业默认
+  const effective = currentModelId ?? employeeModelId ?? enterpriseDefaultModel ?? '';
   const currentModel = models.find((m) => m.modelId === effective);
 
   // 点击外部关闭下拉
