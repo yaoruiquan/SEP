@@ -140,7 +140,7 @@ export default function AdminComputePage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">算力管理</h1>
+        <h1 className="text-xl font-semibold">账户管理</h1>
         <div className="flex gap-2">
           <Button onClick={() => setRechargeDialogOpen(true)} size="sm">
             <Plus className="mr-2 h-4 w-4" />

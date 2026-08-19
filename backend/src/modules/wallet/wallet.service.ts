@@ -319,6 +319,142 @@ export class WalletService {
   }
 
   /**
+   * 管理员充值（后台运营充值）
+   */
+  async adminDeposit(
+    enterpriseId: string,
+    amount: number,
+    reason: string,
+    operatorId: string,
+  ) {
+    if (amount <= 0) {
+      throw new BadRequestException('充值金额必须大于 0');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.enterpriseWallet.findUnique({
+        where: { enterpriseId },
+      });
+
+      if (!wallet) {
+        throw new NotFoundException(`企业钱包不存在: ${enterpriseId}`);
+      }
+
+      const balanceBefore = wallet.balance;
+      const amountDecimal = new Decimal(amount);
+      const balanceAfter = balanceBefore.add(amountDecimal);
+
+      // 更新余额
+      const updated = await tx.enterpriseWallet.updateMany({
+        where: {
+          enterpriseId,
+          version: wallet.version,
+        },
+        data: {
+          balance: balanceAfter,
+          totalDeposit: { increment: amountDecimal },
+          version: { increment: 1 },
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException('余额更新冲突，请重试');
+      }
+
+      // 记录交易
+      const transaction = await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: WalletTransactionType.DEPOSIT,
+          amount: amountDecimal,
+          balanceBefore,
+          balanceAfter,
+          paymentMethod: 'admin',
+          description: reason,
+          createdBy: operatorId,
+        },
+      });
+
+      return {
+        ...transaction,
+        balance: balanceAfter.toNumber(),
+      };
+    });
+  }
+
+  /**
+   * 管理员扣减（后台运营扣款）
+   */
+  async adminDeduct(
+    enterpriseId: string,
+    amount: number,
+    reason: string,
+    operatorId: string,
+  ) {
+    if (amount <= 0) {
+      throw new BadRequestException('扣减金额必须大于 0');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.enterpriseWallet.findUnique({
+        where: { enterpriseId },
+      });
+
+      if (!wallet) {
+        throw new NotFoundException(`企业钱包不存在: ${enterpriseId}`);
+      }
+
+      const balanceBefore = wallet.balance;
+      const amountDecimal = new Decimal(amount);
+
+      // 检查余额
+      if (balanceBefore.lessThan(amountDecimal)) {
+        throw new BadRequestException(
+          `余额不足。当前余额: ¥${balanceBefore}，需要扣减: ¥${amount}`,
+        );
+      }
+
+      const balanceAfter = balanceBefore.sub(amountDecimal);
+
+      // 更新余额
+      const updated = await tx.enterpriseWallet.updateMany({
+        where: {
+          enterpriseId,
+          version: wallet.version,
+        },
+        data: {
+          balance: balanceAfter,
+          totalConsume: { increment: amountDecimal },
+          version: { increment: 1 },
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException('余额更新冲突，请重试');
+      }
+
+      // 记录交易（负数）
+      const transaction = await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: WalletTransactionType.CONSUME,
+          amount: amountDecimal.neg(),
+          balanceBefore,
+          balanceAfter,
+          relatedType: 'compute',
+          description: reason,
+          createdBy: operatorId,
+        },
+      });
+
+      return {
+        ...transaction,
+        balance: balanceAfter.toNumber(),
+      };
+    });
+  }
+
+  /**
    * 确保企业钱包存在（不存在则创建）
    */
   private async ensureWallet(enterpriseId: string) {

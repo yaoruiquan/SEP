@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 import { TransactionType } from '@prisma/client';
 import { DICEBEAR_STYLES, generateAvatarUrl, generateSeedFromName } from '../../shared/dicebear-styles';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private walletService: WalletService,
+  ) {}
 
   /**
    * 获取企业详情（运营端视角）
@@ -88,59 +92,38 @@ export class AdminService {
     // 确保企业存在
     const enterprise = await this.prisma.enterprise.findUnique({
       where: { id: enterpriseId },
-      include: {
-        computeAccount: true,
-      }
     });
 
     if (!enterprise) {
       throw new NotFoundException('企业不存在');
     }
 
-    // 如果企业还没有算力账户，先创建
-    let computeAccount = enterprise.computeAccount;
-    if (!computeAccount) {
-      computeAccount = await this.prisma.computeAccount.create({
-        data: {
-          enterpriseId,
-          balance: 0,
-        }
-      });
+    // 使用新的钱包系统
+    let newBalance: number;
+
+    if (type === 'RECHARGE') {
+      // 充值
+      const result = await this.walletService.adminDeposit(
+        enterpriseId,
+        amount,
+        note,
+        operatorId,
+      );
+      newBalance = result.balance;
+    } else {
+      // 扣减
+      const result = await this.walletService.adminDeduct(
+        enterpriseId,
+        amount,
+        note,
+        operatorId,
+      );
+      newBalance = result.balance;
     }
-
-    // 扣减时检查余额是否足够
-    if (type === 'DEDUCT' && computeAccount.balance < amount) {
-      throw new BadRequestException('余额不足');
-    }
-
-    const actualAmount = type === 'RECHARGE' ? amount : -amount;
-    const transactionType: TransactionType = type === 'RECHARGE' ? 'RECHARGE' : 'CONSUME';
-
-    // 使用事务确保一致性
-    const result = await this.prisma.$transaction(async (tx) => {
-      // 记录交易
-      await tx.computeTransaction.create({
-        data: {
-          accountId: computeAccount.id,
-          amount: actualAmount,
-          type: transactionType,
-          description: note,
-          metadata: { operatorId, operatedAt: new Date().toISOString() },
-        },
-      });
-
-      // 更新余额
-      const updatedAccount = await tx.computeAccount.update({
-        where: { id: computeAccount.id },
-        data: { balance: { increment: actualAmount } },
-      });
-
-      return updatedAccount;
-    });
 
     return {
       success: true,
-      newBalance: result.balance,
+      newBalance,
     };
   }
 

@@ -20,7 +20,7 @@ const LINKS: NavLink[] = [
   { href: '/admin/capabilities', label: '能力管理', icon: ShieldCheck },
   { href: '/admin/employees', label: '员工管理', icon: Users },
   { href: '/admin/enterprises', label: '企业管理', icon: Building2 },
-  { href: '/admin/compute', label: '算力管理', icon: Wallet },
+  { href: '/admin/compute', label: '账户管理', icon: Wallet },
   { href: '/admin/announcements', label: '公告管理', icon: Megaphone },
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ];
