@@ -116,14 +116,16 @@ function SessionRow({
         type="button"
         onClick={onSelect}
         className={cn(
-          'flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition-colors',
-          active ? 'bg-primary-subtle' : 'hover:bg-muted',
+          'relative flex w-full flex-col items-start gap-0.5 rounded-lg py-2 text-left transition-all duration-150',
+          active
+            ? 'bg-muted pl-5 pr-3 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-r before:bg-primary'
+            : 'px-3 hover:bg-muted/50 hover:pl-5',
         )}
       >
         <span
           className={cn(
             'line-clamp-1 w-full pr-6 text-sm font-medium',
-            active ? 'text-primary' : 'text-foreground',
+            active ? 'text-foreground' : 'text-foreground',
           )}
         >
           {title}

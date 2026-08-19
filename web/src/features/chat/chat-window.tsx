@@ -227,6 +227,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                     attachments={m.attachments}
                     employeeName={author?.name}
                     employeeAvatar={author?.avatar}
+                    createdAt={m.createdAt}
                   />
                 );
               })}

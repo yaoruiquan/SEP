@@ -69,7 +69,7 @@ function ImageThumb({
 
   if (broken) {
     return (
-      <div className="flex h-24 items-center justify-center gap-2 rounded-xl bg-black/10 px-3 text-xs text-white/80">
+      <div className="flex h-24 items-center justify-center gap-2 rounded-xl bg-black/10 px-3 text-xs text-white/80 backdrop-blur-sm">
         <ImageOff className="h-4 w-4" />
         <span className="truncate">{attachment.name}</span>
       </div>
@@ -81,7 +81,7 @@ function ImageThumb({
       type="button"
       onClick={onOpen}
       className={cn(
-        'group relative overflow-hidden rounded-xl bg-black/10',
+        'group relative overflow-hidden rounded-xl bg-black/10 shadow-sm ring-1 ring-white/10 transition-all hover:shadow-md hover:ring-white/20',
         solo ? 'max-h-64' : 'h-32',
       )}
       title={attachment.name}
@@ -92,12 +92,15 @@ function ImageThumb({
       <img
         src={src}
         alt={attachment.name}
+        loading="lazy"
         onError={() => setBroken(true)}
         className={cn(
-          'w-full object-cover transition-opacity group-hover:opacity-90',
+          'w-full object-cover transition-all duration-300 group-hover:scale-105 group-hover:opacity-90',
           solo ? 'max-h-64 object-contain' : 'h-32',
         )}
       />
+      {/* 悬停遮罩 */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
     </button>
   );
 }
@@ -118,25 +121,34 @@ function FileCard({
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        'flex items-center gap-2.5 rounded-xl border px-2.5 py-2 transition-colors',
+        'group flex items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm transition-all hover:shadow-md',
         onPrimary
-          ? 'border-white/25 bg-white/10 hover:bg-white/20'
-          : 'border-border bg-muted/50 hover:bg-muted',
+          ? 'border-white/25 bg-white/10 hover:bg-white/20 hover:border-white/40'
+          : 'border-border bg-muted/50 hover:bg-muted hover:border-border/80',
       )}
     >
-      <Icon
+      <div
         className={cn(
-          'h-4 w-4 shrink-0',
-          onPrimary ? 'text-primary-foreground/80' : 'text-fg-muted',
+          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
+          onPrimary
+            ? 'bg-white/10 group-hover:bg-white/20'
+            : 'bg-background group-hover:bg-muted',
         )}
-      />
+      >
+        <Icon
+          className={cn(
+            'h-4 w-4',
+            onPrimary ? 'text-primary-foreground' : 'text-fg-muted',
+          )}
+        />
+      </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium" title={attachment.name}>
+        <p className="truncate text-sm font-medium" title={attachment.name}>
           {attachment.name}
         </p>
         <p
           className={cn(
-            'text-[11px]',
+            'text-xs',
             onPrimary ? 'text-primary-foreground/70' : 'text-fg-subtle',
           )}
         >
@@ -145,7 +157,7 @@ function FileCard({
       </div>
       <Download
         className={cn(
-          'h-3.5 w-3.5 shrink-0',
+          'h-4 w-4 shrink-0 transition-transform group-hover:scale-110',
           onPrimary ? 'text-primary-foreground/70' : 'text-fg-subtle',
         )}
       />
@@ -175,22 +187,30 @@ function Lightbox({
       aria-modal="true"
       aria-label={attachment.name}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+        className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white shadow-lg ring-1 ring-white/20 transition-all hover:bg-white/20 hover:scale-110"
         aria-label="关闭"
       >
         <X className="h-5 w-5" />
       </button>
+
+      {/* 文件名显示 */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 max-w-2xl rounded-xl bg-black/60 px-4 py-2 backdrop-blur-sm">
+        <p className="truncate text-sm text-white/90">{attachment.name}</p>
+        <p className="text-xs text-white/60">{formatBytes(attachment.size)}</p>
+      </div>
+
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={resolveAttachmentUrl(attachment.url)}
         alt={attachment.name}
+        loading="lazy"
         onClick={(e) => e.stopPropagation()}
-        className="max-h-full max-w-full rounded-lg object-contain"
+        className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
       />
     </div>
   );
