@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import matter from 'gray-matter';
 import { EMPLOYEES } from './employees-config';
+import { getSkillNameCN } from './skill-name-cn-map';
 
 const prisma = new PrismaClient();
 
@@ -103,10 +104,10 @@ async function main() {
 
         const { metadata, content } = parsed;
 
-        // 创建 Capability
+        // 创建 Capability（使用中文名称）
         const capability = await prisma.capability.create({
           data: {
-            name: metadata.name,
+            name: getSkillNameCN(metadata.name), // 使用中文名称
             description: metadata.description,
             type: 'SKILL',
             industry: [], // 通用技能，不限行业
@@ -125,7 +126,7 @@ async function main() {
 
         capabilityIds.push(capability.id);
         skillCache.set(skillPath, capability.id);
-        console.log(`    ✅ 创建技能: ${metadata.name} (${metadata.emoji || '📦'})`);
+        console.log(`    ✅ 创建技能: ${getSkillNameCN(metadata.name)} (${metadata.emoji || '📦'})`);
       }
 
       if (capabilityIds.length === 0) {

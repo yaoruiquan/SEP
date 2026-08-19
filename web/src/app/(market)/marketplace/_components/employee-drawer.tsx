@@ -6,27 +6,11 @@ import Link from 'next/link';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
+import { Avatar } from '@/components/ui/avatar';
 import type { MarketEmployee } from '@/lib/types';
 
 // ─── avatar gradient (duplicate here to keep drawer self-contained) ───────────
-
-const GRAD_MAP: [string, string][] = [
-  ['人事', 'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['HR',   'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['销售', 'linear-gradient(135deg,#2563eb,#3b82f6)'],
-  ['财务', 'linear-gradient(135deg,#0891b2,#06b6d4)'],
-  ['运营', 'linear-gradient(135deg,#059669,#10b981)'],
-  ['营销', 'linear-gradient(135deg,#db2777,#f43f5e)'],
-  ['技术', 'linear-gradient(135deg,#d97706,#f59e0b)'],
-];
-
-function avatarGradient(position: string, industry: string) {
-  const text = `${position} ${industry}`;
-  for (const [key, grad] of GRAD_MAP) {
-    if (text.includes(key)) return grad;
-  }
-  return 'linear-gradient(135deg,#4f46e5,#818cf8)';
-}
+// 已移除，改用 Avatar 组件内置逻辑
 
 // ─── how-to steps ─────────────────────────────────────────────────────────────
 
@@ -127,7 +111,6 @@ function DrawerContent({
   onClose,
 }: Required<Omit<EmployeeDrawerProps, 'emp'>> & { emp: MarketEmployee }) {
   const capTypes = Array.from(new Set(emp.bindings?.map((b) => b.capability.type) ?? []));
-  const grad = avatarGradient(emp.position ?? '', emp.industry ?? '');
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -148,12 +131,11 @@ function DrawerContent({
 
         {/* identity */}
         <div className="flex items-center gap-5">
-          <div
-            className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-2xl font-bold text-white shadow-glass-md"
-            style={{ background: grad }}
-          >
-            {emp.name.slice(0, 2)}
-          </div>
+          <Avatar
+            name={emp.name}
+            src={emp.avatar}
+            className="h-20 w-20 shadow-glass-md"
+          />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-gtext-primary">{emp.name}</h2>
