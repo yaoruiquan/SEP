@@ -10,11 +10,11 @@ import { Button } from '@/components/ui/button';
 
 interface PaymentModalProps {
   open: boolean;
-  emp: { name: string; annualPriceCNY?: number | null };
+  emp: { name: string; price?: number | null };
   subscribing: boolean;
   /** 订阅成功时由父组件设为 true，弹窗切换到引导界面 */
   succeeded?: boolean;
-  onConfirm: (paymentMethod: PaymentMethod) => void;
+  onConfirm: (method: 'balance' | 'alipay') => void;
   onClose: () => void;
 }
 
@@ -92,7 +92,7 @@ export function PaymentModal({
   onClose,
 }: PaymentModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('balance');
-  const isFree = !emp.annualPriceCNY || emp.annualPriceCNY === 0;
+  const isFree = !emp.price || emp.price === 0;
   const canConfirm = true;
 
   if (!open) return null;
@@ -170,7 +170,7 @@ export function PaymentModal({
                     ) : (
                       <>
                         <p className="text-lg font-semibold text-gtext-primary">
-                          ¥{emp.annualPriceCNY?.toLocaleString()}
+                          ¥{emp.price?.toLocaleString()}
                         </p>
                         <p className="text-xs text-gtext-muted">每年</p>
                       </>

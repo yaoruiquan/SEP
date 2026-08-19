@@ -370,7 +370,7 @@ export default function EmployeeDetailPage() {
       {/* ── 支付确认 ─────────────────────────────────────────────────── */}
       <PaymentModal
         open={payOpen}
-        emp={{ name: emp.name, annualPriceCNY: emp.annualPriceCNY }}
+        emp={{ name: emp.name, price: emp.annualPriceCNY }}
         subscribing={subscribe.isPending}
         onConfirm={(paymentMethod) => {
           if (paymentMethod === 'alipay') {

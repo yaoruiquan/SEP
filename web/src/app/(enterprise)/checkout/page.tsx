@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ShoppingCart, ArrowLeft, CreditCard, Loader2 } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, CreditCard, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
@@ -11,6 +11,9 @@ import { EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { useCart } from '@/features/cart/use-cart';
 import { useCreateOrder, useCreateAlipayPayment } from '@/features/order/use-order';
+import { cn } from '@/lib/utils';
+
+type PaymentMethod = 'balance' | 'alipay';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -20,6 +23,7 @@ export default function CheckoutPage() {
   const createPayment = useCreateAlipayPayment();
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('balance');
 
   // 获取选中的商品ID列表
   const selectedItemIds = searchParams.get('items')?.split(',').filter(Boolean);
@@ -44,11 +48,16 @@ export default function CheckoutPage() {
       );
       toast.success(`订单创建成功：${orderResult.orderNo}`);
 
-      // 2. 发起支付宝支付
-      const paymentResult = await createPayment.mutateAsync(orderResult.id);
-
-      // 3. 跳转到支付宝支付页面
-      window.location.href = paymentResult.paymentForm;
+      if (paymentMethod === 'balance') {
+        // 余额支付：订单已完成，直接跳转成功页
+        toast.success('支付成功！');
+        router.push(`/payment/result?orderId=${orderResult.id}&status=success`);
+      } else {
+        // 2. 发起支付宝支付
+        const paymentResult = await createPayment.mutateAsync(orderResult.id);
+        // 3. 跳转到支付宝支付页面
+        window.location.href = paymentResult.paymentForm;
+      }
     } catch (err) {
       toast.error((err as Error).message);
       setIsProcessing(false);
@@ -189,6 +198,58 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
+              {/* 支付方式选择 */}
+              <div className="space-y-3 border-t border-glassline pt-4">
+                <h3 className="text-sm font-medium text-gtext-primary">选择支付方式</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setPaymentMethod('balance')}
+                    className={cn(
+                      'flex items-center gap-3 rounded-glass-lg border p-4 transition-all',
+                      paymentMethod === 'balance'
+                        ? 'border-gbrand-border bg-gbrand/10'
+                        : 'border-glassline bg-glass-1 hover:bg-glass-2',
+                    )}
+                  >
+                    <Wallet className={cn(
+                      'h-5 w-5',
+                      paymentMethod === 'balance' ? 'text-gbrand-text' : 'text-gtext-muted',
+                    )} />
+                    <div className="flex-1 text-left">
+                      <p className={cn(
+                        'text-sm font-medium',
+                        paymentMethod === 'balance' ? 'text-gbrand-text' : 'text-gtext-primary',
+                      )}>
+                        余额支付
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => setPaymentMethod('alipay')}
+                    className={cn(
+                      'flex items-center gap-3 rounded-glass-lg border p-4 transition-all',
+                      paymentMethod === 'alipay'
+                        ? 'border-gbrand-border bg-gbrand/10'
+                        : 'border-glassline bg-glass-1 hover:bg-glass-2',
+                    )}
+                  >
+                    <CreditCard className={cn(
+                      'h-5 w-5',
+                      paymentMethod === 'alipay' ? 'text-gbrand-text' : 'text-gtext-muted',
+                    )} />
+                    <div className="flex-1 text-left">
+                      <p className={cn(
+                        'text-sm font-medium',
+                        paymentMethod === 'alipay' ? 'text-gbrand-text' : 'text-gtext-primary',
+                      )}>
+                        支付宝
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <Button
                 variant="primary"
                 size="lg"
@@ -203,7 +264,11 @@ export default function CheckoutPage() {
                   </>
                 ) : (
                   <>
-                    <CreditCard className="mr-2 h-4 w-4" />
+                    {paymentMethod === 'balance' ? (
+                      <Wallet className="mr-2 h-4 w-4" />
+                    ) : (
+                      <CreditCard className="mr-2 h-4 w-4" />
+                    )}
                     立即支付
                   </>
                 )}
