@@ -12,6 +12,7 @@ import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subs
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useAddToCart } from '@/features/cart/use-cart';
 import { useCreateSubscriptionRequest, useMySubscriptionRequests } from '@/features/subscription-request/use-subscription-requests';
+import { useCreateOrder, useCreateAlipayPayment } from '@/features/order/use-order';
 import { MyRequestsModal } from '@/features/subscription-request/my-requests-modal';
 import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
 import type { MarketEmployee } from '@/lib/types';
@@ -78,6 +79,8 @@ export default function MarketplacePage() {
   // 我已获授权的员工（用于区分「企业已订阅」与「我可用」）
   const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
   const subscribe = useSubscribe();
+  const createOrder = useCreateOrder();
+  const createPayment = useCreateAlipayPayment();
   const addToCart = useAddToCart();
   const createRequest = useCreateSubscriptionRequest();
   const subscribedIds = useMemo(
@@ -173,12 +176,21 @@ export default function MarketplacePage() {
   }
 
   /** 支付确认后才真正调订阅接口。成功则切换到引导界面，失败留在弹窗里让用户重试。 */
-  function confirmPayment(paymentMethod: 'balance' | 'alipay') {
+  async function confirmPayment(paymentMethod: 'balance' | 'alipay') {
     const emp = payingEmp;
     if (!emp) return;
 
     if (paymentMethod === 'alipay') {
-      toast.info('支付宝支付功能开发中');
+      // 支付宝支付：创建订单并跳转
+      try {
+        const order = await createOrder.mutateAsync({
+          items: [{ employeeId: emp.id, periodMonths: 12 }],
+        });
+        const payment = await createPayment.mutateAsync(order.id);
+        window.location.href = payment.paymentForm;
+      } catch (error: any) {
+        toast.error(error.message || '创建订单失败');
+      }
       return;
     }
 
@@ -389,7 +401,7 @@ export default function MarketplacePage() {
       {payingEmp && (
         <PaymentModal
           open
-          emp={payingEmp}
+          emp={{ name: payingEmp.name, price: payingEmp.annualPriceCNY }}
           subscribing={subscribe.isPending}
           succeeded={subscribeSucceeded}
           onConfirm={confirmPayment}

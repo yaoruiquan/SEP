@@ -17,6 +17,7 @@ import {
   useMySubscriptionRequests,
   useCreateSubscriptionRequest,
 } from '@/features/subscription-request/use-subscription-requests';
+import { useCreateOrder, useCreateAlipayPayment } from '@/features/order/use-order';
 import { toast } from '@/components/ui/toast';
 import { PaymentModal } from '@/components/ui/payment-modal';
 import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
@@ -105,6 +106,8 @@ export default function EmployeeDetailPage() {
   // 访客不请求「我已被授权」列表 —— 用于判断是否已有使用权限
   const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
   const subscribe = useSubscribe();
+  const createOrder = useCreateOrder();
+  const createPayment = useCreateAlipayPayment();
 
   // 支付弹窗开关。Hook 必须在早退分支之前声明。
   const [payOpen, setPayOpen] = useState(false);
@@ -372,11 +375,21 @@ export default function EmployeeDetailPage() {
         open={payOpen}
         emp={{ name: emp.name, price: emp.annualPriceCNY }}
         subscribing={subscribe.isPending}
-        onConfirm={(paymentMethod) => {
+        onConfirm={async (paymentMethod) => {
           if (paymentMethod === 'alipay') {
-            toast.info('支付宝支付功能开发中');
+            // 支付宝支付：创建订单并跳转
+            try {
+              const order = await createOrder.mutateAsync({
+                items: [{ employeeId: emp.id, periodMonths: 12 }],
+              });
+              const payment = await createPayment.mutateAsync(order.id);
+              window.location.href = payment.paymentForm;
+            } catch (error: any) {
+              toast.error(error.message || '创建订单失败');
+            }
             return;
           }
+          // 余额支付
           subscribe.mutate(emp.id, {
             onSuccess: () => {
               setPayOpen(false);
