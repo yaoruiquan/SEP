@@ -27,6 +27,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { SubscriptionRequestModule } from './modules/subscription-request/subscription-request.module';
 import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module
     WalletModule,
     SubscriptionRequestModule,
     ComputeQuotaModule,
+    DashboardModule,
   ],
   controllers: [],
   providers: [],

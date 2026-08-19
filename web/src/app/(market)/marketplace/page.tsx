@@ -173,9 +173,17 @@ export default function MarketplacePage() {
   }
 
   /** 支付确认后才真正调订阅接口。成功则切换到引导界面，失败留在弹窗里让用户重试。 */
-  function confirmPayment() {
+  function confirmPayment(paymentMethod: 'balance' | 'alipay') {
     const emp = payingEmp;
     if (!emp) return;
+
+    if (paymentMethod === 'alipay') {
+      // TODO: 支付宝支付流程（跳转支付宝页面）
+      toast.info('支付宝支付功能开发中');
+      return;
+    }
+
+    // 余额支付
     subscribe.mutate(emp.id, {
       onSuccess: () => {
         setSubscribeSucceeded(true);

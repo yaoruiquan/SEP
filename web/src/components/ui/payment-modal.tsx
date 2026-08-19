@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Wallet, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
+import { X, Wallet, Loader2, CheckCircle2, ArrowRight, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -14,11 +14,11 @@ interface PaymentModalProps {
   subscribing: boolean;
   /** 订阅成功时由父组件设为 true，弹窗切换到引导界面 */
   succeeded?: boolean;
-  onConfirm: () => void;
+  onConfirm: (paymentMethod: PaymentMethod) => void;
   onClose: () => void;
 }
 
-type PaymentMethod = 'balance';
+type PaymentMethod = 'balance' | 'alipay';
 
 // ─── success screen ───────────────────────────────────────────────────────────
 
@@ -91,14 +91,15 @@ export function PaymentModal({
   onConfirm,
   onClose,
 }: PaymentModalProps) {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('balance');
   const isFree = !emp.price || emp.price === 0;
-  const canConfirm = true; // 余额支付始终可点击
+  const canConfirm = true;
 
   if (!open) return null;
 
   function handleConfirm() {
     if (!canConfirm || subscribing) return;
-    onConfirm();
+    onConfirm(paymentMethod);
   }
 
   return (
@@ -178,17 +179,56 @@ export function PaymentModal({
                 </div>
               </div>
 
-              {/* payment method - 仅显示余额支付 */}
+              {/* payment method */}
               {!isFree && (
                 <div>
                   <p className="mb-3 text-sm font-medium text-gtext-primary">
                     支付方式
                   </p>
-                  <div className="rounded-glass-lg border border-glassline-brand bg-gbrand/10 p-3">
-                    <div className="flex items-center gap-2.5">
-                      <Wallet className="h-4 w-4 text-gtext-secondary" />
-                      <span className="text-sm text-gtext-primary">余额支付</span>
-                    </div>
+                  <div className="space-y-2.5">
+                    {/* 余额支付 */}
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('balance')}
+                      className={cn(
+                        'w-full rounded-glass-lg border p-3 transition-all',
+                        paymentMethod === 'balance'
+                          ? 'border-glassline-brand bg-gbrand/10'
+                          : 'border-glassline bg-glass-2 hover:border-glassline-brand/50',
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Wallet className="h-4 w-4 text-gtext-secondary" />
+                        <span className="text-sm text-gtext-primary">余额支付</span>
+                        {paymentMethod === 'balance' && (
+                          <div className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-gbrand-text">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* 支付宝 */}
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('alipay')}
+                      className={cn(
+                        'w-full rounded-glass-lg border p-3 transition-all',
+                        paymentMethod === 'alipay'
+                          ? 'border-glassline-brand bg-gbrand/10'
+                          : 'border-glassline bg-glass-2 hover:border-glassline-brand/50',
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <CreditCard className="h-4 w-4 text-gtext-secondary" />
+                        <span className="text-sm text-gtext-primary">支付宝</span>
+                        {paymentMethod === 'alipay' && (
+                          <div className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-gbrand-text">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
                   </div>
                 </div>
               )}
@@ -217,6 +257,8 @@ export function PaymentModal({
                     </>
                   ) : isFree ? (
                     '免费雇佣'
+                  ) : paymentMethod === 'alipay' ? (
+                    '前往支付宝支付'
                   ) : (
                     '确认支付'
                   )}

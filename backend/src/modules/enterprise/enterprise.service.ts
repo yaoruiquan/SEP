@@ -70,7 +70,7 @@ export class EnterpriseService {
   }
 
   /**
-   * 获取 Dashboard 统计数据
+   * 获取 Dashboard 统计数据（真实数据，无 mock）
    */
   async getDashboardStats(userId: string) {
     const context = await this.ctx.resolve(userId);
@@ -92,6 +92,9 @@ export class EnterpriseService {
         spendTrend: [],
         topEmployees: [],
         recentActivities: [],
+        modelDistribution: [],
+        tokenTrend: [],
+        topMembers: [],
       };
     }
 
@@ -250,6 +253,155 @@ export class EnterpriseService {
       spendTrend,
       topEmployees: topEmployeesResult,
       recentActivities: activities,
+      modelDistribution: await this.getModelDistribution(account.id),
+      tokenTrend: await this.getTokenTrend(account.id),
+      topMembers: await this.getTopMembers(account.id, enterpriseId),
     };
+  }
+
+  /**
+   * 模型分布统计（从 metadata.model 聚合）
+   */
+  private async getModelDistribution(accountId: string) {
+    const transactions = await this.prisma.computeTransaction.findMany({
+      where: {
+        accountId,
+        type: 'CONSUME',
+        metadata: { path: ['model'], not: null },
+      },
+      select: { metadata: true, amount: true },
+    });
+
+    const modelStats = new Map<
+      string,
+      { requests: number; tokens: number; cost: number }
+    >();
+
+    transactions.forEach((t: any) => {
+      const model = t.metadata?.model;
+      if (!model) return;
+
+      const current = modelStats.get(model) || {
+        requests: 0,
+        tokens: 0,
+        cost: 0,
+      };
+      const inputTokens = t.metadata?.inputTokens || 0;
+      const outputTokens = t.metadata?.outputTokens || 0;
+
+      modelStats.set(model, {
+        requests: current.requests + 1,
+        tokens: current.tokens + inputTokens + outputTokens,
+        cost: current.cost + Math.abs(t.amount),
+      });
+    });
+
+    return Array.from(modelStats.entries())
+      .map(([model, stats]) => ({
+        model,
+        requests: stats.requests,
+        tokens: stats.tokens,
+        cost: Math.round(stats.cost * 100) / 100,
+      }))
+      .sort((a, b) => b.requests - a.requests);
+  }
+
+  /**
+   * Token 使用趋势（最近 7 天，按天聚合）
+   */
+  private async getTokenTrend(accountId: string) {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const transactions = await this.prisma.computeTransaction.findMany({
+      where: {
+        accountId,
+        type: 'CONSUME',
+        createdAt: { gte: sevenDaysAgo },
+        metadata: { path: ['inputTokens'], not: null },
+      },
+      select: { metadata: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const tokensByDate = new Map<
+      string,
+      {
+        input: number;
+        output: number;
+        cacheCreation: number;
+        cacheRead: number;
+      }
+    >();
+
+    transactions.forEach((t: any) => {
+      const date = t.createdAt.toISOString().split('T')[0];
+      const current = tokensByDate.get(date) || {
+        input: 0,
+        output: 0,
+        cacheCreation: 0,
+        cacheRead: 0,
+      };
+
+      tokensByDate.set(date, {
+        input: current.input + (t.metadata?.inputTokens || 0),
+        output: current.output + (t.metadata?.outputTokens || 0),
+        cacheCreation:
+          current.cacheCreation + (t.metadata?.cacheCreationTokens || 0),
+        cacheRead: current.cacheRead + (t.metadata?.cacheReadTokens || 0),
+      });
+    });
+
+    return Array.from(tokensByDate.entries())
+      .map(([date, tokens]) => ({ date, ...tokens }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * 用户消费排行 Top 3（按 memberId 分组）
+   */
+  private async getTopMembers(accountId: string, enterpriseId: string) {
+    const transactions = await this.prisma.computeTransaction.findMany({
+      where: {
+        accountId,
+        type: 'CONSUME',
+        metadata: { path: ['memberId'], not: null },
+      },
+      select: { metadata: true, amount: true },
+    });
+
+    const memberStats = new Map<string, { calls: number; cost: number }>();
+
+    transactions.forEach((t: any) => {
+      const memberId = t.metadata?.memberId;
+      if (!memberId) return;
+
+      const current = memberStats.get(memberId) || { calls: 0, cost: 0 };
+      memberStats.set(memberId, {
+        calls: current.calls + 1,
+        cost: current.cost + Math.abs(t.amount),
+      });
+    });
+
+    const topMemberIds = Array.from(memberStats.entries())
+      .sort((a, b) => b[1].cost - a[1].cost)
+      .slice(0, 3)
+      .map(([id]) => id);
+
+    const members = await this.prisma.enterpriseMember.findMany({
+      where: { id: { in: topMemberIds }, enterpriseId },
+      select: { id: true, user: { select: { name: true, avatar: true } } },
+    });
+
+    return members.map((m) => {
+      const stats = memberStats.get(m.id)!;
+      return {
+        id: m.id,
+        name: m.user.name || '未命名',
+        avatar: m.user.avatar,
+        calls: stats.calls,
+        cost: Math.round(stats.cost * 100) / 100,
+      };
+    });
   }
 }

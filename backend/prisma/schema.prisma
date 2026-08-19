@@ -1047,7 +1047,7 @@ model ComputeTransaction {
   tokens    Int? // 本次消费的 token 数（老数据可为 null）
 
   description String?
-  metadata    Json?
+  metadata    Json?    @db.JsonB
 
   createdAt DateTime @default(now())
 

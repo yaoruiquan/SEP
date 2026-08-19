@@ -140,7 +140,12 @@ export class GatewayService {
             metadata: {
               subscriptionId: params.subscriptionId,
               memberId: params.memberId,
-              usage: params.usage as any,
+              enterpriseId: params.enterpriseId,
+              model: params.modelId,
+              inputTokens: params.usage?.prompt_tokens || 0,
+              outputTokens: params.usage?.completion_tokens || 0,
+              cacheCreationTokens: (params.usage as any)?.prompt_tokens_details?.cached_tokens || 0,
+              cacheReadTokens: (params.usage as any)?.prompt_tokens_details?.cached_tokens_read || 0,
             },
           },
         }),

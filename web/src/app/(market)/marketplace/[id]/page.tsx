@@ -372,7 +372,11 @@ export default function EmployeeDetailPage() {
         open={payOpen}
         emp={{ name: emp.name, price: emp.price }}
         subscribing={subscribe.isPending}
-        onConfirm={() =>
+        onConfirm={(paymentMethod) => {
+          if (paymentMethod === 'alipay') {
+            toast.info('支付宝支付功能开发中');
+            return;
+          }
           subscribe.mutate(emp.id, {
             onSuccess: () => {
               setPayOpen(false);
@@ -380,8 +384,8 @@ export default function EmployeeDetailPage() {
             },
             onError: (e) =>
               toast.error(e instanceof ApiError ? e.message : '订阅失败'),
-          })
-        }
+          });
+        }}
         onClose={() => setPayOpen(false)}
       />
 

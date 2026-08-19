@@ -15,6 +15,8 @@ import { resetDatabase } from './reset';
 import { seedSettings } from './00-settings';
 import { seedAccounts, DEMO_PASSWORD } from './01-accounts';
 import { seedCatalog } from './02-catalog';
+import { seedDemoUsage } from './03-demo-usage';
+import { seedDashboardAnalytics } from './07-dashboard-analytics';
 
 const prisma = new PrismaClient();
 
@@ -47,9 +49,15 @@ async function main() {
     `🤖 数字员工：${catalog.employees.length} 个（${Object.entries(statusCounts).map(([k, v]) => `${k}:${v}`).join(' / ')}）`,
   );
 
+  const usage = await seedDemoUsage(prisma);
+  console.log(
+    `📊 演示数据：${usage.transactionCount} 条消费记录`,
+  );
+
+  await seedDashboardAnalytics();
+
   // TODO(演示数据): 业务数据模块待落地，规模与场景待确认。
-  //   03-commerce（订单+支付）· 04-quota
-  //   05-usage（会话+消息）· 06-knowledge · 07-ops（公告+审批流）
+  //   04-quota · 06-knowledge · 07-ops（公告+审批流）
 
   console.log(`\n✅ Seed done. 密码统一 ${DEMO_PASSWORD}\n`);
   console.log('  平台运营  admin@sep.local       不属于任何企业');
