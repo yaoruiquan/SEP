@@ -22,6 +22,16 @@ export function useSubscriptions(opts?: { enabled?: boolean }) {
   });
 }
 
+/** 读取企业内一条雇佣关系，详情页使用。 */
+export function useSubscription(id: string) {
+  return useQuery({
+    queryKey: ['subscriptions', id],
+    queryFn: () => api.get<Subscription>(`/subscriptions/${id}`),
+    enabled: Boolean(id),
+    staleTime: 30_000,
+  });
+}
+
 export function useSubscribe() {
   const qc = useQueryClient();
   return useMutation({
@@ -38,9 +48,10 @@ export function useUnsubscribe() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/subscriptions/${id}`),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: qk.subscriptions });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: ['subscriptions', id] });
     },
   });
 }
@@ -62,9 +73,10 @@ export function useUpdateSubscription() {
       name?: string | null;
       config?: Record<string, unknown>;
     }) => api.patch<Subscription>(`/subscriptions/${id}`, body),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: qk.subscriptions });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: ['subscriptions', id] });
     },
   });
 }
@@ -82,10 +94,11 @@ export function useChangeSubscriptionStatus() {
         `/subscriptions/${id}/status`,
         { status },
       ),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: qk.subscriptions });
       // 暂停会让员工从「我的硅基员工」消失，必须一起失效
       qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: ['subscriptions', id] });
     },
   });
 }

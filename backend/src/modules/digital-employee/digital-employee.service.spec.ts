@@ -55,6 +55,12 @@ const prismaMock = {
     findUnique: jest.fn(),
     delete: jest.fn(),
   },
+  conversationSession: {
+    findMany: jest.fn(),
+  },
+  toolExecution: {
+    findMany: jest.fn(),
+  },
 };
 
 // ─── Test Suite ───────────────────────────────────────────────────────────────
@@ -383,9 +389,28 @@ describe('DigitalEmployeeService', () => {
     it('未上架员工详情抛 404，而非返回 null', async () => {
       prismaMock.digitalEmployee.findFirst.mockResolvedValue(null);
 
-      await expect(service.findPublicOne('emp-draft')).rejects.toThrow(
-        NotFoundException,
+      await expect(
+        service.findPublicOne('emp-draft'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getStats', () => {
+    it('只汇总当前用户在该员工上的执行记录', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prismaMock.conversationSession.findMany.mockResolvedValue([]);
+
+      await service.getStats('emp-1', 7, 'user-1');
+
+      expect(prismaMock.conversationSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            employeeId: 'emp-1',
+            userId: 'user-1',
+          }),
+        }),
       );
+      expect(prismaMock.toolExecution.findMany).not.toHaveBeenCalled();
     });
   });
 });

@@ -1146,6 +1146,11 @@ html.js-reveal .reveal[data-visible='true'] {
   --dot-connecting-glow: 0 0 8px 2px rgba(59, 130, 246, 0.50);
 }
 
+/* ThemeLogo renders both local assets so the theme switch never depends on a
+   client-side image replacement or the Next image optimizer route. */
+.theme-glass .theme-logo-light { display: none; }
+.theme-glass .theme-logo-dark { display: block; }
+
 /* 只有 .theme-glass-light 自带浅色底 */
 .theme-glass-light {
   background: var(--gbg-canvas);

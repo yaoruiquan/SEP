@@ -192,10 +192,10 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
           <div className="flex items-center gap-2 overflow-hidden">
             <ThemeLogo priority />
-            {/* 显示企业名而非平台名 —— 多租户下让人一眼确认在哪家企业 */}
-            {!collapsed && (
+            {/* 显示企业名而非平台名；数据尚未加载时保持留白，避免伪装成平台 Logo 文案 */}
+            {!collapsed && enterprise?.name && (
               <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gtext-primary">
-                {enterprise?.name ?? '硅基人才平台'}
+                {enterprise.name}
               </p>
             )}
           </div>

@@ -72,6 +72,7 @@ export interface Subscription {
   startDate: string;
   endDate: string | null;
   createdAt: string;
+  updatedAt: string;
   employee: Pick<
     DigitalEmployee,
     'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'status' | 'version'

@@ -1,6 +1,3 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
@@ -24,41 +21,26 @@ export function ThemeLogo({
   className,
   priority = false,
 }: ThemeLogoProps) {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-
-    // 读取 html 元素的 class 来判断主题（检查 theme-glass 类）
-    const updateTheme = () => {
-      const isDark = document.documentElement.classList.contains('theme-glass');
-      setTheme(isDark ? 'dark' : 'light');
-    };
-
-    updateTheme();
-
-    // 监听 html class 变化
-    const observer = new MutationObserver(updateTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
-  // 避免服务端渲染时的闪烁，先显示浅色 logo
-  const logoSrc = mounted && theme === 'dark' ? '/logo-new.png' : '/logo-light.png';
-
   return (
-    <Image
-      src={logoSrc}
-      alt="硅基人才平台"
-      width={width}
-      height={height}
-      className={cn('shrink-0 rounded', className)}
-      priority={priority}
-    />
+    <span className={cn('relative block shrink-0 overflow-hidden rounded', className)} style={{ width, height }} aria-hidden="true">
+      <Image
+        src="/logo-light.png"
+        alt=""
+        width={width}
+        height={height}
+        unoptimized
+        className="theme-logo-light absolute inset-0 h-full w-full object-contain"
+        priority={priority}
+      />
+      <Image
+        src="/logo-new.png"
+        alt=""
+        width={width}
+        height={height}
+        unoptimized
+        className="theme-logo-dark absolute inset-0 hidden h-full w-full object-contain"
+        priority={priority}
+      />
+    </span>
   );
 }

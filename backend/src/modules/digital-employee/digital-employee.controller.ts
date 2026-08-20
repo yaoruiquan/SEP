@@ -139,9 +139,13 @@ export class DigitalEmployeeController {
   @ApiQuery({ name: 'days', required: false, description: '统计天数（默认 7）', example: 7 })
   @ApiResponse({ status: 200, description: '统计数据' })
   @ApiResponse({ status: 404, description: '数字员工不存在' })
-  getStats(@Param('id') id: string, @Query('days') days?: string) {
+  getStats(
+    @Param('id') id: string,
+    @Request() req: { user: { id: string } },
+    @Query('days') days?: string,
+  ) {
     const d = Math.min(Math.max(parseInt(days ?? '7', 10) || 7, 1), 90);
-    return this.service.getStats(id, d);
+    return this.service.getStats(id, d, req.user.id);
   }
 
   // ────────────────────────────────────────────────────────────────────────────

@@ -240,14 +240,20 @@ export class DigitalEmployeeService {
   // Stats / Monitoring
   // ────────────────────────────────────────────────────────────────────────────
 
-  async getStats(employeeId: string, days: number) {
-    await this.findOne(employeeId); // guard: 404 if missing
+  async getStats(employeeId: string, days: number, userId: string) {
+    const employee = await this.prisma.digitalEmployee.findUnique({
+      where: { id: employeeId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException(`Digital employee ${employeeId} not found`);
+    }
 
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // Fetch sessions for this employee within the window
     const sessions = await this.prisma.conversationSession.findMany({
-      where: { employeeId, createdAt: { gte: startDate } },
+      where: { employeeId, userId, createdAt: { gte: startDate } },
       select: { id: true, createdAt: true },
     });
 
