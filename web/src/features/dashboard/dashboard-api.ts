@@ -29,12 +29,52 @@ export interface TopEmployee {
   compute: number;
 }
 
+export interface ModelDistribution {
+  model: string;
+  requests: number;
+  tokens: number;
+  cost: number;
+}
+
+export interface TokenTrend {
+  date: string;
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
+}
+
+export interface TopMember {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  calls: number;
+  cost: number;
+}
+
 export interface DashboardData {
   stats: DashboardStats;
   usageTrend: UsageTrend[];
   topEmployees: TopEmployee[];
+  modelDistribution: ModelDistribution[];
+  tokenTrend: TokenTrend[];
+  topMembers: TopMember[];
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
-  return api.get<DashboardData>('/dashboard');
+  const [dashboard, analytics] = await Promise.all([
+    api.get<DashboardData>('/dashboard'),
+    api.get<{
+      modelDistribution?: ModelDistribution[];
+      tokenTrend?: TokenTrend[];
+      topMembers?: TopMember[];
+    }>('/enterprise/dashboard-stats'),
+  ]);
+
+  return {
+    ...dashboard,
+    modelDistribution: analytics.modelDistribution ?? [],
+    tokenTrend: analytics.tokenTrend ?? [],
+    topMembers: analytics.topMembers ?? [],
+  };
 }
