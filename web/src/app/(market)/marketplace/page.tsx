@@ -1,67 +1,78 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useMemo } from 'react';
-import { Search, Users, SlidersHorizontal } from 'lucide-react';
-import { toast } from '@/components/ui/toast';
-import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api-client';
-import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/lib/auth-store';
-import { useMarketEmployees } from '@/features/employee/use-employees';
-import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
-import { useMyEmployees } from '@/features/enterprise/use-enterprise';
-import { useAddToCart } from '@/features/cart/use-cart';
-import { useCreateSubscriptionRequest, useMySubscriptionRequests } from '@/features/subscription-request/use-subscription-requests';
-import { useCreateOrder, useCreateAlipayPayment } from '@/features/order/use-order';
-import { MyRequestsModal } from '@/features/subscription-request/my-requests-modal';
-import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
-import type { MarketEmployee } from '@/lib/types';
-import { EmployeeCard } from './_components/employee-card';
-import { EmployeeDrawer } from './_components/employee-drawer';
-import { CategoryTabs } from './_components/category-tabs';
-import { PaymentModal } from '@/components/ui/payment-modal';
+import { useState, useEffect, useMemo } from "react";
+import { Search, Users, SlidersHorizontal } from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/lib/auth-store";
+import { useMarketEmployees } from "@/features/employee/use-employees";
+import { useSubscriptions } from "@/features/subscription/use-subscriptions";
+import { useMyEmployees } from "@/features/enterprise/use-enterprise";
+import { useAddToCart } from "@/features/cart/use-cart";
+import {
+  useCreateSubscriptionRequest,
+  useMySubscriptionRequests,
+} from "@/features/subscription-request/use-subscription-requests";
+import {
+  useCreateDirectOrder,
+  useCreateAlipayPayment,
+  usePayOrderWithBalance,
+} from "@/features/order/use-order";
+import { MyRequestsModal } from "@/features/subscription-request/my-requests-modal";
+import { SubscriptionRequestModal } from "@/components/subscription-request-modal";
+import type { MarketEmployee } from "@/lib/types";
+import { EmployeeCard } from "./_components/employee-card";
+import { EmployeeDrawer } from "./_components/employee-drawer";
+import { CategoryTabs } from "./_components/category-tabs";
+import { PaymentModal } from "@/components/ui/payment-modal";
 import {
   FilterPanel,
   INITIAL_FILTERS,
   PRICE_MAX,
   type FilterState,
-} from './_components/filter-panel';
+} from "./_components/filter-panel";
 
 /** 左侧面板里的职能关键词 —— 用于算各分类的数量 */
-const CATEGORY_KEYS = ['人事', '销售', '财务', '运营', '营销', '技术'];
+const CATEGORY_KEYS = ["人事", "销售", "财务", "运营", "营销", "技术"];
 
-type SortMode = '' | 'hot' | 'new';
+type SortMode = "" | "hot" | "new";
 
 function matchesCategory(emp: MarketEmployee, keyword: string) {
   if (!keyword) return true;
-  return `${emp.position ?? ''} ${emp.industry ?? ''}`.includes(keyword);
+  return `${emp.position ?? ""} ${emp.industry ?? ""}`.includes(keyword);
 }
 
 export default function MarketplacePage() {
   const { token, hydrated, roleInEnterprise } = useAuthStore();
   const loggedIn = hydrated && Boolean(token);
-  const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
+  const isAdmin = roleInEnterprise === "ENTERPRISE_ADMIN";
 
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
-  const [sort, setSort] = useState<SortMode>('');
+  const [sort, setSort] = useState<SortMode>("");
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
   const [subscribeSucceeded, setSubscribeSucceeded] = useState(false);
   // 普通成员的"申请订阅" modal 状态
-  const [requestingEmp, setRequestingEmp] = useState<MarketEmployee | null>(null);
+  const [requestingEmp, setRequestingEmp] = useState<MarketEmployee | null>(
+    null,
+  );
   // 「我的申请」弹窗
   const [myRequestsOpen, setMyRequestsOpen] = useState(false);
 
   // 我的申请（用于角标显示待审批数）
-  const { data: myRequests = [] } = useMySubscriptionRequests({ enabled: loggedIn });
+  const { data: myRequests = [] } = useMySubscriptionRequests({
+    enabled: loggedIn,
+  });
   const pendingRequestCount = useMemo(
-    () => myRequests.filter((r) => r.status === 'PENDING').length,
+    () => myRequests.filter((r) => r.status === "PENDING").length,
     [myRequests],
   );
 
   // 搜索走服务端（后端支持 ?search=），300ms 防抖
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(filters.search), 300);
     return () => clearTimeout(t);
@@ -78,9 +89,9 @@ export default function MarketplacePage() {
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   // 我已获授权的员工（用于区分「企业已订阅」与「我可用」）
   const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
-  const subscribe = useSubscribe();
-  const createOrder = useCreateOrder();
+  const createDirectOrder = useCreateDirectOrder();
   const createPayment = useCreateAlipayPayment();
+  const payWithBalance = usePayOrderWithBalance();
   const addToCart = useAddToCart();
   const createRequest = useCreateSubscriptionRequest();
   const subscribedIds = useMemo(
@@ -101,21 +112,21 @@ export default function MarketplacePage() {
    * 其余 = 职能筛选（并清掉排序）。
    */
   function handleTab(v: string) {
-    if (v === '__hot__') {
-      setSort('hot');
-      patchFilters({ category: '' });
-    } else if (v === '__new__') {
-      setSort('new');
-      patchFilters({ category: '' });
+    if (v === "__hot__") {
+      setSort("hot");
+      patchFilters({ category: "" });
+    } else if (v === "__new__") {
+      setSort("new");
+      patchFilters({ category: "" });
     } else {
-      setSort('');
+      setSort("");
       patchFilters({ category: v });
     }
   }
 
   const activeTab =
     filters.category ||
-    (sort === 'hot' ? '__hot__' : sort === 'new' ? '__new__' : '');
+    (sort === "hot" ? "__hot__" : sort === "new" ? "__new__" : "");
 
   // 除「职能分类」外的所有筛选 —— 用它算各分类数量，
   // 这样选中某个分类后其他分类的数字不会全变 0
@@ -143,13 +154,16 @@ export default function MarketplacePage() {
   }, [preCategory]);
 
   const visible = useMemo(() => {
-    const list = preCategory.filter((e) => matchesCategory(e, filters.category));
-    if (sort === 'hot') {
+    const list = preCategory.filter((e) =>
+      matchesCategory(e, filters.category),
+    );
+    if (sort === "hot") {
       return [...list].sort(
-        (a, b) => (b._count?.subscriptions ?? 0) - (a._count?.subscriptions ?? 0),
+        (a, b) =>
+          (b._count?.subscriptions ?? 0) - (a._count?.subscriptions ?? 0),
       );
     }
-    if (sort === 'new') {
+    if (sort === "new") {
       return [...list].sort(
         (a, b) =>
           new Date(b.publishedAt ?? 0).getTime() -
@@ -160,7 +174,7 @@ export default function MarketplacePage() {
   }, [preCategory, filters.category, sort]);
 
   const drawerEmp = drawerId
-    ? employees.find((e) => e.id === drawerId) ?? null
+    ? (employees.find((e) => e.id === drawerId) ?? null)
     : null;
 
   /**
@@ -176,32 +190,36 @@ export default function MarketplacePage() {
   }
 
   /** 支付确认后才真正调订阅接口。成功则切换到引导界面，失败留在弹窗里让用户重试。 */
-  async function confirmPayment(paymentMethod: 'balance' | 'alipay') {
+  async function confirmPayment(paymentMethod: "balance" | "alipay") {
     const emp = payingEmp;
     if (!emp) return;
 
-    if (paymentMethod === 'alipay') {
-      // 支付宝支付：创建订单并跳转
+    if (paymentMethod === "alipay") {
+      // 员工市场直接订阅：创建独立订单，不经过购物车
       try {
-        const order = await createOrder.mutateAsync({
-          items: [{ employeeId: emp.id, periodMonths: 12 }],
+        const order = await createDirectOrder.mutateAsync({
+          employeeId: emp.id,
+          periodMonths: 12,
         });
         const payment = await createPayment.mutateAsync(order.id);
         window.location.href = payment.paymentForm;
       } catch (error: any) {
-        toast.error(error.message || '创建订单失败');
+        toast.error(error.message || "创建订单失败");
       }
       return;
     }
 
-    // 余额支付
-    subscribe.mutate(emp.id, {
-      onSuccess: () => {
-        setSubscribeSucceeded(true);
-      },
-      onError: (e) =>
-        toast.error(e instanceof ApiError ? e.message : '订阅失败'),
-    });
+    // 余额支付：市场直订阅同样创建独立订单，不经过购物车。
+    try {
+      const order = await createDirectOrder.mutateAsync({
+        employeeId: emp.id,
+        periodMonths: 12,
+      });
+      await payWithBalance.mutateAsync(order.id);
+      setSubscribeSucceeded(true);
+    } catch (error) {
+      toast.error((error as Error).message || "订阅失败");
+    }
   }
 
   function closePaymentModal() {
@@ -210,7 +228,10 @@ export default function MarketplacePage() {
   }
 
   /** 普通成员提交订阅申请 */
-  function handleSubmitRequest(data: { reason: string; requestedDays?: number }) {
+  function handleSubmitRequest(data: {
+    reason: string;
+    requestedDays?: number;
+  }) {
     const emp = requestingEmp;
     if (!emp) return;
     createRequest.mutate(
@@ -221,7 +242,7 @@ export default function MarketplacePage() {
           setRequestingEmp(null);
         },
         onError: (e) =>
-          toast.error(e instanceof ApiError ? e.message : '提交申请失败'),
+          toast.error(e instanceof ApiError ? e.message : "提交申请失败"),
       },
     );
   }
@@ -235,7 +256,7 @@ export default function MarketplacePage() {
           toast.success(`${emp.name} 已加入购物车`);
         },
         onError: (e) =>
-          toast.error(e instanceof ApiError ? e.message : '加入购物车失败'),
+          toast.error(e instanceof ApiError ? e.message : "加入购物车失败"),
       },
     );
   }
@@ -260,10 +281,10 @@ export default function MarketplacePage() {
             placeholder="搜索员工名称、岗位、行业…"
             aria-label="搜索员工"
             className={cn(
-              'w-full rounded-glass-pill border border-glassline bg-glass-2 py-3 pl-11 pr-4',
-              'text-[14px] text-gtext-primary placeholder:text-gtext-muted',
-              'shadow-glass-sm backdrop-blur-glass-md transition-colors duration-200',
-              'focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
+              "w-full rounded-glass-pill border border-glassline bg-glass-2 py-3 pl-11 pr-4",
+              "text-[14px] text-gtext-primary placeholder:text-gtext-muted",
+              "shadow-glass-sm backdrop-blur-glass-md transition-colors duration-200",
+              "focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40",
             )}
           />
         </div>
@@ -299,7 +320,7 @@ export default function MarketplacePage() {
       {/* ── body: filter + grid ──────────────────────────────────────── */}
       <div className="flex gap-6">
         {/* 桌面常驻，移动端按需展开 */}
-        <div className={cn('lg:block', mobileFilterOpen ? 'block' : 'hidden')}>
+        <div className={cn("lg:block", mobileFilterOpen ? "block" : "hidden")}>
           <FilterPanel
             filters={filters}
             onChange={patchFilters}
@@ -314,7 +335,7 @@ export default function MarketplacePage() {
           ) : isError ? (
             <GlassEmpty
               title="加载失败"
-              desc={error?.message || '无法加载员工列表，请稍后重试。'}
+              desc={error?.message || "无法加载员工列表，请稍后重试。"}
               action={
                 <Button
                   variant="glass"
@@ -329,23 +350,25 @@ export default function MarketplacePage() {
             <GlassEmpty
               title={
                 debouncedSearch || filters.category || filters.capTypes.length
-                  ? '没有匹配的员工'
-                  : '暂无已上架的员工'
+                  ? "没有匹配的员工"
+                  : "暂无已上架的员工"
               }
               desc={
                 debouncedSearch || filters.category || filters.capTypes.length
-                  ? '试试放宽筛选条件或换个关键词。'
-                  : '员工上架后会出现在这里。'
+                  ? "试试放宽筛选条件或换个关键词。"
+                  : "员工上架后会出现在这里。"
               }
               action={
-                debouncedSearch || filters.category || filters.capTypes.length ? (
+                debouncedSearch ||
+                filters.category ||
+                filters.capTypes.length ? (
                   <Button
                     variant="glass"
                     size="sm"
                     onClick={() =>
                       patchFilters({
-                        search: '',
-                        category: '',
+                        search: "",
+                        category: "",
                         capTypes: [],
                         maxPrice: PRICE_MAX,
                       })
@@ -360,8 +383,8 @@ export default function MarketplacePage() {
             <>
               <p className="mb-4 text-[12px] text-gtext-muted">
                 共 {visible.length} 位员工
-                {sort === 'hot' && ' · 按热门排序'}
-                {sort === 'new' && ' · 按上架时间排序'}
+                {sort === "hot" && " · 按热门排序"}
+                {sort === "new" && " · 按上架时间排序"}
               </p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((emp) => (
@@ -372,7 +395,12 @@ export default function MarketplacePage() {
                     grantedToMe={grantedToMeIds.has(emp.id)}
                     loggedIn={loggedIn}
                     isAdmin={isAdmin}
-                    subscribing={subscribe.isPending || createRequest.isPending}
+                    subscribing={
+                      createDirectOrder.isPending ||
+                      createPayment.isPending ||
+                      payWithBalance.isPending ||
+                      createRequest.isPending
+                    }
                     onSubscribe={() => doSubscribe(emp)}
                     onClick={() => setDrawerId(emp.id)}
                     onAddToCart={() => handleAddToCart(emp)}
@@ -392,7 +420,12 @@ export default function MarketplacePage() {
         grantedToMe={drawerEmp ? grantedToMeIds.has(drawerEmp.id) : false}
         loggedIn={loggedIn}
         isAdmin={isAdmin}
-        subscribing={subscribe.isPending || createRequest.isPending}
+        subscribing={
+          createDirectOrder.isPending ||
+          createPayment.isPending ||
+          payWithBalance.isPending ||
+          createRequest.isPending
+        }
         onSubscribe={() => drawerEmp && doSubscribe(drawerEmp)}
         onClose={() => setDrawerId(null)}
       />
@@ -402,7 +435,11 @@ export default function MarketplacePage() {
         <PaymentModal
           open
           emp={{ name: payingEmp.name, price: payingEmp.annualPriceCNY }}
-          subscribing={subscribe.isPending}
+          subscribing={
+            payWithBalance.isPending ||
+            createDirectOrder.isPending ||
+            createPayment.isPending
+          }
           succeeded={subscribeSucceeded}
           onConfirm={confirmPayment}
           onClose={closePaymentModal}
@@ -419,7 +456,10 @@ export default function MarketplacePage() {
       />
 
       {/* ── 我的申请（申请记录 + 审批状态） ──────────────────────────── */}
-      <MyRequestsModal open={myRequestsOpen} onClose={() => setMyRequestsOpen(false)} />
+      <MyRequestsModal
+        open={myRequestsOpen}
+        onClose={() => setMyRequestsOpen(false)}
+      />
     </div>
   );
 }

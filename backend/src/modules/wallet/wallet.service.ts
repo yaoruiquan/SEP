@@ -3,10 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
-} from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma, WalletTransactionType } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { Prisma, WalletTransactionType } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 
 @Injectable()
 export class WalletService {
@@ -36,7 +36,7 @@ export class WalletService {
     description?: string,
   ) {
     if (amount <= 0) {
-      throw new BadRequestException('充值金额必须大于 0');
+      throw new BadRequestException("充值金额必须大于 0");
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -67,7 +67,7 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 3. 记录交易
@@ -78,7 +78,7 @@ export class WalletService {
           amount: amountDecimal,
           balanceBefore,
           balanceAfter,
-          paymentMethod: 'alipay',
+          paymentMethod: "alipay",
           paymentOrderId,
           description: description || `充值 ¥${amount}`,
         },
@@ -92,17 +92,18 @@ export class WalletService {
   async consume(
     enterpriseId: string,
     amount: number,
-    relatedType: 'subscription' | 'compute',
+    relatedType: "subscription" | "compute",
     relatedId: string | null,
     description?: string,
+    tx?: Prisma.TransactionClient,
   ) {
     if (amount <= 0) {
-      throw new BadRequestException('消费金额必须大于 0');
+      throw new BadRequestException("消费金额必须大于 0");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const consume = async (client: Prisma.TransactionClient) => {
       // 1. 获取钱包
-      const wallet = await tx.enterpriseWallet.findUnique({
+      const wallet = await client.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
 
@@ -123,7 +124,7 @@ export class WalletService {
       const balanceAfter = balanceBefore.sub(amountDecimal);
 
       // 3. 更新余额（乐观锁）
-      const updated = await tx.enterpriseWallet.updateMany({
+      const updated = await client.enterpriseWallet.updateMany({
         where: {
           enterpriseId,
           version: wallet.version,
@@ -136,11 +137,11 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 4. 记录交易（负数表示扣款）
-      return tx.walletTransaction.create({
+      return client.walletTransaction.create({
         data: {
           walletId: wallet.id,
           type: WalletTransactionType.CONSUME,
@@ -152,7 +153,9 @@ export class WalletService {
           description,
         },
       });
-    });
+    };
+
+    return tx ? consume(tx) : this.prisma.$transaction(consume);
   }
 
   /**
@@ -161,12 +164,12 @@ export class WalletService {
   async refund(
     enterpriseId: string,
     amount: number,
-    relatedType: 'subscription' | 'compute',
+    relatedType: "subscription" | "compute",
     relatedId: string,
     description?: string,
   ) {
     if (amount <= 0) {
-      throw new BadRequestException('退款金额必须大于 0');
+      throw new BadRequestException("退款金额必须大于 0");
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -197,7 +200,7 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 3. 记录交易
@@ -239,7 +242,7 @@ export class WalletService {
     const [items, total] = await Promise.all([
       this.prisma.walletTransaction.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -265,7 +268,7 @@ export class WalletService {
     operatorId: string,
   ) {
     if (amount === 0) {
-      throw new BadRequestException('调整金额不能为 0');
+      throw new BadRequestException("调整金额不能为 0");
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -300,7 +303,7 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 记录交易
@@ -328,7 +331,7 @@ export class WalletService {
     operatorId: string,
   ) {
     if (amount <= 0) {
-      throw new BadRequestException('充值金额必须大于 0');
+      throw new BadRequestException("充值金额必须大于 0");
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -358,7 +361,7 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 记录交易
@@ -369,7 +372,7 @@ export class WalletService {
           amount: amountDecimal,
           balanceBefore,
           balanceAfter,
-          paymentMethod: 'admin',
+          paymentMethod: "admin",
           description: reason,
           createdBy: operatorId,
         },
@@ -392,7 +395,7 @@ export class WalletService {
     operatorId: string,
   ) {
     if (amount <= 0) {
-      throw new BadRequestException('扣减金额必须大于 0');
+      throw new BadRequestException("扣减金额必须大于 0");
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -430,7 +433,7 @@ export class WalletService {
       });
 
       if (updated.count === 0) {
-        throw new ConflictException('余额更新冲突，请重试');
+        throw new ConflictException("余额更新冲突，请重试");
       }
 
       // 记录交易（负数）
@@ -441,7 +444,7 @@ export class WalletService {
           amount: amountDecimal.neg(),
           balanceBefore,
           balanceAfter,
-          relatedType: 'compute',
+          relatedType: "compute",
           description: reason,
           createdBy: operatorId,
         },

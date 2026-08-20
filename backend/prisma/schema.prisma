@@ -1600,6 +1600,7 @@ enum RechargeOrderStatus {
 enum PayChannel {
   ALIPAY // 支付宝
   WECHAT // 微信支付
+  BALANCE // 企业余额
   MANUAL // 线下/手动
 }
 

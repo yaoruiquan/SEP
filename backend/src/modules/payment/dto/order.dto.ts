@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * 从购物车创建订单
@@ -8,7 +8,17 @@ export const CreateOrderFromCartDtoSchema = z.object({
   // 未来可扩展：优惠券、备注等
 });
 
-export type CreateOrderFromCartDto = z.infer<typeof CreateOrderFromCartDtoSchema>;
+export type CreateOrderFromCartDto = z.infer<
+  typeof CreateOrderFromCartDtoSchema
+>;
+
+/** 从员工市场直接创建订阅订单，不经过购物车。 */
+export const CreateDirectOrderDtoSchema = z.object({
+  employeeId: z.string().min(1),
+  periodMonths: z.number().int().min(1).max(36).default(12),
+});
+
+export type CreateDirectOrderDto = z.infer<typeof CreateDirectOrderDtoSchema>;
 
 /**
  * 订单列表查询参数
@@ -16,7 +26,7 @@ export type CreateOrderFromCartDto = z.infer<typeof CreateOrderFromCartDtoSchema
 export const GetOrdersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
-  status: z.enum(['PENDING', 'PAID', 'CLOSED', 'REFUNDED']).optional(),
+  status: z.enum(["PENDING", "PAID", "CLOSED", "REFUNDED"]).optional(),
 });
 
 export type GetOrdersQuery = z.infer<typeof GetOrdersQuerySchema>;

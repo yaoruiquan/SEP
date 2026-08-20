@@ -1,40 +1,49 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
-  ArrowLeft, Wrench, Check, Package, PlayCircle, BarChart3,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { PulsingDot } from '@/components/ui/pulsing-dot';
-import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
-import { useAuthStore } from '@/lib/auth-store';
-import { useMarketEmployee } from '@/features/employee/use-employees';
-import { useSubscriptions, useSubscribe } from '@/features/subscription/use-subscriptions';
-import { useMyEmployees } from '@/features/enterprise/use-enterprise';
+  ArrowLeft,
+  Wrench,
+  Check,
+  Package,
+  PlayCircle,
+  BarChart3,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { PulsingDot } from "@/components/ui/pulsing-dot";
+import { cn, CAPABILITY_TYPE_META } from "@/lib/utils";
+import { useAuthStore } from "@/lib/auth-store";
+import { useMarketEmployee } from "@/features/employee/use-employees";
+import { useSubscriptions } from "@/features/subscription/use-subscriptions";
+import { useMyEmployees } from "@/features/enterprise/use-enterprise";
 import {
   useMySubscriptionRequests,
   useCreateSubscriptionRequest,
-} from '@/features/subscription-request/use-subscription-requests';
-import { useCreateOrder, useCreateAlipayPayment } from '@/features/order/use-order';
-import { toast } from '@/components/ui/toast';
-import { PaymentModal } from '@/components/ui/payment-modal';
-import { SubscriptionRequestModal } from '@/components/subscription-request-modal';
-import { MyRequestsModal } from '@/features/subscription-request/my-requests-modal';
-import { ApiError } from '@/lib/api-client';
+} from "@/features/subscription-request/use-subscription-requests";
+import {
+  useCreateDirectOrder,
+  useCreateAlipayPayment,
+  usePayOrderWithBalance,
+} from "@/features/order/use-order";
+import { toast } from "@/components/ui/toast";
+import { PaymentModal } from "@/components/ui/payment-modal";
+import { SubscriptionRequestModal } from "@/components/subscription-request-modal";
+import { MyRequestsModal } from "@/features/subscription-request/my-requests-modal";
+import { ApiError } from "@/lib/api-client";
 
 // ─── avatar gradient（与卡片/抽屉同一套映射）──────────────────────────────────
 
 const GRAD_MAP: [string, string][] = [
-  ['人事', 'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['HR',   'linear-gradient(135deg,#7c3aed,#a855f7)'],
-  ['销售', 'linear-gradient(135deg,#2563eb,#3b82f6)'],
-  ['CRM',  'linear-gradient(135deg,#2563eb,#3b82f6)'],
-  ['财务', 'linear-gradient(135deg,#0891b2,#06b6d4)'],
-  ['运营', 'linear-gradient(135deg,#059669,#10b981)'],
-  ['营销', 'linear-gradient(135deg,#db2777,#f43f5e)'],
-  ['技术', 'linear-gradient(135deg,#d97706,#f59e0b)'],
+  ["人事", "linear-gradient(135deg,#7c3aed,#a855f7)"],
+  ["HR", "linear-gradient(135deg,#7c3aed,#a855f7)"],
+  ["销售", "linear-gradient(135deg,#2563eb,#3b82f6)"],
+  ["CRM", "linear-gradient(135deg,#2563eb,#3b82f6)"],
+  ["财务", "linear-gradient(135deg,#0891b2,#06b6d4)"],
+  ["运营", "linear-gradient(135deg,#059669,#10b981)"],
+  ["营销", "linear-gradient(135deg,#db2777,#f43f5e)"],
+  ["技术", "linear-gradient(135deg,#d97706,#f59e0b)"],
 ];
 
 function avatarGradient(position: string, industry: string) {
@@ -42,7 +51,7 @@ function avatarGradient(position: string, industry: string) {
   for (const [key, grad] of GRAD_MAP) {
     if (text.includes(key)) return grad;
   }
-  return 'linear-gradient(135deg,#4f46e5,#818cf8)';
+  return "linear-gradient(135deg,#4f46e5,#818cf8)";
 }
 
 // ─── 玻璃分区容器 ─────────────────────────────────────────────────────────────
@@ -71,21 +80,21 @@ function GlassSection({
 
 const HOW_TO = [
   {
-    t: '企业雇佣',
-    d: '由企业管理员雇佣该员工，获得使用权。雇佣是企业级的，一次雇佣可在多处部署。',
+    t: "企业雇佣",
+    d: "由企业管理员雇佣该员工，获得使用权。雇佣是企业级的，一次雇佣可在多处部署。",
   },
   {
     // 收敛后不再创建实例：一企业一员工一段雇佣关系，部门差异化落在授权记录上
-    t: '开通授权',
-    d: '在「雇佣管理」把 TA 授权给部门或具体成员，可设到期时间。同一位员工可同时服务多个部门。',
+    t: "开通授权",
+    d: "在「雇佣管理」把 TA 授权给部门或具体成员，可设到期时间。同一位员工可同时服务多个部门。",
   },
   {
-    t: '开始使用',
-    d: '被授权的人在「我的硅基员工」里就能看到 TA，直接发起任务或对话。',
+    t: "开始使用",
+    d: "被授权的人在「我的硅基员工」里就能看到 TA，直接发起任务或对话。",
   },
   {
-    t: '下载到本地运行',
-    d: '员工以员工包形式下载到本地，放入你自己的运行环境即可使用；企业知识库留在本地不出内网。',
+    t: "下载到本地运行",
+    d: "员工以员工包形式下载到本地，放入你自己的运行环境即可使用；企业知识库留在本地不出内网。",
   },
 ];
 
@@ -105,9 +114,9 @@ export default function EmployeeDetailPage() {
   const { data: subs = [] } = useSubscriptions({ enabled: loggedIn });
   // 访客不请求「我已被授权」列表 —— 用于判断是否已有使用权限
   const { data: myEmployees = [] } = useMyEmployees({ enabled: loggedIn });
-  const subscribe = useSubscribe();
-  const createOrder = useCreateOrder();
+  const createDirectOrder = useCreateDirectOrder();
   const createPayment = useCreateAlipayPayment();
+  const payWithBalance = usePayOrderWithBalance();
 
   // 支付弹窗开关。Hook 必须在早退分支之前声明。
   const [payOpen, setPayOpen] = useState(false);
@@ -123,7 +132,7 @@ export default function EmployeeDetailPage() {
   // 查询我对该员工的订阅申请（仅登录用户）
   const { data: myRequests = [] } = useMySubscriptionRequests();
   const hasPendingRequest = myRequests.some(
-    (r) => r.employeeId === id && r.status === 'PENDING'
+    (r) => r.employeeId === id && r.status === "PENDING",
   );
 
   const createRequest = useCreateSubscriptionRequest();
@@ -159,14 +168,16 @@ export default function EmployeeDetailPage() {
             </p>
           </div>
           <Link href="/marketplace">
-            <Button variant="glass-primary" size="sm">返回人才市场</Button>
+            <Button variant="glass-primary" size="sm">
+              返回人才市场
+            </Button>
           </Link>
         </div>
       </div>
     );
   }
 
-  const grad = avatarGradient(emp.position ?? '', emp.industry ?? '');
+  const grad = avatarGradient(emp.position ?? "", emp.industry ?? "");
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -197,7 +208,9 @@ export default function EmployeeDetailPage() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-2xl font-bold text-gtext-primary">{emp.name}</h1>
+              <h1 className="text-2xl font-bold text-gtext-primary">
+                {emp.name}
+              </h1>
               <span className="rounded-full border border-glassline bg-glass-2 px-2 py-0.5 text-[11px] text-gtext-secondary">
                 v{emp.version}
               </span>
@@ -208,10 +221,10 @@ export default function EmployeeDetailPage() {
             </div>
             <p className="mt-1 text-[13px] text-gtext-secondary">
               {emp.position}
-              {emp.industry ? ` · ${emp.industry}` : ''}
+              {emp.industry ? ` · ${emp.industry}` : ""}
             </p>
             <p className="mt-3 text-[14px] leading-relaxed text-gtext-secondary">
-              {emp.description || '暂无描述'}
+              {emp.description || "暂无描述"}
             </p>
           </div>
         </div>
@@ -258,18 +271,26 @@ export default function EmployeeDetailPage() {
               )}
             </>
           ) : (
-            <Link href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}>
-              <Button variant="glass-primary" size="sm">登录后申请</Button>
+            <Link
+              href={`/login?redirect=${encodeURIComponent(`/marketplace/${emp.id}`)}`}
+            >
+              <Button variant="glass-primary" size="sm">
+                登录后申请
+              </Button>
             </Link>
           )}
 
-          {typeof emp.price === 'number' && emp.price > 0 ? (
+          {typeof emp.price === "number" && emp.price > 0 ? (
             <span className="text-[15px] font-semibold text-gtext-primary">
               ¥{emp.price}
-              <span className="text-[12px] font-normal text-gtext-muted">/月</span>
+              <span className="text-[12px] font-normal text-gtext-muted">
+                /月
+              </span>
             </span>
           ) : (
-            <span className="text-[13px] font-medium text-emerald-400">免费</span>
+            <span className="text-[13px] font-medium text-emerald-400">
+              免费
+            </span>
           )}
         </div>
         <p className="mt-3 text-[12px] text-gtext-muted">
@@ -305,7 +326,9 @@ export default function EmployeeDetailPage() {
                       {meta?.label ?? cap.type}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium text-gtext-primary">{cap.name}</p>
+                      <p className="text-[13px] font-medium text-gtext-primary">
+                        {cap.name}
+                      </p>
                       <p className="mt-0.5 text-[12px] leading-relaxed text-gtext-muted">
                         {cap.description}
                       </p>
@@ -326,8 +349,12 @@ export default function EmployeeDetailPage() {
                 {i + 1}
               </span>
               <div className="min-w-0">
-                <p className="text-[13px] font-medium text-gtext-primary">{s.t}</p>
-                <p className="mt-0.5 text-[12px] leading-relaxed text-gtext-muted">{s.d}</p>
+                <p className="text-[13px] font-medium text-gtext-primary">
+                  {s.t}
+                </p>
+                <p className="mt-0.5 text-[12px] leading-relaxed text-gtext-muted">
+                  {s.d}
+                </p>
               </div>
             </li>
           ))}
@@ -338,24 +365,28 @@ export default function EmployeeDetailPage() {
       <GlassSection icon={<BarChart3 className="h-4 w-4" />} title="做得怎么样">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
-            { label: '已服务企业', value: String(emp._count?.subscriptions ?? 0), real: true },
-            { label: '累计任务量', value: '—', real: false },
-            { label: '任务成功率', value: '—', real: false },
+            {
+              label: "已服务企业",
+              value: String(emp._count?.subscriptions ?? 0),
+              real: true,
+            },
+            { label: "累计任务量", value: "—", real: false },
+            { label: "任务成功率", value: "—", real: false },
           ].map((stat) => (
             <div
               key={stat.label}
               className={cn(
-                'rounded-glass-lg p-4',
+                "rounded-glass-lg p-4",
                 stat.real
-                  ? 'border border-glassline bg-glass-2'
-                  : 'border border-dashed border-glassline bg-transparent',
+                  ? "border border-glassline bg-glass-2"
+                  : "border border-dashed border-glassline bg-transparent",
               )}
             >
               <p className="text-[11px] text-gtext-muted">{stat.label}</p>
               <p
                 className={cn(
-                  'mt-1 text-xl font-semibold',
-                  stat.real ? 'text-gtext-primary' : 'text-gtext-disabled',
+                  "mt-1 text-xl font-semibold",
+                  stat.real ? "text-gtext-primary" : "text-gtext-disabled",
                 )}
               >
                 {stat.value}
@@ -374,30 +405,38 @@ export default function EmployeeDetailPage() {
       <PaymentModal
         open={payOpen}
         emp={{ name: emp.name, price: emp.annualPriceCNY }}
-        subscribing={subscribe.isPending}
+        subscribing={
+          payWithBalance.isPending ||
+          createDirectOrder.isPending ||
+          createPayment.isPending
+        }
         onConfirm={async (paymentMethod) => {
-          if (paymentMethod === 'alipay') {
-            // 支付宝支付：创建订单并跳转
+          if (paymentMethod === "alipay") {
+            // 员工市场直接订阅：创建独立订单，不经过购物车
             try {
-              const order = await createOrder.mutateAsync({
-                items: [{ employeeId: emp.id, periodMonths: 12 }],
+              const order = await createDirectOrder.mutateAsync({
+                employeeId: emp.id,
+                periodMonths: 12,
               });
               const payment = await createPayment.mutateAsync(order.id);
               window.location.href = payment.paymentForm;
             } catch (error: any) {
-              toast.error(error.message || '创建订单失败');
+              toast.error(error.message || "创建订单失败");
             }
             return;
           }
-          // 余额支付
-          subscribe.mutate(emp.id, {
-            onSuccess: () => {
-              setPayOpen(false);
-              toast.success(`已雇佣「${emp.name}」，可去「雇佣管理」开通授权`);
-            },
-            onError: (e) =>
-              toast.error(e instanceof ApiError ? e.message : '订阅失败'),
-          });
+          // 余额支付：市场直订阅同样创建独立订单，不经过购物车。
+          try {
+            const order = await createDirectOrder.mutateAsync({
+              employeeId: emp.id,
+              periodMonths: 12,
+            });
+            await payWithBalance.mutateAsync(order.id);
+            setPayOpen(false);
+            toast.success(`已雇佣「${emp.name}」，可去「雇佣管理」开通授权`);
+          } catch (error) {
+            toast.error((error as Error).message || "订阅失败");
+          }
         }}
         onClose={() => setPayOpen(false)}
       />
@@ -414,17 +453,20 @@ export default function EmployeeDetailPage() {
             {
               onSuccess: () => {
                 setRequestModalOpen(false);
-                toast.success('使用申请已提交，等待管理员审批');
+                toast.success("使用申请已提交，等待管理员审批");
               },
               onError: (e) =>
-                toast.error(e instanceof ApiError ? e.message : '提交申请失败'),
-            }
+                toast.error(e instanceof ApiError ? e.message : "提交申请失败"),
+            },
           );
         }}
       />
 
       {/* ── 我的申请（申请记录 + 审批状态） ──────────────────────────── */}
-      <MyRequestsModal open={myRequestsOpen} onClose={() => setMyRequestsOpen(false)} />
+      <MyRequestsModal
+        open={myRequestsOpen}
+        onClose={() => setMyRequestsOpen(false)}
+      />
     </div>
   );
 }

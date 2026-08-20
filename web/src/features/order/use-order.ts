@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { authAccessor } from '@/lib/auth-store';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { authAccessor } from "@/lib/auth-store";
+import { qk } from "@/lib/query-keys";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -7,7 +8,7 @@ export interface Order {
   id: string;
   orderNo: string;
   totalAmount: number;
-  status: 'PENDING' | 'PAID' | 'CANCELED' | 'FAILED';
+  status: "PENDING" | "PAID" | "CANCELED" | "FAILED";
   items: OrderItem[];
   createdAt: string;
   paidAt: string | null;
@@ -30,6 +31,11 @@ export interface CreateOrderResponse {
   items: OrderItem[];
 }
 
+export interface CreateDirectOrderDto {
+  employeeId: string;
+  periodMonths?: number;
+}
+
 export interface AlipayPaymentResponse {
   paymentForm: string;
   orderId: string;
@@ -44,55 +50,80 @@ export interface RechargeAlipayPaymentResponse {
 
 // ── API ────────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
-async function createOrder(body?: { itemIds?: string[] }): Promise<CreateOrderResponse> {
+async function createOrder(body?: {
+  itemIds?: string[];
+}): Promise<CreateOrderResponse> {
   const token = authAccessor.getToken();
   const res = await fetch(`${API_BASE}/orders`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.message || 'Failed to create order');
+    throw new Error(err.message || "Failed to create order");
   }
   return res.json();
 }
 
-async function createAlipayPayment(orderId: string): Promise<AlipayPaymentResponse> {
+async function createDirectOrder(
+  body: CreateDirectOrderDto,
+): Promise<CreateOrderResponse> {
+  const token = authAccessor.getToken();
+  const res = await fetch(`${API_BASE}/orders/direct`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.message || "Failed to create direct order");
+  }
+  return res.json();
+}
+
+async function createAlipayPayment(
+  orderId: string,
+): Promise<AlipayPaymentResponse> {
   const token = authAccessor.getToken();
   const res = await fetch(`${API_BASE}/payment/alipay/create`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ orderId }),
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.message || 'Failed to create payment');
+    throw new Error(err.message || "Failed to create payment");
   }
   return res.json();
 }
 
-async function createRechargeAlipayPayment(orderNo: string): Promise<RechargeAlipayPaymentResponse> {
+async function createRechargeAlipayPayment(
+  orderNo: string,
+): Promise<RechargeAlipayPaymentResponse> {
   const token = authAccessor.getToken();
   const res = await fetch(`${API_BASE}/payment/alipay/recharge/create`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ orderNo }),
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.message || 'Failed to create recharge payment');
+    throw new Error(err.message || "Failed to create recharge payment");
   }
   return res.json();
 }
@@ -104,7 +135,7 @@ async function fetchOrder(orderId: string): Promise<Order> {
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.message || 'Failed to fetch order');
+    throw new Error(err.message || "Failed to fetch order");
   }
   return res.json();
 }
@@ -116,7 +147,7 @@ async function fetchOrders(): Promise<Order[]> {
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.message || 'Failed to fetch orders');
+    throw new Error(err.message || "Failed to fetch orders");
   }
   return res.json();
 }
@@ -129,9 +160,44 @@ export function useCreateOrder() {
   });
 }
 
+export function useCreateDirectOrder() {
+  return useMutation({ mutationFn: createDirectOrder });
+}
+
 export function useCreateAlipayPayment() {
   return useMutation({
     mutationFn: createAlipayPayment,
+  });
+}
+
+export function usePayOrderWithBalance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (orderId: string): Promise<Order> => {
+      const token = authAccessor.getToken();
+      const res = await fetch(`${API_BASE}/payment/balance/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to pay order with balance");
+      }
+      return res.json();
+    },
+    onSuccess: (_, orderId) => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["cart"] });
+      queryClient.invalidateQueries({ queryKey: qk.subscriptions });
+      queryClient.invalidateQueries({ queryKey: qk.subscribedEmployees });
+      queryClient.invalidateQueries({ queryKey: qk.myEmployees });
+    },
   });
 }
 
@@ -143,7 +209,7 @@ export function useCreateRechargeAlipayPayment() {
 
 export function useOrder(orderId: string | null) {
   return useQuery({
-    queryKey: ['order', orderId],
+    queryKey: ["order", orderId],
     queryFn: () => fetchOrder(orderId!),
     enabled: !!orderId,
     staleTime: 10_000,
@@ -158,13 +224,13 @@ export function useOrder(orderId: string | null) {
  */
 export function usePollingOrder(orderId: string | null) {
   return useQuery({
-    queryKey: ['order', orderId],
+    queryKey: ["order", orderId],
     queryFn: () => fetchOrder(orderId!),
     enabled: !!orderId,
     staleTime: 0,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === 'PENDING' ? 2000 : false;
+      return status === "PENDING" ? 2000 : false;
     },
   });
 }
@@ -182,23 +248,23 @@ export function useReconcileOrder() {
     mutationFn: async (orderId: string) => {
       const token = authAccessor.getToken();
       const res = await fetch(`${API_BASE}/payment/alipay/reconcile`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ orderId }),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || 'Failed to reconcile order');
+        throw new Error(err.message || "Failed to reconcile order");
       }
       return res.json() as Promise<{ status: string; reconciled: boolean }>;
     },
     onSuccess: (result, orderId) => {
       if (result.reconciled) {
-        queryClient.invalidateQueries({ queryKey: ['order', orderId] });
-        queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+        queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+        queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
       }
     },
   });
@@ -206,7 +272,7 @@ export function useReconcileOrder() {
 
 export function useOrders() {
   return useQuery({
-    queryKey: ['orders'],
+    queryKey: ["orders"],
     queryFn: fetchOrders,
     staleTime: 30_000,
   });

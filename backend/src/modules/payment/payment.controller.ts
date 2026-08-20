@@ -6,19 +6,19 @@ import {
   Request,
   HttpCode,
   NotFoundException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiResponse,
-} from '@nestjs/swagger';
-import { PaymentService } from './payment.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
-import { AlipayPaymentDtoSchema } from './dto/order.dto';
-import { z } from 'zod';
+} from "@nestjs/swagger";
+import { PaymentService } from "./payment.service";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
+import { ZodValidationPipe } from "../../shared/zod-validation.pipe";
+import { AlipayPaymentDtoSchema } from "./dto/order.dto";
+import { z } from "zod";
 
 // 充值支付请求 DTO
 const RechargeAlipayPaymentDtoSchema = z.object({
@@ -42,20 +42,20 @@ const ReconcileOrderDtoSchema = z.object({
 
 type ReconcileOrderDto = z.infer<typeof ReconcileOrderDtoSchema>;
 
-@ApiTags('payment')
-@Controller('payment')
+@ApiTags("payment")
+@Controller("payment")
 export class PaymentController {
   constructor(
     private paymentService: PaymentService,
     private enterpriseContext: EnterpriseContextService,
   ) {}
 
-  @Post('alipay/create')
+  @Post("alipay/create")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '发起支付宝支付' })
-  @ApiResponse({ status: 200, description: '支付表单已生成' })
-  @ApiResponse({ status: 404, description: '订单不存在' })
+  @ApiOperation({ summary: "发起支付宝支付" })
+  @ApiResponse({ status: 200, description: "支付表单已生成" })
+  @ApiResponse({ status: 404, description: "订单不存在" })
   async createAlipayPayment(
     @Request() req,
     @Body(new ZodValidationPipe(AlipayPaymentDtoSchema)) dto,
@@ -63,17 +63,33 @@ export class PaymentController {
     const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
 
     // 验证订单归属：findOne 查不到会抛 404，故此调用本身即是鉴权
-    await this.paymentService['orderService'].findOne(dto.orderId, enterpriseId);
+    await this.paymentService["orderService"].findOne(
+      dto.orderId,
+      enterpriseId,
+    );
 
     return this.paymentService.createAlipayPayment(dto.orderId);
   }
 
-  @Post('alipay/recharge/create')
+  @Post("balance/pay")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '发起充值支付宝支付' })
-  @ApiResponse({ status: 200, description: '支付表单已生成' })
-  @ApiResponse({ status: 404, description: '充值订单不存在' })
+  @ApiOperation({ summary: "使用企业余额支付员工订阅订单" })
+  @ApiResponse({ status: 200, description: "支付并履约成功" })
+  async payOrderWithBalance(
+    @Request() req,
+    @Body(new ZodValidationPipe(AlipayPaymentDtoSchema)) dto,
+  ) {
+    const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
+    return this.paymentService.payOrderWithBalance(dto.orderId, enterpriseId);
+  }
+
+  @Post("alipay/recharge/create")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "发起充值支付宝支付" })
+  @ApiResponse({ status: 200, description: "支付表单已生成" })
+  @ApiResponse({ status: 404, description: "充值订单不存在" })
   async createRechargeAlipayPayment(
     @Request() req,
     @Body(new ZodValidationPipe(RechargeAlipayPaymentDtoSchema))
@@ -82,13 +98,13 @@ export class PaymentController {
     const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
 
     // 验证订单归属
-    const order = await this.paymentService['prisma'].rechargeOrder.findUnique({
+    const order = await this.paymentService["prisma"].rechargeOrder.findUnique({
       where: { orderNo: dto.orderNo },
       include: { account: true },
     });
 
     if (!order || order.account.enterpriseId !== enterpriseId) {
-      throw new NotFoundException('充值订单不存在');
+      throw new NotFoundException("充值订单不存在");
     }
 
     return this.paymentService.createRechargeAlipayPayment(
@@ -97,25 +113,25 @@ export class PaymentController {
     );
   }
 
-  @Post('alipay/notify')
+  @Post("alipay/notify")
   @HttpCode(200)
-  @ApiOperation({ summary: '支付宝异步通知回调（公开接口）' })
-  @ApiResponse({ status: 200, description: 'success' })
+  @ApiOperation({ summary: "支付宝异步通知回调（公开接口）" })
+  @ApiResponse({ status: 200, description: "success" })
   async alipayNotify(@Body() postData: Record<string, any>) {
     const result = await this.paymentService.handleAlipayNotify(postData);
 
     // 支付宝要求返回固定字符串
-    return result.success ? 'success' : 'fail';
+    return result.success ? "success" : "fail";
   }
 
-  @Post('alipay/recharge/reconcile')
+  @Post("alipay/recharge/reconcile")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: '主动向支付宝核对充值订单状态（异步通知丢失时的兜底）',
+    summary: "主动向支付宝核对充值订单状态（异步通知丢失时的兜底）",
   })
-  @ApiResponse({ status: 200, description: '返回最新订单状态' })
-  @ApiResponse({ status: 404, description: '充值订单不存在' })
+  @ApiResponse({ status: 200, description: "返回最新订单状态" })
+  @ApiResponse({ status: 404, description: "充值订单不存在" })
   async reconcileRecharge(
     @Request() req,
     @Body(new ZodValidationPipe(ReconcileRechargeDtoSchema))
@@ -124,26 +140,26 @@ export class PaymentController {
     const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
 
     // 验证订单归属，防止越权查询他人订单
-    const order = await this.paymentService['prisma'].rechargeOrder.findUnique({
+    const order = await this.paymentService["prisma"].rechargeOrder.findUnique({
       where: { orderNo: dto.orderNo },
       include: { account: true },
     });
 
     if (!order || order.account.enterpriseId !== enterpriseId) {
-      throw new NotFoundException('充值订单不存在');
+      throw new NotFoundException("充值订单不存在");
     }
 
     return this.paymentService.reconcileRechargeOrder(dto.orderNo);
   }
 
-  @Post('alipay/reconcile')
+  @Post("alipay/reconcile")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: '主动向支付宝核对订阅订单状态（异步通知丢失时的兜底）',
+    summary: "主动向支付宝核对订阅订单状态（异步通知丢失时的兜底）",
   })
-  @ApiResponse({ status: 200, description: '返回最新订单状态' })
-  @ApiResponse({ status: 404, description: '订单不存在' })
+  @ApiResponse({ status: 200, description: "返回最新订单状态" })
+  @ApiResponse({ status: 404, description: "订单不存在" })
   async reconcileOrder(
     @Request() req,
     @Body(new ZodValidationPipe(ReconcileOrderDtoSchema))
@@ -152,7 +168,7 @@ export class PaymentController {
     const { enterpriseId } = await this.enterpriseContext.resolve(req.user.id);
 
     // 验证订单归属：findOne 查不到会抛 404，故此调用本身即是鉴权
-    const order = await this.paymentService['orderService'].findOne(
+    const order = await this.paymentService["orderService"].findOne(
       dto.orderId,
       enterpriseId,
     );

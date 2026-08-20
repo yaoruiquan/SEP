@@ -5,12 +5,13 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
-} from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ConfigService } from '@nestjs/config';
-import { OrderService } from './order.service';
-import { AlipayProvider } from './alipay.provider';
-import { ComputeService } from '../compute/compute.service';
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { ConfigService } from "@nestjs/config";
+import { OrderService } from "./order.service";
+import { AlipayProvider } from "./alipay.provider";
+import { ComputeService } from "../compute/compute.service";
+import { WalletService } from "../wallet/wallet.service";
 
 @Injectable()
 export class PaymentService {
@@ -23,6 +24,8 @@ export class PaymentService {
     private alipayProvider: AlipayProvider,
     @Inject(forwardRef(() => ComputeService))
     private computeService: ComputeService,
+    @Inject(forwardRef(() => WalletService))
+    private walletService: WalletService,
   ) {}
 
   /**
@@ -33,10 +36,10 @@ export class PaymentService {
       where: {
         key: {
           in: [
-            'alipay.appId',
-            'alipay.privateKey',
-            'alipay.publicKey',
-            'alipay.gateway',
+            "alipay.appId",
+            "alipay.privateKey",
+            "alipay.publicKey",
+            "alipay.gateway",
           ],
         },
       },
@@ -44,10 +47,10 @@ export class PaymentService {
 
     const config = settings.reduce(
       (acc, item) => {
-        if (item.key === 'alipay.appId') acc.appId = item.value;
-        if (item.key === 'alipay.privateKey') acc.privateKey = item.value;
-        if (item.key === 'alipay.publicKey') acc.alipayPublicKey = item.value;
-        if (item.key === 'alipay.gateway') acc.gateway = item.value;
+        if (item.key === "alipay.appId") acc.appId = item.value;
+        if (item.key === "alipay.privateKey") acc.privateKey = item.value;
+        if (item.key === "alipay.publicKey") acc.alipayPublicKey = item.value;
+        if (item.key === "alipay.gateway") acc.gateway = item.value;
         return acc;
       },
       {} as {
@@ -59,7 +62,7 @@ export class PaymentService {
     );
 
     if (!config.appId || !config.privateKey || !config.alipayPublicKey) {
-      throw new Error('支付宝配置不完整，请在系统设置中配置支付参数');
+      throw new Error("支付宝配置不完整，请在系统设置中配置支付参数");
     }
 
     await this.alipayProvider.initialize(config);
@@ -83,20 +86,18 @@ export class PaymentService {
     });
 
     if (!order) {
-      throw new NotFoundException('订单不存在');
+      throw new NotFoundException("订单不存在");
     }
 
-    if (order.status !== 'PENDING') {
-      throw new BadRequestException(
-        `订单状态为 ${order.status}，无法支付`,
-      );
+    if (order.status !== "PENDING") {
+      throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
     }
 
     // 确保支付宝 SDK 已初始化
     await this.initializeAlipay();
 
     // 生成支付表单
-    const subject = `硅基员工订阅 - ${order.items.map((i) => i.employeeName).join(', ')}`;
+    const subject = `硅基员工订阅 - ${order.items.map((i) => i.employeeName).join(", ")}`;
     const body = `订单号: ${order.orderNo}`;
 
     const paymentForm = await this.alipayProvider.pagePayment({
@@ -118,6 +119,35 @@ export class PaymentService {
     };
   }
 
+  /** 使用企业余额支付订单，并履约订阅。 */
+  async payOrderWithBalance(orderId: string, enterpriseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId } });
+      if (!order || order.enterpriseId !== enterpriseId) {
+        throw new NotFoundException("订单不存在");
+      }
+      if (order.status !== "PENDING") {
+        throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
+      }
+
+      await this.walletService.consume(
+        enterpriseId,
+        order.totalAmount.toNumber(),
+        "subscription",
+        order.id,
+        `余额支付订单 ${order.orderNo}`,
+        tx,
+      );
+
+      return this.orderService.fulfillInTransaction(
+        tx,
+        order.id,
+        `BALANCE:${order.orderNo}`,
+        "BALANCE",
+      );
+    });
+  }
+
   /**
    * 发起支付宝支付（充值订单）
    */
@@ -127,20 +157,18 @@ export class PaymentService {
     });
 
     if (!order) {
-      throw new NotFoundException('充值订单不存在');
+      throw new NotFoundException("充值订单不存在");
     }
 
-    if (order.status !== 'PENDING') {
-      throw new BadRequestException(
-        `订单状态为 ${order.status}，无法支付`,
-      );
+    if (order.status !== "PENDING") {
+      throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
     }
 
     // 确保支付宝 SDK 已初始化
     await this.initializeAlipay();
 
     // 生成支付表单
-    const subject = '算力充值';
+    const subject = "算力充值";
     const body = `充值金额: ¥${order.amount}`;
 
     const paymentForm = await this.alipayProvider.pagePayment({
@@ -167,7 +195,7 @@ export class PaymentService {
    * 构造充值结果页回跳地址（带订单号）
    */
   private buildRechargeReturnUrl(orderNo: string): string {
-    const webUrl = this.configService.get<string>('WEB_BASE_URL');
+    const webUrl = this.configService.get<string>("WEB_BASE_URL");
     return `${webUrl}/payment/recharge/result?orderNo=${encodeURIComponent(orderNo)}`;
   }
 
@@ -177,7 +205,7 @@ export class PaymentService {
    * 注意结果页用的是 orderId（非 orderNo），与充值页不同。
    */
   private buildOrderReturnUrl(orderId: string): string {
-    const webUrl = this.configService.get<string>('WEB_BASE_URL');
+    const webUrl = this.configService.get<string>("WEB_BASE_URL");
     return `${webUrl}/payment/result?orderId=${encodeURIComponent(orderId)}`;
   }
 
@@ -190,15 +218,15 @@ export class PaymentService {
     try {
       await this.initializeAlipay();
     } catch (error) {
-      this.logger.error('支付宝 SDK 初始化失败，无法校验通知', error);
-      return { success: false, message: '支付宝配置初始化失败' };
+      this.logger.error("支付宝 SDK 初始化失败，无法校验通知", error);
+      return { success: false, message: "支付宝配置初始化失败" };
     }
 
     // 1. 验证签名
     const isValid = this.alipayProvider.verifyNotify(postData);
     if (!isValid) {
-      this.logger.warn('支付宝通知签名验证失败', postData);
-      return { success: false, message: '签名验证失败' };
+      this.logger.warn("支付宝通知签名验证失败", postData);
+      return { success: false, message: "签名验证失败" };
     }
 
     const {
@@ -214,12 +242,12 @@ export class PaymentService {
     // 后续支付宝重试全部被误判为「已处理」并返回 success —— 支付宝随即停止重试，
     // 钱扣了却永远不入账。故此处需区分 processed 真伪。
     const existingNotify = await this.prisma.paymentNotify.findFirst({
-      where: { channel: 'ALIPAY', tradeNo },
+      where: { channel: "ALIPAY", tradeNo },
     });
 
     if (existingNotify?.processed) {
       this.logger.warn(`支付宝通知 ${tradeNo} 已成功处理过，跳过`);
-      return { success: true, message: '通知已处理' };
+      return { success: true, message: "通知已处理" };
     }
 
     if (existingNotify) {
@@ -231,7 +259,7 @@ export class PaymentService {
       try {
         await this.prisma.paymentNotify.create({
           data: {
-            channel: 'ALIPAY',
+            channel: "ALIPAY",
             outTradeNo,
             tradeNo,
             rawBody: JSON.stringify(postData),
@@ -242,48 +270,50 @@ export class PaymentService {
       } catch (error) {
         // 并发下的唯一约束冲突：另一请求正在处理同一通知，本次直接让支付宝重试。
         this.logger.warn(`支付宝通知 ${tradeNo} 并发写入冲突，交由重试处理`);
-        return { success: false, message: '并发处理中，请重试' };
+        return { success: false, message: "并发处理中，请重试" };
       }
     }
 
     // 3. 仅处理支付成功状态
-    if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
-      this.logger.log(
-        `订单 ${outTradeNo} 状态为 ${tradeStatus}，暂不处理`,
-      );
-      return { success: true, message: '状态不需要处理' };
+    if (tradeStatus !== "TRADE_SUCCESS" && tradeStatus !== "TRADE_FINISHED") {
+      this.logger.log(`订单 ${outTradeNo} 状态为 ${tradeStatus}，暂不处理`);
+      return { success: true, message: "状态不需要处理" };
     }
 
     // 4. 根据订单号前缀区分订单类型
     try {
-      if (outTradeNo.startsWith('RCH')) {
+      if (outTradeNo.startsWith("RCH")) {
         // 充值订单
-        await this.computeService.fulfillRechargeOrder(outTradeNo, tradeNo, 'ALIPAY');
+        await this.computeService.fulfillRechargeOrder(
+          outTradeNo,
+          tradeNo,
+          "ALIPAY",
+        );
         this.logger.log(`充值订单 ${outTradeNo} 支付成功，履约完成`);
-      } else if (outTradeNo.startsWith('ORD')) {
+      } else if (outTradeNo.startsWith("ORD")) {
         // 员工订阅订单
         const order = await this.orderService.findByOrderNo(outTradeNo);
         if (!order) {
           this.logger.error(`订单 ${outTradeNo} 不存在`);
-          return { success: false, message: '订单不存在' };
+          return { success: false, message: "订单不存在" };
         }
         await this.orderService.fulfill(order.id, tradeNo);
         this.logger.log(`订单 ${outTradeNo} 支付成功，履约完成`);
       } else {
         this.logger.error(`未知订单类型: ${outTradeNo}`);
-        return { success: false, message: '未知订单类型' };
+        return { success: false, message: "未知订单类型" };
       }
 
       // 标记通知已处理
       await this.prisma.paymentNotify.updateMany({
-        where: { channel: 'ALIPAY', tradeNo },
+        where: { channel: "ALIPAY", tradeNo },
         data: { processed: true },
       });
 
-      return { success: true, message: '处理成功' };
+      return { success: true, message: "处理成功" };
     } catch (error) {
       this.logger.error(`订单 ${outTradeNo} 履约失败`, error);
-      return { success: false, message: '履约失败' };
+      return { success: false, message: "履约失败" };
     }
   }
 
@@ -293,7 +323,9 @@ export class PaymentService {
   async queryPaymentStatus(orderNo: string) {
     await this.initializeAlipay();
 
-    const result = await this.alipayProvider.queryTrade({ outTradeNo: orderNo });
+    const result = await this.alipayProvider.queryTrade({
+      outTradeNo: orderNo,
+    });
 
     return result;
   }
@@ -313,11 +345,11 @@ export class PaymentService {
     });
 
     if (!order) {
-      throw new NotFoundException('充值订单不存在');
+      throw new NotFoundException("充值订单不存在");
     }
 
     // 已是终态，无需对账
-    if (order.status !== 'PENDING') {
+    if (order.status !== "PENDING") {
       return { status: order.status, reconciled: false };
     }
 
@@ -336,10 +368,10 @@ export class PaymentService {
     await this.computeService.fulfillRechargeOrder(
       orderNo,
       trade.tradeNo,
-      'ALIPAY',
+      "ALIPAY",
     );
 
-    return { status: 'PAID', reconciled: true };
+    return { status: "PAID", reconciled: true };
   }
 
   /**
@@ -352,11 +384,11 @@ export class PaymentService {
     const order = await this.orderService.findByOrderNo(orderNo);
 
     if (!order) {
-      throw new NotFoundException('订单不存在');
+      throw new NotFoundException("订单不存在");
     }
 
     // 已是终态，无需对账
-    if (order.status !== 'PENDING') {
+    if (order.status !== "PENDING") {
       return { status: order.status, reconciled: false };
     }
 
@@ -373,7 +405,7 @@ export class PaymentService {
     );
     await this.orderService.fulfill(order.id, trade.tradeNo);
 
-    return { status: 'PAID', reconciled: true };
+    return { status: "PAID", reconciled: true };
   }
 
   /**
@@ -396,7 +428,7 @@ export class PaymentService {
     const tradeStatus = trade?.tradeStatus ?? trade?.trade_status;
     const tradeNo = trade?.tradeNo ?? trade?.trade_no;
     const paid =
-      tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED';
+      tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED";
 
     return { paid, tradeNo };
   }
