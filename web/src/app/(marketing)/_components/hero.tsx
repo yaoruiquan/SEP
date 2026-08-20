@@ -1,6 +1,6 @@
-import Link from 'next/link';
-import { ArrowRight, Play, Bot, BarChart3, CheckCircle2 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import Link from "next/link";
+import { ArrowRight, Play, Bot, BarChart3, CheckCircle2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 /** Hero 中的 Dashboard 示意图（CSS + 内联 JSX，不依赖截图）。 */
 function DashboardMockup() {
@@ -20,17 +20,15 @@ function DashboardMockup() {
         {/* 侧栏 */}
         <aside className="flex w-32 flex-col gap-1 border-r border-glassline p-3">
           {[
-            { label: '工作台', active: true },
-            { label: '我的硅基员工', active: false },
-            { label: '市场', active: false },
-            { label: '设置', active: false },
+            { label: "工作台", active: true },
+            { label: "我的硅基员工", active: false },
+            { label: "市场", active: false },
+            { label: "设置", active: false },
           ].map(({ label, active }) => (
             <div
               key={label}
               className={`rounded-glass-sm px-2 py-1.5 text-xs ${
-                active
-                  ? 'bg-gbrand/20 text-gbrand-text'
-                  : 'text-gtext-muted'
+                active ? "bg-gbrand/20 text-gbrand-text" : "text-gtext-muted"
               }`}
             >
               {label}
@@ -43,22 +41,19 @@ function DashboardMockup() {
           {/* 顶部指标行 */}
           <div className="mb-3 grid grid-cols-3 gap-2">
             {[
-              { label: '在职员工', val: '12', up: true },
-              { label: '今日任务', val: '248', up: true },
-              { label: '消耗算力', val: '32k', up: false },
+              { label: "已授权员工", val: "6", up: true },
+              { label: "本周任务", val: "38", up: true },
+              { label: "剩余余额", val: "¥126", up: true },
             ].map(({ label, val, up }) => (
-              <div
-                key={label}
-                className="glass-card p-3"
-              >
+              <div key={label} className="glass-card p-3">
                 <div className="text-[10px] text-gtext-muted">{label}</div>
                 <div className="mt-0.5 text-sm font-bold gradient-text-glass inline-block">
                   {val}
                 </div>
                 <div
-                  className={`text-[10px] ${up ? 'text-gsuccess' : 'text-gdanger'}`}
+                  className={`text-[10px] ${up ? "text-gsuccess" : "text-gdanger"}`}
                 >
-                  {up ? '↑' : '↓'} 本周
+                  {up ? "↑" : "↓"} 本周
                 </div>
               </div>
             ))}
@@ -68,13 +63,13 @@ function DashboardMockup() {
           <div className="glass-card overflow-hidden">
             <div className="border-b border-glassline px-3 py-2">
               <span className="text-xs font-medium text-gtext-secondary">
-                在职员工
+                任务执行 · 演示工作台
               </span>
             </div>
             {[
-              { name: '营销助理', tag: 'Agent', online: true },
-              { name: '数据分析师', tag: 'Skill', online: true },
-              { name: '合规审核员', tag: 'RPA', online: false },
+              { name: "营销助理", tag: "Agent", online: true },
+              { name: "数据分析师", tag: "Skill", online: true },
+              { name: "合规审核员", tag: "RPA", online: false },
             ].map(({ name, tag, online }) => (
               <div
                 key={name}
@@ -92,9 +87,9 @@ function DashboardMockup() {
                   </span>
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      online ? 'bg-gsuccess' : 'bg-gtext-disabled'
+                      online ? "bg-gsuccess" : "bg-gtext-disabled"
                     }`}
-                    aria-label={online ? '在线' : '离线'}
+                    aria-label={online ? "在线" : "离线"}
                   />
                 </div>
               </div>
@@ -123,7 +118,10 @@ export function Hero() {
         <div className="aurora-blob aurora-blob-3" />
       </div>
       {/* Grid 叠加 */}
-      <div className="aurora-grid pointer-events-none absolute inset-0 z-0" aria-hidden />
+      <div
+        className="aurora-grid pointer-events-none absolute inset-0 z-0"
+        aria-hidden
+      />
 
       <div className="relative z-10 mx-auto max-w-7xl px-6">
         <div className="grid items-center gap-12 lg:grid-cols-2">
@@ -136,30 +134,38 @@ export function Hero() {
                   <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-gsuccess opacity-75" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-gsuccess" />
                 </span>
-                全新 v2.0 正式发布 →
+                硅基员工 × 碳基团队
               </Badge>
             </div>
 
-            <h1 className="animate-fade-up-d1 mb-6 text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.08] tracking-[-0.03em]">
-              <span className="gradient-text-glass inline-block">让 AI 员工</span>
+            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.08] tracking-[-0.03em]">
+              <span className="gradient-text-glass inline-block">
+                让公司从个体提效
+              </span>
               <br />
-              <span className="gradient-text-glass inline-block">为你工作</span>
+              <span className="gradient-text-glass inline-block">
+                到组织提效
+              </span>
             </h1>
 
-            <p className="animate-fade-up-d2 mb-10 max-w-lg text-lg leading-relaxed text-gtext-secondary">
-              订阅硅基员工，像雇佣真人一样简单。
+            <p className="animate-fade-up-d2 mb-4 text-lg font-medium text-gbrand-text">
+              让硅基员工加入你的团队
+            </p>
+
+            <p className="animate-fade-up-d3 mb-10 max-w-lg text-base leading-relaxed text-gtext-secondary sm:text-lg">
+              为碳基团队订阅一位真正能上岗的硅基员工。
               <br />
-              AI 驱动的企业级人才平台，把硅基能力
+              从人才市场选择岗位，完成订阅、授权与配置，
               <br />
-              包装成可招聘、可管理、可审计的员工。
+              再用自然语言把重复工作交给 TA。
             </p>
 
             <div className="animate-fade-up-d3 flex flex-wrap items-center gap-4">
               <Link
-                href="/register"
+                href="/marketplace"
                 className="group inline-flex items-center gap-2 rounded-glass-pill bg-gbrand px-6 py-3 text-sm font-semibold text-white shadow-glass-md transition-all hover:bg-gbrand-hover hover:shadow-glass-lg"
               >
-                免费开始
+                浏览硅基人才市场
                 <ArrowRight
                   className="h-4 w-4 transition-transform group-hover:translate-x-1"
                   aria-hidden
@@ -170,23 +176,28 @@ export function Hero() {
                 className="inline-flex items-center gap-2 rounded-glass-pill border border-glassline bg-glass-2 px-6 py-3 text-sm font-semibold text-gtext-primary backdrop-blur-glass-sm transition-all hover:border-glassline-hover hover:bg-glass-3"
               >
                 <Play className="h-4 w-4" aria-hidden />
-                观看演示
+                查看任务演示
               </Link>
             </div>
 
             {/* 信任徽章 */}
             <div className="animate-fade-up-d3 mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gtext-muted">
-              {['500+ 企业在用', '99.9% 可用性', '无需信用卡'].map((t) => (
-                <span key={t} className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-gsuccess" aria-hidden />
-                  {t}
-                </span>
-              ))}
+              {["支持余额与支付宝", "按部门或成员授权", "每次执行可追踪"].map(
+                (t) => (
+                  <span key={t} className="flex items-center gap-1.5">
+                    <CheckCircle2
+                      className="h-4 w-4 text-gsuccess"
+                      aria-hidden
+                    />
+                    {t}
+                  </span>
+                ),
+              )}
             </div>
           </div>
 
           {/* 右侧 3D Mockup */}
-          <div className="hero-mockup hidden lg:block">
+          <div id="demo" className="hero-mockup hidden lg:block scroll-mt-28">
             <DashboardMockup />
           </div>
         </div>
