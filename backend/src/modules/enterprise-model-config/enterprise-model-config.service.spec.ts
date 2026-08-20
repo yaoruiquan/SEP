@@ -167,7 +167,7 @@ describe('EnterpriseModelConfigService', () => {
       expect(r.chatModel).toBe('claude-opus-5');
     });
 
-    it('allowUserSwitchModel=false → 用户选择直接不生效', async () => {
+    it('allowUserSwitchModel=false → 忽略用户和员工模型并强制使用企业默认', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
         makeConfig({ allowUserSwitchModel: false }),
       );
@@ -175,10 +175,31 @@ describe('EnterpriseModelConfigService', () => {
       const r = await svc.resolveEffectiveModel({
         userId: 'u1',
         userSelectedModel: 'claude-sonnet-5',
+        employeeTemplateModel: 'gpt-4o',
       });
 
       expect(r.source).toBe('ENTERPRISE');
+      expect(r.chatModel).toBe('gemini-3.5-flash-high');
       expect(r.allowUserSwitchModel).toBe(false);
+    });
+
+    it('allowUserSwitchModel=false → 部门默认仍覆盖企业默认', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
+        makeConfig({ allowUserSwitchModel: false }),
+      );
+      prisma.departmentModelPolicy.findUnique.mockResolvedValue({
+        defaultChatModel: 'claude-sonnet-5',
+        allowedChatModels: [],
+      });
+
+      const r = await svc.resolveEffectiveModel({
+        userId: 'u1',
+        employeeTemplateModel: 'gpt-4o',
+        departmentId: 'dept-tech',
+      });
+
+      expect(r.source).toBe('DEPARTMENT');
+      expect(r.chatModel).toBe('claude-sonnet-5');
     });
 
     it('② FOLLOW_TEMPLATE 下走雇佣关系自带模型', async () => {
@@ -209,6 +230,23 @@ describe('EnterpriseModelConfigService', () => {
       });
 
       expect(r.chatModel).toBe('gemini-3.5-flash-high');
+      expect(r.source).toBe('ENTERPRISE');
+    });
+
+    it('FORCE_DEFAULT 配置了指定模型时优先使用该模型', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
+        makeConfig({
+          employeeModelPolicy: 'FORCE_DEFAULT',
+          employeeDefaultModel: 'claude-sonnet-5',
+        }),
+      );
+
+      const r = await svc.resolveEffectiveModel({
+        userId: 'u1',
+        employeeTemplateModel: 'gpt-4o',
+      });
+
+      expect(r.chatModel).toBe('claude-sonnet-5');
       expect(r.source).toBe('ENTERPRISE');
     });
 

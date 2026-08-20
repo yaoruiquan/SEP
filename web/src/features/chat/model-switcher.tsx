@@ -15,6 +15,10 @@ interface ModelSwitcherProps {
   employeeModelId?: string | null;
   /** 企业默认模型（员工未设置时的最终兜底） */
   enterpriseDefaultModel?: string | null;
+  /** 员工模型策略；强制模式下忽略员工模板模型 */
+  employeeModelPolicy?: 'FOLLOW_TEMPLATE' | 'FORCE_DEFAULT';
+  /** 强制员工模型策略指定的统一模型 */
+  employeeDefaultModel?: string | null;
   /** 企业 ID，用于拉取可用模型白名单 */
   enterpriseId: string;
   /** 企业配置的模型白名单；空数组 = 不限制 */
@@ -33,6 +37,8 @@ export function ModelSwitcher({
   currentModelId,
   employeeModelId,
   enterpriseDefaultModel,
+  employeeModelPolicy = 'FOLLOW_TEMPLATE',
+  employeeDefaultModel,
   enterpriseId,
   allowedChatModels = [],
   canSwitch = true,
@@ -57,8 +63,16 @@ export function ModelSwitcher({
     },
   });
 
-  // 生效模型：会话级 > 员工默认 > 企业默认
-  const effective = currentModelId ?? employeeModelId ?? enterpriseDefaultModel ?? '';
+  const policyDefault =
+    employeeModelPolicy === 'FORCE_DEFAULT'
+      ? employeeDefaultModel ?? enterpriseDefaultModel
+      : employeeModelId ?? enterpriseDefaultModel;
+
+  // 锁定时服务端会忽略会话/员工覆盖并强制使用企业默认模型；允许切换时，
+  // 会话显式选择优先，其次遵循企业配置的员工模型策略。
+  const effective = canSwitch
+    ? currentModelId ?? policyDefault ?? ''
+    : enterpriseDefaultModel ?? employeeModelId ?? '';
   const currentModel = models.find((m) => m.modelId === effective);
 
   // 点击外部关闭下拉

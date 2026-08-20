@@ -193,6 +193,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             currentModelId={conversation.modelId ?? null}
             employeeModelId={employee?.modelId}
             enterpriseDefaultModel={modelConfig?.defaultChatModel ?? null}
+            employeeModelPolicy={modelConfig?.employeeModelPolicy}
+            employeeDefaultModel={modelConfig?.employeeDefaultModel ?? null}
             enterpriseId={enterprise?.id ?? ''}
             allowedChatModels={modelConfig?.allowedChatModels ?? []}
             canSwitch={modelConfig?.allowUserSwitchModel ?? true}

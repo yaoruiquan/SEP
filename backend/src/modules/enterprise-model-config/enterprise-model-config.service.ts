@@ -174,9 +174,29 @@ export class EnterpriseModelConfigService {
       }
     }
 
+    // 管理员关闭会话模型切换时，配置页承诺强制使用默认模型。
+    // 此时不能继续落到员工模板，否则界面虽已锁定，实际请求仍可能走模板里的模型。
+    if (!config.allowUserSwitchModel) {
+      if (deptPolicy?.defaultChatModel) {
+        return {
+          ...base,
+          chatModel: deptPolicy.defaultChatModel,
+          allowedChatModels: allowed,
+          source: 'DEPARTMENT',
+        };
+      }
+
+      return {
+        ...base,
+        chatModel: config.defaultChatModel || DEFAULT_MODEL_ID,
+        allowedChatModels: allowed,
+        source: config.defaultChatModel ? 'ENTERPRISE' : 'SYSTEM_DEFAULT',
+      };
+    }
+
     // 2. 员工自带模型（仅 FOLLOW_TEMPLATE 策略下生效）
     //    订阅 config.modelId 优先于模板 modelId：订阅是管理员对单个员工的微调。
-    //    FORCE_DEFAULT 时整段跳过，让企业默认值压过员工自带配置。
+    //    FORCE_DEFAULT 时整段跳过，使用员工策略中指定的统一模型。
     if (config.employeeModelPolicy === 'FOLLOW_TEMPLATE') {
       let modelId: string | null = null;
 
@@ -201,6 +221,15 @@ export class EnterpriseModelConfigService {
           source: 'EMPLOYEE_INSTANCE',
         };
       }
+    }
+
+    if (config.employeeModelPolicy === 'FORCE_DEFAULT' && config.employeeDefaultModel) {
+      return {
+        ...base,
+        chatModel: config.employeeDefaultModel,
+        allowedChatModels: allowed,
+        source: 'ENTERPRISE',
+      };
     }
 
     // 3. 部门默认模型
