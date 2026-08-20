@@ -301,7 +301,7 @@ export class EnterpriseService {
         model,
         requests: stats.requests,
         tokens: stats.tokens,
-        cost: Math.round(stats.cost * 100) / 100,
+        cost: Math.round(stats.cost * 10_000) / 10_000,
       }))
       .sort((a, b) => b.requests - a.requests);
   }
@@ -400,7 +400,7 @@ export class EnterpriseService {
         name: m.user.name || '未命名',
         avatar: m.user.avatar,
         calls: stats.calls,
-        cost: Math.round(stats.cost * 100) / 100,
+        cost: Math.round(stats.cost * 10_000) / 10_000,
       };
     });
   }

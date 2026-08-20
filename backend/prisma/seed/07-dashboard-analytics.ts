@@ -32,6 +32,17 @@ export async function seedDashboardAnalytics() {
     return;
   }
 
+  const memberships = await prisma.enterpriseMember.findMany({
+    where: {
+      enterpriseId: acmeEnterprise.id,
+      userId: { in: users.map((user) => user.id) },
+    },
+    select: { id: true, userId: true },
+  });
+  const memberIdByUserId = new Map(
+    memberships.map((membership) => [membership.userId, membership.id]),
+  );
+
   // 获取演示订阅
   const subscriptions = await prisma.subscription.findMany({
     where: { enterpriseId: acmeEnterprise.id, status: 'ACTIVE' },
@@ -128,6 +139,7 @@ export async function seedDashboardAnalytics() {
         inputTokens,
         outputTokens,
         model: 'gpt-4o-mini',
+        memberId: memberIdByUserId.get(session.userId),
         employeeId: session.employeeId,
       },
     });

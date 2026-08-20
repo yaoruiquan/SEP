@@ -29,11 +29,28 @@ import { cn } from '@/lib/utils';
 
 const numberFormatter = new Intl.NumberFormat('zh-CN');
 const MODEL_COLORS = ['#3b82f6', '#14b8a6', '#f59e0b', '#a855f7', '#ec4899', '#64748b'];
+const MODEL_LABELS: Record<string, string> = {
+  'gpt-4o-mini': 'GPT-4o Mini',
+  'gpt-4o': 'GPT-4o',
+  'deepseek-chat': 'DeepSeek Chat',
+  'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+};
 
 function formatCompactNumber(value: number) {
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)} 亿`;
   if (value >= 10000) return `${(value / 10000).toFixed(1)} 万`;
   return numberFormatter.format(value);
+}
+
+function formatComputeUsage(value: number) {
+  if (value >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`;
+  if (value >= 10000) return `${(value / 10000).toFixed(2)} 万`;
+  return value.toFixed(2);
+}
+
+function formatCost(value: number) {
+  if (value > 0 && value < 0.01) return `¥${value.toFixed(4)}`;
+  return `¥${value.toFixed(2)}`;
 }
 
 function formatDate(value: string) {
@@ -42,7 +59,7 @@ function formatDate(value: string) {
 }
 
 function formatModelName(model: string) {
-  return model.length > 22 ? `${model.slice(0, 20)}...` : model;
+  return MODEL_LABELS[model] ?? model;
 }
 
 function MetricCard({
@@ -102,8 +119,8 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><span className="text-2xl font-semibold text-gtext-primary">{formatCompactNumber(totalRequests)}</span><span className="mt-1 text-xs text-gtext-muted">总请求</span></div>
       </div>
       <div className="min-w-0 space-y-1">
-        <div className="grid grid-cols-[minmax(0,1fr)_64px_78px] gap-3 border-b border-glassline px-2 pb-3 text-xs font-semibold text-gtext-muted"><span>模型</span><span className="text-right">请求</span><span className="text-right">成本</span></div>
-        {chartData.map((item, index) => <div key={item.model} className="grid grid-cols-[minmax(0,1fr)_64px_78px] items-center gap-3 border-b border-glassline px-2 py-3 last:border-0"><span className="flex min-w-0 items-center gap-2 text-sm font-medium text-gtext-primary" title={item.model}><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: MODEL_COLORS[index % MODEL_COLORS.length] }} /><span className="truncate">{item.displayName}</span></span><span className="text-right text-xs text-gtext-secondary">{numberFormatter.format(item.requests)}</span><span className="text-right text-xs font-semibold text-gsuccess">¥{item.cost.toFixed(2)}</span></div>)}
+        <div className="grid grid-cols-[minmax(112px,1fr)_52px_76px] gap-2 border-b border-glassline px-2 pb-3 text-xs font-semibold text-gtext-muted"><span>模型</span><span className="text-right">请求</span><span className="text-right">成本</span></div>
+        {chartData.map((item, index) => <div key={item.model} className="grid min-h-14 grid-cols-[minmax(112px,1fr)_52px_76px] items-center gap-2 border-b border-glassline px-2 py-3 last:border-0"><span className="flex min-w-0 items-center gap-2 text-sm font-medium leading-5 text-gtext-primary" title={item.model}><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: MODEL_COLORS[index % MODEL_COLORS.length] }} /><span className="min-w-0 whitespace-normal break-words">{item.displayName}</span></span><span className="text-right text-xs text-gtext-secondary">{numberFormatter.format(item.requests)}</span><span className="text-right text-xs font-semibold text-gsuccess">{formatCost(item.cost)}</span></div>)}
       </div>
     </div>
   );
@@ -116,11 +133,11 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
   return (
     <div className="h-[315px] min-w-0">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 12, right: 8, left: -12, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 4, bottom: 0 }}>
           <defs><linearGradient id="inputTokens" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} /></linearGradient><linearGradient id="outputTokens" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} /><stop offset="95%" stopColor="#14b8a6" stopOpacity={0.02} /></linearGradient></defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--glass-border)" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--gtext-muted)' }} tickLine={false} axisLine={false} minTickGap={20} />
-          <YAxis tick={{ fontSize: 11, fill: 'var(--gtext-muted)' }} tickLine={false} axisLine={false} tickFormatter={(value) => formatCompactNumber(Number(value))} width={48} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--gtext-muted)' }} tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => formatCompactNumber(Number(value))} width={64} />
           <Tooltip formatter={(value, name) => [formatCompactNumber(Number(value)), name === 'input' ? 'Input' : 'Output']} labelFormatter={(label) => `日期 ${label}`} contentStyle={{ borderRadius: 12, border: '1px solid var(--glass-border)', background: 'var(--surface-solid-raised)', color: 'var(--gtext-primary)', boxShadow: 'var(--glass-shadow-md)' }} />
           <Legend iconType="circle" wrapperStyle={{ fontSize: 12, color: 'var(--gtext-secondary)' }} formatter={(value) => value === 'input' ? 'Input' : 'Output'} />
           <Area type="monotone" dataKey="input" stroke="#3b82f6" strokeWidth={2.5} fill="url(#inputTokens)" dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} />
@@ -135,7 +152,7 @@ function MemberUsageList({ data }: { data: TopMember[] }) {
   if (!data.length) return <div className="flex h-48 items-center justify-center text-sm text-gtext-muted">暂无成员消费数据</div>;
   const maxCost = Math.max(...data.map((item) => item.cost), 1);
 
-  return <div className="space-y-4">{data.slice(0, 5).map((member, index) => <div key={member.id} className="grid grid-cols-[32px_minmax(0,1fr)_86px] items-center gap-3"><span className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold', index === 0 ? 'bg-gbrand-text/15 text-gbrand-text' : 'bg-glass-2 text-gtext-muted')}>{String(index + 1).padStart(2, '0')}</span><div className="min-w-0"><div className="mb-1.5 flex items-center justify-between gap-2"><span className="truncate text-sm font-medium text-gtext-primary">{member.name}</span><span className="shrink-0 text-xs text-gtext-muted">{member.calls} 次调用</span></div><div className="h-2 overflow-hidden rounded-full bg-glass-2"><div className="h-full rounded-full bg-gradient-to-r from-ginfo to-gsuccess" style={{ width: `${Math.max((member.cost / maxCost) * 100, 3)}%` }} /></div></div><span className="text-right text-sm font-semibold text-gtext-primary">¥{member.cost.toFixed(2)}</span></div>)}</div>;
+  return <div className="space-y-4">{data.slice(0, 5).map((member, index) => <div key={member.id} className="grid grid-cols-[32px_minmax(0,1fr)_96px] items-center gap-3"><span className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold', index === 0 ? 'bg-gbrand-text/15 text-gbrand-text' : 'bg-glass-2 text-gtext-muted')}>{String(index + 1).padStart(2, '0')}</span><div className="min-w-0"><div className="mb-1.5 flex items-center justify-between gap-2"><span className="truncate text-sm font-medium text-gtext-primary">{member.name}</span><span className="shrink-0 text-xs text-gtext-muted">{member.calls} 次调用</span></div><div className="h-2 overflow-hidden rounded-full bg-glass-2"><div className="h-full rounded-full bg-gradient-to-r from-ginfo to-gsuccess" style={{ width: `${Math.max((member.cost / maxCost) * 100, 3)}%` }} /></div></div><span className="text-right text-sm font-semibold text-gtext-primary">{formatCost(member.cost)}</span></div>)}</div>;
 }
 
 export default function DashboardPage() {
@@ -149,7 +166,7 @@ export default function DashboardPage() {
   const computeTrend = stats.computeUsage.trend;
 
   return <div className="mx-auto max-w-[1480px] space-y-6 pb-8">
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard icon={Users} tone="pink" label="雇佣员工" value={stats.totalEmployees} detail={`${stats.activeEmployees} 位正在活跃`} /><MetricCard icon={MessageSquareText} tone="green" label="本月对话" value={formatCompactNumber(stats.conversations.total)} detail={`${conversationTrend >= 0 ? '+' : ''}${conversationTrend}% 较上月`} /><MetricCard icon={BriefcaseBusiness} tone="orange" label="组织规模" value={stats.totalMembers} detail={`${stats.totalDepartments} 个部门`} /><MetricCard icon={Gauge} tone="blue" label="本月算力" value={formatCompactNumber(stats.computeUsage.total)} detail={`${computeTrend >= 0 ? '+' : ''}${computeTrend}% 较上月`} /></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard icon={Users} tone="pink" label="雇佣员工" value={stats.totalEmployees} detail={`${stats.activeEmployees} 位正在活跃`} /><MetricCard icon={MessageSquareText} tone="green" label="本月对话" value={formatCompactNumber(stats.conversations.total)} detail={`${conversationTrend >= 0 ? '+' : ''}${conversationTrend}% 较上月`} /><MetricCard icon={BriefcaseBusiness} tone="orange" label="组织成员" value={stats.totalMembers} detail={`${stats.totalDepartments} 个部门`} /><MetricCard icon={Gauge} tone="blue" label="本月算力" value={formatComputeUsage(stats.computeUsage.total)} detail={`${computeTrend >= 0 ? '+' : ''}${computeTrend}% 较上月`} /></section>
 
     <section className="grid gap-6 xl:grid-cols-2"><div className="glass-card rounded-[24px] p-6 sm:p-7"><div className="mb-6 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase text-ginfo">Model mix</p><h2 className="mt-2 text-lg font-semibold text-gtext-primary">模型分布</h2><p className="mt-1 text-xs text-gtext-muted">按请求次数统计模型使用情况</p></div><Link href="/usage" className="inline-flex items-center gap-1 text-xs font-semibold text-gtext-secondary transition-colors hover:text-gbrand-text">查看用量 <ArrowUpRight className="h-3.5 w-3.5" /></Link></div><ModelDistributionChart data={modelDistribution} /></div><div className="glass-card rounded-[24px] p-6 sm:p-7"><div className="mb-6 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase text-gsuccess">Token activity</p><h2 className="mt-2 text-lg font-semibold text-gtext-primary">Token 使用趋势</h2><p className="mt-1 text-xs text-gtext-muted">最近 7 天 Input / Output 用量</p></div><div className="rounded-xl bg-gsuccess/15 p-2 text-gsuccess"><Cpu className="h-4 w-4" /></div></div><TokenTrendChart data={tokenTrend} /></div></section>
 
