@@ -83,6 +83,16 @@ export interface AllocateEnterpriseQuotaDto {
   expiresAt?: string;
 }
 
+export interface QuotaPackage {
+  id: string;
+  name: string;
+  priceCny: number;
+  tokens: number;
+  detail: string;
+  recommended?: boolean;
+  unitPriceCnyPerMillion: number;
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -93,6 +103,7 @@ export const quotaKeys = {
   userQuotas: () => [...quotaKeys.all, 'user-quotas'] as const,
   subscriptionQuotas: () => [...quotaKeys.all, 'subscription-quotas'] as const,
   enterpriseQuotas: () => [...quotaKeys.all, 'enterprise-quotas'] as const,
+  packages: () => [...quotaKeys.all, 'packages'] as const,
 };
 
 // ============================================================================
@@ -107,6 +118,26 @@ export function useQuotaSummary() {
     queryKey: quotaKeys.summary(),
     queryFn: async () => {
       return api.get<QuotaSummary>('/compute-quota/summary');
+    },
+  });
+}
+
+export function useQuotaPackages() {
+  return useQuery({
+    queryKey: quotaKeys.packages(),
+    queryFn: () => api.get<QuotaPackage[]>('/compute-quota/packages'),
+  });
+}
+
+export function usePurchaseQuotaPackage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (packageId: string) => api.post('/compute-quota/packages/purchase', { packageId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: quotaKeys.summary() });
+      queryClient.invalidateQueries({ queryKey: quotaKeys.enterpriseQuotas() });
+      queryClient.invalidateQueries({ queryKey: ['wallet', 'balance'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet', 'transactions'] });
     },
   });
 }
