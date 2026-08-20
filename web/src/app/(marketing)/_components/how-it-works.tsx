@@ -1,35 +1,31 @@
-import { Search, UserPlus, Rocket } from "lucide-react";
-import { Reveal } from "./reveal";
+import { Search, UserPlus, Rocket } from 'lucide-react';
+import { Reveal } from './reveal';
 
 const STEPS = [
   {
-    step: "01",
+    step: '01',
     icon: Search,
-    title: "在市场发现",
-    desc: "按行业、岗位和能力浏览已上架的硅基员工，先看清 TA 能做什么，再决定是否订阅。",
+    title: '发现招聘',
+    desc: '在市场浏览 150+ 硅基员工，按行业和岗位筛选，查看能力说明和服务记录，一键订阅心仪的员工。',
   },
   {
-    step: "02",
+    step: '02',
     icon: UserPlus,
-    title: "完成入职",
-    desc: "使用余额或支付宝完成订阅，为 TA 设置企业内称呼，并接入需要的知识库。",
+    title: '入职配置',
+    desc: '为 TA 起个企业内的称呼，配置知识库和可用模型，分步引导完成入职绑定。',
   },
   {
-    step: "03",
+    step: '03',
     icon: Rocket,
-    title: "授权协作",
-    desc: "管理员把硅基员工授权给部门或指定碳基成员，成员即可发起任务并查看执行记录。",
+    title: '授权开工',
+    desc: '将员工授权给部门或指定成员，成员即可发起任务，管理员随时查看执行状态和算力消耗。',
   },
 ] as const;
 
 /** 工作流程 3 步（PRD §7.5）。中间虚线连接由 .step-connector::after 绘制。 */
 export function HowItWorks() {
   return (
-    <section
-      id="how"
-      aria-labelledby="how-heading"
-      className="scroll-mt-28 px-6 py-24"
-    >
+    <section aria-labelledby="how-heading" className="px-6 py-24">
       <div className="mx-auto max-w-7xl">
         <Reveal>
           <div className="mb-14 text-center">
@@ -37,13 +33,9 @@ export function HowItWorks() {
               id="how-heading"
               className="text-3xl font-bold tracking-tight sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">
-                让硅基员工上岗，只需三步
-              </span>
+              <span className="gradient-text-glass inline-block">三步开始使用</span>
             </h2>
-            <p className="mt-4 text-gtext-secondary">
-              从发现岗位到团队协作，流程清晰可控
-            </p>
+            <p className="mt-4 text-gtext-secondary">从发现到上岗，最快一天完成</p>
           </div>
         </Reveal>
 
@@ -72,12 +64,8 @@ export function HowItWorks() {
                   </span>
                 </div>
 
-                <h3 className="mb-2 text-lg font-semibold text-gtext-primary">
-                  {title}
-                </h3>
-                <p className="text-sm leading-relaxed text-gtext-secondary">
-                  {desc}
-                </p>
+                <h3 className="mb-2 text-lg font-semibold text-gtext-primary">{title}</h3>
+                <p className="text-sm leading-relaxed text-gtext-secondary">{desc}</p>
               </div>
             </Reveal>
           ))}

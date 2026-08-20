@@ -1,30 +1,30 @@
-import { ChevronDown } from "lucide-react";
-import { Reveal } from "./reveal";
+import { ChevronDown } from 'lucide-react';
+import { Reveal } from './reveal';
 
 const FAQS = [
   {
-    q: "什么是硅基员工，和碳基成员是什么关系？",
-    a: "碳基成员是企业里的真实员工，硅基员工是围绕一个岗位封装的 AI 劳动力。硅基员工有明确的工作能力、权限边界和执行记录，由碳基成员发起任务、协作和复核。",
+    q: '硅基员工和直接调用大模型 API 有什么区别？',
+    a: '硅基员工是被封装好的岗位角色：它自带提示词、可用工具、知识库和权限边界，开箱即用。直接调 API 你需要自己处理编排、上下文管理、工具接入和审计，这些平台已经做完了。',
   },
   {
-    q: "订阅后，谁可以使用硅基员工？",
-    a: "企业管理员可以把已订阅的硅基员工授权给部门或指定成员。未被授权的成员不会出现在自己的员工列表中，管理员也可以随时暂停或调整授权。",
+    q: '我的业务数据会被用于训练模型吗？',
+    a: '不会。企业数据仅在你自己的租户内用于任务执行与知识检索，不参与任何模型训练，也不会跨租户共享。可在企业设置中随时导出或删除。',
   },
   {
-    q: "人才市场直接订阅和购物车订阅有什么区别？",
-    a: "两种入口都支持余额支付和支付宝。直接订阅适合立即开通一位员工，购物车适合集中选择后统一确认；两处的支付宝支付流程彼此独立。",
+    q: '任务额度怎么计算，超出后会怎样？',
+    a: '一次完整的任务执行记为一次额度消耗，无论中间调用了多少次模型。超出后不会中断服务，超额部分按实际算力单价结算，账单可在用量页面按天查看。',
   },
   {
-    q: "可以给不同部门分配不同的员工吗？",
-    a: "可以。雇佣一位员工后，可按部门或指定成员分别开通授权，未被授权的成员看不到该员工。管理员可以随时调整授权范围，并在审计日志里追溯每一次任务由谁发起。",
+    q: '可以给不同部门分配不同的员工吗？',
+    a: '可以。雇佣一位员工后，可按部门或指定成员分别开通授权，未被授权的成员看不到该员工。管理员可以随时调整授权范围，并在审计日志里追溯每一次任务由谁发起。',
   },
   {
-    q: "可以把企业知识库给硅基员工使用吗？",
-    a: "可以。企业管理员可创建知识库并授权给已订阅的硅基员工，员工在对话和任务执行时会基于授权内容检索资料。",
+    q: '支持接入我们自己的系统和数据库吗？',
+    a: '支持。RPA 类能力可以对接内部系统完成跨系统操作，知识库支持上传文档或连接现有数据源。企业版还可以私有化部署在你的 VPC 内。',
   },
   {
-    q: "如果硅基员工执行失败怎么办？",
-    a: "每次任务都会保留状态、能力调用和耗时等执行记录。碳基成员可以根据记录修改输入后重新发起任务，管理员也能在用量与执行页面查看历史。",
+    q: '如果员工执行出错怎么办？',
+    a: '每次任务都有完整的执行轨迹，包括调用的工具、输入输出和耗时。失败任务可以一键重跑，关键操作支持人工确认后再执行，避免不可逆动作被自动触发。',
   },
 ] as const;
 
@@ -37,22 +37,21 @@ const FAQS = [
  */
 export function FaqGlass() {
   return (
-    <section
-      id="faq"
-      aria-labelledby="faq-heading"
-      className="scroll-mt-28 px-6 py-24"
-    >
+    <section id="faq" aria-labelledby="faq-heading" className="scroll-mt-28 px-6 py-24">
       <div className="mx-auto max-w-3xl">
         <Reveal>
           <div className="mb-14 text-center">
-            <h2
-              id="faq-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
-            >
+            <h2 id="faq-heading" className="text-3xl font-bold tracking-tight sm:text-4xl">
               <span className="gradient-text-glass inline-block">常见问题</span>
             </h2>
             <p className="mt-4 text-gtext-secondary">
-              关于订阅、授权、支付与团队协作
+              没找到答案？
+              <a
+                href="mailto:support@example.com"
+                className="ml-1 text-gbrand-text underline-offset-4 hover:underline"
+              >
+                联系我们
+              </a>
             </p>
           </div>
         </Reveal>

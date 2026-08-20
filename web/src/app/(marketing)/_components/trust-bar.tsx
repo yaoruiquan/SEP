@@ -1,8 +1,14 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { useMarketEmployees } from "@/features/employee/use-employees";
-import { Reveal } from "./reveal";
+import { useEffect, useRef, useState } from 'react';
+import { Reveal } from './reveal';
+
+const STATS = [
+  { value: 156, suffix: '+', label: '硅基员工' },
+  { value: 12847, suffix: '', label: '服务企业' },
+  { value: 99.9, suffix: '%', label: '可用性', decimals: 1 },
+  { value: 4.9, suffix: '/5', label: '用户评分', decimals: 1 },
+] as const;
 
 function useCountUp(target: number, decimals = 0, enabled: boolean) {
   const [current, setCurrent] = useState(0);
@@ -45,17 +51,12 @@ function CountStat({
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") {
+    if (!el || typeof IntersectionObserver === 'undefined') {
       setStarted(true);
       return;
     }
     const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setStarted(true);
-          io.disconnect();
-        }
-      },
+      ([entry]) => { if (entry.isIntersecting) { setStarted(true); io.disconnect(); } },
       { threshold: 0.5 },
     );
     io.observe(el);
@@ -77,20 +78,12 @@ function CountStat({
 
 /** 数据信任条（PRD §7.3）。进入视口时 count-up 动画触发。 */
 export function TrustBar() {
-  const { data: employees = [] } = useMarketEmployees();
-  const stats = [
-    { value: employees.length, suffix: "", label: "已上架硅基员工" },
-    { value: 18, suffix: "+", label: "服务企业" },
-    { value: 1200, suffix: "+", label: "累计任务执行" },
-    { value: 4, suffix: " 类", label: "能力接入类型" },
-  ] as const;
-
   return (
     <section aria-label="平台数据" className="relative z-10 px-6 py-4">
       <Reveal>
         <div className="mx-auto max-w-4xl">
           <div className="glass-card grid grid-cols-2 divide-x divide-y divide-glassline sm:grid-cols-4 sm:divide-y-0">
-            {stats.map((s) => (
+            {STATS.map((s) => (
               <CountStat key={s.label} {...s} />
             ))}
           </div>

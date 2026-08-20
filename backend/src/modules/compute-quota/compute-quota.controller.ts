@@ -27,18 +27,6 @@ export class ComputeQuotaController {
     return this.quotaService.getQuotaSummary(req.user.id);
   }
 
-  @Get('packages')
-  @ApiOperation({ summary: '查询企业算力包' })
-  async getQuotaPackages() {
-    return this.quotaService.getQuotaPackages();
-  }
-
-  @Post('packages/purchase')
-  @ApiOperation({ summary: '使用企业钱包购买企业算力包' })
-  async purchaseQuota(@Request() req, @Body() body: { packageId: string }) {
-    return this.quotaService.purchaseEnterpriseQuota(req.user.id, body.packageId);
-  }
-
   @Get('alerts')
   @ApiOperation({ summary: '查询配额告警（剩余 <10%）' })
   async getAlerts(@Request() req) {

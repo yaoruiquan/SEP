@@ -1,43 +1,49 @@
-import Link from "next/link";
-import { Bot } from "lucide-react";
+import Link from 'next/link';
+import { Bot } from 'lucide-react';
 
 const COLUMNS = [
   {
-    title: "产品",
+    title: '产品',
     links: [
-      { label: "硅基人才市场", href: "/marketplace" },
-      { label: "功能特性", href: "#features" },
-      { label: "定价方案", href: "#pricing" },
-      { label: "常见问题", href: "#faq" },
+      { label: '硅基人才市场', href: '/marketplace' },
+      { label: '功能特性', href: '#features' },
+      { label: '定价方案', href: '#pricing' },
+      { label: '更新日志', href: '/changelog' },
     ],
   },
   {
-    title: "解决方案",
+    title: '解决方案',
     links: [
-      { label: "发现硅基员工", href: "#showcase" },
-      { label: "完成企业订阅", href: "#pricing" },
-      { label: "授权碳基成员", href: "#how" },
-      { label: "开始团队协作", href: "/register" },
+      { label: '数据分析', href: '/marketplace?fn=data' },
+      { label: '财务对账', href: '/marketplace?fn=finance' },
+      { label: '内容运营', href: '/marketplace?fn=content' },
+      { label: '客户服务', href: '/marketplace?fn=cs' },
     ],
   },
   {
-    title: "企业入口",
+    title: '开发者',
     links: [
-      { label: "创建企业账号", href: "/register" },
-      { label: "登录企业工作台", href: "/login" },
-      { label: "浏览人才市场", href: "/marketplace" },
-      { label: "查看使用流程", href: "#how" },
+      { label: 'API 文档', href: '/docs/api' },
+      { label: '能力接入', href: '/docs/capability' },
+      { label: '贡献者中心', href: '/contributor' },
+      { label: '状态页', href: '/status' },
     ],
   },
   {
-    title: "协作能力",
+    title: '公司',
     links: [
-      { label: "部门与成员授权", href: "#features" },
-      { label: "企业知识库", href: "#features" },
-      { label: "用量与执行记录", href: "#features" },
-      { label: "余额与支付宝支付", href: "#faq" },
+      { label: '关于我们', href: '/about' },
+      { label: '联系销售', href: '/contact' },
+      { label: '加入我们', href: '/careers' },
+      { label: '博客', href: '/blog' },
     ],
   },
+] as const;
+
+const LEGAL = [
+  { label: '服务条款', href: '/terms' },
+  { label: '隐私政策', href: '/privacy' },
+  { label: '安全说明', href: '/security' },
 ] as const;
 
 /** 页脚（PRD §7.10）。5 列布局：品牌 + 4 组导航。 */
@@ -55,9 +61,7 @@ export function SiteFooter() {
               >
                 <Bot className="h-4 w-4 text-white" />
               </span>
-              <span className="text-sm font-semibold text-gtext-primary">
-                硅基人才平台
-              </span>
+              <span className="text-sm font-semibold text-gtext-primary">硅基人才平台</span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-gtext-muted">
               把 AI 能力包装成可招聘、可管理、可审计的硅基员工。
@@ -66,9 +70,7 @@ export function SiteFooter() {
 
           {COLUMNS.map(({ title, links }) => (
             <nav key={title} aria-label={title}>
-              <h2 className="mb-4 text-sm font-semibold text-gtext-primary">
-                {title}
-              </h2>
+              <h2 className="mb-4 text-sm font-semibold text-gtext-primary">{title}</h2>
               <ul className="space-y-2.5">
                 {links.map(({ label, href }) => (
                   <li key={label}>
@@ -89,9 +91,18 @@ export function SiteFooter() {
           <p className="text-xs text-gtext-disabled">
             © {new Date().getFullYear()} 硅基人才平台. All rights reserved.
           </p>
-          <p className="text-xs text-gtext-muted">
-            硅基员工与碳基团队的组织协作平台
-          </p>
+          <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            {LEGAL.map(({ label, href }) => (
+              <li key={label}>
+                <Link
+                  href={href}
+                  className="text-xs text-gtext-muted transition-colors hover:text-gtext-primary"
+                >
+                  {label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </footer>

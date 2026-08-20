@@ -1,40 +1,180 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight, BadgeCheck, Bot, Building2, CreditCard, Loader2, ShieldCheck, Sparkles, User, Wallet, Zap } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-import { useQuotaPackages, useQuotaSummary, usePurchaseQuotaPackage } from '@/lib/api/use-quota';
-import { useWalletBalance } from '@/lib/api/wallet';
-import { cn } from '@/lib/utils';
+import { useQuotaSummary } from '@/lib/api/use-quota';
+import { Loader2, User, Bot, Building2, TrendingUp } from 'lucide-react';
 import { UserQuotaTab } from './user-quota-tab';
 import { SubscriptionQuotaTab } from './subscription-quota-tab';
 import { EnterpriseQuotaTab } from './enterprise-quota-tab';
 
-function formatTokens(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2).replace(/\.00$/, '')}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(2).replace(/\.00$/, '')}K`;
-  return value.toLocaleString('zh-CN');
+function formatNumber(num: number) {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  return num.toString();
 }
-function formatCny(value: number) { return `¥${value.toFixed(2)}`; }
-function percentage(used: number, total: number) { return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0; }
 
-function QuotaSummaryCard({ icon, title, eyebrow, used, total, accent, note }: { icon: React.ReactNode; title: string; eyebrow: string; used: number; total: number; accent: string; note: string }) {
-  const remaining = Math.max(0, total - used); const remainingPct = Math.max(0, 100 - percentage(used, total));
-  return <Card className="relative overflow-hidden"><div className={`absolute inset-x-0 top-0 h-1 ${accent}`} /><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/70">{icon}</div><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-muted">{eyebrow}</p><h2 className="mt-1 text-sm font-semibold text-foreground">{title}</h2></div></div><span className="rounded-full border border-border/70 px-2 py-1 text-[11px] text-fg-muted">Token</span></div><div className="mt-6 flex items-end justify-between"><div><p className="text-3xl font-semibold tracking-tight text-foreground">{formatTokens(remaining)}</p><p className="mt-1 text-xs text-fg-muted">剩余可用</p></div><p className="text-sm font-semibold text-foreground">{remainingPct}%</p></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all duration-500 ${accent}`} style={{ width: `${remainingPct}%` }} /></div><div className="mt-2 flex justify-between text-xs text-fg-muted"><span>已用 {formatTokens(used)}</span><span>总量 {formatTokens(total)}</span></div><p className="mt-4 border-t border-border/60 pt-3 text-xs text-fg-muted">{note}</p></CardContent></Card>;
+function pct(used: number, total: number) {
+  if (total === 0) return 0;
+  return Math.min(100, Math.round((used / total) * 100));
+}
+
+// p = used %, bar shows REMAINING: green when plenty left, red when almost gone
+function progressColor(p: number) {
+  const rem = 100 - p;
+  if (rem <= 20) return 'bg-red-500';
+  if (rem <= 40) return 'bg-yellow-400';
+  return 'bg-emerald-500';
+}
+
+function progressBg(p: number) {
+  const rem = 100 - p;
+  if (rem <= 20) return 'bg-red-100';
+  if (rem <= 40) return 'bg-yellow-100';
+  return 'bg-emerald-100';
+}
+
+interface SummaryCardProps {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  priority: string;
+  accent: string;
+  used: number;
+  total: number;
+}
+
+function SummaryCard({ icon, title, subtitle, priority, accent, used, total }: SummaryCardProps) {
+  const p = pct(used, total);
+  const remaining = total - used;
+  const bar = progressColor(p);
+  const bg = progressBg(p);
+
+  return (
+    <div className={`relative overflow-hidden rounded-xl border bg-white p-5 shadow-sm`}>
+      {/* accent stripe */}
+      <div className={`absolute left-0 top-0 h-full w-1 ${accent}`} />
+
+      <div className="flex items-start justify-between pl-3">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${bg}`}>
+            {icon}
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">{priority}</p>
+            <p className="font-semibold">{title}</p>
+          </div>
+        </div>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          {subtitle}
+        </span>
+      </div>
+
+      <div className="mt-4 pl-3">
+        <div className="flex items-end justify-between">
+          <div>
+            <span className="text-3xl font-bold tracking-tight">{formatNumber(remaining)}</span>
+            <span className="ml-1 text-sm text-muted-foreground">剩余</span>
+          </div>
+          <div className="text-right text-sm">
+            <span className={`font-semibold ${p >= 80 ? 'text-red-500' : p >= 60 ? 'text-yellow-500' : 'text-emerald-600'}`}>
+              {100 - p}%
+            </span>
+            <span className="text-muted-foreground"> 剩余</span>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={`h-2.5 rounded-full transition-all duration-500 ${bar}`}
+            style={{ width: `${100 - p}%` }}
+          />
+        </div>
+
+        <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+          <span>已用 {formatNumber(used)}</span>
+          <span>总额 {formatNumber(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ComputeQuotaPage() {
-  const [activeTab, setActiveTab] = useState('enterprise'); const { toast } = useToast();
-  const { data: summary, isLoading: summaryLoading } = useQuotaSummary(); const { data: wallet } = useWalletBalance(); const { data: packages, isLoading: packagesLoading } = useQuotaPackages(); const purchase = usePurchaseQuotaPackage();
-  const handlePurchase = async (packageId: string, name: string) => { try { await purchase.mutateAsync(packageId); toast({ title: '算力包已到账', description: `「${name}」已加入企业池，可立即使用。` }); } catch (error: any) { toast({ title: '购买失败', description: error?.message || '请检查钱包余额后重试', variant: 'destructive' }); } };
-  return <div className="space-y-8 pb-10">
-    <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card px-6 py-7 shadow-sm md:px-8"><div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl" /><div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"><div><div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary"><Zap className="h-3.5 w-3.5" /> 企业算力中心</div><h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">算力配额</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-fg-muted">订阅赠送额度优先使用，企业池作为统一兜底。余额不足时，可直接用企业钱包购买 Token 算力包。</p></div><div className="flex flex-wrap items-center gap-3"><div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3"><p className="text-[11px] text-fg-muted">企业钱包余额</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{wallet ? formatCny(Number(wallet.balance)) : '—'}</p></div><Link href="/payment/recharge" className={cn(buttonVariants({ variant: 'glass-primary', size: 'md' }))}><Wallet className="h-4 w-4" />充值钱包<ArrowRight className="h-4 w-4" /></Link></div></div></section>
-    {summaryLoading ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-fg-muted" /></div> : summary && <section className="grid gap-4 md:grid-cols-3"><QuotaSummaryCard icon={<User className="h-5 w-5 text-blue-500" />} title="个人配额" eyebrow="Priority 0 · 优先" used={summary.user.usedTokens} total={summary.user.totalTokens} accent="bg-blue-500" note="管理员分配给成员的个人预算" /><QuotaSummaryCard icon={<Bot className="h-5 w-5 text-emerald-500" />} title="订阅配额" eyebrow="Priority 1 · 赠送" used={summary.subscription.usedTokens} total={summary.subscription.totalTokens} accent="bg-emerald-500" note="订阅硅基员工时自动获得" /><QuotaSummaryCard icon={<Building2 className="h-5 w-5 text-violet-500" />} title="企业池" eyebrow="Priority 2 · 兜底" used={summary.enterprise.usedTokens} total={summary.enterprise.totalTokens} accent="bg-violet-500" note="全企业共享，可购买并统一消耗" /></section>}
-    <section className="space-y-4"><div className="flex flex-col justify-between gap-2 md:flex-row md:items-end"><div><h2 className="text-lg font-semibold text-foreground">购买企业算力包</h2><p className="mt-1 text-sm text-fg-muted">价格按当前模型成本基线做了保守加权，Token 到账后进入企业池。</p></div><div className="flex items-center gap-2 text-xs text-fg-muted"><ShieldCheck className="h-4 w-4 text-emerald-500" />钱包扣款与配额入账同一笔交易完成</div></div>{packagesLoading ? <div className="grid gap-4 md:grid-cols-3">{[1, 2, 3].map((i) => <div key={i} className="h-56 animate-pulse rounded-xl bg-muted" />)}</div> : <div className="grid gap-4 md:grid-cols-3">{packages?.map((item) => <Card key={item.id} className={`relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md ${item.recommended ? 'border-primary/50 ring-1 ring-primary/15' : ''}`}>{item.recommended && <div className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary"><BadgeCheck className="h-3.5 w-3.5" />推荐</div>}<CardHeader><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Sparkles className="h-5 w-5" /></div><CardTitle>{item.name}</CardTitle><CardDescription>{item.detail}</CardDescription></CardHeader><CardContent><div className="flex items-baseline gap-2"><span className="text-3xl font-semibold tracking-tight">{formatCny(item.priceCny)}</span><span className="text-xs text-fg-muted">一次性</span></div><div className="mt-4 flex items-center justify-between border-y border-border/60 py-3 text-sm"><span className="font-medium">{formatTokens(item.tokens)} tokens</span><span className="text-xs text-fg-muted">{formatCny(item.unitPriceCnyPerMillion)} / 1M</span></div><Button className="mt-4 w-full" variant={item.recommended ? 'glass-primary' : 'glass'} onClick={() => handlePurchase(item.id, item.name)} disabled={purchase.isPending}><CreditCard className="h-4 w-4" />{purchase.isPending ? '处理中…' : '购买并加入企业池'}</Button></CardContent></Card>)}</div>}</section>
-    <section><div className="mb-4"><h2 className="text-lg font-semibold text-foreground">配额明细</h2><p className="mt-1 text-sm text-fg-muted">查看每一层额度的来源、使用进度与负责人。</p></div><Tabs value={activeTab} onValueChange={setActiveTab}><TabsList className="grid h-auto w-full grid-cols-3 rounded-xl bg-muted/60 p-1"><TabsTrigger value="user" className="gap-2 py-2.5"><User className="h-3.5 w-3.5" />个人配额</TabsTrigger><TabsTrigger value="subscription" className="gap-2 py-2.5"><Bot className="h-3.5 w-3.5" />订阅配额</TabsTrigger><TabsTrigger value="enterprise" className="gap-2 py-2.5"><Building2 className="h-3.5 w-3.5" />企业池</TabsTrigger></TabsList><TabsContent value="user" className="mt-4"><UserQuotaTab /></TabsContent><TabsContent value="subscription" className="mt-4"><SubscriptionQuotaTab /></TabsContent><TabsContent value="enterprise" className="mt-4"><EnterpriseQuotaTab /></TabsContent></Tabs></section>
-  </div>;
+  const [activeTab, setActiveTab] = useState('user');
+  const { data: summary, isLoading } = useQuotaSummary();
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">算力配额管理</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          三级消耗优先级：个人配额（Priority 0）→ 订阅配额（Priority 1）→ 企业池（Priority 2）
+        </p>
+      </div>
+
+      {/* Summary cards */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : summary ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <SummaryCard
+            icon={<User className="h-5 w-5 text-blue-600" />}
+            title="个人配额"
+            subtitle="优先消耗"
+            priority="Priority 0 · 碳基员工"
+            accent="bg-blue-500"
+            used={summary.user.usedTokens}
+            total={summary.user.totalTokens}
+          />
+          <SummaryCard
+            icon={<Bot className="h-5 w-5 text-emerald-600" />}
+            title="订阅配额"
+            subtitle="硅基员工自带"
+            priority="Priority 1 · 订阅绑定"
+            accent="bg-emerald-500"
+            used={summary.subscription.usedTokens}
+            total={summary.subscription.totalTokens}
+          />
+          <SummaryCard
+            icon={<Building2 className="h-5 w-5 text-purple-600" />}
+            title="企业池"
+            subtitle="兜底"
+            priority="Priority 2 · 企业统一池"
+            accent="bg-purple-500"
+            used={summary.enterprise.usedTokens}
+            total={summary.enterprise.totalTokens}
+          />
+        </div>
+      ) : null}
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="user" className="gap-2">
+            <User className="h-3.5 w-3.5" /> 个人配额
+          </TabsTrigger>
+          <TabsTrigger value="subscription" className="gap-2">
+            <Bot className="h-3.5 w-3.5" /> 员工配额
+          </TabsTrigger>
+          <TabsTrigger value="enterprise" className="gap-2">
+            <Building2 className="h-3.5 w-3.5" /> 企业池
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="user" className="mt-4">
+          <UserQuotaTab />
+        </TabsContent>
+        <TabsContent value="subscription" className="mt-4">
+          <SubscriptionQuotaTab />
+        </TabsContent>
+        <TabsContent value="enterprise" className="mt-4">
+          <EnterpriseQuotaTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 }

@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Reveal } from "./reveal";
+import Link from 'next/link';
+import { Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Reveal } from './reveal';
 
 type Plan = {
   id: string;
@@ -17,61 +17,61 @@ type Plan = {
 
 const PLANS: readonly Plan[] = [
   {
-    id: "starter",
-    name: "先逛市场",
-    price: "免费",
-    unit: "",
-    desc: "先了解每位硅基员工能做什么",
+    id: 'starter',
+    name: '体验版',
+    price: '¥0',
+    unit: '/ 月',
+    desc: '适合个人和小团队先跑通一个场景',
     features: [
-      "浏览已上架员工",
-      "查看岗位与能力说明",
-      "公开员工详情",
-      "无需登录即可开始",
+      '1 位硅基员工',
+      '每月 500 次任务额度',
+      '基础模型（对话 / 分析）',
+      '社区支持',
     ],
-    cta: "浏览人才市场",
-    href: "/marketplace",
+    cta: '免费开始',
+    href: '/register',
   },
   {
-    id: "team",
-    name: "企业订阅",
-    price: "按员工定价",
-    unit: "",
-    desc: "订阅后由企业管理员完成入职配置",
+    id: 'team',
+    name: '团队版',
+    price: '¥1,980',
+    unit: '/ 月',
+    desc: '成长型企业的主力方案，按部门授权',
     features: [
-      "余额或支付宝支付",
-      "企业内自定义称呼",
-      "配置知识库与模型策略",
-      "暂停、续费与版本管理",
+      '10 位硅基员工',
+      '每月 20,000 次任务额度',
+      '全部模型 + 私有知识库',
+      '部门与成员权限管理',
+      '用量报表与审计日志',
+      '工单支持（8h 响应）',
     ],
-    cta: "选择硅基员工",
-    href: "/marketplace",
+    cta: '开始 14 天试用',
+    href: '/register?plan=team',
     featured: true,
   },
   {
-    id: "enterprise",
-    name: "团队协作",
-    price: "按量结算",
-    unit: "",
-    desc: "让碳基成员在组织内安全使用硅基员工",
+    id: 'enterprise',
+    name: '企业版',
+    price: '定制',
+    unit: '',
+    desc: '需要私有部署、SSO 和合规审计的组织',
     features: [
-      "按部门或成员授权",
-      "对话与任务执行记录",
-      "用量和算力消耗可查",
-      "企业钱包统一管理",
+      '不限硅基员工数量',
+      '任务额度按需定制',
+      '私有化部署 / VPC 隔离',
+      'SSO（OIDC / SAML）',
+      '专属客户成功经理',
+      'SLA 99.95% 保障',
     ],
-    cta: "注册企业账号",
-    href: "/register",
+    cta: '联系销售',
+    href: '/contact',
   },
 ] as const;
 
 /** 定价（PRD §7.7）。推荐卡用 .gradient-border + .pricing-featured 双层强调。 */
 export function Pricing() {
   return (
-    <section
-      id="pricing"
-      aria-labelledby="pricing-heading"
-      className="scroll-mt-28 px-6 py-24"
-    >
+    <section id="pricing" aria-labelledby="pricing-heading" className="scroll-mt-28 px-6 py-24">
       <div className="mx-auto max-w-7xl">
         <Reveal>
           <div className="mb-14 text-center">
@@ -79,12 +79,10 @@ export function Pricing() {
               id="pricing-heading"
               className="text-3xl font-bold tracking-tight sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">
-                按需订阅，随时调整
-              </span>
+              <span className="gradient-text-glass inline-block">按需订阅，随时调整</span>
             </h2>
             <p className="mt-4 text-gtext-secondary">
-              员工订阅费用与任务算力分开呈现，支付前均可确认
+              所有方案都包含平台基础能力，超出额度按实际算力结算
             </p>
           </div>
         </Reveal>
@@ -94,10 +92,10 @@ export function Pricing() {
             <Reveal key={plan.id} delay={i * 80}>
               <div
                 className={cn(
-                  "relative h-full p-8",
+                  'relative h-full p-8',
                   plan.featured
-                    ? "gradient-border pricing-featured glass-elevated lg:-translate-y-3 lg:scale-[1.04]"
-                    : "glass-card glass-card-interactive",
+                    ? 'gradient-border pricing-featured glass-elevated lg:-translate-y-3 lg:scale-[1.04]'
+                    : 'glass-card glass-card-interactive',
                 )}
               >
                 {plan.featured && (
@@ -106,36 +104,32 @@ export function Pricing() {
                   </span>
                 )}
 
-                <h3 className="text-lg font-semibold text-gtext-primary">
-                  {plan.name}
-                </h3>
+                <h3 className="text-lg font-semibold text-gtext-primary">{plan.name}</h3>
                 <p className="mt-1.5 text-sm text-gtext-muted">{plan.desc}</p>
 
                 <div className="mt-6 flex items-baseline gap-1">
                   <span
                     className={cn(
-                      "text-4xl font-bold tracking-tight",
+                      'text-4xl font-bold tracking-tight',
                       plan.featured
-                        ? "gradient-text-glass inline-block"
-                        : "text-gtext-primary",
+                        ? 'gradient-text-glass inline-block'
+                        : 'text-gtext-primary',
                     )}
                   >
                     {plan.price}
                   </span>
                   {plan.unit && (
-                    <span className="text-sm text-gtext-muted">
-                      {plan.unit}
-                    </span>
+                    <span className="text-sm text-gtext-muted">{plan.unit}</span>
                   )}
                 </div>
 
                 <Link
                   href={plan.href}
                   className={cn(
-                    "mt-7 flex w-full items-center justify-center rounded-glass-pill px-5 py-3 text-sm font-semibold transition-all",
+                    'mt-7 flex w-full items-center justify-center rounded-glass-pill px-5 py-3 text-sm font-semibold transition-all',
                     plan.featured
-                      ? "bg-gbrand text-white shadow-glass-md hover:bg-gbrand-hover hover:shadow-glass-lg"
-                      : "border border-glassline bg-glass-2 text-gtext-primary backdrop-blur-glass-sm hover:border-glassline-hover hover:bg-glass-3",
+                      ? 'bg-gbrand text-white shadow-glass-md hover:bg-gbrand-hover hover:shadow-glass-lg'
+                      : 'border border-glassline bg-glass-2 text-gtext-primary backdrop-blur-glass-sm hover:border-glassline-hover hover:bg-glass-3',
                   )}
                 >
                   {plan.cta}
@@ -143,14 +137,8 @@ export function Pricing() {
 
                 <ul className="mt-8 space-y-3">
                   {plan.features.map((f) => (
-                    <li
-                      key={f}
-                      className="flex items-start gap-2.5 text-sm text-gtext-secondary"
-                    >
-                      <Check
-                        className="mt-0.5 h-4 w-4 shrink-0 text-gsuccess"
-                        aria-hidden
-                      />
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-gtext-secondary">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-gsuccess" aria-hidden />
                       {f}
                     </li>
                   ))}
@@ -161,7 +149,7 @@ export function Pricing() {
         </div>
 
         <p className="mt-10 text-center text-sm text-gtext-muted">
-          实际费用以员工详情页和支付确认页展示为准。
+          所有价格均为不含税人民币。年付可享 2 个月折扣。
         </p>
       </div>
     </section>

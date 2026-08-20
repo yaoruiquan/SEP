@@ -6,15 +6,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { WalletService } from '../wallet/wallet.service';
-
-export const ENTERPRISE_QUOTA_PACKAGES = [
-  // 基于当前 MODEL_PRICING 的 7.2 汇率换算，并为输出 token、平台运维与波动预留安全边际。
-  // Token 包是混合模型额度，不等同于某一个模型的公开单价；价格越大的包单价越低。
-  { id: 'starter', name: '起步包', priceCny: 8, tokens: 100_000, detail: '适合试用与小团队' },
-  { id: 'team', name: '团队包', priceCny: 50, tokens: 1_000_000, detail: '适合日常办公使用', recommended: true },
-  { id: 'scale', name: '规模包', priceCny: 200, tokens: 5_000_000, detail: '适合高频调用与多人共享' },
-] as const;
 
 export interface QuotaCheckResult {
   allowed: boolean;
@@ -39,7 +30,6 @@ export class ComputeQuotaService {
   constructor(
     private prisma: PrismaService,
     private enterpriseContext: EnterpriseContextService,
-    private walletService: WalletService,
   ) {}
 
   /**
@@ -90,38 +80,6 @@ export class ComputeQuotaService {
     }
 
     return { allowed: false, reason: '所有配额已耗尽，请联系管理员分配配额或充值' };
-  }
-
-  getQuotaPackages() {
-    return ENTERPRISE_QUOTA_PACKAGES.map((item) => ({ ...item, unitPriceCnyPerMillion: item.priceCny / (item.tokens / 1_000_000) }));
-  }
-
-  async purchaseEnterpriseQuota(userId: string, packageId: string) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    this.enterpriseContext.assertEnterpriseAdmin(ctx);
-    const selected = ENTERPRISE_QUOTA_PACKAGES.find((item) => item.id === packageId);
-    if (!selected) throw new BadRequestException('算力包不存在');
-
-    return this.prisma.$transaction(async (tx) => {
-      const walletTx = await this.walletService.consume(
-        ctx.enterpriseId,
-        selected.priceCny,
-        'compute',
-        null,
-        `购买企业算力包「${selected.name}」：${selected.tokens.toLocaleString()} tokens`,
-        tx,
-      );
-      const quota = await tx.computeQuota.create({
-        data: {
-          enterpriseId: ctx.enterpriseId,
-          type: 'STANDARD',
-          totalTokens: selected.tokens,
-          priority: 2,
-          status: 'ACTIVE',
-        },
-      });
-      return { quota, walletTransaction: walletTx, package: selected };
-    });
   }
 
   /**
