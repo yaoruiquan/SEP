@@ -50,7 +50,7 @@ export interface RechargeAlipayPaymentResponse {
 
 // ── API ────────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 async function createOrder(body?: {
   itemIds?: string[];
