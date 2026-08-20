@@ -15,10 +15,18 @@ interface CapabilityListResponse {
 // ─── Capability admin ───────────────────────────────────────────────────────
 
 export function useAllCapabilities(status?: string) {
-  const qs = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+  const qs = status ? `?status=${encodeURIComponent(status)}&pageSize=50` : '?pageSize=50';
   return useQuery({
     queryKey: ['capabilities', { status: status ?? 'ALL' }],
-    queryFn: () => api.get<CapabilityListResponse>(`/capabilities${qs}`),
+    queryFn: async () => {
+      const response = await api.get<{
+        items: Capability[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>(`/admin/capabilities${qs}`);
+      return { ...response, limit: response.pageSize } satisfies CapabilityListResponse;
+    },
   });
 }
 

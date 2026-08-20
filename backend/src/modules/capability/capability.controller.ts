@@ -57,9 +57,14 @@ export class CapabilityController {
   @ApiResponse({ status: 404, description: 'Capability or file not found' })
   async download(
     @Param('id') id: string,
+    @Request() req: { user: { id: string; role: string } },
     @Res() res: Response,
   ) {
-    const capability = await this.capabilityService.findOne(id);
+    const capability = await this.capabilityService.findOneForDownload(
+      id,
+      req.user.id,
+      req.user.role,
+    );
 
     if (!capability) {
       throw new NotFoundException('Capability not found');
@@ -142,7 +147,7 @@ export class CapabilityController {
     @Param('id') id: string,
     @Request() req: { user: { id: string; role: string } },
   ) {
-    return this.capabilityService.approve(id, req.user.role);
+    return this.capabilityService.approve(id, req.user.id, req.user.role);
   }
 
   @Post(':id/reject')
@@ -156,7 +161,7 @@ export class CapabilityController {
     @Body('reason') reason: string,
     @Request() req: { user: { id: string; role: string } },
   ) {
-    return this.capabilityService.reject(id, req.user.role, reason);
+    return this.capabilityService.reject(id, req.user.id, req.user.role, reason);
   }
 
   // ────────────── My capabilities (contributor) ──────────────

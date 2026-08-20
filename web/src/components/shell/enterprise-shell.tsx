@@ -81,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 管理视角：雇佣关系一个入口管到底 ——
       // 雇佣（买）、暂停/恢复、升级、授权给碳基员工都在这里
       { href: '/subscriptions', label: nav.subscriptions, icon: Boxes, adminOnly: true },
+      { href: '/skills', label: '技能管理', icon: BookOpen },
     ],
   },
   {

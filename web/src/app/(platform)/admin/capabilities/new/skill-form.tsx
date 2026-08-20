@@ -33,6 +33,7 @@ type UploadMetadata = {
   fileCount: number;
   totalSize: number;
   filename: string;
+  content: string;
 };
 
 export function SkillForm({ onCancel }: { onCancel: () => void }) {
@@ -55,7 +56,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: SkillFormValues & { zipPath: string; sha256: string; fileCount: number; totalSize: number }) => {
+    mutationFn: async (data: SkillFormValues & UploadMetadata) => {
       const res = await fetch('/api/capabilities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,7 +75,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
             totalSize: data.totalSize,
           },
           skillConfig: {
-            template: '',
+            template: data.content,
             modelId: 'gpt-4o-mini',
             temperature: 0.7,
             maxTokens: 2000,
@@ -151,6 +152,8 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
       sha256: uploadMetadata.sha256,
       fileCount: uploadMetadata.fileCount,
       totalSize: uploadMetadata.totalSize,
+      filename: uploadMetadata.filename,
+      content: uploadMetadata.content,
     });
   };
 

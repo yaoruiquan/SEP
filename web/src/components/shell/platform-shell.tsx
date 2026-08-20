@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, Building2, CheckSquare, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react';
+import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, Building2, CheckSquare, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone, FileCode2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AuroraBackground } from '@/components/ui/aurora-background';
@@ -18,6 +18,7 @@ const LINKS: NavLink[] = [
   { href: '/admin', label: '仪表盘', icon: LayoutDashboard, exact: true },
   { href: '/admin/audit', label: '审核中心', icon: CheckSquare },
   { href: '/admin/capabilities', label: '能力管理', icon: ShieldCheck },
+  { href: '/admin/skills', label: '技能版本', icon: FileCode2 },
   { href: '/admin/employees', label: '员工管理', icon: Users },
   { href: '/admin/enterprises', label: '企业管理', icon: Building2 },
   { href: '/admin/compute', label: '账户管理', icon: Wallet },

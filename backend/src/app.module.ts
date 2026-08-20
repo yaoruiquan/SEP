@@ -28,6 +28,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { SubscriptionRequestModule } from './modules/subscription-request/subscription-request.module';
 import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { SkillVersionModule } from './modules/skill-version/skill-version.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     SubscriptionRequestModule,
     ComputeQuotaModule,
     DashboardModule,
+    SkillVersionModule,
   ],
   controllers: [],
   providers: [],

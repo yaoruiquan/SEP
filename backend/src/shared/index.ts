@@ -1236,6 +1236,7 @@ export * from './model-config.dto';
 // ============================================================================
 
 export * from './enterprise-settings.dto';
+export * from './skill-version.dto';
 
 // ============================================================================
 // Cost Analytics DTOs
@@ -1279,4 +1280,3 @@ export const CostAlertSchema = z.object({
   acknowledged: z.boolean(),
 });
 export type CostAlert = z.infer<typeof CostAlertSchema>;
-

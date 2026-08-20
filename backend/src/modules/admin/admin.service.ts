@@ -657,6 +657,22 @@ export class AdminService {
       throw new BadRequestException('部分能力不存在');
     }
 
+    const approvedSkillVersions = await this.prisma.skillVersion.findMany({
+      where: {
+        capabilityId: { in: capabilityIds },
+        scope: 'PLATFORM',
+        status: 'PLATFORM_APPROVED',
+      },
+      select: { id: true, capabilityId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const defaultVersions = new Map<string, string>();
+    for (const version of approvedSkillVersions) {
+      if (!defaultVersions.has(version.capabilityId)) {
+        defaultVersions.set(version.capabilityId, version.id);
+      }
+    }
+
     // 删除现有绑定
     await this.prisma.employeeCapabilityBinding.deleteMany({
       where: { employeeId },
@@ -668,6 +684,7 @@ export class AdminService {
       capabilityId,
       priority: capabilityIds.length - index, // 按顺序设置优先级
       enabled: true,
+      defaultSkillVersionId: defaultVersions.get(capabilityId),
     }));
 
     await this.prisma.employeeCapabilityBinding.createMany({
@@ -901,9 +918,26 @@ export class AdminService {
       throw new BadRequestException('已审核通过的能力无需重新提交');
     }
 
-    return this.prisma.capability.update({
-      where: { id: capabilityId },
-      data: { status: 'PENDING' },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.capability.update({
+        where: { id: capabilityId },
+        data: { status: 'PENDING' },
+      });
+      if (capability.type === 'SKILL') {
+        await tx.skillVersion.updateMany({
+          where: {
+            capabilityId,
+            scope: 'PLATFORM',
+            status: { in: ['DRAFT', 'PLATFORM_REJECTED'] },
+          },
+          data: {
+            status: 'PENDING_PLATFORM_REVIEW',
+            submittedAt: new Date(),
+            rejectionReason: null,
+          },
+        });
+      }
+      return updated;
     });
   }
 
@@ -920,12 +954,43 @@ export class AdminService {
       throw new BadRequestException('只能审核待审核状态的能力');
     }
 
-    return this.prisma.capability.update({
-      where: { id: capabilityId },
-      data: {
-        status: 'APPROVED',
-        approvedAt: new Date(),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const reviewedAt = new Date();
+      const updated = await tx.capability.update({
+        where: { id: capabilityId },
+        data: { status: 'APPROVED', approvedAt: reviewedAt },
+      });
+      if (capability.type === 'SKILL') {
+        const versions = await tx.skillVersion.findMany({
+          where: {
+            capabilityId,
+            scope: 'PLATFORM',
+            status: { in: ['DRAFT', 'PENDING_PLATFORM_REVIEW'] },
+          },
+          select: { id: true },
+        });
+        if (versions.length > 0) {
+          await tx.skillVersion.updateMany({
+            where: { id: { in: versions.map(({ id }) => id) } },
+            data: {
+              status: 'PLATFORM_APPROVED',
+              platformReviewedById: operatorId,
+              platformReviewedAt: reviewedAt,
+              rejectionReason: null,
+            },
+          });
+          await tx.skillVersionReview.createMany({
+            data: versions.map(({ id }) => ({
+              versionId: id,
+              actorType: 'PLATFORM',
+              decision: 'APPROVE',
+              reviewerId: operatorId,
+              comment: note,
+            })),
+          });
+        }
+      }
+      return updated;
     });
   }
 
@@ -942,11 +1007,43 @@ export class AdminService {
       throw new BadRequestException('只能审核待审核状态的能力');
     }
 
-    return this.prisma.capability.update({
-      where: { id: capabilityId },
-      data: {
-        status: 'REJECTED',
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const reviewedAt = new Date();
+      const updated = await tx.capability.update({
+        where: { id: capabilityId },
+        data: { status: 'REJECTED' },
+      });
+      if (capability.type === 'SKILL') {
+        const versions = await tx.skillVersion.findMany({
+          where: {
+            capabilityId,
+            scope: 'PLATFORM',
+            status: { in: ['DRAFT', 'PENDING_PLATFORM_REVIEW'] },
+          },
+          select: { id: true },
+        });
+        if (versions.length > 0) {
+          await tx.skillVersion.updateMany({
+            where: { id: { in: versions.map(({ id }) => id) } },
+            data: {
+              status: 'PLATFORM_REJECTED',
+              platformReviewedById: operatorId,
+              platformReviewedAt: reviewedAt,
+              rejectionReason: reason,
+            },
+          });
+          await tx.skillVersionReview.createMany({
+            data: versions.map(({ id }) => ({
+              versionId: id,
+              actorType: 'PLATFORM',
+              decision: 'REJECT',
+              reviewerId: operatorId,
+              comment: reason,
+            })),
+          });
+        }
+      }
+      return updated;
     });
   }
 

@@ -50,6 +50,9 @@ const prismaMock = {
   capability: {
     findMany: jest.fn(),
   },
+  skillVersion: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
   employeeCapabilityBinding: {
     create: jest.fn(),
     findUnique: jest.fn(),

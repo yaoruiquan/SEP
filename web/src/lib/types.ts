@@ -6,6 +6,50 @@ export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type CapabilityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 export type UserRole = 'USER' | 'ADMIN';
+export type SkillVersionScope = 'PLATFORM' | 'ENTERPRISE';
+export type SkillVersionStatus =
+  | 'DRAFT'
+  | 'PENDING_ENTERPRISE_REVIEW'
+  | 'ENTERPRISE_APPROVED'
+  | 'PENDING_PLATFORM_REVIEW'
+  | 'PLATFORM_APPROVED'
+  | 'ENTERPRISE_REJECTED'
+  | 'PLATFORM_REJECTED'
+  | 'ARCHIVED';
+
+export interface SkillVersionSummary {
+  id: string;
+  capabilityId: string;
+  scope: SkillVersionScope;
+  enterpriseId: string | null;
+  parentVersionId: string | null;
+  sourceVersionId: string | null;
+  version: string;
+  changeSummary: string | null;
+  status: SkillVersionStatus;
+  createdAt: string;
+  updatedAt: string;
+  hasPlatformSubmission?: boolean;
+}
+
+export interface SkillVersionPreview extends SkillVersionSummary {
+  content: string;
+  rejectionReason?: string | null;
+  capability: Pick<Capability, 'id' | 'name' | 'description'>;
+}
+
+export interface EmployeeSkillVersionItem {
+  capability: Pick<Capability, 'id' | 'name' | 'description' | 'type'>;
+  currentVersion: SkillVersionSummary | null;
+  versions: SkillVersionSummary[];
+  upgradeAvailable: boolean;
+}
+
+export interface EmployeeSkillVersionsResponse {
+  subscriptionId: string;
+  canManage: boolean;
+  skills: EmployeeSkillVersionItem[];
+}
 
 export interface UserProfile {
   id: string;

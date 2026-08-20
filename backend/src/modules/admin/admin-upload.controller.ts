@@ -14,15 +14,20 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { Response } from 'express';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
+import matter from 'gray-matter';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const SKILLS_DIR = path.join(UPLOAD_DIR, 'skills');
+const MAX_SKILL_MARKDOWN_SIZE = 500 * 1024;
 
 // 确保目录存在
 if (!fs.existsSync(SKILLS_DIR)) {
@@ -31,7 +36,8 @@ if (!fs.existsSync(SKILLS_DIR)) {
 
 @ApiTags('admin/upload')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
 @Controller('admin/capabilities')
 export class AdminUploadController {
   constructor(private readonly prisma: PrismaService) {}
@@ -91,13 +97,25 @@ export class AdminUploadController {
       // 2. 验证 zip 文件必须包含 SKILL.md
       const zip = new AdmZip(tempPath);
       const zipEntries = zip.getEntries();
-      const hasSkillMd = zipEntries.some((entry) =>
-        entry.entryName.endsWith('SKILL.md'),
+      const skillEntry = zipEntries.find(
+        (entry) => !entry.isDirectory && entry.entryName.endsWith('SKILL.md'),
       );
 
-      if (!hasSkillMd) {
+      if (!skillEntry) {
         fs.unlinkSync(tempPath);
         throw new BadRequestException('zip 文件必须包含 SKILL.md');
+      }
+
+      if (skillEntry.header.size > MAX_SKILL_MARKDOWN_SIZE) {
+        fs.unlinkSync(tempPath);
+        throw new BadRequestException('SKILL.md 正文不能超过 500KB');
+      }
+
+      const rawContent = skillEntry.getData().toString('utf8');
+      const content = matter(rawContent).content.trimStart();
+      if (!content.trim()) {
+        fs.unlinkSync(tempPath);
+        throw new BadRequestException('SKILL.md 正文不能为空');
       }
 
       // 3. 收集文件统计信息
@@ -120,6 +138,7 @@ export class AdminUploadController {
         fileCount,
         totalSize,
         filename: file.originalname,
+        content,
       };
     } catch (error) {
       // 清理临时文件

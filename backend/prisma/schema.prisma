@@ -28,20 +28,25 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  sessions                ConversationSession[]
-  contributedCapabilities Capability[]          @relation("CapabilityContributor")
+  sessions                          ConversationSession[]
+  contributedCapabilities           Capability[]               @relation("CapabilityContributor")
   /// 企业成员身份。MVP 阶段每个用户恰好一条记录（不做多企业切换），
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
-  memberships             EnterpriseMember[]
-  devices                 Device[]
-  createdKnowledgeBases   KnowledgeBase[]       @relation("KnowledgeBaseCreator")
-  uploadedDocuments       Document[]            @relation("DocumentUploader")
-  createdTextChunks       TextChunk[]           @relation("TextChunkCreator")
-  notifications           Notification[]
-  createdAnnouncements         Announcement[]              @relation("AnnouncementCreator")
-  reviewedSubscriptionRequests SubscriptionRequest[]       @relation("SubscriptionRequestReviewer")
-  userQuotas                   UserQuota[]
-  allocatedUserQuotas          UserQuota[]                 @relation("UserQuotaAllocator")
+  memberships                       EnterpriseMember[]
+  devices                           Device[]
+  createdKnowledgeBases             KnowledgeBase[]            @relation("KnowledgeBaseCreator")
+  uploadedDocuments                 Document[]                 @relation("DocumentUploader")
+  createdTextChunks                 TextChunk[]                @relation("TextChunkCreator")
+  notifications                     Notification[]
+  createdAnnouncements              Announcement[]             @relation("AnnouncementCreator")
+  reviewedSubscriptionRequests      SubscriptionRequest[]      @relation("SubscriptionRequestReviewer")
+  userQuotas                        UserQuota[]
+  allocatedUserQuotas               UserQuota[]                @relation("UserQuotaAllocator")
+  createdSkillVersions              SkillVersion[]             @relation("SkillVersionCreator")
+  enterpriseReviewedSkillVersions   SkillVersion[]             @relation("SkillVersionEnterpriseReviewer")
+  platformReviewedSkillVersions     SkillVersion[]             @relation("SkillVersionPlatformReviewer")
+  skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
+  selectedSubscriptionSkillVersions SubscriptionSkillVersion[] @relation("SubscriptionSkillVersionSelector")
 
   @@map("users")
 }
@@ -70,24 +75,25 @@ model Enterprise {
   updatedAt DateTime @updatedAt
 
   // Relations
-  departments    Department[]
-  members        EnterpriseMember[]
-  subscriptions  Subscription[]
-  computeAccount ComputeAccount?
-  computeQuotas  ComputeQuota[]
-  userQuotas     UserQuota[]
-  subscriptionQuotas SubscriptionQuota[]
-  wallet         EnterpriseWallet?
-  knowledgeBases KnowledgeBase[]
-  modelConfig    EnterpriseModelConfig?
-  settings       EnterpriseSetting?
-  customRoles    CustomRole[]
-  apiKeys        EnterpriseApiKey[]
-  apiCallLogs    ApiCallLog[]
+  departments          Department[]
+  members              EnterpriseMember[]
+  subscriptions        Subscription[]
+  computeAccount       ComputeAccount?
+  computeQuotas        ComputeQuota[]
+  userQuotas           UserQuota[]
+  subscriptionQuotas   SubscriptionQuota[]
+  wallet               EnterpriseWallet?
+  knowledgeBases       KnowledgeBase[]
+  modelConfig          EnterpriseModelConfig?
+  settings             EnterpriseSetting?
+  customRoles          CustomRole[]
+  apiKeys              EnterpriseApiKey[]
+  apiCallLogs          ApiCallLog[]
   invitations          EnterpriseInvitation[]
   orders               Order[]
   cartItems            CartItem[]
   subscriptionRequests SubscriptionRequest[]
+  skillVersions        SkillVersion[]
 
   @@map("enterprises")
 }
@@ -159,9 +165,9 @@ model EnterpriseMember {
   updatedAt DateTime @updatedAt
 
   // Relations
-  grants                   EmployeeGrant[]
-  subscriptionRequests     SubscriptionRequest[]   @relation("SubscriptionRequestRequester")
-  ledDepartments           Department[]            @relation("DepartmentLeader")
+  grants               EmployeeGrant[]
+  subscriptionRequests SubscriptionRequest[] @relation("SubscriptionRequestRequester")
+  ledDepartments       Department[]          @relation("DepartmentLeader")
 
   @@unique([userId, enterpriseId])
   @@index([enterpriseId])
@@ -274,7 +280,7 @@ model DigitalEmployee {
 
   // Relations
   bindings             EmployeeCapabilityBinding[]
-  subscriptions      Subscription[]
+  subscriptions        Subscription[]
   subscriptionRequests SubscriptionRequest[]
   sessions             ConversationSession[]
   packages             EmployeePackage[]
@@ -388,8 +394,10 @@ model Capability {
   aiAppConfig AIAppConfig?
 
   // Relations
-  bindings       EmployeeCapabilityBinding[]
-  toolExecutions ToolExecution[]
+  bindings                  EmployeeCapabilityBinding[]
+  toolExecutions            ToolExecution[]
+  skillVersions             SkillVersion[]
+  subscriptionSkillVersions SubscriptionSkillVersion[]
 
   @@map("capabilities")
 }
@@ -492,6 +500,98 @@ model SkillConfig {
   @@map("skill_configs")
 }
 
+enum SkillVersionScope {
+  PLATFORM
+  ENTERPRISE
+}
+
+enum SkillVersionStatus {
+  DRAFT
+  PENDING_ENTERPRISE_REVIEW
+  ENTERPRISE_APPROVED
+  PENDING_PLATFORM_REVIEW
+  PLATFORM_APPROVED
+  ENTERPRISE_REJECTED
+  PLATFORM_REJECTED
+  ARCHIVED
+}
+
+model SkillVersion {
+  id           String            @id @default(cuid())
+  capabilityId String
+  capability   Capability        @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  scope        SkillVersionScope
+
+  enterpriseId String?
+  enterprise   Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  parentVersionId String?
+  parentVersion   SkillVersion?  @relation("SkillVersionFork", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  forkedVersions  SkillVersion[] @relation("SkillVersionFork")
+
+  /// 企业版本提交平台时创建独立副本，不改变原企业版本归属。
+  sourceVersionId  String?        @unique
+  sourceVersion    SkillVersion?  @relation("SkillVersionPromotion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  promotedVersions SkillVersion[] @relation("SkillVersionPromotion")
+
+  version       String
+  content       String             @db.Text
+  changeSummary String?            @db.Text
+  status        SkillVersionStatus @default(DRAFT)
+
+  createdById String
+  createdBy   User   @relation("SkillVersionCreator", fields: [createdById], references: [id])
+
+  submittedAt DateTime?
+
+  enterpriseReviewedById String?
+  enterpriseReviewedBy   User?     @relation("SkillVersionEnterpriseReviewer", fields: [enterpriseReviewedById], references: [id], onDelete: SetNull)
+  enterpriseReviewedAt   DateTime?
+
+  platformReviewedById String?
+  platformReviewedBy   User?     @relation("SkillVersionPlatformReviewer", fields: [platformReviewedById], references: [id], onDelete: SetNull)
+  platformReviewedAt   DateTime?
+
+  rejectionReason String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviews         SkillVersionReview[]
+  selections      SubscriptionSkillVersion[]
+  defaultBindings EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
+
+  @@index([capabilityId, status])
+  @@index([enterpriseId, status])
+  @@index([parentVersionId])
+  @@map("skill_versions")
+}
+
+enum SkillReviewActorType {
+  ENTERPRISE
+  PLATFORM
+}
+
+enum SkillReviewDecision {
+  APPROVE
+  REJECT
+}
+
+model SkillVersionReview {
+  id         String               @id @default(cuid())
+  versionId  String
+  version    SkillVersion         @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  actorType  SkillReviewActorType
+  decision   SkillReviewDecision
+  reviewerId String
+  reviewer   User                 @relation("SkillVersionReviewer", fields: [reviewerId], references: [id])
+  comment    String?              @db.Text
+  createdAt  DateTime             @default(now())
+
+  @@index([versionId, createdAt])
+  @@map("skill_version_reviews")
+}
+
 model AIAppConfig {
   id           String     @id @default(cuid())
   capabilityId String     @unique
@@ -527,6 +627,10 @@ model EmployeeCapabilityBinding {
   capabilityId String
   capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
+  /// 平台员工模板默认使用的技能版本；企业实际选版存 SubscriptionSkillVersion。
+  defaultSkillVersionId String?
+  defaultSkillVersion   SkillVersion? @relation("DefaultSkillVersion", fields: [defaultSkillVersionId], references: [id], onDelete: SetNull)
+
   // 绑定配置
   priority Int     @default(0) // 优先级（0-100）
   enabled  Boolean @default(true) // 是否启用
@@ -538,6 +642,7 @@ model EmployeeCapabilityBinding {
   @@unique([employeeId, capabilityId])
   @@index([employeeId])
   @@index([capabilityId])
+  @@index([defaultSkillVersionId])
   @@map("employee_capability_bindings")
 }
 
@@ -581,20 +686,21 @@ model Subscription {
   walletTransactionId String? @unique // 关联扣款记录
 
   /// 新增：终止信息
-  terminatedAt     DateTime?
-  terminatedBy     String? // 操作人 userId
-  terminatedReason String? // 'trial_refund'（试用期退款）, 'user_cancel'（用户主动）
-  refundAmount     Decimal? @db.Decimal(10, 2) // 退款金额
-  refundTransactionId String? @unique // 退款交易记录
+  terminatedAt        DateTime?
+  terminatedBy        String? // 操作人 userId
+  terminatedReason    String? // 'trial_refund'（试用期退款）, 'user_cancel'（用户主动）
+  refundAmount        Decimal?  @db.Decimal(10, 2) // 退款金额
+  refundTransactionId String?   @unique // 退款交易记录
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  grants             EmployeeGrant[]
-  knowledgeGrants  KnowledgeGrant[]
-  fromRequests     SubscriptionRequest[]
-  subscriptionQuota SubscriptionQuota?
+  grants                 EmployeeGrant[]
+  knowledgeGrants        KnowledgeGrant[]
+  fromRequests           SubscriptionRequest[]
+  subscriptionQuota      SubscriptionQuota?
+  skillVersionSelections SubscriptionSkillVersion[]
 
   /// 一个企业对同一员工只雇佣一次。收敛后这条约束即是「一员工一雇佣关系」
   /// 的全部含义 —— 部门差异化由 KnowledgeGrant.departmentId 表达，
@@ -602,6 +708,24 @@ model Subscription {
   @@unique([enterpriseId, employeeId])
   @@index([enterpriseId])
   @@map("subscriptions")
+}
+
+model SubscriptionSkillVersion {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  capabilityId   String
+  capability     Capability   @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  versionId      String
+  version        SkillVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  selectedById   String
+  selectedBy     User         @relation("SubscriptionSkillVersionSelector", fields: [selectedById], references: [id])
+  selectedAt     DateTime     @default(now())
+
+  @@unique([subscriptionId, capabilityId])
+  @@index([subscriptionId])
+  @@index([versionId])
+  @@map("subscription_skill_versions")
 }
 
 /// 使用申请（原「订阅申请」）。普通员工申请使用某硅基员工。
@@ -668,9 +792,9 @@ enum SubscriptionRequestKind {
 ///   SUSPENDED          → PAUSED
 ///   REVOKED            → EXPIRED
 enum SubscriptionStatus {
-  ACTIVE     // 激活
-  PAUSED     // 暂停（企业主动停用）
-  EXPIRED    // 过期 / 已退订
+  ACTIVE // 激活
+  PAUSED // 暂停（企业主动停用）
+  EXPIRED // 过期 / 已退订
   TERMINATED // 已解雇（新增：明确区分主动解雇与自然过期）
 }
 
@@ -793,7 +917,7 @@ model EnterpriseWallet {
   enterpriseId String @unique
 
   /// 可用余额（使用 Decimal 避免浮点精度问题）
-  balance      Decimal @default(0) @db.Decimal(10, 2)
+  balance Decimal @default(0) @db.Decimal(10, 2)
 
   /// 冻结金额（退款处理中、订单待支付等）
   frozenAmount Decimal @default(0) @db.Decimal(10, 2)
@@ -840,7 +964,7 @@ model WalletTransaction {
 
   /// 描述和元数据
   description String? // 人类可读描述："订阅【内容营销专员】"
-  metadata    Json?   // 扩展信息
+  metadata    Json? // 扩展信息
 
   createdAt DateTime @default(now())
   createdBy String? // 操作人 userId（管理员调整时记录）
@@ -854,12 +978,12 @@ model WalletTransaction {
 }
 
 enum WalletTransactionType {
-  DEPOSIT    // 充值（支付宝入账）
-  CONSUME    // 消费（订阅员工、算力消耗）
-  REFUND     // 退款（解雇员工、取消订阅）
+  DEPOSIT // 充值（支付宝入账）
+  CONSUME // 消费（订阅员工、算力消耗）
+  REFUND // 退款（解雇员工、取消订阅）
   ADJUSTMENT // 调整（管理员手动调整）
-  FREEZE     // 冻结（预留）
-  UNFREEZE   // 解冻（预留）
+  FREEZE // 冻结（预留）
+  UNFREEZE // 解冻（预留）
 }
 
 /// 支付订单：充值、订阅支付的订单记录。
@@ -877,7 +1001,7 @@ model PaymentOrder {
   method PaymentMethod // 'alipay', 'wechat'
 
   /// 业务类型
-  businessType String  // 'recharge'（纯充值）, 'subscription'（订阅支付）
+  businessType String // 'recharge'（纯充值）, 'subscription'（订阅支付）
   relatedId    String? // 如果是订阅支付，关联订阅 ID
 
   /// 支付宝回调数据
@@ -895,17 +1019,17 @@ model PaymentOrder {
 }
 
 enum PaymentStatus {
-  PENDING   // 待支付（已创建，等待支付宝回调）
-  PAID      // 已支付（回调成功，已入账）
-  FAILED    // 支付失败
+  PENDING // 待支付（已创建，等待支付宝回调）
+  PAID // 已支付（回调成功，已入账）
+  FAILED // 支付失败
   REFUNDING // 退款中
-  REFUNDED  // 已退款
-  CLOSED    // 已关闭（超时未支付）
+  REFUNDED // 已退款
+  CLOSED // 已关闭（超时未支付）
 }
 
 enum PaymentMethod {
-  ALIPAY  // 支付宝
-  WECHAT  // 微信支付
+  ALIPAY // 支付宝
+  WECHAT // 微信支付
   BALANCE // 余额支付（预留）
 }
 
@@ -946,26 +1070,26 @@ model ComputeAccount {
 /// 管理员给每个用户分配的个人token预算，一次性分配，用完需管理员补充
 /// 用户使用任何硅基员工都先从这里扣除
 model UserQuota {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  totalTokens  Int      // 分配的总量
-  usedTokens   Int      @default(0)
-  status       String   @default("ACTIVE")  // ACTIVE | EXHAUSTED
+  totalTokens Int // 分配的总量
+  usedTokens  Int    @default(0)
+  status      String @default("ACTIVE") // ACTIVE | EXHAUSTED
 
-  allocatedAt  DateTime @default(now()) // 分配时间
-  allocatedBy  String?  // 分配者（管理员 userId）
-  allocator    User?    @relation("UserQuotaAllocator", fields: [allocatedBy], references: [id], onDelete: SetNull)
-  notes        String?  @db.Text // 分配备注
+  allocatedAt DateTime @default(now()) // 分配时间
+  allocatedBy String? // 分配者（管理员 userId）
+  allocator   User?    @relation("UserQuotaAllocator", fields: [allocatedBy], references: [id], onDelete: SetNull)
+  notes       String?  @db.Text // 分配备注
 
   transactions ComputeTransaction[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, enterpriseId])
   @@index([userId])
@@ -976,21 +1100,21 @@ model UserQuota {
 /// 订阅配额（硅基员工自带）- Priority 1
 /// 订阅创建时自动生成，按订阅时长一次性分配，用完后fallback到企业池
 model SubscriptionQuota {
-  id             String   @id @default(cuid())
-  subscriptionId String   @unique
+  id             String       @id @default(cuid())
+  subscriptionId String       @unique
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  enterpriseId   String
-  enterprise     Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  totalTokens    Int      // 订阅自带的token量
-  usedTokens     Int      @default(0)
-  status         String   @default("ACTIVE")  // ACTIVE | EXHAUSTED
+  totalTokens Int // 订阅自带的token量
+  usedTokens  Int    @default(0)
+  status      String @default("ACTIVE") // ACTIVE | EXHAUSTED
 
-  transactions   ComputeTransaction[]
+  transactions ComputeTransaction[]
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([subscriptionId])
   @@index([enterpriseId, status])
@@ -1000,22 +1124,22 @@ model SubscriptionQuota {
 /// 企业配额池（兜底）- Priority 2（最低优先级）
 /// 前两级配额都用完后才使用，企业充值/购买的token池
 model ComputeQuota {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
 
-  type         String   // STANDARD | PREMIUM | CUSTOM (FREE移除，改为UserQuota)
-  totalTokens  Int      // 配额总量
-  usedTokens   Int      @default(0)
+  type        String // STANDARD | PREMIUM | CUSTOM (FREE移除，改为UserQuota)
+  totalTokens Int // 配额总量
+  usedTokens  Int    @default(0)
 
-  expiresAt    DateTime? // null = 永久有效
-  status       String   @default("ACTIVE")  // ACTIVE | EXPIRED | EXHAUSTED
-  priority     Int      @default(2)  // 企业池固定为priority=2
+  expiresAt DateTime? // null = 永久有效
+  status    String    @default("ACTIVE") // ACTIVE | EXPIRED | EXHAUSTED
+  priority  Int       @default(2) // 企业池固定为priority=2
 
   transactions ComputeTransaction[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([enterpriseId, status])
   @@map("compute_quotas")
@@ -1034,20 +1158,20 @@ model ComputeTransaction {
   sessionId String? // 如果是对话消费，关联会话
 
   // 三级配额关联（互斥，只能关联一个）
-  quotaId           String? // 企业配额池ID
-  quota             ComputeQuota? @relation(fields: [quotaId], references: [id], onDelete: SetNull)
-  userQuotaId       String? // 用户个人配额ID
-  userQuota         UserQuota? @relation(fields: [userQuotaId], references: [id], onDelete: SetNull)
+  quotaId             String? // 企业配额池ID
+  quota               ComputeQuota?      @relation(fields: [quotaId], references: [id], onDelete: SetNull)
+  userQuotaId         String? // 用户个人配额ID
+  userQuota           UserQuota?         @relation(fields: [userQuotaId], references: [id], onDelete: SetNull)
   subscriptionQuotaId String? // 订阅配额ID
   subscriptionQuota   SubscriptionQuota? @relation(fields: [subscriptionQuotaId], references: [id], onDelete: SetNull)
 
   quotaTier String? // USER | SUBSCRIPTION | ENTERPRISE (标注从哪一级扣的)
   quotaType String? // 配额类型显示名，如 "李明个人配额" / "市场调研员订阅配额" / "STANDARD企业池"
 
-  tokens    Int? // 本次消费的 token 数（老数据可为 null）
+  tokens Int? // 本次消费的 token 数（老数据可为 null）
 
   description String?
-  metadata    Json?    @db.JsonB
+  metadata    Json?   @db.JsonB
 
   createdAt DateTime @default(now())
 
@@ -1583,17 +1707,17 @@ model DepartmentModelPolicy {
 
 /// 订单状态
 enum OrderStatus {
-  PENDING  // 待支付
-  PAID     // 已支付
-  CLOSED   // 已关闭（超时/取消）
+  PENDING // 待支付
+  PAID // 已支付
+  CLOSED // 已关闭（超时/取消）
   REFUNDED // 已退款
 }
 
 /// 充值订单状态
 enum RechargeOrderStatus {
-  PENDING  // 待支付
-  PAID     // 已支付
-  CLOSED   // 已关闭（超时/取消）
+  PENDING // 待支付
+  PAID // 已支付
+  CLOSED // 已关闭（超时/取消）
 }
 
 /// 支付渠道

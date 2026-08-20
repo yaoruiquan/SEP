@@ -20,8 +20,10 @@ export class DigitalEmployeeService {
   // ────────────────────────────────────────────────────────────────────────────
 
   async create(dto: DigitalEmployeeCreateDto) {
+    let defaultVersions = new Map<string, string>();
     if (dto.capabilityIds.length > 0) {
       await this.validateCapabilitiesApproved(dto.capabilityIds);
+      defaultVersions = await this.getDefaultSkillVersionIds(dto.capabilityIds);
     }
 
     // Build base data object explicitly to satisfy Prisma's required field types
@@ -45,6 +47,7 @@ export class DigitalEmployeeService {
             create: dto.capabilityIds.map((capabilityId, index) => ({
               capabilityId,
               priority: index,
+              defaultSkillVersionId: defaultVersions.get(capabilityId),
             })),
           },
         },
@@ -204,10 +207,16 @@ export class DigitalEmployeeService {
   async bindCapability(employeeId: string, dto: BindCapabilityDto) {
     await this.findOne(employeeId);
     await this.validateCapabilitiesApproved([dto.capabilityId]);
+    const defaultVersions = await this.getDefaultSkillVersionIds([dto.capabilityId]);
 
     try {
       return await this.prisma.employeeCapabilityBinding.create({
-        data: { employeeId, capabilityId: dto.capabilityId, priority: dto.priority },
+        data: {
+          employeeId,
+          capabilityId: dto.capabilityId,
+          priority: dto.priority,
+          defaultSkillVersionId: defaultVersions.get(dto.capabilityId),
+        },
         include: {
           capability: { select: { id: true, name: true, type: true, description: true } },
         },
@@ -218,6 +227,23 @@ export class DigitalEmployeeService {
       }
       throw err;
     }
+  }
+
+  private async getDefaultSkillVersionIds(capabilityIds: string[]) {
+    const versions = await this.prisma.skillVersion.findMany({
+      where: {
+        capabilityId: { in: capabilityIds },
+        scope: 'PLATFORM',
+        status: 'PLATFORM_APPROVED',
+      },
+      select: { id: true, capabilityId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const defaults = new Map<string, string>();
+    for (const version of versions) {
+      if (!defaults.has(version.capabilityId)) defaults.set(version.capabilityId, version.id);
+    }
+    return defaults;
   }
 
   async unbindCapability(employeeId: string, capabilityId: string) {

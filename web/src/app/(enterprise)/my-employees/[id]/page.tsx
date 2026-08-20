@@ -11,6 +11,8 @@ import {
   Clock3,
   Code2,
   FileText,
+  Eye,
+  GitFork,
   KeyRound,
   Loader2,
   PauseCircle,
@@ -40,6 +42,12 @@ import { useSubscriptionGrants } from '@/features/enterprise/use-enterprise';
 import { useEmployeeDetail } from '@/features/employee/use-employee-detail';
 import { useEmployeeStats } from '@/features/employee/use-employee-stats';
 import type { CapabilityType, SubscriptionStatus } from '@/lib/types';
+import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
+import {
+  useCreateEnterpriseSkillVersion,
+  useEmployeeSkillVersions,
+  useSelectSkillVersion,
+} from '@/features/skill-version/use-skill-version';
 
 const STATUS_META: Record<SubscriptionStatus, { label: string; tone: string }> = {
   ACTIVE: {
@@ -109,6 +117,7 @@ export default function EmployeeDetailPage() {
   const [name, setName] = useState('');
   const [config, setConfig] = useState('');
   const [editing, setEditing] = useState(false);
+  const [previewVersionId, setPreviewVersionId] = useState('');
 
   const status = subscription?.status as SubscriptionStatus | undefined;
   const statusMeta = (status && STATUS_META[status]) ?? {
@@ -116,6 +125,9 @@ export default function EmployeeDetailPage() {
     tone: 'border-gdanger/30 bg-gdanger/12 text-gdanger',
   };
   const employee = employeeQuery.data;
+  const skillVersionsQuery = useEmployeeSkillVersions(employeeId);
+  const createSkillVersion = useCreateEnterpriseSkillVersion();
+  const selectSkillVersion = useSelectSkillVersion(employeeId);
   const stats = statsQuery.data;
   const activeName = name || subscription?.name || subscription?.employee?.name || '';
   const configValue = useMemo(() => {
@@ -364,6 +376,9 @@ export default function EmployeeDetailPage() {
                 <CenteredSpinner label="加载能力..." />
               ) : employee?.capabilities.length ? (
                 employee.capabilities.map((capability) => {
+                  const skill = skillVersionsQuery.data?.skills.find(
+                    (item) => item.capability.id === capability.id,
+                  );
                   const meta = CAPABILITY_META[capability.type as CapabilityType] ?? {
                     label: capability.type,
                     tone: 'border-glassline bg-glass-2 text-gtext-secondary',
@@ -392,6 +407,90 @@ export default function EmployeeDetailPage() {
                       <p className="mt-3 text-xs leading-5 text-gtext-secondary">
                         {capability.description || '暂无能力说明'}
                       </p>
+                      {capability.type === 'SKILL' && (
+                        <div className="mt-4 space-y-3 border-t border-glassline pt-3">
+                          {skillVersionsQuery.isLoading ? (
+                            <p className="text-xs text-gtext-muted">加载技能版本...</p>
+                          ) : skill?.currentVersion ? (
+                            <>
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <span className="text-gtext-muted">
+                                  当前 v{skill.currentVersion.version} ·{' '}
+                                  {skill.currentVersion.scope === 'PLATFORM' ? '平台' : '企业'}
+                                </span>
+                                {skill.upgradeAvailable && (
+                                  <Badge className="border-gwarning/30 bg-gwarning/10 text-gwarning">
+                                    有新版本
+                                  </Badge>
+                                )}
+                              </div>
+                              {isAdmin && skill.versions.length > 1 && (
+                                <select
+                                  aria-label={`选择 ${capability.name} 版本`}
+                                  value={skill.currentVersion.id}
+                                  onChange={(event) =>
+                                    selectSkillVersion.mutate(
+                                      {
+                                        subscriptionId: skillVersionsQuery.data!.subscriptionId,
+                                        capabilityId: capability.id,
+                                        versionId: event.target.value,
+                                      },
+                                      {
+                                        onSuccess: () => toast.success('技能版本已切换'),
+                                        onError: (error) =>
+                                          toast.error(error instanceof Error ? error.message : '版本切换失败'),
+                                      },
+                                    )
+                                  }
+                                  className="h-9 w-full rounded-md border border-glassline bg-glass-1 px-3 text-xs text-gtext-primary focus:outline-none focus:ring-2 focus:ring-gbrand-ring"
+                                >
+                                  {skill.versions.map((version) => (
+                                    <option key={version.id} value={version.id}>
+                                      v{version.version} · {version.scope === 'PLATFORM' ? '平台' : '企业'}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="glass"
+                                  size="sm"
+                                  onClick={() => setPreviewVersionId(skill.currentVersion!.id)}
+                                >
+                                  <Eye className="h-4 w-4" /> 查看内容
+                                </Button>
+                                {isAdmin && (
+                                  <Button
+                                    variant="glass"
+                                    size="sm"
+                                    loading={createSkillVersion.isPending}
+                                    onClick={() =>
+                                      createSkillVersion.mutate(
+                                        {
+                                          subscriptionId: skillVersionsQuery.data!.subscriptionId,
+                                          capabilityId: capability.id,
+                                          parentVersionId: skill.currentVersion!.id,
+                                          changeSummary: `基于 v${skill.currentVersion!.version} 创建`,
+                                        },
+                                        {
+                                          onSuccess: (version) =>
+                                            router.push(`/skills/${version.id}/edit`),
+                                          onError: (error) =>
+                                            toast.error(error instanceof Error ? error.message : '创建版本失败'),
+                                        },
+                                      )
+                                    }
+                                  >
+                                    <GitFork className="h-4 w-4" /> 创建企业版本
+                                  </Button>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gtext-muted">暂无可预览版本</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -503,6 +602,11 @@ export default function EmployeeDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      <SkillVersionPreviewDialog
+        versionId={previewVersionId}
+        open={Boolean(previewVersionId)}
+        onOpenChange={(open) => !open && setPreviewVersionId('')}
+      />
     </div>
   );
 }

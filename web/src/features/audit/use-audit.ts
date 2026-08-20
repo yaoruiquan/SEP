@@ -13,13 +13,13 @@ interface RejectCapabilityParams {
 }
 
 // 获取待审核能力列表
-// 注意：GET /capabilities 返回 { total, page, limit, items }，
+// 注意：管理端必须走受 ADMIN 守卫保护的接口，公开 /capabilities 只返回已审核数据。
 // 页面按 { data } 读取，这里统一成 data，避免列表恒为空。
 export function usePendingCapabilities() {
   return useQuery({
     queryKey: ['capabilities', 'pending'],
     queryFn: async () => {
-      const response = await api.get<any>('/capabilities?status=PENDING&limit=100');
+      const response = await api.get<any>('/admin/capabilities?status=PENDING&pageSize=100');
       const rows = response?.items ?? response?.data ?? [];
       return {
         data: rows.map((c: any) => ({
