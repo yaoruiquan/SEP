@@ -65,6 +65,8 @@ services:
 
       # 文件上传
       - UPLOAD_PATH=/app/uploads
+      # 员工包 ZIP 文件必须落在持久化卷，容器重建时不能依赖容器文件系统
+      - PACKAGE_STORAGE_PATH=/app/storage/packages
 
       # 支付宝回调地址（生产）
       - API_BASE_URL=https://longdaoSEP.cn/api
@@ -77,6 +79,7 @@ services:
 
     volumes:
       - sep_uploads:/app/uploads
+      - sep_packages:/app/storage/packages
 
     depends_on:
       sep-migrate:
@@ -159,6 +162,9 @@ services:
 volumes:
   sep_uploads:
     name: sep_uploads
+    driver: local
+  sep_packages:
+    name: sep_packages
     driver: local
 
 # ═══════════════════════════════════════════════════════════════════════════════
