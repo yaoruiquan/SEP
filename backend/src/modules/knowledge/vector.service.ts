@@ -11,13 +11,18 @@ interface SearchResult {
   score: number;
 }
 
+interface CachedVector {
+  knowledgeBaseId: string;
+  vector: Float32Array;
+}
+
 @Injectable()
 export class VectorService {
   private readonly logger = new Logger(VectorService.name);
 
-  // LRU 缓存：enterpriseId -> Map<chunkId, vector>
-  private cache = new Map<string, Map<string, Float32Array>>();
-  private cacheOrder = new Map<string, number>(); // enterpriseId -> timestamp
+  // LRU 缓存：enterpriseId + 授权知识库集合 -> Map<chunkId, vector>
+  private cache = new Map<string, Map<string, CachedVector>>();
+  private cacheOrder = new Map<string, number>();
   private readonly maxCacheSize = 5; // 最多缓存 5 个企业
   private readonly maxMemoryMB = 600; // 最大内存占用 600MB
 
@@ -35,10 +40,11 @@ export class VectorService {
     const startTime = Date.now();
 
     // 1. 尝试从缓存读取
-    const cached = this.cache.get(enterpriseId);
+    const cacheKey = this.buildCacheKey(enterpriseId, knowledgeBaseIds);
+    const cached = this.cache.get(cacheKey);
     if (cached) {
-      this.logger.debug(`Cache HIT for enterprise ${enterpriseId}`);
-      this.updateCacheOrder(enterpriseId);
+      this.logger.debug(`Cache HIT for scope ${cacheKey}`);
+      this.updateCacheOrder(cacheKey);
       return this.searchInMemory(queryVector, cached, knowledgeBaseIds, topK);
     }
 
@@ -47,7 +53,7 @@ export class VectorService {
     const vectors = await this.loadVectorsFromDB(enterpriseId, knowledgeBaseIds);
 
     // 3. 写入缓存
-    this.addToCache(enterpriseId, vectors);
+    this.addToCache(cacheKey, vectors);
 
     // 4. 执行检索
     const results = this.searchInMemory(queryVector, vectors, knowledgeBaseIds, topK);
@@ -65,7 +71,7 @@ export class VectorService {
   private async loadVectorsFromDB(
     enterpriseId: string,
     knowledgeBaseIds: string[],
-  ): Promise<Map<string, Float32Array>> {
+  ): Promise<Map<string, CachedVector>> {
     const chunks = await this.prisma.textChunk.findMany({
       where: {
         knowledgeBase: {
@@ -81,7 +87,7 @@ export class VectorService {
       },
     });
 
-    const vectorMap = new Map<string, Float32Array>();
+    const vectorMap = new Map<string, CachedVector>();
 
     for (const chunk of chunks) {
       if (chunk.embedding) {
@@ -89,7 +95,7 @@ export class VectorService {
         const vector = new Float32Array(
           new Uint8Array(chunk.embedding).buffer
         );
-        vectorMap.set(chunk.id, vector);
+        vectorMap.set(chunk.id, { knowledgeBaseId: chunk.knowledgeBaseId, vector });
       }
     }
 
@@ -105,14 +111,16 @@ export class VectorService {
    */
   private searchInMemory(
     queryVector: Float32Array,
-    vectors: Map<string, Float32Array>,
+    vectors: Map<string, CachedVector>,
     knowledgeBaseIds: string[],
     topK: number,
   ): SearchResult[] {
     const results: SearchResult[] = [];
 
-    for (const [chunkId, vector] of vectors.entries()) {
-      const score = this.cosineSimilarity(queryVector, vector);
+    const allowedKnowledgeBases = new Set(knowledgeBaseIds);
+    for (const [chunkId, cached] of vectors.entries()) {
+      if (!allowedKnowledgeBases.has(cached.knowledgeBaseId)) continue;
+      const score = this.cosineSimilarity(queryVector, cached.vector);
       results.push({ chunkId, score });
     }
 
@@ -147,13 +155,16 @@ export class VectorService {
   /**
    * 添加到 LRU 缓存
    */
-  private addToCache(enterpriseId: string, vectors: Map<string, Float32Array>): void {
+  private addToCache(cacheKey: string, vectors: Map<string, CachedVector>): void {
     // 检查内存占用
-    const vectorSizeMB = (vectors.size * 1024 * 4) / (1024 * 1024); // Float32 = 4 bytes
+    const vectorSizeMB = Array.from(vectors.values()).reduce(
+      (bytes, item) => bytes + item.vector.byteLength,
+      0,
+    ) / (1024 * 1024);
 
     if (vectorSizeMB > this.maxMemoryMB) {
       this.logger.warn(
-        `Enterprise ${enterpriseId} vectors too large (${vectorSizeMB.toFixed(2)}MB), skipping cache`
+        `Vector scope ${cacheKey} too large (${vectorSizeMB.toFixed(2)}MB), skipping cache`
       );
       return;
     }
@@ -168,15 +179,15 @@ export class VectorService {
       }
     }
 
-    this.cache.set(enterpriseId, vectors);
-    this.cacheOrder.set(enterpriseId, Date.now());
+    this.cache.set(cacheKey, vectors);
+    this.cacheOrder.set(cacheKey, Date.now());
   }
 
   /**
    * 更新缓存访问时间
    */
-  private updateCacheOrder(enterpriseId: string): void {
-    this.cacheOrder.set(enterpriseId, Date.now());
+  private updateCacheOrder(cacheKey: string): void {
+    this.cacheOrder.set(cacheKey, Date.now());
   }
 
   /**
@@ -206,18 +217,25 @@ export class VectorService {
       this.logger.log(`Invalidating cache for enterprise ${enterpriseId}`);
     }
 
-    this.cache.delete(enterpriseId);
-    this.cacheOrder.delete(enterpriseId);
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(`${enterpriseId}:`)) {
+        this.cache.delete(key);
+        this.cacheOrder.delete(key);
+      }
+    }
   }
 
   /**
    * 获取缓存统计
    */
   getCacheStats() {
-    const entries = Array.from(this.cache.entries()).map(([enterpriseId, vectors]) => ({
-      enterpriseId,
+    const entries = Array.from(this.cache.entries()).map(([scope, vectors]) => ({
+      scope,
       vectorCount: vectors.size,
-      sizeMB: ((vectors.size * 1024 * 4) / (1024 * 1024)).toFixed(2),
+      sizeMB: (Array.from(vectors.values()).reduce(
+        (bytes, item) => bytes + item.vector.byteLength,
+        0,
+      ) / (1024 * 1024)).toFixed(2),
     }));
 
     return {
@@ -225,5 +243,9 @@ export class VectorService {
       maxSize: this.maxCacheSize,
       entries,
     };
+  }
+
+  private buildCacheKey(enterpriseId: string, knowledgeBaseIds: string[]): string {
+    return `${enterpriseId}:${[...new Set(knowledgeBaseIds)].sort().join(',')}`;
   }
 }

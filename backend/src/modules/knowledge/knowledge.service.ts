@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { VectorService } from './vector.service';
+import * as fs from 'fs/promises';
 import type {
   KnowledgeBaseCreateDto,
   KnowledgeBaseUpdateDto,
-  DocumentUploadDto,
   KnowledgeGrantCreateDto,
 } from 'shared';
 
@@ -13,6 +14,7 @@ export class KnowledgeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly enterpriseCtx: EnterpriseContextService,
+    private readonly vector: VectorService,
   ) {}
 
   // ── 知识库 CRUD ────────────────────────────────────────────────────────────
@@ -38,7 +40,15 @@ export class KnowledgeService {
       include: {
         creator: { select: { id: true, name: true, email: true } },
         documents: {
-          include: {
+          select: {
+            id: true,
+            filename: true,
+            originalName: true,
+            fileSize: true,
+            mimeType: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
             uploader: { select: { id: true, name: true, email: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -71,7 +81,9 @@ export class KnowledgeService {
   }
 
   async create(userId: string, data: KnowledgeBaseCreateDto) {
-    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
+    const context = await this.enterpriseCtx.resolve(userId);
+    this.enterpriseCtx.assertEnterpriseAdmin(context);
+    const { enterpriseId } = context;
 
     return this.prisma.knowledgeBase.create({
       data: {
@@ -88,6 +100,7 @@ export class KnowledgeService {
   }
 
   async update(userId: string, id: string, data: KnowledgeBaseUpdateDto) {
+    this.enterpriseCtx.assertEnterpriseAdmin(await this.enterpriseCtx.resolve(userId));
     await this.getById(userId, id); // 验证权限
 
     return this.prisma.knowledgeBase.update({
@@ -101,69 +114,17 @@ export class KnowledgeService {
   }
 
   async delete(userId: string, id: string) {
-    await this.getById(userId, id); // 验证权限
+    this.enterpriseCtx.assertEnterpriseAdmin(await this.enterpriseCtx.resolve(userId));
+    const knowledgeBase = await this.getById(userId, id); // 验证权限
+
+    const documents = await this.prisma.document.findMany({
+      where: { knowledgeBaseId: id },
+      select: { storagePath: true },
+    });
+    await Promise.all(documents.map((document) => fs.unlink(document.storagePath).catch(() => undefined)));
 
     await this.prisma.knowledgeBase.delete({ where: { id } });
-    return { success: true };
-  }
-
-  // ── 文档管理（MVP：只记录元数据，不做解析） ─────────────────────────────
-
-  async listDocuments(userId: string, knowledgeBaseId: string) {
-    await this.getById(userId, knowledgeBaseId); // 验证权限
-
-    return this.prisma.document.findMany({
-      where: { knowledgeBaseId },
-      include: {
-        uploader: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  /**
-   * 创建文档记录（MVP：文件已上传到 /uploads，这里只记元数据）
-   */
-  async createDocument(
-    userId: string,
-    knowledgeBaseId: string,
-    data: DocumentUploadDto & { filename: string; storagePath: string },
-  ) {
-    await this.getById(userId, knowledgeBaseId); // 验证权限
-
-    return this.prisma.document.create({
-      data: {
-        filename: data.filename,
-        originalName: data.originalName,
-        fileSize: data.fileSize,
-        mimeType: data.mimeType,
-        storagePath: data.storagePath,
-        knowledgeBaseId,
-        uploadedBy: userId,
-        status: 'READY', // MVP: 直接标记为 READY，不做解析
-      },
-      include: {
-        uploader: { select: { id: true, name: true, email: true } },
-      },
-    });
-  }
-
-  async deleteDocument(userId: string, documentId: string) {
-    const doc = await this.prisma.document.findUnique({
-      where: { id: documentId },
-      include: { knowledgeBase: true },
-    });
-
-    if (!doc) {
-      throw new NotFoundException(`Document ${documentId} not found`);
-    }
-
-    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
-    if (doc.knowledgeBase.enterpriseId !== enterpriseId) {
-      throw new ForbiddenException('Access denied');
-    }
-
-    await this.prisma.document.delete({ where: { id: documentId } });
+    this.vector.invalidateCache(knowledgeBase.enterpriseId, id);
     return { success: true };
   }
 
@@ -220,6 +181,7 @@ export class KnowledgeService {
     knowledgeBaseId: string,
     data: KnowledgeGrantCreateDto,
   ) {
+    this.enterpriseCtx.assertEnterpriseAdmin(await this.enterpriseCtx.resolve(userId));
     await this.getById(userId, knowledgeBaseId); // 验证权限
 
     // 验证订阅或部门存在且属于本企业
@@ -263,6 +225,7 @@ export class KnowledgeService {
   }
 
   async deleteGrant(userId: string, grantId: string) {
+    this.enterpriseCtx.assertEnterpriseAdmin(await this.enterpriseCtx.resolve(userId));
     const grant = await this.prisma.knowledgeGrant.findUnique({
       where: { id: grantId },
       include: { knowledgeBase: true },

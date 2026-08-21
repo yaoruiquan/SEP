@@ -7,7 +7,7 @@ interface Document {
   originalName: string;
   mimeType: string;
   fileSize: number;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
   createdAt: string;
   updatedAt: string;
   uploader: {
@@ -60,7 +60,7 @@ export function useUploadDocument(knowledgeBaseId: string) {
       const formData = new FormData();
       formData.append('file', file);
       return await uploadForm<Document>(
-        `/knowledge-bases/${knowledgeBaseId}/documents`,
+        `/knowledge-bases/${knowledgeBaseId}/documents/upload`,
         formData
       );
     },
@@ -79,7 +79,7 @@ export function useDeleteDocument(knowledgeBaseId: string) {
 
   return useMutation({
     mutationFn: async (documentId: string) => {
-      await api.delete(`/knowledge-bases/documents/${documentId}`);
+      await api.delete(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });

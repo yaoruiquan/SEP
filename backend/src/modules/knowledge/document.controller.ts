@@ -10,6 +10,7 @@ import {
   Request,
   Res,
   StreamableFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
@@ -18,8 +19,6 @@ import { DocumentService } from './document.service';
 import { DocumentProcessorService } from './document-processor.service';
 import { Response } from 'express';
 import { createReadStream } from 'fs';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
 
 @ApiTags('Knowledge - Documents')
 @ApiBearerAuth()
@@ -47,16 +46,8 @@ export class DocumentController {
   })
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/knowledge',
-        filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const ext = extname(file.originalname);
-          cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-        },
-      }),
       limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB
+        fileSize: 10 * 1024 * 1024,
       },
     }),
   )
@@ -66,25 +57,42 @@ export class DocumentController {
     @Request() req,
   ) {
     const userId = req.user.id; // JWT strategy sets req.user.id
+    if (!file) throw new BadRequestException('No file uploaded');
     return this.documentService.uploadDocument(knowledgeBaseId, file, userId);
   }
 
   @Get()
   @ApiOperation({ summary: '获取知识库的文档列表' })
-  async listDocuments(@Param('knowledgeBaseId') knowledgeBaseId: string) {
-    return this.documentService.listDocuments(knowledgeBaseId);
+  async listDocuments(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Request() req,
+  ) {
+    return this.documentService.listDocumentsForUser(knowledgeBaseId, req.user.id);
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取文档详情' })
-  async getDocument(@Param('id') id: string) {
-    return this.documentService.getDocument(id);
+  async getDocument(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+  ) {
+    return this.documentService.getDocumentForUser(knowledgeBaseId, id, req.user.id);
   }
 
   @Get(':id/download')
   @ApiOperation({ summary: '下载文档' })
-  async downloadDocument(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
-    const { path, filename } = await this.documentService.downloadDocument(id);
+  async downloadDocument(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { path, filename } = await this.documentService.downloadDocument(
+      knowledgeBaseId,
+      id,
+      req.user.id,
+    );
 
     const file = createReadStream(path);
     res.set({
@@ -97,15 +105,28 @@ export class DocumentController {
 
   @Post(':id/reprocess')
   @ApiOperation({ summary: '重新处理文档（重新解析和向量化）' })
-  async reprocessDocument(@Param('id') id: string) {
+  async reprocessDocument(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+  ) {
+    await this.documentService.assertDocumentAdminAccess(
+      knowledgeBaseId,
+      id,
+      req.user.id,
+    );
     await this.processor.reprocessDocument(id);
     return { message: 'Document reprocessing started' };
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '删除文档' })
-  async deleteDocument(@Param('id') id: string) {
-    await this.documentService.deleteDocument(id);
+  async deleteDocument(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+  ) {
+    await this.documentService.deleteDocument(knowledgeBaseId, id, req.user.id);
     return { message: 'Document deleted successfully' };
   }
 }

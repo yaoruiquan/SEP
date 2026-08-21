@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, uploadForm } from '@/lib/api-client';
 
 export interface KnowledgeBase {
   id: string;
@@ -26,7 +26,7 @@ export interface Document {
   originalName: string;
   fileSize: number;
   mimeType: string;
-  status: 'PENDING' | 'READY' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
   createdAt: string;
   uploader: {
     id: string;
@@ -118,9 +118,10 @@ export function useUploadDocument() {
     mutationFn: ({ knowledgeBaseId, file }: { knowledgeBaseId: string; file: File }) => {
       const formData = new FormData();
       formData.append('file', file);
-      return api.post(`/knowledge-bases/${knowledgeBaseId}/documents`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      return uploadForm<Document>(
+        `/knowledge-bases/${knowledgeBaseId}/documents/upload`,
+        formData,
+      );
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['documents', vars.knowledgeBaseId] });
@@ -134,7 +135,7 @@ export function useDeleteDocument() {
 
   return useMutation({
     mutationFn: ({ documentId, knowledgeBaseId }: { documentId: string; knowledgeBaseId: string }) =>
-      api.delete(`/knowledge-bases/documents/${documentId}`),
+      api.delete(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['documents', vars.knowledgeBaseId] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-base', vars.knowledgeBaseId] });

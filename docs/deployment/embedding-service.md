@@ -24,17 +24,29 @@
 
 ## 配置方案
 
-### 方案 A：开发环境（ARM64 Mac）
+### 方案 A：默认生产/开发方案：复用 sub2api 的 OpenAI 兼容接口
 
-使用 **sub2api** 的 `text-embedding-3-small` 模型（会消耗 token）。
+生产默认复用内部 sub2api，不需要在应用容器旁边再部署 TEI/Infinity。后端容器必须通过 Docker 服务名访问 sub2api，不能使用 `localhost`。
 
-**backend/.env**：
+**本地或公网 OpenAI 兼容网关**：
 ```bash
 EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL=https://longdaoai.cn/v1
+EMBEDDING_BASE_URL=https://longdaoai.cn
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSION=1536
+EMBEDDING_API_KEY=<与网关匹配的 key>
 ```
+
+**生产 Docker Compose（推荐）**：
+```bash
+EMBEDDING_PROVIDER=openai
+EMBEDDING_BASE_URL=http://longdao-sub2api-blue:8080/v1
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSION=1536
+EMBEDDING_API_KEY=${SUB2API_API_KEY}
+```
+
+代码会在兼容端点后追加 `/embeddings`；如果公网基础地址已经包含 `/v1`，不会重复拼接 `/v1/v1`。
 
 **成本**：
 - $0.00002 / 1K tokens
@@ -42,9 +54,9 @@ EMBEDDING_DIMENSION=1536
 
 ---
 
-### 方案 B：生产环境（x86_64 Linux）
+### 方案 B：自建模型服务（仅在不复用 sub2api 时）
 
-使用 **Infinity Server** 本地推理（免费，无外部依赖）。
+使用 **Infinity/TEI** 本地推理（免费，但需要单独维护模型服务）。这不是生产默认方案。
 
 #### 1. 取消 docker-compose.yml 的注释
 
@@ -66,14 +78,16 @@ embedding:
         memory: 1G
 ```
 
-#### 2. 更新 backend/.env
+#### 2. 更新后端环境变量
 
 ```bash
 EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL=http://localhost:8080  # 或 http://embedding:8080 (compose 内网)
+EMBEDDING_BASE_URL=http://embedding:8080  # 后端容器通过 compose 服务名访问
 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
 EMBEDDING_DIMENSION=512
 ```
+
+上面的 Infinity 镜像提供 OpenAI 兼容的 `/embeddings` 接口，因此 provider 仍填写 `openai`。如果改用 TEI 镜像，才使用 `EMBEDDING_PROVIDER=tei`；TEI 请求路径是 `/embed`。
 
 #### 3. 启动容器
 
@@ -110,7 +124,7 @@ curl -X POST http://localhost:8080/embeddings \
 EMBEDDING_PROVIDER=openai
 
 # API 端点
-EMBEDDING_BASE_URL=http://localhost:8080
+EMBEDDING_BASE_URL=https://longdaoai.cn
 
 # 模型 ID（需与容器启动参数一致）
 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
@@ -149,14 +163,14 @@ docker inspect sep-embedding | grep -A 5 Health
 # 3. 检查端口映射
 docker-compose port embedding 8080
 
-# 4. 手动测试 API
+# 4. 手动测试 API（宿主机）
 curl http://localhost:8080/health
 ```
 
 **常见原因**：
 - 容器未启动：`docker-compose up -d embedding`
 - 端口占用：`lsof -i :8080` 检查冲突
-- 网络隔离：backend 容器内使用 `http://embedding:8080` 而非 `localhost`
+- 网络隔离：backend 容器内使用 `http://embedding:8080` 或 `http://longdao-sub2api-blue:8080/v1`，而非 `localhost`
 
 ---
 

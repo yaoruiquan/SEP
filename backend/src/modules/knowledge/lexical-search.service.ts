@@ -12,6 +12,8 @@ interface LexicalSearchResult {
   chunkId: string;
   score: number;
   content: string;
+  source: string;
+  knowledgeBaseId: string;
 }
 
 @Injectable()
@@ -74,6 +76,8 @@ export class LexicalSearchService {
           chunkId: chunk.id,
           score: s.score,
           content: chunk.content,
+          source: chunk.source,
+          knowledgeBaseId: chunk.knowledgeBaseId,
         };
       })
       .filter((r): r is LexicalSearchResult => r !== null);
@@ -100,6 +104,8 @@ export class LexicalSearchService {
         id: string;
         content: string;
         tokens: string[];
+        source: string;
+        knowledgeBaseId: string;
         similarity: number;
       }>
     >`
@@ -107,6 +113,8 @@ export class LexicalSearchService {
         tc.id,
         tc.content,
         tc.tokens,
+        tc.source,
+        tc."knowledgeBaseId",
         similarity(tc.content, ${query}) as similarity
       FROM text_chunks tc
       INNER JOIN knowledge_bases kb ON tc."knowledgeBaseId" = kb.id

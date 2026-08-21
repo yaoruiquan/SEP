@@ -59,7 +59,7 @@ export function MessageBubble({
           )}
           <div
             className={cn(
-              'max-w-[75%] space-y-2 rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-[15px] leading-relaxed text-primary-foreground shadow-sm transition-shadow hover:shadow-md',
+              'min-w-[4rem] max-w-[75%] space-y-2 rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-[15px] leading-relaxed text-primary-foreground shadow-sm transition-shadow hover:shadow-md',
               // 纯附件消息（content 为空）不需要文字行的左右内边距对齐
               hasAttachments && !content && 'py-2',
             )}

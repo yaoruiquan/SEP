@@ -23,6 +23,7 @@ import {
   type BatchReprocessDto,
 } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 
 type AuthedRequest = { user: { id: string; userId?: string } };
 
@@ -42,6 +43,7 @@ export class KnowledgeTestController {
     private readonly testService: KnowledgeTestService,
     private readonly analyticsService: KnowledgeAnalyticsService,
     private readonly prisma: PrismaService,
+    private readonly enterpriseContext: EnterpriseContextService,
   ) {}
 
   // ── 帮助方法：从 userId 解析 enterpriseId ────────────────────────────────
@@ -72,7 +74,9 @@ export class KnowledgeTestController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(TestSearchDtoSchema)) dto: TestSearchDto,
   ) {
-    const enterpriseId = await this.getEnterpriseId(userId(req));
+    const context = await this.enterpriseContext.resolve(userId(req));
+    this.enterpriseContext.assertEnterpriseAdmin(context);
+    const enterpriseId = context.enterpriseId;
     return this.testService.testSearch(id, enterpriseId, dto);
   }
 
@@ -108,7 +112,9 @@ export class KnowledgeTestController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(BatchReprocessDtoSchema)) dto: BatchReprocessDto,
   ) {
-    const enterpriseId = await this.getEnterpriseId(userId(req));
+    const context = await this.enterpriseContext.resolve(userId(req));
+    this.enterpriseContext.assertEnterpriseAdmin(context);
+    const enterpriseId = context.enterpriseId;
     return this.testService.batchReprocess(id, enterpriseId, dto);
   }
 

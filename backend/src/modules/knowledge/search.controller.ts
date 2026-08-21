@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -12,8 +13,6 @@ import { KnowledgeSearchService } from './knowledge-search.service';
 import {
   KnowledgeSearchDto,
   KnowledgeSearchDtoSchema,
-  SearchByKnowledgeBaseDto,
-  SearchByKnowledgeBaseDtoSchema,
 } from '../../shared/knowledge-search.dto';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
@@ -33,11 +32,13 @@ export class SearchController {
   @ApiResponse({ status: 200, description: '返回检索结果列表' })
   @ApiResponse({ status: 401, description: '未授权' })
   async search(
+    @Request() req,
     @Body(new ZodValidationPipe(KnowledgeSearchDtoSchema))
     dto: KnowledgeSearchDto,
   ) {
     const searchResponse = await this.searchService.search(
       dto.query,
+      req.user.id,
       dto.subscriptionId,
       dto.topK,
       dto.scoreThreshold,
@@ -54,31 +55,4 @@ export class SearchController {
     };
   }
 
-  @Post('by-knowledge-base')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: '按知识库 ID 检索（不检查授权）',
-    description: '直接指定知识库 ID 列表进行检索，用于测试和管理后台',
-  })
-  @ApiResponse({ status: 200, description: '返回检索结果列表' })
-  @ApiResponse({ status: 401, description: '未授权' })
-  async searchByKnowledgeBase(
-    @Body(new ZodValidationPipe(SearchByKnowledgeBaseDtoSchema))
-    dto: SearchByKnowledgeBaseDto,
-  ) {
-    const results = await this.searchService.searchByKnowledgeBase(
-      dto.query,
-      dto.knowledgeBaseIds,
-      dto.topK,
-      dto.scoreThreshold,
-      dto.strategy,
-    );
-
-    return {
-      query: dto.query,
-      knowledgeBaseIds: dto.knowledgeBaseIds,
-      results,
-      count: results.length,
-    };
-  }
 }

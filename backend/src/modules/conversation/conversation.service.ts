@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ModelService } from '../model/model.service';
 import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
+import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import {
   ConversationCreateDto,
   ConversationUpdateDto,
@@ -24,6 +25,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly subscriptionService: SubscriptionService,
     private readonly modelService: ModelService,
+    private readonly modelConfig: EnterpriseModelConfigService,
     private readonly storage: StorageService,
     private readonly quotaService: ComputeQuotaService,
   ) {}
@@ -50,16 +52,23 @@ export class ConversationService {
       throw new BadRequestException(quotaCheck.reason);
     }
 
+    // Snapshot the enterprise default at creation time. A null modelId would
+    // silently fall back to the employee template, contradicting the setting
+    // labelled "默认会话模型" in the enterprise console.
+    const enterpriseConfig = await this.modelConfig.get(userId);
+
     const session = await this.prisma.conversationSession.create({
       data: {
         userId,
         employeeId: dto.employeeId,
         title: dto.title ?? null,
+        modelId: enterpriseConfig.defaultChatModel,
       },
       select: {
         id: true,
         title: true,
         status: true,
+        modelId: true,
         createdAt: true,
         updatedAt: true,
         employee: { select: { id: true, name: true, avatar: true } },
@@ -78,6 +87,7 @@ export class ConversationService {
         id: true,
         title: true,
         status: true,
+        modelId: true,
         createdAt: true,
         updatedAt: true,
         employee: { select: { id: true, name: true, avatar: true } },

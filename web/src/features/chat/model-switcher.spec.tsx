@@ -66,10 +66,11 @@ describe('ModelSwitcher', () => {
     expect(screen.queryByText('GPT-4o')).not.toBeInTheDocument();
   });
 
-  it('允许切换时仍按员工模板模型作为未选择时的默认值', () => {
+  it('允许切换时未选择模型也展示企业默认模型', () => {
     renderSwitcher(true);
 
-    expect(screen.getByText('GPT-4o')).toBeInTheDocument();
+    expect(screen.getByText('Gemini 3.5 Flash High')).toBeInTheDocument();
+    expect(screen.queryByText('GPT-4o')).not.toBeInTheDocument();
   });
 
   it('FORCE_DEFAULT 时展示统一指定模型而不是员工模板模型', () => {

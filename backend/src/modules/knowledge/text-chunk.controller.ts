@@ -29,7 +29,7 @@ export class TextChunkController {
     @Body() dto: CreateTextChunkDto,
     @Request() req,
   ) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     return this.textChunkService.createTextChunk(knowledgeBaseId, dto, userId);
   }
 
@@ -37,27 +37,41 @@ export class TextChunkController {
   @ApiOperation({ summary: '获取知识库的文本片段列表' })
   async listTextChunks(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Request() req,
     @Query('search') search?: string,
   ) {
-    return this.textChunkService.listTextChunks(knowledgeBaseId, search);
+    return this.textChunkService.listTextChunks(knowledgeBaseId, req.user.id, search);
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取文本片段详情' })
-  async getTextChunk(@Param('id') id: string) {
-    return this.textChunkService.getTextChunk(id);
+  async getTextChunk(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+  ) {
+    return this.textChunkService.getTextChunk(knowledgeBaseId, id, req.user.id);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: '更新文本片段' })
-  async updateTextChunk(@Param('id') id: string, @Body() dto: UpdateTextChunkDto) {
-    return this.textChunkService.updateTextChunk(id, dto);
+  async updateTextChunk(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateTextChunkDto,
+    @Request() req,
+  ) {
+    return this.textChunkService.updateTextChunk(knowledgeBaseId, id, dto, req.user.id);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '删除文本片段' })
-  async deleteTextChunk(@Param('id') id: string) {
-    await this.textChunkService.deleteTextChunk(id);
+  async deleteTextChunk(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('id') id: string,
+    @Request() req,
+  ) {
+    await this.textChunkService.deleteTextChunk(knowledgeBaseId, id, req.user.id);
     return { message: 'Text chunk deleted successfully' };
   }
 }

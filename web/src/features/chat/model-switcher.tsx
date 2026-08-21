@@ -66,10 +66,10 @@ export function ModelSwitcher({
   const policyDefault =
     employeeModelPolicy === 'FORCE_DEFAULT'
       ? employeeDefaultModel ?? enterpriseDefaultModel
-      : employeeModelId ?? enterpriseDefaultModel;
+      : enterpriseDefaultModel ?? employeeModelId;
 
-  // 锁定时服务端会忽略会话/员工覆盖并强制使用企业默认模型；允许切换时，
-  // 会话显式选择优先，其次遵循企业配置的员工模型策略。
+  // 新会话已在服务端快照企业默认模型；旧会话的 null 值也优先展示企业默认，
+  // 避免界面显示员工模板模型而实际请求又走另一套默认策略。
   const effective = canSwitch
     ? currentModelId ?? policyDefault ?? ''
     : enterpriseDefaultModel ?? employeeModelId ?? '';

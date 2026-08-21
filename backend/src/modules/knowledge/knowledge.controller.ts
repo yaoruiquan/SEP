@@ -8,13 +8,8 @@ import {
   Body,
   Request,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -84,59 +79,6 @@ export class KnowledgeController {
   @ApiResponse({ status: 404, description: '知识库不存在' })
   async delete(@Request() req: AuthedRequest, @Param('id') id: string) {
     return this.knowledge.delete(req.user.id, id);
-  }
-
-  // ── 文档管理 ──────────────────────────────────────────────────────────────
-
-  @Get(':id/documents')
-  @ApiOperation({ summary: '获取知识库文档列表' })
-  @ApiResponse({ status: 200, description: '文档列表' })
-  async listDocuments(@Request() req: AuthedRequest, @Param('id') id: string) {
-    return this.knowledge.listDocuments(req.user.id, id);
-  }
-
-  @Post(':id/documents')
-  @ApiOperation({ summary: '上传文档到知识库（MVP：仅保存元数据）' })
-  @ApiConsumes('multipart/form-data')
-  @ApiResponse({ status: 201, description: '上传成功' })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/knowledge',
-        filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
-        },
-      }),
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-    }),
-  )
-  async uploadDocument(
-    @Request() req: AuthedRequest,
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    if (!file) {
-      throw new Error('No file uploaded');
-    }
-
-    return this.knowledge.createDocument(req.user.id, id, {
-      filename: file.filename,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-      fileSize: file.size,
-      storagePath: file.path,
-    });
-  }
-
-  @Delete('documents/:documentId')
-  @ApiOperation({ summary: '删除文档' })
-  @ApiResponse({ status: 200, description: '删除成功' })
-  async deleteDocument(
-    @Request() req: AuthedRequest,
-    @Param('documentId') documentId: string,
-  ) {
-    return this.knowledge.deleteDocument(req.user.id, documentId);
   }
 
   // ── 授权管理 ──────────────────────────────────────────────────────────────

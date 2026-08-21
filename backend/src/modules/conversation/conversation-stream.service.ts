@@ -4,7 +4,6 @@ import {
   NotFoundException,
   ForbiddenException,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { streamText } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
@@ -19,7 +18,6 @@ import { KnowledgeSearchService } from "../knowledge/knowledge-search.service";
 import { EnterpriseModelConfigService } from "../enterprise-model-config/enterprise-model-config.service";
 import { ComputeQuotaService } from "../compute-quota/compute-quota.service";
 import {
-  DEFAULT_MODEL_ID,
   calculateCost,
   parseUsdToCnyRate,
   SETTING_KEYS,
@@ -28,6 +26,7 @@ import {
 import { SettingService } from "../setting/setting.service";
 import { UploadService } from "../upload/upload.service";
 import { AttachmentContextService } from "./attachment-context.service";
+import { resolveSub2ApiProviderConfig } from "./sub2api-provider-config";
 import {
   SseEvent,
   ModelMessage,
@@ -46,7 +45,6 @@ export class ConversationStreamService {
     private readonly sessionLockService: SessionLockService,
     private readonly conversationService: ConversationService,
     private readonly subscriptionService: SubscriptionService,
-    private readonly configService: ConfigService,
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly knowledgeSearch: KnowledgeSearchService,
@@ -213,6 +211,7 @@ export class ConversationStreamService {
         try {
           const searchResult = await this.knowledgeSearch.search(
             content,
+            userId,
             subscriptionId,
             3, // topK: 检索 3 个最相关的文本块
             0.7, // scoreThreshold: 相似度阈值
@@ -251,14 +250,8 @@ export class ConversationStreamService {
       }
 
       // 6. 初始化 sub2api provider
-      const baseURL = this.configService.get(
-        "SUB2API_BASE_URL",
-        "https://longdaoai.cn/v1",
-      );
-      const apiKey = this.configService.getOrThrow<string>("SUB2API_API_KEY");
-      const defaultModel = this.configService.get(
-        "SUB2API_DEFAULT_MODEL",
-        DEFAULT_MODEL_ID,
+      const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(
+        this.settingService,
       );
       const hasTools = Object.keys(tools).length > 0;
       // includeUsage 会往请求里加 stream_options，让上游回真实 usage —— 这是准确

@@ -69,6 +69,18 @@ export class DocumentProcessorService {
         throw new Error('Failed to chunk document');
       }
 
+      // BullMQ 重试可能发生在上一次部分写入之后，先清理旧片段保证幂等。
+      await this.prisma.textChunk.deleteMany({ where: { documentId } });
+
+      // 删除旧片段后立即失效缓存，避免后续降级或失败时仍返回旧向量。
+      const kb = await this.prisma.knowledgeBase.findUnique({
+        where: { id: document.knowledgeBaseId },
+        select: { enterpriseId: true },
+      });
+      if (kb) {
+        this.vector.invalidateCache(kb.enterpriseId, document.knowledgeBaseId);
+      }
+
       // 4. 检查 Embedding 服务是否可用
       const embeddingAvailable = await this.embedding.isAvailable();
 
@@ -109,20 +121,15 @@ export class DocumentProcessorService {
 
       this.logger.log(`Stored ${chunks.length} text chunks with embeddings and tokens`);
 
-      // 8. 使缓存失效（让向量服务重新加载）
-      const kb = await this.prisma.knowledgeBase.findUnique({
-        where: { id: document.knowledgeBaseId },
-        select: { enterpriseId: true },
-      });
-
-      if (kb) {
-        this.vector.invalidateCache(kb.enterpriseId, document.knowledgeBaseId);
-      }
-
-      // 9. 更新文档状态为完成
+      // 8. 更新文档状态为完成
       await this.prisma.document.update({
         where: { id: documentId },
-        data: { status: 'READY', lastError: null },
+        data: {
+          status: 'READY',
+          lastError: null,
+          processedAt: new Date(),
+          embeddingModel: model,
+        },
       });
 
       this.logger.log(`Document processing completed: ${documentId}`);
@@ -165,7 +172,12 @@ export class DocumentProcessorService {
     const degradationReason = 'Embedding 服务不可用，已降级为仅词法检索存储（无向量）';
     await this.prisma.document.update({
       where: { id: document.id },
-      data: { status: 'READY', lastError: degradationReason },
+      data: {
+        status: 'READY',
+        lastError: degradationReason,
+        processedAt: new Date(),
+        embeddingModel: null,
+      },
     });
 
     // B3：可用性可见性 —— 记录降级原因（日志 + lastError）

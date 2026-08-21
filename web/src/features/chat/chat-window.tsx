@@ -176,7 +176,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const isEmpty = persisted.length === 0 && !pendingUser && !showLiveAssistant;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
       <header className="z-10 flex flex-shrink-0 items-center gap-3 border-b border-border bg-white px-6 py-3">
         <Bot className="h-5 w-5 text-primary" />
         <div className="flex-1">

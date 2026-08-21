@@ -266,7 +266,7 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
                     <div className="flex items-center gap-2">
                       <Badge
                         variant={
-                          doc.status === 'COMPLETED'
+                          doc.status === 'READY'
                             ? 'default'
                             : doc.status === 'FAILED'
                             ? 'glass-danger'
@@ -277,7 +277,7 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
                           ? '待处理'
                           : doc.status === 'PROCESSING'
                           ? '处理中'
-                          : doc.status === 'COMPLETED'
+                          : doc.status === 'READY'
                           ? '已完成'
                           : '失败'}
                       </Badge>

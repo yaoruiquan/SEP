@@ -24,9 +24,18 @@ export class EmbeddingService implements OnModuleInit {
 
   onModuleInit() {
     this.provider = this.config.get('EMBEDDING_PROVIDER', 'tei');
-    this.baseUrl = this.config.get('EMBEDDING_BASE_URL', 'http://localhost:8080');
+    this.baseUrl = this.config
+      .get('EMBEDDING_BASE_URL', 'http://localhost:8080')
+      .replace(/\/+$/, '');
     this.model = this.config.get('EMBEDDING_MODEL', 'BAAI/bge-small-zh-v1.5');
-    this.dimension = parseInt(this.config.get('EMBEDDING_DIMENSION', '1024'), 10);
+    this.dimension = parseInt(this.config.get('EMBEDDING_DIMENSION', '512'), 10);
+
+    if (!['tei', 'openai', 'wasm'].includes(this.provider)) {
+      throw new Error(`Unsupported embedding provider: ${this.provider}`);
+    }
+    if (!Number.isInteger(this.dimension) || this.dimension <= 0) {
+      throw new Error(`Invalid EMBEDDING_DIMENSION: ${this.dimension}`);
+    }
 
     this.logger.log(
       `EmbeddingService initialized: provider=${this.provider}, model=${this.model}, dimension=${this.dimension}`
@@ -84,22 +93,27 @@ export class EmbeddingService implements OnModuleInit {
     const data = await response.json();
 
     // TEI 返回格式：[[0.1, 0.2, ...], [...]]
-    return data.map((embedding: number[]) => ({
+    return this.validateEmbeddings(data.map((embedding: number[]) => ({
       embedding: new Float32Array(embedding),
       model: this.model,
-    }));
+    })));
   }
 
   /**
    * OpenAI API embedding（备用方案）
    */
   private async embedWithOpenAI(texts: string[]): Promise<EmbeddingResponse[]> {
-    const apiKey = this.config.get('OPENAI_API_KEY');
+    const apiKey = this.config.get('EMBEDDING_API_KEY')
+      || this.config.get('OPENAI_API_KEY')
+      || this.config.get('SUB2API_API_KEY');
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY not configured for OpenAI provider');
+      throw new Error('EMBEDDING_API_KEY not configured for OpenAI provider');
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/embeddings`, {
+    const endpoint = this.baseUrl.endsWith('/v1')
+      ? `${this.baseUrl}/embeddings`
+      : `${this.baseUrl}/v1/embeddings`;
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -119,10 +133,10 @@ export class EmbeddingService implements OnModuleInit {
     const data = await response.json();
 
     // OpenAI 返回格式：{data: [{embedding: [...]}]}
-    return data.data.map((item: any) => ({
+    return this.validateEmbeddings(data.data.map((item: any) => ({
       embedding: new Float32Array(item.embedding),
       model: this.model,
-    }));
+    })));
   }
 
   /**
@@ -135,10 +149,10 @@ export class EmbeddingService implements OnModuleInit {
     const extractor = await pipeline('feature-extraction', this.model);
     const results = await extractor(texts, { pooling: 'mean', normalize: true });
 
-    return texts.map((_, i) => ({
+    return this.validateEmbeddings(texts.map((_, i) => ({
       embedding: new Float32Array(results[i].data),
       model: this.model,
-    }));
+    })));
   }
 
   /**
@@ -167,9 +181,27 @@ export class EmbeddingService implements OnModuleInit {
         });
         return response.ok;
       }
-      return true;
+      if (this.provider === 'openai') {
+        return Boolean(
+          this.config.get('EMBEDDING_API_KEY')
+          || this.config.get('OPENAI_API_KEY')
+          || this.config.get('SUB2API_API_KEY'),
+        );
+      }
+      return this.provider === 'wasm';
     } catch {
       return false;
     }
+  }
+
+  private validateEmbeddings(results: EmbeddingResponse[]): EmbeddingResponse[] {
+    for (const result of results) {
+      if (result.embedding.length !== this.dimension) {
+        throw new Error(
+          `Embedding dimension mismatch for ${this.model}: expected ${this.dimension}, got ${result.embedding.length}`,
+        );
+      }
+    }
+    return results;
   }
 }

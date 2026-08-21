@@ -1,10 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTextChunkDto, UpdateTextChunkDto } from './dto/text-chunk.dto';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { VectorService } from './vector.service';
+import { EmbeddingService } from './embedding.service';
+import { TextTokenizer } from './text-tokenizer.service';
 
 @Injectable()
 export class TextChunkService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private enterpriseContext: EnterpriseContextService,
+    private vector: VectorService,
+    private embedding: EmbeddingService,
+    private tokenizer: TextTokenizer,
+  ) {}
 
   /**
    * 创建文本片段
@@ -14,23 +24,33 @@ export class TextChunkService {
     data: CreateTextChunkDto,
     userId: string,
   ) {
-    // 验证知识库是否存在
-    const kb = await this.prisma.knowledgeBase.findUnique({
-      where: { id: knowledgeBaseId },
-    });
+    await this.assertAdminAccess(knowledgeBaseId, userId);
 
-    if (!kb) {
-      throw new NotFoundException('Knowledge base not found');
+    const content = data.content;
+    const tokens = this.tokenizer.tokenize(content);
+    let embedding: any;
+    let embeddingModel: string | undefined;
+    if (await this.embedding.isAvailable()) {
+      try {
+        const result = await this.embedding.embed(content);
+        embedding = Buffer.from(result.embedding.buffer) as any;
+        embeddingModel = result.model;
+      } catch {
+        // 手动片段仍可通过词法检索使用，状态由 embeddingModel=null 表示降级。
+      }
     }
 
     const textChunk = await this.prisma.textChunk.create({
       data: {
         knowledgeBaseId,
         title: data.title || null,
-        content: data.content,
+        content,
         source: 'manual', // 手动创建的标记为 manual
         tags: data.tags || [],
         createdBy: userId,
+        tokens,
+        embedding,
+        embeddingModel,
       },
       include: {
         creator: {
@@ -49,7 +69,8 @@ export class TextChunkService {
   /**
    * 获取知识库的文本片段列表
    */
-  async listTextChunks(knowledgeBaseId: string, search?: string) {
+  async listTextChunks(knowledgeBaseId: string, userId: string, search?: string) {
+    await this.assertReadAccess(knowledgeBaseId, userId);
     const where: any = { knowledgeBaseId };
 
     // 如果有搜索关键词，在标题和内容中搜索
@@ -88,9 +109,10 @@ export class TextChunkService {
   /**
    * 获取单个文本片段详情
    */
-  async getTextChunk(id: string) {
+  async getTextChunk(knowledgeBaseId: string, id: string, userId: string) {
+    await this.assertReadAccess(knowledgeBaseId, userId);
     const textChunk = await this.prisma.textChunk.findUnique({
-      where: { id },
+      where: { id, knowledgeBaseId },
       include: {
         creator: {
           select: {
@@ -112,9 +134,10 @@ export class TextChunkService {
   /**
    * 更新文本片段
    */
-  async updateTextChunk(id: string, data: UpdateTextChunkDto) {
+  async updateTextChunk(knowledgeBaseId: string, id: string, data: UpdateTextChunkDto, userId: string) {
+    await this.assertAdminAccess(knowledgeBaseId, userId);
     const textChunk = await this.prisma.textChunk.findUnique({
-      where: { id },
+      where: { id, knowledgeBaseId },
     });
 
     if (!textChunk) {
@@ -127,6 +150,7 @@ export class TextChunkService {
         title: data.title !== undefined ? data.title : undefined,
         content: data.content,
         tags: data.tags !== undefined ? data.tags : undefined,
+        ...(data.content !== undefined ? await this.buildSearchFields(data.content) : {}),
       },
       include: {
         creator: {
@@ -139,15 +163,21 @@ export class TextChunkService {
       },
     });
 
+    this.vector.invalidateCache(
+      (await this.enterpriseContext.resolve(userId)).enterpriseId,
+      knowledgeBaseId,
+    );
+
     return updated;
   }
 
   /**
    * 删除文本片段
    */
-  async deleteTextChunk(id: string) {
+  async deleteTextChunk(knowledgeBaseId: string, id: string, userId: string) {
+    await this.assertAdminAccess(knowledgeBaseId, userId);
     const textChunk = await this.prisma.textChunk.findUnique({
-      where: { id },
+      where: { id, knowledgeBaseId },
     });
 
     if (!textChunk) {
@@ -157,5 +187,44 @@ export class TextChunkService {
     await this.prisma.textChunk.delete({
       where: { id },
     });
+
+    const context = await this.enterpriseContext.resolve(userId);
+    this.vector.invalidateCache(context.enterpriseId, knowledgeBaseId);
+  }
+
+  private async assertAdminAccess(knowledgeBaseId: string, userId: string): Promise<void> {
+    const context = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertEnterpriseAdmin(context);
+    const knowledgeBase = await this.prisma.knowledgeBase.findFirst({
+      where: { id: knowledgeBaseId, enterpriseId: context.enterpriseId },
+      select: { id: true },
+    });
+    if (!knowledgeBase) throw new NotFoundException('Knowledge base not found');
+  }
+
+  private async buildSearchFields(content: string): Promise<any> {
+    const fields: any = {
+      tokens: this.tokenizer.tokenize(content),
+    };
+    if (await this.embedding.isAvailable()) {
+      try {
+        const result = await this.embedding.embed(content);
+        fields.embedding = Buffer.from(result.embedding.buffer) as any;
+        fields.embeddingModel = result.model;
+      } catch {
+        fields.embedding = null;
+        fields.embeddingModel = null;
+      }
+    }
+    return fields;
+  }
+
+  private async assertReadAccess(knowledgeBaseId: string, userId: string): Promise<void> {
+    const context = await this.enterpriseContext.resolve(userId);
+    const knowledgeBase = await this.prisma.knowledgeBase.findFirst({
+      where: { id: knowledgeBaseId, enterpriseId: context.enterpriseId },
+      select: { id: true },
+    });
+    if (!knowledgeBase) throw new NotFoundException('Knowledge base not found');
   }
 }

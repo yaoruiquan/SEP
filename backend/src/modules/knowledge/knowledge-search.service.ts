@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
 import { LexicalSearchService } from './lexical-search.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 
 export interface SearchResult {
   content: string;
@@ -30,6 +31,7 @@ export class KnowledgeSearchService {
     private embedding: EmbeddingService,
     private vector: VectorService,
     private lexical: LexicalSearchService,
+    private enterpriseContext: EnterpriseContextService,
   ) {}
 
   /**
@@ -37,6 +39,7 @@ export class KnowledgeSearchService {
    */
   async search(
     query: string,
+    userId: string,
     subscriptionId: string,
     topK: number = 5,
     scoreThreshold: number = 0.7,
@@ -48,12 +51,13 @@ export class KnowledgeSearchService {
     );
 
     // 1. 安全边界：获取授权 + 企业隔离
-    const subscription = await this.prisma.subscription.findUnique({
-      where: { id: subscriptionId },
+    const context = await this.enterpriseContext.resolve(userId);
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { id: subscriptionId, enterpriseId: context.enterpriseId },
     });
 
     if (!subscription) {
-      throw new Error(`Subscription ${subscriptionId} not found`);
+      throw new ForbiddenException('无权检索该雇佣关系的知识库');
     }
 
     const enterpriseId = subscription.enterpriseId;
@@ -61,8 +65,19 @@ export class KnowledgeSearchService {
     // 2. 获取授权的知识库（企业前置过滤）
     const grants = await this.prisma.knowledgeGrant.findMany({
       where: {
-        subscriptionId,
         knowledgeBase: { enterpriseId },
+        OR: [
+          {
+            subscriptionId,
+            OR: [
+              { departmentId: null },
+              ...(context.departmentId ? [{ departmentId: context.departmentId }] : []),
+            ],
+          },
+          ...(context.departmentId
+            ? [{ subscriptionId: null, departmentId: context.departmentId }]
+            : []),
+        ],
       },
       select: { knowledgeBaseId: true },
     });
@@ -95,6 +110,27 @@ export class KnowledgeSearchService {
     const durationMs = Date.now() - startTime;
     this.logger.log(`Search completed in ${durationMs}ms (${results.length} results, strategy: ${actualStrategy})`);
 
+    const resultKnowledgeBases = [...new Set(results.map((result) => result.knowledgeBaseId))];
+    await Promise.all(
+      (resultKnowledgeBases.length > 0 ? resultKnowledgeBases : kbIds).map((knowledgeBaseId) =>
+        this.prisma.knowledgeSearchLog.create({
+          data: {
+            knowledgeBaseId,
+            enterpriseId,
+            query,
+            topK,
+            hitCount: results.filter((result) => result.knowledgeBaseId === knowledgeBaseId).length,
+            topScore: results.find((result) => result.knowledgeBaseId === knowledgeBaseId)?.score ?? null,
+            strategy: actualStrategy,
+            isTest: false,
+            durationMs,
+          },
+        }).catch((error) => {
+          this.logger.warn(`Failed to record knowledge search log: ${error instanceof Error ? error.message : String(error)}`);
+        }),
+      ),
+    );
+
     return { count: results.length, results, strategy: actualStrategy, durationMs };
   }
 
@@ -125,8 +161,8 @@ export class KnowledgeSearchService {
     return lexicalResults.map((r) => ({
       chunkId: r.chunkId,
       content: r.content,
-      source: 'lexical',
-      knowledgeBaseId: '',
+      source: r.source,
+      knowledgeBaseId: r.knowledgeBaseId,
       score: r.score,
     }));
   }
@@ -288,9 +324,7 @@ export class KnowledgeSearchService {
       select: { enterpriseId: true },
     });
 
-    if (!kb) {
-      return [];
-    }
+    if (!kb) throw new NotFoundException('知识库不存在');
 
     // 策略解析
     const actualStrategy = await this.resolveStrategy(strategy);

@@ -1,0 +1,6 @@
+services:
+  sep-backend:
+    environment:
+      REDIS_URL: redis://longdao-redis:6379/1
+      REDIS_HOST: longdao-redis
+      REDIS_PORT: "6379"

@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { KnowledgeService } from './knowledge.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { VectorService } from './vector.service';
 
 const ADMIN_CTX = {
   enterpriseId: 'ent-a',
@@ -20,6 +21,7 @@ describe('KnowledgeService', () => {
     prisma = {
       subscription: { findUnique: jest.fn() },
       knowledgeGrant: { findMany: jest.fn().mockResolvedValue([]) },
+      knowledgeBase: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
     };
     ctx = { resolve: jest.fn().mockResolvedValue(ADMIN_CTX) };
 
@@ -28,6 +30,7 @@ describe('KnowledgeService', () => {
         KnowledgeService,
         { provide: PrismaService, useValue: prisma },
         { provide: EnterpriseContextService, useValue: ctx },
+        { provide: VectorService, useValue: { invalidateCache: jest.fn() } },
       ],
     }).compile();
 

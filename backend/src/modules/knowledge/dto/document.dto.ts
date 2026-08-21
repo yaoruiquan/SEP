@@ -9,9 +9,9 @@ export const DocumentUploadResponseSchema = z.object({
   filename: z.string(),
   originalName: z.string(),
   mimeType: z.string(),
-  size: z.number(),
-  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']),
-  createdAt: z.date(),
+  fileSize: z.number(),
+  status: z.enum(['PENDING', 'PROCESSING', 'READY', 'FAILED']),
+  createdAt: z.coerce.date(),
 });
 
 export type DocumentUploadResponseDto = z.infer<typeof DocumentUploadResponseSchema>;
@@ -24,11 +24,11 @@ export const DocumentListItemSchema = z.object({
   filename: z.string(),
   originalName: z.string(),
   mimeType: z.string(),
-  size: z.number(),
-  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']),
+  fileSize: z.number(),
+  status: z.enum(['PENDING', 'PROCESSING', 'READY', 'FAILED']),
   chunkCount: z.number().optional(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
 });
 
 export type DocumentListItemDto = z.infer<typeof DocumentListItemSchema>;

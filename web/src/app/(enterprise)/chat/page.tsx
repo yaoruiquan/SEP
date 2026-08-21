@@ -34,6 +34,9 @@ export default function ChatPage() {
   }
 
   const effectiveActive = activeId ?? sessions[0]?.id ?? null;
+  const mountedSessionIds = effectiveActive && !sessions.some((s) => s.id === effectiveActive)
+    ? [...sessions.map((s) => s.id), effectiveActive]
+    : sessions.map((s) => s.id);
 
   const handleCreate = (employeeId: string) => {
     createConv.mutate(
@@ -69,7 +72,16 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {effectiveActive ? (
-          <ChatWindow key={effectiveActive} conversationId={effectiveActive} />
+          <>
+            {mountedSessionIds.map((sessionId) => (
+              <div
+                key={sessionId}
+                className={sessionId === effectiveActive ? 'flex min-h-0 w-full min-w-0 flex-1' : 'hidden'}
+              >
+                <ChatWindow conversationId={sessionId} />
+              </div>
+            ))}
+          </>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState
