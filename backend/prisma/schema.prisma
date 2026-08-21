@@ -251,6 +251,7 @@ model DigitalEmployee {
   description String  @db.Text
   industry    String // 行业（电商/金融/医疗等）
   position    String // 岗位（运营/客服/数据分析等）
+  functionalCategory EmployeeCategory @default(OPERATIONS_ORG)
   avatar      String?
   avatarStyle String? // 头像风格（adventurer/avataaars/bottts等，来自 DiceBear）
 
@@ -296,6 +297,16 @@ enum EmployeeStatus {
   APPROVED // 已审核通过（已上架）
   REJECTED // 已拒绝
   ARCHIVED // 已下架
+}
+
+enum EmployeeCategory {
+  TECH
+  PRODUCT_DESIGN
+  MARKETING_GROWTH
+  ECOMMERCE
+  SALES_CUSTOMER
+  OPERATIONS_ORG
+  FINANCE_LEGAL
 }
 
 // ============================================================================

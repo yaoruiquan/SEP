@@ -2,6 +2,7 @@
 
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -32,18 +33,7 @@ interface FilterPanelProps {
 
 // ─── static data ─────────────────────────────────────────────────────────────
 
-/**
- * 职能分类。value 是匹配关键词 —— 后端没有独立的 category 字段，
- * 只能按 position/industry 文本包含来分。空 value = 全部。
- */
-const CATEGORIES = [
-  { label: '人事管理', value: '人事' },
-  { label: '销售支持', value: '销售' },
-  { label: '财务助理', value: '财务' },
-  { label: '运营助理', value: '运营' },
-  { label: '营销文案', value: '营销' },
-  { label: '技术支持', value: '技术' },
-];
+const CATEGORIES = EMPLOYEE_CATEGORIES.map(({ label, value }) => ({ label, value }));
 
 const CAP_TYPES = [
   { label: 'AI 对话', value: 'AGENT' },
@@ -90,10 +80,10 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
         />
       </div>
 
-      {/* ── 职能分类 ────────────────────────────────────────────── */}
+      {/* ── 业务职能 ────────────────────────────────────────────── */}
       <div>
         <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
-          职能分类
+          业务职能
         </p>
         <ul className="space-y-0.5">
           {[{ label: '全部', value: '' }, ...CATEGORIES].map((cat) => {
@@ -125,11 +115,11 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
 
       <div className="h-px bg-glassline" />
 
-      {/* ── 能力类型 ────────────────────────────────────────────── */}
+      {/* ── 能力形态 ────────────────────────────────────────────── */}
       <div>
         <div className="mb-2.5 flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
-            能力类型
+            能力形态
           </p>
           {filters.capTypes.length > 0 && (
             <span className="rounded-full bg-gbrand/15 px-1.5 py-0.5 text-[10px] font-medium text-gbrand-text">

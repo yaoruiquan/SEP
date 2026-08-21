@@ -32,6 +32,7 @@ export class DigitalEmployeeService {
       description: dto.description,
       industry: dto.industry,
       position: dto.position,
+      functionalCategory: dto.functionalCategory,
       avatar: dto.avatar,
       systemPrompt: dto.systemPrompt,
       modelId: dto.modelId,
@@ -127,6 +128,7 @@ export class DigitalEmployeeService {
       description: true,
       industry: true,
       position: true,
+      functionalCategory: true,
       avatar: true,
       price: true, // DEPRECATED - 保留兼容旧数据
       annualPriceCNY: true,

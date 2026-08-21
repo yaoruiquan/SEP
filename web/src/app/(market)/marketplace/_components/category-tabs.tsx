@@ -1,17 +1,13 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 
 const TABS = [
   { label: '全部',  value: '' },
   { label: '热门',  value: '__hot__' },
   { label: '新上架', value: '__new__' },
-  { label: '人事',  value: '人事' },
-  { label: '销售',  value: '销售' },
-  { label: '财务',  value: '财务' },
-  { label: '运营',  value: '运营' },
-  { label: '营销',  value: '营销' },
-  { label: '技术',  value: '技术' },
+  ...EMPLOYEE_CATEGORIES,
 ];
 
 interface CategoryTabsProps {

@@ -36,19 +36,15 @@ import { GrantPanel } from '@/features/enterprise/grant-panel';
 import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { employment, employee as employeeCopy } from '@/locales/zh-CN';
 import type { Subscription, SubscriptionRequest } from '@/lib/types';
+import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 
 /** 顶部 Tab：订阅列表 / 订阅申请 */
 type TopTab = 'subscriptions' | 'requests';
 
-/** 职能分类，与市场页对齐 */
+/** 业务职能，与市场页对齐 */
 const CATEGORY_TABS = [
   { label: '全部', value: '' },
-  { label: '人事', value: '人事' },
-  { label: '销售', value: '销售' },
-  { label: '财务', value: '财务' },
-  { label: '运营', value: '运营' },
-  { label: '营销', value: '营销' },
-  { label: '技术', value: '技术' },
+  ...EMPLOYEE_CATEGORIES,
 ];
 
 function Modal({
@@ -108,8 +104,7 @@ export default function SubscriptionsPage() {
   const filteredSubs = useMemo(() => {
     if (!activeCategory) return subs;
     return subs.filter((sub) => {
-      const text = `${sub.employee.position ?? ''} ${sub.employee.industry ?? ''}`;
-      return text.includes(activeCategory);
+      return sub.employee.functionalCategory === activeCategory;
     });
   }, [subs, activeCategory]);
 

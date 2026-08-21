@@ -23,6 +23,7 @@ import {
 import { MyRequestsModal } from "@/features/subscription-request/my-requests-modal";
 import { SubscriptionRequestModal } from "@/components/subscription-request-modal";
 import type { MarketEmployee } from "@/lib/types";
+import { EMPLOYEE_CATEGORIES } from "@/lib/employee-categories";
 import { EmployeeCard } from "./_components/employee-card";
 import { EmployeeDrawer } from "./_components/employee-drawer";
 import { CategoryTabs } from "./_components/category-tabs";
@@ -34,15 +35,9 @@ import {
   type FilterState,
 } from "./_components/filter-panel";
 
-/** 左侧面板里的职能关键词 —— 用于算各分类的数量 */
-const CATEGORY_KEYS = ["人事", "销售", "财务", "运营", "营销", "技术"];
+const CATEGORY_KEYS = EMPLOYEE_CATEGORIES.map((category) => category.value);
 
 type SortMode = "" | "hot" | "new";
-
-function matchesCategory(emp: MarketEmployee, keyword: string) {
-  if (!keyword) return true;
-  return `${emp.position ?? ""} ${emp.industry ?? ""}`.includes(keyword);
-}
 
 export default function MarketplacePage() {
   const { token, hydrated, roleInEnterprise } = useAuthStore();
@@ -148,14 +143,14 @@ export default function MarketplacePage() {
   const counts = useMemo(() => {
     const out: Record<string, number> = {};
     for (const key of CATEGORY_KEYS) {
-      out[key] = preCategory.filter((e) => matchesCategory(e, key)).length;
+      out[key] = preCategory.filter((e) => e.functionalCategory === key).length;
     }
     return out;
   }, [preCategory]);
 
   const visible = useMemo(() => {
-    const list = preCategory.filter((e) =>
-      matchesCategory(e, filters.category),
+    const list = preCategory.filter(
+      (e) => !filters.category || e.functionalCategory === filters.category,
     );
     if (sort === "hot") {
       return [...list].sort(

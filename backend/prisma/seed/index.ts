@@ -8,7 +8,8 @@
  *
  * 用法：
  *   pnpm db:seed              追加/幂等写入（不清库）
- *   pnpm db:seed -- --reset   先 TRUNCATE 再写入（推荐，保证可复现）
+ *
+ * 注意：目录同步只管理精选技能员工，不执行清库；现有员工和业务数据必须保留。
  */
 import { PrismaClient } from '@prisma/client';
 import { resetDatabase } from './reset';
@@ -37,7 +38,7 @@ async function main() {
     `👥 账号：2 家企业 / ${accounts.acmeDepartments.size} 个部门 / 5 个用户`,
   );
 
-  const catalog = await seedCatalog(prisma);
+  const catalog = await seedCatalog(prisma, accounts.platformAdmin.id);
   const statusCounts = catalog.employees.reduce(
     (acc, e) => {
       acc[e.status] = (acc[e.status] || 0) + 1;
@@ -48,6 +49,9 @@ async function main() {
   console.log(
     `🤖 数字员工：${catalog.employees.length} 个（${Object.entries(statusCounts).map(([k, v]) => `${k}:${v}`).join(' / ')}）`,
   );
+  if (catalog.unmappedHistoricalEmployees.length > 0) {
+    console.warn(`⚠️  未回填业务职能的历史员工：${catalog.unmappedHistoricalEmployees.join('、')}`);
+  }
 
   const usage = await seedDemoUsage(prisma);
   console.log(

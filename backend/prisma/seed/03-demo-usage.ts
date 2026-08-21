@@ -27,7 +27,12 @@ function pickModel() {
 }
 
 // 根据模型生成合理的 token 数量
-function generateTokens(model: string) {
+function generateTokens(model: string): {
+  input: number;
+  output: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+} {
   const base = {
     input: Math.floor(Math.random() * 3000 + 500),
     output: Math.floor(Math.random() * 1500 + 200),
@@ -68,7 +73,7 @@ export async function seedDemoUsage(prisma: PrismaClient) {
     where: { id: 'demo-ent-acme' },
     include: {
       members: { include: { user: true } },
-      subscriptions: { where: { status: 'ACTIVE' }, take: 3 }, // 取前3个订阅
+      subscriptions: { where: { status: 'ACTIVE' }, include: { employee: true }, take: 3 }, // 取前3个订阅
       computeAccount: true,
     },
   });
@@ -99,9 +104,10 @@ export async function seedDemoUsage(prisma: PrismaClient) {
     }
 
     // 重新获取订阅
-    subscriptions = await prisma.subscription.findMany({
-      where: { enterpriseId: acme.id, status: 'ACTIVE' },
-    });
+      subscriptions = await prisma.subscription.findMany({
+        where: { enterpriseId: acme.id, status: 'ACTIVE' },
+        include: { employee: true },
+      });
   }
 
   const members = acme.members.slice(0, 3); // 取前3个成员

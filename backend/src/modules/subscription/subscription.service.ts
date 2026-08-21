@@ -196,7 +196,7 @@ export class SubscriptionService {
         employee: {
           select: {
             id: true, name: true, description: true, avatar: true,
-            industry: true, position: true, status: true, version: true,
+            industry: true, position: true, functionalCategory: true, status: true, version: true,
           },
         },
       },

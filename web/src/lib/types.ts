@@ -84,6 +84,7 @@ export interface DigitalEmployee {
   description: string;
   industry: string;
   position: string;
+  functionalCategory: string;
   avatar: string | null;
   systemPrompt?: string;
   modelId?: string;
@@ -119,7 +120,7 @@ export interface Subscription {
   updatedAt: string;
   employee: Pick<
     DigitalEmployee,
-    'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'status' | 'version'
+    'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'functionalCategory' | 'status' | 'version'
   >;
 }
 
@@ -199,6 +200,7 @@ export interface MarketEmployee {
   description: string;
   industry: string;
   position: string;
+  functionalCategory: string;
   avatar: string | null;
   price: number | null;
   annualPriceCNY: number | null;
