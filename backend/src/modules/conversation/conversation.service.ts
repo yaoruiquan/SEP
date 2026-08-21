@@ -42,7 +42,10 @@ export class ConversationService {
     await this.subscriptionService.assertActiveSubscription(userId, dto.employeeId);
 
     // 对话前检查配额（乐观检查）
-    const quotaCheck = await this.quotaService.checkQuotaBeforeConversation(userId);
+    const quotaCheck = await this.quotaService.checkQuotaBeforeConversation(
+      userId,
+      dto.employeeId,
+    );
     if (!quotaCheck.allowed) {
       throw new BadRequestException(quotaCheck.reason);
     }

@@ -464,6 +464,7 @@ export class ConversationStreamService {
               modelId,
               inputTokens,
               outputTokens,
+              subscriptionId,
             );
           } else {
             this.logger.error(
@@ -823,6 +824,7 @@ export class ConversationStreamService {
     modelId: string,
     inputTokens: number,
     outputTokens: number,
+    subscriptionId?: string,
   ): Promise<void> {
     try {
       // 汇率取系统设置的生效值（管理端可改），非法值回退默认
@@ -848,15 +850,16 @@ export class ConversationStreamService {
         update: {},
       });
 
-      // 对话后消费配额（按优先级扣费，支持跨配额扣除）
+      // 对话后按当前订阅赠送额度、再按当前用户已分配额度扣减。
       const totalTokens = inputTokens + outputTokens;
       const quotaResults = await this.quotaService.consumeQuota(
         userId,
         totalTokens,
         sessionId,
+        subscriptionId,
       );
 
-      // 三级配额消费已在 consumeQuota 内部创建交易记录，这里无需重复创建
+      // 配额消费已在 consumeQuota 内部创建交易记录，这里无需重复创建。
       // 只记录本次消费使用了哪些配额层级
       if (quotaResults.length > 0) {
         this.logger.log(

@@ -1,10 +1,7 @@
 /**
- * 三级配额系统 API Hooks
- *
- * 三级配额优先级：
- * - Priority 0: UserQuota (碳基员工个人配额) - 优先消耗
- * - Priority 1: SubscriptionQuota (硅基员工订阅配额)
- * - Priority 2: ComputeQuota (企业配额池) - 兜底
+ * 企业算力分配 API Hooks。
+ * 对话扣减顺序由后端保证：当前硅基员工的订阅赠送额度 → 当前碳基员工的已分配额度。
+ * 企业池只作为管理员分配额度的来源，不参与对话自动兜底。
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +23,8 @@ export interface QuotaSummary {
   enterprise: {
     totalTokens: number;
     usedTokens: number;
+    allocatedTokens: number;
+    availableTokens: number;
   };
 }
 
@@ -51,6 +50,7 @@ export interface SubscriptionQuotaItem {
   id: string;
   subscriptionId: string;
   employeeName: string | null;
+  employeeAvatar?: string | null;
   employeeId: string | null;
   totalTokens: number;
   usedTokens: number;
@@ -111,7 +111,7 @@ export const quotaKeys = {
 // ============================================================================
 
 /**
- * 获取三级配额总览
+ * 获取企业算力管理总览
  */
 export function useQuotaSummary() {
   return useQuery({
@@ -167,7 +167,7 @@ export function useSubscriptionQuotas() {
 }
 
 /**
- * 获取企业配额池列表
+ * 获取企业可分配池列表
  */
 export function useEnterpriseQuotas() {
   return useQuery({

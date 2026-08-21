@@ -117,7 +117,7 @@ export function UserQuotaTab() {
       <Card>
         <CardHeader>
           <CardTitle>碳基员工个人配额</CardTitle>
-          <CardDescription>为真人员工分配个人算力配额，优先级最高（Priority 0）</CardDescription>
+          <CardDescription>从企业可分配池为碳基员工配置额度；订阅赠送额度不足后才会使用。</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">

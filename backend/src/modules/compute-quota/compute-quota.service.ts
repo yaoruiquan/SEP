@@ -18,14 +18,14 @@ export const ENTERPRISE_QUOTA_PACKAGES = [
 
 export interface QuotaCheckResult {
   allowed: boolean;
-  tier?: 'USER' | 'SUBSCRIPTION' | 'ENTERPRISE';
+  tier?: 'SUBSCRIPTION' | 'USER';
   quotaId?: string;
   remaining?: number;
   reason?: string;
 }
 
 export interface QuotaConsumeResult {
-  tier: 'USER' | 'SUBSCRIPTION' | 'ENTERPRISE';
+  tier: 'SUBSCRIPTION' | 'USER';
   quotaId: string;
   quotaType: string;
   consumed: number;
@@ -43,53 +43,54 @@ export class ComputeQuotaService {
   ) {}
 
   /**
-   * 三级配额检查（对话前乐观检查）
-   * Priority 0: 用户个人配额 → Priority 1: 订阅自带配额 → Priority 2: 企业池
+   * 对话前乐观检查。
+   * 当前硅基员工的订阅赠送额度优先；不足时才允许使用管理员分配给
+   * 当前碳基员工的个人额度。企业可分配池不参与对话自动扣减。
    */
-  async checkQuotaBeforeConversation(userId: string): Promise<QuotaCheckResult> {
+  async checkQuotaBeforeConversation(
+    userId: string,
+    employeeId: string,
+  ): Promise<QuotaCheckResult> {
     const ctx = await this.enterpriseContext.resolve(userId);
 
-    // 1️⃣ 检查用户个人配额
-    const userQuota = await this.prisma.userQuota.findUnique({
-      where: { userId_enterpriseId: { userId, enterpriseId: ctx.enterpriseId } },
-    });
-    if (userQuota && userQuota.status === 'ACTIVE') {
-      const remaining = userQuota.totalTokens - userQuota.usedTokens;
-      if (remaining > 0) {
-        return { allowed: true, tier: 'USER', quotaId: userQuota.id, remaining };
-      }
-    }
-
-    // 2️⃣ 检查订阅自带配额（当前企业所有ACTIVE订阅）
-    const subQuota = await this.prisma.subscriptionQuota.findFirst({
+    const subscription = await this.prisma.subscription.findUnique({
       where: {
-        enterpriseId: ctx.enterpriseId,
-        status: 'ACTIVE',
-        usedTokens: { lt: this.prisma.subscriptionQuota.fields.totalTokens },
+        enterpriseId_employeeId: {
+          enterpriseId: ctx.enterpriseId,
+          employeeId,
+        },
       },
-      include: { subscription: { include: { employee: true } } },
+      select: { id: true },
     });
-    if (subQuota) {
+
+    // 1. 只检查当前硅基员工对应订阅的赠送额度，绝不扫描同企业其他订阅。
+    const subQuota = subscription
+      ? await this.prisma.subscriptionQuota.findUnique({
+          where: { subscriptionId: subscription.id },
+        })
+      : null;
+    if (subQuota?.status === 'ACTIVE') {
       const remaining = subQuota.totalTokens - subQuota.usedTokens;
       if (remaining > 0) {
         return { allowed: true, tier: 'SUBSCRIPTION', quotaId: subQuota.id, remaining };
       }
     }
 
-    // 3️⃣ 检查企业池
-    const enterpriseQuotas = await this.prisma.computeQuota.findMany({
-      where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
-      orderBy: { priority: 'asc' },
+    // 2. 订阅额度不足后，才检查管理员已分配给当前碳基员工的个人额度。
+    const userQuota = await this.prisma.userQuota.findUnique({
+      where: { userId_enterpriseId: { userId, enterpriseId: ctx.enterpriseId } },
     });
-    const availableEnterprise = enterpriseQuotas.find(
-      (q) => q.usedTokens < q.totalTokens,
-    );
-    if (availableEnterprise) {
-      const remaining = availableEnterprise.totalTokens - availableEnterprise.usedTokens;
-      return { allowed: true, tier: 'ENTERPRISE', quotaId: availableEnterprise.id, remaining };
+    if (userQuota?.status === 'ACTIVE') {
+      const remaining = userQuota.totalTokens - userQuota.usedTokens;
+      if (remaining > 0) {
+        return { allowed: true, tier: 'USER', quotaId: userQuota.id, remaining };
+      }
     }
 
-    return { allowed: false, reason: '所有配额已耗尽，请联系管理员分配配额或充值' };
+    return {
+      allowed: false,
+      reason: '当前硅基员工的订阅额度与您的已分配额度均已耗尽，请联系企业管理员分配额度',
+    };
   }
 
   getQuotaPackages() {
@@ -125,13 +126,14 @@ export class ComputeQuotaService {
   }
 
   /**
-   * 三级配额消费
-   * 先扣用户个人配额 → 再扣订阅配额 → 最后扣企业池
+   * 对话配额消费：当前订阅赠送额度 → 当前用户个人额度。
+   * 企业池是管理员用于分配的来源，不是对话自动兜底账户。
    */
   async consumeQuota(
     userId: string,
     tokens: number,
     sessionId: string,
+    subscriptionId?: string,
   ): Promise<QuotaConsumeResult[]> {
     const ctx = await this.enterpriseContext.resolve(userId);
 
@@ -143,14 +145,69 @@ export class ComputeQuotaService {
     let remainingTokens = tokens;
     const results: QuotaConsumeResult[] = [];
 
-    // 1️⃣ 用户个人配额（priority=0）
+    // 1. 仅使用当前硅基员工对应订阅的赠送额度。
+    if (remainingTokens > 0) {
+      const subscriptionQuota = subscriptionId
+        ? await this.prisma.subscriptionQuota.findUnique({
+            where: { subscriptionId },
+            include: { subscription: { include: { employee: true } } },
+          })
+        : null;
+
+      if (
+        subscriptionQuota &&
+        subscriptionQuota.enterpriseId === ctx.enterpriseId &&
+        subscriptionQuota.status === 'ACTIVE'
+      ) {
+        const available = subscriptionQuota.totalTokens - subscriptionQuota.usedTokens;
+        if (available > 0) {
+          const toConsume = Math.min(remainingTokens, available);
+          const newUsed = subscriptionQuota.usedTokens + toConsume;
+          const employeeName = subscriptionQuota.subscription.employee.name ?? '硅基员工';
+
+          await this.prisma.subscriptionQuota.update({
+            where: { id: subscriptionQuota.id },
+            data: {
+              usedTokens: newUsed,
+              status: newUsed >= subscriptionQuota.totalTokens ? 'EXHAUSTED' : 'ACTIVE',
+            },
+          });
+
+          await this.prisma.computeTransaction.create({
+            data: {
+              accountId: account.id,
+              type: 'CONSUME',
+              amount: toConsume * -1,
+              sessionId,
+              subscriptionQuotaId: subscriptionQuota.id,
+              quotaTier: 'SUBSCRIPTION',
+              quotaType: `${employeeName}订阅配额`,
+              tokens: toConsume,
+              description: `对话消费 ${toConsume} tokens（订阅配额）`,
+              metadata: { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
+            },
+          });
+
+          results.push({
+            tier: 'SUBSCRIPTION',
+            quotaId: subscriptionQuota.id,
+            quotaType: `${employeeName}订阅配额`,
+            consumed: toConsume,
+            remaining: Math.max(0, subscriptionQuota.totalTokens - newUsed),
+          });
+          remainingTokens -= toConsume;
+        }
+      }
+    }
+
+    // 2. 订阅赠送额度不足后，使用当前碳基员工的已分配额度。
     if (remainingTokens > 0) {
       const userQuota = await this.prisma.userQuota.findUnique({
         where: { userId_enterpriseId: { userId, enterpriseId: ctx.enterpriseId } },
         include: { user: { select: { name: true } } },
       });
 
-      if (userQuota && userQuota.status === 'ACTIVE') {
+      if (userQuota?.status === 'ACTIVE') {
         const available = userQuota.totalTokens - userQuota.usedTokens;
         if (available > 0) {
           const toConsume = Math.min(remainingTokens, available);
@@ -191,106 +248,6 @@ export class ComputeQuotaService {
       }
     }
 
-    // 2️⃣ 订阅自带配额（priority=1）
-    if (remainingTokens > 0) {
-      const subQuotas = await this.prisma.subscriptionQuota.findMany({
-        where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
-        include: { subscription: { include: { employee: true } } },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      for (const sq of subQuotas) {
-        if (remainingTokens <= 0) break;
-        const available = sq.totalTokens - sq.usedTokens;
-        if (available <= 0) continue;
-
-        const toConsume = Math.min(remainingTokens, available);
-        const newUsed = sq.usedTokens + toConsume;
-        const employeeName = sq.subscription?.employee?.name ?? '硅基员工';
-
-        await this.prisma.subscriptionQuota.update({
-          where: { id: sq.id },
-          data: {
-            usedTokens: newUsed,
-            status: newUsed >= sq.totalTokens ? 'EXHAUSTED' : 'ACTIVE',
-          },
-        });
-
-        await this.prisma.computeTransaction.create({
-          data: {
-            accountId: account.id,
-            type: 'CONSUME',
-            amount: toConsume * -1,
-            sessionId,
-            subscriptionQuotaId: sq.id,
-            quotaTier: 'SUBSCRIPTION',
-            quotaType: `${employeeName}订阅配额`,
-            tokens: toConsume,
-            description: `对话消费 ${toConsume} tokens（订阅配额）`,
-            metadata: { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
-          },
-        });
-
-        results.push({
-          tier: 'SUBSCRIPTION',
-          quotaId: sq.id,
-          quotaType: `${employeeName}订阅配额`,
-          consumed: toConsume,
-          remaining: Math.max(0, sq.totalTokens - newUsed),
-        });
-        remainingTokens -= toConsume;
-      }
-    }
-
-    // 3️⃣ 企业池（priority=2，兜底）
-    if (remainingTokens > 0) {
-      const enterpriseQuotas = await this.prisma.computeQuota.findMany({
-        where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
-        orderBy: { priority: 'asc' },
-      });
-
-      for (const eq of enterpriseQuotas) {
-        if (remainingTokens <= 0) break;
-        const available = eq.totalTokens - eq.usedTokens;
-        if (available <= 0) continue;
-
-        const toConsume = Math.min(remainingTokens, available);
-        const newUsed = eq.usedTokens + toConsume;
-
-        await this.prisma.computeQuota.update({
-          where: { id: eq.id },
-          data: {
-            usedTokens: newUsed,
-            status: newUsed >= eq.totalTokens ? 'EXHAUSTED' : 'ACTIVE',
-          },
-        });
-
-        await this.prisma.computeTransaction.create({
-          data: {
-            accountId: account.id,
-            type: 'CONSUME',
-            amount: toConsume * -1,
-            sessionId,
-            quotaId: eq.id,
-            quotaTier: 'ENTERPRISE',
-            quotaType: `${eq.type}企业池`,
-            tokens: toConsume,
-            description: `对话消费 ${toConsume} tokens（企业池）`,
-            metadata: { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
-          },
-        });
-
-        results.push({
-          tier: 'ENTERPRISE',
-          quotaId: eq.id,
-          quotaType: `${eq.type}企业池`,
-          consumed: toConsume,
-          remaining: Math.max(0, eq.totalTokens - newUsed),
-        });
-        remainingTokens -= toConsume;
-      }
-    }
-
     return results;
   }
 
@@ -312,25 +269,63 @@ export class ComputeQuotaService {
     });
     if (!targetMember) throw new NotFoundException('目标用户不在当前企业');
 
-    return this.prisma.userQuota.upsert({
-      where: { userId_enterpriseId: { userId: targetUserId, enterpriseId: ctx.enterpriseId } },
-      create: {
-        userId: targetUserId,
-        enterpriseId: ctx.enterpriseId,
-        totalTokens,
-        usedTokens: 0,
-        status: 'ACTIVE',
-        allocatedBy: adminUserId,
-        notes,
-      },
-      update: {
-        totalTokens,
-        status: 'ACTIVE', // 重新分配时恢复active
-        allocatedBy: adminUserId,
-        allocatedAt: new Date(),
-        notes,
-      },
-      include: { user: { select: { id: true, name: true, email: true } } },
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.userQuota.findUnique({
+        where: {
+          userId_enterpriseId: {
+            userId: targetUserId,
+            enterpriseId: ctx.enterpriseId,
+          },
+        },
+      });
+
+      if (totalTokens < (current?.usedTokens ?? 0)) {
+        throw new BadRequestException('分配额度不能低于该成员已消耗的额度');
+      }
+
+      const additionalTokens = totalTokens - (current?.totalTokens ?? 0);
+      if (additionalTokens > 0) {
+        const [pool, allocations] = await Promise.all([
+          tx.computeQuota.aggregate({
+            where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
+            _sum: { totalTokens: true, usedTokens: true },
+          }),
+          tx.userQuota.aggregate({
+            where: { enterpriseId: ctx.enterpriseId },
+            _sum: { totalTokens: true },
+          }),
+        ]);
+        const availableTokens =
+          (pool._sum.totalTokens ?? 0) -
+          (pool._sum.usedTokens ?? 0) -
+          (allocations._sum.totalTokens ?? 0);
+        if (additionalTokens > availableTokens) {
+          throw new BadRequestException(
+            `企业可分配额度不足，当前剩余 ${Math.max(0, availableTokens)} tokens`,
+          );
+        }
+      }
+
+      return tx.userQuota.upsert({
+        where: { userId_enterpriseId: { userId: targetUserId, enterpriseId: ctx.enterpriseId } },
+        create: {
+          userId: targetUserId,
+          enterpriseId: ctx.enterpriseId,
+          totalTokens,
+          usedTokens: 0,
+          status: 'ACTIVE',
+          allocatedBy: adminUserId,
+          notes,
+        },
+        update: {
+          totalTokens,
+          status: totalTokens > (current?.usedTokens ?? 0) ? 'ACTIVE' : 'EXHAUSTED',
+          allocatedBy: adminUserId,
+          allocatedAt: new Date(),
+          notes,
+        },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      });
     });
   }
 
@@ -391,7 +386,7 @@ export class ComputeQuotaService {
   async listSubscriptionQuotas(userId: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
 
-    return this.prisma.subscriptionQuota.findMany({
+    const quotas = await this.prisma.subscriptionQuota.findMany({
       where: { enterpriseId: ctx.enterpriseId },
       include: {
         subscription: {
@@ -402,6 +397,18 @@ export class ComputeQuotaService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return quotas.map((quota) => ({
+      id: quota.id,
+      subscriptionId: quota.subscriptionId,
+      employeeId: quota.subscription.employee.id,
+      employeeName: quota.subscription.name ?? quota.subscription.employee.name,
+      employeeAvatar: quota.subscription.employee.avatar,
+      totalTokens: quota.totalTokens,
+      usedTokens: quota.usedTokens,
+      status: quota.status,
+      createdAt: quota.createdAt,
+    }));
   }
 
   // ── 企业池配额管理 ──────────────────────────────────────────────────────────
@@ -435,13 +442,13 @@ export class ComputeQuotaService {
     });
   }
 
-  /** 查询企业配额总览（三层汇总） */
+  /** 查询企业算力管理总览。企业池的可用量是尚未分配给成员的额度。 */
   async getQuotaSummary(userId: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
 
     const [userQuotas, subQuotas, enterpriseQuotas] = await Promise.all([
       this.prisma.userQuota.aggregate({
-        where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
+        where: { enterpriseId: ctx.enterpriseId },
         _sum: { totalTokens: true, usedTokens: true },
       }),
       this.prisma.subscriptionQuota.aggregate({
@@ -454,6 +461,9 @@ export class ComputeQuotaService {
       }),
     ]);
 
+    const enterpriseTotalTokens = enterpriseQuotas._sum.totalTokens ?? 0;
+    const allocatedTokens = userQuotas._sum.totalTokens ?? 0;
+
     return {
       user: {
         totalTokens: userQuotas._sum.totalTokens ?? 0,
@@ -464,8 +474,10 @@ export class ComputeQuotaService {
         usedTokens: subQuotas._sum.usedTokens ?? 0,
       },
       enterprise: {
-        totalTokens: enterpriseQuotas._sum.totalTokens ?? 0,
+        totalTokens: enterpriseTotalTokens,
         usedTokens: enterpriseQuotas._sum.usedTokens ?? 0,
+        allocatedTokens,
+        availableTokens: Math.max(0, enterpriseTotalTokens - (enterpriseQuotas._sum.usedTokens ?? 0) - allocatedTokens),
       },
     };
   }

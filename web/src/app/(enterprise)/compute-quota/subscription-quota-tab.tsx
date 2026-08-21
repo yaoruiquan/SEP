@@ -63,7 +63,7 @@ export function SubscriptionQuotaTab() {
       <CardHeader>
         <CardTitle>硅基员工订阅配额</CardTitle>
         <CardDescription>
-          订阅硅基员工时自动分配，优先级次之（Priority 1）
+          每项额度都绑定到具体硅基员工，只在与该员工对话时优先消耗
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -77,8 +77,8 @@ export function SubscriptionQuotaTab() {
                   className="flex items-center gap-4 rounded-xl border bg-white p-4 shadow-sm"
                 >
                   {/* Icon */}
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                    <Bot className="h-5 w-5 text-emerald-600" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-emerald-100">
+                    {quota.employeeAvatar ? <img src={quota.employeeAvatar} alt={quota.employeeName || '硅基员工'} className="h-full w-full object-cover" /> : <Bot className="h-5 w-5 text-emerald-600" />}
                   </div>
 
                   {/* Name + meta + progress */}

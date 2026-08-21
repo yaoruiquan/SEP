@@ -1063,12 +1063,12 @@ model ComputeAccount {
 }
 
 // ============================================================================
-// Three-tier Quota System (三级配额体系)
+// Enterprise Compute Allocation (企业算力分配体系)
 // ============================================================================
 
-/// 用户个人配额（碳基员工）- Priority 0（最优先）
-/// 管理员给每个用户分配的个人token预算，一次性分配，用完需管理员补充
-/// 用户使用任何硅基员工都先从这里扣除
+/// 用户个人配额（碳基员工）
+/// 管理员从企业可分配池中为成员分配的 token 预算。
+/// 当前硅基员工的订阅赠送额度不足后，才从这里扣除。
 model UserQuota {
   id     String @id @default(cuid())
   userId String
@@ -1097,8 +1097,8 @@ model UserQuota {
   @@map("user_quotas")
 }
 
-/// 订阅配额（硅基员工自带）- Priority 1
-/// 订阅创建时自动生成，按订阅时长一次性分配，用完后fallback到企业池
+/// 订阅配额（硅基员工自带）
+/// 订阅创建时自动生成，只用于该订阅对应硅基员工的对话，优先消耗。
 model SubscriptionQuota {
   id             String       @id @default(cuid())
   subscriptionId String       @unique
@@ -1121,8 +1121,8 @@ model SubscriptionQuota {
   @@map("subscription_quotas")
 }
 
-/// 企业配额池（兜底）- Priority 2（最低优先级）
-/// 前两级配额都用完后才使用，企业充值/购买的token池
+/// 企业可分配池
+/// 企业购买的 token 池，由管理员分配给碳基员工；不参与对话自动扣减。
 model ComputeQuota {
   id           String     @id @default(cuid())
   enterpriseId String

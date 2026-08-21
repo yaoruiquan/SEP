@@ -21,8 +21,8 @@ export class ComputeQuotaController {
   // ── 总览 ────────────────────────────────────────────────────────────────
 
   @Get('summary')
-  @ApiOperation({ summary: '查询三级配额总览' })
-  @ApiResponse({ status: 200, description: '返回用户、订阅、企业三层配额汇总' })
+  @ApiOperation({ summary: '查询企业算力管理总览' })
+  @ApiResponse({ status: 200, description: '返回企业可分配池、成员已分配额度和订阅赠送额度汇总' })
   async getQuotaSummary(@Request() req) {
     return this.quotaService.getQuotaSummary(req.user.id);
   }
@@ -86,11 +86,11 @@ export class ComputeQuotaController {
     return this.quotaService.listSubscriptionQuotas(req.user.id);
   }
 
-  // ── 企业配额池（兜底） ────────────────────────────────────────────────────
+  // ── 企业可分配池 ──────────────────────────────────────────────────────────
 
   @Get('enterprise-quotas')
-  @ApiOperation({ summary: '查询企业配额池列表' })
-  @ApiResponse({ status: 200, description: '返回企业兜底配额池' })
+  @ApiOperation({ summary: '查询企业可分配池列表' })
+  @ApiResponse({ status: 200, description: '返回企业购买的算力包，供管理员分配给碳基员工' })
   async listEnterpriseQuotas(@Request() req) {
     return this.quotaService.listEnterpriseQuotas(req.user.id);
   }

@@ -103,7 +103,7 @@ export function EnterpriseQuotaTab() {
         totalTokens,
         expiresAt: form.expiresAt || undefined,
       });
-      toast({ title: '分配成功', description: `已分配 ${fmt(totalTokens)} tokens 到企业池` });
+      toast({ title: '登记成功', description: `已新增 ${fmt(totalTokens)} tokens 到企业可分配池` });
       setDialogOpen(false);
     } catch (error: any) {
       toast({ title: '分配失败', description: error?.message || '请稍后重试', variant: 'destructive' });
@@ -126,7 +126,7 @@ export function EnterpriseQuotaTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>企业配额池</CardTitle>
-            <CardDescription>个人与订阅配额用尽后兜底使用（Priority 2）</CardDescription>
+            <CardDescription>企业购买的额度来源，由管理员分配给碳基员工，不参与对话自动扣减</CardDescription>
           </div>
           <Button onClick={() => { setForm({ type: 'STANDARD', totalTokens: '', expiresAt: '' }); setDialogOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" />
@@ -202,8 +202,8 @@ export function EnterpriseQuotaTab() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>分配企业配额池</DialogTitle>
-            <DialogDescription>为企业配额池分配算力配额</DialogDescription>
+            <DialogTitle>登记企业可分配额度</DialogTitle>
+            <DialogDescription>新增一笔可供管理员分配给碳基员工的企业额度</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -249,7 +249,7 @@ export function EnterpriseQuotaTab() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
             <Button onClick={handleAllocate} disabled={allocateMutation.isPending}>
               {allocateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              确认分配
+              确认登记
             </Button>
           </DialogFooter>
         </DialogContent>
