@@ -55,6 +55,7 @@ export default function AdminSkillVersionDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-gtext-primary">{query.data.capability.name}</h1>
+            {!query.data.parentVersionId && !query.data.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}
             <Badge className={status.className}>{status.label}</Badge>
           </div>
           <p className="mt-1 text-sm text-gtext-muted">版本 v{query.data.version} · {query.data.scope === 'PLATFORM' ? '平台版本' : '企业版本'}</p>
@@ -77,7 +78,8 @@ export default function AdminSkillVersionDetailPage() {
           <Card className="p-5">
             <h2 className="font-medium text-gtext-primary">版本信息</h2>
             <dl className="mt-4 space-y-3 text-sm">
-              <div><dt className="text-gtext-muted">变更说明</dt><dd className="mt-1 text-gtext-secondary">{query.data.changeSummary || '未填写'}</dd></div>
+              <div><dt className="text-gtext-muted">变更说明</dt><dd className="mt-1 text-gtext-secondary">{query.data.changeSummary || (!query.data.parentVersionId && !query.data.sourceVersionId ? '原始正文' : '未填写')}</dd></div>
+              {query.data.parentVersionId && <div><dt className="text-gtext-muted">版本关系</dt><dd className="mt-1 text-gtext-secondary">基于父版本派生，需核对本次变更说明与正文是否一致。</dd></div>}
               <div><dt className="text-gtext-muted">更新时间</dt><dd className="mt-1 text-gtext-secondary">{new Date(query.data.updatedAt).toLocaleString('zh-CN')}</dd></div>
             </dl>
           </Card>

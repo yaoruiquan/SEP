@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check, Copy, FileCode2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -42,12 +43,16 @@ export function SkillVersionPreviewDialog({
         <DialogHeader className="border-b border-glassline px-6 py-5 pr-14">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogTitle className="text-gtext-primary">
-                {query.data?.capability.name ?? '技能内容'}
-              </DialogTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle className="text-gtext-primary">
+                  {query.data?.capability.name ?? '技能内容'}
+                </DialogTitle>
+                {query.data && !query.data.parentVersionId && !query.data.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}
+              </div>
               <DialogDescription className="mt-1 text-gtext-muted">
                 {query.data ? `版本 ${query.data.version} · ${query.data.scope === 'PLATFORM' ? '平台版本' : '企业版本'}` : '正在加载版本内容'}
               </DialogDescription>
+              {query.data && <p className="mt-2 max-w-3xl text-xs text-gtext-secondary">变更说明：{query.data.changeSummary || (!query.data.parentVersionId && !query.data.sourceVersionId ? '原始正文' : '未填写')}</p>}
             </div>
             <Button variant="glass" size="sm" onClick={copy} disabled={!query.data}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}

@@ -229,8 +229,8 @@ export class SkillVersionService {
     dto: UpdateSkillVersionDto,
   ) {
     const version = await this.getOwnedEnterpriseVersion(userId, versionId);
-    if (version.status !== 'DRAFT') {
-      throw new ConflictException('只有草稿版本可以编辑');
+    if (version.status !== 'DRAFT' && version.status !== 'ENTERPRISE_REJECTED') {
+      throw new ConflictException('只有草稿或被驳回版本可以编辑');
     }
     return this.prisma.skillVersion.update({
       where: { id: version.id },
@@ -246,6 +246,9 @@ export class SkillVersionService {
     const version = await this.getOwnedEnterpriseVersion(userId, versionId);
     if (version.status !== 'DRAFT' && version.status !== 'ENTERPRISE_REJECTED') {
       throw new ConflictException('当前状态不能提交企业审核');
+    }
+    if (version.parentVersionId && !version.changeSummary?.trim()) {
+      throw new BadRequestException('请先填写本版本的变更说明');
     }
     return this.prisma.skillVersion.update({
       where: { id: version.id },

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Eye, Save, Send } from 'lucide-react';
+import { ArrowLeft, Eye, FileText, Save, Send } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CenteredSpinner } from '@/components/ui/feedback';
@@ -36,11 +37,21 @@ export default function SkillVersionEditPage() {
   if (!query.data) return <div className="p-6 text-sm text-gdanger">无法打开技能版本。</div>;
 
   const editable = query.data.status === 'DRAFT' || query.data.status === 'ENTERPRISE_REJECTED';
+  const original = !query.data.parentVersionId && !query.data.sourceVersionId;
+  const validateSummary = () => {
+    if (!original && !summary.trim()) {
+      toast.error('请填写本版本的变更说明');
+      return false;
+    }
+    return true;
+  };
   const save = async () => {
+    if (!validateSummary()) return;
     await update.mutateAsync({ id: versionId, content, changeSummary: summary });
     toast.success('草稿已保存');
   };
   const submitReview = async () => {
+    if (!validateSummary()) return;
     await update.mutateAsync({ id: versionId, content, changeSummary: summary });
     await submit.mutateAsync(versionId);
     toast.success('已提交企业审核');
@@ -71,11 +82,16 @@ export default function SkillVersionEditPage() {
       </div>
       <header>
         <h1 className="text-2xl font-semibold text-gtext-primary">{query.data.capability.name}</h1>
-        <p className="mt-1 text-sm text-gtext-muted">企业版本 v{query.data.version}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gtext-muted">
+          <span>企业版本 v{query.data.version}</span>
+          {original && <Badge variant="glass-info"><FileText className="mr-1 h-3.5 w-3.5" />原始版本</Badge>}
+          {query.data.parentVersionId && <span>基于父版本创建</span>}
+        </div>
       </header>
       <Card className="p-5">
-        <label className="mb-2 block text-sm font-medium text-gtext-secondary">变更说明</label>
-        <Input value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!editable} placeholder="说明这个版本解决了什么业务问题" />
+        <label className="mb-2 block text-sm font-medium text-gtext-secondary">变更说明 {!original && <span className="text-gdanger">*</span>}</label>
+        <Input value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!editable} placeholder={original ? '原始版本可填写初始化说明' : '说明这个版本改了什么、解决了什么问题'} />
+        <p className="mt-2 text-xs text-gtext-muted">{original ? '这是技能的原始正文，后续版本会从此版本派生。' : '提交审核前必须填写，审核人会据此快速判断改动范围。'}</p>
       </Card>
       <Card className="min-h-[65vh] p-5">
         {preview ? (

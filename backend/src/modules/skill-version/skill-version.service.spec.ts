@@ -144,6 +144,40 @@ describe('SkillVersionService', () => {
     expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
   });
 
+  it('allows an enterprise-rejected version to be edited again', async () => {
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'rejected-version',
+      enterpriseId: 'enterprise-1',
+      scope: 'ENTERPRISE',
+      parentVersionId: 'parent-version',
+      status: 'ENTERPRISE_REJECTED',
+    });
+    prisma.skillVersion.update.mockResolvedValue({ id: 'rejected-version' });
+
+    await service.updateEnterpriseVersion('user-1', 'rejected-version', {
+      content: '# Revised skill',
+      changeSummary: '修正审核意见中的步骤说明',
+    });
+
+    expect(prisma.skillVersion.update).toHaveBeenCalled();
+  });
+
+  it('requires a change description before submitting a derived version', async () => {
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'draft-version',
+      enterpriseId: 'enterprise-1',
+      scope: 'ENTERPRISE',
+      parentVersionId: 'parent-version',
+      changeSummary: '   ',
+      status: 'DRAFT',
+    });
+
+    await expect(service.submitEnterpriseReview('user-1', 'draft-version')).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+  });
+
   it('creates a platform review copy without changing the enterprise source version', async () => {
     enterpriseContext.resolve.mockResolvedValue(adminContext);
     const enterpriseVersion = {

@@ -54,6 +54,7 @@ export default function EnterpriseSkillsPage() {
   const selected = visibleGroups.find((g) => g.capability.id === selectedId) ?? visibleGroups[0];
   const actionCount = groups.reduce((n, g) => n + g.versions.filter(needsAction).length, 0);
   const submittedCount = groups.reduce((n, g) => n + g.versions.filter((v) => v.hasPlatformSubmission).length, 0);
+  const reviewCount = groups.reduce((n, g) => n + g.versions.filter((v) => v.status === 'PENDING_ENTERPRISE_REVIEW').length, 0);
 
   const decide = (id: string, decision: 'APPROVE' | 'REJECT') => {
     const comment = decision === 'REJECT' ? window.prompt('请输入驳回原因')?.trim() : undefined;
@@ -67,8 +68,16 @@ export default function EnterpriseSkillsPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-6">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div><h1 className="text-2xl font-semibold text-gtext-primary">技能管理</h1><p className="mt-1 text-sm text-gtext-muted">按技能管理版本路线，处理企业审核并跟踪平台提交。</p></div>
-        <div className="flex items-center gap-6 border-l border-glassline pl-5"><Metric label="技能" value={groups.length} /><Metric label="待处理" value={actionCount} accent={actionCount > 0} /><Metric label="已提交平台" value={submittedCount} /></div>
+        <div>
+          <h1 className="text-2xl font-semibold text-gtext-primary">技能管理</h1>
+          <p className="mt-1 text-sm text-gtext-muted">按技能管理版本路线，处理企业审核并跟踪平台提交。</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 lg:gap-6">
+          {isAdmin && <Button variant={onlyAction ? 'glass-primary' : 'glass'} size="sm" onClick={() => setOnlyAction((value) => !value)}>
+            <Check className="h-4 w-4" /> {onlyAction ? '查看全部版本' : `审核队列${reviewCount ? ` ${reviewCount}` : ''}`}
+          </Button>}
+          <div className="flex items-center gap-6 border-l border-glassline pl-5"><Metric label="技能" value={groups.length} /><Metric label="待处理" value={actionCount} accent={actionCount > 0} /><Metric label="已提交平台" value={submittedCount} /></div>
+        </div>
       </header>
 
       {query.isLoading ? <Card><CenteredSpinner label="加载技能版本..." /></Card> : groups.length ? (
@@ -77,7 +86,7 @@ export default function EnterpriseSkillsPage() {
             <aside className="border-b border-glassline bg-glass-1 lg:border-b-0 lg:border-r">
               <div className="space-y-3 border-b border-glassline p-4">
                 <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" /><Input glass value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="搜索技能" aria-label="搜索技能" /></div>
-                <div className="flex gap-1 rounded-md border border-glassline bg-glass-2 p-1"><FilterButton active={!onlyAction} onClick={() => setOnlyAction(false)}>全部 {groups.length}</FilterButton><FilterButton active={onlyAction} onClick={() => setOnlyAction(true)}>待处理 {actionCount}</FilterButton></div>
+                <div className="flex gap-1 rounded-md border border-glassline bg-glass-2 p-1"><FilterButton active={!onlyAction} onClick={() => setOnlyAction(false)}>全部 {groups.length}</FilterButton><FilterButton active={onlyAction} onClick={() => setOnlyAction(true)}>待审核/待处理 {actionCount}</FilterButton></div>
               </div>
               <div className="max-h-[510px] overflow-y-auto p-2 scroll-thin">
                 {visibleGroups.length ? visibleGroups.map((group) => {
@@ -102,7 +111,7 @@ export default function EnterpriseSkillsPage() {
                     return <article key={version.id} className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
                       {index < selected.versions.length - 1 && <span className="absolute left-[11px] top-6 h-[calc(100%-8px)] w-px bg-glassline" />}
                       <span className={cn('relative z-10 mt-1 h-6 w-6 rounded-full border-4 border-solid-raised', latest ? 'bg-gbrand shadow-[0_0_0_3px_var(--gbrand-ring)]' : 'bg-gtext-disabled')} />
-                      <div className={cn('rounded-md border p-4', latest ? 'border-glassline-brand bg-glass-accent-2' : 'border-glassline bg-glass-1')}><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-gtext-primary">v{version.version}</span>{latest && <Badge className="border border-glassline-brand bg-gbrand/15 text-gbrand-text">最新</Badge>}<Badge className={status.className}>{status.label}</Badge>{version.hasPlatformSubmission && <Badge variant="glass-info">已提交平台</Badge>}</div><p className="mt-1.5 line-clamp-2 text-sm text-gtext-secondary">{version.changeSummary || '未填写变更说明'}</p><p className="mt-2 text-xs text-gtext-muted">更新于 {new Date(version.updatedAt).toLocaleDateString('zh-CN')}</p></div><VersionActions version={version} isAdmin={isAdmin} submitting={submitPlatform.isPending} onPreview={setPreviewId} onDecide={decide} onSubmit={(id) => submitPlatform.mutate(id, { onSuccess: () => toast.success('已生成平台审核副本'), onError: (error) => toast.error(error instanceof Error ? error.message : '提交失败') })} /></div></div>
+                      <div className={cn('rounded-md border p-4', latest ? 'border-glassline-brand bg-glass-accent-2' : 'border-glassline bg-glass-1')}><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-gtext-primary">v{version.version}</span>{latest && <Badge className="border border-glassline-brand bg-gbrand/15 text-gbrand-text">最新</Badge>}{!version.parentVersionId && !version.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}<Badge className={status.className}>{status.label}</Badge>{version.hasPlatformSubmission && <Badge variant="glass-info">已提交平台</Badge>}</div><p className="mt-1.5 line-clamp-2 text-sm text-gtext-secondary">{version.changeSummary || (!version.parentVersionId && !version.sourceVersionId ? '技能原始正文，后续版本从此版本派生' : '未填写变更说明')}</p><p className="mt-2 text-xs text-gtext-muted">更新于 {new Date(version.updatedAt).toLocaleDateString('zh-CN')}</p></div><VersionActions version={version} isAdmin={isAdmin} submitting={submitPlatform.isPending} onPreview={setPreviewId} onDecide={decide} onSubmit={(id) => submitPlatform.mutate(id, { onSuccess: () => toast.success('已生成平台审核副本'), onError: (error) => toast.error(error instanceof Error ? error.message : '提交失败') })} /></div></div>
                     </article>;
                   })}
                 </div>
