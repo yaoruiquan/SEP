@@ -1,447 +1,83 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Clock, CheckCircle, XCircle, PlayCircle, Plus, Wifi, WifiOff } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Loader2, Plus, Play, RotateCcw, Sparkles, StopCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/ui/avatar';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { EmptyState, CenteredSpinner } from '@/components/ui/feedback';
+import { EmptyState } from '@/components/ui/feedback';
 import { LaunchTaskDialog } from '@/features/task/launch-task-dialog';
-import { TaskExecutionPanel } from '@/features/task/task-execution-panel';
-import { TaskListSkeleton } from '@/features/task/task-skeleton';
+import { TaskRunTimeline } from '@/features/task/task-run-timeline';
+import { TaskRunOutput } from '@/features/task/task-run-output';
 import { useChatStream } from '@/features/chat/use-chat-stream';
 import { useConversations, useCreateConversation } from '@/features/chat/use-conversations';
-import { useAuthStore } from '@/lib/auth-store';
 import { useTaskUpdates } from '@/hooks/use-realtime';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import type { ConversationSession } from '@/lib/types';
+import type { TaskPlan, TaskPlanStep } from '@/features/task/task-orchestration';
 
-type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+type HistoryTask = ConversationSession & { employee?: { id: string; name: string; avatar: string | null }; _count?: { messages?: number } };
 
-interface Task {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  employee: { id: string; name: string; avatar: string | null };
-  initiator: { name: string; avatar: string | null };
-  createdAt: string;
-  completedAt?: string;
-  duration?: number;
-  tokens?: number;
-  progress?: number;
-  conversationId?: string;
-  messageCount?: number;
+function HistoryCard({ conversation }: { conversation: HistoryTask }) {
+  return <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-background p-3"><Avatar name={conversation.employee?.name ?? '硅基员工'} src={conversation.employee?.avatar} className="h-9 w-9 text-xs" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{conversation.title || '未命名会话'}</p><p className="mt-1 text-xs text-fg-muted">{conversation.employee?.name ?? '硅基员工'} · {conversation._count?.messages ?? 0} 条消息</p></div><Badge variant="glass" className="shrink-0 text-[11px]">历史执行</Badge></div>;
 }
 
-interface RunningTask {
-  conversationId: string;
-  status: 'running' | 'failed';
-  startedAt: string;
-  tokens?: number;
-}
-
-const STATUS_CONFIGS: Record<TaskStatus, { label: string; dotColor: string; icon: React.ReactNode }> = {
-  pending:   { label: '待执行', dotColor: 'bg-gtext-disabled', icon: <Clock className="h-3.5 w-3.5" /> },
-  running:   { label: '执行中', dotColor: 'bg-gneon-blue',     icon: <PlayCircle className="h-3.5 w-3.5" /> },
-  completed: { label: '已完成', dotColor: 'bg-gsuccess',       icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  failed:    { label: '失败',   dotColor: 'bg-gdanger',         icon: <XCircle className="h-3.5 w-3.5" /> },
-};
-
-function TaskCard({
-  task,
-  onViewLive,
-}: {
-  task: Task;
-  onViewLive: (task: Task) => void;
-}) {
-  const config = STATUS_CONFIGS[task.status];
-
-  return (
-    <Card className="p-5 hover:shadow-card-hover transition-all cursor-pointer" onClick={() => onViewLive(task)}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="font-medium text-base text-neutral-900 truncate">{task.title}</h3>
-            <Badge
-              className={`flex items-center gap-1 shrink-0 border text-xs ${
-                task.status === 'completed'
-                  ? 'border-gsuccess/30 bg-gsuccess/12 text-gsuccess'
-                  : task.status === 'running'
-                  ? 'border-ginfo/30 bg-ginfo/12 text-gneon-blue'
-                  : task.status === 'failed'
-                  ? 'border-gdanger/30 bg-gdanger/12 text-gdanger'
-                  : 'border-glassline bg-glass-2 text-gtext-muted'
-              }`}
-            >
-              {config.icon}
-              {config.label}
-            </Badge>
-          </div>
-
-          <div className="flex items-center gap-4 text-sm text-neutral-600 mb-3">
-            <div className="flex items-center gap-2">
-              <Avatar name={task.employee.name} src={task.employee.avatar} className="h-5 w-5 text-xs" />
-              <span>{task.employee.name}</span>
-            </div>
-            <span className="text-neutral-400">•</span>
-            <div className="flex items-center gap-2">
-              <Avatar name={task.initiator.name} src={task.initiator.avatar} className="h-5 w-5 text-xs" />
-              <span>{task.initiator.name} 发起</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs text-neutral-500">
-            <span>
-              {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true, locale: zhCN })}
-            </span>
-            {task.status === 'running' && task.progress != null && (
-              <>
-                <span>•</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-24 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${task.progress}%` }} />
-                  </div>
-                  <span className="font-medium">{task.progress}%</span>
-                </div>
-              </>
-            )}
-            {task.status === 'completed' && task.duration != null && (
-              <>
-                <span>•</span>
-                <span>耗时 {task.duration}s</span>
-                {task.tokens != null && (
-                  <>
-                    <span>•</span>
-                    <span>{task.tokens.toLocaleString()} tokens</span>
-                  </>
-                )}
-              </>
-            )}
-            {task.status === 'completed' && task.messageCount != null && (
-              <>
-                <span>•</span>
-                <span>{task.messageCount} 条消息</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {task.status === 'running' && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => onViewLive(task)}>
-                查看实时
-              </Button>
-              <Button size="sm" variant="ghost">终止</Button>
-            </>
-          )}
-          {task.status === 'completed' && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => onViewLive(task)}>
-                查看结果
-              </Button>
-              <Button size="sm" variant="ghost">重新执行</Button>
-            </>
-          )}
-          {task.status === 'failed' && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => onViewLive(task)}>
-                查看详情
-              </Button>
-              <Button size="sm" variant="ghost">重试</Button>
-            </>
-          )}
-          {task.status === 'pending' && (
-            <Button size="sm" variant="ghost">取消</Button>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
+function clonePlan(plan: TaskPlan): TaskPlan { return { ...plan, status: 'running', steps: plan.steps.map((step) => ({ ...step })) }; }
 
 export default function TasksPage() {
-  const [activeTab, setActiveTab] = useState<'all' | TaskStatus>('all');
-
-  // Fetch conversations (task history)
-  const { data: conversations = [], isLoading, isError, error } = useConversations();
-  const { user } = useAuthStore();
-
-  // WebSocket 实时更新
-  const { isConnected: wsConnected, reconnectCount } = useTaskUpdates();
-
-  // Track tasks currently running (not yet in API)
-  const [runningTasks, setRunningTasks] = useState<Map<string, RunningTask>>(new Map());
-
-  // Modal state
-  const [launchOpen, setLaunchOpen] = useState(false);
-
-  // Execution panel state
-  const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
-
-  // SSE stream hook
+  const { data: conversations = [], isLoading } = useConversations();
+  const createConversation = useCreateConversation();
+  const { isConnected } = useTaskUpdates();
   const { state: stream, send, stop, reset } = useChatStream();
+  const [launchOpen, setLaunchOpen] = useState(false);
+  const [plan, setPlan] = useState<TaskPlan | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string>();
+  const [finalOutput, setFinalOutput] = useState('');
+  const [isLaunching, setIsLaunching] = useState(false);
+  const stopRequested = useRef(false);
 
-  // Create conversation (our "task" runs inside a conversation)
-  const createConv = useCreateConversation();
+  const currentStep = plan?.steps.find((step) => step.id === selectedStepId) ?? plan?.steps.find((step) => step.status === 'running') ?? plan?.steps.at(-1);
+  const completedCount = plan?.steps.filter((step) => step.status === 'completed').length ?? 0;
+  const progress = plan && plan.steps.length > 0 ? Math.round((completedCount / plan.steps.length) * 100) : 0;
+  const recentConversations = useMemo(() => (conversations as HistoryTask[]).slice(0, 8), [conversations]);
 
-  // Merge API conversations + local running tasks into unified Task[]
-  const tasks = useMemo<Task[]>(() => {
-    const result: Task[] = [];
+  const updateStep = (stepId: string, update: Partial<TaskPlanStep>) => setPlan((current) => current ? ({ ...current, steps: current.steps.map((step) => step.id === stepId ? { ...step, ...update } : step) }) : current);
 
-    // Convert API conversations to tasks
-    conversations.forEach((conv) => {
-      const running = runningTasks.get(conv.id);
-
-      if (running) {
-        // Task is currently running
-        result.push({
-          id: conv.id,
-          title: conv.title || '未命名任务',
-          status: running.status,
-          employee: {
-            id: conv.employee?.id || conv.employeeId,
-            name: conv.employee?.name || '执行员工',
-            avatar: conv.employee?.avatar || null,
-          },
-          initiator: { name: user?.name || '我', avatar: null },
-          createdAt: conv.createdAt,
-          conversationId: conv.id,
-          tokens: running.tokens,
+  const executePlan = async (confirmedPlan: TaskPlan) => {
+    setIsLaunching(true); stopRequested.current = false; setFinalOutput(''); reset();
+    const runningPlan = clonePlan(confirmedPlan);
+    setPlan(runningPlan); setSelectedStepId(runningPlan.steps[0]?.id); setLaunchOpen(false);
+    let previousOutput = '';
+    for (const step of runningPlan.steps) {
+      if (stopRequested.current) break;
+      setSelectedStepId(step.id); updateStep(step.id, { status: 'running', progress: 10, startedAt: new Date().toISOString() });
+      try {
+        const conversation = await createConversation.mutateAsync({ employeeId: step.employee.id, title: confirmedPlan.objective.slice(0, 60) });
+        const prompt = [`这是一个多步骤任务。总目标：${confirmedPlan.objective}`, `当前步骤：${step.title}。${step.description}`, previousOutput ? `前序步骤输出：\n${previousOutput}` : '', '请只完成当前步骤，并返回可供下一步骤使用的清晰结果。'].filter(Boolean).join('\n\n');
+        const startedAt = Date.now();
+        const outcome = await send(conversation.id, prompt, undefined, (info) => {
+          const output = info.text?.trim() ?? ''; previousOutput = output;
+          updateStep(step.id, { status: 'completed', progress: 100, output, completedAt: new Date().toISOString(), durationMs: Date.now() - startedAt }); setFinalOutput(output);
         });
-      } else {
-        // Historical task (completed)
-        result.push({
-          id: conv.id,
-          title: conv.title || '未命名任务',
-          status: 'completed',
-          employee: {
-            id: conv.employee?.id || conv.employeeId,
-            name: conv.employee?.name || '执行员工',
-            avatar: conv.employee?.avatar || null,
-          },
-          initiator: { name: user?.name || '我', avatar: null },
-          createdAt: conv.createdAt,
-          completedAt: conv.updatedAt,
-          conversationId: conv.id,
-          messageCount: conv._count?.messages,
-        });
+        if (outcome !== 'ok') throw new Error('执行被中断');
+      } catch (error) {
+        if (stopRequested.current) {
+          setPlan((current) => current ? { ...current, status: 'stopped' } : current);
+          setIsLaunching(false);
+          return;
+        }
+        updateStep(step.id, { status: 'failed', progress: 100, error: error instanceof Error ? error.message : '执行失败' }); setPlan((current) => current ? { ...current, status: 'failed' } : current); setIsLaunching(false); return;
       }
-    });
-
-    // Add local running tasks not yet in API
-    runningTasks.forEach((task, convId) => {
-      if (!conversations.find((c) => c.id === convId)) {
-        result.push({
-          id: convId,
-          title: '任务执行中...',
-          status: task.status,
-          employee: { id: '', name: '执行员工', avatar: null },
-          initiator: { name: user?.name || '我', avatar: null },
-          createdAt: task.startedAt,
-          conversationId: convId,
-          tokens: task.tokens,
-        });
-      }
-    });
-
-    // Sort by creation time (newest first)
-    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [conversations, runningTasks, user]);
-
-  const handleLaunch = (employeeId: string, content: string) => {
-    createConv.mutate(
-      { employeeId },
-      {
-        onSuccess: (conv) => {
-          // Add to local running tasks
-          setRunningTasks((prev) => {
-            const next = new Map(prev);
-            next.set(conv.id, {
-              conversationId: conv.id,
-              status: 'running',
-              startedAt: new Date().toISOString(),
-            });
-            return next;
-          });
-
-          const newTask: Task = {
-            id: conv.id,
-            title: content.slice(0, 60) + (content.length > 60 ? '...' : ''),
-            status: 'running',
-            employee: { id: employeeId, name: '执行员工', avatar: null },
-            initiator: { name: user?.name || '我', avatar: null },
-            createdAt: new Date().toISOString(),
-            conversationId: conv.id,
-          };
-
-          setActiveTask(newTask);
-          setLaunchOpen(false);
-          setPanelOpen(true);
-          reset();
-
-          // Start streaming (no targetEmployeeId, use conversation's default employee)
-          send(conv.id, content, undefined, (done) => {
-            // Remove from running tasks when complete
-            setRunningTasks((prev) => {
-              const next = new Map(prev);
-              next.delete(conv.id);
-              return next;
-            });
-          });
-        },
-      },
-    );
+    }
+    setPlan((current) => current ? { ...current, status: stopRequested.current ? 'stopped' : 'completed' } : current); setIsLaunching(false);
   };
 
-  const handleViewLive = (task: Task) => {
-    setActiveTask(task);
-    setPanelOpen(true);
-  };
-
-  const filteredTasks =
-    activeTab === 'all' ? tasks : tasks.filter((t) => t.status === activeTab);
-
-  const stats = {
-    all:       tasks.length,
-    running:   tasks.filter((t) => t.status === 'running').length,
-    completed: tasks.filter((t) => t.status === 'completed').length,
-    failed:    tasks.filter((t) => t.status === 'failed').length,
-  };
-
-  return (
-    <div className="flex h-full flex-col bg-neutral-50/50">
-      {/* 页头 */}
-      <div className="border-b border-neutral-200 bg-white px-6 py-5">
-        <div className="mx-auto max-w-7xl flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-neutral-900">任务中心</h1>
-              {/* WebSocket 连接状态 */}
-              <div className="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 bg-neutral-100">
-                {wsConnected ? (
-                  <>
-                    <Wifi className="h-3.5 w-3.5 text-success" />
-                    <span className="text-success font-medium">实时连接</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="h-3.5 w-3.5 text-neutral-500" />
-                    <span className="text-neutral-500">
-                      {reconnectCount > 0 ? `重连中 (${reconnectCount})` : '离线'}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-            <p className="text-sm text-neutral-600 mt-1">管理和追踪所有硅基员工任务</p>
-          </div>
-          <Button onClick={() => setLaunchOpen(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            发起任务
-          </Button>
-        </div>
-      </div>
-
-      {/* Tab 筛选 */}
-      <div className="border-b border-neutral-200 bg-white px-6">
-        <div className="mx-auto max-w-7xl">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-            <TabsList className="bg-transparent h-auto gap-6 p-0 rounded-none">
-              {(['all', 'running', 'completed', 'failed'] as const).map((tab) => {
-                const labels: Record<string, string> = {
-                  all: '全部', running: '执行中', completed: '已完成', failed: '失败',
-                };
-                const count = tab === 'all' ? stats.all : stats[tab];
-                return (
-                  <TabsTrigger
-                    key={tab}
-                    value={tab}
-                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary px-0 pb-3"
-                  >
-                    {labels[tab]}
-                    <Badge className="ml-2 bg-neutral-100 text-neutral-600 border-neutral-200">{count}</Badge>
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          </Tabs>
-        </div>
-      </div>
-
-      {/* 任务列表 */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-7xl">
-          {isLoading ? (
-            <TaskListSkeleton count={5} />
-          ) : isError ? (
-            <Card className="shadow-card">
-              <div className="flex h-full items-center justify-center py-12">
-                <EmptyState
-                  icon={<Clock className="h-12 w-12" />}
-                  title="加载失败"
-                  description={error?.message || '无法加载任务列表，请稍后重试。'}
-                  action={{
-                    label: '刷新页面',
-                    onClick: () => window.location.reload(),
-                  }}
-                />
-              </div>
-            </Card>
-          ) : filteredTasks.length === 0 ? (
-            <Card className="shadow-card">
-              <div className="flex h-full items-center justify-center py-12">
-                <EmptyState
-                  icon={<Clock className="h-12 w-12" />}
-                  title="暂无任务"
-                  description="点击右上角「发起任务」创建第一个任务"
-                />
-              </div>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {filteredTasks.map((task) => (
-                <TaskCard key={task.id} task={task} onViewLive={handleViewLive} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 发起任务 Modal */}
-      <LaunchTaskDialog
-        open={launchOpen}
-        creating={createConv.isPending}
-        onClose={() => setLaunchOpen(false)}
-        onCreate={handleLaunch}
-      />
-
-      {/* 执行详情面板 */}
-      {activeTask && (
-        <TaskExecutionPanel
-          open={panelOpen}
-          taskId={activeTask.id}
-          taskTitle={activeTask.title}
-          stream={stream}
-          onClose={() => setPanelOpen(false)}
-          onStop={() => {
-            stop();
-            setRunningTasks((prev) => {
-              const next = new Map(prev);
-              next.set(activeTask.id, {
-                conversationId: activeTask.id,
-                status: 'failed',
-                startedAt: activeTask.createdAt,
-              });
-              return next;
-            });
-            setPanelOpen(false);
-          }}
-        />
-      )}
-    </div>
-  );
+  return <div className="flex h-full min-h-0 flex-col bg-neutral-50/50">
+    <div className="shrink-0 border-b border-neutral-200 bg-white px-6 py-5"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><div><div className="flex items-center gap-3"><h1 className="text-2xl font-semibold text-neutral-900">任务编排中心</h1><Badge variant="glass" className="gap-1 text-xs"><span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-success' : 'bg-fg-subtle'}`} />{isConnected ? '实时同步' : '离线缓存'}</Badge></div><p className="mt-1 text-sm text-neutral-600">描述目标，确认计划，观察多个硅基员工协同完成任务</p></div><Button onClick={() => setLaunchOpen(true)}><Plus className="mr-1.5 h-4 w-4" />发起编排任务</Button></div></div>
+    <div className="min-h-0 flex-1 overflow-y-auto p-6"><div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+      <aside className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-foreground">最近任务</h2><span className="text-xs text-fg-subtle">{recentConversations.length} 条历史</span></div>{isLoading ? <div className="rounded-xl border border-border bg-background p-5 text-sm text-fg-muted">正在加载历史任务…</div> : recentConversations.length === 0 ? <Card className="p-5"><EmptyState title="还没有历史任务" description="发起一个编排任务，执行过程会显示在这里。" /></Card> : recentConversations.map((conversation) => <HistoryCard key={conversation.id} conversation={conversation} />)}</aside>
+      <main className="min-w-0">{!plan ? <div className="flex min-h-[560px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-white px-8 text-center"><div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Sparkles className="h-7 w-7" /></div><h2 className="text-xl font-semibold text-foreground">把目标交给任务编排器</h2><p className="mt-2 max-w-md text-sm leading-6 text-fg-muted">系统会分析你已订阅的硅基员工，先生成一份可检查的执行计划，再按步骤展示每位员工的工作进度。</p><Button className="mt-6" onClick={() => setLaunchOpen(true)}><Play className="mr-1.5 h-4 w-4" />创建第一个任务</Button></div> : <div className="space-y-5"><div className="rounded-2xl border border-border bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold text-foreground">{plan.objective}</h2><Badge variant={plan.status === 'completed' ? 'default' : plan.status === 'failed' ? 'glass-danger' : 'glass-info'}>{plan.status === 'running' ? '执行中' : plan.status === 'completed' ? '已完成' : plan.status === 'failed' ? '执行失败' : plan.status === 'stopped' ? '已停止' : '计划中'}</Badge></div><p className="mt-1 text-sm text-fg-muted">{plan.summary}</p></div><div className="flex shrink-0 gap-2">{isLaunching && <Button size="sm" variant="secondary" onClick={() => { stopRequested.current = true; stop(); }}><StopCircle className="mr-1.5 h-4 w-4" />停止</Button>}{plan.status === 'completed' && <Button size="sm" variant="secondary" onClick={() => executePlan(plan)}><RotateCcw className="mr-1.5 h-4 w-4" />重新执行</Button>}</div></div><div className="mt-5 flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div><span className="text-xs font-medium text-fg-muted">{completedCount}/{plan.steps.length} 步骤</span></div></div><div className="grid gap-5 lg:grid-cols-[minmax(300px,0.75fr)_minmax(0,1.25fr)]"><Card className="p-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-foreground">执行流程</h3><span className="text-xs text-fg-subtle">按依赖顺序</span></div><TaskRunTimeline steps={plan.steps} activeStepId={selectedStepId} onSelect={(step) => setSelectedStepId(step.id)} /></Card><div className="space-y-4"><Card className="p-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-foreground">实时工作台</h3>{currentStep?.status === 'running' && <span className="inline-flex items-center gap-1.5 text-xs text-primary"><Loader2 className="h-3.5 w-3.5 animate-spin" />{currentStep.employee.name} 正在工作</span>}</div><TaskRunOutput step={currentStep} finalOutput={plan.status === 'completed' ? finalOutput : undefined} /></Card>{stream.toolCalls.length > 0 && <Card className="p-4"><h3 className="mb-3 text-sm font-semibold text-foreground">技能调用记录</h3><div className="space-y-2">{stream.toolCalls.map((tool, index) => <div key={`${tool.name}-${index}`} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs"><span>{tool.name}</span><span className={tool.success === false ? 'text-danger' : 'text-success'}>{tool.status === 'running' ? '调用中' : tool.success === false ? '失败' : '完成'}</span></div>)}</div></Card>}</div></div></div>}</main>
+    </div></div>
+    <LaunchTaskDialog open={launchOpen} creating={isLaunching} onClose={() => setLaunchOpen(false)} onCreate={executePlan} />
+  </div>;
 }

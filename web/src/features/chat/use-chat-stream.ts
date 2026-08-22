@@ -34,6 +34,7 @@ const EMPTY: StreamState = {
 
 export interface DoneInfo {
   messageId?: string;
+  text?: string;
   toolCalls: ToolCallRecord[];
   usage?: {
     promptTokens: number;
@@ -81,6 +82,7 @@ export function useChatStream() {
       setState({ ...EMPTY, streaming: true });
 
       let doneInfo: DoneInfo = { toolCalls: [] };
+      let finalText = '';
 
       try {
         for await (const e of streamMessage(
@@ -92,6 +94,8 @@ export function useChatStream() {
         )) {
           applyEvent(e, setState, (info) => {
             doneInfo = info;
+          }, (delta) => {
+            finalText += delta;
           });
         }
       } catch (err) {
@@ -109,7 +113,7 @@ export function useChatStream() {
 
       abortRef.current = null;
       setState((s) => ({ ...s, streaming: false }));
-      onDone?.(doneInfo);
+      onDone?.({ ...doneInfo, text: finalText });
       return 'ok';
     },
     [],
@@ -122,11 +126,13 @@ function applyEvent(
   e: SseEvent,
   setState: React.Dispatch<React.SetStateAction<StreamState>>,
   captureDone: (info: DoneInfo) => void,
+  captureText?: (delta: string) => void,
 ) {
   const d = e.data as Record<string, unknown> | string | null;
   switch (e.event) {
     case 'text_delta': {
       const delta = typeof d === 'string' ? d : ((d as any)?.text ?? '');
+      captureText?.(delta);
       setState((s) => ({ ...s, text: s.text + delta }));
       break;
     }

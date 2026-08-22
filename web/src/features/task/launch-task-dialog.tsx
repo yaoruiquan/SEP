@@ -1,150 +1,96 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Check, X, Loader2 } from 'lucide-react';
-import { Avatar } from '@/components/ui/avatar';
+import { ArrowRight, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
-import { cn } from '@/lib/utils';
-import { useSubscriptions } from '@/features/subscription/use-subscriptions';
+import { EmptyState, CenteredSpinner } from '@/components/ui/feedback';
+import { useTaskCandidates } from './use-task-candidates';
+import { buildTaskPlan } from './task-planner';
+import { TaskPlanPreview } from './task-plan-preview';
+import type { TaskPlan } from './task-orchestration';
 
 interface LaunchTaskDialogProps {
   open: boolean;
   creating?: boolean;
   onClose: () => void;
-  onCreate: (employeeId: string, taskContent: string) => void;
+  onCreate: (plan: TaskPlan) => void;
 }
 
-export function LaunchTaskDialog({
-  open,
-  creating,
-  onClose,
-  onCreate,
-}: LaunchTaskDialogProps) {
-  const { data: subs = [], isLoading } = useSubscriptions();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [taskContent, setTaskContent] = useState('');
+const EXAMPLES = [
+  '分析最近三个月销售数据并输出经营分析报告',
+  '调研三个竞品，整理一份市场对比简报',
+  '为新品写一组适合小红书发布的推广文案',
+];
+
+export function LaunchTaskDialog({ open, creating, onClose, onCreate }: LaunchTaskDialogProps) {
+  const { candidates, isLoading, error, hasSubscriptions } = useTaskCandidates();
+  const [objective, setObjective] = useState('');
 
   useEffect(() => {
-    if (open) {
-      setSelected(null);
-      setTaskContent('');
-    }
+    if (open) setObjective('');
   }, [open]);
+
+  const plan = useMemo<TaskPlan | null>(() => {
+    if (objective.trim().length < 8 || isLoading) return null;
+    return buildTaskPlan(objective, candidates);
+  }, [candidates, isLoading, objective]);
 
   if (!open) return null;
 
-  const canSubmit = selected && taskContent.trim().length > 0;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={() => !creating && onClose()}
-      />
-      <div className="relative z-10 w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-white shadow-md">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-          <h3 className="text-base font-semibold text-foreground">发起任务</h3>
-          <button
-            type="button"
-            onClick={() => !creating && onClose()}
-            className="rounded p-1 text-fg-subtle hover:bg-muted"
-            aria-label="关闭"
-          >
+      <div className="absolute inset-0 bg-black/40" onClick={() => !creating && onClose()} />
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-primary">Task Orchestration</p>
+            <h3 className="mt-1 text-lg font-semibold text-foreground">发起编排任务</h3>
+          </div>
+          <button type="button" onClick={() => !creating && onClose()} className="rounded p-1.5 text-fg-subtle hover:bg-muted" aria-label="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {/* 选择员工 */}
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              选择硅基员工 <span className="text-gdanger">*</span>
-            </label>
-            {isLoading ? (
-              <CenteredSpinner label="加载订阅…" />
-            ) : subs.length === 0 ? (
-              <EmptyState
-                title="你还没有订阅任何员工"
-                description="先去员工广场订阅一位硅基员工吧。"
-                action={
-                  <Link href="/marketplace">
-                    <Button size="sm">前往员工广场</Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto scroll-thin">
-                {subs.map((sub) => {
-                  const emp = sub.employee;
-                  const active = selected === emp.id;
-                  return (
-                    <button
-                      key={sub.id}
-                      type="button"
-                      onClick={() => setSelected(emp.id)}
-                      className={cn(
-                        'flex items-center gap-3 rounded-lg border p-3 text-left transition-colors',
-                        active
-                          ? 'border-primary/40 bg-primary-subtle'
-                          : 'border-border hover:bg-muted',
-                      )}
-                    >
-                      <Avatar
-                        name={emp.name}
-                        src={emp.avatar}
-                        className="h-10 w-10 shrink-0 text-sm"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-1 text-sm font-medium text-foreground">
-                          {emp.name}
-                        </p>
-                        <p className="line-clamp-1 text-xs text-fg-muted">
-                          {emp.position}
-                        </p>
-                      </div>
-                      {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
-                    </button>
-                  );
-                })}
+        {isLoading ? (
+          <div className="flex min-h-[480px] items-center justify-center"><CenteredSpinner label="正在读取可用硅基员工…" /></div>
+        ) : !hasSubscriptions ? (
+          <div className="p-8"><EmptyState title="还没有可用的硅基员工" description="先去员工广场订阅员工，任务编排器才能为你安排执行角色。" action={<Link href="/marketplace"><Button size="sm">前往员工广场<ArrowRight className="ml-1.5 h-4 w-4" /></Button></Link>} /></div>
+        ) : (
+          <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[minmax(260px,0.8fr)_minmax(480px,1.2fr)]">
+            <div className="flex min-h-[410px] flex-col">
+              <div>
+                <label htmlFor="task-objective" className="text-sm font-semibold text-foreground">你想完成什么？</label>
+                <p className="mt-1 text-xs leading-5 text-fg-muted">只描述最终目标，不必提前决定由谁来做。系统会根据员工能力自动安排步骤。</p>
+                <textarea
+                  id="task-objective"
+                  value={objective}
+                  onChange={(event) => setObjective(event.target.value)}
+                  placeholder="例如：整理本周销售数据，找出异常并生成一份管理层简报"
+                  className="mt-4 min-h-44 w-full resize-none rounded-xl border border-border bg-background px-3.5 py-3 text-sm leading-6 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  disabled={creating}
+                />
+                <div className="mt-2 flex items-center justify-between text-[11px] text-fg-subtle">
+                  <span>支持自然语言目标</span>
+                  <span>{objective.length} 字</span>
+                </div>
               </div>
-            )}
+              <div className="mt-6">
+                <p className="text-xs font-medium text-fg-muted">试试这些任务</p>
+                <div className="mt-2 space-y-2">
+                  {EXAMPLES.map((example) => (
+                    <button key={example} type="button" onClick={() => setObjective(example)} className="block w-full rounded-lg border border-border px-3 py-2 text-left text-xs leading-5 text-fg-muted transition hover:border-primary/40 hover:bg-primary/[0.03]">
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {error && <p className="mt-auto pt-5 text-xs text-danger">员工能力读取失败，请刷新后重试。</p>}
+            </div>
+            <TaskPlanPreview plan={plan} onConfirm={() => plan && onCreate(plan)} confirming={creating} />
           </div>
-
-          {/* 任务内容 */}
-          <div>
-            <label htmlFor="task-content" className="block text-sm font-medium mb-2">
-              任务内容 <span className="text-gdanger">*</span>
-            </label>
-            <textarea
-              id="task-content"
-              value={taskContent}
-              onChange={(e) => setTaskContent(e.target.value)}
-              placeholder="请描述你希望该员工完成的任务，例如：分析最近三个月的销售数据并生成趋势报告"
-              className="w-full min-h-32 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              disabled={creating}
-            />
-            <p className="text-xs text-fg-subtle mt-1">
-              {taskContent.length} 字符
-            </p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={creating}>
-            取消
-          </Button>
-          <Button
-            size="sm"
-            disabled={!canSubmit || creating}
-            onClick={() => selected && taskContent && onCreate(selected, taskContent)}
-          >
-            {creating && <Loader2 className="h-4 w-4 animate-spin" />}
-            创建任务
-          </Button>
-        </div>
+        )}
+        {creating && <div className="absolute inset-0 flex items-center justify-center bg-white/55"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}
       </div>
     </div>
   );
