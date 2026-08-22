@@ -126,7 +126,11 @@ switch_caddy_upstream() {
     return 1
   fi
   cp "$CADDYFILE" "$backup"
-  mv "$temp" "$CADDYFILE"
+  # Caddyfile is a single-file bind mount. In-place replacement keeps the
+  # mounted inode visible inside the container; renaming it would leave Caddy
+  # reading the old inode until the container is recreated.
+  cp "$temp" "$CADDYFILE"
+  rm -f "$temp"
   if ! docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile >/dev/null; then
     cp "$backup" "$CADDYFILE"
     error "Caddy 配置校验失败，已恢复旧配置"
