@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, Job } from 'bullmq';
-import type { RedisOptions } from 'ioredis';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentProcessorService } from './document-processor.service';
+import { resolveRedisOptions } from '../../redis/redis-connection';
 
 /**
  * 知识库文档处理队列（Phase A1）
@@ -42,7 +42,7 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const connection = this.buildRedisConnection();
+    const connection = resolveRedisOptions(this.config);
 
     this.queue = new Queue<KnowledgeProcessingJob>(QUEUE_NAME, { connection });
 
@@ -109,33 +109,6 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
         removeOnFail: 500, // 保留最近 500 个失败任务
       },
     );
-  }
-
-  /**
-   * 解析 Redis 连接配置。
-   * 优先 REDIS_URL（兼容根 .env），否则用 REDIS_HOST/REDIS_PORT（与 RedisService 一致）。
-   */
-  private buildRedisConnection(): RedisOptions {
-    const url = this.config.get<string>('REDIS_URL');
-    if (url) {
-      try {
-        const parsed = new URL(url);
-        const connection: RedisOptions = {
-          host: parsed.hostname,
-          port: parseInt(parsed.port || '6379', 10),
-        };
-        if (parsed.password) connection.password = parsed.password;
-        if (parsed.username) connection.username = parsed.username;
-        return connection;
-      } catch (e) {
-        this.logger.warn(`Invalid REDIS_URL, falling back to REDIS_HOST/PORT: ${e.message}`);
-      }
-    }
-
-    return {
-      host: this.config.get<string>('REDIS_HOST', 'localhost'),
-      port: parseInt(this.config.get<string>('REDIS_PORT', '6379'), 10),
-    };
   }
 
   /**

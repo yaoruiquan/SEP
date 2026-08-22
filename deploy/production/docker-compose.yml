@@ -46,7 +46,9 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@longdao-postgres:5432/sep_prod
 
       # Redis：复用 longdao-redis，使用 DB 1（longdao 用 DB 0）
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@longdao-redis:6379/1
+      # longdao-redis currently has no AUTH configured. Set REDIS_URL explicitly
+      # in /opt/sep/.env if Redis authentication is enabled later.
+      - REDIS_URL=${REDIS_URL:-redis://longdao-redis:6379/1}
 
       # JWT
       - JWT_SECRET=${JWT_SECRET}
