@@ -223,7 +223,9 @@ cmd_rollback_bluegreen() {
     wait_service_healthy "sep-${previous_color}-backend"
     wait_service_healthy "sep-${previous_color}-web"
   fi
-  switch_caddy_upstream "$previous"
+  local previous_target
+  previous_target=$([[ "$previous" == legacy ]] && echo sep-web || echo "$previous")
+  switch_caddy_upstream "$previous_target"
   printf '%s\n' "$previous" > "$ACTIVE_COLOR_FILE"
   printf '%s\n' "$active" > "$STATE_DIR/previous-target"
   success "已回滚到 ${previous}"
