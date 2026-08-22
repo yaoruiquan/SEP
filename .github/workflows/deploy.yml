@@ -15,8 +15,7 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      web:     ${{ steps.filter.outputs.web }}
+      deploy:  ${{ steps.filter.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,25 +25,25 @@ jobs:
         id: filter
         with:
           filters: |
-            backend:
+            deploy:
               - 'backend/**'
-              - 'pnpm-lock.yaml'
-              - 'deploy/production/docker-compose.yml'
-              - 'backend/Dockerfile'
-            web:
               - 'web/**'
               - 'pnpm-lock.yaml'
               - 'deploy/production/docker-compose.yml'
+              - 'deploy/production/docker-compose.blue-green.yml'
+              - 'deploy/production/sep-deploy.sh'
+              - 'deploy/production/Caddyfile.blue-green.snippet'
+              - 'backend/Dockerfile'
               - 'web/Dockerfile'
 
-  # ── 部署后端 ──────────────────────────────────────────────────────────────
-  deploy-backend:
-    name: Deploy backend
+  # ── 前后端成对蓝绿部署 ─────────────────────────────────────────────────────
+  deploy-bluegreen:
+    name: Deploy blue/green pair
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → 同步代码并部署后端
+      - name: SSH → 蓝绿部署前后端
         uses: appleboy/ssh-action@v1.2.0
         with:
           host:     ${{ secrets.SERVER_HOST }}
@@ -55,32 +54,7 @@ jobs:
           script: |
             set -e
             cd /opt/sep/app
-            git pull origin main
-            ./deploy/production/sep-deploy.sh deploy-backend
-            ./deploy/production/sep-deploy.sh status
-
-  # ── 部署前端（backend 成功或无需部署时才跑）────────────────────────────────
-  deploy-web:
-    name: Deploy web
-    needs: [changes, deploy-backend]
-    # backend 没变化时 deploy-backend 被跳过（result=skipped），这里仍然运行
-    if: |
-      always() &&
-      needs.changes.outputs.web == 'true' &&
-      (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
-    runs-on: ubuntu-latest
-    steps:
-      - name: SSH → 同步代码并部署前端
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host:     ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 15m
-          script: |
-            set -e
-            cd /opt/sep/app
-            git pull origin main
-            ./deploy/production/sep-deploy.sh deploy-web
+            git fetch origin main
+            git merge --ff-only origin/main
+            ./deploy/production/sep-deploy.sh deploy-bluegreen
             ./deploy/production/sep-deploy.sh status

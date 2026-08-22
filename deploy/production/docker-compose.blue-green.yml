@@ -1,0 +1,109 @@
+# Blue/green application pair for zero-downtime releases.
+# PostgreSQL, Redis, uploads, and packages remain shared with the existing stack.
+
+x-backend-environment: &backend-environment
+  NODE_ENV: production
+  PORT: "3001"
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@longdao-postgres:5432/sep_prod
+  REDIS_URL: ${REDIS_URL:-redis://longdao-redis:6379/1}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_EXPIRE_DAYS: "7"
+  SUB2API_BASE_URL: http://longdao-sub2api-blue:8080/v1
+  SUB2API_API_KEY: ${SUB2API_API_KEY}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  EMBEDDING_BASE_URL: http://longdao-sub2api-blue:8080/v1
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1536}
+  EMBEDDING_API_KEY: ${SUB2API_API_KEY}
+  UPLOAD_PATH: /app/uploads
+  PACKAGE_STORAGE_PATH: /app/storage/packages
+  API_BASE_URL: https://longdaoSEP.cn/api
+  WEB_BASE_URL: https://longdaoSEP.cn
+  FRONTEND_URL: https://longdaoSEP.cn
+  ALIPAY_SANDBOX_MODE: "false"
+  TZ: Asia/Shanghai
+
+x-backend-defaults: &backend-defaults
+  restart: unless-stopped
+  environment: *backend-environment
+  volumes:
+    - sep_uploads:/app/uploads
+    - sep_packages:/app/storage/packages
+  networks:
+    - longdao-network
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z localhost 3001 || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
+
+x-web-defaults: &web-defaults
+  restart: unless-stopped
+  environment:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+    TZ: Asia/Shanghai
+  networks:
+    - longdao-network
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/ || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
+
+services:
+  blue-backend:
+    <<: *backend-defaults
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    image: sep-blue-backend:${DEPLOY_TAG:-local}
+    container_name: sep-blue-backend
+
+  blue-web:
+    <<: *web-defaults
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+      args:
+        API_ORIGIN: http://sep-blue-backend:3001
+    image: sep-blue-web:${DEPLOY_TAG:-local}
+    container_name: sep-blue-web
+    depends_on:
+      blue-backend:
+        condition: service_healthy
+
+  green-backend:
+    <<: *backend-defaults
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    image: sep-green-backend:${DEPLOY_TAG:-local}
+    container_name: sep-green-backend
+
+  green-web:
+    <<: *web-defaults
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+      args:
+        API_ORIGIN: http://sep-green-backend:3001
+    image: sep-green-web:${DEPLOY_TAG:-local}
+    container_name: sep-green-web
+    depends_on:
+      green-backend:
+        condition: service_healthy
+
+volumes:
+  sep_uploads:
+    name: sep_uploads
+    external: true
+  sep_packages:
+    name: sep_packages
+    external: true
+
+networks:
+  longdao-network:
+    external: true

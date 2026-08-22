@@ -8,10 +8,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="/opt/sep/.env"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+BLUE_GREEN_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.blue-green.yml"
+STATE_DIR="${SEP_DEPLOY_STATE_DIR:-/opt/sep/.deploy}"
+ACTIVE_COLOR_FILE="$STATE_DIR/active-color"
+CADDYFILE="${SEP_CADDYFILE:-/opt/longdao/deploy/production/Caddyfile}"
+CADDY_CONTAINER="${SEP_CADDY_CONTAINER:-longdao-caddy}"
+LOCK_FILE="${SEP_DEPLOY_LOCK_FILE:-/opt/sep/.deploy.lock}"
 
 # docker compose 统一入口，始终带 --env-file
 dc() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+dc_bg() {
+  docker compose --project-name sep-blue-green --env-file "$ENV_FILE" -f "$BLUE_GREEN_COMPOSE_FILE" "$@"
 }
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────
@@ -69,6 +79,150 @@ cmd_logs() {
   else
     dc logs --tail=100 -f "$service"
   fi
+}
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR"
+}
+
+current_target() {
+  if [[ -f "$ACTIVE_COLOR_FILE" ]]; then
+    cat "$ACTIVE_COLOR_FILE"
+  elif grep -Eq 'reverse_proxy sep-(blue|green)-web:3000' "$CADDYFILE" 2>/dev/null; then
+    grep -Eo 'reverse_proxy sep-(blue|green)-web:3000' "$CADDYFILE" | head -1 | sed -E 's/^reverse_proxy (sep-(blue|green)-web):3000$/\1/'
+  else
+    echo "legacy"
+  fi
+}
+
+color_target() {
+  echo "sep-$1-web"
+}
+
+wait_service_healthy() {
+  local container=$1
+  local retries=${2:-36}
+  for i in $(seq 1 "$retries"); do
+    local status
+    status=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)
+    [[ "$status" == healthy ]] && return 0
+    [[ "$status" == unhealthy ]] && break
+    sleep 5
+  done
+  docker logs --tail=80 "$container" 2>&1 | sed 's/^/  /'
+  return 1
+}
+
+switch_caddy_upstream() {
+  local target=$1
+  [[ -f "$CADDYFILE" ]] || { error "Caddyfile 不存在: $CADDYFILE"; return 1; }
+  local temp backup
+  temp=$(mktemp)
+  backup="$CADDYFILE.blue-green.$(date +%Y%m%d%H%M%S).bak"
+  sed -E "s#reverse_proxy (sep-web|sep-(blue|green)-web):3000#reverse_proxy $target:3000#" "$CADDYFILE" > "$temp"
+  if ! grep -q "reverse_proxy $target:3000" "$temp"; then
+    rm -f "$temp"
+    error "未找到可替换的 Caddy upstream"
+    return 1
+  fi
+  cp "$CADDYFILE" "$backup"
+  mv "$temp" "$CADDYFILE"
+  if ! docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile >/dev/null; then
+    cp "$backup" "$CADDYFILE"
+    error "Caddy 配置校验失败，已恢复旧配置"
+    return 1
+  fi
+  docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile >/dev/null
+}
+
+stop_legacy() {
+  docker stop sep-backend sep-web 2>/dev/null || true
+}
+
+stop_color() {
+  local color=$1
+  dc_bg stop "${color}-web" "${color}-backend" 2>/dev/null || true
+}
+
+cmd_deploy_bluegreen() {
+  check_env
+  ensure_state_dir
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || { error "已有部署正在执行"; exit 1; }
+
+  local active candidate previous target tag
+  active=$(current_target)
+  if [[ "$active" == "sep-blue-web" ]]; then
+    candidate=green
+    previous=blue
+  elif [[ "$active" == "sep-green-web" ]]; then
+    candidate=blue
+    previous=green
+  else
+    candidate=blue
+    previous=legacy
+  fi
+  target=$(color_target "$candidate")
+  tag=${DEPLOY_TAG:-$(git -C "$SCRIPT_DIR/../.." rev-parse --short HEAD)}
+  export DEPLOY_TAG="$tag"
+
+  info "蓝绿发布：当前=${active}，候选=${candidate}，版本=${tag}"
+  info "同步代码..."
+  git -C "$SCRIPT_DIR/../.." fetch origin main
+  git -C "$SCRIPT_DIR/../.." merge --ff-only origin/main
+
+  info "构建候选后端和前端镜像..."
+  dc_bg build "${candidate}-backend" "${candidate}-web"
+
+  info "执行数据库迁移..."
+  dc up --no-deps sep-migrate
+  local migration_exit
+  migration_exit=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo 1)
+  [[ "$migration_exit" == "0" ]] || { error "数据库迁移失败"; docker logs --tail=80 sep-migrate; exit 1; }
+
+  info "启动候选环境..."
+  dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web"
+  wait_service_healthy "sep-${candidate}-backend"
+  wait_service_healthy "sep-${candidate}-web"
+
+  info "切换 Caddy 到 ${target}..."
+  printf '%s\n' "$active" > "$STATE_DIR/previous-target"
+  switch_caddy_upstream "$target"
+  printf '%s\n' "$target" > "$ACTIVE_COLOR_FILE"
+
+  if [[ "$active" == "legacy" ]]; then
+    sleep "${SEP_DRAIN_SECONDS:-15}"
+    stop_legacy
+  elif [[ "$active" == sep-blue-web || "$active" == sep-green-web ]]; then
+    sleep "${SEP_DRAIN_SECONDS:-15}"
+    stop_color "${active#sep-}" 2>/dev/null || true
+  fi
+  success "蓝绿发布完成：${target}"
+  cmd_status
+}
+
+cmd_rollback_bluegreen() {
+  check_env
+  ensure_state_dir
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || { error "已有部署正在执行"; exit 1; }
+  local active previous previous_color
+  active=$(current_target)
+  previous=$(cat "$STATE_DIR/previous-target" 2>/dev/null || true)
+  [[ -n "$previous" && "$previous" != "$active" ]] || { error "没有可回滚版本"; exit 1; }
+  if [[ "$previous" == legacy ]]; then
+    docker start sep-backend sep-web >/dev/null
+    wait_healthy sep-backend
+  else
+    previous_color=${previous#sep-}
+    dc_bg up -d "${previous_color}-backend" "${previous_color}-web"
+    wait_service_healthy "sep-${previous_color}-backend"
+    wait_service_healthy "sep-${previous_color}-web"
+  fi
+  switch_caddy_upstream "$previous"
+  printf '%s\n' "$previous" > "$ACTIVE_COLOR_FILE"
+  printf '%s\n' "$active" > "$STATE_DIR/previous-target"
+  success "已回滚到 ${previous}"
 }
 
 # -- deploy-web ---------------------------------------------------------------
@@ -222,5 +376,7 @@ case "${1:-}" in
   restart)         cmd_restart "${2:-all}" ;;
   status)          cmd_status ;;
   logs)            cmd_logs "${2:-}" ;;
+  deploy-bluegreen) cmd_deploy_bluegreen ;;
+  rollback-bluegreen) cmd_rollback_bluegreen ;;
   *)               usage; exit 1 ;;
 esac
