@@ -13,6 +13,12 @@ behind a single `execute()` interface via the adapter pattern.
 Full requirements/architecture live in `docs/architecture/`. See the **Doc caveat** below
 before trusting them.
 
+## 协作约定
+
+- 默认使用中文回复；代码、命令、接口字段和必要的专有名词保留原文。
+- 完成一个较大的功能模块后，先完成测试和变更摘要，再提醒用户提交 Git；需要同步远程仓库时，再提醒用户提交或推送到 GitHub。
+- 未经用户明确要求，不自动执行 `git push`、合并分支或删除用户已有文件。
+
 ## Tech stack
 
 ### Backend
@@ -30,11 +36,11 @@ before trusting them.
 | Agent Runtime | Vercel AI SDK (`ai ^7`, `@ai-sdk/openai-compatible`) | all model calls via sub2api |
 | Cache | Redis 7 | |
 
-### Frontend (`web/` — not yet scaffolded)
+### Frontend (`web/`)
 
 | Area | Choice | Notes |
 |------|--------|-------|
-| Framework | Next.js 15 App Router | three route groups: `(user)` `(admin)` `(contributor)` |
+| Framework | Next.js 15 App Router | three route groups: `(market)` `(enterprise)` `(platform)` |
 | UI components | Shadcn/ui + Tailwind CSS | components owned as source code; Radix UI primitives |
 | Server state | TanStack Query v5 | API calls, caching, SSE streaming |
 | Client state | Zustand | UI state (open/close, active session, preferences) |
@@ -55,7 +61,7 @@ pnpm db:migrate                 # 创建并应用迁移
 pnpm db:studio                  # Prisma Studio
 
 pnpm dev:backend                # 后端 :3001，Swagger 在 /api/docs
-pnpm dev:web                    # 前端（Next.js，待开发）
+pnpm dev:web                    # 前端（Next.js）
 pnpm build                      # 全量构建
 ```
 
@@ -77,11 +83,11 @@ SEP/
 │   ├── .env                DATABASE_URL（本地 Prisma CLI 用）
 │   └── package.json
 │
-├── web/                    Next.js 前端（待开发）
+├── web/                    Next.js 前端
 │   └── src/app/
-│       ├── (user)/         用户端路由组
-│       ├── (admin)/        运营端路由组
-│       └── (contributor)/  贡献者端路由组
+│       ├── (market)/       市场与用户端路由组
+│       ├── (enterprise)/   企业端路由组
+│       └── (platform)/     平台运营端路由组
 │
 ├── docs/                   架构文档（规划期产物，以代码为准）
 ├── docker-compose.yml      本地开发：PostgreSQL + Redis
@@ -163,14 +169,12 @@ Within the same module, relative imports are fine. Never `new PrismaClient()` in
 
 ## Frontend conventions (Next.js / web/)
 
-> `web/` is not yet scaffolded. These conventions apply once it is.
-
 **Route groups** — three isolated panels, each with its own layout:
 ```
 web/src/app/
-├── (user)/          用户端：chat, subscription, profile
-├── (admin)/         运营端：capability review, user management, billing
-└── (contributor)/   贡献者端：capability upload, version management
+├── (market)/        市场与用户端：marketplace, login, profile
+├── (enterprise)/    企业端：employees, subscriptions, skills, settings
+└── (platform)/      平台运营端：capability review, user management, billing
 ```
 
 **Auth — httpOnly cookie**
@@ -189,7 +193,7 @@ const updateProfile = useMutation({ mutationFn: patchProfile });
 ```
 
 **Zod schema reuse** — import shared schemas from `backend/src/shared/` (or a symlinked
-package once `web/` is set up). Never re-define validation logic in the frontend:
+package). Never re-define validation logic in the frontend:
 ```typescript
 import { RegisterDtoSchema } from '@sep/shared';   // shared Zod schema
 const form = useForm({ resolver: zodResolver(RegisterDtoSchema) });
@@ -222,14 +226,9 @@ Types: `feat` `fix` `refactor` `chore` `docs` `test` `perf`
 ## External services (NOT in this repo, NOT in docker-compose)
 
 - **sub2api** — a self-hosted token relay with an **OpenAI-compatible** endpoint. **All
-  model calls route through it** (app code and OpenCode alike) so compute is metered
+  model calls route through it** so compute is metered
   centrally and users never hold upstream keys. Connect via `SUB2API_BASE_URL` /
   `SUB2API_API_KEY`. Wire it into the Vercel AI SDK with `createOpenAICompatible`.
-- **OpenCode Skills Service** — a standalone HTTP service (ref:
-  `yaoruiquan/opencode-skiills-service`) that runs SKILL.md capabilities via a job API
-  (`POST /v1/runs`, `GET /v1/runs/{id}`, `GET /health`). The backend calls it over HTTP,
-  same shape as calling Coze. Connect via `OPENCODE_API_BASE_URL` / `OPENCODE_API_TOKEN`.
-
 Never connect to DeepSeek / OpenAI / etc. directly from app code — always via sub2api.
 
 ## Doc caveat (read before following docs/)
@@ -246,5 +245,4 @@ infrastructure a doc describes but the code doesn't have.
 
 - Requirements/architecture: `docs/architecture/硅基人才平台-需求与架构规格书-v2.md`
 - Tech-selection rationale: `docs/architecture/技术选型决策文档.md`
-- OpenCode HTTP contract: `docs/对接/OpenCode执行后端-协作与接口契约.md`
 - Progress reports: `docs/progress/`

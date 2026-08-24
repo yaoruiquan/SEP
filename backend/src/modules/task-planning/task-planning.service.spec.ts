@@ -3,12 +3,27 @@ import { TaskPlanningService } from './task-planning.service';
 
 describe('TaskPlanningService', () => {
   const subscriptions = { findAll: jest.fn() };
-  const prisma = { digitalEmployee: { findMany: jest.fn() } };
+  const prisma = {
+    digitalEmployee: { findMany: jest.fn() },
+    employeeGrant: { findMany: jest.fn() },
+  };
+  const enterpriseContext = {
+    resolve: jest.fn().mockResolvedValue({
+      enterpriseId: 'enterprise-1',
+      memberId: 'member-1',
+      departmentId: null,
+    }),
+  };
   const config = { get: jest.fn((key: string, fallback?: string) => {
     if (key === 'SUB2API_API_KEY') return 'test-key';
     return fallback;
   }) };
-  const service = new TaskPlanningService(prisma as never, subscriptions as never, config as never);
+  const service = new TaskPlanningService(
+    prisma as never,
+    subscriptions as never,
+    enterpriseContext as never,
+    config as never,
+  );
 
   const validPlan = {
     summary: '先分析数据，再生成管理层报告',
@@ -27,8 +42,12 @@ describe('TaskPlanningService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     subscriptions.findAll.mockResolvedValue([
-      { status: 'ACTIVE', employee: { id: 'employee-1' } },
-      { status: 'ACTIVE', employee: { id: 'employee-2' } },
+      { id: 'subscription-1', status: 'ACTIVE', employee: { id: 'employee-1' } },
+      { id: 'subscription-2', status: 'ACTIVE', employee: { id: 'employee-2' } },
+    ]);
+    prisma.employeeGrant.findMany.mockResolvedValue([
+      { subscriptionId: 'subscription-1' },
+      { subscriptionId: 'subscription-2' },
     ]);
     prisma.digitalEmployee.findMany.mockResolvedValue([
       {

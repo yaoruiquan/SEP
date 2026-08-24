@@ -69,11 +69,13 @@ export class GatewayService {
     }
 
     // 4. 获取模型白名单（从 PlatformModel）
-    const models = await this.prisma.platformModel.findMany({
-      where: { enabled: true },
-      select: { id: true },
-    });
-    const allowedModels = models.map((m) => m.id);
+    const [models, modelConfig] = await Promise.all([
+      this.prisma.platformModel.findMany({ where: { enabled: true }, select: { modelId: true } }),
+      this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId }, select: { allowedChatModels: true } }),
+    ]);
+    const enabledModels = models.map((m) => m.modelId);
+    const allowedModels = modelConfig?.allowedChatModels?.length
+      ? enabledModels.filter((id) => modelConfig.allowedChatModels.includes(id)) : enabledModels;
 
     return { enterpriseId, subscriptionId, memberId, allowedModels };
   }

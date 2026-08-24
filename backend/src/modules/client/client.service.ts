@@ -10,13 +10,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import * as bcrypt from 'bcrypt';
-import { ClientLoginDto, ClientTokenDto, SETTING_KEYS } from 'shared';
+import { ClientLoginDto, ClientRefreshDto, ClientTokenDto, SETTING_KEYS } from 'shared';
 
 const CLIENT_REFRESH_EXPIRES = '30d';
+const CLIENT_ACCESS_EXPIRES_IN = 60 * 60;
 
 export interface ClientAuthResponse {
   accessToken: string;
   refreshToken: string;
+  accessTokenExpiresIn: number;
+  refreshTokenExpiresIn: number;
   user: {
     id: string;
     email: string;
@@ -48,6 +51,8 @@ export interface ClientEmploymentTokenResponse {
 
 export interface ClientEmploymentListItem {
   id: string;
+  subscriptionId: string;
+  employeeId: string;
   name: string;
   status: string;
   templateVersion: string;
@@ -60,6 +65,8 @@ export interface ClientEmploymentListItem {
     id: string;
     name: string;
   } | null;
+  allowedModels: string[];
+  upgradeAvailable: boolean;
 }
 
 @Injectable()
@@ -126,15 +133,7 @@ export class ClientService {
     }
 
     // 4. 签发 access token（短期）和 client-refresh token（长期）
-    const accessToken = this.jwtService.sign(
-      {
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-        type: 'access',
-      },
-      { secret: this.jwtSecret, expiresIn: '1h' },
-    );
+    const accessToken = this.signAccessToken(user);
 
     const refreshToken = this.jwtService.sign(
       {
@@ -169,6 +168,8 @@ export class ClientService {
     return {
       accessToken,
       refreshToken,
+      accessTokenExpiresIn: CLIENT_ACCESS_EXPIRES_IN,
+      refreshTokenExpiresIn: 30 * 24 * 60 * 60,
       user: {
         id: user.id,
         email: user.email,
@@ -177,6 +178,38 @@ export class ClientService {
       },
       enterprise: membership?.enterprise || null,
       devices,
+    };
+  }
+
+  async refreshAccessToken(dto: ClientRefreshDto) {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(dto.refreshToken, { secret: this.jwtSecret });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.type !== 'client-refresh' || typeof payload.sub !== 'string' || typeof payload.deviceId !== 'string') {
+      throw new UnauthorizedException('Token type must be client-refresh');
+    }
+
+    const device = await this.prisma.device.findUnique({
+      where: { id: payload.deviceId },
+      select: { userId: true, revokedAt: true },
+    });
+    if (!device || device.revokedAt || device.userId !== payload.sub) {
+      throw new UnauthorizedException('Device has been revoked or is invalid');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) throw new UnauthorizedException('User not found');
+    const membership = await this.prisma.enterpriseMember.findFirst({
+      where: { userId: user.id }, orderBy: { createdAt: 'asc' },
+      select: { enterprise: { select: { id: true, name: true } } },
+    });
+    return {
+      accessToken: this.signAccessToken(user),
+      accessTokenExpiresIn: CLIENT_ACCESS_EXPIRES_IN,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      enterprise: membership?.enterprise ?? null,
     };
   }
 
@@ -241,11 +274,23 @@ export class ClientService {
           enterpriseId: subscription.enterpriseId,
         },
       },
-      select: { id: true },
+      select: { id: true, departmentId: true },
     });
     if (!membership) {
       throw new UnauthorizedException('User does not belong to this enterprise');
     }
+    const grant = await this.prisma.employeeGrant.findFirst({
+      where: {
+        subscriptionId: subscription.id,
+        OR: [
+          { memberId: membership.id },
+          ...(membership.departmentId ? [{ departmentId: membership.departmentId }] : []),
+        ],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
+      },
+      select: { id: true },
+    });
+    if (!grant) throw new UnauthorizedException('User has no active grant for this subscription');
 
     // 5. 读取 CLIENT_TOKEN_TTL_MINUTES 配置
     const ttlStr = await this.settingService.getEffectiveValue(
@@ -285,33 +330,52 @@ export class ClientService {
    *
    * 返回 ACTIVE 订阅及其模板信息，客户端不需要 config 等管理端信息。
    */
-  async listInstances(userId: string): Promise<ClientEmploymentListItem[]> {
+  async listSubscriptions(userId: string): Promise<ClientEmploymentListItem[]> {
     const ctx = await this.enterpriseContext.resolve(userId);
-
-    const subscriptions = await this.prisma.subscription.findMany({
+    const grants = await this.prisma.employeeGrant.findMany({
       where: {
-        enterpriseId: ctx.enterpriseId,
-        status: 'ACTIVE',
+        OR: [
+          { memberId: ctx.memberId },
+          ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
+        ],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
+        subscription: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
       },
-      orderBy: { createdAt: 'desc' },
       include: {
-        employee: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-          },
-        },
+        subscription: { include: { employee: { select: { id: true, name: true, avatar: true, version: true } } } },
       },
     });
+    const [models, modelConfig] = await Promise.all([
+      this.prisma.platformModel.findMany({ where: { enabled: true }, orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }], select: { modelId: true } }),
+      this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: ctx.enterpriseId }, select: { allowedChatModels: true } }),
+    ]);
+    const enabledModels = models.map((model) => model.modelId);
+    const allowedModels = modelConfig?.allowedChatModels?.length
+      ? enabledModels.filter((id) => modelConfig.allowedChatModels.includes(id)) : enabledModels;
+    const seen = new Set<string>();
+    return grants.flatMap((grant) => {
+      const sub = grant.subscription;
+      if (seen.has(sub.id)) return [];
+      seen.add(sub.id);
+      return [{
+        id: sub.id, subscriptionId: sub.id, employeeId: sub.employeeId,
+        name: sub.name ?? sub.employee.name, status: sub.status,
+        templateVersion: sub.templateVersion, template: sub.employee,
+        department: null, allowedModels,
+        upgradeAvailable: sub.employee.version !== sub.templateVersion,
+      }];
+    });
+  }
 
-    return subscriptions.map(sub => ({
-      id: sub.id,
-      name: sub.employee.name,
-      status: sub.status,
-      templateVersion: sub.templateVersion,
-      template: sub.employee,
-      department: null,
-    }));
+  /** @deprecated Use listSubscriptions during client migration. */
+  async listInstances(userId: string): Promise<ClientEmploymentListItem[]> {
+    return this.listSubscriptions(userId);
+  }
+
+  private signAccessToken(user: { id: string; email: string; role: string }) {
+    return this.jwtService.sign(
+      { sub: user.id, email: user.email, role: user.role, type: 'access' },
+      { secret: this.jwtSecret, expiresIn: CLIENT_ACCESS_EXPIRES_IN },
+    );
   }
 }

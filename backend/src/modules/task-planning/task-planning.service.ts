@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { DEFAULT_MODEL_ID } from 'shared';
 import {
   PlannerOutputSchema,
@@ -32,12 +33,24 @@ export class TaskPlanningService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly subscriptions: SubscriptionService,
+    private readonly enterpriseContext: EnterpriseContextService,
     private readonly config: ConfigService,
   ) {}
 
   async preview(userId: string, dto: TaskPlanPreviewDto) {
+    const context = await this.enterpriseContext.resolve(userId);
+    const grants = await this.prisma.employeeGrant.findMany({
+      where: {
+        OR: [{ memberId: context.memberId }, ...(context.departmentId ? [{ departmentId: context.departmentId }] : [])],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
+        subscription: { enterpriseId: context.enterpriseId, status: 'ACTIVE' },
+      },
+      select: { subscriptionId: true },
+    });
+    const grantedSubscriptionIds = new Set(grants.map((grant) => grant.subscriptionId));
     const subscriptions = (await this.subscriptions.findAll(userId))
       .filter((subscription) => subscription.status === 'ACTIVE')
+      .filter((subscription) => grantedSubscriptionIds.has(subscription.id))
       .filter((subscription) => !dto.employeeIds || dto.employeeIds.includes(subscription.employee.id));
 
     if (subscriptions.length === 0) {

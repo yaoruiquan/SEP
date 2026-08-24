@@ -1148,6 +1148,11 @@ export const ClientTokenDtoSchema = z.object({
 });
 export type ClientTokenDto = z.infer<typeof ClientTokenDtoSchema>;
 
+export const ClientRefreshDtoSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+export type ClientRefreshDto = z.infer<typeof ClientRefreshDtoSchema>;
+
 // ============================================================================
 // Gateway Layer Types (OpenAI-compatible chat completion)
 // ============================================================================

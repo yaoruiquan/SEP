@@ -191,6 +191,43 @@ export class PackageService {
     };
   }
 
+  /** 按订阅锁定版本解析 ZIP，供客户端兼容兜底通道使用。 */
+  async resolveSubscriptionDownload(params: {
+    subscriptionId: string;
+    isPlatformAdmin: boolean;
+    enterpriseId?: string;
+    memberId?: string;
+    departmentId?: string | null;
+  }) {
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id: params.subscriptionId },
+      select: { employeeId: true, templateVersion: true },
+    });
+    if (!sub) throw new NotFoundException('订阅不存在');
+
+    if (!params.isPlatformAdmin) {
+      const ok = await this.hasActiveGrant(sub.employeeId, params);
+      if (!ok) throw new NotFoundException('订阅不存在');
+    }
+
+    const pkg = await this.prisma.employeePackage.findFirst({
+      where: { employeeId: sub.employeeId, version: sub.templateVersion },
+    });
+    if (!pkg) throw new NotFoundException(`该订阅锁定的员工包版本 ${sub.templateVersion} 尚未发布`);
+    if (!pkg.storagePath) {
+      throw new BadRequestException('该员工包未提供 ZIP 下载，请使用 packageRef 安装');
+    }
+
+    return {
+      absPath: join(this.storageRoot(), pkg.storagePath),
+      filename: pkg.filename!,
+      sha256: pkg.sha256!,
+      fileSizeBytes: pkg.fileSizeBytes!,
+      version: pkg.version,
+      stream: () => createReadStream(join(this.storageRoot(), pkg.storagePath!)),
+    };
+  }
+
   /**
    * P3.2：客户端获取实例可安装的包信息。
    *
@@ -209,7 +246,7 @@ export class PackageService {
     // 先取订阅及其员工 ID
     const sub = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
-      select: { employeeId: true, status: true },
+      select: { employeeId: true, status: true, templateVersion: true },
     });
     if (!sub) throw new NotFoundException('订阅不存在');
 
@@ -219,13 +256,12 @@ export class PackageService {
       if (!ok) throw new NotFoundException('订阅不存在'); // 不泄漏存在性
     }
 
-    // 取最新包
+    // 订阅锁定版本，不能静默升级到员工模板的新版本。
     const pkg = await this.prisma.employeePackage.findFirst({
-      where: { employeeId: sub.employeeId },
-      orderBy: { createdAt: 'desc' },
+      where: { employeeId: sub.employeeId, version: sub.templateVersion },
       select: { version: true, packageRef: true, storagePath: true, sha256: true },
     });
-    if (!pkg) throw new NotFoundException('该订阅对应的员工尚无可用包');
+    if (!pkg) throw new NotFoundException(`该订阅锁定的员工包版本 ${sub.templateVersion} 尚未发布`);
 
     return {
       version: pkg.version,

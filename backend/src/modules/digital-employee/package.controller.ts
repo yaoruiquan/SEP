@@ -145,6 +145,33 @@ export class PackageController {
     });
   }
 
+  @Get('enterprise/subscriptions/:id/package/download')
+  @HttpCode(200)
+  @ApiOperation({ summary: '下载订阅锁定版本的员工 ZIP（兼容兜底）' })
+  @ApiParam({ name: 'id', description: '雇佣关系（订阅）ID' })
+  async downloadSubscriptionPackage(
+    @Param('id') subscriptionId: string,
+    @Request() req: AuthedRequest,
+    @Res() res: Response,
+  ) {
+    const isPlatformAdmin = req.user.role === 'ADMIN';
+    const context = isPlatformAdmin ? undefined : await this.enterpriseCtx.resolve(req.user.id);
+    const info = await this.packages.resolveSubscriptionDownload({
+      subscriptionId,
+      isPlatformAdmin,
+      enterpriseId: context?.enterpriseId,
+      memberId: context?.memberId,
+      departmentId: context?.departmentId,
+    });
+    const encoded = encodeURIComponent(info.filename);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`);
+    res.setHeader('Content-Length', info.fileSizeBytes);
+    res.setHeader('X-SHA256', info.sha256);
+    res.setHeader('X-Version', info.version);
+    info.stream().pipe(res);
+  }
+
   @Get('digital-employees/:id/package/download')
   @HttpCode(200)
   @ApiOperation({

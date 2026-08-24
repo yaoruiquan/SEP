@@ -218,6 +218,40 @@ describe('PackageService', () => {
     });
   });
 
+  describe('getForSubscription 的版本锁定', () => {
+    it('按订阅锁定版本查询包，而不是取最新包', async () => {
+      prisma.subscription = {
+        findUnique: jest.fn().mockResolvedValue({ employeeId: 'emp-1', status: 'ACTIVE', templateVersion: '1.0.0' }),
+      };
+      prisma.employeeGrant.findFirst.mockResolvedValue({ id: 'grant-1' });
+      prisma.employeePackage.findFirst.mockResolvedValue({
+        version: '1.0.0', packageRef: { type: 'npm', spec: '@sep/employee@1.0.0' }, storagePath: null, sha256: null,
+      });
+
+      const result = await service.getForSubscription({
+        subscriptionId: 'sub-1', isPlatformAdmin: false,
+        enterpriseId: 'ent-1', memberId: 'member-1', departmentId: null,
+      });
+      expect(result.version).toBe('1.0.0');
+      expect(prisma.employeePackage.findFirst).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1', version: '1.0.0' },
+        select: { version: true, packageRef: true, storagePath: true, sha256: true },
+      });
+    });
+
+    it('锁定版本没有包时返回 404', async () => {
+      prisma.subscription = {
+        findUnique: jest.fn().mockResolvedValue({ employeeId: 'emp-1', status: 'ACTIVE', templateVersion: '1.0.0' }),
+      };
+      prisma.employeeGrant.findFirst.mockResolvedValue({ id: 'grant-1' });
+      prisma.employeePackage.findFirst.mockResolvedValue(null);
+      await expect(service.getForSubscription({
+        subscriptionId: 'sub-1', isPlatformAdmin: false,
+        enterpriseId: 'ent-1', memberId: 'member-1', departmentId: null,
+      })).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ── 辅助 ──────────────────────────────────────────────────────────────────
 
   describe('employeeIdsWithPackage', () => {
