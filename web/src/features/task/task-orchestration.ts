@@ -47,6 +47,10 @@ export interface TaskPlan {
   steps: TaskPlanStep[];
   status: TaskRunStatus;
   createdAt: string;
+  planner?: {
+    type: 'llm';
+    model: string;
+  };
 }
 
 export interface TaskExecutionEvent {

@@ -29,6 +29,7 @@ import { SubscriptionRequestModule } from './modules/subscription-request/subscr
 import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SkillVersionModule } from './modules/skill-version/skill-version.module';
+import { TaskPlanningModule } from './modules/task-planning/task-planning.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { SkillVersionModule } from './modules/skill-version/skill-version.module
     ComputeQuotaModule,
     DashboardModule,
     SkillVersionModule,
+    TaskPlanningModule,
   ],
   controllers: [],
   providers: [],

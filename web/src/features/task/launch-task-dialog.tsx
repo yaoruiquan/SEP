@@ -1,12 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight, Loader2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EmptyState, CenteredSpinner } from '@/components/ui/feedback';
-import { useTaskCandidates } from './use-task-candidates';
-import { buildTaskPlan } from './task-planner';
+import { useCreateTaskPlan } from './use-task-plan';
 import { TaskPlanPreview } from './task-plan-preview';
 import type { TaskPlan } from './task-orchestration';
 
@@ -24,17 +21,17 @@ const EXAMPLES = [
 ];
 
 export function LaunchTaskDialog({ open, creating, onClose, onCreate }: LaunchTaskDialogProps) {
-  const { candidates, isLoading, error, hasSubscriptions } = useTaskCandidates();
   const [objective, setObjective] = useState('');
+  const [plan, setPlan] = useState<TaskPlan | null>(null);
+  const planner = useCreateTaskPlan();
 
   useEffect(() => {
-    if (open) setObjective('');
+    if (open) {
+      setObjective('');
+      setPlan(null);
+      planner.reset();
+    }
   }, [open]);
-
-  const plan = useMemo<TaskPlan | null>(() => {
-    if (objective.trim().length < 8 || isLoading) return null;
-    return buildTaskPlan(objective, candidates);
-  }, [candidates, isLoading, objective]);
 
   if (!open) return null;
 
@@ -52,12 +49,7 @@ export function LaunchTaskDialog({ open, creating, onClose, onCreate }: LaunchTa
           </button>
         </div>
 
-        {isLoading ? (
-          <div className="flex min-h-[480px] items-center justify-center"><CenteredSpinner label="正在读取可用硅基员工…" /></div>
-        ) : !hasSubscriptions ? (
-          <div className="p-8"><EmptyState title="还没有可用的硅基员工" description="先去员工广场订阅员工，任务编排器才能为你安排执行角色。" action={<Link href="/marketplace"><Button size="sm">前往员工广场<ArrowRight className="ml-1.5 h-4 w-4" /></Button></Link>} /></div>
-        ) : (
-          <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[minmax(260px,0.8fr)_minmax(480px,1.2fr)]">
+        <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[minmax(260px,0.8fr)_minmax(480px,1.2fr)]">
             <div className="flex min-h-[410px] flex-col">
               <div>
                 <label htmlFor="task-objective" className="text-sm font-semibold text-foreground">你想完成什么？</label>
@@ -85,11 +77,21 @@ export function LaunchTaskDialog({ open, creating, onClose, onCreate }: LaunchTa
                   ))}
                 </div>
               </div>
-              {error && <p className="mt-auto pt-5 text-xs text-danger">员工能力读取失败，请刷新后重试。</p>}
+              <div className="mt-auto pt-6">
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={objective.trim().length < 8 || planner.isPending || creating}
+                  onClick={() => planner.mutate({ objective }, { onSuccess: setPlan })}
+                >
+                  {planner.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />正在分析编排方案…</> : '分析执行计划'}
+                </Button>
+                {planner.error && <p className="mt-2 text-xs leading-5 text-danger">{planner.error.message || '规划模型暂时不可用，请重试。'}</p>}
+                <p className="mt-2 text-center text-[11px] text-fg-subtle">系统会调用真实大模型分析员工和技能，确认前不会执行。</p>
+              </div>
             </div>
             <TaskPlanPreview plan={plan} onConfirm={() => plan && onCreate(plan)} confirming={creating} />
-          </div>
-        )}
+        </div>
         {creating && <div className="absolute inset-0 flex items-center justify-center bg-white/55"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}
       </div>
     </div>
