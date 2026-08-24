@@ -162,6 +162,7 @@ export class TaskPlanningService {
           '只能使用候选目录中出现的 employeeId 和 capabilityId，禁止臆造 ID。',
           '只有确实需要多个角色时才拆成多个步骤；简单任务可以只有一个步骤。',
           'dependsOnStepNumbers 只能填写前面已经出现的步骤编号。',
+          'estimatedSeconds 必须是 10 到 3600 之间的整数。',
           '不要执行任何任务，只生成等待用户确认的计划。',
           '只返回一个合法 JSON 对象，不要使用 Markdown 代码块或附加说明。',
           'JSON 必须符合：{ "summary": string, "steps": [{ "employeeId": string, "capabilityId": string, "title": string, "description": string, "rationale": string, "dependsOnStepNumbers": number[], "estimatedSeconds": number }] }。',

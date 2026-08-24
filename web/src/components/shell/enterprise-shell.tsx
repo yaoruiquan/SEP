@@ -134,7 +134,7 @@ const CRUMBS: CrumbMap = {
  * 这些路由自己管理高度与滚动（聊天窗口需要输入框固定在底部），
  * 内容区不能再加 p-6，也不能是滚动容器 —— 否则会把子元素顶出视口。
  */
-const FULL_HEIGHT_ROUTES = ['/chat'];
+const FULL_HEIGHT_ROUTES = ['/chat', '/tasks'];
 
 export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const { user, enterprise, roleInEnterprise } = useAuthStore();

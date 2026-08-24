@@ -15,7 +15,7 @@ describe('TaskPlanningService', () => {
     steps: [
       {
         employeeId: 'employee-1', capabilityId: 'cap-1', title: '分析销售数据',
-        description: '识别趋势和异常', rationale: '数据分析师最匹配', dependsOnStepNumbers: [], estimatedSeconds: 120,
+        description: '识别趋势和异常', rationale: '数据分析师最匹配', dependsOnStepNumbers: [], estimatedSeconds: 7200,
       },
       {
         employeeId: 'employee-2', capabilityId: 'cap-2', title: '生成报告',
@@ -69,6 +69,7 @@ describe('TaskPlanningService', () => {
     expect(plan.status).toBe('awaiting_confirmation');
     expect(plan.planner.type).toBe('llm');
     expect(plan.steps.map((step) => step.employee.id)).toEqual(['employee-1', 'employee-2']);
+    expect(plan.steps[0].estimatedSeconds).toBe(3600);
     expect(plan.steps[1].dependsOn).toEqual(['step-1']);
   });
 

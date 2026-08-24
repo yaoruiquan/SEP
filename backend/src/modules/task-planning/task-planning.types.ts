@@ -16,7 +16,7 @@ export const PlannerOutputSchema = z.object({
     description: z.string().min(1).max(800),
     rationale: z.string().min(1).max(500),
     dependsOnStepNumbers: z.array(z.number().int().min(1).max(12)).max(11).default([]),
-    estimatedSeconds: z.number().int().min(10).max(3600).default(120),
+    estimatedSeconds: z.number().int().min(10).transform((seconds) => Math.min(seconds, 3600)).default(120),
   })).min(1).max(12),
 });
 

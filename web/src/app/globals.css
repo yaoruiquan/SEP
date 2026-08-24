@@ -89,6 +89,22 @@ body {
   100% { transform: translateX(400%); }
 }
 
+.task-flow-plan-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .task-flow-plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .task-flow-plan-grid {
+    grid-template-columns: repeat(var(--task-flow-columns, 1), minmax(0, 1fr));
+  }
+}
+
 /* thin scrollbar for chat / lists */
 .scroll-thin::-webkit-scrollbar {
   width: 8px;
