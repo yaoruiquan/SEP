@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Wallet,
   Gauge,
+  Sparkles,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -81,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 管理视角：雇佣关系一个入口管到底 ——
       // 雇佣（买）、暂停/恢复、升级、授权给碳基员工都在这里
       { href: '/subscriptions', label: nav.subscriptions, icon: Boxes, adminOnly: true },
+      { href: '/contributions', label: '能力贡献中心', icon: Sparkles },
       { href: '/skills', label: '技能管理', icon: BookOpen },
     ],
   },
@@ -123,6 +125,7 @@ const CRUMBS: CrumbMap = {
   settings: '设置',
   models: '模型配置',
   chat: '对话',
+  contributions: '能力贡献中心',
   wallet: '企业钱包',
   'compute-quota': '算力配额',
   recharge: '充值',
@@ -134,7 +137,7 @@ const CRUMBS: CrumbMap = {
  * 这些路由自己管理高度与滚动（聊天窗口需要输入框固定在底部），
  * 内容区不能再加 p-6，也不能是滚动容器 —— 否则会把子元素顶出视口。
  */
-const FULL_HEIGHT_ROUTES = ['/chat', '/tasks'];
+const FULL_HEIGHT_ROUTES = ['/chat', '/tasks', '/contributions'];
 
 export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const { user, enterprise, roleInEnterprise } = useAuthStore();

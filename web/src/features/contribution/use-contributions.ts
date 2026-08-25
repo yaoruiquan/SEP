@@ -1,0 +1,56 @@
+'use client';
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api-client';
+import { qk } from '@/lib/query-keys';
+import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent } from '@/lib/types';
+
+export function useContributionOverview() {
+  return useQuery({ queryKey: qk.contributionOverview, queryFn: () => api.get<ContributionOverview>('/contributions/overview') });
+}
+
+export function useMyContributions() {
+  return useQuery({ queryKey: qk.contributionMine, queryFn: () => api.get<ContributionCapability[]>('/contributions/mine') });
+}
+
+export function useContribution(id: string) {
+  return useQuery({ queryKey: qk.contribution(id), queryFn: () => api.get<ContributionCapabilityDetail>(`/contributions/${id}`), enabled: Boolean(id) });
+}
+
+export function useContributionRewards() {
+  return useQuery({ queryKey: qk.contributionRewards, queryFn: () => api.get<ContributionRewardEvent[]>('/contributions/rewards') });
+}
+
+function invalidate(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: qk.contributions });
+}
+
+export function useCreateContribution() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.post<ContributionCapability>('/contributions', body),
+    onSuccess: () => invalidate(qc),
+  });
+}
+
+export function useContributionAction(action: 'submit-enterprise-review' | 'request-platform-review' | 'authorize-platform-submission') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<ContributionCapability>(`/contributions/${id}/${action}`),
+    onSuccess: (_data, id) => {
+      invalidate(qc);
+      void qc.invalidateQueries({ queryKey: qk.contribution(id) });
+    },
+  });
+}
+
+export function useReviewContribution(stage: 'enterprise' | 'platform') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; decision: 'APPROVE' | 'REJECT'; comment?: string }) => api.post<ContributionCapability>(`/contributions/${data.id}/${stage}-review`, { decision: data.decision, comment: data.comment }),
+    onSuccess: (_data, variables) => {
+      invalidate(qc);
+      void qc.invalidateQueries({ queryKey: qk.contribution(variables.id) });
+    },
+  });
+}

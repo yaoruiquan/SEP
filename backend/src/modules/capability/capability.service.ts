@@ -73,8 +73,12 @@ export class CapabilityService {
     const { type, industry, position, status, page, limit } = opts;
     const where: any = {};
 
-    // 公开接口永远只返回已审核能力。运营端筛选使用 /admin/capabilities。
-    where.status = APPROVED;
+    // 新贡献能力必须经过平台审核并明确进入市场；历史能力在迁移前没有
+    // enterpriseId/visibility 语义，保留旧的 APPROVED 公开行为以兼容存量数据。
+    where.OR = [
+      { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+      { enterpriseId: null, status: APPROVED },
+    ];
 
     if (type) where.type = type.toUpperCase();
     if (industry) where.industry = { has: industry };
@@ -96,7 +100,13 @@ export class CapabilityService {
 
   async findOne(id: string) {
     const cap = await this.prisma.capability.findFirst({
-      where: { id, status: APPROVED },
+      where: {
+        id,
+        OR: [
+          { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+          { enterpriseId: null, status: APPROVED },
+        ],
+      },
       include: PUBLIC_INCLUDE,
     });
     if (!cap) throw new NotFoundException(`Capability ${id} not found`);

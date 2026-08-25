@@ -574,6 +574,53 @@ export const CapabilityUploadDtoSchema = z.object({
 
 export type CapabilityUploadDto = z.infer<typeof CapabilityUploadDtoSchema>;
 
+// 能力贡献中心：所有注册用户都可创建，企业归属和两层审核由服务端决定。
+export const ContributionCapabilityCreateDtoSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().min(10).max(2000),
+  type: z.enum(['agent', 'skill']),
+  industry: z.array(z.string()).default([]),
+  position: z.array(z.string()).default([]),
+  inputSchema: z.record(z.any()).default({}),
+  outputSchema: z.record(z.any()).default({}),
+  skillConfig: z.object({
+    template: z.string().min(20),
+    modelId: z.string().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().min(1).max(100000).optional(),
+  }).optional(),
+  agentConfig: z.object({
+    platform: z.enum(['coze', 'dify', 'n8n', 'opencode']),
+    botId: z.string().optional(),
+    workflowUrl: z.string().url().optional(),
+    skillName: z.string().optional(),
+  }).optional(),
+});
+export type ContributionCapabilityCreateDto = z.infer<typeof ContributionCapabilityCreateDtoSchema>;
+
+export const ContributionCapabilityUpdateDtoSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().min(10).max(2000).optional(),
+  industry: z.array(z.string()).optional(),
+  position: z.array(z.string()).optional(),
+  inputSchema: z.record(z.any()).optional(),
+  outputSchema: z.record(z.any()).optional(),
+});
+export type ContributionCapabilityUpdateDto = z.infer<typeof ContributionCapabilityUpdateDtoSchema>;
+
+export const ContributionReviewDecisionSchema = z.object({
+  decision: z.enum(['APPROVE', 'REJECT']),
+  comment: z.string().max(2000).optional(),
+});
+export type ContributionReviewDecision = z.infer<typeof ContributionReviewDecisionSchema>;
+
+export const ContributionVersionCreateDtoSchema = z.object({
+  parentVersionId: z.string().optional(),
+  content: z.string().min(20),
+  changeSummary: z.string().min(1).max(1000),
+});
+export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
+
 // Digital Employee
 export const DigitalEmployeeCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),

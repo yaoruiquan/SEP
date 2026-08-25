@@ -4,6 +4,9 @@ export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
 export type EmployeeStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
 export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type CapabilityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type CapabilityVisibility = 'ENTERPRISE_PRIVATE' | 'MARKET_PUBLIC';
+export type ContributionReviewStatus = 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+export type ContributionPlatformStatus = 'NOT_SUBMITTED' | 'REQUESTED' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 export type UserRole = 'USER' | 'ADMIN';
 export type SkillVersionScope = 'PLATFORM' | 'ENTERPRISE';
@@ -70,6 +73,89 @@ export interface Capability {
   position: string[];
   status: CapabilityStatus;
   createdAt: string;
+}
+
+export interface ContributionCapability {
+  id: string;
+  name: string;
+  description: string;
+  type: CapabilityType;
+  industry: string[];
+  position: string[];
+  status: CapabilityStatus;
+  enterpriseId: string | null;
+  visibility: CapabilityVisibility;
+  enterpriseReviewStatus: ContributionReviewStatus;
+  enterpriseReviewedById: string | null;
+  enterpriseReviewedAt: string | null;
+  enterpriseRejectionReason: string | null;
+  platformReviewStatus: ContributionPlatformStatus;
+  platformSubmittedById: string | null;
+  platformSubmittedAt: string | null;
+  platformRejectionReason: string | null;
+  validationResult: Record<string, unknown> | null;
+  validatedAt: string | null;
+  usageCount: number;
+  rating: number | null;
+  createdAt: string;
+  updatedAt: string;
+  contributor: { id: string; name: string | null; email: string };
+  enterprise: { id: string; name: string } | null;
+  skillConfig: { id: string; modelId: string; temperature: number; maxTokens: number } | null;
+  agentConfig: { id: string; platform: string; botId: string | null; workflowUrl: string | null; skillName: string | null } | null;
+  _count: { skillVersions: number; bindings: number };
+}
+
+export interface ContributionOverview {
+  enterpriseId: string | null;
+  capabilityCount: number;
+  pendingEnterpriseReview: number;
+  pendingPlatformAuthorization: number;
+  publicCapabilityCount: number;
+  usageCount: number;
+  pendingRewardPoints: number;
+}
+
+export interface ContributionCapabilityDetail extends ContributionCapability {
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  skillVersions: Array<{
+    id: string;
+    scope: SkillVersionScope;
+    enterpriseId: string | null;
+    parentVersionId: string | null;
+    sourceVersionId: string | null;
+    version: string;
+    changeSummary: string | null;
+    status: SkillVersionStatus;
+    validationResult?: Record<string, unknown> | null;
+    validatedAt?: string | null;
+    createdById: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  contributionRewards: Array<{
+    id: string;
+    eventType: string;
+    points: number;
+    amount: string | null;
+    status: string;
+    createdAt: string;
+    settledAt: string | null;
+  }>;
+}
+
+export interface ContributionRewardEvent {
+  id: string;
+  eventType: string;
+  points: number;
+  amount: string | null;
+  status: string;
+  dedupeKey: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  settledAt: string | null;
+  capability: { id: string; name: string } | null;
 }
 
 export interface CapabilityBinding {

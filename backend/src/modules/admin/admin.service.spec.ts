@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 
@@ -24,6 +25,10 @@ describe('AdminService', () => {
     },
     $transaction: jest.fn(),
   };
+  const mockWalletService = {
+    adminDeposit: jest.fn(),
+    adminDeduct: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -33,6 +38,10 @@ describe('AdminService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: WalletService,
+          useValue: mockWalletService,
+        },
       ],
     }).compile();
 
@@ -41,6 +50,8 @@ describe('AdminService', () => {
 
     // Reset mocks
     jest.clearAllMocks();
+    mockWalletService.adminDeposit.mockResolvedValue({ balance: 150 });
+    mockWalletService.adminDeduct.mockResolvedValue({ balance: 50 });
   });
 
   describe('getEnterpriseDetail', () => {
@@ -95,13 +106,6 @@ describe('AdminService', () => {
 
     it('should recharge credit successfully', async () => {
       mockPrismaService.enterprise.findUnique.mockResolvedValue(mockEnterprise);
-      mockPrismaService.$transaction.mockImplementation(async (callback) => {
-        return callback(mockPrismaService);
-      });
-      mockPrismaService.computeAccount.update.mockResolvedValue({
-        id: 'acc1',
-        balance: 150,
-      });
 
       const result = await service.creditAdjustment({
         enterpriseId: 'ent1',
@@ -115,17 +119,16 @@ describe('AdminService', () => {
         success: true,
         newBalance: 150,
       });
+      expect(mockWalletService.adminDeposit).toHaveBeenCalledWith(
+        'ent1',
+        50,
+        'Test recharge',
+        'admin1',
+      );
     });
 
     it('should deduct credit successfully when balance is sufficient', async () => {
       mockPrismaService.enterprise.findUnique.mockResolvedValue(mockEnterprise);
-      mockPrismaService.$transaction.mockImplementation(async (callback) => {
-        return callback(mockPrismaService);
-      });
-      mockPrismaService.computeAccount.update.mockResolvedValue({
-        id: 'acc1',
-        balance: 50,
-      });
 
       const result = await service.creditAdjustment({
         enterpriseId: 'ent1',
@@ -139,10 +142,17 @@ describe('AdminService', () => {
         success: true,
         newBalance: 50,
       });
+      expect(mockWalletService.adminDeduct).toHaveBeenCalledWith(
+        'ent1',
+        50,
+        'Test deduct',
+        'admin1',
+      );
     });
 
     it('should throw BadRequestException when deducting more than balance', async () => {
       mockPrismaService.enterprise.findUnique.mockResolvedValue(mockEnterprise);
+      mockWalletService.adminDeduct.mockRejectedValue(new BadRequestException('余额不足'));
 
       await expect(
         service.creditAdjustment({
@@ -167,7 +177,7 @@ describe('AdminService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should create compute account if not exists', async () => {
+    it('should delegate recharge even when the legacy compute account relation is absent', async () => {
       const enterpriseWithoutAccount = {
         id: 'ent1',
         name: 'Test Enterprise',
@@ -177,18 +187,7 @@ describe('AdminService', () => {
       mockPrismaService.enterprise.findUnique.mockResolvedValue(
         enterpriseWithoutAccount,
       );
-      mockPrismaService.computeAccount.create.mockResolvedValue({
-        id: 'acc1',
-        balance: 0,
-        enterpriseId: 'ent1',
-      });
-      mockPrismaService.$transaction.mockImplementation(async (callback) => {
-        return callback(mockPrismaService);
-      });
-      mockPrismaService.computeAccount.update.mockResolvedValue({
-        id: 'acc1',
-        balance: 100,
-      });
+      mockWalletService.adminDeposit.mockResolvedValue({ balance: 100 });
 
       const result = await service.creditAdjustment({
         enterpriseId: 'ent1',
@@ -198,7 +197,12 @@ describe('AdminService', () => {
         operatorId: 'admin1',
       });
 
-      expect(mockPrismaService.computeAccount.create).toHaveBeenCalled();
+      expect(mockWalletService.adminDeposit).toHaveBeenCalledWith(
+        'ent1',
+        100,
+        'Initial recharge',
+        'admin1',
+      );
       expect(result.success).toBe(true);
     });
   });

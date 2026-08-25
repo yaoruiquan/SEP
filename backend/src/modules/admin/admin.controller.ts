@@ -426,7 +426,7 @@ export class AdminController {
 
   @Get('capabilities')
   @ApiOperation({ summary: '获取能力列表（运营端）' })
-  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'APPROVED', 'REJECTED'], description: '能力状态' })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'APPROVED', 'REJECTED'], description: '能力状态；PENDING 仅返回平台待审投稿和历史平台草稿' })
   @ApiQuery({ name: 'type', required: false, enum: ['AGENT', 'RPA', 'SKILL', 'AI_APP'], description: '能力类型' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认1' })
   @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '每页数量，默认20' })

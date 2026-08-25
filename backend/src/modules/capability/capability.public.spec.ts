@@ -19,7 +19,13 @@ describe('CapabilityService public projection', () => {
 
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'capability-1', status: 'APPROVED' },
+        where: {
+          id: 'capability-1',
+          OR: [
+            { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+            { enterpriseId: null, status: 'APPROVED' },
+          ],
+        },
         include: expect.objectContaining({
           skillConfig: { select: { id: true } },
           agentConfig: {

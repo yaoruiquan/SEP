@@ -45,4 +45,11 @@ export const qk = {
   subscriptionRequests: ['subscription-requests'] as const,
   mySubscriptionRequests: ['subscription-requests', 'my'] as const,
   pendingSubscriptionRequests: ['subscription-requests', 'pending'] as const,
+  contributions: ['contributions'] as const,
+  contributionOverview: ['contributions', 'overview'] as const,
+  contributionMine: ['contributions', 'mine'] as const,
+  contribution: (id: string) => ['contributions', id] as const,
+  contributionRewards: ['contributions', 'rewards'] as const,
+  contributionAdminQueue: (status: string) => ['admin', 'contributions', status] as const,
+  contributionAdmin: (id: string) => ['admin', 'contributions', id] as const,
 };

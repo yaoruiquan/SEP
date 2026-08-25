@@ -30,6 +30,8 @@ model User {
   // Relations
   sessions                          ConversationSession[]
   contributedCapabilities           Capability[]               @relation("CapabilityContributor")
+  enterpriseReviewedCapabilities    Capability[]               @relation("CapabilityEnterpriseReviewer")
+  platformSubmittedCapabilities     Capability[]               @relation("CapabilityPlatformSubmitter")
   /// 企业成员身份。MVP 阶段每个用户恰好一条记录（不做多企业切换），
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
   memberships                       EnterpriseMember[]
@@ -47,6 +49,7 @@ model User {
   platformReviewedSkillVersions     SkillVersion[]             @relation("SkillVersionPlatformReviewer")
   skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
   selectedSubscriptionSkillVersions SubscriptionSkillVersion[] @relation("SubscriptionSkillVersionSelector")
+  contributionRewardEvents          ContributionRewardEvent[]  @relation("ContributionRewardRecipient")
 
   @@map("users")
 }
@@ -94,6 +97,8 @@ model Enterprise {
   cartItems            CartItem[]
   subscriptionRequests SubscriptionRequest[]
   skillVersions        SkillVersion[]
+  capabilities         Capability[]
+  contributionRewards  ContributionRewardEvent[]
 
   @@map("enterprises")
 }
@@ -246,14 +251,14 @@ enum InvitationStatus {
 // ============================================================================
 
 model DigitalEmployee {
-  id          String  @id @default(cuid())
-  name        String
-  description String  @db.Text
-  industry    String // 行业（电商/金融/医疗等）
-  position    String // 岗位（运营/客服/数据分析等）
+  id                 String           @id @default(cuid())
+  name               String
+  description        String           @db.Text
+  industry           String // 行业（电商/金融/医疗等）
+  position           String // 岗位（运营/客服/数据分析等）
   functionalCategory EmployeeCategory @default(OPERATIONS_ORG)
-  avatar      String?
-  avatarStyle String? // 头像风格（adventurer/avataaars/bottts等，来自 DiceBear）
+  avatar             String?
+  avatarStyle        String? // 头像风格（adventurer/avataaars/bottts等，来自 DiceBear）
 
   // Agent Configuration
   systemPrompt String @db.Text // Agent 人设
@@ -384,6 +389,27 @@ model Capability {
   contributorId String
   contributor   User   @relation("CapabilityContributor", fields: [contributorId], references: [id])
 
+  // 企业归属与贡献中心审核边界。历史能力允许为空，迁移期间由旧平台状态兼容。
+  enterpriseId String?
+  enterprise   Enterprise?          @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
+  visibility   CapabilityVisibility @default(ENTERPRISE_PRIVATE)
+
+  enterpriseReviewStatus    ContributionReviewStatus @default(NOT_SUBMITTED)
+  enterpriseReviewedById    String?
+  enterpriseReviewedBy      User?                    @relation("CapabilityEnterpriseReviewer", fields: [enterpriseReviewedById], references: [id], onDelete: SetNull)
+  enterpriseReviewedAt      DateTime?
+  enterpriseRejectionReason String?                  @db.Text
+
+  platformReviewStatus    ContributionPlatformStatus @default(NOT_SUBMITTED)
+  platformSubmittedById   String?
+  platformSubmittedBy     User?                      @relation("CapabilityPlatformSubmitter", fields: [platformSubmittedById], references: [id], onDelete: SetNull)
+  platformSubmittedAt     DateTime?
+  platformRejectionReason String?                    @db.Text
+
+  /// Agent 或无版本能力的最近一次自动校验结果，不包含敏感凭据原文。
+  validationResult Json?
+  validatedAt     DateTime?
+
   // Status
   status CapabilityStatus @default(PENDING)
 
@@ -409,8 +435,70 @@ model Capability {
   toolExecutions            ToolExecution[]
   skillVersions             SkillVersion[]
   subscriptionSkillVersions SubscriptionSkillVersion[]
+  contributionRewards       ContributionRewardEvent[]
 
+  @@index([enterpriseId, enterpriseReviewStatus])
+  @@index([visibility, platformReviewStatus])
   @@map("capabilities")
+}
+
+enum CapabilityVisibility {
+  ENTERPRISE_PRIVATE
+  MARKET_PUBLIC
+}
+
+enum ContributionReviewStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ContributionPlatformStatus {
+  NOT_SUBMITTED
+  REQUESTED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum ContributionRewardEventType {
+  ENTERPRISE_APPROVED
+  PLATFORM_APPROVED
+  ENTERPRISE_ADOPTED
+  MARKET_ADOPTED
+  VALID_USAGE
+}
+
+enum ContributionRewardStatus {
+  PENDING
+  AVAILABLE
+  SETTLED
+  REVOKED
+}
+
+model ContributionRewardEvent {
+  id           String                      @id @default(cuid())
+  recipientId  String
+  recipient    User                        @relation("ContributionRewardRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  enterpriseId String?
+  enterprise   Enterprise?                 @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
+  capabilityId String?
+  capability   Capability?                 @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
+  versionId    String?
+  version      SkillVersion?               @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  eventType    ContributionRewardEventType
+  points       Int                         @default(0)
+  amount       Decimal?                    @db.Decimal(18, 6)
+  status       ContributionRewardStatus    @default(PENDING)
+  dedupeKey    String                      @unique
+  metadata     Json?
+  createdAt    DateTime                    @default(now())
+  settledAt    DateTime?
+
+  @@index([recipientId, status, createdAt])
+  @@index([capabilityId, eventType])
+  @@map("contribution_reward_events")
 }
 
 enum CapabilityType {
@@ -565,12 +653,17 @@ model SkillVersion {
 
   rejectionReason String? @db.Text
 
+  /// 最近一次自动校验结果；仅用于审核门禁与审计展示，不包含密钥原文。
+  validationResult Json?
+  validatedAt     DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  reviews         SkillVersionReview[]
-  selections      SubscriptionSkillVersion[]
-  defaultBindings EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
+  reviews             SkillVersionReview[]
+  selections          SubscriptionSkillVersion[]
+  defaultBindings     EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
+  contributionRewards ContributionRewardEvent[]
 
   @@index([capabilityId, status])
   @@index([enterpriseId, status])

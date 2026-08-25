@@ -26,6 +26,7 @@ describe('EnterpriseService', () => {
             enterpriseMember: {
               count: jest.fn(),
               findUnique: jest.fn(),
+              findMany: jest.fn(),
             },
             computeTransaction: {
               count: jest.fn(),
@@ -72,6 +73,9 @@ describe('EnterpriseService', () => {
         spendTrend: [],
         topEmployees: [],
         recentActivities: [],
+        modelDistribution: [],
+        tokenTrend: [],
+        topMembers: [],
       });
     });
 
@@ -101,6 +105,9 @@ describe('EnterpriseService', () => {
         .mockResolvedValue([]);
       jest
         .spyOn(prisma.subscription, 'findMany')
+        .mockResolvedValue([]);
+      jest
+        .spyOn(prisma.enterpriseMember, 'findMany')
         .mockResolvedValue([]);
 
       const result = await service.getDashboardStats('user-1');

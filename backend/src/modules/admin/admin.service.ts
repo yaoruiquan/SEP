@@ -824,7 +824,23 @@ export class AdminService {
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
-    if (status) where.status = status;
+    if (status) {
+      if (status === 'PENDING') {
+        // 贡献中心的企业私有草稿也保留 status=PENDING，但不能进入平台审核队列。
+        // 只有已获企业管理员授权的投稿（PENDING_REVIEW）或历史无企业能力可见。
+        where.OR = [
+          { enterpriseId: null, status: 'PENDING' },
+          { platformReviewStatus: 'PENDING_REVIEW' },
+        ];
+      } else if (status === 'APPROVED') {
+        where.OR = [
+          { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+          { enterpriseId: null, status: 'APPROVED' },
+        ];
+      } else {
+        where.status = status;
+      }
+    }
     if (type) where.type = type;
 
     const [items, total] = await Promise.all([
@@ -956,9 +972,18 @@ export class AdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const reviewedAt = new Date();
+      const isContributionSubmission = capability.platformReviewStatus === 'PENDING_REVIEW';
       const updated = await tx.capability.update({
         where: { id: capabilityId },
-        data: { status: 'APPROVED', approvedAt: reviewedAt },
+        data: {
+          status: 'APPROVED',
+          approvedAt: reviewedAt,
+          ...(isContributionSubmission && {
+            platformReviewStatus: 'APPROVED',
+            visibility: 'MARKET_PUBLIC',
+            platformRejectionReason: null,
+          }),
+        },
       });
       if (capability.type === 'SKILL') {
         const versions = await tx.skillVersion.findMany({
@@ -990,6 +1015,20 @@ export class AdminService {
           });
         }
       }
+      if (isContributionSubmission) {
+        await tx.contributionRewardEvent.createMany({
+          data: [{
+            recipientId: capability.contributorId,
+            enterpriseId: capability.enterpriseId,
+            capabilityId: capability.id,
+            eventType: 'PLATFORM_APPROVED',
+            points: 50,
+            dedupeKey: `platform-approved:${capability.id}`,
+            metadata: { reviewerId: operatorId },
+          }],
+          skipDuplicates: true,
+        });
+      }
       return updated;
     });
   }
@@ -1009,9 +1048,17 @@ export class AdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const reviewedAt = new Date();
+      const isContributionSubmission = capability.platformReviewStatus === 'PENDING_REVIEW';
       const updated = await tx.capability.update({
         where: { id: capabilityId },
-        data: { status: 'REJECTED' },
+        data: {
+          status: 'REJECTED',
+          ...(isContributionSubmission && {
+            platformReviewStatus: 'REJECTED',
+            visibility: 'ENTERPRISE_PRIVATE',
+            platformRejectionReason: reason,
+          }),
+        },
       });
       if (capability.type === 'SKILL') {
         const versions = await tx.skillVersion.findMany({

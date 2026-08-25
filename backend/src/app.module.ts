@@ -30,6 +30,7 @@ import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SkillVersionModule } from './modules/skill-version/skill-version.module';
 import { TaskPlanningModule } from './modules/task-planning/task-planning.module';
+import { CapabilityContributionModule } from './modules/capability-contribution/capability-contribution.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { TaskPlanningModule } from './modules/task-planning/task-planning.module
     DashboardModule,
     SkillVersionModule,
     TaskPlanningModule,
+    CapabilityContributionModule,
   ],
   controllers: [],
   providers: [],
