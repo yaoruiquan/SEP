@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   ArrowLeft,
   Award,
@@ -10,6 +11,8 @@ import {
   CircleDashed,
   Clock3,
   ExternalLink,
+  Eye,
+  FileCode2,
   GitBranch,
   LockKeyhole,
   Layers3,
@@ -28,6 +31,8 @@ import { cn } from '@/lib/utils';
 import type { ContributionCapability, ContributionCapabilityDetail } from '@/lib/types';
 import { PLATFORM_META, REVIEW_META, TYPE_META, currentContributionState, toneClasses } from './contribution-status';
 import { useContribution, useContributionAction, useReviewContribution } from './use-contributions';
+import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
+import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 
 export function ContributionDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const query = useContribution(id);
@@ -36,10 +41,11 @@ export function ContributionDetail({ id, onBack }: { id: string; onBack: () => v
   return <ContributionDetailContent contribution={query.data} onBack={onBack} />;
 }
 
-type DetailView = 'pipeline' | 'profile' | 'rewards';
+type DetailView = 'pipeline' | 'versions' | 'profile' | 'rewards';
 
 function ContributionDetailContent({ contribution, onBack }: { contribution: ContributionCapabilityDetail; onBack: () => void }) {
   const [view, setView] = useState<DetailView>('pipeline');
+  const [previewVersionId, setPreviewVersionId] = useState('');
   const isEnterpriseAdmin = useAuthStore((s) => s.roleInEnterprise) === 'ENTERPRISE_ADMIN';
   const hasEnterprise = Boolean(useAuthStore((s) => s.enterprise));
   const currentUserId = useAuthStore((s) => s.user?.id);
@@ -67,13 +73,15 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
         <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><TypeBadge item={contribution} /><Badge className={cn('border', toneClasses[state.tone])}>{state.label}</Badge><span className="text-xs text-gtext-muted">更新于 {new Date(contribution.updatedAt).toLocaleDateString('zh-CN')}</span></div><h2 className="mt-2 truncate text-2xl font-semibold text-gtext-primary">{contribution.name}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-gtext-secondary">{contribution.description}</p></div>
         <ActionBar contribution={contribution} hasEnterprise={hasEnterprise} isContributor={isContributor} isEnterpriseAdmin={isEnterpriseAdmin} loading={loading} onSubmitEnterprise={() => mutate(submitEnterprise, '已提交企业审核')} onApprove={() => decide('APPROVE')} onReject={() => decide('REJECT')} onRequestPlatform={() => mutate(requestPlatform, '已申请公开投稿，等待企业管理员授权')} onAuthorizePlatform={() => mutate(authorizePlatform, '已授权提交平台审核')} />
       </div>
-      <nav aria-label="能力详情视图" className="mt-6 flex gap-6 border-b border-glassline"><DetailTab active={view === 'pipeline'} onClick={() => setView('pipeline')}>发布流程</DetailTab><DetailTab active={view === 'profile'} onClick={() => setView('profile')}>能力档案</DetailTab><DetailTab active={view === 'rewards'} onClick={() => setView('rewards')}>贡献奖励</DetailTab></nav>
+      <nav aria-label="能力详情视图" className="mt-6 flex gap-6 border-b border-glassline"><DetailTab active={view === 'pipeline'} onClick={() => setView('pipeline')}>发布流程</DetailTab>{contribution.type === 'SKILL' && <DetailTab active={view === 'versions'} onClick={() => setView('versions')}>版本迭代</DetailTab>}<DetailTab active={view === 'profile'} onClick={() => setView('profile')}>能力档案</DetailTab><DetailTab active={view === 'rewards'} onClick={() => setView('rewards')}>贡献奖励</DetailTab></nav>
     </header>
     <main className="min-h-0 flex-1 overflow-y-auto scroll-thin px-6 py-7 xl:px-10"><div className="mx-auto max-w-5xl">
       {view === 'pipeline' && <PipelineView contribution={contribution} hasEnterprise={hasEnterprise} />}
+      {view === 'versions' && <VersionView contribution={contribution} onPreview={setPreviewVersionId} />}
       {view === 'profile' && <ProfileView contribution={contribution} />}
       {view === 'rewards' && <RewardsView contribution={contribution} />}
     </div></main>
+    <SkillVersionPreviewDialog versionId={previewVersionId} open={Boolean(previewVersionId)} onOpenChange={(open) => !open && setPreviewVersionId('')} />
   </div>;
 }
 
@@ -86,6 +94,11 @@ function ProfileView({ contribution }: { contribution: ContributionCapabilityDet
 function ProfileRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between gap-6 py-4 text-sm"><span className="text-gtext-muted">{label}</span><span className="font-medium text-gtext-primary">{value}</span></div>; }
 
 function RewardsView({ contribution }: { contribution: ContributionCapabilityDetail }) { const points = contribution.contributionRewards.reduce((sum, item) => sum + item.points, 0); return <section className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Contribution reward</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">贡献奖励</h3><p className="mt-1 text-sm text-gtext-secondary">奖励将在审核与市场采用节点达成后持续累积。</p><div className="mt-6 flex items-end justify-between border-l-2 border-gwarning bg-gwarning/10 px-5 py-6"><div><p className="text-4xl font-semibold text-gtext-primary">{points}</p><p className="mt-2 text-sm text-gtext-muted">累计待确认积分</p></div><Trophy className="h-7 w-7 text-gwarning" /></div><div className="mt-6 divide-y divide-glassline border-y border-glassline">{contribution.contributionRewards.length ? contribution.contributionRewards.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 py-4"><div><p className="text-sm font-medium text-gtext-primary">{item.eventType}</p><p className="mt-1 text-xs text-gtext-muted">{new Date(item.createdAt).toLocaleDateString('zh-CN')}</p></div><span className="font-semibold text-gsuccess">+{item.points} 积分</span></div>) : <div className="flex items-center gap-2 py-6 text-sm text-gtext-muted"><LockKeyhole className="h-4 w-4" />审核通过后记录奖励事件</div>}</div></section>; }
+
+function VersionView({ contribution, onPreview }: { contribution: ContributionCapabilityDetail; onPreview: (id: string) => void }) {
+  const versions = contribution.skillVersions;
+  return <section className="max-w-4xl"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Skill versions</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">版本迭代</h3><p className="mt-1 text-sm text-gtext-secondary">在这里查看 Skill 的版本路线、审核状态和正文。</p></div><span className="text-sm text-gtext-muted">{versions.length} 个版本</span></div>{versions.length ? <div className="mt-6 space-y-3">{versions.map((version, index) => { const meta = SKILL_VERSION_STATUS[version.status]; const latest = index === 0; const editable = version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED'; return <article key={version.id} className={cn('relative border p-4', latest ? 'border-glassline-brand bg-glass-accent-2' : 'border-glassline bg-glass-1')}><div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-gtext-primary">v{version.version}</span>{latest && <Badge className="border border-glassline-brand bg-gbrand/15 text-gbrand-text">最新</Badge>}{!version.parentVersionId && !version.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}<Badge className={meta.className}>{meta.label}</Badge></div><p className="mt-2 text-sm text-gtext-secondary">{version.changeSummary || (!version.parentVersionId && !version.sourceVersionId ? '技能原始正文，后续版本从此版本派生。' : '未填写变更说明。')}</p><p className="mt-2 text-xs text-gtext-muted">{version.scope === 'PLATFORM' ? '平台版本' : '企业版本'} · 更新于 {new Date(version.updatedAt).toLocaleDateString('zh-CN')}</p></div><div className="flex shrink-0 flex-wrap gap-2"><Button variant="glass" size="sm" onClick={() => onPreview(version.id)}><Eye className="h-4 w-4" />预览</Button>{editable && <Link href={`/skills/${version.id}/edit`} className="inline-flex h-8 items-center gap-2 rounded-md border border-glassline bg-glass-2 px-3 text-sm font-medium text-gtext-primary transition-colors hover:bg-glass-3"><FileCode2 className="h-4 w-4" />编辑</Link>}</div></div></article>; })}</div> : <div className="mt-6 border border-dashed border-glassline px-5 py-10 text-center text-sm text-gtext-muted">还没有 Skill 版本</div>}</section>;
+}
 
 function ActionBar({ contribution, hasEnterprise, isContributor, isEnterpriseAdmin, loading, onSubmitEnterprise, onApprove, onReject, onRequestPlatform, onAuthorizePlatform }: { contribution: ContributionCapability; hasEnterprise: boolean; isContributor: boolean; isEnterpriseAdmin: boolean; loading: boolean; onSubmitEnterprise: () => void; onApprove: () => void; onReject: () => void; onRequestPlatform: () => void; onAuthorizePlatform: () => void }) {
   return <div className="flex shrink-0 flex-wrap gap-2">
