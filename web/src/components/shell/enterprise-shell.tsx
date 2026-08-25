@@ -82,8 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 管理视角：雇佣关系一个入口管到底 ——
       // 雇佣（买）、暂停/恢复、升级、授权给碳基员工都在这里
       { href: '/subscriptions', label: nav.subscriptions, icon: Boxes, adminOnly: true },
-      { href: '/contributions', label: '能力贡献中心', icon: Sparkles },
-      { href: '/skills', label: '技能管理', icon: BookOpen },
+      { href: '/contributions', label: '能力中心', icon: Sparkles },
     ],
   },
   {
@@ -125,7 +124,8 @@ const CRUMBS: CrumbMap = {
   settings: '设置',
   models: '模型配置',
   chat: '对话',
-  contributions: '能力贡献中心',
+  contributions: '能力中心',
+  skills: '能力中心',
   wallet: '企业钱包',
   'compute-quota': '算力配额',
   recharge: '充值',
