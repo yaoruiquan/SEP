@@ -115,7 +115,7 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: 'w
 }
 
 function ReviewRow({ item }: { item: UnifiedReviewItem }) {
-  const href = item.kind === 'CAPABILITY' ? `/admin/contributions/${item.id}` : `/admin/skills/${item.id}`;
+  const href = item.kind === 'CAPABILITY' ? `/admin/contributions?selected=${encodeURIComponent(item.id)}` : `/admin/skills/${item.id}`;
   const isSkill = item.kind === 'SKILL_VERSION';
   return (
     <Link href={href} className="group grid gap-3 border-b border-glassline px-4 py-4 transition-colors last:border-b-0 hover:bg-glass-2 md:grid-cols-[minmax(0,1.7fr)_minmax(130px,0.8fr)_minmax(120px,0.7fr)_120px_36px] md:items-center md:gap-4">

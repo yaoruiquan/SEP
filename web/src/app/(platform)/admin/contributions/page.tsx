@@ -20,6 +20,7 @@ const tabs: Array<{ value: PlatformQueueStatus; label: string }> = [
 export default function AdminContributionsPage() {
   const [status, setStatus] = useState<PlatformQueueStatus>('PENDING_REVIEW');
   const queue = usePlatformContributionQueue(status);
+  const [requestedId, setRequestedId] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const items = queue.data?.items ?? [];
@@ -29,8 +30,16 @@ export default function AdminContributionsPage() {
   }, [items, search]);
 
   useEffect(() => {
-    if (!filtered.some((item) => item.id === selectedId)) setSelectedId(filtered[0]?.id ?? '');
-  }, [filtered, selectedId]);
+    setRequestedId(new URLSearchParams(window.location.search).get('selected') ?? '');
+  }, []);
+
+  useEffect(() => {
+    if (requestedId && filtered.some((item) => item.id === requestedId)) {
+      setSelectedId(requestedId);
+    } else if (!filtered.some((item) => item.id === selectedId)) {
+      setSelectedId(filtered[0]?.id ?? '');
+    }
+  }, [filtered, requestedId, selectedId]);
 
   return <div className="flex h-[calc(100vh-64px)] min-h-[680px] flex-col overflow-hidden">
     <header className="shrink-0 border-b border-glassline px-6 py-5">

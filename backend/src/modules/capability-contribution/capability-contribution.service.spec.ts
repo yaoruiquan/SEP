@@ -101,6 +101,7 @@ describe('CapabilityContributionService', () => {
     prisma.capability.findMany.mockResolvedValue([{
       id: 'cap-1', name: '销售分析', type: 'SKILL', platformReviewStatus: 'PENDING_REVIEW',
       platformSubmittedAt: capabilitySubmittedAt, enterprise: { id: 'ent-1', name: '示例企业' },
+      platformSubmittedBy: { id: 'admin-1', name: '企业管理员', email: 'admin@example.com' },
       contributor: { id: 'user-1', name: '贡献者', email: 'user@example.com' },
     }]);
     prisma.skillVersion.findMany.mockResolvedValue([{
@@ -113,6 +114,7 @@ describe('CapabilityContributionService', () => {
 
     expect(result.total).toBe(2);
     expect(result.items.map((item) => item.kind)).toEqual(['SKILL_VERSION', 'CAPABILITY']);
+    expect(result.items[1].submittedBy.email).toBe('admin@example.com');
     expect(prisma.capability.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { platformReviewStatus: 'PENDING_REVIEW' } }));
     expect(prisma.skillVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: 'PENDING_PLATFORM_REVIEW' } }));
   });
