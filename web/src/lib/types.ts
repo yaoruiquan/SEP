@@ -158,6 +158,20 @@ export interface ContributionRewardEvent {
   capability: { id: string; name: string } | null;
 }
 
+export interface ContributionUsage {
+  capability: { id: string; name: string };
+  totalBindings: number;
+  employees: Array<{
+    employeeId: string;
+    employeeName: string;
+    subscriptionId: string | null;
+    selectedVersion: Pick<SkillVersionSummary, 'id' | 'scope' | 'version' | 'changeSummary' | 'status' | 'createdAt' | 'updatedAt'> | null;
+    effectiveVersion: Pick<SkillVersionSummary, 'id' | 'scope' | 'version' | 'changeSummary' | 'status' | 'createdAt' | 'updatedAt'> | null;
+    lastUsedAt: string | null;
+    usageCount: number;
+  }>;
+}
+
 export interface CapabilityBinding {
   id: string;
   order: number;

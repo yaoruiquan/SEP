@@ -30,6 +30,10 @@ export class CapabilityContributionController {
   @ApiOperation({ summary: '我的奖励事件' })
   rewards(@Request() req: AuthRequest) { return this.service.rewards(req.user.id); }
 
+  @Get(':id/usage')
+  @ApiOperation({ summary: '能力使用情况与员工生效版本' })
+  usage(@Request() req: AuthRequest, @Param('id') id: string) { return this.service.usage(req.user.id, id); }
+
   @Get(':id')
   @ApiOperation({ summary: '贡献能力详情' })
   detail(@Request() req: AuthRequest, @Param('id') id: string) { return this.service.getOne(req.user.id, id); }

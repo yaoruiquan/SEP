@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
-import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent } from '@/lib/types';
+import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage } from '@/lib/types';
 
 export function useContributionOverview() {
   return useQuery({ queryKey: qk.contributionOverview, queryFn: () => api.get<ContributionOverview>('/contributions/overview') });
@@ -19,6 +19,10 @@ export function useContribution(id: string) {
 
 export function useContributionRewards() {
   return useQuery({ queryKey: qk.contributionRewards, queryFn: () => api.get<ContributionRewardEvent[]>('/contributions/rewards') });
+}
+
+export function useContributionUsage(id: string) {
+  return useQuery({ queryKey: [...qk.contribution(id), 'usage'], queryFn: () => api.get<ContributionUsage>(`/contributions/${id}/usage`), enabled: Boolean(id) });
 }
 
 function invalidate(qc: ReturnType<typeof useQueryClient>) {

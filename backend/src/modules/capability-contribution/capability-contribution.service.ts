@@ -20,7 +20,7 @@ import type {
   ContributionReviewDecision as ContributionDecisionDto,
   ContributionVersionCreateDto,
 } from 'shared';
-import { CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT } from './capability-contribution.types';
+import { CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT, USAGE_VERSION_SELECT } from './capability-contribution.types';
 import { CapabilityValidatorService } from './capability-validator.service';
 
 const CAPABILITY_TYPES: Record<ContributionCapabilityCreateDto['type'], CapabilityType> = {
@@ -113,6 +113,63 @@ export class CapabilityContributionService {
     });
     if (!capability) throw new NotFoundException('能力不存在或无权访问');
     return capability;
+  }
+
+  async usage(userId: string, capabilityId: string) {
+    const ctx = await this.enterpriseContext.resolveOrNull(userId);
+    if (!ctx?.enterpriseId) return { capability: { id: capabilityId, name: '' }, totalBindings: 0, employees: [] };
+
+    const capability = await this.prisma.capability.findFirst({
+      where: ctx.role === 'ENTERPRISE_ADMIN'
+        ? { id: capabilityId, OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }] }
+        : { id: capabilityId, enterpriseId: ctx.enterpriseId },
+      select: { id: true, name: true },
+    });
+    if (!capability) throw new NotFoundException('能力不存在或无权访问');
+
+    const memberUsers = await this.prisma.enterpriseMember.findMany({ where: { enterpriseId: ctx.enterpriseId }, select: { userId: true } });
+    const userIds = memberUsers.map((member) => member.userId);
+    const bindings = await this.prisma.employeeCapabilityBinding.findMany({
+      where: { capabilityId },
+      select: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            bindings: { where: { capabilityId }, select: { defaultSkillVersion: { select: USAGE_VERSION_SELECT } } },
+            subscriptions: {
+              where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
+              select: {
+                id: true,
+                skillVersionSelections: { where: { capabilityId }, select: { version: { select: USAGE_VERSION_SELECT }, selectedAt: true } },
+              },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    const employees = await Promise.all(bindings.map(async ({ employee }) => {
+      const subscription = employee.subscriptions[0];
+      const selection = subscription?.skillVersionSelections[0] ?? null;
+      const effectiveVersion = selection?.version ?? employee.bindings[0]?.defaultSkillVersion ?? null;
+      const executionWhere = { capabilityId, session: { employeeId: employee.id, userId: { in: userIds } } };
+      const [usageCount, latestExecution] = await Promise.all([
+        this.prisma.toolExecution.count({ where: executionWhere }),
+        this.prisma.toolExecution.findFirst({ where: executionWhere, select: { createdAt: true }, orderBy: { createdAt: 'desc' } }),
+      ]);
+      return {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        subscriptionId: subscription?.id ?? null,
+        selectedVersion: selection?.version ?? null,
+        effectiveVersion,
+        lastUsedAt: latestExecution?.createdAt ?? null,
+        usageCount,
+      };
+    }));
+    return { capability, totalBindings: employees.length, employees };
   }
 
   async create(userId: string, dto: ContributionCapabilityCreateDto) {

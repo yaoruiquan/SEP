@@ -87,3 +87,13 @@ export type ContributionCapabilitySummary = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+export const USAGE_VERSION_SELECT = {
+  id: true,
+  scope: true,
+  version: true,
+  changeSummary: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
