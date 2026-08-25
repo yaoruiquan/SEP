@@ -6,6 +6,26 @@ import { qk } from '@/lib/query-keys';
 import type { ContributionCapability } from '@/lib/types';
 
 export type PlatformQueueStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
+export type UnifiedReviewKind = 'ALL' | 'CAPABILITY' | 'SKILL_VERSION';
+
+export interface UnifiedReviewItem {
+  kind: 'CAPABILITY' | 'SKILL_VERSION';
+  id: string;
+  capabilityId: string;
+  capabilityName: string;
+  name: string;
+  type: string;
+  version: string | null;
+  status: string;
+  submittedAt: string | null;
+  enterprise: { id: string; name: string } | null;
+  submittedBy: { id: string; name: string | null; email: string };
+}
+
+export interface UnifiedReviewQueue {
+  items: UnifiedReviewItem[];
+  total: number;
+}
 
 export type PlatformContribution = ContributionCapability & {
   platformSubmittedAt: string | null;
@@ -69,5 +89,12 @@ export function usePlatformContributionReview() {
       void queryClient.invalidateQueries({ queryKey: qk.contributionAdminQueue('REJECTED') });
       void queryClient.invalidateQueries({ queryKey: qk.contributionAdmin(input.id) });
     },
+  });
+}
+
+export function useUnifiedCapabilityReviewQueue(kind: UnifiedReviewKind) {
+  return useQuery({
+    queryKey: qk.contributionReviewQueue(kind),
+    queryFn: () => api.get<UnifiedReviewQueue>(`/admin/capability-review?kind=${kind}`),
   });
 }

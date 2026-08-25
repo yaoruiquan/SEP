@@ -9,6 +9,7 @@ import { ContributionReviewDecisionSchema } from 'shared';
 import { CapabilityContributionService } from './capability-contribution.service';
 
 const PLATFORM_STATUSES = ['PENDING_REVIEW', 'APPROVED', 'REJECTED'] as const;
+const REVIEW_KINDS = ['ALL', 'CAPABILITY', 'SKILL_VERSION'] as const;
 
 type AuthRequest = { user: { id: string } };
 
@@ -47,5 +48,21 @@ export class CapabilityContributionAdminController {
   @ApiOperation({ summary: '平台审核贡献投稿' })
   review(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.service.reviewPlatform(req.user.id, id, ContributionReviewDecisionSchema.parse(body));
+  }
+}
+
+@ApiTags('Admin Capability Review')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
+@Controller('admin/capability-review')
+export class CapabilityReviewAdminController {
+  constructor(private readonly service: CapabilityContributionService) {}
+
+  @Get()
+  @ApiOperation({ summary: '统一能力与 Skill 版本审核队列' })
+  list(@Query('kind') kind?: 'ALL' | 'CAPABILITY' | 'SKILL_VERSION') {
+    const parsed = kind && z.enum(REVIEW_KINDS).safeParse(kind);
+    return this.service.listUnifiedReviewQueue(parsed?.success ? parsed.data : 'ALL');
   }
 }

@@ -493,6 +493,26 @@ export class CapabilityContributionService {
     return { items, total, page, pageSize, status };
   }
 
+  async listUnifiedReviewQueue(kind: 'ALL' | 'CAPABILITY' | 'SKILL_VERSION' = 'ALL') {
+    const [capabilities, versions] = await Promise.all([
+      kind === 'SKILL_VERSION' ? Promise.resolve([]) : this.prisma.capability.findMany({
+        where: { platformReviewStatus: 'PENDING_REVIEW' },
+        select: { id: true, name: true, type: true, platformReviewStatus: true, platformSubmittedAt: true, enterprise: { select: { id: true, name: true } }, contributor: { select: { id: true, name: true, email: true } } },
+        orderBy: { platformSubmittedAt: 'asc' },
+      }),
+      kind === 'CAPABILITY' ? Promise.resolve([]) : this.prisma.skillVersion.findMany({
+        where: { status: 'PENDING_PLATFORM_REVIEW' },
+        select: { id: true, capabilityId: true, version: true, status: true, submittedAt: true, capability: { select: { name: true } }, enterprise: { select: { id: true, name: true } }, createdBy: { select: { id: true, name: true, email: true } } },
+        orderBy: { submittedAt: 'asc' },
+      }),
+    ]);
+    const items = [
+      ...capabilities.map((item) => ({ kind: 'CAPABILITY' as const, id: item.id, capabilityId: item.id, capabilityName: item.name, name: item.name, type: item.type, version: null, status: item.platformReviewStatus, submittedAt: item.platformSubmittedAt, enterprise: item.enterprise, submittedBy: item.contributor })),
+      ...versions.map((item) => ({ kind: 'SKILL_VERSION' as const, id: item.id, capabilityId: item.capabilityId, capabilityName: item.capability.name, name: `${item.capability.name} v${item.version}`, type: 'SKILL' as const, version: item.version, status: item.status, submittedAt: item.submittedAt, enterprise: item.enterprise, submittedBy: item.createdBy })),
+    ].sort((a, b) => +(a.submittedAt ?? 0) - +(b.submittedAt ?? 0));
+    return { items, total: items.length };
+  }
+
   async getPlatformSubmission(capabilityId: string) {
     const capability = await this.prisma.capability.findUnique({
       where: { id: capabilityId },

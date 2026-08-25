@@ -31,7 +31,7 @@ describe('CapabilityContributionService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-    skillVersion: { updateMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+    skillVersion: { updateMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },
     agentConfig: { findUnique: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -93,6 +93,28 @@ describe('CapabilityContributionService', () => {
       where: { platformReviewStatus: 'PENDING_REVIEW' },
     }));
     expect(prisma.capability.count).toHaveBeenCalledWith({ where: { platformReviewStatus: 'PENDING_REVIEW' } });
+  });
+
+  it('merges capability and Skill version submissions into one oldest-first queue', async () => {
+    const capabilitySubmittedAt = new Date('2026-08-25T10:00:00.000Z');
+    const versionSubmittedAt = new Date('2026-08-25T09:00:00.000Z');
+    prisma.capability.findMany.mockResolvedValue([{
+      id: 'cap-1', name: '销售分析', type: 'SKILL', platformReviewStatus: 'PENDING_REVIEW',
+      platformSubmittedAt: capabilitySubmittedAt, enterprise: { id: 'ent-1', name: '示例企业' },
+      contributor: { id: 'user-1', name: '贡献者', email: 'user@example.com' },
+    }]);
+    prisma.skillVersion.findMany.mockResolvedValue([{
+      id: 'version-1', capabilityId: 'cap-1', version: '1.1.0', status: 'PENDING_PLATFORM_REVIEW',
+      submittedAt: versionSubmittedAt, capability: { name: '销售分析' }, enterprise: { id: 'ent-1', name: '示例企业' },
+      createdBy: { id: 'user-1', name: '贡献者', email: 'user@example.com' },
+    }]);
+
+    const result = await service.listUnifiedReviewQueue();
+
+    expect(result.total).toBe(2);
+    expect(result.items.map((item) => item.kind)).toEqual(['SKILL_VERSION', 'CAPABILITY']);
+    expect(prisma.capability.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { platformReviewStatus: 'PENDING_REVIEW' } }));
+    expect(prisma.skillVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: 'PENDING_PLATFORM_REVIEW' } }));
   });
 
   it('does not allow a non-admin enterprise member to review', async () => {

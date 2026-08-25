@@ -52,4 +52,5 @@ export const qk = {
   contributionRewards: ['contributions', 'rewards'] as const,
   contributionAdminQueue: (status: string) => ['admin', 'contributions', status] as const,
   contributionAdmin: (id: string) => ['admin', 'contributions', id] as const,
+  contributionReviewQueue: (kind: string) => ['admin', 'capability-review', kind] as const,
 };
