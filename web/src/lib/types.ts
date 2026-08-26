@@ -457,10 +457,7 @@ export interface UpdateEnterpriseModelConfigDto {
   defaultChatModel?: string;
   allowedChatModels?: string[];
   allowUserSwitchModel?: boolean;
-  embeddingModel?: string;
   rerankModel?: string | null;
-  embeddingBatchSize?: number;
-  embeddingTimeoutMs?: number;
   employeeModelPolicy?: EmployeeModelPolicy;
   employeeDefaultModel?: string | null;
   monthlyBudgetCNY?: number | null;

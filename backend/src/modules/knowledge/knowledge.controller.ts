@@ -21,6 +21,7 @@ import {
   type KnowledgeGrantCreateDto,
 } from 'shared';
 import { KnowledgeService } from './knowledge.service';
+import { KnowledgeReindexService } from './knowledge-reindex.service';
 
 type AuthedRequest = { user: { id: string } };
 
@@ -29,7 +30,10 @@ type AuthedRequest = { user: { id: string } };
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class KnowledgeController {
-  constructor(private readonly knowledge: KnowledgeService) {}
+  constructor(
+    private readonly knowledge: KnowledgeService,
+    private readonly reindexService: KnowledgeReindexService,
+  ) {}
 
   // ── 知识库 ────────────────────────────────────────────────────────────────
 
@@ -79,6 +83,14 @@ export class KnowledgeController {
   @ApiResponse({ status: 404, description: '知识库不存在' })
   async delete(@Request() req: AuthedRequest, @Param('id') id: string) {
     return this.knowledge.delete(req.user.id, id);
+  }
+
+  @Post(':id/reindex')
+  @ApiOperation({ summary: '使用当前 embedding 模型重建知识库向量索引' })
+  @ApiResponse({ status: 201, description: '重建结果' })
+  async reindex(@Request() req: AuthedRequest, @Param('id') id: string) {
+    // KnowledgeService performs the enterprise-admin authorization check.
+    return this.reindexService.reindex(req.user.id, id);
   }
 
   // ── 授权管理 ──────────────────────────────────────────────────────────────

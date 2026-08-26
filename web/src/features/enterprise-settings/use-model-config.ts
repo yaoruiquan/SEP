@@ -24,6 +24,7 @@ export interface EnterpriseModelConfig {
   allowedChatModels: string[];
   allowUserSwitchModel: boolean;
   embeddingModel: string;
+  embeddingModelSource: 'platform';
   rerankModel: string | null;
   embeddingBatchSize: number;
   embeddingTimeoutMs: number;

@@ -18,6 +18,7 @@ import { KnowledgeAnalyticsService } from './knowledge-analytics.service';
 import { TextTokenizer } from './text-tokenizer.service';
 import { BM25Scorer } from './bm25-scorer.service';
 import { LexicalSearchService } from './lexical-search.service';
+import { KnowledgeReindexService } from './knowledge-reindex.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
 
@@ -45,6 +46,7 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     TextTokenizer,
     BM25Scorer,
     LexicalSearchService,
+    KnowledgeReindexService,
   ],
   exports: [
     KnowledgeService,
@@ -61,6 +63,7 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
     TextTokenizer,
     BM25Scorer,
     LexicalSearchService,
+    KnowledgeReindexService,
   ],
 })
 export class KnowledgeModule {}

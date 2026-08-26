@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import {
@@ -15,7 +16,30 @@ export class EnterpriseModelConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ctx: EnterpriseContextService,
+    private readonly config?: ConfigService,
   ) {}
+
+  private getEffectiveEmbeddingConfig() {
+    const model = this.config?.get<string>('EMBEDDING_MODEL') ?? 'bge-m3:latest';
+    const batchSize = Number(this.config?.get<string>('EMBEDDING_BATCH_SIZE') ?? 32);
+    const timeoutMs = Number(this.config?.get<string>('EMBEDDING_TIMEOUT_MS') ?? 30000);
+    return {
+      embeddingModel: model,
+      embeddingBatchSize: Number.isInteger(batchSize) && batchSize > 0 ? batchSize : 32,
+      embeddingTimeoutMs: Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000,
+    };
+  }
+
+  private serializeConfig(config: any) {
+    return {
+      ...config,
+      ...this.getEffectiveEmbeddingConfig(),
+      embeddingModelSource: 'platform' as const,
+      monthlyBudgetCNY: config.monthlyBudgetCNY?.toString() ?? null,
+      createdAt: config.createdAt.toISOString(),
+      updatedAt: config.updatedAt.toISOString(),
+    };
+  }
 
   async get(userId: string) {
     const context = await this.ctx.resolve(userId);
@@ -31,9 +55,7 @@ export class EnterpriseModelConfigService {
           defaultChatModel: DEFAULT_MODEL_ID,
           allowedChatModels: [],
           allowUserSwitchModel: true,
-          embeddingModel: 'text-embedding-3-small',
-          embeddingBatchSize: 32,
-          embeddingTimeoutMs: 30000,
+          ...this.getEffectiveEmbeddingConfig(),
           employeeModelPolicy: 'FOLLOW_TEMPLATE',
           alertThreshold: 0.8,
           hardStopOnBudget: false,
@@ -41,12 +63,7 @@ export class EnterpriseModelConfigService {
       });
     }
 
-    return {
-      ...config,
-      monthlyBudgetCNY: config.monthlyBudgetCNY?.toString() ?? null,
-      createdAt: config.createdAt.toISOString(),
-      updatedAt: config.updatedAt.toISOString(),
-    };
+    return this.serializeConfig(config);
   }
 
   async update(userId: string, dto: UpdateEnterpriseModelConfigDto) {
@@ -61,10 +78,7 @@ export class EnterpriseModelConfigService {
         ...(dto.defaultChatModel !== undefined && { defaultChatModel: dto.defaultChatModel }),
         ...(dto.allowedChatModels !== undefined && { allowedChatModels: dto.allowedChatModels }),
         ...(dto.allowUserSwitchModel !== undefined && { allowUserSwitchModel: dto.allowUserSwitchModel }),
-        ...(dto.embeddingModel !== undefined && { embeddingModel: dto.embeddingModel }),
         ...(dto.rerankModel !== undefined && { rerankModel: dto.rerankModel }),
-        ...(dto.embeddingBatchSize !== undefined && { embeddingBatchSize: dto.embeddingBatchSize }),
-        ...(dto.embeddingTimeoutMs !== undefined && { embeddingTimeoutMs: dto.embeddingTimeoutMs }),
         ...(dto.employeeModelPolicy !== undefined && { employeeModelPolicy: dto.employeeModelPolicy }),
         ...(dto.employeeDefaultModel !== undefined && { employeeDefaultModel: dto.employeeDefaultModel }),
         ...(dto.monthlyBudgetCNY !== undefined && {
@@ -75,12 +89,7 @@ export class EnterpriseModelConfigService {
       },
     });
 
-    return {
-      ...updated,
-      monthlyBudgetCNY: updated.monthlyBudgetCNY?.toString() ?? null,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-    };
+    return this.serializeConfig(updated);
   }
 
   async getAvailableModels(userId: string): Promise<AvailableModel[]> {
@@ -139,10 +148,8 @@ export class EnterpriseModelConfigService {
     const base = {
       allowedChatModels: config.allowedChatModels,
       allowUserSwitchModel: config.allowUserSwitchModel,
-      embeddingModel: config.embeddingModel,
+      ...this.getEffectiveEmbeddingConfig(),
       rerankModel: config.rerankModel,
-      embeddingBatchSize: config.embeddingBatchSize,
-      embeddingTimeoutMs: config.embeddingTimeoutMs,
       budgetExceeded,
     };
 

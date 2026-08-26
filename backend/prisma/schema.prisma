@@ -1548,8 +1548,10 @@ model TextChunk {
   tags            String[] // User-defined tags
 
   // Phase 2: Vector + Lexical fields
-  embedding      Bytes? // 768/1024 维向量，存为二进制
-  embeddingModel String? // 如 "bge-small-zh-v1.5"
+  // Legacy compatibility column. New vector search uses embeddingVector.
+  embedding      Bytes?
+  embeddingVector Unsupported("vector(1024)")?
+  embeddingModel String? // bge-m3:latest
   tokens         String[] // 预分词结果，用于 BM25
 
   vectorId  String? // 外部向量库 ID（Phase 1 遗留，Phase 2 不用）
@@ -1631,7 +1633,7 @@ model EnterpriseModelConfig {
   allowUserSwitchModel Boolean  @default(true)
 
   // 知识库向量化设置
-  embeddingModel     String  @default("text-embedding-3-small")
+  embeddingModel     String  @default("bge-m3:latest")
   rerankModel        String?
   embeddingBatchSize Int     @default(32)
   embeddingTimeoutMs Int     @default(30000)

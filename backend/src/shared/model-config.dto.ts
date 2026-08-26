@@ -13,6 +13,7 @@ export const EnterpriseModelConfigSchema = z.object({
 
   // 知识库模型
   embeddingModel: z.string(),
+  embeddingModelSource: z.literal('platform'),
   rerankModel: z.string().nullable(),
   embeddingBatchSize: z.number().int().positive(),
   embeddingTimeoutMs: z.number().int().positive(),
@@ -35,10 +36,7 @@ export const UpdateEnterpriseModelConfigDtoSchema = z.object({
   allowedChatModels: z.array(z.string()).optional(),
   allowUserSwitchModel: z.boolean().optional(),
 
-  embeddingModel: z.string().optional(),
   rerankModel: z.string().nullable().optional(),
-  embeddingBatchSize: z.number().int().positive().optional(),
-  embeddingTimeoutMs: z.number().int().positive().optional(),
 
   employeeModelPolicy: z.enum(['FOLLOW_TEMPLATE', 'FORCE_DEFAULT']).optional(),
   employeeDefaultModel: z.string().nullable().optional(),
