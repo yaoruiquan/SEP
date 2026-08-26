@@ -1,20 +1,32 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
-import { Check, Circle, History, ListTodo, Loader2, Plus, Radio, Sparkles, X } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { History, Plus, Radio, X, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useChatStream } from '@/features/chat/use-chat-stream';
 import { useCreateConversation } from '@/features/chat/use-conversations';
 import { TaskFlowCanvas } from '@/features/task/task-flow-canvas';
 import { TaskListRail } from '@/features/task/task-list-rail';
 import { TaskObjectiveComposer } from '@/features/task/task-objective-composer';
-import { TaskStepInspector } from '@/features/task/task-step-inspector';
 import { useCreateTaskPlan } from '@/features/task/use-task-plan';
+import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useTaskUpdates } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
-import type { TaskPlan, TaskPlanStep } from '@/features/task/task-orchestration';
+import type { TaskCandidateEmployee, TaskPlan, TaskPlanStep } from '@/features/task/task-orchestration';
+import type { MyEmployee } from '@/lib/types';
 
-const PHASES = ['目标理解', '计划生成', '用户确认', '执行交付'];
+function toCandidateEmployee(item: MyEmployee): TaskCandidateEmployee {
+  const capabilities = item.employee.bindings?.map((binding) => binding.capability) ?? [];
+  return {
+    id: item.employee.id,
+    name: item.employee.name,
+    avatar: item.employee.avatar,
+    description: capabilities.map((capability) => capability.description).filter(Boolean).join('；'),
+    position: '',
+    industry: '',
+    capabilities,
+  };
+}
 
 function clonePlanForExecution(plan: TaskPlan, startIndex: number): TaskPlan {
   return {
@@ -36,16 +48,10 @@ function clonePlanForExecution(plan: TaskPlan, startIndex: number): TaskPlan {
   };
 }
 
-function getPhaseIndex(plan: TaskPlan | null, planning: boolean) {
-  if (planning) return 1;
-  if (!plan) return 0;
-  if (plan.status === 'awaiting_confirmation') return 2;
-  return 3;
-}
-
 export default function TasksPage() {
   const createConversation = useCreateConversation();
   const planner = useCreateTaskPlan();
+  const { data: myEmployees = [] } = useMyEmployees();
   const { isConnected } = useTaskUpdates();
   const { state: stream, send, stop, reset } = useChatStream();
   const [objective, setObjective] = useState('');
@@ -54,8 +60,11 @@ export default function TasksPage() {
   const [selectedStepId, setSelectedStepId] = useState<string>();
   const [isExecuting, setIsExecuting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<'flow' | 'employee'>('flow');
   const stopRequested = useRef(false);
+  const availableEmployees = useMemo(
+    () => myEmployees.map(toCandidateEmployee).filter((employee) => employee.capabilities.length > 0),
+    [myEmployees],
+  );
 
   const storePlan = useCallback((next: TaskPlan) => {
     setPlan(next);
@@ -79,14 +88,116 @@ export default function TasksPage() {
     }));
   }, [updateStoredPlan]);
 
+  const addEmployeeNode = useCallback(() => {
+    if (!plan || isExecuting || plan.status === 'completed' || availableEmployees.length === 0) return;
+    const employee = availableEmployees[0];
+    const capability = employee.capabilities[0];
+    if (!capability) return;
+    const stepId = `manual-${Date.now()}`;
+
+    updateStoredPlan(plan.id, (current) => {
+      const orderedSteps = [...current.steps].sort((left, right) => left.order - right.order);
+      const previous = orderedSteps[orderedSteps.length - 1];
+      const nextStep: TaskPlanStep = {
+        id: stepId,
+        order: current.steps.length + 1,
+        title: `调用 ${employee.name}`,
+        description: capability.description || `由${employee.name}使用${capability.name}完成这一步。`,
+        intent: capability.name,
+        employee,
+        capability,
+        dependsOn: previous ? [previous.id] : [],
+        rationale: '由你手动加入工作流，默认接在当前最后一个节点之后。',
+        estimatedSeconds: 60,
+        status: 'queued',
+        progress: 0,
+      };
+      return {
+        ...current,
+        status: 'awaiting_confirmation',
+        steps: [...current.steps, nextStep],
+      };
+    });
+    setSelectedStepId(stepId);
+  }, [availableEmployees, isExecuting, plan, updateStoredPlan]);
+
+  const moveStep = useCallback((sourceId: string, targetId: string) => {
+    if (!plan || isExecuting || sourceId === targetId || plan.status === 'completed') return;
+    updateStoredPlan(plan.id, (current) => {
+      const steps = [...current.steps].sort((left, right) => left.order - right.order);
+      const sourceIndex = steps.findIndex((step) => step.id === sourceId);
+      const targetIndex = steps.findIndex((step) => step.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const [moved] = steps.splice(sourceIndex, 1);
+      steps.splice(targetIndex, 0, moved);
+      const orderById = new Map(steps.map((step, index) => [step.id, index]));
+      return {
+        ...current,
+        status: 'awaiting_confirmation',
+        steps: steps.map((step, index) => ({
+          ...step,
+          order: index + 1,
+          dependsOn: step.dependsOn.filter((dependencyId) => (orderById.get(dependencyId) ?? index) < index),
+        })),
+      };
+    });
+  }, [isExecuting, plan, updateStoredPlan]);
+
+  const connectSteps = useCallback((sourceId: string, targetId: string) => {
+    if (!plan || isExecuting || sourceId === targetId || plan.status === 'completed') return;
+    updateStoredPlan(plan.id, (current) => {
+      const source = current.steps.find((step) => step.id === sourceId);
+      const target = current.steps.find((step) => step.id === targetId);
+      if (!source || !target || source.order >= target.order || target.dependsOn.includes(sourceId)) return current;
+      return {
+        ...current,
+        status: 'awaiting_confirmation',
+        steps: current.steps.map((step) => step.id === targetId ? { ...step, dependsOn: [...step.dependsOn, sourceId] } : step),
+      };
+    });
+  }, [isExecuting, plan, updateStoredPlan]);
+
+  const removeDependency = useCallback((stepId: string, dependencyId: string) => {
+    if (!plan || isExecuting || plan.status === 'completed') return;
+    updateStoredPlan(plan.id, (current) => ({
+      ...current,
+      status: 'awaiting_confirmation',
+      steps: current.steps.map((step) => step.id === stepId ? { ...step, dependsOn: step.dependsOn.filter((id) => id !== dependencyId) } : step),
+    }));
+  }, [isExecuting, plan, updateStoredPlan]);
+
+  const replaceStepEmployee = useCallback((stepId: string, employeeId: string) => {
+    if (!plan || isExecuting || plan.status === 'completed') return;
+    const employee = availableEmployees.find((candidate) => candidate.id === employeeId);
+    if (!employee || employee.capabilities.length === 0) return;
+    updateStoredPlan(plan.id, (current) => ({
+      ...current,
+      status: 'awaiting_confirmation',
+      steps: current.steps.map((step) => {
+        if (step.id !== stepId) return step;
+        const capability = employee.capabilities.find((candidate) => candidate.id === step.capability.id) ?? employee.capabilities[0];
+        return {
+          ...step,
+          title: step.title.replace(/^调用 .*$/, `调用 ${employee.name}`),
+          employee,
+          capability,
+          description: capability.description || step.description,
+          status: 'queued',
+          progress: 0,
+          output: undefined,
+          error: undefined,
+        };
+      }),
+    }));
+  }, [availableEmployees, isExecuting, plan, updateStoredPlan]);
+
   const generatePlan = () => {
     planner.mutate(
       { objective },
       {
         onSuccess: (generatedPlan) => {
           storePlan(generatedPlan);
-          setSelectedStepId(generatedPlan.steps[0]?.id);
-          setMobilePanel('flow');
+          setSelectedStepId(undefined);
         },
       },
     );
@@ -194,7 +305,6 @@ export default function TasksPage() {
     if (isExecuting) return;
     setPlan(null);
     setSelectedStepId(undefined);
-    setMobilePanel('flow');
     setObjective('');
     planner.reset();
     reset();
@@ -208,7 +318,6 @@ export default function TasksPage() {
       task.steps.find((step) => step.status === 'running' || step.status === 'failed')?.id
       ?? task.steps[0]?.id,
     );
-    setMobilePanel('flow');
     reset();
     setHistoryOpen(false);
   };
@@ -222,27 +331,28 @@ export default function TasksPage() {
   const currentStep = plan?.steps.find((step) => step.id === selectedStepId)
     ?? plan?.steps.find((step) => step.status === 'running')
     ?? plan?.steps[0];
-  const completedCount = plan?.steps.filter((step) => step.status === 'completed').length ?? 0;
-  const phaseIndex = getPhaseIndex(plan, planner.isPending);
-  const planProgress = plan?.steps.length ? (completedCount / plan.steps.length) * 100 : 0;
-
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-neutral-50">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-white px-4 sm:px-5">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#f7f8fa] text-slate-950">
+      <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200/80 bg-white px-4 sm:px-7">
         <div className="min-w-0">
-          <div className="flex items-center gap-2.5">
-            <h1 className="truncate text-base font-semibold text-neutral-900">任务编排中心</h1>
-            <span className="hidden items-center gap-1.5 border-l border-neutral-200 pl-2 text-[10px] text-fg-muted sm:flex">
-              <Radio className={cn('h-3 w-3', isConnected ? 'text-success' : 'text-fg-subtle')} />
-              {isConnected ? '事件已连接' : '本次页面状态'}
-            </span>
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Workflow className="h-4 w-4" /></span>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-slate-950">任务编排中心</h1>
+                <span className="hidden items-center gap-1.5 border-l border-slate-200 pl-2 text-[10px] text-slate-500 sm:flex">
+                  <Radio className={cn('h-3 w-3', isConnected ? 'text-emerald-500' : 'text-slate-400')} />
+                  {isConnected ? '实时事件已连接' : '本地工作区'}
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">输入任务，自动编排员工并完成交付</p>
+            </div>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-fg-muted">看见硅基员工如何接力完成任务</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setHistoryOpen(true)} className="relative">
+          <Button size="sm" variant="secondary" onClick={() => setHistoryOpen(true)} className="relative border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
             <History className="h-4 w-4" />
-            <span className="hidden sm:inline">编排任务</span>
+            <span className="hidden sm:inline">任务记录</span>
             {tasks.length > 0 && <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] text-white">{tasks.length}</span>}
           </Button>
           <Button size="sm" onClick={createNewTask} disabled={isExecuting || !plan}>
@@ -252,56 +362,8 @@ export default function TasksPage() {
         </div>
       </header>
 
-      <div className="flex h-11 shrink-0 items-center border-b border-border bg-white px-5">
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-1">
-          {PHASES.map((phase, index) => {
-            const completed = index < phaseIndex || (plan?.status === 'completed' && index === phaseIndex);
-            const active = index === phaseIndex;
-            return (
-              <div key={phase} className="flex min-w-0 flex-1 items-center">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className={cn(
-                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px]',
-                    completed && 'border-primary bg-primary text-white',
-                    active && !completed && 'border-primary text-primary',
-                    !active && !completed && 'border-neutral-300 text-fg-subtle',
-                  )}>
-                    {completed ? <Check className="h-3 w-3" /> : active && planner.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Circle className="h-2.5 w-2.5" />}
-                  </span>
-                  <span className={cn('hidden truncate text-[10px] sm:block', active ? 'font-semibold text-foreground' : 'text-fg-subtle')}>{phase}</span>
-                </div>
-                {index < PHASES.length - 1 && <span className={cn('mx-2 h-px min-w-3 flex-1 bg-neutral-200', index < phaseIndex && 'bg-primary/40')} />}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="grid h-11 shrink-0 grid-cols-2 border-b border-border bg-white px-4 lg:hidden">
-        {([
-          ['flow', '执行流程'],
-          ['employee', '员工工作台'],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setMobilePanel(value)}
-            className={cn(
-              'relative text-xs font-medium transition',
-              mobilePanel === value ? 'text-primary' : 'text-fg-muted',
-            )}
-          >
-            {label}
-            {mobilePanel === value && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-primary" />}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(340px,2fr)]">
-        <main className={cn(
-          'min-h-0 min-w-0 flex-col bg-neutral-50 lg:flex',
-          mobilePanel === 'flow' ? 'flex' : 'hidden',
-        )}>
+      <div className="min-h-0 flex-1">
+        <main className="flex min-h-0 min-w-0 flex-col bg-[#f7f8fa]">
           {!plan && (
             <TaskObjectiveComposer
               objective={objective}
@@ -315,65 +377,31 @@ export default function TasksPage() {
             />
           )}
 
-          {plan && (
-            <section className="flex h-20 shrink-0 items-center gap-4 border-b border-border bg-white px-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-4 w-4" /></span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className="truncate text-sm font-semibold text-foreground">{plan.summary}</h2>
-                  {plan.planner && <span className="shrink-0 rounded-sm border border-neutral-200 px-2 py-0.5 text-[9px] text-fg-subtle" title={plan.planner.model}>大模型规划</span>}
-                </div>
-                <div className="mt-2 flex items-center gap-3">
-                  <div className="h-1.5 min-w-20 flex-1 overflow-hidden rounded-full bg-neutral-200"><div className="h-full bg-primary transition-all duration-500" style={{ width: `${planProgress}%` }} /></div>
-                  <span className="shrink-0 text-[10px] font-medium text-fg-muted">{completedCount}/{plan.steps.length} 步完成</span>
-                  {plan.status === 'running' && currentStep && <span className="hidden shrink-0 items-center gap-1 text-[10px] text-info sm:flex"><Loader2 className="h-3 w-3 animate-spin" />{currentStep.employee.name} 正在工作</span>}
-                </div>
-              </div>
-            </section>
-          )}
-
-          <section className="flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-5">
-            <div className="mb-3 flex shrink-0 items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">团队执行流程</h2>
-                <p className="mt-0.5 text-[10px] text-fg-subtle">点击节点查看对应员工与工作状态</p>
-              </div>
-              <span className="flex items-center gap-1.5 text-[10px] text-fg-subtle"><ListTodo className="h-3.5 w-3.5" />{plan ? `${plan.steps.length} 个步骤` : '等待编排'}</span>
-            </div>
-            <div className="min-h-0 flex-1">
+          {plan && <section className="min-h-0 flex-1 px-3 py-3 sm:px-5 lg:px-7">
+            <div className="h-full min-h-0">
               <TaskFlowCanvas
                 plan={plan}
                 planning={planner.isPending}
                 selectedStepId={selectedStepId}
-                onSelectStep={(step) => {
-                  setSelectedStepId(step.id);
-                  setMobilePanel('employee');
-                }}
+                onSelectStep={(step) => setSelectedStepId(step.id)}
+                running={isExecuting}
+                liveOutput={currentStep?.status === 'running' ? stream.text : ''}
+                liveReasoning={currentStep?.status === 'running' ? stream.reasoning : ''}
+                toolCalls={currentStep?.status === 'running' ? stream.toolCalls : []}
+                onConfirm={() => { if (plan) void executePlan(plan); }}
+                onStop={stopExecution}
+                onRetry={retryStep}
+                availableEmployees={availableEmployees}
+                onAddNode={addEmployeeNode}
+                onMoveStep={moveStep}
+                onConnectSteps={connectSteps}
+                onRemoveDependency={removeDependency}
+                onReplaceStep={replaceStepEmployee}
+                onClearSelection={() => setSelectedStepId(undefined)}
               />
             </div>
-          </section>
+          </section>}
         </main>
-
-        <div className={cn(
-          'min-h-0 border-t border-border lg:flex lg:border-l lg:border-t-0',
-          mobilePanel === 'employee' ? 'flex' : 'hidden',
-        )}>
-          <TaskStepInspector
-            plan={plan}
-            step={currentStep}
-            planning={planner.isPending}
-            running={isExecuting}
-            liveOutput={currentStep?.status === 'running' ? stream.text : ''}
-            liveReasoning={currentStep?.status === 'running' ? stream.reasoning : ''}
-            toolCalls={currentStep?.status === 'running' ? stream.toolCalls : []}
-            onConfirm={() => {
-              setMobilePanel('employee');
-              if (plan) void executePlan(plan);
-            }}
-            onStop={stopExecution}
-            onRetry={retryStep}
-          />
-        </div>
       </div>
 
       {historyOpen && (
