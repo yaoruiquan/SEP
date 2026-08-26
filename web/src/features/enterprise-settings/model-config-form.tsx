@@ -95,11 +95,6 @@ export function ModelConfigForm({
     () => availableModels.filter((m) => m.category !== 'embedding'),
     [availableModels],
   );
-  const embeddingModels = useMemo(
-    () => availableModels.filter((m) => m.category === 'embedding'),
-    [availableModels],
-  );
-
   const labelOf = (modelId: string) =>
     availableModels.find((m) => m.modelId === modelId)?.label ?? modelId;
 
@@ -188,44 +183,15 @@ export function ModelConfigForm({
             <div>
               <h3 className="text-lg font-semibold">Embedding 模型</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                文档向量化时使用的模型
+                文档向量化由平台统一部署，变更模型后需要全量重建向量索引
               </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="embedding-model">模型</Label>
-              {/* 平台模型表里目前没有 category='embedding' 的记录，
-                  下拉会是空的，所以没有候选时退化为手填。 */}
-              {embeddingModels.length > 0 ? (
-                <Select
-                  value={form.embeddingModel}
-                  onValueChange={(v) => patch({ embeddingModel: v })}
-                  disabled={readOnly}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择模型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {embeddingModels.map((m) => (
-                      <SelectItem key={m.modelId} value={m.modelId}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <>
-                  <Input
-                    id="embedding-model"
-                    value={form.embeddingModel}
-                    onChange={(e) => patch({ embeddingModel: e.target.value })}
-                    placeholder="text-embedding-3-small"
-                    disabled={readOnly}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    平台模型库暂无 embedding 类模型，请手动填写模型 ID。
-                  </p>
-                </>
-              )}
+              <Input id="embedding-model" value={form.embeddingModel} disabled />
+              <p className="text-xs text-muted-foreground">
+                当前生效值来自平台环境变量 EMBEDDING_MODEL，企业成员不可修改。
+              </p>
             </div>
           </section>
 
@@ -253,13 +219,10 @@ export function ModelConfigForm({
                 min={1}
                 max={512}
                 value={form.embeddingBatchSize}
-                onChange={(e) =>
-                  patch({ embeddingBatchSize: Number(e.target.value) || 1 })
-                }
-                disabled={readOnly}
+                disabled
               />
               <p className="text-xs text-muted-foreground">
-                单次请求提交的文本块数量，过大易触发上游限流
+                平台部署参数 EMBEDDING_BATCH_SIZE
               </p>
             </div>
             <div className="space-y-2">
@@ -270,13 +233,10 @@ export function ModelConfigForm({
                 min={1000}
                 step={1000}
                 value={form.embeddingTimeoutMs}
-                onChange={(e) =>
-                  patch({ embeddingTimeoutMs: Number(e.target.value) || 1000 })
-                }
-                disabled={readOnly}
+                disabled
               />
               <p className="text-xs text-muted-foreground">
-                单批向量化请求的最长等待时间
+                平台部署参数 EMBEDDING_TIMEOUT_MS
               </p>
             </div>
           </section>

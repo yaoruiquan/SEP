@@ -30,11 +30,13 @@ export class TextChunkService {
     const tokens = this.tokenizer.tokenize(content);
     let embedding: any;
     let embeddingModel: string | undefined;
+    let embeddingVector: Float32Array | undefined;
     if (await this.embedding.isAvailable()) {
       try {
         const result = await this.embedding.embed(content);
         embedding = Buffer.from(result.embedding.buffer) as any;
         embeddingModel = result.model;
+        embeddingVector = result.embedding;
       } catch {
         // 手动片段仍可通过词法检索使用，状态由 embeddingModel=null 表示降级。
       }
@@ -62,6 +64,10 @@ export class TextChunkService {
         },
       },
     });
+
+    if (embeddingVector) {
+      await this.vector.upsertVector(textChunk.id, embeddingVector);
+    }
 
     return textChunk;
   }
@@ -144,13 +150,16 @@ export class TextChunkService {
       throw new NotFoundException('Text chunk not found');
     }
 
+    const searchFields = data.content !== undefined
+      ? await this.buildSearchFields(data.content)
+      : { fields: {}, vector: undefined };
     const updated = await this.prisma.textChunk.update({
       where: { id },
       data: {
         title: data.title !== undefined ? data.title : undefined,
         content: data.content,
         tags: data.tags !== undefined ? data.tags : undefined,
-        ...(data.content !== undefined ? await this.buildSearchFields(data.content) : {}),
+        ...searchFields.fields,
       },
       include: {
         creator: {
@@ -162,6 +171,14 @@ export class TextChunkService {
         },
       },
     });
+
+    if (data.content !== undefined) {
+      if (searchFields.vector) {
+        await this.vector.upsertVector(updated.id, searchFields.vector);
+      } else {
+        await this.vector.clearVector(updated.id);
+      }
+    }
 
     this.vector.invalidateCache(
       (await this.enterpriseContext.resolve(userId)).enterpriseId,
@@ -202,21 +219,23 @@ export class TextChunkService {
     if (!knowledgeBase) throw new NotFoundException('Knowledge base not found');
   }
 
-  private async buildSearchFields(content: string): Promise<any> {
+  private async buildSearchFields(content: string): Promise<{ fields: any; vector?: Float32Array }> {
     const fields: any = {
       tokens: this.tokenizer.tokenize(content),
     };
+    let vector: Float32Array | undefined;
     if (await this.embedding.isAvailable()) {
       try {
         const result = await this.embedding.embed(content);
         fields.embedding = Buffer.from(result.embedding.buffer) as any;
         fields.embeddingModel = result.model;
+        vector = result.embedding;
       } catch {
         fields.embedding = null;
         fields.embeddingModel = null;
       }
     }
-    return fields;
+    return { fields, vector };
   }
 
   private async assertReadAccess(knowledgeBaseId: string, userId: string): Promise<void> {

@@ -19,22 +19,32 @@ export class EmbeddingService implements OnModuleInit {
   private baseUrl: string;
   private model: string;
   private dimension: number;
+  private batchSize: number;
+  private timeoutMs: number;
 
   constructor(private config: ConfigService) {}
 
   onModuleInit() {
-    this.provider = this.config.get('EMBEDDING_PROVIDER', 'tei');
-    this.baseUrl = this.config
-      .get('EMBEDDING_BASE_URL', 'http://localhost:8080')
+    this.provider = this.config.get('EMBEDDING_PROVIDER') ?? 'openai';
+    this.baseUrl = (this.config
+      .get('EMBEDDING_BASE_URL') ?? 'http://127.0.0.1:11434/v1')
       .replace(/\/+$/, '');
-    this.model = this.config.get('EMBEDDING_MODEL', 'BAAI/bge-small-zh-v1.5');
-    this.dimension = parseInt(this.config.get('EMBEDDING_DIMENSION', '512'), 10);
+    this.model = this.config.get('EMBEDDING_MODEL') ?? 'bge-m3:latest';
+    this.dimension = parseInt(this.config.get('EMBEDDING_DIMENSION') ?? '1024', 10);
+    this.batchSize = parseInt(this.config.get('EMBEDDING_BATCH_SIZE') ?? '32', 10);
+    this.timeoutMs = parseInt(this.config.get('EMBEDDING_TIMEOUT_MS') ?? '30000', 10);
 
     if (!['tei', 'openai', 'wasm'].includes(this.provider)) {
       throw new Error(`Unsupported embedding provider: ${this.provider}`);
     }
     if (!Number.isInteger(this.dimension) || this.dimension <= 0) {
       throw new Error(`Invalid EMBEDDING_DIMENSION: ${this.dimension}`);
+    }
+    if (!Number.isInteger(this.batchSize) || this.batchSize <= 0) {
+      throw new Error(`Invalid EMBEDDING_BATCH_SIZE: ${this.batchSize}`);
+    }
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error(`Invalid EMBEDDING_TIMEOUT_MS: ${this.timeoutMs}`);
     }
 
     this.logger.log(
@@ -58,20 +68,29 @@ export class EmbeddingService implements OnModuleInit {
       return [];
     }
 
-    try {
-      switch (this.provider) {
-        case 'tei':
-          return await this.embedWithTEI(texts);
-        case 'openai':
-          return await this.embedWithOpenAI(texts);
-        case 'wasm':
-          return await this.embedWithWASM(texts);
-        default:
-          throw new Error(`Unsupported embedding provider: ${this.provider}`);
+    const results: EmbeddingResponse[] = [];
+    for (let offset = 0; offset < texts.length; offset += this.batchSize) {
+      const batch = texts.slice(offset, offset + this.batchSize);
+      try {
+        results.push(...(await this.embedProviderBatch(batch)));
+      } catch (error) {
+        this.logger.error(`Embedding failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
       }
-    } catch (error) {
-      this.logger.error(`Embedding failed: ${error.message}`);
-      throw error;
+    }
+    return results;
+  }
+
+  private async embedProviderBatch(texts: string[]): Promise<EmbeddingResponse[]> {
+    switch (this.provider) {
+      case 'tei':
+        return this.embedWithTEI(texts);
+      case 'openai':
+        return this.embedWithOpenAI(texts);
+      case 'wasm':
+        return this.embedWithWASM(texts);
+      default:
+        throw new Error(`Unsupported embedding provider: ${this.provider}`);
     }
   }
 
@@ -82,6 +101,7 @@ export class EmbeddingService implements OnModuleInit {
     const response = await fetch(`${this.baseUrl}/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(this.timeoutMs),
       body: JSON.stringify({ inputs: texts }),
     });
 
@@ -119,6 +139,7 @@ export class EmbeddingService implements OnModuleInit {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
+      signal: AbortSignal.timeout(this.timeoutMs),
       body: JSON.stringify({
         model: this.model,
         input: texts,
@@ -169,6 +190,10 @@ export class EmbeddingService implements OnModuleInit {
     return this.model;
   }
 
+  getBatchSize(): number {
+    return this.batchSize;
+  }
+
   /**
    * 检查服务是否可用
    */
@@ -182,11 +207,27 @@ export class EmbeddingService implements OnModuleInit {
         return response.ok;
       }
       if (this.provider === 'openai') {
-        return Boolean(
-          this.config.get('EMBEDDING_API_KEY')
+        const apiKey = this.config.get('EMBEDDING_API_KEY')
           || this.config.get('OPENAI_API_KEY')
-          || this.config.get('SUB2API_API_KEY'),
-        );
+          || this.config.get('SUB2API_API_KEY');
+        if (!apiKey) return false;
+
+        const endpoint = this.baseUrl.endsWith('/v1')
+          ? `${this.baseUrl}/embeddings`
+          : `${this.baseUrl}/v1/embeddings`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({ model: this.model, input: ['健康检查'] }),
+          signal: AbortSignal.timeout(Math.min(this.timeoutMs, 5000)),
+        });
+        if (!response.ok) return false;
+        const data = await response.json() as { data?: Array<{ embedding?: number[] }> };
+        const vector = data.data?.[0]?.embedding;
+        return Array.isArray(vector) && vector.length === this.dimension;
       }
       return this.provider === 'wasm';
     } catch {

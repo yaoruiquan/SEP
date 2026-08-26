@@ -115,6 +115,9 @@ export class DocumentProcessorService {
               embeddingModel: model,
               tokens: tokenizedChunks[index],
             },
+          }).then(async (chunk) => {
+            await this.vector.upsertVector(chunk.id, embeddingResults[index].embedding);
+            return chunk;
           });
         }),
       );

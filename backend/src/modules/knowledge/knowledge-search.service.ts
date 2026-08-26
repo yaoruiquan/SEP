@@ -187,7 +187,13 @@ export class KnowledgeSearchService {
     const embeddingResult = await this.embedding.embed(query);
     const queryVector = embeddingResult.embedding;
 
-    const vectorResults = await this.vector.search(queryVector, enterpriseId, kbIds, topK);
+    const vectorResults = await this.vector.search(
+      queryVector,
+      enterpriseId,
+      kbIds,
+      topK,
+      this.embedding.getModel(),
+    );
 
     // 过滤低分
     const filtered = vectorResults.filter((r) => r.score >= scoreThreshold);
@@ -238,7 +244,13 @@ export class KnowledgeSearchService {
       this.lexical.search(query, enterpriseId, kbIds, topK * 2),
       (async () => {
         const embeddingResult = await this.embedding.embed(query);
-        return this.vector.search(embeddingResult.embedding, enterpriseId, kbIds, topK * 2);
+        return this.vector.search(
+          embeddingResult.embedding,
+          enterpriseId,
+          kbIds,
+          topK * 2,
+          this.embedding.getModel(),
+        );
       })(),
     ]);
 

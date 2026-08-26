@@ -329,15 +329,34 @@ describe('EnterpriseModelConfigService', () => {
       expect(r.allowedChatModels).toEqual(['gpt-4o']);
     });
 
-    it('每层都带上知识库字段，不只是 chatModel', async () => {
+    it('知识库运行参数统一使用平台环境配置，不受企业数据库字段影响', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ embeddingModel: 'bge-m3', embeddingBatchSize: 64 }),
+        makeConfig({ embeddingModel: 'stale-model', embeddingBatchSize: 64 }),
       );
 
       const r = await svc.resolveEffectiveModel({ userId: 'u1' });
 
-      expect(r.embeddingModel).toBe('bge-m3');
-      expect(r.embeddingBatchSize).toBe(64);
+      expect(r.embeddingModel).toBe('bge-m3:latest');
+      expect(r.embeddingBatchSize).toBe(32);
+    });
+  });
+
+  describe('平台级 Embedding 配置', () => {
+    it('更新企业配置时忽略旧客户端提交的 embedding 运行参数', async () => {
+      prisma.enterpriseModelConfig.update.mockResolvedValue(makeConfig());
+
+      const result = await svc.update('u1', {
+        embeddingModel: 'fake-model',
+        embeddingBatchSize: 256,
+        embeddingTimeoutMs: 120000,
+        rerankModel: 'reranker',
+      } as any);
+
+      expect(prisma.enterpriseModelConfig.update.mock.calls[0][0].data).toEqual({
+        rerankModel: 'reranker',
+      });
+      expect(result.embeddingModel).toBe('bge-m3:latest');
+      expect(result.embeddingModelSource).toBe('platform');
     });
   });
 
