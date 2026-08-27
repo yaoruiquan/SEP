@@ -3,6 +3,7 @@ import type {
   ContributionPlatformStatus,
   ContributionReviewStatus,
 } from '@/lib/types';
+import type { ActorKind, StageState } from './pipeline-model';
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'info' | 'muted';
 
@@ -39,10 +40,36 @@ export function currentContributionState(item: ContributionCapability) {
   return { label: '草稿', tone: 'muted' as const };
 }
 
+// 低饱和：填充从 /15 降到 /10，描边从 /40 降到 /28。
+// 状态徽章在列表里会同时出现十几个，高饱和填充会盖过页面主 CTA。
 export const toneClasses: Record<StatusTone, string> = {
-  success: 'border-gsuccess/40 bg-gsuccess/15 text-gsuccess',
-  warning: 'border-gwarning/40 bg-gwarning/15 text-gwarning',
-  danger: 'border-gdanger/40 bg-gdanger/15 text-gdanger',
-  info: 'border-ginfo/40 bg-ginfo/15 text-ginfo',
+  success: 'border-gsuccess/28 bg-gsuccess/10 text-gsuccess',
+  warning: 'border-gwarning/28 bg-gwarning/10 text-gwarning',
+  danger: 'border-gdanger/28 bg-gdanger/10 text-gdanger',
+  info: 'border-ginfo/28 bg-ginfo/10 text-ginfo',
   muted: 'border-glassline bg-glass-2 text-gtext-muted',
+};
+
+/** 流程节点专用配色。active 用品牌色是唯一例外——当前步骤需要成为视觉锚点。 */
+export const stageToneClasses: Record<StageState, string> = {
+  done: 'border-gsuccess/25 bg-gsuccess/[0.08] text-gsuccess',
+  active: 'border-glassline-brand bg-gbrand/10 text-gbrand-text',
+  waiting: 'border-glassline bg-glass-1 text-gtext-muted',
+  blocked: 'border-gdanger/25 bg-gdanger/[0.08] text-gdanger',
+};
+
+export const stageStateLabel: Record<StageState, string> = {
+  done: '完成',
+  active: '进行中',
+  waiting: '未开始',
+  blocked: '需处理',
+};
+
+/** 经办人图标标识。系统/市场用中性图标，只有真实的人才配拟人图标。 */
+export const ACTOR_META: Record<ActorKind, { icon: 'user' | 'shield' | 'gavel' | 'cpu' | 'store'; humanized: boolean }> = {
+  contributor: { icon: 'user', humanized: true },
+  'enterprise-admin': { icon: 'shield', humanized: true },
+  'platform-ops': { icon: 'gavel', humanized: true },
+  system: { icon: 'cpu', humanized: false },
+  market: { icon: 'store', humanized: false },
 };

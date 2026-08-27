@@ -27,6 +27,10 @@ export const buttonVariants = cva(
           'bg-glass-2 text-gtext-primary border border-glassline backdrop-blur-glass-sm shadow-glass-sm hover:bg-glass-3 hover:border-glassline-hover hover:shadow-glass-md focus-visible:ring-gbrand-ring focus-visible:ring-offset-0',
         'glass-primary':
           'bg-gbrand text-white border border-glassline-brand backdrop-blur-glass-sm shadow-glass-md hover:bg-gbrand-hover hover:shadow-glass-lg focus-visible:ring-gbrand-ring focus-visible:ring-offset-0',
+        // 玻璃面上的破坏性动作（驳回 / 撤下）。低饱和填充 + 语义色文字，
+        // 不用实心红——它会和主 CTA 抢视觉权重。
+        'glass-danger':
+          'bg-gdanger/10 text-gdanger border border-gdanger/28 backdrop-blur-glass-sm shadow-glass-sm hover:bg-gdanger/20 hover:border-gdanger/45 focus-visible:ring-gdanger focus-visible:ring-offset-0',
       },
       size: {
         sm: 'h-8 px-3 text-sm',
