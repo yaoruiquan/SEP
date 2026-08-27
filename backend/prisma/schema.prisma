@@ -50,6 +50,8 @@ model User {
   skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
   selectedSubscriptionSkillVersions SubscriptionSkillVersion[] @relation("SubscriptionSkillVersionSelector")
   contributionRewardEvents          ContributionRewardEvent[]  @relation("ContributionRewardRecipient")
+  taskRuns                          TaskRun[]
+  taskTemplates                     TaskTemplate[]
 
   @@map("users")
 }
@@ -99,6 +101,8 @@ model Enterprise {
   skillVersions        SkillVersion[]
   capabilities         Capability[]
   contributionRewards  ContributionRewardEvent[]
+  taskRuns             TaskRun[]
+  taskTemplates        TaskTemplate[]
 
   @@map("enterprises")
 }
@@ -2047,4 +2051,95 @@ enum AnnouncementType {
   WARNING // 警告
   ERROR // 错误
   SUCCESS // 成功
+}
+
+// ============================================================================
+// Task Center (任务中心持久化)
+// ============================================================================
+
+enum TASK_RUN_STATUS {
+  DRAFT
+  AWAITING_CONFIRMATION
+  RUNNING
+  COMPLETED
+  FAILED
+  STOPPED
+}
+
+enum TASK_EVENT_TYPE {
+  RUN_CREATED
+  RUN_STARTED
+  RUN_COMPLETED
+  RUN_FAILED
+  RUN_STOPPED
+  STEP_STARTED
+  STEP_COMPLETED
+  STEP_FAILED
+  STEP_SKIPPED
+  STEP_PAUSED
+  STEP_RESUMED
+  PLAN_EDITED
+}
+
+model TaskRun {
+  id           String          @id @default(cuid())
+  objective    String          @db.Text
+  summary      String          @db.Text @default("")
+  status       TASK_RUN_STATUS @default(AWAITING_CONFIRMATION)
+  /// TaskPlanStep[] 快照，形状由 shared/task.dto.ts 校验
+  steps        Json
+  /// 画布布局 { nodes: Record<stepId,{x,y}>, endpoints: { input?, output? } }
+  layout       Json?
+  /// { type: 'llm', model: string }
+  planner      Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  userId       String
+  enterpriseId String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enterprise Enterprise?    @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
+  events     TaskRunEvent[]
+
+  @@index([userId, createdAt])
+  @@index([enterpriseId, createdAt])
+  @@map("task_runs")
+}
+
+model TaskTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  objective    String   @db.Text
+  /// TaskPlanStep[] 快照，status 一律 queued、output/error 一律清空
+  steps        Json
+  layout       Json?
+  userId       String
+  enterpriseId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enterprise Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("task_templates")
+}
+
+model TaskRunEvent {
+  id           String          @id @default(cuid())
+  taskRunId    String
+  type         TASK_EVENT_TYPE
+  stepId       String?
+  /// 冗余快照，便于列流水时不必回查 steps
+  stepTitle    String?
+  employeeName String?
+  message      String?         @db.Text
+  createdAt    DateTime        @default(now())
+
+  taskRun TaskRun @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+
+  @@index([taskRunId, createdAt])
+  @@map("task_run_events")
 }

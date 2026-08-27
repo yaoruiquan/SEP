@@ -53,4 +53,10 @@ export const qk = {
   contributionAdminQueue: (status: string) => ['admin', 'contributions', status] as const,
   contributionAdmin: (id: string) => ['admin', 'contributions', id] as const,
   contributionReviewQueue: (kind: string) => ['admin', 'capability-review', kind] as const,
+  // 任务中心持久化（替代原先的 localStorage）
+  taskRuns: ['task-runs'] as const,
+  taskRunList: (params?: Record<string, unknown>) => ['task-runs', 'list', params ?? {}] as const,
+  taskRun: (id: string) => ['task-runs', id] as const,
+  taskRunEvents: (id: string) => ['task-runs', id, 'events'] as const,
+  taskTemplates: ['task-runs', 'templates'] as const,
 };

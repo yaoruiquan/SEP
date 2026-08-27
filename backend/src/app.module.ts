@@ -31,6 +31,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SkillVersionModule } from './modules/skill-version/skill-version.module';
 import { TaskPlanningModule } from './modules/task-planning/task-planning.module';
 import { CapabilityContributionModule } from './modules/capability-contribution/capability-contribution.module';
+import { TaskModule } from './modules/task/task.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { CapabilityContributionModule } from './modules/capability-contribution/
     SkillVersionModule,
     TaskPlanningModule,
     CapabilityContributionModule,
+    TaskModule,
   ],
   controllers: [],
   providers: [],
