@@ -32,6 +32,9 @@ describe('EnterpriseService', () => {
               count: jest.fn(),
               findMany: jest.fn(),
             },
+            message: {
+              findMany: jest.fn(),
+            },
           },
         },
         {
@@ -103,6 +106,7 @@ describe('EnterpriseService', () => {
       jest
         .spyOn(prisma.computeTransaction, 'findMany')
         .mockResolvedValue([]);
+      jest.spyOn(prisma.message, 'findMany').mockResolvedValue([]);
       jest
         .spyOn(prisma.subscription, 'findMany')
         .mockResolvedValue([]);
@@ -121,6 +125,61 @@ describe('EnterpriseService', () => {
         topEmployees: [],
         recentActivities: [],
       });
+    });
+
+    it('should build model distribution from actual assistant messages', async () => {
+      jest.spyOn(ctx, 'resolve').mockResolvedValue({
+        enterpriseId: 'ent-1',
+        memberId: 'mem-1',
+        role: 'ENTERPRISE_ADMIN',
+        departmentId: null,
+      });
+      jest.spyOn(prisma.computeAccount, 'findUnique').mockResolvedValue({
+        id: 'acc-1',
+        enterpriseId: 'ent-1',
+        balance: 100,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      jest.spyOn(prisma.subscription, 'count').mockResolvedValue(0);
+      jest.spyOn(prisma.enterpriseMember, 'count').mockResolvedValue(0);
+      jest.spyOn(prisma.computeTransaction, 'count').mockResolvedValue(1);
+      jest.spyOn(prisma.computeTransaction, 'findMany').mockResolvedValue([]);
+      jest.spyOn(prisma.subscription, 'findMany').mockResolvedValue([]);
+      jest.spyOn(prisma.enterpriseMember, 'findMany').mockResolvedValue([]);
+      jest.spyOn(prisma.message, 'findMany').mockResolvedValue([
+        {
+          modelId: 'gemini-3.5-flash-high',
+          inputTokens: 120,
+          outputTokens: 80,
+          cost: 0.0012,
+        },
+        {
+          modelId: 'gemini-3.5-flash-high',
+          inputTokens: 100,
+          outputTokens: 50,
+          cost: 0.0008,
+        },
+      ] as any);
+
+      const result = await service.getDashboardStats('user-1');
+
+      expect(prisma.message.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            role: 'ASSISTANT',
+            modelId: { not: null },
+          }),
+        }),
+      );
+      expect(result.modelDistribution).toEqual([
+        {
+          model: 'gemini-3.5-flash-high',
+          requests: 2,
+          tokens: 350,
+          cost: 0.002,
+        },
+      ]);
     });
   });
 });

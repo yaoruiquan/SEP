@@ -253,23 +253,36 @@ export class EnterpriseService {
       spendTrend,
       topEmployees: topEmployeesResult,
       recentActivities: activities,
-      modelDistribution: await this.getModelDistribution(account.id),
+      modelDistribution: await this.getModelDistribution(enterpriseId),
       tokenTrend: await this.getTokenTrend(account.id),
       topMembers: await this.getTopMembers(account.id, enterpriseId),
     };
   }
 
   /**
-   * 模型分布统计（从 metadata.model 聚合）
+   * 模型分布统计。
+   *
+   * Message.modelId 是模型解析完成后的实际调用结果，也是成本和 Token 的
+   * 事实来源。ComputeTransaction 同时承载历史金额消费和当前配额 Token
+   * 扣减，amount / metadata 口径并不一致，不能用于模型调用分析。
    */
-  private async getModelDistribution(accountId: string) {
-    const transactions = await this.prisma.computeTransaction.findMany({
+  private async getModelDistribution(enterpriseId: string) {
+    const messages = await this.prisma.message.findMany({
       where: {
-        accountId,
-        type: 'CONSUME',
-        metadata: { path: ['model'], not: null },
+        role: 'ASSISTANT',
+        modelId: { not: null },
+        session: {
+          user: {
+            memberships: { some: { enterpriseId } },
+          },
+        },
       },
-      select: { metadata: true, amount: true },
+      select: {
+        modelId: true,
+        inputTokens: true,
+        outputTokens: true,
+        cost: true,
+      },
     });
 
     const modelStats = new Map<
@@ -277,8 +290,8 @@ export class EnterpriseService {
       { requests: number; tokens: number; cost: number }
     >();
 
-    transactions.forEach((t: any) => {
-      const model = t.metadata?.model;
+    messages.forEach((message) => {
+      const model = message.modelId;
       if (!model) return;
 
       const current = modelStats.get(model) || {
@@ -286,13 +299,13 @@ export class EnterpriseService {
         tokens: 0,
         cost: 0,
       };
-      const inputTokens = t.metadata?.inputTokens || 0;
-      const outputTokens = t.metadata?.outputTokens || 0;
+      const inputTokens = message.inputTokens ?? 0;
+      const outputTokens = message.outputTokens ?? 0;
 
       modelStats.set(model, {
         requests: current.requests + 1,
         tokens: current.tokens + inputTokens + outputTokens,
-        cost: current.cost + Math.abs(t.amount),
+        cost: current.cost + Number(message.cost ?? 0),
       });
     });
 
