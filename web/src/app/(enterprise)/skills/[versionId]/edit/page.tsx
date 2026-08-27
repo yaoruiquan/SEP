@@ -62,7 +62,7 @@ export default function SkillVersionEditPage() {
     <div className="mx-auto max-w-7xl space-y-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button onClick={() => router.push('/skills')} className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary">
-          <ArrowLeft className="h-4 w-4" /> 返回技能管理
+          <ArrowLeft className="h-4 w-4" /> 返回能力贡献中心
         </button>
         <div className="flex gap-2">
           <Button variant="glass" size="sm" onClick={() => setPreview((value) => !value)}>
