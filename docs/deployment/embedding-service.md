@@ -1,219 +1,110 @@
 # Embedding 服务部署指南
 
-## 概述
+本项目当前正式方案是：**独立部署 Ollama，加载 `bge-m3:latest`，通过 OpenAI-compatible `/v1/embeddings` 提供向量服务**。SEP 后端使用 `openai` provider 访问它；PostgreSQL 使用 pgvector 保存 1024 维向量并执行 HNSW 余弦检索。
 
-知识库向量化依赖 Embedding 服务，用于将文本转换为向量进行相似度检索。
+## 1. 架构与边界
 
-## 架构限制
+```text
+SEP backend  --HTTP-->  Ollama :11434/v1/embeddings
+       |
+       +---------------> PostgreSQL pgvector (vector(1024), HNSW)
+```
 
-### ARM64 (Apple Silicon) 不支持本地推理
+Ollama 是独立服务，可以与 SEP 部署在同一台服务器或独立机器。不要在生产环境依赖后端容器内的 `localhost`，也不要把大模型中转服务当作 Embedding 服务。
 
-当前主流 Embedding 推理框架**均不支持 ARM64**：
+## 2. Ollama 部署
 
-| 方案 | x86_64 | ARM64 | 说明 |
-|------|--------|-------|------|
-| HuggingFace TEI | ✅ | ❌ | 官方镜像仅编译 x86_64 |
-| Infinity Server | ✅ | ❌ | michaelf34/infinity 无 ARM64 镜像 |
-| llama.cpp | ✅ | ⚠️  | 需手动编译，官方无预构建镜像 |
+在目标服务器安装 Ollama 后执行：
 
-**影响**：
-- 开发环境（M 系列 Mac）无法启动本地 Embedding 容器
-- 必须使用远程 API（sub2api / OpenAI）
-
----
-
-## 配置方案
-
-### 方案 A：默认生产/开发方案：复用 sub2api 的 OpenAI 兼容接口
-
-生产默认复用内部 sub2api，不需要在应用容器旁边再部署 TEI/Infinity。后端容器必须通过 Docker 服务名访问 sub2api，不能使用 `localhost`。
-
-**本地或公网 OpenAI 兼容网关**：
 ```bash
+ollama pull bge-m3:latest
+ollama list
+```
+
+验证 OpenAI-compatible 接口：
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+curl -X POST http://127.0.0.1:11434/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"bge-m3:latest","input":"测试知识库向量化"}'
+```
+
+响应中的向量长度必须是 **1024**。如果 SEP 在 Docker 中运行，需让 Ollama 监听可被容器访问的地址，并把 `EMBEDDING_BASE_URL` 配成 Docker 网络可达的地址，例如 `http://sep-ollama:11434/v1`。
+
+## 3. SEP 环境变量
+
+### 后端与 Ollama 同机、后端直接运行
+
+```dotenv
 EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL=https://longdaoai.cn
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536
-EMBEDDING_API_KEY=<与网关匹配的 key>
+EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
+EMBEDDING_MODEL=bge-m3:latest
+EMBEDDING_API_KEY=ollama-local
+EMBEDDING_DIMENSION=1024
+EMBEDDING_BATCH_SIZE=32
+EMBEDDING_TIMEOUT_MS=120000
 ```
 
-**生产 Docker Compose（推荐）**：
-```bash
+### 后端容器访问 Ollama
+
+```dotenv
 EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL=http://longdao-sub2api-blue:8080/v1
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536
-EMBEDDING_API_KEY=${SUB2API_API_KEY}
+EMBEDDING_BASE_URL=http://sep-ollama:11434/v1
+EMBEDDING_MODEL=bge-m3:latest
+EMBEDDING_API_KEY=ollama-local
+EMBEDDING_DIMENSION=1024
 ```
 
-代码会在兼容端点后追加 `/embeddings`；如果公网基础地址已经包含 `/v1`，不会重复拼接 `/v1/v1`。
+`EMBEDDING_BASE_URL` 可以带 `/v1`。代码会规范化地址并只请求一次 `/v1/embeddings`。模型切换后必须对历史文档执行知识库 `reindex`，不能混用不同模型或维度的向量。
 
-**成本**：
-- $0.00002 / 1K tokens
-- 10MB 文档 ≈ 300K tokens ≈ $0.006
+## 4. PostgreSQL 与迁移
 
----
-
-### 方案 B：自建模型服务（仅在不复用 sub2api 时）
-
-使用 **Infinity/TEI** 本地推理（免费，但需要单独维护模型服务）。这不是生产默认方案。
-
-#### 1. 取消 docker-compose.yml 的注释
-
-```yaml
-embedding:
-  image: michaelf34/infinity:latest
-  container_name: sep-embedding
-  platform: linux/amd64
-  command: v2 --model-id BAAI/bge-small-zh-v1.5 --port 8080
-  ports:
-    - "8080:8080"
-  volumes:
-    - embedding_models:/app/.cache
-  environment:
-    - HF_HOME=/app/.cache
-  deploy:
-    resources:
-      limits:
-        memory: 1G
-```
-
-#### 2. 更新后端环境变量
+生产数据库必须使用 `pgvector/pgvector:pg16` 或已安装 pgvector 扩展的 PostgreSQL。发布时执行：
 
 ```bash
-EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL=http://embedding:8080  # 后端容器通过 compose 服务名访问
-EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
-EMBEDDING_DIMENSION=512
+pnpm --filter backend exec prisma migrate deploy
+pnpm --filter backend exec prisma generate
 ```
 
-上面的 Infinity 镜像提供 OpenAI 兼容的 `/embeddings` 接口，因此 provider 仍填写 `openai`。如果改用 TEI 镜像，才使用 `EMBEDDING_PROVIDER=tei`；TEI 请求路径是 `/embed`。
+确认扩展、向量列和 HNSW 索引：
 
-#### 3. 启动容器
-
-```bash
-docker-compose up -d embedding
-
-# 检查健康状态（首次启动需下载 4.4GB 模型，约 2-5 分钟）
-docker-compose logs -f embedding
-
-# 验证 API
-curl http://localhost:8080/health
-curl -X POST http://localhost:8080/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{"input": "测试文本", "model": "BAAI/bge-small-zh-v1.5"}'
+```sql
+SELECT extname FROM pg_extension WHERE extname = 'vector';
+SELECT column_name, udt_name FROM information_schema.columns
+  WHERE table_name = 'text_chunks' AND column_name = 'embeddingVector';
+SELECT indexname FROM pg_indexes
+  WHERE tablename = 'text_chunks' AND indexname LIKE '%hnsw%';
 ```
 
----
+## 5. 发布验收
 
-## 模型选择
+1. `ollama list` 显示 `bge-m3:latest`。
+2. `/v1/embeddings` 单条和批量请求均返回 1024 维。
+3. SEP 启动日志显示 `provider=openai, model=bge-m3:latest, dimension=1024`。
+4. 上传 TXT/Markdown 文档，状态从 `PENDING`/`PROCESSING` 变为 `READY`。
+5. `TextChunk.embeddingModel` 为 `bge-m3:latest`，`embeddingVector` 非空。
+6. 执行向量或混合检索，确认结果受企业和订阅授权过滤。
+7. 已有知识库调用 `POST /api/knowledge-bases/{knowledgeBaseId}/reindex` 重建向量。
 
-| 模型 | 维度 | 大小 | 性能 | 适用场景 |
-|------|------|------|------|----------|
-| BAAI/bge-small-zh-v1.5 | 512 | 100MB | 快 | 开发/小规模 |
-| BAAI/bge-base-zh-v1.5 | 768 | 400MB | 中 | 生产推荐 |
-| BAAI/bge-large-zh-v1.5 | 1024 | 1.3GB | 慢 | 高精度场景 |
-| text-embedding-3-small | 1536 | API | - | 开发环境降级 |
+## 6. 故障排查
 
----
+### `ECONNREFUSED`
 
-## 环境变量完整参考
+- 检查 Ollama：`curl http://127.0.0.1:11434/api/tags`。
+- 后端容器内不要使用 `127.0.0.1`，改用 Docker 网络中的 Ollama 服务名或内网地址。
+- 检查防火墙和 Ollama 监听地址。
 
-```bash
-# Provider 类型（openai / tei / wasm）
-EMBEDDING_PROVIDER=openai
+### 维度不匹配
 
-# API 端点
-EMBEDDING_BASE_URL=https://longdaoai.cn
+确保 `EMBEDDING_DIMENSION=1024`，模型为 `bge-m3:latest`。不要沿用其他模型的维度；修改模型后必须完成 reindex。
 
-# 模型 ID（需与容器启动参数一致）
-EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+### 文档只有词法检索
 
-# 向量维度（需与模型实际维度匹配）
-EMBEDDING_DIMENSION=512
-```
+查看文档处理错误和后端日志，确认 Ollama 可用、pgvector 迁移已执行。系统可以在 Embedding 暂时不可用时降级为词法检索，但企业端必须显示降级状态。
 
----
+## 7. 相关文档
 
-## 故障排查
-
-### 容器无法启动
-
-**症状**：`docker-compose up -d embedding` 报错 `does not provide the specified platform (linux/arm64)`
-
-**原因**：Infinity 镜像无 ARM64 版本
-
-**解决**：
-1. 检查 `platform: linux/amd64` 是否正确设置
-2. ARM64 机器改用方案 A（sub2api）
-3. 或部署到 x86_64 云服务器
-
-### 后端连接失败
-
-**症状**：`KnowledgeService` 报错 `connect ECONNREFUSED`
-
-**排查**：
-```bash
-# 1. 检查容器状态
-docker-compose ps embedding
-
-# 2. 检查健康检查
-docker inspect sep-embedding | grep -A 5 Health
-
-# 3. 检查端口映射
-docker-compose port embedding 8080
-
-# 4. 手动测试 API（宿主机）
-curl http://localhost:8080/health
-```
-
-**常见原因**：
-- 容器未启动：`docker-compose up -d embedding`
-- 端口占用：`lsof -i :8080` 检查冲突
-- 网络隔离：backend 容器内使用 `http://embedding:8080` 或 `http://longdao-sub2api-blue:8080/v1`，而非 `localhost`
-
----
-
-## 性能优化
-
-### 内存限制
-
-默认限制 1GB，大模型需调整：
-
-```yaml
-deploy:
-  resources:
-    limits:
-      memory: 2G  # bge-large-zh-v1.5 需要
-```
-
-### 批量优化
-
-Infinity 支持批量请求，前端建议批量上传：
-
-```typescript
-// ❌ 逐个上传
-for (const file of files) {
-  await uploadDocument(file)
-}
-
-// ✅ 批量上传
-await uploadDocuments(files)  // 后端内部批量调用 embedding API
-```
-
----
-
-## 后续优化方向
-
-1. **ARM64 支持**：关注 llama.cpp 的预构建 Docker 镜像
-2. **模型升级**：生产环境切换到 `bge-base-zh-v1.5`（维度 768，性能更优）
-3. **GPU 加速**：x86_64 + NVIDIA GPU 可用 TEI 官方镜像
-4. **缓存优化**：高频查询文本的 embedding 结果缓存到 Redis
-
----
-
-## 相关文档
-
-- [知识库生产化计划](../plans/2026-08-17-knowledge-production-plan.md)
-- [Infinity Server 文档](https://github.com/michaelfeil/infinity)
-- [BGE 模型仓库](https://huggingface.co/BAAI/bge-small-zh-v1.5)
+- [知识库第二阶段 pgvector + bge-m3 升级方案](../plans/知识库第二阶段-pgvector-bge-m3本地升级.md)
+- [生产 Compose](../../deploy/production/docker-compose.yml)
+- [知识库设计与技术栈](../对接/SEP知识库设计与技术栈说明.md)

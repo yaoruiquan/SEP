@@ -1,14 +1,16 @@
 # Phase 2 Hybrid Search - Test Report
 
+> **历史报告，禁止作为当前部署指引。** 本报告记录旧版向量链路的阶段性测试，当前正式方案已升级为 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW。部署与验收以 [`docs/deployment/embedding-service.md`](../docs/deployment/embedding-service.md) 为准。
+
 **Date**: 2026-08-11  
-**Status**: ✅ Core functionality working, vector search pending TEI deployment
+**Status**: 历史快照。旧版向量检索当时依赖未部署的旧模型服务；当前向量检索已由 Ollama `bge-m3:latest` + pgvector/HNSW 完成。
 
 ## Summary
 
 Phase 2 hybrid search implementation is **functionally complete** with two of three strategies operational:
 
 - ✅ **Lexical Search (BM25)**: Working, 11ms avg response
-- ⚠️ **Vector Search**: Pending TEI deployment (service unavailable)
+- ⚠️ **Vector Search**: 本报告记录时不可用；不代表当前生产状态。
 - ✅ **Hybrid Search (RRF)**: Working with graceful fallback to lexical
 
 ## Test Results

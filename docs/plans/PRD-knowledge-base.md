@@ -1,5 +1,7 @@
 # 知识库功能 PRD（产品需求文档）
 
+> **架构说明更新（2026-08-27）：** 本文早期技术示例保留需求形成过程，不可作为部署配置。当前实现使用 Ollama `bge-m3:latest`（1024 维）与 PostgreSQL pgvector/HNSW，详见[当前部署指南](../deployment/embedding-service.md)。
+
 ## 1. 产品概述
 
 ### 1.1 功能定位
@@ -130,10 +132,10 @@
    - 标注引用来源（文档名称、页码）
 
 #### 2.4.2 向量数据库集成
-**技术选型**：Pinecone / Weaviate（根据团队偏好）
+**技术选型**：PostgreSQL pgvector + HNSW
 
 **数据结构**：
-- **向量维度**：使用 OpenAI `text-embedding-3-small`（1536 维）
+- **向量维度**：Ollama `bge-m3:latest`（1024 维）
 - **元数据**：
   - `knowledgeBaseId`: 知识库 ID
   - `documentId`: 文档 ID（如果来源于文件）

@@ -2,8 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
- * Embedding 服务 - Phase 2 重构
- * 独立于 sub2api，支持 TEI 容器部署
+ * Embedding 服务
+ * 当前生产通过 Ollama 的 OpenAI-compatible API 生成 bge-m3 向量。
  */
 
 export interface EmbeddingResponse {

@@ -1,5 +1,7 @@
 # Phase 2 RAG 功能环境变量配置
 
+> **历史配置，已废弃，禁止写入当前环境。** 当前正式环境变量见[Embedding 部署指南](../deployment/embedding-service.md)，模型为 Ollama `bge-m3:latest`，维度为 1024，向量存储为 PostgreSQL pgvector。
+
 ## 必需的环境变量
 
 在 `/Users/yao/LLM/SEP/.env` 文件中添加以下配置：
@@ -25,7 +27,7 @@ OPENAI_BASE_URL=https://your-sub2api-endpoint/v1
 2. 注册并登录
 3. 创建一个 Index：
    - Name: `sep-knowledge`
-   - Dimensions: `1536` (匹配 text-embedding-3-small)
+   - Dimensions: `1024`（当前实现匹配 Ollama `bge-m3:latest`）
    - Metric: `cosine`
 4. 在 API Keys 页面获取 API Key
 

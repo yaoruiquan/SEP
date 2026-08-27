@@ -1,5 +1,7 @@
 # 企业端功能增强 · 分阶段开发计划
 
+> **历史开发计划。** 文中的旧 Embedding 模型示例不代表当前生产配置。当前正式方案为 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW，详见[当前部署指南](../deployment/embedding-service.md)。
+
 **创建日期**: 2026-08-07
 **范围**: 企业端 `(enterprise)` 路由组 + 对应后端模块
 **排除项**: ❌ 对话质量监控（满意度评分 / 错误率统计）—— 本轮不做
@@ -220,7 +222,7 @@ model EnterpriseModelConfig {
   allowUserSwitchModel Boolean  @default(true)
 
   // ── 知识库模型 ──
-  embeddingModel String  @default("text-embedding-3-small")
+  embeddingModel String  @default("bge-m3:latest")
   rerankModel    String?
   embeddingBatchSize Int @default(32)
   embeddingTimeoutMs Int @default(30000)
@@ -411,7 +413,7 @@ model KnowledgeSearchLog {
 │ 问题  [ 退货流程是什么？              ] [测试]│
 │ topK [5]   相似度阈值 ──●──── 0.65   ☐ 重排  │
 ├──────────────────────────────────────────────┤
-│ ⚡ 12ms · 向量检索 · text-embedding-3-small   │
+│ ⚡ 12ms · 向量检索 · bge-m3:latest           │
 │                                              │
 │ ① 0.912  产品手册.pdf · 分块 #17             │
 │    「用户可在订单完成后 7 日内申请退货…」     │

@@ -1,12 +1,14 @@
 # Phase 2 RAG 功能快速参考
 
+> **历史快速参考，已废弃。** 当前正式架构是 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW，接口与部署请以[当前指南](../deployment/embedding-service.md)和代码为准。
+
 ## 🎯 当前状态
 
 ✅ **已完成** (Week 3 + Week 4 Part 1)
 - 向量数据库集成 (Pinecone)
 - 文档解析 (PDF/Word/TXT/Markdown)
 - 文本分块 (1000 字符/块)
-- 向量嵌入 (OpenAI text-embedding-3-small)
+- 向量嵌入（当前实现：Ollama `bge-m3:latest`，1024 维）
 - 异步文档处理流水线
 - 知识库检索 API
 

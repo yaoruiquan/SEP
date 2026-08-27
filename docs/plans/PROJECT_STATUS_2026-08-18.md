@@ -1,5 +1,7 @@
 # 项目开发状态报告 - 2026-08-18
 
+> **历史状态快照，禁止作为当前部署指引。** 当前知识库已升级为 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW，部署以[当前指南](../deployment/embedding-service.md)为准。
+
 ## 📊 当前进度总览
 
 ### 已完成的核心功能

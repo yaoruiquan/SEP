@@ -1,5 +1,7 @@
 # Phase B 完成总结
 
+> **历史总结，禁止作为当前部署指引。** 当前正式方案是 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW。旧模型和旧服务仅用于追溯，请使用[当前部署指南](../deployment/embedding-service.md)。
+
 ## ✅ 任务完成
 
 **Phase B — Embedding 服务环境变量规范化** 已完成核心交付物。

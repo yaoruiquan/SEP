@@ -3,6 +3,8 @@
 ## 前提条件
 
 - 服务器 `64.83.39.223` 已运行 longdao（postgres / redis / sub2api / caddy）
+- 服务器已部署 Ollama，已拉取 `bge-m3:latest`，且 SEP 后端容器可通过 Docker 网络访问
+- PostgreSQL 已安装 pgvector 扩展包
 - 你有一个域名，DNS A 记录已指向 `64.83.39.223`
 - 本地 SEP 代码已推送到 GitHub
 
@@ -23,6 +25,9 @@ cp /path/to/SEP/deploy/production/.env.example /opt/sep/.env
 - `REDIS_PASSWORD` — 同上
 - `JWT_SECRET` — `openssl rand -hex 32`
 - `SUB2API_API_KEY` — 在 sub2api 管理后台新建一个渠道 key
+- `EMBEDDING_BASE_URL` — Ollama 在 Docker 网络中的地址，例如 `http://sep-ollama:11434/v1`
+
+先按 [Embedding 服务部署指南](../../docs/deployment/embedding-service.md) 验证 `/v1/embeddings` 返回 1024 维向量，再启动 SEP。
 
 ---
 
@@ -36,6 +41,12 @@ docker exec -it longdao-postgres psql \
 
 # 验证
 docker exec longdao-postgres psql -U sub2api -c "\l" | grep sep
+
+# 确认数据库镜像已提供 pgvector，再在 SEP 数据库启用扩展
+docker exec longdao-postgres psql -U sub2api -d sep_prod \
+  -c "CREATE EXTENSION IF NOT EXISTS vector;"
+docker exec longdao-postgres psql -U sub2api -d sep_prod \
+  -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
 ```
 
 ---
@@ -93,6 +104,12 @@ docker ps | grep sep
 # 检查 backend 健康
 curl http://localhost:3001/health
 
+# 从后端所在网络验证 Ollama（地址与 /opt/sep/.env 一致）
+curl http://127.0.0.1:11434/api/tags
+curl -X POST http://127.0.0.1:11434/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"bge-m3:latest","input":"生产验收"}'
+
 # 检查 web
 curl -I https://你的域名
 ```
@@ -124,5 +141,5 @@ docker compose --env-file /opt/sep/.env down
 |------|------|
 | sep-backend | ~200-400MB |
 | sep-web | ~150-300MB |
-| **新增合计** | **~500MB** |
-| 服务器可用 | 2.8GB → 约 2.3GB 剩余 |
+| Ollama + bge-m3 | 需按服务器实测预留，不计入 SEP Web/Backend 配额 |
+| **SEP 应用新增合计** | **~500MB，不含 Ollama 与 PostgreSQL** |

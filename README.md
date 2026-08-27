@@ -86,19 +86,17 @@ SUB2API_API_KEY="sk-your-key"
 SUB2API_DEFAULT_MODEL="gpt-3.5-turbo"
 
 # Embedding 服务配置（知识库向量化）
-# ⚠️ 开发环境（ARM64 Mac）：使用 sub2api（会消耗 token）
+# 本地与生产统一使用 Ollama 的 OpenAI-compatible 接口
 EMBEDDING_PROVIDER=openai
-EMBEDDING_BASE_URL="https://longdaoai.cn/v1"
-EMBEDDING_MODEL="text-embedding-3-small"
-EMBEDDING_DIMENSION=1536
-
-# 🚀 生产环境（x86_64 Linux）：取消 docker-compose.yml 的 embedding 服务注释
-# EMBEDDING_BASE_URL="http://localhost:8080"
-# EMBEDDING_MODEL="BAAI/bge-small-zh-v1.5"
-# EMBEDDING_DIMENSION=512
+EMBEDDING_BASE_URL="http://127.0.0.1:11434/v1"
+EMBEDDING_MODEL="bge-m3:latest"
+EMBEDDING_API_KEY="ollama-local"
+EMBEDDING_DIMENSION=1024
+EMBEDDING_BATCH_SIZE=32
+EMBEDDING_TIMEOUT_MS=120000
 ```
 
-> **📚 Embedding 服务说明**：知识库功能依赖 Embedding 模型将文本转换为向量。由于主流推理框架（TEI / Infinity）不支持 ARM64，开发环境需使用远程 API。生产环境部署到 x86_64 服务器后可启用本地推理容器。详见 [Embedding 服务部署指南](docs/deployment/embedding-service.md)。
+> **📚 Embedding 服务说明**：知识库向量化依赖独立部署的 Ollama 服务和 `bge-m3:latest`。后端通过 Ollama 的 OpenAI-compatible `/v1/embeddings` 接口访问；容器部署时将 `EMBEDDING_BASE_URL` 设置为 Ollama 在 Docker 网络中的服务地址。详见 [Embedding 服务部署指南](docs/deployment/embedding-service.md)。
 
 
 ### 4. 启动数据库

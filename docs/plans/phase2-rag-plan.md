@@ -1,5 +1,7 @@
 # Phase 2: RAG 检索功能开发
 
+> **历史开发计划，已被当前实现替代。** 当前正式架构是 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW；本文的早期云向量库与旧模型选型不得用于部署。详见[当前部署指南](../deployment/embedding-service.md)。
+
 ## 目标
 为知识库系统添加 RAG（检索增强生成）能力，使数字员工能够基于知识库内容回答问题。
 
@@ -48,8 +50,8 @@
 ### Day 4-5: 向量化流程
 
 **Embedding 模型**：
-- 使用 OpenAI text-embedding-3-small（性价比高）
-- 备选：text-embedding-3-large（更高质量）
+- 当前实现使用 Ollama `bge-m3:latest`（1024 维）
+- 模型切换必须同步迁移向量维度并全量 reindex
 
 **向量化流程**：
 1. 文档上传 → 触发异步处理

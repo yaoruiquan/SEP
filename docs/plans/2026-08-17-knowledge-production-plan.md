@@ -1,5 +1,7 @@
 # 知识库生产化计划（并发加固 + 模型服务器部署 + 多模态）
 
+> **历史计划，已被替代，禁止用于部署。** 当前正式方案是 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW；本文中的旧模型服务、BYTEA 主检索和生产环境变量仅用于追溯。请使用[当前部署指南](../deployment/embedding-service.md)和[第二阶段升级方案](知识库第二阶段-pgvector-bge-m3本地升级.md)。
+
 > 日期：2026-08-17
 > 对应会议纪要：08-12 会议 P2 §1 企业知识库
 > 依据蓝图：`docs/plans/knowledge-redesign-plan.md`

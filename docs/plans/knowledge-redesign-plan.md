@@ -1,5 +1,7 @@
 # 知识库系统重设计方案 v2
 
+> **历史设计，已被替代，禁止用于部署。** 当前正式方案是 Ollama `bge-m3:latest`（1024 维）+ PostgreSQL pgvector/HNSW；本文旧模型服务、WASM 回退和 BYTEA 主检索设计仅用于追溯。请使用[当前部署指南](../deployment/embedding-service.md)。
+
 ## 目标
 
 硅基员工提问时，在 200-500ms 内从企业文档中检索相关段落，绝对不能泄露其他企业数据。
