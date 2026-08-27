@@ -23,10 +23,33 @@ export function useConversation(id: string | null) {
 export function useCreateConversation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { employeeId: string; title?: string }) =>
+    mutationFn: (input: {
+      employeeId: string;
+      title?: string;
+      source?: 'CHAT' | 'TASK';
+      taskPlanId?: string;
+      taskStepId?: string;
+    }) =>
       api.post<ConversationSession>('/conversations', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.conversations });
+    },
+  });
+}
+
+/** 创建任务步骤会话。任务执行记录与对话中心在后端按 source 隔离。 */
+export function useCreateTaskConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      employeeId: string;
+      title?: string;
+      taskPlanId: string;
+      taskStepId: string;
+    }) => api.post<ConversationSession>('/conversations', { ...input, source: 'TASK' as const }),
+    onSuccess: () => {
+      // 任务会话不应刷新或污染对话中心列表。
+      qc.invalidateQueries({ queryKey: ['task-conversations'] });
     },
   });
 }

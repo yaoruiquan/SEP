@@ -6,12 +6,14 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   Request,
   UseGuards,
   Res,
   Logger,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
@@ -19,12 +21,15 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConversationService } from './conversation.service';
 import { ConversationStreamService } from './conversation-stream.service';
 import {
   ConversationCreateDto,
+  ConversationCreateDtoSchema,
+  ConversationSource,
   ConversationUpdateDto,
   MessageSendDto,
   MessageSendDtoSchema,
@@ -51,7 +56,7 @@ export class ConversationController {
   @ApiOperation({ summary: '创建对话会话' })
   @ApiResponse({ status: 201, description: '会话创建成功' })
   async create(
-    @Body() dto: ConversationCreateDto,
+    @Body(new ZodValidationPipe(ConversationCreateDtoSchema)) dto: ConversationCreateDto,
     @Request() req: AuthenticatedRequest,
   ) {
     return this.conversationService.create(req.user.id, dto);
@@ -59,9 +64,17 @@ export class ConversationController {
 
   @Get()
   @ApiOperation({ summary: '获取当前用户的所有会话' })
+  @ApiQuery({ name: 'source', required: false, enum: ['CHAT', 'TASK'], description: '会话来源，默认 CHAT' })
   @ApiResponse({ status: 200, description: '会话列表' })
-  async findAll(@Request() req: AuthenticatedRequest) {
-    return this.conversationService.findAll(req.user.id);
+  async findAll(
+    @Request() req: AuthenticatedRequest,
+    @Query('source') source?: ConversationSource,
+  ) {
+    // 对话中心默认只展示普通聊天；任务中心如需查询任务会话可显式传 source=TASK。
+    if (source && source !== 'CHAT' && source !== 'TASK') {
+      throw new BadRequestException('source must be CHAT or TASK');
+    }
+    return this.conversationService.findAll(req.user.id, source ?? 'CHAT');
   }
 
   @Get(':id')

@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { History, Plus, Radio, X, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useChatStream } from '@/features/chat/use-chat-stream';
-import { useCreateConversation } from '@/features/chat/use-conversations';
+import { useCreateTaskConversation } from '@/features/chat/use-conversations';
 import { TaskFlowCanvas } from '@/features/task/task-flow-canvas';
 import { TaskListRail } from '@/features/task/task-list-rail';
 import { TaskObjectiveComposer } from '@/features/task/task-objective-composer';
@@ -49,7 +49,7 @@ function clonePlanForExecution(plan: TaskPlan, startIndex: number): TaskPlan {
 }
 
 export default function TasksPage() {
-  const createConversation = useCreateConversation();
+  const createTaskConversation = useCreateTaskConversation();
   const planner = useCreateTaskPlan();
   const { data: myEmployees = [] } = useMyEmployees();
   const { isConnected } = useTaskUpdates();
@@ -241,9 +241,11 @@ export default function TasksPage() {
           .filter((output): output is string => Boolean(output));
 
         try {
-          const conversation = await createConversation.mutateAsync({
+          const conversation = await createTaskConversation.mutateAsync({
             employeeId: step.employee.id,
             title: sourcePlan.objective.slice(0, 60),
+            taskPlanId: runningPlan.id,
+            taskStepId: step.id,
           });
           const prompt = [
             `这是一个经过用户确认的多步骤任务。总目标：${sourcePlan.objective}`,

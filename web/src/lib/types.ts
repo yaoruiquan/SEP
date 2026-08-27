@@ -229,6 +229,9 @@ export interface ConversationSession {
   title: string | null;
   employeeId: string;
   modelId?: string | null; // 会话级模型覆盖
+  source?: 'CHAT' | 'TASK';
+  taskPlanId?: string | null;
+  taskStepId?: string | null;
   createdAt: string;
   updatedAt: string;
   employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'modelId'>;

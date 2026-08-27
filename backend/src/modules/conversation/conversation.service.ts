@@ -12,6 +12,7 @@ import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import {
   ConversationCreateDto,
+  ConversationSource,
   ConversationUpdateDto,
   type MessageAttachment,
 } from 'shared';
@@ -31,6 +32,14 @@ export class ConversationService {
   ) {}
 
   async create(userId: string, dto: ConversationCreateDto) {
+    const source = dto.source ?? 'CHAT';
+    if (source === 'TASK' && (!dto.taskPlanId || !dto.taskStepId)) {
+      throw new BadRequestException('Task conversations require taskPlanId and taskStepId');
+    }
+    if (source === 'CHAT' && (dto.taskPlanId || dto.taskStepId)) {
+      throw new BadRequestException('Chat conversations cannot include task context');
+    }
+
     // 验证 DigitalEmployee 存在
     const employee = await this.prisma.digitalEmployee.findUnique({
       where: { id: dto.employeeId },
@@ -62,12 +71,18 @@ export class ConversationService {
         userId,
         employeeId: dto.employeeId,
         title: dto.title ?? null,
+        source,
+        taskPlanId: dto.taskPlanId ?? null,
+        taskStepId: dto.taskStepId ?? null,
         modelId: enterpriseConfig.defaultChatModel,
       },
       select: {
         id: true,
         title: true,
         status: true,
+        source: true,
+        taskPlanId: true,
+        taskStepId: true,
         modelId: true,
         createdAt: true,
         updatedAt: true,
@@ -79,14 +94,17 @@ export class ConversationService {
     return session;
   }
 
-  async findAll(userId: string) {
+  async findAll(userId: string, source: ConversationSource = 'CHAT') {
     return this.prisma.conversationSession.findMany({
-      where: { userId },
+      where: { userId, source },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
         title: true,
         status: true,
+        source: true,
+        taskPlanId: true,
+        taskStepId: true,
         modelId: true,
         createdAt: true,
         updatedAt: true,

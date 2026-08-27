@@ -974,9 +974,15 @@ export interface SubscriptionView {
 }
 
 // Conversation
+export const ConversationSourceSchema = z.enum(['CHAT', 'TASK']);
+export type ConversationSource = z.infer<typeof ConversationSourceSchema>;
+
 export const ConversationCreateDtoSchema = z.object({
   employeeId: z.string(),
   title: z.string().optional(),
+  source: ConversationSourceSchema.optional().default('CHAT'),
+  taskPlanId: z.string().optional(),
+  taskStepId: z.string().optional(),
 });
 
 export type ConversationCreateDto = z.infer<typeof ConversationCreateDtoSchema>;

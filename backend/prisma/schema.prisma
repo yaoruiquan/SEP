@@ -918,6 +918,12 @@ model ConversationSession {
   title  String? // 自动生成或用户修改
   status SessionStatus @default(ACTIVE)
 
+  // 会话来源：对话中心与任务中心在数据层隔离。
+  source ConversationSource @default(CHAT)
+  // 任务会话上下文。任务计划目前由任务中心维护，故不建立 Prisma 外键。
+  taskPlanId String?
+  taskStepId String?
+
   // 会话级模型覆盖：null 时用 employee.modelId
   modelId String?
 
@@ -930,11 +936,18 @@ model ConversationSession {
   knowledgeUsageLogs KnowledgeUsageLog[]
 
   @@map("conversation_sessions")
+  @@index([userId, source])
+  @@index([taskPlanId, taskStepId])
 }
 
 enum SessionStatus {
   ACTIVE // 活跃
   ARCHIVED // 归档
+}
+
+enum ConversationSource {
+  CHAT // 对话中心创建的普通会话
+  TASK // 任务中心执行步骤创建的任务会话
 }
 
 model Message {
