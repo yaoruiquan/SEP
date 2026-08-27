@@ -1,8 +1,12 @@
 /** @type {import('next').NextConfig} */
 const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3001';
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 const nextConfig = {
   reactStrictMode: true,
+  // Keep development output separate from production builds so browser chunks
+  // stay valid while a dev server is running.
+  distDir: isDevelopment ? '.next-dev' : '.next',
   images: {
     remotePatterns: [
       {
