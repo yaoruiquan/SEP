@@ -25,6 +25,17 @@ describe("OrderService", () => {
         findUnique: jest.fn(),
         upsert: jest.fn(),
       },
+      enterpriseMember: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "mem-admin",
+          role: "ENTERPRISE_ADMIN",
+        }),
+      },
+      employeeGrant: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
       digitalEmployee: {
         findUnique: jest.fn(),
       },
@@ -327,6 +338,13 @@ describe("OrderService", () => {
       });
 
       expect(prisma.subscription.upsert).toHaveBeenCalled();
+      expect(prisma.employeeGrant.create).toHaveBeenCalledWith({
+        data: {
+          subscriptionId: "sub-1",
+          memberId: "mem-admin",
+          expiresAt: null,
+        },
+      });
       expect(prisma.computeAccount.update).toHaveBeenCalled();
       expect(prisma.cartItem.deleteMany).toHaveBeenCalledWith({
         where: {
@@ -365,6 +383,105 @@ describe("OrderService", () => {
       // 一个订单项 → 恰好一次 upsert，不循环建实例
       expect(prisma.subscription.upsert).toHaveBeenCalledTimes(1);
       expect(prisma.employeeInstance).toBeUndefined();
+    });
+
+    it("支付履约后自动授权给下单的企业管理员", async () => {
+      const mockOrder = {
+        id: "order-1",
+        orderNo: "20260811120000123456",
+        enterpriseId: "ent-1",
+        createdBy: "admin-user",
+        status: "PENDING",
+        items: [
+          {
+            id: "item-1",
+            employeeId: "emp-1",
+            employeeName: "销售助手",
+            periodMonths: 12,
+            includedComputeCNY: new Decimal(0),
+            employee: {},
+          },
+        ],
+      };
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
+      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1", endDate: new Date("2027-08-28") });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
+      prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.fulfill("order-1", "alipay-123");
+
+      expect(prisma.enterpriseMember.findUnique).toHaveBeenCalledWith({
+        where: {
+          userId_enterpriseId: {
+            userId: "admin-user",
+            enterpriseId: "ent-1",
+          },
+        },
+        select: { id: true, role: true },
+      });
+      expect(prisma.employeeGrant.create).toHaveBeenCalledWith({
+        data: {
+          subscriptionId: "sub-1",
+          memberId: "mem-admin",
+          expiresAt: new Date("2027-08-28"),
+        },
+      });
+    });
+
+    it("已有管理员授权时更新到新的订阅到期日，不重复创建", async () => {
+      const mockOrder = {
+        id: "order-1",
+        orderNo: "20260811120000123456",
+        enterpriseId: "ent-1",
+        createdBy: "admin-user",
+        status: "PENDING",
+        items: [
+          {
+            id: "item-1",
+            employeeId: "emp-1",
+            employeeName: "销售助手",
+            periodMonths: 12,
+            includedComputeCNY: new Decimal(0),
+            employee: {},
+          },
+        ],
+      };
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
+      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1", endDate: new Date("2027-08-28") });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
+      prisma.employeeGrant.findFirst.mockResolvedValue({ id: "grant-1" });
+      prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.fulfill("order-1", "alipay-123");
+
+      expect(prisma.employeeGrant.update).toHaveBeenCalledWith({
+        where: { id: "grant-1" },
+        data: { expiresAt: new Date("2027-08-28") },
+      });
+      expect(prisma.employeeGrant.create).not.toHaveBeenCalled();
+    });
+
+    it("非企业管理员创建的订单不能履约", async () => {
+      prisma.enterpriseMember.findUnique.mockResolvedValue({
+        id: "mem-member",
+        role: "MEMBER",
+      });
+      prisma.order.findUnique.mockResolvedValue({
+        id: "order-1",
+        enterpriseId: "ent-1",
+        createdBy: "member-user",
+        status: "PENDING",
+        items: [],
+      });
+
+      await expect(service.fulfill("order-1", "alipay-123")).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.order.update).not.toHaveBeenCalled();
     });
 
     it("雇佣关系锁定履约时刻的模板版本，而非写死版本号", async () => {
