@@ -32,11 +32,14 @@ pnpm-debug.log*
 # Testing
 coverage/
 .nyc_output/
+.playwright-cli/
+output/playwright/*.png
 
 # Misc
 .turbo/
 .cache/
 temp/
+web/.next-dev/
 
 # 用户上传的文件（本地存储驱动的落盘目录）—— 属于运行时数据，不入仓库。
 # 注意：backend/uploads/knowledge 和 skills 下已有 21 个文件在历史里被跟踪，
