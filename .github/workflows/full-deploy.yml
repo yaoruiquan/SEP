@@ -71,21 +71,18 @@ jobs:
             fi
             echo "✓ 环境文件存在"
 
-            # 5. 停止所有服务
+            # 5. 不停止共享基础设施
             echo ""
             echo "=========================================="
-            echo "步骤 3/5: 停止现有服务"
+            echo "步骤 3/5: 检查部署边界"
             echo "=========================================="
             cd deploy/production
-            docker compose --env-file /opt/sep/.env down || true
-            echo "✓ 服务已停止"
+            echo "只允许操作 SEP 容器；不会停止 PostgreSQL、Redis、Caddy 或龙道中转站"
 
             # 6. 清理（可选）
             if [ "${{ github.event.inputs.force_rebuild }}" = "true" ]; then
               echo ""
-              echo "清理 Docker 缓存和旧镜像..."
-              docker system prune -af --volumes || true
-              echo "✓ 缓存已清理"
+              echo "跳过全局 Docker 清理：禁止触碰共享数据卷"
             fi
 
             # 7. 构建并启动所有服务
@@ -94,28 +91,10 @@ jobs:
             echo "步骤 4/5: 构建并启动服务"
             echo "=========================================="
 
-            # 构建镜像（无缓存）
-            echo "构建后端镜像..."
-            docker compose --env-file /opt/sep/.env build --no-cache sep-backend
-
-            echo "构建前端镜像..."
-            docker compose --env-file /opt/sep/.env build --no-cache sep-web
-
-            # 运行数据库迁移（可选）
-            if [ "${{ github.event.inputs.run_migrations }}" = "true" ]; then
-              echo ""
-              echo "运行数据库迁移..."
-              docker compose --env-file /opt/sep/.env run --rm sep-migrate || echo "⚠️ 迁移可能已执行或无新迁移"
-            fi
-
-            # 启动所有服务
-            echo ""
-            echo "启动所有服务（后端 + 前端）..."
-            docker compose --env-file /opt/sep/.env up -d sep-backend sep-web
-
-            # 等待服务启动
-            echo "等待服务启动（15秒）..."
-            sleep 15
+            # 统一走受保护脚本：共享数据库就绪检查、迁移失败即停止，
+            # 且部署脚本只操作 SEP 容器。
+            echo "执行受保护的 SEP 部署脚本..."
+            SEP_ASSUME_YES=true ./sep-deploy.sh deploy
 
             # 8. 显示最终状态
             echo ""

@@ -8,6 +8,11 @@
 - 你有一个域名，DNS A 记录已指向 `64.83.39.223`
 - 本地 SEP 代码已推送到 GitHub
 
+> **共享基础设施警告**：SEP 与龙道中转站可以共用同一台服务器和 Docker 网络，
+> 但不要在 SEP 目录执行会管理 PostgreSQL、Redis 或 Caddy 的命令。
+> 当前两个系统使用同一 PostgreSQL 实例的不同数据库：`sep_prod` 和 `sub2api`。
+> PostgreSQL 停止时两个系统都会不可用。SEP 部署脚本只操作 `sep-*` 容器。
+
 ---
 
 ## 步骤一：准备环境变量
@@ -34,18 +39,25 @@ cp /path/to/SEP/deploy/production/.env.example /opt/sep/.env
 ## 步骤二：创建 SEP 数据库
 
 ```bash
-# 在 longdao-postgres 容器内创建独立数据库
-docker exec -it longdao-postgres psql \
+# 找到当前 PostgreSQL 容器（容器名可能因恢复或升级而变化）
+PG_CONTAINER=$(docker ps \
+  --filter network=longdao-network \
+  --filter label=com.docker.compose.service=postgres \
+  --format '{{.Names}}' | head -n 1)
+test -n "$PG_CONTAINER" || { echo "PostgreSQL 未运行"; exit 1; }
+
+# 在共享 PostgreSQL 实例内创建独立数据库
+docker exec -it "$PG_CONTAINER" psql \
   -U sub2api \
   -c "CREATE DATABASE sep_prod;"
 
 # 验证
-docker exec longdao-postgres psql -U sub2api -c "\l" | grep sep
+docker exec "$PG_CONTAINER" psql -U sub2api -c "\l" | grep sep
 
 # 确认数据库镜像已提供 pgvector，再在 SEP 数据库启用扩展
-docker exec longdao-postgres psql -U sub2api -d sep_prod \
+docker exec "$PG_CONTAINER" psql -U sub2api -d sep_prod \
   -c "CREATE EXTENSION IF NOT EXISTS vector;"
-docker exec longdao-postgres psql -U sub2api -d sep_prod \
+docker exec "$PG_CONTAINER" psql -U sub2api -d sep_prod \
   -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
 ```
 
@@ -83,14 +95,12 @@ docker exec longdao-caddy caddy reload --config /etc/caddy/Caddyfile
 ```bash
 cd /opt/sep/app/deploy/production
 
-# 构建镜像（首次约 3-5 分钟）
-docker compose --env-file /opt/sep/.env build
+# 使用保护脚本：迁移前会检查共享数据库和 Redis，只操作 SEP 容器
+chmod +x ./sep-deploy.sh
+./sep-deploy.sh deploy
 
-# 启动服务
-docker compose --env-file /opt/sep/.env up -d
-
-# 查看启动日志
-docker compose --env-file /opt/sep/.env logs -f
+# 查看日志
+./sep-deploy.sh logs
 ```
 
 ---
@@ -119,18 +129,39 @@ curl -I https://你的域名
 ## 日常维护
 
 ```bash
-# 更新代码并重新部署
+# 更新代码并重新部署（不要使用 docker compose down）
 cd /opt/sep/app
 git pull
 cd deploy/production
-docker compose --env-file /opt/sep/.env up -d --build
+./sep-deploy.sh deploy
 
 # 查看日志
-docker logs sep-backend -f
-docker logs sep-web -f
+./sep-deploy.sh logs sep-backend
+./sep-deploy.sh logs sep-web
 
-# 停止
-docker compose --env-file /opt/sep/.env down
+# 停止 SEP 应用（不会停止共享 PostgreSQL、Redis 或 Caddy）
+docker stop sep-backend sep-web 2>/dev/null || true
+```
+
+## 故障恢复
+
+```bash
+cd /opt/sep/app/deploy/production
+
+# 先确认共享基础设施仍在运行
+./sep-deploy.sh status
+
+# 若数据库刚恢复，先观察迁移容器日志，再重新发布 SEP
+docker logs --tail=100 sep-migrate
+./sep-deploy.sh deploy-backend
+```
+
+不要执行以下操作：
+
+```bash
+docker compose down                          # 可能影响共享项目
+docker stop longdao-postgres* longdao-redis  # 会影响中转站
+docker rm longdao-postgres*                  # 可能造成数据不可恢复
 ```
 
 ---

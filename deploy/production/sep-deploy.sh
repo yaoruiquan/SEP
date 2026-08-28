@@ -14,6 +14,7 @@ ACTIVE_COLOR_FILE="$STATE_DIR/active-color"
 CADDYFILE="${SEP_CADDYFILE:-/opt/longdao/deploy/production/Caddyfile}"
 CADDY_CONTAINER="${SEP_CADDY_CONTAINER:-longdao-caddy}"
 LOCK_FILE="${SEP_DEPLOY_LOCK_FILE:-/opt/sep/.deploy.lock}"
+SHARED_NETWORK="${SEP_SHARED_NETWORK:-longdao-network}"
 
 # docker compose 统一入口，始终带 --env-file
 dc() {
@@ -37,6 +38,77 @@ check_env() {
     error "env 文件不存在: $ENV_FILE"
     exit 1
   fi
+}
+
+# SEP intentionally uses the existing longdao network, but it must never own
+# or recreate the shared PostgreSQL/Redis/Caddy services.
+check_compose_scope() {
+  local services
+  services=$(dc config --services)
+  if grep -Eq '^(postgres|redis|caddy|sub2api|sub2api-blue|sub2api-green)$' <<<"$services"; then
+    error "SEP compose 包含共享 longdao 服务，已终止部署"
+    return 1
+  fi
+
+  services=$(dc_bg config --services)
+  if grep -Eq '^(postgres|redis|caddy|sub2api|sub2api-blue|sub2api-green)$' <<<"$services"; then
+    error "SEP 蓝绿 compose 包含共享 longdao 服务，已终止部署"
+    return 1
+  fi
+}
+
+env_value() {
+  local key=$1
+  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE"
+}
+
+find_shared_container() {
+  local service=$1
+  docker ps --filter "network=$SHARED_NETWORK" \
+    --filter "label=com.docker.compose.service=$service" \
+    --format '{{.Names}}' | head -n 1
+}
+
+check_shared_infrastructure() {
+  local postgres redis db_user
+  docker network inspect "$SHARED_NETWORK" >/dev/null 2>&1 || {
+    error "共享 Docker 网络不存在: $SHARED_NETWORK"
+    return 1
+  }
+
+  postgres=$(find_shared_container postgres)
+  [[ -n "$postgres" ]] || {
+    error "共享 PostgreSQL 容器未运行，拒绝继续部署"
+    return 1
+  }
+  db_user=$(env_value POSTGRES_USER)
+  db_user=${db_user:-sub2api}
+  docker exec "$postgres" pg_isready -U "$db_user" -d postgres >/dev/null 2>&1 || {
+    error "共享 PostgreSQL 尚未接受连接（容器: $postgres），拒绝执行迁移"
+    return 1
+  }
+
+  redis=$(find_shared_container redis)
+  [[ -n "$redis" ]] || {
+    error "共享 Redis 容器未运行，拒绝继续部署"
+    return 1
+  }
+
+  info "共享基础设施已就绪：PostgreSQL=$postgres，Redis=$redis，网络=$SHARED_NETWORK"
+}
+
+run_migrations() {
+  check_shared_infrastructure
+  info "执行数据库迁移（仅操作 SEP 迁移容器）..."
+  dc up --no-deps --force-recreate sep-migrate
+  local migration_exit
+  migration_exit=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo 1)
+  [[ "$migration_exit" == "0" ]] || {
+    error "数据库迁移失败（exit code $migration_exit），终止部署"
+    docker logs --tail=80 sep-migrate 2>&1 | sed 's/^/  /'
+    return 1
+  }
+  success "数据库迁移完成"
 }
 
 # ── 等待容器健康 ──────────────────────────────────────────────────────────────
@@ -150,6 +222,7 @@ stop_color() {
 
 cmd_deploy_bluegreen() {
   check_env
+  check_compose_scope
   ensure_state_dir
   exec 9>"$LOCK_FILE"
   flock -n 9 || { error "已有部署正在执行"; exit 1; }
@@ -178,11 +251,7 @@ cmd_deploy_bluegreen() {
   info "构建候选后端和前端镜像..."
   dc_bg build "${candidate}-backend" "${candidate}-web"
 
-  info "执行数据库迁移..."
-  dc up --no-deps sep-migrate
-  local migration_exit
-  migration_exit=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo 1)
-  [[ "$migration_exit" == "0" ]] || { error "数据库迁移失败"; docker logs --tail=80 sep-migrate; exit 1; }
+  run_migrations
 
   info "启动候选环境..."
   dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web"
@@ -235,6 +304,7 @@ cmd_rollback_bluegreen() {
 # 只重建并重启前端，最常用（改了前端代码/配置后）
 cmd_deploy_web() {
   check_env
+  check_compose_scope
   info "拉取最新代码..."
   git -C "$SCRIPT_DIR/../.." pull origin main
 
@@ -252,31 +322,14 @@ cmd_deploy_web() {
 # 只重建并重启后端（改了后端代码后）
 cmd_deploy_backend() {
   check_env
+  check_compose_scope
   info "拉取最新代码..."
   git -C "$SCRIPT_DIR/../.." pull origin main
 
   info "重建 sep-backend 镜像..."
   dc build --no-cache sep-backend
 
-  info "运行数据库迁移..."
-  # 使用 up 替代 run，设置超时并检查退出状态
-  dc up --no-deps sep-migrate
-
-  # 等待迁移容器退出（最多60秒）
-  for i in $(seq 1 12); do
-    status=$(docker inspect --format='{{.State.Status}}' sep-migrate 2>/dev/null || echo "missing")
-    [[ "$status" == "exited" ]] && break
-    sleep 5
-  done
-
-  local exit_code
-  exit_code=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo "1")
-  if [[ "$exit_code" != "0" ]]; then
-    warn "数据库迁移非零退出码（$exit_code），检查是否已是最新"
-    docker logs --tail=30 sep-migrate 2>&1 | sed 's/^/  /'
-  else
-    success "数据库迁移完成"
-  fi
+  run_migrations
 
   info "重启 sep-backend（保留容器配置，不重新创建）..."
   docker stop sep-backend 2>/dev/null || true
@@ -292,10 +345,15 @@ cmd_deploy_backend() {
 # 全量部署：拉代码 → 构建所有镜像 → 迁移 → 启动
 cmd_deploy() {
   check_env
+  check_compose_scope
 
-  warn "⚠️  全量部署将重建并重启所有容器，确认继续? [y/N] "
-  read -r confirm
-  [[ "$confirm" =~ ^[Yy]$ ]] || { info "已取消"; exit 0; }
+  if [[ "${SEP_ASSUME_YES:-false}" == "true" ]]; then
+    info "已启用自动确认：仅部署 SEP 容器"
+  else
+    warn "⚠️  全量部署将重建并重启 SEP 容器，确认继续? [y/N] "
+    read -r confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { info "已取消"; exit 0; }
+  fi
 
   info "拉取最新代码..."
   git -C "$SCRIPT_DIR/../.." pull origin main
@@ -303,22 +361,7 @@ cmd_deploy() {
   info "构建所有镜像..."
   dc build --no-cache sep-backend sep-web
 
-  info "运行数据库迁移..."
-  dc up --no-deps sep-migrate
-  # 等迁移完成
-  for i in $(seq 1 12); do
-    status=$(docker inspect --format='{{.State.Status}}' sep-migrate 2>/dev/null || echo "missing")
-    [[ "$status" == "exited" ]] && break
-    sleep 5
-  done
-  local exit_code
-  exit_code=$(docker inspect --format='{{.State.ExitCode}}' sep-migrate 2>/dev/null || echo "1")
-  if [[ "$exit_code" != "0" ]]; then
-    error "数据库迁移失败（exit code $exit_code），终止部署"
-    docker logs --tail=30 sep-migrate 2>&1 | sed 's/^/  /'
-    exit 1
-  fi
-  success "数据库迁移完成"
+  run_migrations
 
   info "启动 sep-backend..."
   dc up --no-deps -d sep-backend
@@ -337,6 +380,13 @@ cmd_deploy() {
 cmd_restart() {
   local service="${1:-all}"
   check_env
+  case "$service" in
+    all|sep-backend|sep-web) ;;
+    *)
+      error "只允许重启 SEP 服务：sep-backend、sep-web 或 all"
+      return 1
+      ;;
+  esac
   if [[ "$service" == "all" ]]; then
     info "重启所有 SEP 服务..."
     docker restart sep-backend sep-web 2>/dev/null || true
