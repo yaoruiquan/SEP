@@ -19,7 +19,7 @@ import {
 export default function AdminSkillVersionDetailPage() {
   const { versionId = '' } = useParams<{ versionId: string }>();
   const router = useRouter();
-  const query = useSkillVersionPreview(versionId, true);
+  const query = useSkillVersionPreview(versionId, 'admin');
   const review = useReviewPlatformSkillVersion();
   const [reason, setReason] = useState('');
   const [tab, setTab] = useState('rendered');

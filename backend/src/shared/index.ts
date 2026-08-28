@@ -575,6 +575,53 @@ export const CapabilityUploadDtoSchema = z.object({
 
 export type CapabilityUploadDto = z.infer<typeof CapabilityUploadDtoSchema>;
 
+/** SKILL 包上传的 sha256（内容寻址 key，小写十六进制） */
+export const SkillPackageSha256Schema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/, 'sha256 格式非法');
+
+/**
+ * Skill 正文来源，二选一：
+ *   - `packageSha256`：先调 POST /contributions/skill-package 上传 zip，拿到 sha256。
+ *     正文由服务端按 sha256 重新解包提取 —— **不接受客户端回传正文**，否则可以
+ *     拿 A 包的哈希配 B 包的正文，绕过上传时的自动校验。
+ *   - `template`：在线编写的正文。
+ */
+export const ContributionSkillConfigDtoSchema = z
+  .object({
+    template: z.string().min(20).optional(),
+    packageSha256: SkillPackageSha256Schema.optional(),
+    /** 展示用的原始文件名。定位靠 sha256，这个字段错了也不影响正文来源。 */
+    packageFilename: z.string().max(120).optional(),
+    modelId: z.string().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().min(1).max(100000).optional(),
+  })
+  .refine(
+    (config) => Boolean(config.template) !== Boolean(config.packageSha256),
+    { message: '必须且只能提供 template 或 packageSha256 之一' },
+  );
+export type ContributionSkillConfigDto = z.infer<typeof ContributionSkillConfigDtoSchema>;
+
+/** 上传 SKILL 包的解析结果，前端据此预填能力信息并展示校验结论。 */
+export interface SkillPackageParseResult {
+  sha256: string;
+  filename: string;
+  fileCount: number;
+  totalBytes: number;
+  /** SKILL.md 剥掉 frontmatter 的正文 */
+  content: string;
+  /** SKILL.md frontmatter 里可用于预填的字段 */
+  suggested: { name: string | null; description: string | null };
+  /** 上传即校验，提交审核前就把问题暴露出来 */
+  validation: {
+    valid: boolean;
+    checks: Array<{ code: string; passed: boolean; message: string }>;
+    issues: Array<{ code: string; message: string; path?: string }>;
+    warnings: Array<{ code: string; message: string; path?: string }>;
+  };
+}
+
 // 能力贡献中心：所有注册用户都可创建，企业归属和两层审核由服务端决定。
 export const ContributionCapabilityCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),
@@ -584,12 +631,7 @@ export const ContributionCapabilityCreateDtoSchema = z.object({
   position: z.array(z.string()).default([]),
   inputSchema: z.record(z.any()).default({}),
   outputSchema: z.record(z.any()).default({}),
-  skillConfig: z.object({
-    template: z.string().min(20),
-    modelId: z.string().optional(),
-    temperature: z.number().min(0).max(2).optional(),
-    maxTokens: z.number().int().min(1).max(100000).optional(),
-  }).optional(),
+  skillConfig: ContributionSkillConfigDtoSchema.optional(),
   agentConfig: z.object({
     platform: z.enum(['coze', 'dify', 'n8n', 'opencode']),
     botId: z.string().optional(),
@@ -615,12 +657,31 @@ export const ContributionReviewDecisionSchema = z.object({
 });
 export type ContributionReviewDecision = z.infer<typeof ContributionReviewDecisionSchema>;
 
-export const ContributionVersionCreateDtoSchema = z.object({
-  parentVersionId: z.string().optional(),
-  content: z.string().min(20),
-  changeSummary: z.string().min(1).max(1000),
-});
+/**
+ * 发布新版本。正文来源与创建能力时同规则：上传包（只送 sha256）或在线编写，二选一。
+ * `changeSummary` 必填 —— 版本迭代没有变更说明，审核人无从判断改了什么。
+ */
+export const ContributionVersionCreateDtoSchema = z
+  .object({
+    /** 派生自哪个版本。不传则取该作用域内最新的版本，没有则取当前公开版本。 */
+    parentVersionId: z.string().optional(),
+    content: z.string().min(20).optional(),
+    packageSha256: SkillPackageSha256Schema.optional(),
+    packageFilename: z.string().max(120).optional(),
+    changeSummary: z.string().min(1).max(1000),
+  })
+  .refine(
+    (dto) => Boolean(dto.content) !== Boolean(dto.packageSha256),
+    { message: '必须且只能提供 content 或 packageSha256 之一' },
+  );
 export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
+
+/** 作者在贡献中心编辑草稿版本的正文（仅在线编写的版本可改）。 */
+export const ContributionVersionUpdateDtoSchema = z.object({
+  content: z.string().min(20),
+  changeSummary: z.string().min(1).max(1000).optional(),
+});
+export type ContributionVersionUpdateDto = z.infer<typeof ContributionVersionUpdateDtoSchema>;
 
 // Digital Employee
 export const DigitalEmployeeCreateDtoSchema = z.object({
