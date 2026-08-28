@@ -175,6 +175,14 @@ color_target() {
   echo "sep-$1-web"
 }
 
+# color_target 的逆运算：sep-green-web → green。
+# 状态文件里存的是完整目标名，直接 ${x#sep-} 会留下 "green-web"，
+# 拼出 green-web-backend 这种不存在的服务名。
+target_color() {
+  local target=${1#sep-}
+  echo "${target%-web}"
+}
+
 wait_service_healthy() {
   local container=$1
   local retries=${2:-36}
@@ -272,7 +280,7 @@ cmd_deploy_bluegreen() {
     stop_legacy
   elif [[ "$active" == sep-blue-web || "$active" == sep-green-web ]]; then
     sleep "${SEP_DRAIN_SECONDS:-15}"
-    stop_color "${active#sep-}" 2>/dev/null || true
+    stop_color "$previous" 2>/dev/null || true
   fi
   success "蓝绿发布完成：${target}"
   cmd_status
@@ -291,7 +299,7 @@ cmd_rollback_bluegreen() {
     docker start sep-backend sep-web >/dev/null
     wait_healthy sep-backend
   else
-    previous_color=${previous#sep-}
+    previous_color=$(target_color "$previous")
     dc_bg up -d "${previous_color}-backend" "${previous_color}-web"
     wait_service_healthy "sep-${previous_color}-backend"
     wait_service_healthy "sep-${previous_color}-web"
