@@ -128,6 +128,13 @@ export interface ContributionCapabilityDetail extends ContributionCapability {
     version: string;
     changeSummary: string | null;
     status: SkillVersionStatus;
+    /** 上传的 SKILL 包。在线编写的版本这四个字段全为 null。 */
+    packageKey: string | null;
+    packageSha256: string | null;
+    packageFileCount: number | null;
+    packageFilename: string | null;
+    rejectionReason: string | null;
+    submittedAt?: string | null;
     validationResult?: Record<string, unknown> | null;
     validatedAt?: string | null;
     createdById: string;

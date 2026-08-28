@@ -14,6 +14,7 @@ import {
 import matter from 'gray-matter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { nextSemver } from './skill-version-numbering';
 import type {
   CreateEnterpriseSkillVersionDto,
   CreatePlatformSkillVersionDto,
@@ -638,13 +639,7 @@ export class SkillVersionService {
       where: { capabilityId, scope, enterpriseId: scope === 'ENTERPRISE' ? enterpriseId : null },
       select: { version: true },
     });
-    const numeric = versions
-      .map(({ version }) => version.match(/^(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number))
-      .filter((parts): parts is number[] => Boolean(parts))
-      .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
-    if (numeric.length === 0) return '1.0.0';
-    const [major, minor, patch] = numeric[0];
-    return `${major}.${minor}.${patch + 1}`;
+    return nextSemver(versions.map((row) => row.version));
   }
 
   private stripFrontmatter(content: string) {
