@@ -10,7 +10,7 @@ import { SettingModule } from '../setting/setting.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
 import { UploadModule } from '../upload/upload.module';
-import { ComputeQuotaModule } from '../compute-quota/compute-quota.module';
+import { ComputeCreditModule } from '../compute-credit/compute-credit.module';
 import { AttachmentContextService } from './attachment-context.service';
 
 @Module({
@@ -21,7 +21,8 @@ import { AttachmentContextService } from './attachment-context.service';
     SettingModule,
     KnowledgeModule,
     EnterpriseModelConfigModule,
-    ComputeQuotaModule,
+    // 统一人民币算力账本：对话前余额闸门 + 对话后扣费
+    ComputeCreditModule,
     // 附件：归属校验（UploadService）+ 取回字节（StorageService）
     UploadModule,
   ],

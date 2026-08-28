@@ -16,9 +16,10 @@ import { SubscriptionService } from "../subscription/subscription.service";
 import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import { KnowledgeSearchService } from "../knowledge/knowledge-search.service";
 import { EnterpriseModelConfigService } from "../enterprise-model-config/enterprise-model-config.service";
-import { ComputeQuotaService } from "../compute-quota/compute-quota.service";
+import { ComputeCreditService } from "../compute-credit/compute-credit.service";
 import {
   calculateCost,
+  parseFallbackPriceConfig,
   parseUsdToCnyRate,
   SETTING_KEYS,
   type MessageAttachment,
@@ -51,7 +52,7 @@ export class ConversationStreamService {
     private readonly modelConfig: EnterpriseModelConfigService,
     private readonly uploadService: UploadService,
     private readonly attachmentContext: AttachmentContextService,
-    private readonly quotaService: ComputeQuotaService,
+    private readonly computeCredit: ComputeCreditService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -416,17 +417,24 @@ export class ConversationStreamService {
             `[Billing Check] usage=${JSON.stringify(usage)}, input=${inputTokens}, output=${outputTokens}`,
           );
 
-          // 计算消息成本（用于账单明细和成本分析）
-          const rate = parseUsdToCnyRate(
-            await this.settingService.getEffectiveValue(
-              SETTING_KEYS.USD_TO_CNY_RATE,
+          // 计算消息成本（用于账单明细和成本分析）。
+          // 保底价与汇率都取系统设置的生效值，和 chargeUsage 用的是同一套配置，
+          // 否则消息上显示的成本和实际扣款金额会不一致。
+          const [rawRate, rawFallbackIn, rawFallbackOut] = await Promise.all([
+            this.settingService.getEffectiveValue(SETTING_KEYS.USD_TO_CNY_RATE),
+            this.settingService.getEffectiveValue(
+              SETTING_KEYS.FALLBACK_PRICE_INPUT,
             ),
-          );
+            this.settingService.getEffectiveValue(
+              SETTING_KEYS.FALLBACK_PRICE_OUTPUT,
+            ),
+          ]);
           const { costCNY } = calculateCost(
             modelId,
             inputTokens,
             outputTokens,
-            rate,
+            parseUsdToCnyRate(rawRate),
+            parseFallbackPriceConfig(rawFallbackIn, rawFallbackOut),
           );
 
           const saved = await this.prisma.message.create({
@@ -451,14 +459,17 @@ export class ConversationStreamService {
             this.logger.log(
               `[Billing] Recording usage for session ${sessionId}: input=${inputTokens}, output=${outputTokens}`,
             );
-            await this.recordUsage(
-              session.userId,
+            await this.recordUsage({
+              enterpriseId: enterpriseCtx.enterpriseId,
+              userId: session.userId,
               sessionId,
+              messageId: saved.id,
               modelId,
               inputTokens,
               outputTokens,
+              employeeId: employee.id,
               subscriptionId,
-            );
+            });
           } else {
             this.logger.error(
               `[Billing] Cannot record usage - both input and output tokens are 0 for session ${sessionId}`,
@@ -809,67 +820,61 @@ export class ConversationStreamService {
   }
 
   /**
-   * 记录 token 使用量并创建计费交易
+   * 记录用量并按统一人民币口径扣费。
+   *
+   * 扣费顺序：该订阅的赠送人民币余额 → 企业钱包。Token 只作为账单明细，
+   * 不再从任何 Token 配额扣减 —— 同一次对话不会既扣配额又扣钱。
+   *
+   * `messageId` 是幂等锚点：流式对话会因网络重试重复走到这里，
+   * 没有它就会对同一条回复重复扣费。
    */
-  private async recordUsage(
-    userId: string,
-    sessionId: string,
-    modelId: string,
-    inputTokens: number,
-    outputTokens: number,
-    subscriptionId?: string,
-  ): Promise<void> {
+  private async recordUsage(params: {
+    enterpriseId: string;
+    userId: string;
+    sessionId: string;
+    messageId: string;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
+    employeeId: string;
+    subscriptionId?: string;
+  }): Promise<void> {
+    const { enterpriseId, userId, sessionId, messageId, modelId } = params;
     try {
-      // 汇率取系统设置的生效值（管理端可改），非法值回退默认
-      const rate = parseUsdToCnyRate(
-        await this.settingService.getEffectiveValue(
-          SETTING_KEYS.USD_TO_CNY_RATE,
-        ),
-      );
-
-      // 计算成本（isFallback=true 表示该模型未配价，按保底价收费）
-      const { costUSD, costCNY, isFallback } = calculateCost(
+      const result = await this.computeCredit.chargeUsage({
+        enterpriseId,
+        subscriptionId: params.subscriptionId ?? null,
+        employeeId: params.employeeId,
+        userId,
+        sessionId,
+        messageId,
         modelId,
-        inputTokens,
-        outputTokens,
-        rate,
-      );
-
-      // 获取或创建【企业】计费账户（套餐含算力额度，按企业结算）
-      const ctx = await this.enterpriseContext.resolve(userId);
-      const account = await this.prisma.computeAccount.upsert({
-        where: { enterpriseId: ctx.enterpriseId },
-        create: { enterpriseId: ctx.enterpriseId, balance: 0 },
-        update: {},
+        inputTokens: params.inputTokens,
+        outputTokens: params.outputTokens,
       });
 
-      // 对话后按当前订阅赠送额度、再按当前用户已分配额度扣减。
-      const totalTokens = inputTokens + outputTokens;
-      const quotaResults = await this.quotaService.consumeQuota(
-        userId,
-        totalTokens,
-        sessionId,
-        subscriptionId,
-      );
-
-      // 配额消费已在 consumeQuota 内部创建交易记录，这里无需重复创建。
-      // 只记录本次消费使用了哪些配额层级
-      if (quotaResults.length > 0) {
-        this.logger.log(
-          `[Quota Consumed] Session ${sessionId} consumed ${totalTokens} tokens across ${quotaResults.length} tier(s): ${quotaResults.map(r => r.tier).join(' → ')}`,
+      if (result.alreadyCharged) {
+        this.logger.warn(
+          `[Billing] Message ${messageId} already charged, skipped duplicate deduction`,
         );
+        return;
       }
 
-      // 更新账户余额（保留兼容，实际余额已统一到 EnterpriseWallet）
-      await this.prisma.computeAccount.update({
-        where: { id: account.id },
-        data: { balance: { decrement: costCNY } },
-      });
-
       this.logger.log(
-        `Recorded usage for user ${userId}: ${inputTokens}/${outputTokens} tokens, cost ¥${costCNY.toFixed(4)}${isFallback ? " [FALLBACK PRICING]" : ""}`,
+        `[Billing] session=${sessionId} tokens=${params.inputTokens}/${params.outputTokens} ` +
+          `cost=¥${result.costCNY.toFixed(6)} ` +
+          `(赠送 ¥${result.creditPaidCNY.toFixed(6)} + 钱包 ¥${result.walletPaidCNY.toFixed(6)})` +
+          `${result.fallbackPricing ? " [FALLBACK PRICING]" : ""}`,
       );
-      if (isFallback) {
+
+      if (result.unpaidCNY.greaterThan(0)) {
+        // 余额永不为负是硬约束，所以欠费如实记账而不是让扣款失败。
+        // 下一次对话前的余额检查会拦下后续调用。
+        this.logger.warn(
+          `[Billing] 企业 ${enterpriseId} 余额不足，本次欠费 ¥${result.unpaidCNY.toFixed(6)}`,
+        );
+      }
+      if (result.fallbackPricing) {
         this.logger.warn(
           `Model ${modelId} has no configured pricing — charged at fallback rate. Add it to MODEL_PRICING.`,
         );

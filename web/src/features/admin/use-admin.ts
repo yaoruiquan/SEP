@@ -277,6 +277,22 @@ export function useSettings() {
   });
 }
 
+/**
+ * 系统默认「订阅赠送算力（元）」。
+ *
+ * 员工表单用它做占位提示：运营留空赠送金额时，实际生效的就是这个值。
+ * 不展示的话运营无从判断「留空」意味着赠送多少钱。
+ */
+export function useDefaultEmployeeGiftCNY() {
+  const { data: settings, ...rest } = useSettings();
+  const raw = settings?.find((s) => s.key === 'DEFAULT_EMPLOYEE_GIFT_CNY')?.value;
+  const parsed = Number(raw);
+  return {
+    ...rest,
+    data: Number.isFinite(parsed) && parsed >= 0 ? parsed : 0,
+  };
+}
+
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({

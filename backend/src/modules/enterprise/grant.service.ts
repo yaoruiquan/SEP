@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
 import { PackageService } from "../digital-employee/package.service";
@@ -297,7 +298,50 @@ export class GrantService {
       r.packageAvailable = withPackage.has(r.employee.id);
     }
 
+    // 附上每个员工的剩余赠送算力余额。使用者最关心「这个员工还能用多少钱」，
+    // 让他们为此再跳一次算力中心是没必要的。
+    await this.attachGiftBalances(rows);
+
     return rows;
+  }
+
+  /**
+   * 批量补上赠送余额。一次查询覆盖所有订阅，避免按行 N+1。
+   *
+   * 只有 ACTIVE 的额度算作剩余：EXPIRED（订阅已终止）的余额花不掉，
+   * 显示成剩余会让使用者以为还有钱。
+   */
+  private async attachGiftBalances(rows: MyEmployeeView[]): Promise<void> {
+    if (rows.length === 0) return;
+
+    const credits = await this.prisma.subscriptionCredit.findMany({
+      where: { subscriptionId: { in: rows.map((r) => r.subscriptionId) } },
+      select: {
+        subscriptionId: true,
+        grantedCNY: true,
+        usedCNY: true,
+        status: true,
+      },
+    });
+    const bySubscription = new Map(credits.map((c) => [c.subscriptionId, c]));
+
+    for (const row of rows) {
+      const credit = bySubscription.get(row.subscriptionId);
+      if (!credit) {
+        row.giftGrantedCNY = '0.00';
+        row.giftUsedCNY = '0.00';
+        row.giftRemainingCNY = '0.00';
+        row.giftStatus = 'NONE';
+        continue;
+      }
+      row.giftGrantedCNY = credit.grantedCNY.toFixed(2);
+      row.giftUsedCNY = credit.usedCNY.toFixed(2);
+      row.giftRemainingCNY =
+        credit.status === 'ACTIVE'
+          ? Decimal.max(0, credit.grantedCNY.sub(credit.usedCNY)).toFixed(2)
+          : '0.00';
+      row.giftStatus = credit.status as MyEmployeeView['giftStatus'];
+    }
   }
 
   // ── 内部校验 ──────────────────────────────────────────────────────────────

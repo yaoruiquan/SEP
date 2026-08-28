@@ -180,9 +180,17 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-fg-muted">赠送算力</label>
+                  <label className="text-sm font-medium text-fg-muted">
+                    订阅赠送算力
+                  </label>
                   <p className="mt-1 text-sm">
-                    ¥{Number(employee.includedComputeCNY || 0).toLocaleString()}
+                    {employee.includedComputeCNY === null ? (
+                      <span className="text-fg-muted">
+                        未配置，订阅时取系统默认值
+                      </span>
+                    ) : (
+                      `¥${Number(employee.includedComputeCNY).toLocaleString()}`
+                    )}
                   </p>
                 </div>
               </div>

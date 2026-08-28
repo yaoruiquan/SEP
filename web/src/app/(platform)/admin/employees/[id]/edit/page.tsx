@@ -20,8 +20,10 @@ import {
   useAvailableCapabilities,
   useEmployeeBindings,
   useBindCapabilities,
+  useDefaultEmployeeGiftCNY,
 } from '@/features/admin/use-admin';
 import { useEnabledModels } from '@/features/admin/use-models';
+import { formatGiftInput, parseGiftInput } from '@/features/admin/employee-gift';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -44,8 +46,12 @@ export default function EditEmployeePage() {
     systemPrompt: '',
     modelId: 'gpt-4o',
     annualPriceCNY: 0,
-    includedComputeCNY: 0,
   });
+
+  // 赠送算力单独用字符串状态：空串表示「不填 → 用系统默认值」，
+  // 而 '0' 表示「明确不赠送」。用 number 状态无法区分这两种意图。
+  const [includedComputeInput, setIncludedComputeInput] = useState('');
+  const { data: defaultGift } = useDefaultEmployeeGiftCNY();
 
   const { data: capabilities, isLoading: capabilitiesLoading } =
     useAvailableCapabilities();
@@ -104,8 +110,13 @@ export default function EditEmployeePage() {
         systemPrompt: data.systemPrompt,
         modelId: data.modelId,
         annualPriceCNY: data.annualPriceCNY ? Number(data.annualPriceCNY) : 0,
-        includedComputeCNY: data.includedComputeCNY ? Number(data.includedComputeCNY) : 0,
       });
+      // null 要还原成空串，不能落成 '0' —— 那会把「未配置」改写成「不赠送」
+      setIncludedComputeInput(
+        formatGiftInput(
+          data.includedComputeCNY === null ? null : Number(data.includedComputeCNY),
+        ),
+      );
     } catch (error: any) {
       toast.error(error.message || '加载员工信息失败');
       router.push('/admin/employees');
@@ -125,9 +136,18 @@ export default function EditEmployeePage() {
       return;
     }
 
+    const gift = parseGiftInput(includedComputeInput);
+    if (gift === 'invalid') {
+      toast.error('订阅赠送算力需为非负数，最多两位小数');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      await adminApi.updateEmployee(employeeId, formData);
+      await adminApi.updateEmployee(employeeId, {
+        ...formData,
+        includedComputeCNY: gift,
+      });
       await bindCapabilitiesMutation.mutateAsync({
         employeeId,
         capabilityIds: selectedCapabilities,
@@ -307,20 +327,19 @@ export default function EditEmployeePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="includedComputeCNY">赠送算力（元）*</Label>
+              <Label htmlFor="includedComputeCNY">订阅赠送算力（元）</Label>
               <Input
                 id="includedComputeCNY"
                 type="number"
                 min={0}
                 step={0.01}
-                value={formData.includedComputeCNY}
-                onChange={(e) =>
-                  setFormData({ ...formData, includedComputeCNY: parseFloat(e.target.value) || 0 })
-                }
-                placeholder="1000"
+                value={includedComputeInput}
+                onChange={(e) => setIncludedComputeInput(e.target.value)}
+                placeholder={`留空使用系统默认值 ¥${defaultGift.toFixed(2)}`}
               />
               <p className="text-xs text-muted-foreground">
-                订阅后赠送的初始算力额度
+                企业订阅该员工后获得的一笔人民币算力余额，赠送余额用完后扣企业钱包。
+                留空 = 用系统默认值；填 0 = 明确不赠送。改动只影响新订阅，不追溯已有订阅。
               </p>
             </div>
           </div>

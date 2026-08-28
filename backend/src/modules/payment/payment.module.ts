@@ -8,11 +8,13 @@ import { PrismaModule } from "../../prisma/prisma.module";
 import { EnterpriseModule } from "../enterprise/enterprise.module";
 import { ComputeModule } from "../compute/compute.module";
 import { WalletModule } from "../wallet/wallet.module";
+import { SubscriptionFulfillmentModule } from "../subscription-fulfillment/subscription-fulfillment.module";
 
 @Module({
   imports: [
     PrismaModule,
     EnterpriseModule,
+    SubscriptionFulfillmentModule,
     forwardRef(() => ComputeModule),
     forwardRef(() => WalletModule),
   ],

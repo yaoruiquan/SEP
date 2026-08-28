@@ -12,10 +12,14 @@ import {
   CartItemResponse,
 } from './dto/cart.dto';
 import { Decimal } from '@prisma/client/runtime/library';
+import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fulfillment: SubscriptionFulfillmentService,
+  ) {}
 
   /**
    * 列出本企业购物车（含小计/总计）
@@ -37,33 +41,31 @@ export class CartService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const items: CartItemResponse[] = cartItems.map((item) => {
-      const unitPrice = item.employee.annualPriceCNY
-        ? parseFloat(item.employee.annualPriceCNY.toString())
-        : 0;
-      const includedComputePerUnit = item.employee.includedComputeCNY
-        ? parseFloat(item.employee.includedComputeCNY.toString())
-        : 0;
+    // 赠送算力走与下单/履约同一个解析器（员工级配置 > 系统默认值）。
+    // 若这里直接读 includedComputeCNY，未配置的员工会显示 ¥0 而实际赠送了默认值。
+    const items: CartItemResponse[] = await Promise.all(
+      cartItems.map(async (item) => {
+        const unitPrice = item.employee.annualPriceCNY
+          ? parseFloat(item.employee.annualPriceCNY.toString())
+          : 0;
 
-      // 小计 = 单价 × (周期月数 / 12)
-      const subtotal =
-        unitPrice * (item.periodMonths / 12);
-      // 赠送算力 = 单份算力
-      const includedComputeCNY = includedComputePerUnit;
-
-      return {
-        id: item.id,
-        employeeId: item.employee.id,
-        employeeName: item.employee.name,
-        employeeAvatar: item.employee.avatar,
-        unitPrice,
-        periodMonths: item.periodMonths,
-        quantity: 1,
-        subtotal,
-        includedComputeCNY,
-        addedAt: item.createdAt,
-      };
-    });
+        return {
+          id: item.id,
+          employeeId: item.employee.id,
+          employeeName: item.employee.name,
+          employeeAvatar: item.employee.avatar,
+          unitPrice,
+          periodMonths: item.periodMonths,
+          quantity: 1,
+          // 小计 = 单价 × (周期月数 / 12)
+          subtotal: unitPrice * (item.periodMonths / 12),
+          includedComputeCNY: await this.fulfillment.resolveGiftCNY(
+            item.employee.includedComputeCNY,
+          ),
+          addedAt: item.createdAt,
+        };
+      }),
+    );
 
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
     const totalIncludedCompute = items.reduce(

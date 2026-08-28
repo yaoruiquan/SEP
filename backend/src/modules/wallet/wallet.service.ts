@@ -458,6 +458,85 @@ export class WalletService {
   }
 
   /**
+   * 算力消费扣款：「有多少扣多少」，不足的差额如实返回给调用方。
+   *
+   * 与 consume() 的区别是刻意的 —— consume() 面向订阅付费这类「付不起就不该成交」
+   * 的场景，余额不足直接抛错；本方法面向**已经发生**的模型调用：对话已经产生了
+   * 真实成本，抛错会连事实一起回滚。所以这里扣到 0 为止，把差额交给
+   * ComputeUsageRecord.unpaidCNY 记账，由对话前的余额检查负责拦下后续调用。
+   *
+   * 必须在调用方事务内执行：赠送余额扣减与钱包扣减要么同时成立，要么同时失败。
+   */
+  async consumeComputeUpTo(
+    client: Prisma.TransactionClient,
+    enterpriseId: string,
+    amount: Decimal,
+    meta: { relatedId?: string | null; description: string },
+  ): Promise<{
+    transactionId: string | null;
+    paid: Decimal;
+    unpaid: Decimal;
+  }> {
+    if (amount.lessThanOrEqualTo(0)) {
+      return { transactionId: null, paid: new Decimal(0), unpaid: new Decimal(0) };
+    }
+
+    const wallet = await client.enterpriseWallet.findUnique({
+      where: { enterpriseId },
+    });
+    if (!wallet) {
+      throw new NotFoundException(`企业钱包不存在: ${enterpriseId}`);
+    }
+
+    const balanceBefore = wallet.balance;
+    const paid = Decimal.min(balanceBefore, amount);
+    const unpaid = amount.sub(paid);
+
+    if (paid.lessThanOrEqualTo(0)) {
+      return { transactionId: null, paid: new Decimal(0), unpaid: amount };
+    }
+
+    const balanceAfter = balanceBefore.sub(paid);
+
+    const updated = await client.enterpriseWallet.updateMany({
+      where: { enterpriseId, version: wallet.version },
+      data: {
+        balance: balanceAfter,
+        totalConsume: { increment: paid },
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) {
+      // 让调用方重试整笔扣费；幂等键保证重试不会重复入账
+      throw new ConflictException("余额更新冲突，请重试");
+    }
+
+    const transaction = await client.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: WalletTransactionType.CONSUME,
+        amount: paid.neg(),
+        balanceBefore,
+        balanceAfter,
+        relatedType: "compute",
+        relatedId: meta.relatedId ?? null,
+        description: meta.description,
+      },
+    });
+
+    return { transactionId: transaction.id, paid, unpaid };
+  }
+
+  /**
+   * 确保企业钱包存在（不存在则创建）。
+   * 公开是因为扣费链路必须在进入事务前保证钱包存在 ——
+   * 事务内再建钱包会和乐观锁的版本比对纠缠在一起。
+   */
+  async ensureWalletExists(enterpriseId: string) {
+    return this.ensureWallet(enterpriseId);
+  }
+
+  /**
    * 确保企业钱包存在（不存在则创建）
    */
   private async ensureWallet(enterpriseId: string) {

@@ -381,7 +381,32 @@ export default function SubscriptionsPage() {
                         : '长期有效'}
                     </span>
                   </div>
+                  {/* 赠送算力是人民币余额，不是 token 配额。用完后自动扣企业钱包，
+                      所以「剩余 ¥0.00」不代表这个员工不能用了 —— 提示里要说清。 */}
+                  <div className="flex justify-between">
+                    <span className="text-fg-muted">赠送算力</span>
+                    <span
+                      className="text-foreground"
+                      title="订阅时获得的人民币算力余额。用完后继续对话将从企业钱包余额扣除。"
+                    >
+                      {sub.giftStatus === 'NONE' ? (
+                        <span className="text-fg-muted">无</span>
+                      ) : (
+                        <>
+                          剩余 ¥{Number(sub.giftRemainingCNY ?? 0).toFixed(2)}
+                          <span className="ml-1 text-fg-muted">
+                            / 共 ¥{Number(sub.giftGrantedCNY ?? 0).toFixed(2)}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </div>
                 </div>
+                {sub.giftStatus === 'EXHAUSTED' && (
+                  <p className="mt-2 text-xs text-fg-muted">
+                    赠送算力已用完，继续对话将从企业钱包余额扣除。
+                  </p>
+                )}
 
                 {isAdmin && !dismissed && (
                   <>

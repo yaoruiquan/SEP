@@ -3,19 +3,11 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { useRouter } from 'next/navigation';
 import {
   useComputeStats,
   useComputeTransactions,
-  useRecharge,
   type ComputeTransaction,
   type TransactionListParams,
 } from '@/features/compute/use-compute';
@@ -35,9 +27,18 @@ import { zhCN } from 'date-fns/locale';
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmtAmount(n: number | string) {
+/**
+ * 人民币金额格式化。
+ *
+ * 后端返回的就是「元」—— 不要再除以 100。这里曾按「微单位」处理并把余额
+ * 缩小 100 倍展示，统一人民币口径后该假设不成立。
+ * 单条对话成本常低于 1 分，所以小额保留 4 位小数，否则明细全是 ¥0.00。
+ */
+function fmtCny(n: number | string) {
   const num = typeof n === 'string' ? Number(n) : n;
-  return (num / 100).toFixed(4); // stored as micro-units, display as 算力
+  if (!Number.isFinite(num)) return '¥0.00';
+  const abs = Math.abs(num);
+  return `¥${abs > 0 && abs < 0.01 ? num.toFixed(4) : num.toFixed(2)}`;
 }
 
 function txBadge(type: ComputeTransaction['type']) {
@@ -62,7 +63,7 @@ function txSign(type: ComputeTransaction['type'], amount: number) {
   return (
     <span className={`font-mono font-semibold ${cls}`}>
       {sign}
-      {fmtAmount(amount)}
+      {fmtCny(Math.abs(amount))}
     </span>
   );
 }
@@ -77,10 +78,7 @@ export default function BillingPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 15;
 
-  // Recharge dialog
-  const [rechargeOpen, setRechargeOpen] = useState(false);
-  const [rechargeAmount, setRechargeAmount] = useState('');
-  const [rechargeNote, setRechargeNote] = useState('');
+  const router = useRouter();
 
   const { data: stats, isLoading: statsLoading } = useComputeStats();
   const {
@@ -92,24 +90,8 @@ export default function BillingPage() {
     page,
     pageSize: PAGE_SIZE,
   });
-  const recharge = useRecharge();
 
   const totalPages = txData ? Math.ceil(txData.total / PAGE_SIZE) : 1;
-
-  function handleRecharge() {
-    const amount = Math.round(parseFloat(rechargeAmount) * 100);
-    if (!amount || amount <= 0) return;
-    recharge.mutate(
-      { amount, description: rechargeNote || undefined },
-      {
-        onSuccess: () => {
-          setRechargeOpen(false);
-          setRechargeAmount('');
-          setRechargeNote('');
-        },
-      },
-    );
-  }
 
   return (
     <div className="space-y-8">
@@ -118,9 +100,11 @@ export default function BillingPage() {
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wallet className="h-5 w-5 text-primary" />
-            <h2 className="text-base font-semibold">算力余额</h2>
+            <h2 className="text-base font-semibold">企业钱包余额</h2>
           </div>
-          <Button size="sm" onClick={() => setRechargeOpen(true)}>
+          {/* 充值走真实支付流程；页面内的「模拟充值」对话框已移除 —— 它改的是
+              一个不再作为余额读取的旧字段，点了看似成功实则分文未入账 */}
+          <Button size="sm" onClick={() => router.push('/payment/recharge')}>
             <PlusCircle className="mr-1.5 h-4 w-4" />
             充值
           </Button>
@@ -137,9 +121,11 @@ export default function BillingPage() {
             <div className="rounded-xl border border-border bg-card p-5 space-y-1">
               <p className="text-xs text-fg-muted uppercase tracking-wide">当前余额</p>
               <p className="text-3xl font-bold tabular-nums text-foreground">
-                {stats ? fmtAmount(stats.balance) : '—'}
+                {stats ? fmtCny(stats.balance) : '—'}
               </p>
-              <p className="text-xs text-fg-muted">算力单位</p>
+              <p className="text-xs text-fg-muted">
+                赠送算力余额不含在此，见「算力余额」页
+              </p>
             </div>
 
             {/* Today */}
@@ -149,7 +135,7 @@ export default function BillingPage() {
                 今日消耗
               </p>
               <p className="text-2xl font-semibold tabular-nums text-red-400">
-                {stats ? fmtAmount(stats.todayConsume) : '—'}
+                {stats ? fmtCny(stats.todayConsume) : '—'}
               </p>
             </div>
 
@@ -160,7 +146,7 @@ export default function BillingPage() {
                 本月消耗
               </p>
               <p className="text-2xl font-semibold tabular-nums text-orange-400">
-                {stats ? fmtAmount(stats.monthConsume) : '—'}
+                {stats ? fmtCny(stats.monthConsume) : '—'}
               </p>
             </div>
           </div>
@@ -201,7 +187,7 @@ export default function BillingPage() {
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">时间</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">类型</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">说明</th>
-                <th className="px-4 py-3 text-right font-medium text-fg-muted">算力</th>
+                <th className="px-4 py-3 text-right font-medium text-fg-muted">金额</th>
               </tr>
             </thead>
             <tbody>
@@ -271,56 +257,6 @@ export default function BillingPage() {
         </div>
       </section>
 
-      {/* ── Recharge dialog ──────────────────────────────────────────────── */}
-      <Dialog open={rechargeOpen} onOpenChange={setRechargeOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>充值算力</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="recharge-amount">充值数量（算力单位）</Label>
-              <Input
-                id="recharge-amount"
-                type="number"
-                min="0.0001"
-                step="0.1"
-                placeholder="例如 100"
-                value={rechargeAmount}
-                onChange={(e) => setRechargeAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="recharge-note">
-                备注
-                <span className="ml-1 text-xs text-fg-muted">（可选）</span>
-              </Label>
-              <Input
-                id="recharge-note"
-                placeholder="如：Q3 预充值"
-                value={rechargeNote}
-                onChange={(e) => setRechargeNote(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRechargeOpen(false)}>
-              取消
-            </Button>
-            <Button
-              onClick={handleRecharge}
-              disabled={!rechargeAmount || recharge.isPending}
-            >
-              {recharge.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              确认充值
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

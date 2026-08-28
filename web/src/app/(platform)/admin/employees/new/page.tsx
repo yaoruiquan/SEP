@@ -16,8 +16,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { adminApi } from '@/features/admin/admin-api';
-import { useAvailableCapabilities, useBindCapabilities } from '@/features/admin/use-admin';
+import {
+  useAvailableCapabilities,
+  useBindCapabilities,
+  useDefaultEmployeeGiftCNY,
+} from '@/features/admin/use-admin';
 import { useEnabledModels } from '@/features/admin/use-models';
+import { parseGiftInput } from '@/features/admin/employee-gift';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -35,8 +40,12 @@ export default function NewEmployeePage() {
     systemPrompt: '你是一位专业的硅基员工，随时准备协助用户完成各项任务。',
     modelId: 'gpt-4o',
     annualPriceCNY: 0,
-    includedComputeCNY: 0,
   });
+
+  // 赠送算力单独用字符串状态：空串表示「不填 → 用系统默认值」，
+  // 而 '0' 表示「明确不赠送」。用 number 状态无法区分这两种意图。
+  const [includedComputeInput, setIncludedComputeInput] = useState('');
+  const { data: defaultGift } = useDefaultEmployeeGiftCNY();
 
   const { data: capabilitiesData, isLoading: capabilitiesLoading } = useAvailableCapabilities();
 
@@ -82,9 +91,18 @@ export default function NewEmployeePage() {
       return;
     }
 
+    const gift = parseGiftInput(includedComputeInput);
+    if (gift === 'invalid') {
+      toast.error('订阅赠送算力需为非负数，最多两位小数');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      const employee = await adminApi.createEmployee(formData);
+      const employee = await adminApi.createEmployee({
+        ...formData,
+        includedComputeCNY: gift,
+      });
 
       // Bind capabilities
       await bindCapabilitiesMutation.mutateAsync({
@@ -263,20 +281,19 @@ export default function NewEmployeePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="includedComputeCNY">赠送算力（元）*</Label>
+              <Label htmlFor="includedComputeCNY">订阅赠送算力（元）</Label>
               <Input
                 id="includedComputeCNY"
                 type="number"
                 min={0}
                 step={0.01}
-                value={formData.includedComputeCNY}
-                onChange={(e) =>
-                  setFormData({ ...formData, includedComputeCNY: parseFloat(e.target.value) || 0 })
-                }
-                placeholder="1000"
+                value={includedComputeInput}
+                onChange={(e) => setIncludedComputeInput(e.target.value)}
+                placeholder={`留空使用系统默认值 ¥${defaultGift.toFixed(2)}`}
               />
               <p className="text-xs text-muted-foreground">
-                订阅后赠送的初始算力额度
+                企业订阅该员工后获得的一笔人民币算力余额，赠送余额用完后扣企业钱包。
+                留空 = 用系统默认值；填 0 = 明确不赠送。
               </p>
             </div>
           </div>

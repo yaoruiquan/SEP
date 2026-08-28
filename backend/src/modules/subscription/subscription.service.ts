@@ -5,6 +5,8 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   SubscriptionCreateDto,
@@ -13,7 +15,8 @@ import {
 } from 'shared';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { WalletService } from '../wallet/wallet.service';
-import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
+import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
+import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 
 /** 允许的状态流转。EXPIRED 是终态。 */
 const ALLOWED_TRANSITIONS: Record<
@@ -33,7 +36,8 @@ export class SubscriptionService {
     private prisma: PrismaService,
     private enterpriseContext: EnterpriseContextService,
     private walletService: WalletService,
-    private computeQuotaService: ComputeQuotaService,
+    private fulfillment: SubscriptionFulfillmentService,
+    private credits: ComputeCreditService,
   ) {}
 
   /**
@@ -75,107 +79,62 @@ export class SubscriptionService {
       },
     });
 
-    const amount = employee.annualPriceCNY.toNumber();
-
-    let subscription;
-    if (existing) {
-      if (existing.status === 'ACTIVE') {
-        throw new ConflictException('Already subscribed to this employee');
-      }
-
-      // 从钱包扣款（复活订阅也要重新付费）
-      const transaction = await this.walletService.consume(
-        ctx.enterpriseId,
-        amount,
-        'subscription',
-        existing.id,
-        `重新订阅【${employee.name}】`,
-      );
-
-      // 复活暂停 / 已终止的雇佣关系。
-      // 刻意不刷新 templateVersion：停用期间模板可能已发新版，保留旧版本
-      // 会让列表立刻给出升级提示，企业能知道「离开这段时间员工变了」。
-      // 若在此改成当前版本，这次变更就被静默吞掉了。
-      subscription = await this.prisma.subscription.update({
-        where: { id: existing.id },
-        data: {
-          status: 'ACTIVE',
-          startDate: new Date(),
-          endDate: null,
-          config: dto.config ?? undefined,
-          walletTransactionId: transaction.id,
-        },
-        include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
-      });
-
-      // 复活订阅时，检查是否已有授权记录，没有则创建
-      const existingGrant = await this.prisma.employeeGrant.findFirst({
-        where: {
-          subscriptionId: existing.id,
-          memberId: ctx.memberId,
-        },
-      });
-      if (!existingGrant) {
-        const expiresAt = subscription.endDate || null;
-        await this.prisma.employeeGrant.create({
-          data: {
-            subscriptionId: subscription.id,
-            memberId: ctx.memberId,
-            expiresAt,
-          },
-        });
-      }
-    } else {
-      // 先从钱包扣款，再创建订阅记录（订阅 ID 还不存在，先用 null，后面再关联）
-      // 为了获得订阅 ID，先创建订阅，再扣款，再更新订阅关联交易 ID
-      const tempSubscription = await this.prisma.subscription.create({
-        data: {
-          enterpriseId: ctx.enterpriseId,
-          employeeId: dto.employeeId,
-          status: 'ACTIVE',
-          templateVersion: employee.version,
-          name: employee.name,
-          config: dto.config,
-        },
-      });
-
-      // 扣款
-      const transaction = await this.walletService.consume(
-        ctx.enterpriseId,
-        amount,
-        'subscription',
-        tempSubscription.id,
-        `订阅【${employee.name}】`,
-      );
-
-      // 关联交易记录
-      subscription = await this.prisma.subscription.update({
-        where: { id: tempSubscription.id },
-        data: { walletTransactionId: transaction.id },
-        include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
-      });
-
-      // 为订阅者（管理员）自动创建授权，无需手动分配
-      const expiresAt = subscription.endDate || null;
-      await this.prisma.employeeGrant.create({
-        data: {
-          subscriptionId: subscription.id,
-          memberId: ctx.memberId,
-          expiresAt,
-        },
-      });
-
-      // 自动创建订阅配额（硅基员工自带配额，priority=1）
-      // TODO: 从产品定价配置中获取 token 量，这里暂时硬编码为 100,000
-      const subscriptionTokens = 100_000;
-      await this.computeQuotaService.createSubscriptionQuota(
-        subscription.id,
-        ctx.enterpriseId,
-        subscriptionTokens,
-      );
+    if (existing?.status === 'ACTIVE') {
+      throw new ConflictException('Already subscribed to this employee');
     }
 
-    return subscription;
+    const amount = employee.annualPriceCNY.toNumber();
+    const isRenewal = !!existing;
+
+    // 赠送金额在事务外解析：它要读系统设置，塞进事务只会白白拉长持锁时间。
+    // 「员工级配置 > 系统默认值」的判定在 resolveGrantAmountCNY 里。
+    const grantedCNY = await this.credits.resolveGrantAmountCNY(
+      employee.includedComputeCNY,
+    );
+
+    // 履约与扣款必须同一个事务：订阅建成但扣款失败 = 白送一年，
+    // 扣款成功但订阅没建 = 企业付了钱拿不到员工。
+    const subscriptionId = await this.prisma.$transaction(async (tx) => {
+      const result = await this.fulfillment.fulfill(tx, {
+        enterpriseId: ctx.enterpriseId,
+        employeeId: dto.employeeId,
+        purchaserMemberId: ctx.memberId,
+        displayName: isRenewal ? undefined : employee.name,
+        endDate: null,
+        sourceType: 'subscription',
+        grantedCNY,
+        config: dto.config as Prisma.InputJsonValue | undefined,
+      });
+
+      // 复活订阅也要重新付费
+      const transaction = await this.walletService.consume(
+        ctx.enterpriseId,
+        amount,
+        'subscription',
+        result.subscriptionId,
+        `${isRenewal ? '重新订阅' : '订阅'}【${employee.name}】`,
+        tx,
+      );
+
+      await tx.subscription.update({
+        where: { id: result.subscriptionId },
+        data: { walletTransactionId: transaction.id },
+      });
+
+      return result.subscriptionId;
+    });
+
+    return this.prisma.subscription.findUniqueOrThrow({
+      where: { id: subscriptionId },
+      include: {
+        employee: {
+          select: { id: true, name: true, avatar: true, position: true },
+        },
+        credit: {
+          select: { grantedCNY: true, usedCNY: true, status: true },
+        },
+      },
+    });
   }
 
   /**
@@ -199,6 +158,9 @@ export class SubscriptionService {
             industry: true, position: true, functionalCategory: true, status: true, version: true,
           },
         },
+        credit: {
+          select: { grantedCNY: true, usedCNY: true, status: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -209,6 +171,15 @@ export class SubscriptionService {
       name: r.name ?? r.employee.name,
       latestVersion: r.employee.version,
       upgradeAvailable: r.employee.version !== r.templateVersion,
+      // 赠送余额扁平化到列表项：员工卡片要展示「剩余 ¥X.XX」，
+      // 让前端各自从 credit 里算剩余，容易漏掉 EXPIRED 不可用这一层
+      giftGrantedCNY: r.credit ? r.credit.grantedCNY.toFixed(2) : '0.00',
+      giftUsedCNY: r.credit ? r.credit.usedCNY.toFixed(2) : '0.00',
+      giftRemainingCNY:
+        r.credit && r.credit.status === 'ACTIVE'
+          ? Decimal.max(0, r.credit.grantedCNY.sub(r.credit.usedCNY)).toFixed(2)
+          : '0.00',
+      giftStatus: r.credit?.status ?? 'NONE',
     }));
   }
 
@@ -360,9 +331,13 @@ export class SubscriptionService {
     if (sub.status !== 'ACTIVE') {
       throw new ConflictException('Subscription is not active');
     }
-    return this.prisma.subscription.update({
-      where: { id: sub.id },
-      data: { status: 'EXPIRED', endDate: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      // 退订后赠送余额不可再用。第一版规则：不折现、不退回（见开发计划）。
+      await this.credits.expireSubscriptionCredit(tx, sub.id);
+      return tx.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'EXPIRED', endDate: new Date() },
+      });
     });
   }
 
@@ -398,7 +373,8 @@ export class SubscriptionService {
     let refundTransactionId: string | null = null;
 
     if (isWithinTrial && employee.annualPriceCNY) {
-      // 试用期内全额退款
+      // 试用期内全额退**订阅费**。未用完的赠送算力不折现、不退回（见开发计划）：
+      // 赠送额度不是企业付过的钱，退它等于凭空发钱。
       refundAmount = employee.annualPriceCNY.toNumber();
       const refundTransaction = await this.walletService.refund(
         ctx.enterpriseId,
@@ -410,18 +386,22 @@ export class SubscriptionService {
       refundTransactionId = refundTransaction.id;
     }
 
-    // 更新订阅状态为 TERMINATED
-    return this.prisma.subscription.update({
-      where: { id: sub.id },
-      data: {
-        status: 'TERMINATED',
-        endDate: now,
-        terminatedAt: now,
-        terminatedBy: userId,
-        terminatedReason: reason || (isWithinTrial ? 'trial_refund' : 'user_cancel'),
-        refundAmount: refundAmount > 0 ? refundAmount : null,
-        refundTransactionId,
-      },
+    // 更新订阅状态为 TERMINATED，同时停用赠送余额
+    return this.prisma.$transaction(async (tx) => {
+      await this.credits.expireSubscriptionCredit(tx, sub.id);
+      return tx.subscription.update({
+        where: { id: sub.id },
+        data: {
+          status: 'TERMINATED',
+          endDate: now,
+          terminatedAt: now,
+          terminatedBy: userId,
+          terminatedReason:
+            reason || (isWithinTrial ? 'trial_refund' : 'user_cancel'),
+          refundAmount: refundAmount > 0 ? refundAmount : null,
+          refundTransactionId,
+        },
+      });
     });
   }
 

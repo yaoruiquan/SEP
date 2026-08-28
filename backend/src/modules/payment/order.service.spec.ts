@@ -1,12 +1,14 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { OrderService } from "./order.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { SubscriptionFulfillmentService } from "../subscription-fulfillment/subscription-fulfillment.service";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { Decimal } from "@prisma/client/runtime/library";
 
 describe("OrderService", () => {
   let service: OrderService;
   let prisma: any;
+  let creditService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -23,7 +25,13 @@ describe("OrderService", () => {
       },
       subscription: {
         findUnique: jest.fn(),
-        upsert: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: "sub-1" }),
+        update: jest.fn().mockResolvedValue({ id: "sub-1" }),
+      },
+      subscriptionCredit: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((a: any) => Promise.resolve({ id: "credit-1", ...a.data })),
+        update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
       },
       enterpriseMember: {
         findUnique: jest.fn().mockResolvedValue({
@@ -39,18 +47,32 @@ describe("OrderService", () => {
       digitalEmployee: {
         findUnique: jest.fn(),
       },
-      computeAccount: {
-        findUnique: jest.fn(),
-        update: jest.fn(),
-      },
-      computeTransaction: {
-        create: jest.fn(),
-      },
       $transaction: jest.fn((callback) => callback(prisma)),
     };
 
+    creditService = {
+      // 「员工级配置 > 系统默认值」的解析；这里直接回落员工级配置
+      resolveGrantAmountCNY: jest.fn(async (override: unknown) =>
+        override === null || override === undefined ? 0 : Number(override),
+      ),
+      grantSubscriptionCredit: jest.fn(async (tx: any, params: any) =>
+        tx.subscriptionCredit.create({ data: params }),
+      ),
+      expireSubscriptionCredit: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [OrderService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        OrderService,
+        { provide: PrismaService, useValue: prisma },
+        // 用真实履约服务：建订阅、自动授权、发赠送额度都是它的职责，
+        // mock 掉就等于不测「支付成功后企业到底拿到了什么」
+        {
+          provide: SubscriptionFulfillmentService,
+          useFactory: () =>
+            new SubscriptionFulfillmentService(prisma as any, creditService as any),
+        },
+      ],
     }).compile();
 
     service = module.get<OrderService>(OrderService);
@@ -318,12 +340,8 @@ describe("OrderService", () => {
 
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
-      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1" });
+      prisma.subscription.findUnique.mockResolvedValue(null);
       prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
-      prisma.computeAccount.findUnique.mockResolvedValue({
-        id: "acc-1",
-        balance: 5000,
-      });
       prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
 
       await service.fulfill("order-1", "alipay-123");
@@ -337,15 +355,27 @@ describe("OrderService", () => {
         }),
       });
 
-      expect(prisma.subscription.upsert).toHaveBeenCalled();
+      expect(prisma.subscription.create).toHaveBeenCalled();
+      // expiresAt 取履约算出的订阅到期日（下单周期推出），不再依赖建订阅的返回值
       expect(prisma.employeeGrant.create).toHaveBeenCalledWith({
         data: {
           subscriptionId: "sub-1",
           memberId: "mem-admin",
-          expiresAt: null,
+          expiresAt: expect.any(Date),
         },
       });
-      expect(prisma.computeAccount.update).toHaveBeenCalled();
+      // 赠送额度按下单时的快照发放为人民币余额，不再往旧算力账户充值
+      expect(creditService.grantSubscriptionCredit).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          subscriptionId: "sub-1",
+          enterpriseId: "ent-1",
+          employeeId: "emp-1",
+          grantedCNY: 2000,
+          sourceType: "order",
+          sourceId: "order-1",
+        }),
+      );
       expect(prisma.cartItem.deleteMany).toHaveBeenCalledWith({
         where: {
           enterpriseId: "ent-1",
@@ -374,14 +404,14 @@ describe("OrderService", () => {
 
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
-      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1" });
+      prisma.subscription.findUnique.mockResolvedValue(null);
       prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
       prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
 
       await service.fulfill("order-1", "alipay-123");
 
       // 一个订单项 → 恰好一次 upsert，不循环建实例
-      expect(prisma.subscription.upsert).toHaveBeenCalledTimes(1);
+      expect(prisma.subscription.create).toHaveBeenCalledTimes(1);
       expect(prisma.employeeInstance).toBeUndefined();
     });
 
@@ -406,7 +436,11 @@ describe("OrderService", () => {
 
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
-      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1", endDate: new Date("2027-08-28") });
+      prisma.subscription.findUnique.mockResolvedValue(null);
+      prisma.subscription.create.mockResolvedValue({
+        id: "sub-1",
+        endDate: new Date("2027-08-28"),
+      });
       prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
       prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
 
@@ -425,7 +459,7 @@ describe("OrderService", () => {
         data: {
           subscriptionId: "sub-1",
           memberId: "mem-admin",
-          expiresAt: new Date("2027-08-28"),
+          expiresAt: expect.any(Date),
         },
       });
     });
@@ -451,7 +485,11 @@ describe("OrderService", () => {
 
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
-      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1", endDate: new Date("2027-08-28") });
+      prisma.subscription.findUnique.mockResolvedValue(null);
+      prisma.subscription.create.mockResolvedValue({
+        id: "sub-1",
+        endDate: new Date("2027-08-28"),
+      });
       prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
       prisma.employeeGrant.findFirst.mockResolvedValue({ id: "grant-1" });
       prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
@@ -460,7 +498,7 @@ describe("OrderService", () => {
 
       expect(prisma.employeeGrant.update).toHaveBeenCalledWith({
         where: { id: "grant-1" },
-        data: { expiresAt: new Date("2027-08-28") },
+        data: { expiresAt: expect.any(Date) },
       });
       expect(prisma.employeeGrant.create).not.toHaveBeenCalled();
     });
@@ -504,14 +542,14 @@ describe("OrderService", () => {
 
       prisma.order.findUnique.mockResolvedValue(mockOrder);
       prisma.order.update.mockResolvedValue({ ...mockOrder, status: "PAID" });
-      prisma.subscription.upsert.mockResolvedValue({ id: "sub-1" });
+      prisma.subscription.findUnique.mockResolvedValue(null);
       prisma.digitalEmployee.findUnique.mockResolvedValue({ version: "2.1.0" });
       prisma.cartItem.deleteMany.mockResolvedValue({ count: 1 });
 
       await service.fulfill("order-1", "alipay-123");
 
-      const upsertArg = prisma.subscription.upsert.mock.calls[0][0];
-      expect(upsertArg.create).toMatchObject({
+      const createArg = prisma.subscription.create.mock.calls[0][0];
+      expect(createArg.data).toMatchObject({
         enterpriseId: "ent-1",
         employeeId: "emp-1",
         status: "ACTIVE",
@@ -546,7 +584,7 @@ describe("OrderService", () => {
         NotFoundException,
       );
 
-      expect(prisma.subscription.upsert).not.toHaveBeenCalled();
+      expect(prisma.subscription.create).not.toHaveBeenCalled();
     });
   });
 });

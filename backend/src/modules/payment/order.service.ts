@@ -7,6 +7,7 @@ import {
 import { PrismaService } from "../../prisma/prisma.service";
 import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
+import { SubscriptionFulfillmentService } from "../subscription-fulfillment/subscription-fulfillment.service";
 
 type FulfillmentOrder = Prisma.OrderGetPayload<{
   include: { items: { include: { employee: true } } };
@@ -16,7 +17,10 @@ type FulfillmentOrder = Prisma.OrderGetPayload<{
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fulfillment: SubscriptionFulfillmentService,
+  ) {}
 
   /**
    * 从购物车创建订单
@@ -65,23 +69,30 @@ export class OrderService {
     // 3. 生成订单号（格式：yyyyMMddHHmmss + 6位随机数）
     const orderNo = this.generateOrderNo();
 
-    // 4. 计算总金额
+    // 4. 计算总金额，并把赠送算力的**生效值**固化成订单快照。
+    //    快照的意义在于：运营事后改员工配置或系统默认值，都不该改变已成交订单。
     let totalAmount = new Decimal(0);
-    const orderItems = cartItems.map((cartItem) => {
-      const unitPrice = cartItem.employee.annualPriceCNY || new Decimal(0);
-      const periodFactor = new Decimal(cartItem.periodMonths).div(12);
-      const subtotal = unitPrice.mul(periodFactor);
-      totalAmount = totalAmount.add(subtotal);
+    const orderItems = await Promise.all(
+      cartItems.map(async (cartItem) => {
+        const unitPrice = cartItem.employee.annualPriceCNY || new Decimal(0);
+        const periodFactor = new Decimal(cartItem.periodMonths).div(12);
+        const subtotal = unitPrice.mul(periodFactor);
+        totalAmount = totalAmount.add(subtotal);
 
-      return {
-        employeeId: cartItem.employeeId,
-        employeeName: cartItem.employee.name,
-        unitPrice,
-        periodMonths: cartItem.periodMonths,
-        quantity: 1,
-        includedComputeCNY: cartItem.employee.includedComputeCNY,
-      };
-    });
+        return {
+          employeeId: cartItem.employeeId,
+          employeeName: cartItem.employee.name,
+          unitPrice,
+          periodMonths: cartItem.periodMonths,
+          quantity: 1,
+          includedComputeCNY: new Decimal(
+            await this.fulfillment.resolveGiftCNY(
+              cartItem.employee.includedComputeCNY,
+            ),
+          ),
+        };
+      }),
+    );
 
     // 5. 创建订单
     const order = await this.prisma.order.create({
@@ -161,6 +172,9 @@ export class OrderService {
     }
     const totalAmount = unitPrice.mul(new Decimal(input.periodMonths).div(12));
     const orderNo = this.generateOrderNo();
+    const includedComputeCNY = new Decimal(
+      await this.fulfillment.resolveGiftCNY(employee.includedComputeCNY),
+    );
 
     return this.prisma.order.create({
       data: {
@@ -177,7 +191,7 @@ export class OrderService {
               unitPrice,
               periodMonths: input.periodMonths,
               quantity: 1,
-              includedComputeCNY: employee.includedComputeCNY,
+              includedComputeCNY,
             },
           ],
         },
@@ -354,20 +368,13 @@ export class OrderService {
     payTradeNo: string,
     payChannel: "ALIPAY" | "BALANCE",
   ) {
-    // 市场订单只能由企业管理员创建。支付履约后，管理员应立即拥有
-    // 这批硅基员工；其他成员仍须通过独立的授权记录获得使用权限。
-    const purchaser = await tx.enterpriseMember.findUnique({
-      where: {
-        userId_enterpriseId: {
-          userId: order.createdBy,
-          enterpriseId: order.enterpriseId,
-        },
-      },
-      select: { id: true, role: true },
-    });
-    if (!purchaser || purchaser.role !== "ENTERPRISE_ADMIN") {
-      throw new BadRequestException("订单创建人不是该企业管理员，无法履约");
-    }
+    // 市场订单只能由企业管理员创建。下单到支付回调之间可能已过数天，
+    // 操作人可能被降权或移出企业，所以履约时必须复核而不是信任下单时的判断。
+    const purchaser = await this.fulfillment.assertEnterpriseAdmin(
+      tx,
+      order.createdBy,
+      order.enterpriseId,
+    );
 
     // 1. 更新订单状态
     const updatedOrder = await tx.order.update({
@@ -380,109 +387,27 @@ export class OrderService {
       },
     });
 
-    // 2. 处理每个订单项
+    // 2. 处理每个订单项。履约细节（建订阅、锁模板版本、自动授权、发赠送额度）
+    //    统一收敛到 SubscriptionFulfillmentService —— 与直接订阅走同一份实现，
+    //    否则两条链路的授权与账务结果会再次分叉。
+    const now = new Date();
     for (const item of order.items) {
-      // 计算订阅结束时间
-      const now = new Date();
       const endDate = new Date(now);
       endDate.setMonth(endDate.getMonth() + item.periodMonths);
 
-      // 锁定履约时刻的模板版本。不能写死版本号 —— templateVersion 是
-      // 「提示式升级」的基准，写错会让模板发新版后永远提示可升级。
-      const employee = await tx.digitalEmployee.findUnique({
-        where: { id: item.employeeId },
-        select: { version: true },
+      // 赠送金额用**下单时的快照**，不是当前员工配置：订单已经成交，
+      // 运营事后改默认值不该改变已付款订单的赠送金额。
+      await this.fulfillment.fulfill(tx, {
+        enterpriseId: order.enterpriseId,
+        employeeId: item.employeeId,
+        purchaserMemberId: purchaser.id,
+        displayName: item.employeeName,
+        startDate: now,
+        endDate,
+        sourceType: "order",
+        sourceId: order.id,
+        grantedCNY: item.includedComputeCNY.toNumber(),
       });
-      if (!employee) {
-        throw new NotFoundException(
-          `订单项对应的员工 ${item.employeeId} 不存在`,
-        );
-      }
-
-      // upsert Subscription（因为 unique constraint，必须用 upsert 而非 create）
-      const subscription = await tx.subscription.upsert({
-        where: {
-          enterpriseId_employeeId: {
-            enterpriseId: order.enterpriseId,
-            employeeId: item.employeeId,
-          },
-        },
-        update: {
-          status: "ACTIVE",
-          endDate,
-          updatedAt: new Date(),
-        },
-        create: {
-          enterpriseId: order.enterpriseId,
-          employeeId: item.employeeId,
-          status: "ACTIVE",
-          startDate: now,
-          endDate,
-          templateVersion: employee.version,
-          name: item.employeeName,
-        },
-      });
-
-      this.logger.log(`订阅 ${subscription.id} 已激活`);
-
-      // 管理员订阅后默认授权给自己。使用查后更新/创建而不是 upsert，
-      // 因为 EmployeeGrant 的唯一性由两个部分索引表达，Prisma 无法建模。
-      const existingAdminGrant = await tx.employeeGrant.findFirst({
-        where: {
-          subscriptionId: subscription.id,
-          memberId: purchaser.id,
-        },
-        select: { id: true },
-      });
-      if (existingAdminGrant) {
-        await tx.employeeGrant.update({
-          where: { id: existingAdminGrant.id },
-          data: { expiresAt: subscription.endDate ?? null },
-        });
-      } else {
-        await tx.employeeGrant.create({
-          data: {
-            subscriptionId: subscription.id,
-            memberId: purchaser.id,
-            expiresAt: subscription.endDate ?? null,
-          },
-        });
-      }
-
-      // 充值算力（如果有赠送）
-      if (item.includedComputeCNY.gt(0)) {
-        const computeAccount = await tx.computeAccount.findUnique({
-          where: { enterpriseId: order.enterpriseId },
-        });
-
-        if (!computeAccount) {
-          throw new Error(`企业 ${order.enterpriseId} 的算力账户不存在`);
-        }
-
-        const newBalance =
-          computeAccount.balance + item.includedComputeCNY.toNumber();
-
-        await tx.computeTransaction.create({
-          data: {
-            accountId: computeAccount.id,
-            type: "RECHARGE",
-            amount: item.includedComputeCNY.toNumber(),
-            description: `订单 ${order.orderNo} 赠送算力`,
-            metadata: { orderId: order.id, orderItemId: item.id },
-          },
-        });
-
-        await tx.computeAccount.update({
-          where: { id: computeAccount.id },
-          data: {
-            balance: newBalance,
-          },
-        });
-
-        this.logger.log(
-          `算力账户 ${computeAccount.id} 已充值 ${item.includedComputeCNY} 元`,
-        );
-      }
     }
 
     // 3. 仅清理本订单对应员工的购物车项，避免直接订阅误清空其他商品

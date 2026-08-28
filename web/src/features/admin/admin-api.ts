@@ -120,7 +120,8 @@ export interface EmployeeListItem {
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   version: string;
   annualPriceCNY: number | null;
-  includedComputeCNY: number;
+  /** 订阅赠送算力（元）。null = 未配置，订阅时取系统默认值 DEFAULT_EMPLOYEE_GIFT_CNY。 */
+  includedComputeCNY: number | null;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
@@ -155,7 +156,8 @@ export interface EmployeeDetail {
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   version: string;
   annualPriceCNY: number | null;
-  includedComputeCNY: number;
+  /** 订阅赠送算力（元）。null = 未配置，订阅时取系统默认值 DEFAULT_EMPLOYEE_GIFT_CNY。 */
+  includedComputeCNY: number | null;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
@@ -184,7 +186,11 @@ export interface CreateEmployeeRequest {
   systemPrompt?: string;
   modelId?: string;
   annualPriceCNY?: number;
-  includedComputeCNY?: number;
+  /**
+   * 订阅赠送算力（元）。**null 与 0 语义不同**：
+   * null = 清除员工级覆盖，订阅时取系统默认值；0 = 明确不赠送。
+   */
+  includedComputeCNY?: number | null;
 }
 
 export interface UpdateEmployeeRequest {
@@ -196,7 +202,11 @@ export interface UpdateEmployeeRequest {
   systemPrompt?: string;
   modelId?: string;
   annualPriceCNY?: number;
-  includedComputeCNY?: number;
+  /**
+   * 订阅赠送算力（元）。**null 与 0 语义不同**：
+   * null = 清除员工级覆盖，订阅时取系统默认值；0 = 明确不赠送。
+   */
+  includedComputeCNY?: number | null;
 }
 
 export interface ComputeTransaction {

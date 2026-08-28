@@ -38,6 +38,8 @@ export const EmployeeCard = memo(function EmployeeCard({
     grantSource,
     expiresAt,
     packageAvailable,
+    giftRemainingCNY,
+    giftStatus,
   } = employee;
 
   const handleDownload = () => {
@@ -125,6 +127,18 @@ export const EmployeeCard = memo(function EmployeeCard({
             <div className="flex items-center justify-between text-xs">
               <span className="text-gtext-secondary">授权到期</span>
               <span className="text-gtext-muted">{new Date(expiresAt).toLocaleDateString('zh-CN')}</span>
+            </div>
+          )}
+          {/* 赠送余额用完后扣企业钱包 —— 说清这一点，用户才不会以为额度归零就不能用了 */}
+          {giftStatus && giftStatus !== 'NONE' && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gtext-secondary">赠送算力余额</span>
+              <span
+                className="text-gtext-muted"
+                title="赠送余额用完后，继续对话将从企业钱包余额扣除"
+              >
+                剩余 ¥{Number(giftRemainingCNY ?? 0).toFixed(2)}
+              </span>
             </div>
           )}
         </div>

@@ -39,14 +39,20 @@ const TYPE_COLORS: Record<string, string> = {
 
 // ── CSV export helper ─────────────────────────────────────────────────────────
 function exportCsv(logs: ConsumptionLog[]) {
-  const header = '时间,类型,硅基员工,碳基员工,详情,金额(元)';
+  const header =
+    '时间,类型,硅基员工,碳基员工,详情,输入tokens,输出tokens,赠送扣减(元),钱包扣减(元),欠费(元),合计金额(元)';
   const rows = logs.map((log) => [
     format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss'),
     TYPE_LABELS[log.type] ?? log.type,
     `"${log.employeeName.replace(/"/g, '""')}"`,
     log.memberName ? `"${log.memberName.replace(/"/g, '""')}"` : '-',
     `"${getLogDetailText(log).replace(/"/g, '""')}"`,
-    '-' + Math.abs(Number(log.amount)).toFixed(2),
+    log.detail.inputTokens ?? '-',
+    log.detail.outputTokens ?? '-',
+    Number(log.detail.creditPaidCNY ?? 0).toFixed(4),
+    Number(log.detail.walletPaidCNY ?? 0).toFixed(4),
+    Number(log.detail.unpaidCNY ?? 0).toFixed(4),
+    '-' + Math.abs(Number(log.amount)).toFixed(4),
   ].join(','));
 
   const csv = [header, ...rows].join('\n');
@@ -60,11 +66,38 @@ function exportCsv(logs: ConsumptionLog[]) {
 }
 
 function getLogDetailText(log: ConsumptionLog): string {
-  if (log.type === 'COMPUTE') {
-    return log.detail.conversationTitle || '对话消费';
-  } else {
+  if (log.type !== 'COMPUTE') {
     return log.detail.planName || '订阅费用';
   }
+  // Token 是用量明细，不是余额单位 —— 与金额并列而非替代金额
+  const parts = [log.detail.modelName || '对话消费'];
+  if (log.detail.inputTokens !== undefined) {
+    parts.push(
+      `${log.detail.inputTokens.toLocaleString('zh-CN')}+${(log.detail.outputTokens ?? 0).toLocaleString('zh-CN')} tokens`,
+    );
+  }
+  return parts.join(' · ');
+}
+
+/** 小额金额保留 4 位小数：单条对话成本常低于 1 分，两位小数会全显示成 ¥0.00。 */
+function fmtCny(value: string | number | undefined): string {
+  const n = Math.abs(Number(value ?? 0));
+  if (!Number.isFinite(n)) return '¥0.00';
+  return `¥${n > 0 && n < 0.01 ? n.toFixed(4) : n.toFixed(2)}`;
+}
+
+/** 这笔钱从哪扣的 —— 用户最常问的问题，直接写在明细行里。 */
+function getFundingSourceText(log: ConsumptionLog): string | null {
+  if (log.type !== 'COMPUTE') return null;
+  const credit = Number(log.detail.creditPaidCNY ?? 0);
+  const wallet = Number(log.detail.walletPaidCNY ?? 0);
+  const unpaid = Number(log.detail.unpaidCNY ?? 0);
+
+  const parts: string[] = [];
+  if (credit > 0) parts.push(`赠送 ${fmtCny(credit)}`);
+  if (wallet > 0) parts.push(`钱包 ${fmtCny(wallet)}`);
+  if (unpaid > 0) parts.push(`欠费 ${fmtCny(unpaid)}`);
+  return parts.length > 0 ? parts.join(' + ') : null;
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -375,13 +408,18 @@ export default function UsagePage() {
                         <p className="text-xs text-neutral-500 mt-0.5">
                           {getLogDetailText(log)} · {format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss', { locale: zhCN })}
                         </p>
+                        {getFundingSourceText(log) && (
+                          <p className="text-xs text-neutral-400 mt-0.5">
+                            扣费来源：{getFundingSourceText(log)}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <p className={cn(
                       'text-sm font-semibold shrink-0 ml-4',
                       log.type === 'COMPUTE' ? 'text-orange-500' : 'text-blue-500',
                     )}>
-                      -¥{Math.abs(Number(log.amount)).toFixed(2)}
+                      -{fmtCny(log.amount)}
                     </p>
                   </div>
                 ))}

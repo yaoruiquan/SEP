@@ -77,9 +77,12 @@ export const SETTING_KEYS = {
   SUPPORT_PHONE: "SUPPORT_PHONE",
   ICP_NUMBER: "ICP_NUMBER",
   // 计费配置
+  /** 未配价模型的保底单价（元 / 1K tokens）。留空则回退「已知模型最高单价」。 */
   FALLBACK_PRICE_INPUT: "FALLBACK_PRICE_INPUT",
   FALLBACK_PRICE_OUTPUT: "FALLBACK_PRICE_OUTPUT",
-  NEW_ENTERPRISE_GIFT_TOKENS: "NEW_ENTERPRISE_GIFT_TOKENS",
+  /** 新员工「订阅赠送算力（元）」默认值。员工级 includedComputeCNY 为 null 时用它。 */
+  DEFAULT_EMPLOYEE_GIFT_CNY: "DEFAULT_EMPLOYEE_GIFT_CNY",
+  /** 低余额告警阈值（元）。口径统一为人民币，不再是 tokens。 */
   LOW_BALANCE_THRESHOLD: "LOW_BALANCE_THRESHOLD",
   // 安全与限制
   MAX_TOKENS_PER_CONVERSATION: "MAX_TOKENS_PER_CONVERSATION",
@@ -214,18 +217,18 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     placeholder: "0.002",
   },
   {
-    key: SETTING_KEYS.NEW_ENTERPRISE_GIFT_TOKENS,
-    label: "新企业赠送额度 (tokens)",
+    key: SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_CNY,
+    label: "订阅赠送算力默认值 (元)",
     secret: false,
-    envFallback: "NEW_ENTERPRISE_GIFT_TOKENS",
-    placeholder: "100000",
+    envFallback: "DEFAULT_EMPLOYEE_GIFT_CNY",
+    placeholder: "0",
   },
   {
     key: SETTING_KEYS.LOW_BALANCE_THRESHOLD,
-    label: "低余额告警阈值 (tokens)",
+    label: "低余额告警阈值 (元)",
     secret: false,
     envFallback: "LOW_BALANCE_THRESHOLD",
-    placeholder: "10000",
+    placeholder: "10",
   },
   // 安全与限制
   {
@@ -622,6 +625,18 @@ export const ContributionVersionCreateDtoSchema = z.object({
 });
 export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
 
+/**
+ * 人民币金额（元）：非负、最多两位小数。
+ * 在边界处拦住 0.001 元这类值，避免它一路流到 Decimal 列被静默截断。
+ */
+export const CnyAmountSchema = z
+  .number()
+  .min(0, '金额不能为负数')
+  .refine((n) => Number.isFinite(n), { message: '金额必须是有效数字' })
+  .refine((n) => Math.round(n * 100) === Number((n * 100).toFixed(4)), {
+    message: '金额最多保留两位小数',
+  });
+
 // Digital Employee
 export const DigitalEmployeeCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),
@@ -634,6 +649,13 @@ export const DigitalEmployeeCreateDtoSchema = z.object({
   modelId: z.string().default(DEFAULT_MODEL_ID),
   maxSteps: z.number().min(1).max(20).default(10),
   price: z.number().min(0).optional(),
+  /** 年费（元） */
+  annualPriceCNY: CnyAmountSchema.optional(),
+  /**
+   * 订阅赠送算力（元）。**null 与 0 语义不同**：
+   * null/省略 = 用系统默认值 DEFAULT_EMPLOYEE_GIFT_CNY，0 = 明确不赠送。
+   */
+  includedComputeCNY: CnyAmountSchema.nullable().optional(),
   // 初始绑定的已审核 Capability ID 列表（可为空）
   capabilityIds: z.array(z.string()).default([]),
 });
@@ -653,6 +675,10 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   modelId: z.string().optional(),
   maxSteps: z.number().min(1).max(20).optional(),
   price: z.number().min(0).optional(),
+  /** 年费（元） */
+  annualPriceCNY: CnyAmountSchema.optional(),
+  /** 订阅赠送算力（元）。null = 回落系统默认值，0 = 明确不赠送。 */
+  includedComputeCNY: CnyAmountSchema.nullable().optional(),
   status: z.enum(["DRAFT", "PENDING", "APPROVED", "REJECTED", "ARCHIVED"]).optional(),
   /**
    * 版本号。运营发版时同步更新这里和上传对应的员工包，
@@ -905,6 +931,15 @@ export interface MyEmployeeView {
    * 运营尚未上传包，点了只会拿到 404。
    */
   packageAvailable?: boolean;
+
+  // ── 订阅赠送算力余额（元，Decimal 序列化为字符串）───────────────────────
+  /** 订阅时生成的赠送金额快照 */
+  giftGrantedCNY?: string;
+  giftUsedCNY?: string;
+  /** 剩余可用赠送金额。非 ACTIVE 状态一律为 '0.00' —— 花不掉的钱不算剩余。 */
+  giftRemainingCNY?: string;
+  /** ACTIVE 可用 · EXHAUSTED 已用尽 · EXPIRED 订阅已终止 · NONE 无赠送记录 */
+  giftStatus?: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
 }
 
 // ── 员工包 ──────────────────────────────────────────────────────────────────
@@ -1133,6 +1168,50 @@ export function parseUsdToCnyRate(raw: string | undefined): number {
 }
 
 /**
+ * 解析一个「元」金额配置值。非法/负数/空值一律回退 `fallback`，
+ * 绝不把 NaN 或负数写进账本。最多保留两位小数。
+ */
+export function parseCnyAmount(raw: string | undefined, fallback = 0): number {
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    return fallback;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * 运营配置的保底单价（元 / 1K tokens）。两项都配了才生效 ——
+ * 只配一半会让另一半静默走「已知模型最高单价」，账单口径变得无法解释。
+ */
+export interface FallbackPriceConfigCNY {
+  inputCnyPer1K: number;
+  outputCnyPer1K: number;
+}
+
+/** 从系统设置的原始字符串解析保底单价；任一项缺失/非法则返回 null（走默认保底价）。 */
+export function parseFallbackPriceConfig(
+  rawInput: string | undefined,
+  rawOutput: string | undefined,
+): FallbackPriceConfigCNY | null {
+  // 空白必须当「未配置」处理：Number('') === 0，直接 Number() 会把一个从未设置过的
+  // 配置项解析成 0 元单价，让所有未配价模型静默变成免费对话。
+  const input = parsePositivePrice(rawInput);
+  const output = parsePositivePrice(rawOutput);
+  if (input === null || output === null) return null;
+  return { inputCnyPer1K: input, outputCnyPer1K: output };
+}
+
+/** 单价：空白/非法/负数 → null；否则返回数值（允许 0，表示运营明确「免费」）。 */
+function parsePositivePrice(raw: string | undefined): number | null {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
  * 保底价：取 MODEL_PRICING 中各维度的最高单价。
  * 未在价格表中的模型（上游 57 个里只有 7 个配了价）按此保底计费，
  * 宁可多收也不漏收，避免未配价模型被启用后「免费对话」。
@@ -1152,33 +1231,61 @@ export function hasPricing(modelId: string): boolean {
   return modelId in MODEL_PRICING;
 }
 
+export interface ComputeCostBreakdown {
+  costUSD: number;
+  costCNY: number;
+  isFallback: boolean;
+  rate: number;
+  /** 本次实际使用的输入/输出单价（美元 / 1M tokens），写进账单以便复核 */
+  inputPriceUsdPerMillion: number;
+  outputPriceUsdPerMillion: number;
+}
+
 /**
- * 计算单次对话的成本
+ * 计算单次对话的成本。
+ *
  * @param modelId 模型 ID
  * @param inputTokens 输入 token 数
  * @param outputTokens 输出 token 数
  * @param rate 生效汇率，省略则用默认值（调用方应从系统设置读取后传入）
- * @returns { costUSD, costCNY, isFallback, rate } 成本 + 是否走保底价 + 实际用的汇率
+ * @param fallbackConfig 运营配置的保底单价（元/1K tokens）。仅对**未配价模型**生效；
+ *   给出时按它计价，并换算回等价美元单价写入账单，保证账单口径始终是同一套字段。
  */
 export function calculateCost(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
   rate: number = DEFAULT_USD_TO_CNY_RATE,
-): {
-  costUSD: number;
-  costCNY: number;
-  isFallback: boolean;
-  rate: number;
-} {
+  fallbackConfig?: FallbackPriceConfigCNY | null,
+): ComputeCostBreakdown {
   const isFallback = !hasPricing(modelId);
-  const pricing = isFallback ? FALLBACK_PRICING : MODEL_PRICING[modelId];
+
+  // 未配价 + 运营配了保底价：以人民币单价为准。换算成 USD/1M 存档，
+  // 让 ComputeUsageRecord 的单价字段对所有账单保持同一含义。
+  const pricing =
+    isFallback && fallbackConfig
+      ? {
+          inputPrice: (fallbackConfig.inputCnyPer1K / rate) * 1000,
+          outputPrice: (fallbackConfig.outputCnyPer1K / rate) * 1000,
+        }
+      : isFallback
+        ? FALLBACK_PRICING
+        : MODEL_PRICING[modelId];
+
   const costUSD =
     (inputTokens * pricing.inputPrice + outputTokens * pricing.outputPrice) /
     1_000_000;
   const costCNY = costUSD * rate;
-  // 返回 rate：账单需可复核 —— 汇率改动后旧账单仍应能解释当时的金额
-  return { costUSD, costCNY, isFallback, rate };
+
+  // 返回 rate 与单价：账单需可复核 —— 改价改汇率后旧账单仍应能解释当时的金额
+  return {
+    costUSD,
+    costCNY,
+    isFallback,
+    rate,
+    inputPriceUsdPerMillion: pricing.inputPrice,
+    outputPriceUsdPerMillion: pricing.outputPrice,
+  };
 }
 
 // ============================================================================

@@ -8,7 +8,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ModelService } from '../model/model.service';
-import { ComputeQuotaService } from '../compute-quota/compute-quota.service';
+import { ComputeCreditService } from '../compute-credit/compute-credit.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import {
   ConversationCreateDto,
@@ -28,7 +29,8 @@ export class ConversationService {
     private readonly modelService: ModelService,
     private readonly modelConfig: EnterpriseModelConfigService,
     private readonly storage: StorageService,
-    private readonly quotaService: ComputeQuotaService,
+    private readonly computeCredit: ComputeCreditService,
+    private readonly enterpriseContext: EnterpriseContextService,
   ) {}
 
   async create(userId: string, dto: ConversationCreateDto) {
@@ -52,13 +54,25 @@ export class ConversationService {
     // 必须持有有效订阅
     await this.subscriptionService.assertActiveSubscription(userId, dto.employeeId);
 
-    // 对话前检查配额（乐观检查）
-    const quotaCheck = await this.quotaService.checkQuotaBeforeConversation(
-      userId,
-      dto.employeeId,
+    // 对话前的人民币余额闸门（乐观检查）：该员工的赠送余额 + 企业钱包余额。
+    // 精确扣费在对话结束后完成，这里只拦「一分钱都没有」的情况 ——
+    // 单次对话的成本要等模型返回 token 数才知道，事前无法精确预留。
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const subscription = await this.prisma.subscription.findUnique({
+      where: {
+        enterpriseId_employeeId: {
+          enterpriseId: ctx.enterpriseId,
+          employeeId: dto.employeeId,
+        },
+      },
+      select: { id: true },
+    });
+    const balanceCheck = await this.computeCredit.checkBalanceBeforeConversation(
+      ctx.enterpriseId,
+      subscription?.id,
     );
-    if (!quotaCheck.allowed) {
-      throw new BadRequestException(quotaCheck.reason);
+    if (!balanceCheck.allowed) {
+      throw new BadRequestException(balanceCheck.reason);
     }
 
     // Snapshot the enterprise default at creation time. A null modelId would

@@ -1,152 +1,55 @@
+import { Controller, Get, Param, UseGuards, Request } from '@nestjs/common';
 import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ComputeQuotaService } from './compute-quota.service';
 
-@ApiTags('compute-quota')
+/**
+ * 旧 Token 配额体系的只读接口（迁移期对账用）。
+ *
+ * 真实余额与扣费请用 `/compute-credit/*`。这里返回的所有 token 数字都已停用，
+ * 响应里带 `legacy` / `deprecated` 标记，前端必须显式提示而不是当余额展示。
+ * 写入端点已全部移除：企业充值只进钱包，赠送额度只由订阅履约发放。
+ */
+@ApiTags('compute-quota (legacy)')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('compute-quota')
 export class ComputeQuotaController {
   constructor(private readonly quotaService: ComputeQuotaService) {}
 
-  // ── 总览 ────────────────────────────────────────────────────────────────
-
-  @Get('summary')
-  @ApiOperation({ summary: '查询企业算力管理总览' })
-  @ApiResponse({ status: 200, description: '返回企业可分配池、成员已分配额度和订阅赠送额度汇总' })
-  async getQuotaSummary(@Request() req) {
-    return this.quotaService.getQuotaSummary(req.user.id);
+  @Get('legacy-summary')
+  @ApiOperation({ summary: '[历史] 旧 Token 配额汇总，仅供对账，不是可用余额' })
+  @ApiResponse({ status: 200, description: 'deprecated=true，token 数字均已停用' })
+  async getLegacySummary(@Request() req) {
+    return this.quotaService.getLegacyQuotaSummary(req.user.id);
   }
-
-  @Get('packages')
-  @ApiOperation({ summary: '查询企业算力包' })
-  async getQuotaPackages() {
-    return this.quotaService.getQuotaPackages();
-  }
-
-  @Post('packages/purchase')
-  @ApiOperation({ summary: '使用企业钱包购买企业算力包' })
-  async purchaseQuota(@Request() req, @Body() body: { packageId: string }) {
-    return this.quotaService.purchaseEnterpriseQuota(req.user.id, body.packageId);
-  }
-
-  @Get('alerts')
-  @ApiOperation({ summary: '查询配额告警（剩余 <10%）' })
-  async getAlerts(@Request() req) {
-    const ctx = await (this.quotaService as any).enterpriseContext.resolve(
-      req.user.id,
-    );
-    return this.quotaService.checkQuotaAlerts(ctx.enterpriseId);
-  }
-
-  // ── 用户个人配额（碳基员工） ───────────────────────────────────────────────
-
-  @Get('user-quotas')
-  @ApiOperation({ summary: '查询企业所有成员的个人配额' })
-  @ApiResponse({ status: 200, description: '返回所有碳基员工及其个人配额' })
-  async listUserQuotas(@Request() req) {
-    return this.quotaService.listUserQuotas(req.user.id);
-  }
-
-  @Post('user-quotas/allocate')
-  @ApiOperation({ summary: '管理员为碳基员工分配个人配额' })
-  @ApiResponse({ status: 201, description: '配额分配成功' })
-  async allocateUserQuota(
-    @Request() req,
-    @Body()
-    body: {
-      targetUserId: string;
-      totalTokens: number;
-      notes?: string;
-    },
-  ) {
-    return this.quotaService.allocateUserQuota(
-      req.user.id,
-      body.targetUserId,
-      body.totalTokens,
-      body.notes,
-    );
-  }
-
-  // ── 订阅配额（硅基员工自带） ───────────────────────────────────────────────
 
   @Get('subscription-quotas')
-  @ApiOperation({ summary: '查询企业所有订阅配额' })
-  @ApiResponse({ status: 200, description: '返回所有硅基员工订阅自带配额' })
+  @ApiOperation({ summary: '[历史] 旧订阅 Token 配额列表' })
   async listSubscriptionQuotas(@Request() req) {
     return this.quotaService.listSubscriptionQuotas(req.user.id);
   }
 
-  // ── 企业可分配池 ──────────────────────────────────────────────────────────
+  @Get('user-quotas')
+  @ApiOperation({ summary: '[历史] 旧成员个人 Token 配额列表' })
+  async listUserQuotas(@Request() req) {
+    return this.quotaService.listUserQuotas(req.user.id);
+  }
 
   @Get('enterprise-quotas')
-  @ApiOperation({ summary: '查询企业可分配池列表' })
-  @ApiResponse({ status: 200, description: '返回企业购买的算力包，供管理员分配给碳基员工' })
+  @ApiOperation({ summary: '[历史] 旧企业 Token 池列表' })
   async listEnterpriseQuotas(@Request() req) {
     return this.quotaService.listEnterpriseQuotas(req.user.id);
   }
 
-  @Post('enterprise-quotas/allocate')
-  @ApiOperation({ summary: '管理员分配企业配额池' })
-  @ApiResponse({ status: 201, description: '配额分配成功' })
-  async allocateEnterpriseQuota(
-    @Request() req,
-    @Body()
-    body: {
-      type: string;
-      totalTokens: number;
-      priority?: number;
-      expiresAt?: string;
-    },
-  ) {
-    return this.quotaService.allocateEnterpriseQuota(req.user.id, {
-      type: body.type,
-      totalTokens: body.totalTokens,
-      priority: body.priority,
-      expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
-    });
-  }
-
   @Get(':id')
-  @ApiOperation({ summary: '查询企业配额详情（含交易记录）' })
+  @ApiOperation({ summary: '[历史] 旧企业配额详情（含旧交易记录）' })
   async getQuotaDetail(@Request() req, @Param('id') id: string) {
     return this.quotaService.getQuotaDetail(req.user.id, id);
-  }
-
-  // ── 兼容旧接口 ────────────────────────────────────────────────────────────
-
-  @Get()
-  @ApiOperation({ summary: '[已废弃] 查询企业配额列表，请使用 /enterprise-quotas' })
-  async listQuotas(@Request() req) {
-    return this.quotaService.listQuotas(req.user.id);
-  }
-
-  @Post('allocate')
-  @ApiOperation({ summary: '[已废弃] 管理员分配配额，请使用 /enterprise-quotas/allocate' })
-  async allocateQuota(
-    @Request() req,
-    @Body()
-    body: {
-      type: string;
-      totalTokens: number;
-      priority?: number;
-      expiresAt?: string;
-    },
-  ) {
-    return this.quotaService.allocateQuota(req.user.id, {
-      type: body.type,
-      totalTokens: body.totalTokens,
-      priority: body.priority,
-      expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
-    });
   }
 }

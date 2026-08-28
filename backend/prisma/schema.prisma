@@ -52,6 +52,7 @@ model User {
   contributionRewardEvents          ContributionRewardEvent[]  @relation("ContributionRewardRecipient")
   taskRuns                          TaskRun[]
   taskTemplates                     TaskTemplate[]
+  computeUsageRecords               ComputeUsageRecord[]
 
   @@map("users")
 }
@@ -88,6 +89,8 @@ model Enterprise {
   userQuotas           UserQuota[]
   subscriptionQuotas   SubscriptionQuota[]
   wallet               EnterpriseWallet?
+  subscriptionCredits  SubscriptionCredit[]
+  computeUsageRecords  ComputeUsageRecord[]
   knowledgeBases       KnowledgeBase[]
   modelConfig          EnterpriseModelConfig?
   settings             EnterpriseSetting?
@@ -281,8 +284,15 @@ model DigitalEmployee {
 
   /// 年费（元）。会议示例：5000 元/年
   annualPriceCNY     Decimal? @db.Decimal(12, 2)
-  /// 订阅赠送的初始算力额度（元）。会议示例：1000 点 = 1000 元算力
-  includedComputeCNY Decimal  @default(0) @db.Decimal(12, 2)
+
+  /// 订阅赠送算力（元）—— 员工级覆盖值。
+  ///
+  /// 三态语义，null 与 0 含义不同，勿改成 non-null：
+  ///   null → 未配置，订阅时取系统设置 DEFAULT_EMPLOYEE_GIFT_CNY
+  ///   0    → 运营明确配置「本员工不赠送」
+  ///   >0   → 运营配置的员工级赠送金额
+  /// 订阅创建时按此值生成 SubscriptionCredit 快照，事后改这里不追溯已有订阅。
+  includedComputeCNY Decimal? @db.Decimal(12, 2)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -296,6 +306,8 @@ model DigitalEmployee {
   packages             EmployeePackage[]
   orderItems           OrderItem[]
   cartItems            CartItem[]
+  subscriptionCredits  SubscriptionCredit[]
+  computeUsageRecords  ComputeUsageRecord[]
 
   @@map("digital_employees")
 }
@@ -810,6 +822,10 @@ model Subscription {
   subscriptionQuota      SubscriptionQuota?
   skillVersionSelections SubscriptionSkillVersion[]
 
+  /// 人民币赠送余额（统一算力账本）。订阅时按员工配置生成快照。
+  credit              SubscriptionCredit?
+  computeUsageRecords ComputeUsageRecord[]
+
   /// 一个企业对同一员工只雇佣一次。收敛后这条约束即是「一员工一雇佣关系」
   /// 的全部含义 —— 部门差异化由 KnowledgeGrant.departmentId 表达，
   /// 而非开多份雇佣关系。
@@ -1033,23 +1049,29 @@ enum ExecutionStatus {
 // ============================================================================
 
 /// 企业钱包：统一的资金池，所有充值、订阅、算力消费都从这里扣款。
+/// 企业钱包：企业充值、消费、退款和余额查询的**唯一人民币主账本**。
+///
+/// ⚠️ 精度是 6 位小数而非 2 位，这是刻意的：单条对话的模型成本经常低于 1 分
+/// （便宜模型一次问答约 ¥0.003）。若按分取整，要么四舍五入把这类消费变成免费，
+/// 要么向上取整按 3 倍多收 —— 两种都不可接受。充值/订阅金额仍是整分，
+/// 只有对话消费会用到小数位。展示层统一 toFixed(2)。
 model EnterpriseWallet {
   id           String @id @default(cuid())
   enterpriseId String @unique
 
   /// 可用余额（使用 Decimal 避免浮点精度问题）
-  balance Decimal @default(0) @db.Decimal(10, 2)
+  balance Decimal @default(0) @db.Decimal(14, 6)
 
   /// 冻结金额（退款处理中、订单待支付等）
-  frozenAmount Decimal @default(0) @db.Decimal(10, 2)
+  frozenAmount Decimal @default(0) @db.Decimal(14, 6)
 
   /// 乐观锁版本号（防止并发余额错乱）
   version Int @default(0)
 
   /// 累计统计（只增不减，用于展示）
-  totalDeposit Decimal @default(0) @db.Decimal(10, 2) // 累计充值
-  totalConsume Decimal @default(0) @db.Decimal(10, 2) // 累计消费
-  totalRefund  Decimal @default(0) @db.Decimal(10, 2) // 累计退款
+  totalDeposit Decimal @default(0) @db.Decimal(14, 6) // 累计充值
+  totalConsume Decimal @default(0) @db.Decimal(14, 6) // 累计消费
+  totalRefund  Decimal @default(0) @db.Decimal(14, 6) // 累计退款
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1068,16 +1090,16 @@ model WalletTransaction {
   /// 交易类型
   type WalletTransactionType
 
-  /// 交易金额（正数=入账，负数=出账）
-  amount Decimal @db.Decimal(10, 2)
+  /// 交易金额（正数=入账，负数=出账）。6 位小数，理由见 EnterpriseWallet。
+  amount Decimal @db.Decimal(14, 6)
 
   /// 交易前后余额快照（审计用）
-  balanceBefore Decimal @db.Decimal(10, 2)
-  balanceAfter  Decimal @db.Decimal(10, 2)
+  balanceBefore Decimal @db.Decimal(14, 6)
+  balanceAfter  Decimal @db.Decimal(14, 6)
 
   /// 关联业务实体
   relatedType String? // 'subscription', 'compute', 'payment_order'
-  relatedId   String? // 订阅 ID / 支付订单 ID
+  relatedId   String? // 订阅 ID / 支付订单 ID / 会话 ID
 
   /// 支付相关
   paymentMethod  String? // 'alipay', 'wechat', 'balance'
@@ -1105,6 +1127,123 @@ enum WalletTransactionType {
   ADJUSTMENT // 调整（管理员手动调整）
   FREEZE // 冻结（预留）
   UNFREEZE // 解冻（预留）
+}
+
+// ============================================================================
+// Unified CNY Compute Ledger (统一人民币算力账本)
+// ----------------------------------------------------------------------------
+// 财务口径只有人民币一种。Token 只是用量与定价的输入，不是可扣减余额，
+// 也不是商品价值 —— 它只出现在 ComputeUsageRecord 的明细里。
+//
+// 扣费顺序：SubscriptionCredit（该订阅的赠送余额）→ EnterpriseWallet（企业钱包）
+// ============================================================================
+
+/// 订阅赠送人民币余额。订阅创建时按「员工级 includedComputeCNY > 系统默认值」
+/// 生成一次性快照，之后运营改配置不追溯已有订阅。
+///
+/// 每个订阅至多一笔（subscriptionId 唯一），赠送额度只能用于该订阅对应的
+/// 硅基员工对话 —— 绝不跨订阅串用，否则「按员工赠送」就失去意义。
+model SubscriptionCredit {
+  id String @id @default(cuid())
+
+  subscriptionId String       @unique
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  /// 冗余存企业与员工：账单聚合与多租户校验都需要，避免每次 join 两跳。
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 赠送总额（元）。允许为 0（运营明确不赠送）。
+  grantedCNY Decimal @default(0) @db.Decimal(14, 6)
+  /// 已消耗（元）。剩余 = grantedCNY - usedCNY，恒 >= 0。
+  usedCNY    Decimal @default(0) @db.Decimal(14, 6)
+
+  /// ACTIVE（可用）| EXHAUSTED（已用尽）| EXPIRED（订阅终止，不再可用）
+  status String @default("ACTIVE")
+
+  /// 乐观锁版本号，与钱包同一套并发控制策略
+  version Int @default(0)
+
+  /// 额度来源，用于对账：'subscription'（直接订阅）| 'order'（市场支付）| 'migration'（存量迁移）
+  sourceType String?
+  sourceId   String?
+
+  grantedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usageRecords ComputeUsageRecord[]
+
+  @@index([enterpriseId, status])
+  @@index([employeeId])
+  @@map("subscription_credits")
+}
+
+/// 单次模型调用的用量账单。人民币金额是账务事实，Token 只是审计明细。
+///
+/// idempotencyKey 是防重复扣费的唯一防线：流式对话会因网络重试重复触发计费，
+/// 靠"调用方小心"挡不住。键由 sessionId + messageId 构成，DB 唯一约束兜底。
+model ComputeUsageRecord {
+  id String @id @default(cuid())
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// 订阅/赠送额度关联。SetNull 而非 Cascade：账单是财务记录，
+  /// 订阅被删不该让历史账单凭空消失。
+  subscriptionId String?
+  subscription   Subscription?       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  creditId       String?
+  credit         SubscriptionCredit? @relation(fields: [creditId], references: [id], onDelete: SetNull)
+  employeeId     String?
+  employee       DigitalEmployee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  userId         String?
+  user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// 会话与消息。不建 Message 外键：会话清理策略会删消息，账单要留下。
+  sessionId String?
+  messageId String?
+
+  // ── 计价输入（账单可复核：改价改汇率后旧账单仍能解释当时的金额）──────────
+  modelId                  String
+  inputTokens              Int
+  outputTokens             Int
+  /// 输入/输出单价（美元 / 1M tokens）
+  inputPriceUsdPerMillion  Decimal @db.Decimal(14, 6)
+  outputPriceUsdPerMillion Decimal @db.Decimal(14, 6)
+  /// 本次入账使用的美元汇率
+  usdToCnyRate             Decimal @db.Decimal(10, 4)
+  /// true = 该模型未配价，按保底价计费
+  fallbackPricing          Boolean @default(false)
+
+  // ── 金额（元）───────────────────────────────────────────────────────────
+  /// 本次真实成本
+  costCNY       Decimal @db.Decimal(14, 6)
+  /// 由订阅赠送余额承担的部分
+  creditPaidCNY Decimal @default(0) @db.Decimal(14, 6)
+  /// 由企业钱包承担的部分
+  walletPaidCNY Decimal @default(0) @db.Decimal(14, 6)
+  /// 欠费：赠送余额与钱包都不够时的差额。
+  /// 余额永不为负是硬约束，所以这里如实记录差额而不是让扣款失败 ——
+  /// 扣款失败会连"这次消费发生过"一起丢掉，对账时无从解释。
+  /// 恒等式：creditPaidCNY + walletPaidCNY + unpaidCNY == costCNY
+  unpaidCNY     Decimal @default(0) @db.Decimal(14, 6)
+
+  /// 业务幂等键：`${sessionId}:${messageId}`。重试命中唯一约束即视为已计费。
+  idempotencyKey String @unique
+
+  /// 钱包扣款流水（仅当 walletPaidCNY > 0）
+  walletTransactionId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([enterpriseId, createdAt(sort: Desc)])
+  @@index([subscriptionId, createdAt(sort: Desc)])
+  @@index([sessionId])
+  @@index([creditId])
+  @@map("compute_usage_records")
 }
 
 /// 支付订单：充值、订阅支付的订单记录。
@@ -1187,9 +1326,10 @@ model ComputeAccount {
 // Enterprise Compute Allocation (企业算力分配体系)
 // ============================================================================
 
-/// 用户个人配额（碳基员工）
-/// 管理员从企业可分配池中为成员分配的 token 预算。
-/// 当前硅基员工的订阅赠送额度不足后，才从这里扣除。
+/// 用户个人配额（碳基员工）—— Token 预算。
+///
+/// ⚠️ 历史模型。统一人民币口径后**不再参与对话扣减**，仅保留历史数据可读。
+/// 新的扣费链路：SubscriptionCredit → EnterpriseWallet。
 model UserQuota {
   id     String @id @default(cuid())
   userId String
@@ -1218,8 +1358,10 @@ model UserQuota {
   @@map("user_quotas")
 }
 
-/// 订阅配额（硅基员工自带）
-/// 订阅创建时自动生成，只用于该订阅对应硅基员工的对话，优先消耗。
+/// 订阅配额（硅基员工自带）—— Token 额度。
+///
+/// ⚠️ 历史模型。已被 SubscriptionCredit（人民币赠送余额）取代：
+/// 新订阅不再创建本表记录，对话也不再从这里扣减。仅保留迁移期展示与对账。
 model SubscriptionQuota {
   id             String       @id @default(cuid())
   subscriptionId String       @unique
@@ -1242,8 +1384,10 @@ model SubscriptionQuota {
   @@map("subscription_quotas")
 }
 
-/// 企业可分配池
-/// 企业购买的 token 池，由管理员分配给碳基员工；不参与对话自动扣减。
+/// 企业可分配池 —— Token 池。
+///
+/// ⚠️ 历史模型。统一人民币口径后企业充值只进 EnterpriseWallet，
+/// 不再生成 Token 配额作为消费来源。仅保留历史数据可读。
 model ComputeQuota {
   id           String     @id @default(cuid())
   enterpriseId String

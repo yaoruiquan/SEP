@@ -38,6 +38,10 @@ export class DigitalEmployeeService {
       modelId: dto.modelId,
       maxSteps: dto.maxSteps,
       price: dto.price,
+      annualPriceCNY: dto.annualPriceCNY,
+      // 显式传 undefined 而非 0：null/undefined 表示「未配置，用系统默认赠送金额」，
+      // 0 是运营明确的「不赠送」。落成 0 会让默认值永远不生效。
+      includedComputeCNY: dto.includedComputeCNY ?? undefined,
     };
 
     if (dto.capabilityIds.length > 0) {

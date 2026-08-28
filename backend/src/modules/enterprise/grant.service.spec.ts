@@ -45,6 +45,8 @@ describe("GrantService", () => {
       subscription: { findUnique: jest.fn() },
       department: { findUnique: jest.fn() },
       enterpriseMember: { findUnique: jest.fn() },
+      // myEmployees 会批量补上每个员工的赠送余额；默认「没有赠送记录」
+      subscriptionCredit: { findMany: jest.fn().mockResolvedValue([]) },
     };
     ctx = {
       resolve: jest.fn().mockResolvedValue(ADMIN_CTX),

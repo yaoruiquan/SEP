@@ -211,7 +211,10 @@ export default function AdminEmployeesPage() {
                                 ¥{Number(emp.annualPriceCNY).toLocaleString()}/年
                               </span>
                               <span className="text-xs text-fg-subtle">
-                                含 ¥{Number(emp.includedComputeCNY || 0).toLocaleString()} 算力
+                                {/* null = 未配置，订阅时取系统默认值。显示 ¥0 会让运营误以为不赠送 */}
+                                {emp.includedComputeCNY === null
+                                  ? '赠送算力用系统默认值'
+                                  : `含 ¥${Number(emp.includedComputeCNY).toLocaleString()} 赠送算力`}
                               </span>
                             </div>
                           ) : (

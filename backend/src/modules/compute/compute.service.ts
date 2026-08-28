@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -12,6 +13,77 @@ import type {
   TopConsumersResponse,
 } from './dto/consumption-log.dto';
 
+const EMPTY_LOG_PAGE: { logs: ConsumptionLog[]; total: number } = {
+  logs: [],
+  total: 0,
+};
+
+type UsageRecordWithRelations = Prisma.ComputeUsageRecordGetPayload<{
+  include: {
+    employee: { select: { id: true; name: true } };
+    user: { select: { id: true; name: true; email: true } };
+    subscription: { select: { name: true } };
+  };
+}>;
+
+type SubscriptionWithEmployee = Prisma.SubscriptionGetPayload<{
+  include: { employee: { select: { id: true; name: true } } };
+}>;
+
+/**
+ * 一次模型调用 → 一条消费日志。
+ *
+ * amount 用负数保持与钱包流水一致的符号约定（前端按 `Math.abs` 展示）。
+ * creditPaid / walletPaid 拆开给出，回答用户最常问的「这笔钱从哪扣的」。
+ */
+function toComputeLog(record: UsageRecordWithRelations): ConsumptionLog {
+  return {
+    id: record.id,
+    createdAt: record.createdAt.toISOString(),
+    type: 'COMPUTE',
+    amount: record.costCNY.neg().toString(),
+    employeeName:
+      record.subscription?.name ?? record.employee?.name ?? '硅基员工',
+    employeeId: record.employeeId ?? '',
+    memberName: record.user?.name ?? record.user?.email ?? null,
+    memberId: record.userId,
+    detail: {
+      sessionId: record.sessionId ?? undefined,
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      tokenCount: record.inputTokens + record.outputTokens,
+      modelName: record.modelId,
+      creditPaidCNY: record.creditPaidCNY.toString(),
+      walletPaidCNY: record.walletPaidCNY.toString(),
+      unpaidCNY: record.unpaidCNY.toString(),
+      fallbackPricing: record.fallbackPricing,
+    },
+  };
+}
+
+/** 一笔订阅费扣款 → 一条消费日志。 */
+function toSubscriptionLog(
+  tx: { id: string; createdAt: Date; amount: Prisma.Decimal; metadata: unknown },
+  subscription: SubscriptionWithEmployee,
+): ConsumptionLog {
+  const metadata = (tx.metadata ?? {}) as { billingCycle?: string };
+  return {
+    id: tx.id,
+    createdAt: tx.createdAt.toISOString(),
+    type: 'SUBSCRIPTION',
+    amount: tx.amount.toString(),
+    employeeName: subscription.name ?? subscription.employee.name,
+    employeeId: subscription.employeeId,
+    memberName: null,
+    memberId: null,
+    detail: {
+      subscriptionId: subscription.id,
+      planName: subscription.employee.name,
+      billingCycle: metadata.billingCycle,
+    },
+  };
+}
+
 @Injectable()
 export class ComputeService {
   constructor(
@@ -23,7 +95,11 @@ export class ComputeService {
   // ── 账户信息 ──────────────────────────────────────────────────────────────
 
   /**
-   * @deprecated 使用 WalletService.getBalance() 替代
+   * 取（或建）企业的 ComputeAccount。
+   *
+   * ⚠️ 它的 `balance` 已是废弃字段，**不要读它当余额** —— 真实余额在
+   * EnterpriseWallet。这里只是因为 RechargeOrder.accountId 外键指向它，
+   * 充值订单仍需要一个 accountId。余额查询请用 WalletService.getBalance()。
    */
   async getAccount(userId: string) {
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
@@ -32,7 +108,6 @@ export class ComputeService {
       where: { enterpriseId },
     });
 
-    // 自动创建账户（如果不存在）
     if (!account) {
       account = await this.prisma.computeAccount.create({
         data: { enterpriseId, balance: 0 },
@@ -44,10 +119,15 @@ export class ComputeService {
 
   // ── 统计数据 ──────────────────────────────────────────────────────────────
 
+  /**
+   * 企业算力统计。
+   *
+   * 余额读钱包，消费读 ComputeUsageRecord —— 后者是全量的。若消费也读钱包流水，
+   * 由订阅赠送余额承担的那部分对话不会产生流水，统计出来的消费会系统性偏低。
+   */
   async getStats(userId: string) {
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
 
-    // 从钱包获取余额
     const walletBalance = await this.walletService.getBalance(enterpriseId);
 
     const now = new Date();
@@ -55,49 +135,35 @@ export class ComputeService {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // 今日消费 - 从钱包交易记录统计
-    const todayTransactions = await this.prisma.walletTransaction.findMany({
-      where: {
-        wallet: { enterpriseId },
-        type: 'CONSUME',
-        relatedType: 'compute',
-        createdAt: { gte: todayStart },
-      },
-    });
-
-    // 本月消费
-    const monthTransactions = await this.prisma.walletTransaction.findMany({
-      where: {
-        wallet: { enterpriseId },
-        type: 'CONSUME',
-        relatedType: 'compute',
-        createdAt: { gte: monthStart },
-      },
-    });
-
-    // 最近30天趋势
-    const trendData = await this.prisma.$queryRaw<Array<{ date: string; amount: string }>>`
-      SELECT
-        DATE(wt."createdAt") as date,
-        SUM(ABS(wt.amount)) as amount
-      FROM wallet_transactions wt
-      INNER JOIN enterprise_wallets ew ON wt."walletId" = ew.id
-      WHERE
-        ew."enterpriseId" = ${enterpriseId}
-        AND wt.type = 'CONSUME'
-        AND wt."relatedType" = 'compute'
-        AND wt."createdAt" >= ${last30Days}
-      GROUP BY DATE(wt."createdAt")
-      ORDER BY date ASC
-    `;
+    const [today, month, trendData] = await Promise.all([
+      this.prisma.computeUsageRecord.aggregate({
+        where: { enterpriseId, createdAt: { gte: todayStart } },
+        _sum: { costCNY: true },
+      }),
+      this.prisma.computeUsageRecord.aggregate({
+        where: { enterpriseId, createdAt: { gte: monthStart } },
+        _sum: { costCNY: true },
+      }),
+      this.prisma.$queryRaw<Array<{ date: string; amount: string }>>`
+        SELECT
+          DATE(cur."createdAt") as date,
+          SUM(cur."costCNY") as amount
+        FROM compute_usage_records cur
+        WHERE
+          cur."enterpriseId" = ${enterpriseId}
+          AND cur."createdAt" >= ${last30Days}
+        GROUP BY DATE(cur."createdAt")
+        ORDER BY date ASC
+      `,
+    ]);
 
     return {
       balance: walletBalance.balance,
-      todayConsume: todayTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0),
-      monthConsume: monthTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0),
+      todayConsume: Number(today._sum.costCNY ?? 0),
+      monthConsume: Number(month._sum.costCNY ?? 0),
       trendData: trendData.map((d) => ({
         date: d.date,
-        amount: Math.abs(Number(d.amount)),
+        amount: Number(d.amount),
       })),
     };
   }
@@ -164,28 +230,15 @@ export class ComputeService {
   // ── 充值 ──────────────────────────────────────────────────────────────────
 
   /**
-   * @deprecated 旧的模拟充值接口，已废弃。请使用 createRechargeOrder() 创建支付订单。
+   * 模拟充值接口，已停用。
+   *
+   * 它往 ComputeAccount.balance 写数 —— 那已经不是真实余额了。留着会让人以为
+   * 充值成功，实际余额（EnterpriseWallet）分文未动。走 createRechargeOrder()。
    */
-  async recharge(userId: string, data: RechargeCreateDto) {
-    const account = await this.getAccount(userId);
-
-    // 创建充值交易记录
-    const transaction = await this.prisma.computeTransaction.create({
-      data: {
-        accountId: account.id,
-        type: 'RECHARGE',
-        amount: data.amount,
-        description: data.description || '账户充值',
-      },
-    });
-
-    // 更新余额
-    await this.prisma.computeAccount.update({
-      where: { id: account.id },
-      data: { balance: { increment: data.amount } },
-    });
-
-    return transaction;
+  async recharge(_userId: string, _data: RechargeCreateDto): Promise<never> {
+    throw new BadRequestException(
+      '该充值接口已停用，请通过 /wallet/recharge 创建支付订单充值企业钱包',
+    );
   }
 
   // ── 充值订单（新接口） ────────────────────────────────────────────────────
@@ -306,186 +359,164 @@ export class ComputeService {
 
   // ── 消费日志 ──────────────────────────────────────────────────────────────
 
+  /**
+   * 消费日志：算力消费 + 订阅消费，统一以人民币金额为主口径。
+   *
+   * 两类消费来自不同的表，这是刻意的：
+   *  - 算力消费读 ComputeUsageRecord。**不能读钱包流水** —— 由赠送余额全额承担的
+   *    对话不产生钱包流水，那样会让一整批消费从日志里消失。
+   *  - 订阅消费读 WalletTransaction(relatedType='subscription')，那本来就是钱包支出。
+   *
+   * 合并分页的做法：各取到当前页深度后在内存里归并排序再切片。SQL 层做 UNION
+   * 才能真正流式分页，但两张表的形状差异大，为一个明细页引入裸 SQL 不值得。
+   */
   async getConsumptionLogs(
     userId: string,
     query: ConsumptionLogQuery,
   ): Promise<ConsumptionLogResponse> {
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
+    const page = Math.max(1, query.page || 1);
+    const pageSize = Math.min(100, Math.max(1, query.pageSize || 20));
+    const createdAt = this.buildDateRange(query.startDate, query.endDate);
+    const depth = page * pageSize;
 
-    // 构建查询条件
-    const where: any = {
-      wallet: { enterpriseId },
-      type: 'CONSUME',
-      relatedType: { in: ['compute', 'subscription'] },
+    const wantCompute = query.type !== 'SUBSCRIPTION';
+    // 订阅费是企业级支出，没有具体使用成员。按成员筛选时它必然不匹配，
+    // 直接跳过查询而不是查回来再过滤掉。
+    const wantSubscription = query.type !== 'COMPUTE' && !query.memberId;
+
+    const [compute, subscription] = await Promise.all([
+      wantCompute
+        ? this.loadComputeLogs(enterpriseId, query, createdAt, depth)
+        : EMPTY_LOG_PAGE,
+      wantSubscription
+        ? this.loadSubscriptionLogs(enterpriseId, query, createdAt, depth)
+        : EMPTY_LOG_PAGE,
+    ]);
+
+    const merged = [...compute.logs, ...subscription.logs].sort(
+      (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+    );
+    const total = compute.total + subscription.total;
+
+    return {
+      logs: merged.slice((page - 1) * pageSize, page * pageSize),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
+  }
+
+  /** 起止日期转成覆盖整天的区间；两者都缺时返回 undefined 以免多加一个空条件。 */
+  private buildDateRange(
+    startDate?: string,
+    endDate?: string,
+  ): Prisma.DateTimeFilter | undefined {
+    if (!startDate && !endDate) return undefined;
+    const filter: Prisma.DateTimeFilter = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      filter.gte = start;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.lte = end;
+    }
+    return filter;
+  }
+
+  /** 算力消费：一行 = 一次模型调用。金额是真实成本，Token 是明细。 */
+  private async loadComputeLogs(
+    enterpriseId: string,
+    query: ConsumptionLogQuery,
+    createdAt: Prisma.DateTimeFilter | undefined,
+    depth: number,
+  ): Promise<{ logs: ConsumptionLog[]; total: number }> {
+    const where: Prisma.ComputeUsageRecordWhereInput = {
+      enterpriseId,
+      ...(query.employeeId && { employeeId: query.employeeId }),
+      ...(query.memberId && { userId: query.memberId }),
+      ...(createdAt && { createdAt }),
     };
 
-    // 类型筛选
-    if (query.type === 'COMPUTE') {
-      where.relatedType = 'compute';
-    } else if (query.type === 'SUBSCRIPTION') {
-      where.relatedType = 'subscription';
-    }
-
-    // 日期筛选
-    if (query.startDate || query.endDate) {
-      where.createdAt = {};
-      if (query.startDate) {
-        const start = new Date(query.startDate);
-        start.setHours(0, 0, 0, 0);
-        where.createdAt.gte = start;
-      }
-      if (query.endDate) {
-        const end = new Date(query.endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
-      }
-    }
-
-    const page = query.page || 1;
-    const pageSize = query.pageSize || 20;
-
-    // 查询交易记录
-    const [total, transactions] = await Promise.all([
-      this.prisma.walletTransaction.count({ where }),
-      this.prisma.walletTransaction.findMany({
+    const [total, records] = await Promise.all([
+      this.prisma.computeUsageRecord.count({ where }),
+      this.prisma.computeUsageRecord.findMany({
         where,
+        include: {
+          employee: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true, email: true } },
+          subscription: { select: { name: true } },
+        },
         orderBy: { createdAt: 'desc' },
-        take: pageSize,
-        skip: (page - 1) * pageSize,
+        take: depth,
       }),
     ]);
 
-    // 提取所有需要查询的 ID
-    const sessionIds = transactions
-      .filter((tx) => tx.relatedType === 'compute' && tx.relatedId)
-      .map((tx) => tx.relatedId);
+    return { total, logs: records.map((r) => toComputeLog(r)) };
+  }
+
+  /** 订阅消费：一行 = 一笔订阅费扣款，来源是钱包流水。 */
+  private async loadSubscriptionLogs(
+    enterpriseId: string,
+    query: ConsumptionLogQuery,
+    createdAt: Prisma.DateTimeFilter | undefined,
+    depth: number,
+  ): Promise<{ logs: ConsumptionLog[]; total: number }> {
+    const where: Prisma.WalletTransactionWhereInput = {
+      wallet: { enterpriseId },
+      type: 'CONSUME',
+      relatedType: 'subscription',
+      ...(createdAt && { createdAt }),
+    };
+
+    const transactions = await this.prisma.walletTransaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: depth,
+    });
 
     const subscriptionIds = transactions
-      .filter((tx) => tx.relatedType === 'subscription' && tx.relatedId)
-      .map((tx) => tx.relatedId);
+      .map((tx) => tx.relatedId)
+      .filter((id): id is string => !!id);
 
-    // 批量查询关联数据
-    const [sessions, subscriptions] = await Promise.all([
-      sessionIds.length > 0
-        ? this.prisma.conversationSession.findMany({
-            where: { id: { in: sessionIds } },
-            include: {
-              user: { select: { id: true, name: true, email: true } },
-              employee: { select: { id: true, name: true } },
-            },
-          })
-        : [],
-      subscriptionIds.length > 0
-        ? this.prisma.subscription.findMany({
-            where: { id: { in: subscriptionIds } },
-            include: {
-              employee: { select: { id: true, name: true } },
-            },
-          })
-        : [],
-    ]);
+    const subscriptions = subscriptionIds.length
+      ? await this.prisma.subscription.findMany({
+          where: { id: { in: subscriptionIds } },
+          include: { employee: { select: { id: true, name: true } } },
+        })
+      : [];
+    const byId = new Map(subscriptions.map((s) => [s.id, s]));
 
-    // 构建查找映射
-    const sessionMap = new Map(
-      sessions.map((s) => [s.id, s] as [string, typeof sessions[0]]),
-    );
-    const subscriptionMap = new Map(
-      subscriptions.map((s) => [s.id, s] as [string, typeof subscriptions[0]]),
-    );
-
-    // 转换为日志格式
-    const logs: ConsumptionLog[] = transactions
+    // 员工筛选只能在拿到订阅后做（钱包流水上没有 employeeId），
+    // 所以 total 也要按过滤后的结果算，否则分页数字对不上。
+    const logs = transactions
       .map((tx) => {
-        if (tx.relatedType === 'compute' && tx.relatedId) {
-          const session = sessionMap.get(tx.relatedId);
-          if (!session) return null;
-
-          // 筛选：员工筛选
-          if (query.employeeId && session.employeeId !== query.employeeId) {
-            return null;
-          }
-
-          // 筛选：成员筛选
-          if (query.memberId && session.userId !== query.memberId) {
-            return null;
-          }
-
-          const metadata = tx.metadata as any;
-          const detail: ConsumptionLog['detail'] = {
-            sessionId: session.id,
-            conversationTitle: session.title,
-            tokenCount: metadata?.tokenCount,
-            modelName: metadata?.modelName,
-          };
-
-          return {
-            id: tx.id,
-            createdAt: tx.createdAt.toISOString(),
-            type: 'COMPUTE' as const,
-            amount: tx.amount.toString(),
-            employeeName: session.employee.name,
-            employeeId: session.employeeId,
-            memberName: session.user.name || session.user.email,
-            memberId: session.userId,
-            detail,
-          };
-        } else if (tx.relatedType === 'subscription' && tx.relatedId) {
-          const subscription = subscriptionMap.get(tx.relatedId);
-          if (!subscription) return null;
-
-          // 筛选：员工筛选
-          if (query.employeeId && subscription.employeeId !== query.employeeId) {
-            return null;
-          }
-
-          // 订阅消费没有具体的成员（企业级）
-          if (query.memberId) {
-            return null;
-          }
-
-          const metadata = tx.metadata as any;
-          const detail: ConsumptionLog['detail'] = {
-            subscriptionId: subscription.id,
-            planName: subscription.employee.name, // 直接用员工名称
-            billingCycle: metadata?.billingCycle,
-          };
-
-          return {
-            id: tx.id,
-            createdAt: tx.createdAt.toISOString(),
-            type: 'SUBSCRIPTION' as const,
-            amount: tx.amount.toString(),
-            employeeName: subscription.employee.name,
-            employeeId: subscription.employeeId,
-            memberName: null,
-            memberId: null,
-            detail,
-          };
-        }
-
-        return null;
+        const sub = tx.relatedId ? byId.get(tx.relatedId) : undefined;
+        if (!sub) return null;
+        if (query.employeeId && sub.employeeId !== query.employeeId) return null;
+        return toSubscriptionLog(tx, sub);
       })
       .filter((log): log is ConsumptionLog => log !== null);
 
-    // 重新计算分页信息（因为过滤后数量可能变化）
-    const filteredTotal = logs.length;
-    const totalPages = Math.ceil(filteredTotal / pageSize);
-
-    return {
-      logs,
-      total: filteredTotal,
-      page,
-      pageSize,
-      totalPages,
-    };
+    return { total: logs.length, logs };
   }
 
   // ── Top 消费排行 ──────────────────────────────────────────────────────────
 
+  /**
+   * 消费排行（近 30 天，按员工聚合人民币成本）。
+   *
+   * 数据源是 ComputeUsageRecord：它自带 enterpriseId 与 employeeId，
+   * 不用像旧实现那样从钱包流水绕 relatedId → session → employee 三跳，
+   * 也不会漏掉由赠送余额承担的消费。
+   */
   async getTopConsumers(userId: string, limit = 5): Promise<TopConsumersResponse> {
     const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
 
-    // 查询最近 30 天的算力消费（按员工聚合）
     const last30Days = new Date();
     last30Days.setDate(last30Days.getDate() - 30);
 
@@ -502,17 +533,13 @@ export class ComputeService {
         de.id as "employeeId",
         de.name as "employeeName",
         de.avatar as "employeeAvatar",
-        SUM(ABS(wt.amount)) as "totalAmount",
+        SUM(cur."costCNY") as "totalAmount",
         COUNT(*) as "callCount"
-      FROM wallet_transactions wt
-      INNER JOIN enterprise_wallets ew ON wt."walletId" = ew.id
-      INNER JOIN conversation_sessions cs ON wt."relatedId" = cs.id
-      INNER JOIN digital_employees de ON cs."employeeId" = de.id
+      FROM compute_usage_records cur
+      INNER JOIN digital_employees de ON cur."employeeId" = de.id
       WHERE
-        ew."enterpriseId" = ${enterpriseId}
-        AND wt.type = 'CONSUME'
-        AND wt."relatedType" = 'compute'
-        AND wt."createdAt" >= ${last30Days}
+        cur."enterpriseId" = ${enterpriseId}
+        AND cur."createdAt" >= ${last30Days}
       GROUP BY de.id, de.name, de.avatar
       ORDER BY "totalAmount" DESC
       LIMIT ${limit}

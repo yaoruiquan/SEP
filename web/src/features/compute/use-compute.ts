@@ -131,30 +131,24 @@ export function useReconcileRechargeOrder() {
   });
 }
 
-/**
- * @deprecated 旧的模拟充值接口，已废弃。请使用 useCreateRechargeOrder() 创建支付订单。
- */
-export function useRecharge() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: { amount: number; description?: string }) =>
-      api.post<ComputeTransaction>('/compute/recharge', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['compute', 'account'] });
-      queryClient.invalidateQueries({ queryKey: ['compute', 'stats'] });
-      queryClient.invalidateQueries({ queryKey: ['compute', 'transactions'] });
-    },
-  });
-}
-
 // ── Consumption Logs ───────────────────────────────────────────────────────
 
 export interface ConsumptionLogDetail {
   sessionId?: string;
   conversationTitle?: string;
+  /** 输入 + 输出。用量明细，金额不由它推导 */
   tokenCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   modelName?: string;
+  /** 本次消费由订阅赠送余额承担的金额（元） */
+  creditPaidCNY?: string;
+  /** 本次消费由企业钱包承担的金额（元） */
+  walletPaidCNY?: string;
+  /** > 0 表示余额不足，这部分未能扣款 */
+  unpaidCNY?: string;
+  /** true = 该模型未配价，按保底价计费 */
+  fallbackPricing?: boolean;
   subscriptionId?: string;
   planName?: string;
   billingCycle?: string;

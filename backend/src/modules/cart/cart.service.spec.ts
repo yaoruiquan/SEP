@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CartService } from './cart.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 
 describe('CartService', () => {
@@ -29,6 +30,16 @@ describe('CartService', () => {
       providers: [
         CartService,
         { provide: PrismaService, useValue: prisma },
+        {
+          // 购物车展示的赠送算力要和下单/履约同源（员工级配置 > 系统默认值）。
+          // 默认直接回落员工级配置，未配置时按 0。
+          provide: SubscriptionFulfillmentService,
+          useValue: {
+            resolveGiftCNY: jest.fn(async (override: unknown) =>
+              override === null || override === undefined ? 0 : Number(override),
+            ),
+          },
+        },
       ],
     }).compile();
 

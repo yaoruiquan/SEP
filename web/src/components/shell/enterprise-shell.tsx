@@ -103,7 +103,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: '服务',
     links: [
       { href: '/wallet', label: '企业钱包', icon: Wallet, adminOnly: true },
-      { href: '/compute-quota', label: '算力配额', icon: Gauge, adminOnly: true },
+      { href: '/compute-quota', label: '算力余额', icon: Gauge, adminOnly: true },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
     ],
   },
@@ -127,7 +127,7 @@ const CRUMBS: CrumbMap = {
   contributions: nav.contributions,
   skills: nav.contributions,
   wallet: '企业钱包',
-  'compute-quota': '算力配额',
+  'compute-quota': '算力余额',
   recharge: '充值',
   new: '新建',
   edit: '编辑',

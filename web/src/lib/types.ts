@@ -222,6 +222,15 @@ export interface Subscription {
     DigitalEmployee,
     'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'functionalCategory' | 'status' | 'version'
   >;
+
+  // ── 订阅赠送算力余额（人民币，Decimal 序列化为字符串）─────────────────────
+  /** 订阅时按「员工级配置 > 系统默认值」生成的赠送金额快照 */
+  giftGrantedCNY: string;
+  giftUsedCNY: string;
+  /** 剩余可用赠送金额。订阅终止（giftStatus=EXPIRED）时后端已归零 */
+  giftRemainingCNY: string;
+  /** ACTIVE 可用 · EXHAUSTED 已用尽 · EXPIRED 订阅已终止 · NONE 无赠送记录 */
+  giftStatus: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
 }
 
 export interface ConversationSession {
@@ -434,6 +443,13 @@ export interface MyEmployee {
   expiresAt: string | null;
   /** 运营是否已上传员工包；false 时下载按钮应禁用 */
   packageAvailable?: boolean;
+
+  // ── 订阅赠送算力余额（元，Decimal 序列化为字符串）───────────────────────
+  giftGrantedCNY?: string;
+  giftUsedCNY?: string;
+  /** 剩余可用赠送金额。非 ACTIVE 状态一律为 '0.00' */
+  giftRemainingCNY?: string;
+  giftStatus?: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
 }
 
 /** 员工包的一个已发布版本 */

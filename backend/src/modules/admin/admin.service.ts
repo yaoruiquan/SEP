@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType } from '@prisma/client';
@@ -220,10 +221,10 @@ export class AdminService {
         skip,
         take: pageSize,
         include: {
-          computeAccount: {
-            select: {
-              balance: true,
-            },
+          // 余额读钱包，不读 ComputeAccount.balance —— 后者已停止写入，
+          // 继续读它会让运营端看到一个永远不变的假余额。
+          wallet: {
+            select: { balance: true },
           },
           _count: {
             select: {
@@ -240,7 +241,7 @@ export class AdminService {
     return {
       data: enterprises.map((e) => ({
         ...e,
-        balance: e.computeAccount?.balance || 0,
+        balance: Number(e.wallet?.balance ?? 0),
         memberCount: e._count.members,
         subscriptionCount: e._count.subscriptions,
         suspended: (e.metadata as any)?.suspended === true,
@@ -254,6 +255,13 @@ export class AdminService {
 
   /**
    * 获取平台级算力交易记录
+   */
+  /**
+   * 平台级资金流水。数据源是 WalletTransaction（唯一主账本），
+   * 不再是 ComputeTransaction —— 后者已停止写入。
+   *
+   * 对外的 type 参数保持 RECHARGE / CONSUME / REFUND 不变，内部映射到钱包类型，
+   * 这样运营端筛选器不用跟着改。金额单位是元。
    */
   async getComputeTransactions(params: {
     type?: 'RECHARGE' | 'CONSUME' | 'REFUND';
@@ -272,43 +280,31 @@ export class AdminService {
       pageSize = 20,
     } = params;
 
-    const where: any = {};
+    const typeMap = {
+      RECHARGE: 'DEPOSIT',
+      CONSUME: 'CONSUME',
+      REFUND: 'REFUND',
+    } as const;
 
-    // Filter by transaction type
-    if (type) {
-      where.type = type;
-    }
+    const where: Prisma.WalletTransactionWhereInput = {
+      ...(type && { type: typeMap[type] }),
+      ...(enterpriseId && { wallet: { enterpriseId } }),
+    };
 
-    // Filter by enterprise (through account relationship)
-    if (enterpriseId) {
-      where.account = {
-        enterpriseId,
+    if (startDate || endDate) {
+      where.createdAt = {
+        ...(startDate && { gte: startDate }),
+        ...(endDate && { lte: endDate }),
       };
     }
 
-    // Filter by date range
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) {
-        where.createdAt.gte = startDate;
-      }
-      if (endDate) {
-        where.createdAt.lte = endDate;
-      }
-    }
-
     const [transactions, total] = await Promise.all([
-      this.prisma.computeTransaction.findMany({
+      this.prisma.walletTransaction.findMany({
         where,
         include: {
-          account: {
-            include: {
-              enterprise: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
+          wallet: {
+            select: {
+              enterprise: { select: { id: true, name: true } },
             },
           },
         },
@@ -316,19 +312,28 @@ export class AdminService {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.computeTransaction.count({ where }),
+      this.prisma.walletTransaction.count({ where }),
     ]);
+
+    const reverseTypeMap: Record<string, 'RECHARGE' | 'CONSUME' | 'REFUND'> = {
+      DEPOSIT: 'RECHARGE',
+      CONSUME: 'CONSUME',
+      REFUND: 'REFUND',
+      ADJUSTMENT: 'RECHARGE',
+    };
 
     return {
       data: transactions.map((t) => ({
         id: t.id,
-        type: t.type,
-        amount: t.amount,
+        type: reverseTypeMap[t.type] ?? t.type,
+        amount: Number(t.amount),
+        balanceAfter: Number(t.balanceAfter),
         description: t.description,
         metadata: t.metadata,
         createdAt: t.createdAt,
-        sessionId: t.sessionId,
-        enterprise: t.account.enterprise,
+        // 算力消费的 relatedId 就是会话 ID（见 WalletService.consumeComputeUpTo）
+        sessionId: t.relatedType === 'compute' ? t.relatedId : null,
+        enterprise: t.wallet.enterprise,
       })),
       total,
       page,
@@ -452,6 +457,8 @@ export class AdminService {
     modelId?: string;
     maxSteps?: number;
     price?: number;
+    annualPriceCNY?: number;
+    includedComputeCNY?: number | null;
     operatorId: string;
   }) {
     const employee = await this.prisma.digitalEmployee.create({
@@ -465,6 +472,10 @@ export class AdminService {
         modelId: data.modelId || 'gpt-4o',
         maxSteps: data.maxSteps || 10,
         price: data.price,
+        annualPriceCNY: data.annualPriceCNY,
+        // null/undefined 都落成 NULL = 「未配置，订阅时取系统默认赠送金额」。
+        // 不要 `|| 0`：那会把「未配置」变成运营明确的「不赠送」。
+        includedComputeCNY: data.includedComputeCNY ?? undefined,
         status: 'DRAFT',
         version: '1.0.0',
       },
@@ -488,6 +499,8 @@ export class AdminService {
       modelId?: string;
       maxSteps?: number;
       price?: number;
+      annualPriceCNY?: number;
+      includedComputeCNY?: number | null;
     },
     operatorId: string,
   ) {
@@ -511,6 +524,10 @@ export class AdminService {
         modelId: data.modelId,
         maxSteps: data.maxSteps,
         price: data.price,
+        annualPriceCNY: data.annualPriceCNY,
+        // 显式传 null 表示「清除员工级覆盖，回落系统默认值」；
+        // 省略字段（undefined）表示不改动。这两者必须区分开。
+        includedComputeCNY: data.includedComputeCNY,
       },
     });
   }
@@ -1162,18 +1179,16 @@ export class AdminService {
       }),
       this.prisma.digitalEmployee.count({ where: { status: 'APPROVED' } }),
       this.prisma.digitalEmployee.count({ where: { status: 'PENDING' } }),
-      // 今日算力消费
-      this.prisma.computeTransaction.aggregate({
-        where: { type: 'CONSUME', createdAt: { gte: todayStart, lte: todayEnd } },
-        _sum: { amount: true },
+      // 今日算力消费。统一人民币口径后数据源是 ComputeUsageRecord ——
+      // ComputeTransaction 已停止写入，继续读它会让运营看板从改版当天起冻结。
+      this.prisma.computeUsageRecord.aggregate({
+        where: { createdAt: { gte: todayStart, lte: todayEnd } },
+        _sum: { costCNY: true, inputTokens: true, outputTokens: true },
       }),
       // 昨日算力消费（用于趋势比较）
-      this.prisma.computeTransaction.aggregate({
-        where: {
-          type: 'CONSUME',
-          createdAt: { gte: yesterdayStart, lt: todayStart },
-        },
-        _sum: { amount: true },
+      this.prisma.computeUsageRecord.aggregate({
+        where: { createdAt: { gte: yesterdayStart, lt: todayStart } },
+        _sum: { costCNY: true, inputTokens: true, outputTokens: true },
       }),
       // 今日活跃用户（有会话的不重复用户数）
       this.prisma.conversationSession.findMany({
@@ -1198,9 +1213,14 @@ export class AdminService {
       // 待审核能力
       this.prisma.capability.count({ where: { status: 'PENDING' } }),
       // 近 30 天按日汇总的算力消费
-      this.prisma.computeTransaction.findMany({
-        where: { type: 'CONSUME', createdAt: { gte: thirtyDaysAgo } },
-        select: { amount: true, createdAt: true },
+      this.prisma.computeUsageRecord.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        select: {
+          costCNY: true,
+          inputTokens: true,
+          outputTokens: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'asc' },
       }),
       // 近 30 天企业注册记录
@@ -1209,13 +1229,12 @@ export class AdminService {
         select: { createdAt: true },
         orderBy: { createdAt: 'asc' },
       }),
-      // Top 10 企业（按算力消费 sum）
-      // ComputeTransaction 没有 enterpriseId，只能按 accountId 聚合后再回查企业
-      this.prisma.computeTransaction.groupBy({
-        by: ['accountId'],
-        where: { type: 'CONSUME' },
-        _sum: { amount: true },
-        orderBy: { _sum: { amount: 'asc' } }, // 消费是负数，升序 = 消费最多
+      // Top 10 企业（按算力消费金额）。ComputeUsageRecord 自带 enterpriseId，
+      // 不必再像旧的 ComputeTransaction 那样绕 accountId 回查。
+      this.prisma.computeUsageRecord.groupBy({
+        by: ['enterpriseId'],
+        _sum: { costCNY: true, inputTokens: true, outputTokens: true },
+        orderBy: { _sum: { costCNY: 'desc' } },
         take: 10,
       }),
       // Top 10 员工（按会话数）
@@ -1238,11 +1257,19 @@ export class AdminService {
         ? +((((totalEmployees - prevMonthEmployees) / prevMonthEmployees) * 100).toFixed(1))
         : 0;
 
-    const todayTokens = Math.abs(Number(todayConsumeTx._sum.amount ?? 0));
-    const yesterdayTokens = Math.abs(Number(yesterdayConsumeTx._sum.amount ?? 0));
+    // Token 仍作为用量指标展示（它反映调用规模），但趋势按**人民币成本**算 ——
+    // 换模型会让同样的 token 数对应完全不同的成本，token 趋势会误导。
+    const todayTokens =
+      (todayConsumeTx._sum.inputTokens ?? 0) +
+      (todayConsumeTx._sum.outputTokens ?? 0);
+    const yesterdayTokens =
+      (yesterdayConsumeTx._sum.inputTokens ?? 0) +
+      (yesterdayConsumeTx._sum.outputTokens ?? 0);
+    const todayCostCNY = Number(todayConsumeTx._sum.costCNY ?? 0);
+    const yesterdayCostCNY = Number(yesterdayConsumeTx._sum.costCNY ?? 0);
     const tokenTrendPct =
-      yesterdayTokens > 0
-        ? +(((todayTokens - yesterdayTokens) / yesterdayTokens) * 100).toFixed(1)
+      yesterdayCostCNY > 0
+        ? +(((todayCostCNY - yesterdayCostCNY) / yesterdayCostCNY) * 100).toFixed(1)
         : 0;
 
     const todayActiveUsers = todayConversations.length;
@@ -1253,20 +1280,24 @@ export class AdminService {
         : 0;
 
     // ── 近 30 天趋势：按日汇总 ──────────────────────────────────────
-    const dayMap = new Map<string, number>();
+    const dayMap = new Map<string, { tokens: number; costCNY: number }>();
     for (let i = 0; i < 30; i++) {
       const d = new Date(thirtyDaysAgo.getTime() + i * 86400000);
       const key = `${d.getMonth() + 1}/${d.getDate()}`;
-      dayMap.set(key, 0);
+      dayMap.set(key, { tokens: 0, costCNY: 0 });
     }
-    for (const tx of computeTx30) {
-      const d = tx.createdAt;
+    for (const usage of computeTx30) {
+      const d = usage.createdAt;
       const key = `${d.getMonth() + 1}/${d.getDate()}`;
-      dayMap.set(key, (dayMap.get(key) ?? 0) + Math.abs(Number(tx.amount)));
+      const bucket = dayMap.get(key) ?? { tokens: 0, costCNY: 0 };
+      bucket.tokens += usage.inputTokens + usage.outputTokens;
+      bucket.costCNY += Number(usage.costCNY);
+      dayMap.set(key, bucket);
     }
-    const computeTrend = Array.from(dayMap.entries()).map(([date, tokens]) => ({
+    const computeTrend = Array.from(dayMap.entries()).map(([date, bucket]) => ({
       date,
-      tokens: Math.round(tokens),
+      tokens: bucket.tokens,
+      costCNY: +bucket.costCNY.toFixed(2),
     }));
 
     const entDayMap = new Map<string, number>();
@@ -1285,23 +1316,23 @@ export class AdminService {
       count,
     }));
 
-    // ── Top 10 企业：accountId → 企业名称 ─────────────────────────
-    const topAccountIds = topAccountsRaw.map((r) => r.accountId);
+    // ── Top 10 企业：enterpriseId → 企业名称 ──────────────────────
+    const topEnterpriseIds = topAccountsRaw.map((r) => r.enterpriseId);
 
-    const topAccounts = await this.prisma.computeAccount.findMany({
-      where: { id: { in: topAccountIds } },
-      select: { id: true, enterpriseId: true, enterprise: { select: { name: true } } },
+    const topEnterpriseRows = await this.prisma.enterprise.findMany({
+      where: { id: { in: topEnterpriseIds } },
+      select: { id: true, name: true },
     });
-    const accountMap = new Map(topAccounts.map((a) => [a.id, a]));
+    const enterpriseNameMap = new Map(
+      topEnterpriseRows.map((e) => [e.id, e.name]),
+    );
 
-    const topEnterprises = topAccountsRaw.map((r) => {
-      const acc = accountMap.get(r.accountId);
-      return {
-        id: acc?.enterpriseId ?? r.accountId,
-        name: acc?.enterprise?.name ?? '未知企业',
-        tokens: Math.abs(Number(r._sum.amount ?? 0)),
-      };
-    });
+    const topEnterprises = topAccountsRaw.map((r) => ({
+      id: r.enterpriseId,
+      name: enterpriseNameMap.get(r.enterpriseId) ?? '未知企业',
+      tokens: (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0),
+      costCNY: +Number(r._sum.costCNY ?? 0).toFixed(2),
+    }));
 
     // ── Top 10 员工：补全名称 ──────────────────────────────────────
     const topEmployeeIds = topEmployeesRaw.map((r) => r.employeeId);
@@ -1332,6 +1363,9 @@ export class AdminService {
         employeeTrendPct,
         pendingCapabilities,
         todayTokens,
+        /** 今日算力消费（元）—— 财务口径的主指标 */
+        todayCostCNY: +todayCostCNY.toFixed(2),
+        /** 趋势按人民币成本算，见上方注释 */
         tokenTrendPct,
         todayActiveUsers,
         userTrendPct,

@@ -194,13 +194,39 @@ export default function BasicSettings() {
       <Card>
         <CardHeader>
           <CardTitle>计费配置</CardTitle>
-          <CardDescription>配置价格与新用户赠送额度</CardDescription>
+          <CardDescription>
+            算力财务口径统一为人民币。Token 只用于计价和用量审计，不是可扣减余额。
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {renderField('FALLBACK_PRICE_INPUT', '保底计费 - 输入价格（元/1K tokens）', 'number', '当模型价格未知时使用')}
-          {renderField('FALLBACK_PRICE_OUTPUT', '保底计费 - 输出价格（元/1K tokens）', 'number', '当模型价格未知时使用')}
-          {renderField('NEW_ENTERPRISE_GIFT_TOKENS', '新企业赠送额度（tokens）', 'number', '新企业注册后自动赠送的tokens数量')}
-          {renderField('LOW_BALANCE_THRESHOLD', '低余额告警阈值（tokens）', 'number', '企业余额低于此值时发送提醒')}
+          {renderField(
+            'DEFAULT_EMPLOYEE_GIFT_CNY',
+            '订阅赠送算力默认值（元）',
+            'number',
+            '员工未单独配置赠送金额时生效。改动只影响之后创建的新订阅，不追溯已有订阅。',
+          )}
+          {renderField(
+            'FALLBACK_PRICE_INPUT',
+            '保底计费 - 输入价格（元/1K tokens）',
+            'number',
+            '仅对未配价的模型生效。两项都填才启用，否则回退「已知模型最高单价」。',
+          )}
+          {renderField(
+            'FALLBACK_PRICE_OUTPUT',
+            '保底计费 - 输出价格（元/1K tokens）',
+            'number',
+            '仅对未配价的模型生效。两项都填才启用，否则回退「已知模型最高单价」。',
+          )}
+          {renderField(
+            'LOW_BALANCE_THRESHOLD',
+            '低余额告警阈值（元）',
+            'number',
+            '企业钱包余额低于此金额时发送提醒',
+          )}
+          <FallbackPricingStatus
+            input={edits['FALLBACK_PRICE_INPUT']}
+            output={edits['FALLBACK_PRICE_OUTPUT']}
+          />
         </CardContent>
       </Card>
 
@@ -285,6 +311,49 @@ export default function BasicSettings() {
           {update.isPending ? '保存中…' : '保存所有设置'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 保底价的真实生效状态。
+ *
+ * 后端只在**两项都填了合法值**时才启用运营配置的保底价，否则回退「已知模型最高单价」。
+ * 只填一项而界面不提示，运营会以为配置生效了，实际账单走的是另一套价格。
+ */
+function FallbackPricingStatus({
+  input,
+  output,
+}: {
+  input?: string;
+  output?: string;
+}) {
+  const parse = (raw?: string) => {
+    const n = Number((raw ?? '').trim());
+    return (raw ?? '').trim() !== '' && Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const parsedInput = parse(input);
+  const parsedOutput = parse(output);
+  const active = parsedInput !== null && parsedOutput !== null;
+
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 text-xs ${
+        active
+          ? 'border-success/40 bg-success/5 text-success'
+          : 'border-warning/40 bg-warning/5 text-warning'
+      }`}
+    >
+      {active ? (
+        <>
+          ✓ 保底价已生效：未配价模型按 输入 ¥{parsedInput.toFixed(4)} / 输出 ¥
+          {parsedOutput.toFixed(4)} 每 1K tokens 计费
+        </>
+      ) : (
+        <>
+          ⚠ 保底价未生效：需两项都填写合法数值。当前未配价的模型按「已知模型最高单价」计费
+        </>
+      )}
     </div>
   );
 }

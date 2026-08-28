@@ -19,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
+import { CnyAmountSchema } from 'shared';
 
 const CreditAdjustmentSchema = z.object({
   amount: z.number().positive('金额必须大于0'),
@@ -50,6 +51,10 @@ const CreateEmployeeSchema = z.object({
   modelId: z.string().optional(),
   maxSteps: z.number().int().positive().optional(),
   price: z.number().nonnegative().optional(),
+  /** 年费（元） */
+  annualPriceCNY: CnyAmountSchema.optional(),
+  /** 订阅赠送算力（元）。null = 用系统默认值，0 = 明确不赠送。 */
+  includedComputeCNY: CnyAmountSchema.nullable().optional(),
 });
 
 const UpdateEmployeeSchema = z.object({
@@ -62,6 +67,8 @@ const UpdateEmployeeSchema = z.object({
   modelId: z.string().optional(),
   maxSteps: z.number().int().positive().optional(),
   price: z.number().nonnegative().optional(),
+  annualPriceCNY: CnyAmountSchema.optional(),
+  includedComputeCNY: CnyAmountSchema.nullable().optional(),
 });
 
 const CreateCapabilitySchema = z.object({
@@ -284,6 +291,8 @@ export class AdminController {
       modelId: dto.modelId,
       maxSteps: dto.maxSteps,
       price: dto.price,
+      annualPriceCNY: dto.annualPriceCNY,
+      includedComputeCNY: dto.includedComputeCNY,
       operatorId: req.user.id,
     });
   }
@@ -313,6 +322,8 @@ export class AdminController {
     @Body(new ZodValidationPipe(UpdateEmployeeSchema)) dto: z.infer<typeof UpdateEmployeeSchema>,
     @Request() req: any,
   ) {
+    // includedComputeCNY 的 null 语义（清除覆盖值 → 回落系统默认）由 service 层保留，
+    // 不要在这里 `?? 0` —— 那会把「未配置」变成「明确不赠送」
     return this.adminService.updateEmployee(id, dto, req.user.id);
   }
 

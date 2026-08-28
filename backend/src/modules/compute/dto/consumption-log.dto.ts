@@ -20,8 +20,19 @@ export interface ConsumptionLogDetail {
   // 算力消费
   sessionId?: string;
   conversationTitle?: string;
+  /** 输入 + 输出，仅作用量明细；金额不由它推导 */
   tokenCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   modelName?: string;
+  /** 本次消费由订阅赠送余额承担的金额（元） */
+  creditPaidCNY?: string;
+  /** 本次消费由企业钱包承担的金额（元） */
+  walletPaidCNY?: string;
+  /** > 0 表示余额不足，这部分未能扣款 */
+  unpaidCNY?: string;
+  /** true = 该模型未配价，按保底价计费 */
+  fallbackPricing?: boolean;
   // 订阅消费
   subscriptionId?: string;
   planName?: string;

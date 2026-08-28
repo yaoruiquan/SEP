@@ -307,7 +307,8 @@ describe('AdminService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           metadata: {},
-          computeAccount: { balance: 100 },
+          // 余额来自钱包（唯一主账本），不再是已停止写入的 ComputeAccount.balance
+          wallet: { balance: 100 },
           _count: { members: 5, subscriptions: 3 },
         },
       ];

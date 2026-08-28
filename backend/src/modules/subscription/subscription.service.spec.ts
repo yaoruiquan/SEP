@@ -6,7 +6,9 @@
  * 正常使用路径永远不会去构造别人的 ID。
  */
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Decimal } from '@prisma/client/runtime/library';
 import { SubscriptionService } from './subscription.service';
+import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
 
 const ACME = {
   enterpriseId: 'ent-acme',
@@ -21,6 +23,7 @@ describe('SubscriptionService', () => {
   let prisma: any;
   let ctxSvc: any;
   let walletSvc: any;
+  let creditSvc: any;
   let svc: SubscriptionService;
 
   beforeEach(() => {
@@ -28,6 +31,9 @@ describe('SubscriptionService', () => {
       digitalEmployee: { findUnique: jest.fn() },
       subscription: {
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn((a: any) =>
+          Promise.resolve({ id: a.where.id, employee: {}, credit: null }),
+        ),
         findMany: jest.fn(),
         create: jest.fn((a: any) => Promise.resolve({ id: 'sub-new', ...a.data })),
         update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
@@ -35,7 +41,16 @@ describe('SubscriptionService', () => {
       employeeGrant: {
         findFirst: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
       },
+      subscriptionCredit: {
+        findUnique: jest.fn(),
+        create: jest.fn((a: any) => Promise.resolve({ id: 'credit-1', ...a.data })),
+        update: jest.fn((a: any) => Promise.resolve({ id: a.where.id, ...a.data })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      // 事务内外用同一个 mock：断言仍能看到所有写操作
+      $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),
@@ -45,13 +60,19 @@ describe('SubscriptionService', () => {
       assertCanApprove: jest.fn(),
     };
     walletSvc = {
-      consume: jest.fn(),
-      refund: jest.fn(),
+      consume: jest.fn().mockResolvedValue({ id: 'tx-1' }),
+      refund: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
     } as any;
-    const quotaSvc = {
-      createSubscriptionQuota: jest.fn(),
+    creditSvc = {
+      // 默认「员工未配置 → 系统默认 0」，需要非 0 的用例自行覆盖
+      resolveGrantAmountCNY: jest.fn().mockResolvedValue(0),
+      grantSubscriptionCredit: jest.fn().mockResolvedValue({ id: 'credit-1' }),
+      expireSubscriptionCredit: jest.fn(),
     } as any;
-    svc = new SubscriptionService(prisma, ctxSvc, walletSvc, quotaSvc);
+    // 用真实的履约服务：订阅创建/复活/授权的断言都落在它身上，
+    // mock 掉就等于不测「订阅到底建成什么样」
+    const fulfillment = new SubscriptionFulfillmentService(prisma, creditSvc);
+    svc = new SubscriptionService(prisma, ctxSvc, walletSvc, fulfillment, creditSvc);
   });
 
   describe('多租户隔离（越权路径）', () => {
@@ -221,6 +242,72 @@ describe('SubscriptionService', () => {
       await expect(
         svc.assertActiveSubscription('user-acme-boss', 'emp-1'),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('订阅时按「员工级配置 > 系统默认值」生成人民币赠送余额快照', async () => {
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
+        includedComputeCNY: new Decimal(800),
+      });
+      prisma.subscription.findUnique.mockResolvedValue(null);
+      creditSvc.resolveGrantAmountCNY.mockResolvedValue(800);
+
+      await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
+
+      // 解析在事务外完成（要读系统设置），金额显式传给履约
+      expect(creditSvc.resolveGrantAmountCNY).toHaveBeenCalledWith(
+        new Decimal(800),
+      );
+      expect(creditSvc.grantSubscriptionCredit).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          enterpriseId: 'ent-acme',
+          employeeId: 'emp-1',
+          grantedCNY: 800,
+          sourceType: 'subscription',
+        }),
+      );
+    });
+
+    it('❗不再创建 Token 配额 —— 新对话只从人民币账本扣减', async () => {
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
+      });
+      prisma.subscription.findUnique.mockResolvedValue(null);
+
+      await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
+
+      // 旧实现在这里硬编码创建 100,000 tokens 的 SubscriptionQuota。
+      // 同时存在两套额度会让「这次对话扣的是哪一份」无从解释。
+      expect(prisma.subscriptionQuota).toBeUndefined();
+    });
+
+    it('履约与扣款在同一个事务里 —— 不能出现「建了订阅但没扣钱」', async () => {
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'APPROVED',
+        name: 'Test Employee',
+        version: '1.0.0',
+        annualPriceCNY: { toNumber: () => 5000 },
+      });
+      prisma.subscription.findUnique.mockResolvedValue(null);
+
+      await svc.subscribe('user-acme-boss', { employeeId: 'emp-1' } as never);
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      // 扣款要带上事务客户端，否则它会走自己的事务而无法一起回滚
+      const consumeArgs = walletSvc.consume.mock.calls[0];
+      expect(consumeArgs[0]).toBe('ent-acme');
+      expect(consumeArgs[1]).toBe(5000);
+      expect(consumeArgs[5]).toBe(prisma);
     });
 
     it('复活已终止的雇佣关系时不刷新 templateVersion —— 停用期间的模板变更要照样提示', async () => {
@@ -477,6 +564,115 @@ describe('SubscriptionService', () => {
       await expect(svc.update('sub-1', 'u1', { name: 'x' })).rejects.toThrow(
         ForbiddenException,
       );
+    });
+  });
+  // ── 赠送余额在列表与终止流程里的表现 ──────────────────────────────────────
+
+  describe('findAll 的赠送余额', () => {
+    const rowWithCredit = (credit: unknown) => ({
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      templateVersion: '1.0.0',
+      name: null,
+      employee: { id: 'emp-1', name: '客服小美', avatar: null, version: '1.0.0' },
+      credit,
+    });
+
+    it('扁平化剩余赠送金额，前端不必各自算', async () => {
+      prisma.subscription.findMany.mockResolvedValue([
+        rowWithCredit({
+          grantedCNY: new Decimal(1000),
+          usedCNY: new Decimal(250.5),
+          status: 'ACTIVE',
+        }),
+      ]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.giftGrantedCNY).toBe('1000.00');
+      expect(r.giftUsedCNY).toBe('250.50');
+      expect(r.giftRemainingCNY).toBe('749.50');
+      expect(r.giftStatus).toBe('ACTIVE');
+    });
+
+    it('❗已停用的额度剩余归零 —— 花不掉的钱不能显示成剩余', async () => {
+      prisma.subscription.findMany.mockResolvedValue([
+        rowWithCredit({
+          grantedCNY: new Decimal(1000),
+          usedCNY: new Decimal(0),
+          status: 'EXPIRED',
+        }),
+      ]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.giftRemainingCNY).toBe('0.00');
+      expect(r.giftStatus).toBe('EXPIRED');
+    });
+
+    it('没有赠送记录时状态为 NONE，金额为 0', async () => {
+      prisma.subscription.findMany.mockResolvedValue([rowWithCredit(null)]);
+
+      const [r] = await svc.findAll('user-acme-boss');
+      expect(r.giftStatus).toBe('NONE');
+      expect(r.giftRemainingCNY).toBe('0.00');
+    });
+  });
+
+  describe('终止订阅时的赠送余额', () => {
+    const activeSub = {
+      id: 'sub-1',
+      enterpriseId: 'ent-acme',
+      employeeId: 'emp-1',
+      status: 'ACTIVE',
+      startDate: new Date(),
+    };
+
+    it('unsubscribe 停用赠送额度，防止退订后继续消费', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(activeSub);
+
+      await svc.unsubscribe('sub-1', 'user-acme-boss');
+
+      expect(creditSvc.expireSubscriptionCredit).toHaveBeenCalledWith(
+        prisma,
+        'sub-1',
+      );
+    });
+
+    it('试用期内解雇：退订阅费，但❗不退未用完的赠送算力', async () => {
+      prisma.subscription.findUnique.mockResolvedValue(activeSub);
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        name: '客服小美',
+        annualPriceCNY: { toNumber: () => 5000 },
+      });
+
+      await svc.terminate('sub-1', 'user-acme-boss');
+
+      // 只退企业实际付过的钱；赠送额度不是企业付的，退它等于凭空发钱
+      expect(walletSvc.refund).toHaveBeenCalledTimes(1);
+      expect(walletSvc.refund.mock.calls[0][1]).toBe(5000);
+      expect(creditSvc.expireSubscriptionCredit).toHaveBeenCalledWith(
+        prisma,
+        'sub-1',
+      );
+    });
+
+    it('试用期外解雇：不退款，赠送额度同样停用', async () => {
+      const old = new Date();
+      old.setDate(old.getDate() - 30);
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...activeSub,
+        startDate: old,
+      });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        name: '客服小美',
+        annualPriceCNY: { toNumber: () => 5000 },
+      });
+
+      await svc.terminate('sub-1', 'user-acme-boss');
+
+      expect(walletSvc.refund).not.toHaveBeenCalled();
+      expect(creditSvc.expireSubscriptionCredit).toHaveBeenCalled();
     });
   });
 });
