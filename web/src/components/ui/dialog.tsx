@@ -5,6 +5,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFocusReturn, useEscapeKey } from '@/lib/accessibility';
+import { useGlassScope } from '@/lib/glass-scope';
 import { usePrefersReducedMotion } from '@/lib/responsive';
 
 const Dialog = DialogPrimitive.Root;
@@ -19,6 +20,7 @@ const DialogOverlay = React.forwardRef<
   }
 >(({ className, glass, ...props }, ref) => {
   const prefersReducedMotion = usePrefersReducedMotion();
+  const glassScope = useGlassScope();
 
   return (
     <DialogPrimitive.Overlay
@@ -26,7 +28,7 @@ const DialogOverlay = React.forwardRef<
       className={cn(
         'fixed inset-0 z-50',
         glass
-          ? 'glass-scope bg-gbg-deep/80 backdrop-blur-glass-md'
+          ? [glassScope, 'bg-gbg-deep/80 backdrop-blur-glass-md']
           : 'bg-neutral-900/60 backdrop-blur-sm',
         !prefersReducedMotion &&
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200',
@@ -47,6 +49,7 @@ const DialogContent = React.forwardRef<
 >(({ className, children, onEscapeKeyDown, glass, ...props }, ref) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const glassScope = useGlassScope();
 
   // 焦点返回：关闭时返回到触发元素
   useFocusReturn(isOpen);
@@ -73,8 +76,8 @@ const DialogContent = React.forwardRef<
           glass
             ? // .glass-elevated 自带 border / radius / shadow，别再叠 Tailwind 的
               // shadow-modal 和 sm:rounded-lg，否则要靠源码顺序才能赢，太脆。
-              // .glass-scope 必须加：Portal 挂到 <body>，跑出了 .theme-glass 子树。
-              'glass-scope glass-elevated text-gtext-primary'
+              // 作用域 class 必须加：Portal 挂到 <body>，跑出了主题子树。
+              [glassScope, 'glass-elevated text-gtext-primary']
             : 'border border-neutral-200 bg-white shadow-modal sm:rounded-lg',
           !prefersReducedMotion &&
             'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',

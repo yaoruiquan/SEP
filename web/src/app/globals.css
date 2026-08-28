@@ -1178,11 +1178,14 @@ html.js-reveal .reveal[data-visible='true'] {
   color: var(--gtext-primary);
 }
 
-/* 浅色滚动条 */
-.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb {
+/* 浅色滚动条。.glass-scope-light 同列：Portal 浮层里的滚动区（弹窗正文）
+   跑出了 .theme-glass-light 子树，不补这条会退回深色滚动条。 */
+.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb,
+.glass-scope-light .scroll-thin::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.12);
 }
-.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb:hover {
+.theme-glass-light .scroll-thin::-webkit-scrollbar-thumb:hover,
+.glass-scope-light .scroll-thin::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.20);
 }
 
@@ -1249,7 +1252,11 @@ html.js-reveal .reveal[data-visible='true'] {
   box-shadow: var(--glass-shadow-lg);
 }
 
-.theme-glass-light .glass-elevated {
+/* Portal 浮层（Dialog / Select / Dropdown）把 .glass-scope-light 加在**自己**身上，
+   不是祖先 —— 所以这里必须补一条同元素选择器，否则浮层拿得到浅色令牌，却拿不到
+   浅色的 fallback 底色，不支持 backdrop-filter 的浏览器上会露出深色兜底。 */
+.theme-glass-light .glass-elevated,
+.glass-scope-light.glass-elevated {
   background: rgba(255, 255, 255, 0.94);   /* fallback */
   border: 1px solid var(--glass-border-hover);
   border-radius: var(--gradius-xl);
@@ -1295,7 +1302,8 @@ html.js-reveal .reveal[data-visible='true'] {
     -webkit-backdrop-filter: var(--glass-blur-md) saturate(150%);
     backdrop-filter: var(--glass-blur-md) saturate(150%);
   }
-  .theme-glass-light .glass-elevated {
+  .theme-glass-light .glass-elevated,
+  .glass-scope-light.glass-elevated {
     background: var(--glass-4);
     -webkit-backdrop-filter: var(--glass-blur-lg) saturate(150%);
     backdrop-filter: var(--glass-blur-lg) saturate(150%);
@@ -1358,8 +1366,12 @@ html.js-reveal .reveal[data-visible='true'] {
               inset 0 0 20px rgba(22, 163, 74, 0.06);
 }
 
-/* ─── 焦点可见性（浅色）────────────────────────────────────────────────── */
-.theme-glass-light :focus-visible {
+/* ─── 焦点可见性（浅色）──────────────────────────────────────────────────
+   .glass-scope-light 两条：浮层内的可聚焦元素（descendant），以及被 Radix
+   直接聚焦的浮层容器本身（same element）。 */
+.theme-glass-light :focus-visible,
+.glass-scope-light :focus-visible,
+.glass-scope-light:focus-visible {
   outline: 2px solid var(--gbrand-text);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(248, 249, 251, 0.75);

@@ -1,6 +1,9 @@
+'use client';
+
 import * as React from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useGlassScope } from '@/lib/glass-scope';
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 
@@ -11,25 +14,29 @@ const DropdownMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
     glass?: boolean;
   }
->(({ className, sideOffset = 4, glass, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
-    <DropdownMenuPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      className={cn(
-        'z-50 min-w-[8rem] overflow-hidden p-1',
-        // glass-scope 必须加在 Portal 内容上：Portal 挂到 <body>，
-        // 跑出了 .theme-glass 子树，不带作用域令牌就全丢（见 globals.css）
-        glass
-          ? 'glass-scope glass-elevated text-gtext-primary'
-          : 'rounded-md border border-border bg-popover text-popover-foreground shadow-md',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
-        className
-      )}
-      {...props}
-    />
-  </DropdownMenuPrimitive.Portal>
-));
+>(({ className, sideOffset = 4, glass, ...props }, ref) => {
+  const glassScope = useGlassScope();
+
+  return (
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.Content
+        ref={ref}
+        sideOffset={sideOffset}
+        className={cn(
+          'z-50 min-w-[8rem] overflow-hidden p-1',
+          // 作用域 class 必须加在 Portal 内容上：Portal 挂到 <body>，
+          // 跑出了主题子树，不带作用域令牌就全丢（见 globals.css）
+          glass
+            ? [glassScope, 'glass-elevated text-gtext-primary']
+            : 'rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+          className
+        )}
+        {...props}
+      />
+    </DropdownMenuPrimitive.Portal>
+  );
+});
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = React.forwardRef<
