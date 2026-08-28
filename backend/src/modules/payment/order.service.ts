@@ -354,6 +354,21 @@ export class OrderService {
     payTradeNo: string,
     payChannel: "ALIPAY" | "BALANCE",
   ) {
+    // 市场订单只能由企业管理员创建。支付履约后，管理员应立即拥有
+    // 这批硅基员工；其他成员仍须通过独立的授权记录获得使用权限。
+    const purchaser = await tx.enterpriseMember.findUnique({
+      where: {
+        userId_enterpriseId: {
+          userId: order.createdBy,
+          enterpriseId: order.enterpriseId,
+        },
+      },
+      select: { id: true, role: true },
+    });
+    if (!purchaser || purchaser.role !== "ENTERPRISE_ADMIN") {
+      throw new BadRequestException("订单创建人不是该企业管理员，无法履约");
+    }
+
     // 1. 更新订单状态
     const updatedOrder = await tx.order.update({
       where: { id: order.id },
@@ -409,6 +424,30 @@ export class OrderService {
       });
 
       this.logger.log(`订阅 ${subscription.id} 已激活`);
+
+      // 管理员订阅后默认授权给自己。使用查后更新/创建而不是 upsert，
+      // 因为 EmployeeGrant 的唯一性由两个部分索引表达，Prisma 无法建模。
+      const existingAdminGrant = await tx.employeeGrant.findFirst({
+        where: {
+          subscriptionId: subscription.id,
+          memberId: purchaser.id,
+        },
+        select: { id: true },
+      });
+      if (existingAdminGrant) {
+        await tx.employeeGrant.update({
+          where: { id: existingAdminGrant.id },
+          data: { expiresAt: subscription.endDate ?? null },
+        });
+      } else {
+        await tx.employeeGrant.create({
+          data: {
+            subscriptionId: subscription.id,
+            memberId: purchaser.id,
+            expiresAt: subscription.endDate ?? null,
+          },
+        });
+      }
 
       // 充值算力（如果有赠送）
       if (item.includedComputeCNY.gt(0)) {
