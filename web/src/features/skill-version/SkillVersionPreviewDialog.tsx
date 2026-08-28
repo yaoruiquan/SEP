@@ -13,20 +13,21 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Markdown } from '@/features/chat/markdown';
-import { useSkillVersionPreview } from './use-skill-version';
+import { useSkillVersionPreview, type PreviewSource } from './use-skill-version';
 
 export function SkillVersionPreviewDialog({
   versionId,
   open,
   onOpenChange,
-  admin = false,
+  source = 'enterprise',
 }: {
   versionId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  admin?: boolean;
+  /** 正文的授权来源，见 PreviewSource。贡献中心必须传 'author'。 */
+  source?: PreviewSource;
 }) {
-  const query = useSkillVersionPreview(open ? versionId : '', admin);
+  const query = useSkillVersionPreview(open ? versionId : '', source);
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState('rendered');
 

@@ -657,12 +657,31 @@ export const ContributionReviewDecisionSchema = z.object({
 });
 export type ContributionReviewDecision = z.infer<typeof ContributionReviewDecisionSchema>;
 
-export const ContributionVersionCreateDtoSchema = z.object({
-  parentVersionId: z.string().optional(),
-  content: z.string().min(20),
-  changeSummary: z.string().min(1).max(1000),
-});
+/**
+ * 发布新版本。正文来源与创建能力时同规则：上传包（只送 sha256）或在线编写，二选一。
+ * `changeSummary` 必填 —— 版本迭代没有变更说明，审核人无从判断改了什么。
+ */
+export const ContributionVersionCreateDtoSchema = z
+  .object({
+    /** 派生自哪个版本。不传则取该作用域内最新的版本，没有则取当前公开版本。 */
+    parentVersionId: z.string().optional(),
+    content: z.string().min(20).optional(),
+    packageSha256: SkillPackageSha256Schema.optional(),
+    packageFilename: z.string().max(120).optional(),
+    changeSummary: z.string().min(1).max(1000),
+  })
+  .refine(
+    (dto) => Boolean(dto.content) !== Boolean(dto.packageSha256),
+    { message: '必须且只能提供 content 或 packageSha256 之一' },
+  );
 export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
+
+/** 作者在贡献中心编辑草稿版本的正文（仅在线编写的版本可改）。 */
+export const ContributionVersionUpdateDtoSchema = z.object({
+  content: z.string().min(20),
+  changeSummary: z.string().min(1).max(1000).optional(),
+});
+export type ContributionVersionUpdateDto = z.infer<typeof ContributionVersionUpdateDtoSchema>;
 
 // Digital Employee
 export const DigitalEmployeeCreateDtoSchema = z.object({

@@ -20,6 +20,7 @@ import {
   ContributionCapabilityUpdateDtoSchema,
   ContributionReviewDecisionSchema,
   ContributionVersionCreateDtoSchema,
+  ContributionVersionUpdateDtoSchema,
   type SkillPackageParseResult,
 } from 'shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -85,6 +86,35 @@ export class CapabilityContributionController {
       suggested: stored.suggested,
       validation,
     };
+  }
+
+  @Get('versions/:versionId')
+  @ApiOperation({
+    summary: '作者查看自己某个版本的正文',
+    description:
+      '与 /enterprise/skill-versions/:id/preview 不同：那条要求成员持有该能力的订阅授权，'
+      + '刚贡献的能力没有任何绑定，作者永远拿不到自己的正文。',
+  })
+  @ApiResponse({ status: 404, description: '版本不存在或不属于当前作者' })
+  version(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
+    return this.service.getVersionForAuthor(req.user.id, versionId);
+  }
+
+  @Patch('versions/:versionId')
+  @ApiOperation({ summary: '编辑草稿版本正文（仅在线编写的版本）' })
+  @ApiResponse({ status: 409, description: '版本状态不可编辑，或正文来自上传的包' })
+  updateVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string, @Body() body: unknown) {
+    return this.service.updateVersion(req.user.id, versionId, ContributionVersionUpdateDtoSchema.parse(body));
+  }
+
+  @Post('versions/:versionId/submit')
+  @ApiOperation({
+    summary: '提交版本审核',
+    description: '企业版本先过企业管理员，个人版本直投平台。能力级审核只管首次发布，迭代走这里。',
+  })
+  @ApiResponse({ status: 400, description: '缺变更说明，或自动校验未通过' })
+  submitVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
+    return this.service.submitVersion(req.user.id, versionId);
   }
 
   @Get('versions/:versionId/package')
@@ -161,7 +191,11 @@ export class CapabilityContributionController {
   }
 
   @Post(':id/versions')
-  @ApiOperation({ summary: '创建 Skill 新版本草稿' })
+  @ApiOperation({
+    summary: '发布 Skill 新版本草稿',
+    description: '正文来源与创建能力同规则：上传包只送 sha256，或直接送在线编写的 content。',
+  })
+  @ApiResponse({ status: 201, description: '新版本草稿已创建' })
   createVersion(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.service.createSkillVersion(req.user.id, id, ContributionVersionCreateDtoSchema.parse(body));
   }

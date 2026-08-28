@@ -12,10 +12,40 @@ import type {
 
 export const skillVersionKeys = {
   employee: (employeeId: string) => ['skill-versions', 'employee', employeeId] as const,
-  preview: (versionId: string) => ['skill-versions', 'preview', versionId] as const,
+  preview: (versionId: string, source: PreviewSource) =>
+    ['skill-versions', 'preview', source, versionId] as const,
   enterprise: () => ['skill-versions', 'enterprise'] as const,
   admin: () => ['skill-versions', 'admin'] as const,
 };
+
+/**
+ * 正文从哪条授权路径取。
+ *   - `author`：贡献中心，按 capability.contributorId 授权。
+ *   - `enterprise`：企业成员看已订阅员工绑定的技能，要求订阅授权。
+ *   - `admin`：平台运营审核。
+ *
+ * 三者不能混用：贡献中心用 `enterprise` 会必然 403 —— 刚贡献的能力没有任何
+ * 员工绑定，`assertCapabilityGrant` 找不到授权订阅。
+ */
+export type PreviewSource = 'author' | 'enterprise' | 'admin';
+
+const PREVIEW_PATH: Record<PreviewSource, (versionId: string) => string> = {
+  author: (id) => `/contributions/versions/${id}`,
+  enterprise: (id) => `/enterprise/skill-versions/${id}/preview`,
+  admin: (id) => `/admin/skill-versions/${id}`,
+};
+
+/** 导出供测试断言路由表，避免三条路径被悄悄改混。 */
+export const previewPathFor = (source: PreviewSource, versionId: string) =>
+  PREVIEW_PATH[source](versionId);
+
+export function useSkillVersionPreview(versionId: string, source: PreviewSource = 'enterprise') {
+  return useQuery({
+    queryKey: skillVersionKeys.preview(versionId, source),
+    queryFn: () => api.get<SkillVersionPreview>(PREVIEW_PATH[source](versionId)),
+    enabled: Boolean(versionId),
+  });
+}
 
 export function useEmployeeSkillVersions(employeeId: string) {
   return useQuery({
@@ -23,19 +53,6 @@ export function useEmployeeSkillVersions(employeeId: string) {
     queryFn: () =>
       api.get<EmployeeSkillVersionsResponse>(`/enterprise/employees/${employeeId}/skills`),
     enabled: Boolean(employeeId),
-  });
-}
-
-export function useSkillVersionPreview(versionId: string, admin = false) {
-  return useQuery({
-    queryKey: skillVersionKeys.preview(versionId),
-    queryFn: () =>
-      api.get<SkillVersionPreview>(
-        admin
-          ? `/admin/skill-versions/${versionId}`
-          : `/enterprise/skill-versions/${versionId}/preview`,
-      ),
-    enabled: Boolean(versionId),
   });
 }
 

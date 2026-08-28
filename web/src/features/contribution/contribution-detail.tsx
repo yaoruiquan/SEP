@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { ArrowLeft, Eye, FileCode2, LockKeyhole, Trophy, UsersRound } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, LockKeyhole, Plus, Send, Trophy, UsersRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
@@ -15,7 +14,9 @@ import { buildPipeline, pipelineStepLabel, pipelineWaitLabel, type PipelineModel
 import { PipelineMiniTrack } from './components/pipeline-mini-track';
 import { PipelineTimeline } from './components/pipeline-timeline';
 import { RejectReasonDialog } from './components/reject-reason-dialog';
-import { useContribution, useContributionAction, useContributionUsage, useReviewContribution } from './use-contributions';
+import { VersionPublishDialog } from './components/version-publish-dialog';
+import { VersionEditDialog } from './components/version-edit-dialog';
+import { useContribution, useContributionAction, useContributionUsage, useReviewContribution, useSubmitVersion } from './use-contributions';
 import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 
@@ -31,6 +32,8 @@ type DetailView = 'pipeline' | 'versions' | 'usage' | 'profile' | 'rewards';
 function ContributionDetailContent({ contribution, onBack }: { contribution: ContributionCapabilityDetail; onBack: () => void }) {
   const [view, setView] = useState<DetailView>('pipeline');
   const [previewVersionId, setPreviewVersionId] = useState('');
+  const [editVersionId, setEditVersionId] = useState('');
+  const [publishOpen, setPublishOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const usage = useContributionUsage(contribution.id);
   const isEnterpriseAdmin = useAuthStore((s) => s.roleInEnterprise) === 'ENTERPRISE_ADMIN';
@@ -89,12 +92,16 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
     </header>
     <main className="min-h-0 flex-1 overflow-y-auto scroll-thin px-6 py-7 xl:px-10"><div className="mx-auto max-w-5xl">
       {view === 'pipeline' && <PipelineView model={model} loading={loading} onAction={onStageAction} />}
-      {view === 'versions' && <VersionView contribution={contribution} onPreview={setPreviewVersionId} />}
+      {view === 'versions' && <VersionView contribution={contribution} isContributor={isContributor} onPreview={setPreviewVersionId} onEdit={setEditVersionId} onPublish={() => setPublishOpen(true)} />}
       {view === 'usage' && <UsageView query={usage} />}
       {view === 'profile' && <ProfileView contribution={contribution} />}
       {view === 'rewards' && <RewardsView contribution={contribution} />}
     </div></main>
-    <SkillVersionPreviewDialog versionId={previewVersionId} open={Boolean(previewVersionId)} onOpenChange={(open) => !open && setPreviewVersionId('')} />
+    {/* source='author'：贡献中心按 contributorId 授权。走企业侧那条会必然 403 ——
+        刚贡献的能力没有员工绑定，assertCapabilityGrant 找不到授权订阅。 */}
+    <SkillVersionPreviewDialog source="author" versionId={previewVersionId} open={Boolean(previewVersionId)} onOpenChange={(open) => !open && setPreviewVersionId('')} />
+    <VersionPublishDialog capabilityId={contribution.id} open={publishOpen} onOpenChange={setPublishOpen} />
+    <VersionEditDialog capabilityId={contribution.id} versionId={editVersionId} onOpenChange={setEditVersionId} />
     <RejectReasonDialog open={rejectOpen} capabilityName={contribution.name} loading={enterpriseReview.isPending} onOpenChange={setRejectOpen} onConfirm={reject} />
   </div>;
 }
@@ -133,9 +140,126 @@ function ProfileRow({ label, value }: { label: string; value: string }) { return
 
 function RewardsView({ contribution }: { contribution: ContributionCapabilityDetail }) { const points = contribution.contributionRewards.reduce((sum, item) => sum + item.points, 0); return <section className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Contribution reward</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">贡献奖励</h3><p className="mt-1 text-sm text-gtext-secondary">奖励将在审核与市场采用节点达成后持续累积。</p><div className="mt-6 flex items-end justify-between rounded-glass-lg border border-gwarning/25 bg-gwarning/[0.08] px-5 py-6"><div><p className="text-4xl font-semibold text-gtext-primary">{points}</p><p className="mt-2 text-sm text-gtext-muted">累计待确认积分</p></div><Trophy className="h-7 w-7 text-gwarning" /></div><div className="mt-6 divide-y divide-glassline border-y border-glassline">{contribution.contributionRewards.length ? contribution.contributionRewards.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 py-4"><div><p className="text-sm font-medium text-gtext-primary">{item.eventType}</p><p className="mt-1 text-xs text-gtext-muted">{new Date(item.createdAt).toLocaleDateString('zh-CN')}</p></div><span className="font-semibold text-gsuccess">+{item.points} 积分</span></div>) : <div className="flex items-center gap-2 py-6 text-sm text-gtext-muted"><LockKeyhole className="h-4 w-4" />审核通过后记录奖励事件</div>}</div></section>; }
 
-function VersionView({ contribution, onPreview }: { contribution: ContributionCapabilityDetail; onPreview: (id: string) => void }) {
+function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish }: { contribution: ContributionCapabilityDetail; isContributor: boolean; onPreview: (id: string) => void; onEdit: (id: string) => void; onPublish: () => void }) {
   const versions = contribution.skillVersions;
-  return <section className="max-w-4xl"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Skill versions</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">版本迭代</h3><p className="mt-1 text-sm text-gtext-secondary">在这里查看 Skill 的版本路线、审核状态和正文。</p></div><span className="text-sm text-gtext-muted">{versions.length} 个版本</span></div>{versions.length ? <div className="mt-6 space-y-3">{versions.map((version, index) => { const meta = SKILL_VERSION_STATUS[version.status]; const latest = index === 0; const editable = version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED'; return <article key={version.id} className={cn('relative rounded-glass-lg border p-4 shadow-glass-sm transition-colors duration-200', latest ? 'border-glassline-brand bg-glass-accent-2' : 'border-glassline bg-glass-1')}><div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-gtext-primary">v{version.version}</span>{latest && <Badge className="rounded-glass-pill border border-glassline-brand bg-gbrand/10 text-gbrand-text">最新</Badge>}{!version.parentVersionId && !version.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}<Badge className={meta.className}>{meta.label}</Badge></div><p className="mt-2 text-sm text-gtext-secondary">{version.changeSummary || (!version.parentVersionId && !version.sourceVersionId ? '技能原始正文，后续版本从此版本派生。' : '未填写变更说明。')}</p><p className="mt-2 text-xs text-gtext-muted">{version.scope === 'PLATFORM' ? '平台版本' : '企业版本'} · 更新于 {new Date(version.updatedAt).toLocaleDateString('zh-CN')}</p></div><div className="flex shrink-0 flex-wrap gap-2"><Button variant="glass" size="sm" onClick={() => onPreview(version.id)}><Eye className="h-4 w-4" />预览</Button>{editable && <Link href={`/skills/${version.id}/edit`} className="inline-flex h-8 items-center gap-2 rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm font-medium text-gtext-primary transition-colors hover:bg-glass-3"><FileCode2 className="h-4 w-4" />编辑</Link>}</div></div></article>; })}</div> : <div className="mt-6 rounded-glass-lg border border-dashed border-glassline px-5 py-10 text-center text-sm text-gtext-muted">还没有 Skill 版本</div>}</section>;
+  const submit = useSubmitVersion(contribution.id);
+  const [submittingId, setSubmittingId] = useState('');
+
+  const submitVersion = (versionId: string) => {
+    setSubmittingId(versionId);
+    submit.mutate(versionId, {
+      onSuccess: () => toast.success('已提交审核', '进度会在发布流程里更新'),
+      onError: (error) => toast.error(error instanceof Error ? error.message : '提交失败，请稍后重试'),
+      onSettled: () => setSubmittingId(''),
+    });
+  };
+
+  return (
+    <section className="max-w-4xl">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Skill versions</p>
+          <h3 className="mt-1 text-lg font-semibold text-gtext-primary">版本迭代</h3>
+          <p className="mt-1 text-sm text-gtext-secondary">
+            {contribution.visibility === 'MARKET_PUBLIC'
+              ? '能力已公开。继续迭代会派生新版本，审核通过后替换当前公开版本。'
+              : '在这里查看 Skill 的版本路线、审核状态和正文。'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gtext-muted">{versions.length} 个版本</span>
+          {isContributor && (
+            <Button variant="glass-primary" size="sm" onClick={onPublish}>
+              <Plus className="h-4 w-4" />
+              发布新版本
+            </Button>
+          )}
+        </div>
+      </div>
+      {versions.length ? (
+        <div className="mt-6 space-y-3">
+          {versions.map((version, index) => (
+            <VersionCard
+              key={version.id}
+              version={version}
+              latest={index === 0}
+              isContributor={isContributor}
+              submitting={submittingId === version.id}
+              onPreview={() => onPreview(version.id)}
+              onEdit={() => onEdit(version.id)}
+              onSubmit={() => submitVersion(version.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-6 rounded-glass-lg border border-dashed border-glassline px-5 py-10 text-center text-sm text-gtext-muted">
+          还没有 Skill 版本
+        </div>
+      )}
+    </section>
+  );
+}
+
+type DetailVersion = ContributionCapabilityDetail['skillVersions'][number];
+
+function VersionCard({ version, latest, isContributor, submitting, onPreview, onEdit, onSubmit }: { version: DetailVersion; latest: boolean; isContributor: boolean; submitting: boolean; onPreview: () => void; onEdit: () => void; onSubmit: () => void }) {
+  const meta = SKILL_VERSION_STATUS[version.status];
+  // 草稿与被驳回都可以再动。PLATFORM_REJECTED 以前漏了 —— 平台驳回后个人贡献者无路可走。
+  const reworkable = version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED' || version.status === 'PLATFORM_REJECTED';
+  // 正文来自包的版本不给行内编辑：包才是它的正文来源，要改就发新版本。
+  const inlineEditable = reworkable && !version.packageKey;
+  const original = !version.parentVersionId && !version.sourceVersionId;
+
+  return (
+    <article className={cn('relative rounded-glass-lg border p-4 shadow-glass-sm transition-colors duration-200', latest ? 'border-glassline-brand bg-glass-accent-2' : 'border-glassline bg-glass-1')}>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-gtext-primary">v{version.version}</span>
+            {latest && <Badge className="rounded-glass-pill border border-glassline-brand bg-gbrand/10 text-gbrand-text">最新</Badge>}
+            {original && <Badge variant="glass-info">原始版本</Badge>}
+            <Badge className={meta.className}>{meta.label}</Badge>
+            {version.packageKey && <Badge variant="glass-info">SKILL 包</Badge>}
+          </div>
+          <p className="mt-2 text-sm text-gtext-secondary">
+            {version.changeSummary || (original ? '技能原始正文，后续版本从此版本派生。' : '未填写变更说明。')}
+          </p>
+          <p className="mt-2 text-xs text-gtext-muted">
+            {version.scope === 'PLATFORM' ? '平台版本' : '企业版本'}
+            {version.packageFilename ? ` · ${version.packageFilename}` : ''}
+            {version.packageFileCount ? ` · ${version.packageFileCount} 个文件` : ''}
+            {' · 更新于 '}{new Date(version.updatedAt).toLocaleDateString('zh-CN')}
+          </p>
+          {version.rejectionReason && (
+            <p className="mt-2 rounded-glass-md border border-gdanger/28 bg-gdanger/10 px-3 py-2 text-xs leading-5 text-gtext-primary">
+              驳回原因：{version.rejectionReason}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="glass" size="sm" onClick={onPreview}><Eye className="h-4 w-4" />预览</Button>
+          {version.packageKey && (
+            <a href={`/api/contributions/versions/${version.id}/package`} className="inline-flex h-8 items-center gap-2 rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm font-medium text-gtext-primary transition-colors hover:bg-glass-3">
+              <Download className="h-4 w-4" />
+              下载包
+            </a>
+          )}
+          {isContributor && inlineEditable && (
+            <Button variant="glass" size="sm" onClick={onEdit}>
+              <FileCode2 className="h-4 w-4" />
+              编辑
+            </Button>
+          )}
+          {isContributor && reworkable && (
+            <Button variant="glass-primary" size="sm" loading={submitting} onClick={onSubmit}>
+              <Send className="h-4 w-4" />
+              提交审核
+            </Button>
+          )}
+        </div>
+      </div>
+    </article>
+  );
 }
 
 function UsageView({ query }: { query: ReturnType<typeof useContributionUsage> }) {

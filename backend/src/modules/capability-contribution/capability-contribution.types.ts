@@ -88,6 +88,25 @@ export type ContributionCapabilitySummary = {
   updatedAt: Date;
 };
 
+/** 作者视角的版本摘要。含包字段，不含正文 —— 正文单独取，列表不需要驼着它。 */
+export const AUTHOR_VERSION_SELECT = {
+  id: true,
+  capabilityId: true,
+  scope: true,
+  enterpriseId: true,
+  parentVersionId: true,
+  sourceVersionId: true,
+  version: true,
+  changeSummary: true,
+  status: true,
+  packageKey: true,
+  packageSha256: true,
+  packageFileCount: true,
+  packageFilename: true,
+  submittedAt: true,
+  createdAt: true,
+} satisfies Prisma.SkillVersionSelect;
+
 export const USAGE_VERSION_SELECT = {
   id: true,
   scope: true,
