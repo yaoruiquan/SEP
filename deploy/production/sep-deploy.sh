@@ -99,6 +99,10 @@ check_shared_infrastructure() {
 
 run_migrations() {
   check_shared_infrastructure
+  # 迁移镜像必须先重建：sep-migrator:latest 里打包的是构建时刻的 migrations 目录，
+  # 复用旧镜像会让新迁移永远不被执行，而容器仍然以 exit 0 结束（静默漏迁移）。
+  info "重建迁移镜像（打包当前 migrations 目录）..."
+  dc build sep-migrate
   info "执行数据库迁移（仅操作 SEP 迁移容器）..."
   dc up --no-deps --force-recreate sep-migrate
   local migration_exit
