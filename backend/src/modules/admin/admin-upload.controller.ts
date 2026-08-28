@@ -11,28 +11,19 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Response } from 'express';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as path from 'path';
-import AdmZip from 'adm-zip';
-import matter from 'gray-matter';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-const SKILLS_DIR = path.join(UPLOAD_DIR, 'skills');
-const MAX_SKILL_MARKDOWN_SIZE = 500 * 1024;
-
-// 确保目录存在
-if (!fs.existsSync(SKILLS_DIR)) {
-  fs.mkdirSync(SKILLS_DIR, { recursive: true });
-}
+import {
+  SKILL_PACKAGE_MAX_BYTES,
+  SkillPackageService,
+} from '../skill-package/skill-package.service';
 
 @ApiTags('admin/upload')
 @ApiBearerAuth()
@@ -40,7 +31,10 @@ if (!fs.existsSync(SKILLS_DIR)) {
 @Roles(UserRole.ADMIN)
 @Controller('admin/capabilities')
 export class AdminUploadController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly skillPackage: SkillPackageService,
+  ) {}
 
   @Post('upload-skill')
   @ApiOperation({ summary: '上传 SKILL.md zip 包' })
@@ -61,92 +55,21 @@ export class AdminUploadController {
   @ApiResponse({ status: 400, description: '文件格式错误或缺少 SKILL.md' })
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (req, file, cb) => {
-          cb(null, SKILLS_DIR);
-        },
-        filename: (req, file, cb) => {
-          // 临时文件名，后续会重命名为 sha256
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, `temp-${uniqueSuffix}.zip`);
-        },
-      }),
-      limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB
-      },
-      fileFilter: (req, file, cb) => {
-        if (!file.originalname.endsWith('.zip')) {
-          return cb(new BadRequestException('只支持 zip 文件'), false);
-        }
-        cb(null, true);
-      },
+      storage: memoryStorage(),
+      limits: { fileSize: SKILL_PACKAGE_MAX_BYTES, files: 1 },
     }),
   )
   async uploadSkillZip(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('未上传文件');
-    }
-
-    const tempPath = file.path;
-
-    try {
-      // 1. 读取文件内容并计算 SHA256
-      const fileBuffer = fs.readFileSync(tempPath);
-      const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-
-      // 2. 验证 zip 文件必须包含 SKILL.md
-      const zip = new AdmZip(tempPath);
-      const zipEntries = zip.getEntries();
-      const skillEntry = zipEntries.find(
-        (entry) => !entry.isDirectory && entry.entryName.endsWith('SKILL.md'),
-      );
-
-      if (!skillEntry) {
-        fs.unlinkSync(tempPath);
-        throw new BadRequestException('zip 文件必须包含 SKILL.md');
-      }
-
-      if (skillEntry.header.size > MAX_SKILL_MARKDOWN_SIZE) {
-        fs.unlinkSync(tempPath);
-        throw new BadRequestException('SKILL.md 正文不能超过 500KB');
-      }
-
-      const rawContent = skillEntry.getData().toString('utf8');
-      const content = matter(rawContent).content.trimStart();
-      if (!content.trim()) {
-        fs.unlinkSync(tempPath);
-        throw new BadRequestException('SKILL.md 正文不能为空');
-      }
-
-      // 3. 收集文件统计信息
-      const fileCount = zipEntries.filter((e) => !e.isDirectory).length;
-      const totalSize = file.size;
-
-      // 4. 重命名为 sha256.zip
-      const finalPath = path.join(SKILLS_DIR, `${sha256}.zip`);
-
-      // 如果同样的文件已经存在，删除临时文件
-      if (fs.existsSync(finalPath)) {
-        fs.unlinkSync(tempPath);
-      } else {
-        fs.renameSync(tempPath, finalPath);
-      }
-
-      return {
-        zipPath: `skills/${sha256}.zip`,
-        sha256,
-        fileCount,
-        totalSize,
-        filename: file.originalname,
-        content,
-      };
-    } catch (error) {
-      // 清理临时文件
-      if (fs.existsSync(tempPath)) {
-        fs.unlinkSync(tempPath);
-      }
-      throw error;
-    }
+    const stored = await this.skillPackage.store(file);
+    // 响应保持原有字段名 —— 运营端的 skill-form 直接读 zipPath / totalSize。
+    return {
+      zipPath: stored.key,
+      sha256: stored.sha256,
+      fileCount: stored.fileCount,
+      totalSize: stored.totalBytes,
+      filename: stored.filename,
+      content: stored.content,
+    };
   }
 
   @Get(':capabilityId/download-skill')
@@ -160,6 +83,16 @@ export class AdminUploadController {
     // 1. 查询能力记录
     const capability = await this.prisma.capability.findUnique({
       where: { id: capabilityId },
+      include: {
+        // 贡献中心创建的能力把包挂在版本上；运营端早期上传的挂在 metadata。
+        // 审核人两种都要能下载，所以这里查最近一个带包的版本作为回退。
+        skillVersions: {
+          where: { packageKey: { not: null } },
+          select: { packageKey: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
 
     if (!capability) {
@@ -170,14 +103,15 @@ export class AdminUploadController {
       throw new BadRequestException('只有 SKILL 类型能力可以下载');
     }
 
-    // 2. 从 metadata 中获取 zipPath
-    const metadata = capability.metadata as any;
-    if (!metadata?.zipPath) {
+    // 2. 包路径：优先 metadata（历史数据），回退到最近一个带包的版本
+    const metadata = capability.metadata as { zipPath?: string } | null;
+    const zipPath = metadata?.zipPath ?? capability.skillVersions[0]?.packageKey;
+    if (!zipPath) {
       throw new NotFoundException('未找到 zip 文件路径');
     }
 
     // 3. 构建完整文件路径
-    const filePath = path.join(UPLOAD_DIR, metadata.zipPath);
+    const filePath = this.skillPackage.resolveStoredPath(zipPath);
 
     // 4. 检查文件是否存在
     if (!fs.existsSync(filePath)) {

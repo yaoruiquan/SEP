@@ -1,8 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, uploadForm } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
+import type { SkillPackageParseResult } from '../../../../backend/src/shared';
 import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage } from '@/lib/types';
 
 export function useContributionOverview() {
@@ -34,6 +35,20 @@ export function useCreateContribution() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<ContributionCapability>('/contributions', body),
     onSuccess: () => invalidate(qc),
+  });
+}
+
+/**
+ * 上传 SKILL 包并拿回解析结果。
+ * 创建能力时只回传 sha256 —— 正文由服务端按哈希重新解包，客户端改不动它。
+ */
+export function useUploadSkillPackage() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return uploadForm<SkillPackageParseResult>('/contributions/skill-package', form);
+    },
   });
 }
 

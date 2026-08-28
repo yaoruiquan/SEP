@@ -642,6 +642,15 @@ model SkillVersion {
   changeSummary String?            @db.Text
   status        SkillVersionStatus @default(DRAFT)
 
+  /// 上传的 SKILL 包在对象存储里的 key（`skills/<sha256>.zip`）。
+  /// 内容寻址：同一份包只落一次盘，多个版本可以指向同一个 key。
+  /// 手写正文的版本这四个字段全为空 —— `content` 才是审核与展示的正文来源，
+  /// 包只是可下载的原始产物。
+  packageKey       String?
+  packageSha256    String?
+  packageFileCount Int?
+  packageFilename  String?
+
   createdById String
   createdBy   User   @relation("SkillVersionCreator", fields: [createdById], references: [id])
 

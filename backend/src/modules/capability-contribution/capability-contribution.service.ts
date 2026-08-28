@@ -18,8 +18,10 @@ import type {
   ContributionCapabilityCreateDto,
   ContributionCapabilityUpdateDto,
   ContributionReviewDecision as ContributionDecisionDto,
+  ContributionSkillConfigDto,
   ContributionVersionCreateDto,
 } from 'shared';
+import { SkillPackageService } from '../skill-package/skill-package.service';
 import { CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT, USAGE_VERSION_SELECT } from './capability-contribution.types';
 import { CapabilityValidatorService } from './capability-validator.service';
 
@@ -34,6 +36,7 @@ export class CapabilityContributionService {
     private readonly prisma: PrismaService,
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly validator: CapabilityValidatorService,
+    private readonly skillPackage: SkillPackageService,
   ) {}
 
   async overview(userId: string) {
@@ -175,11 +178,18 @@ export class CapabilityContributionService {
   async create(userId: string, dto: ContributionCapabilityCreateDto) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
     if (dto.type === 'skill' && !dto.skillConfig) {
-      throw new BadRequestException('Skill 能力必须提供正文模板');
+      throw new BadRequestException('Skill 能力必须提供正文模板或上传 SKILL 包');
     }
     if (dto.type === 'agent' && !dto.agentConfig) {
       throw new BadRequestException('Agent 能力必须提供执行平台配置');
     }
+
+    // 正文来源在这里收敛成一份：上传路径按 sha256 重新解包，在线编写路径剥
+    // frontmatter。后面写 SkillConfig 与首版 SkillVersion 都用这一份，
+    // 两处不会漂移。
+    const skill = dto.skillConfig
+      ? await this.resolveSkillSource(dto.skillConfig)
+      : null;
 
     return this.prisma.capability.create({
       data: {
@@ -192,10 +202,10 @@ export class CapabilityContributionService {
         outputSchema: dto.outputSchema,
         contributorId: userId,
         enterpriseId: ctx?.enterpriseId ?? null,
-        ...(dto.skillConfig && {
+        ...(skill && dto.skillConfig && {
           skillConfig: {
             create: {
-              template: dto.skillConfig.template,
+              template: skill.content,
               modelId: dto.skillConfig.modelId,
               temperature: dto.skillConfig.temperature,
               maxTokens: dto.skillConfig.maxTokens,
@@ -206,10 +216,11 @@ export class CapabilityContributionService {
               scope: ctx ? 'ENTERPRISE' : 'PLATFORM',
               enterpriseId: ctx?.enterpriseId ?? null,
               version: '1.0.0',
-              content: matter(dto.skillConfig.template).content.trimStart(),
+              content: skill.content,
               changeSummary: '初始版本',
               status: 'DRAFT',
               createdById: userId,
+              ...skill.packageFields,
             },
           },
         }),
@@ -520,6 +531,52 @@ export class CapabilityContributionService {
     });
     if (!capability) throw new NotFoundException('能力不存在');
     return capability;
+  }
+
+  /** 作者本人下载某个版本的原始 SKILL 包。 */
+  async getVersionPackage(userId: string, versionId: string) {
+    const version = await this.prisma.skillVersion.findFirst({
+      where: { id: versionId, capability: { contributorId: userId } },
+      select: {
+        packageKey: true,
+        packageFilename: true,
+        version: true,
+        capability: { select: { name: true } },
+      },
+    });
+    if (!version) throw new NotFoundException('版本不存在或无权访问');
+    if (!version.packageKey) {
+      throw new NotFoundException('该版本是在线编写的正文，没有可下载的包');
+    }
+    return {
+      key: version.packageKey,
+      filename:
+        version.packageFilename ||
+        `${version.capability.name}-v${version.version}.zip`,
+    };
+  }
+
+  /**
+   * 把「上传包」与「在线编写」两条正文来源归一。
+   * 上传路径只信 sha256：正文从磁盘上那份字节重新提取，客户端回传的正文一律不采纳。
+   */
+  private async resolveSkillSource(config: ContributionSkillConfigDto) {
+    if (config.packageSha256) {
+      const stored = await this.skillPackage.read(config.packageSha256);
+      return {
+        content: stored.content,
+        packageFields: {
+          packageKey: stored.key,
+          packageSha256: stored.sha256,
+          packageFileCount: stored.fileCount,
+          packageFilename: config.packageFilename ?? null,
+        },
+      };
+    }
+    return {
+      content: matter(config.template ?? '').content.trimStart(),
+      packageFields: {},
+    };
   }
 
   private async getOwnedCapability(userId: string, capabilityId: string) {

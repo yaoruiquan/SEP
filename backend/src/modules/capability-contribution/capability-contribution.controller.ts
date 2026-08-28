@@ -1,22 +1,107 @@
-import { Body, Controller, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Request,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import { memoryStorage } from 'multer';
 import {
   ContributionCapabilityCreateDtoSchema,
   ContributionCapabilityUpdateDtoSchema,
   ContributionReviewDecisionSchema,
   ContributionVersionCreateDtoSchema,
+  type SkillPackageParseResult,
 } from 'shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import {
+  SKILL_PACKAGE_MAX_BYTES,
+  SkillPackageService,
+} from '../skill-package/skill-package.service';
 import { CapabilityContributionService } from './capability-contribution.service';
+import { CapabilityValidatorService } from './capability-validator.service';
 
 type AuthRequest = { user: { id: string } };
+
+/**
+ * memoryStorage 而非 diskStorage：包要先过魔数与结构校验才决定是否落盘，
+ * 落盘位置还得由内容哈希决定。上限由 fileSize 兜住，不会长期占内存。
+ */
+const SKILL_PACKAGE_MULTER = {
+  storage: memoryStorage(),
+  limits: { fileSize: SKILL_PACKAGE_MAX_BYTES, files: 1 },
+};
 
 @ApiTags('Capability Contributions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('contributions')
 export class CapabilityContributionController {
-  constructor(private readonly service: CapabilityContributionService) {}
+  constructor(
+    private readonly service: CapabilityContributionService,
+    private readonly skillPackage: SkillPackageService,
+    private readonly validator: CapabilityValidatorService,
+  ) {}
+
+  @Post('skill-package')
+  @ApiOperation({
+    summary: '上传 SKILL 包（zip，须含 SKILL.md）',
+    description:
+      '返回 sha256 与解析结果。创建能力时只回传 sha256，正文由服务端按哈希重新解包提取。',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiResponse({ status: 201, description: '解析成功，返回包元数据与自动校验结论' })
+  @ApiResponse({ status: 400, description: '不是 zip、缺少 SKILL.md 或包结构非法' })
+  @ApiResponse({ status: 413, description: '包超过大小上限' })
+  @UseInterceptors(FileInterceptor('file', SKILL_PACKAGE_MULTER))
+  async uploadSkillPackage(
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<SkillPackageParseResult> {
+    const stored = await this.skillPackage.store(file);
+    // 上传即校验：提交审核前就把缺段落、含密钥之类的问题暴露出来，
+    // 而不是等第三步走完、点提交才报错。
+    const { kind: _kind, ...validation } = this.validator.validateSkill(stored.content);
+    return {
+      sha256: stored.sha256,
+      filename: stored.filename,
+      fileCount: stored.fileCount,
+      totalBytes: stored.totalBytes,
+      content: stored.content,
+      suggested: stored.suggested,
+      validation,
+    };
+  }
+
+  @Get('versions/:versionId/package')
+  @ApiOperation({ summary: '下载某个版本上传的 SKILL 包' })
+  @ApiResponse({ status: 200, description: '返回 zip 文件' })
+  @ApiResponse({ status: 404, description: '版本不存在、无权访问或该版本没有包' })
+  async downloadVersionPackage(
+    @Request() req: AuthRequest,
+    @Param('versionId') versionId: string,
+    @Res() res: Response,
+  ) {
+    const { key, filename } = await this.service.getVersionPackage(
+      req.user.id,
+      versionId,
+    );
+    res.download(this.skillPackage.resolveStoredPath(key), filename);
+  }
 
   @Get('overview')
   @ApiOperation({ summary: '贡献中心概览' })

@@ -38,7 +38,13 @@ describe('CapabilityContributionService', () => {
     $transaction: jest.fn(),
   };
   const validator = new CapabilityValidatorService();
-  const service = new CapabilityContributionService(prisma as never, enterpriseContext as never, validator);
+  const skillPackage = { read: jest.fn(), store: jest.fn(), resolveStoredPath: jest.fn() };
+  const service = new CapabilityContributionService(
+    prisma as never,
+    enterpriseContext as never,
+    validator,
+    skillPackage as never,
+  );
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -69,6 +75,68 @@ describe('CapabilityContributionService', () => {
     expect(prisma.capability.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ contributorId: 'user-1', enterpriseId: 'enterprise-1' }),
     }));
+  });
+
+  it('takes the first version body from the uploaded package, not from the client', async () => {
+    // 客户端同时送来 packageSha256 与一段正文。DTO 层本就二选一，这里额外
+    // 确认服务端只认按 sha256 重读的那份 —— 否则可以拿 A 包的哈希配 B 包的
+    // 正文，绕过上传时跑过的自动校验。
+    skillPackage.read.mockResolvedValue({
+      key: 'skills/aa.zip',
+      sha256: 'a'.repeat(64),
+      fileCount: 3,
+      totalBytes: 2048,
+      content: '# 角色\n包里的正文',
+      suggested: { name: null, description: null },
+    });
+
+    await service.create('user-1', {
+      name: '竞品周报',
+      description: '生成竞品周报',
+      type: 'skill',
+      industry: [],
+      position: [],
+      inputSchema: {},
+      outputSchema: {},
+      skillConfig: {
+        packageSha256: 'a'.repeat(64),
+        packageFilename: '竞品周报.zip',
+        template: '客户端伪造的正文，不应被采纳',
+      },
+    } as never);
+
+    expect(skillPackage.read).toHaveBeenCalledWith('a'.repeat(64));
+    const { data } = prisma.capability.create.mock.calls[0][0];
+    expect(data.skillVersions.create).toMatchObject({
+      content: '# 角色\n包里的正文',
+      version: '1.0.0',
+      status: 'DRAFT',
+      packageKey: 'skills/aa.zip',
+      packageSha256: 'a'.repeat(64),
+      packageFileCount: 3,
+      packageFilename: '竞品周报.zip',
+    });
+    // SkillConfig.template 与首版正文同源，两处不会漂移
+    expect(data.skillConfig.create.template).toBe('# 角色\n包里的正文');
+  });
+
+  it('keeps hand-written drafts free of package fields', async () => {
+    await service.create('user-1', {
+      name: '手写能力',
+      description: '在线编写的正文',
+      type: 'skill',
+      industry: [],
+      position: [],
+      inputSchema: {},
+      outputSchema: {},
+      skillConfig: { template: '---\nname: x\n---\n# 角色\n手写正文' },
+    });
+
+    expect(skillPackage.read).not.toHaveBeenCalled();
+    const { data } = prisma.capability.create.mock.calls[0][0];
+    // frontmatter 被剥掉，正文从第一个标题开始
+    expect(data.skillVersions.create.content).toBe('# 角色\n手写正文');
+    expect(data.skillVersions.create.packageKey).toBeUndefined();
   });
 
   it('lets an enterprise admin inspect another member contribution in the same enterprise', async () => {
