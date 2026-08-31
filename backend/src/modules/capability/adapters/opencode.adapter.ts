@@ -97,10 +97,15 @@ export class OpenCodeAdapter extends BaseAdapter {
   }
 
   private async runJob(jobId: string, skillName: string): Promise<void> {
+    // skillContent 存在时以它为准（企业编辑后的版本），否则退化到 skillName（静态模板）
+    const payload = this.adapterConfig.skillContent
+      ? { content: this.adapterConfig.skillContent }
+      : { template: skillName };
+
     const resp = await this.fetchWithTimeout(`${this.baseUrl}/jobs/${jobId}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ template: skillName }),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) throw new Error(`Run job failed: ${resp.statusText}`);
   }

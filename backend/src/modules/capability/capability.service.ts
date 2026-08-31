@@ -4,8 +4,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SkillVersionService } from '../skill-version/skill-version.service';
 import { AdapterFactory } from './adapters/adapter.factory';
-import { AdapterInput, AdapterExecutionResult } from './adapters/adapter.interface';
+import {
+  AdapterInput,
+  AdapterExecutionResult,
+  type CapabilityExecutionContext,
+} from './adapters/adapter.interface';
 import { CapabilityUploadDto } from 'shared';
 import matter from 'gray-matter';
 
@@ -58,6 +63,7 @@ export class CapabilityService {
   constructor(
     private prisma: PrismaService,
     private adapterFactory: AdapterFactory,
+    private skillVersionService: SkillVersionService,
   ) {}
 
   // ──────────────── Browse / Read ────────────────
@@ -342,7 +348,11 @@ export class CapabilityService {
 
   // ──────────────── Runtime execution (used by conversation layer) ────────────────
 
-  async execute(capabilityId: string, input: AdapterInput): Promise<AdapterExecutionResult> {
+  async execute(
+    capabilityId: string,
+    input: AdapterInput,
+    ctx: CapabilityExecutionContext = {},
+  ): Promise<AdapterExecutionResult> {
     const capability = await this.prisma.capability.findUnique({
       where: { id: capabilityId },
       include: { agentConfig: true },
@@ -353,16 +363,36 @@ export class CapabilityService {
       throw new NotFoundException(`No agent config for capability ${capabilityId}`);
     }
 
+    let skillContent: string | null = null;
+    let skillVersionId: string | null = null;
+
+    // SKILL 类能力：解析出本次执行应该用的版本（企业私有 > 员工模板默认 > 最新平台审核通过版）
+    if (capability.type === 'SKILL' && ctx.subscriptionId) {
+      const resolved = await this.skillVersionService.resolveEffectiveVersion(
+        ctx.subscriptionId,
+        capabilityId,
+      );
+      if (resolved) {
+        skillContent = resolved.content;
+        skillVersionId = resolved.id;
+      }
+    }
+
     const config = {
       platform: capability.agentConfig.platform,
       botId: capability.agentConfig.botId,
       apiKey: capability.agentConfig.apiKey,
       workflowUrl: capability.agentConfig.workflowUrl,
       skillName: capability.agentConfig.skillName,
+      skillContent,
+      skillVersionId,
     };
 
     const adapter = this.adapterFactory.create(config);
-    return adapter.execute(input);
+    const result = await adapter.execute(input);
+
+    // 版本归因回填：执行结果里带上「实际用的是哪个版本」
+    return { ...result, skillVersionId };
   }
 
   private async findOneInternal(id: string) {

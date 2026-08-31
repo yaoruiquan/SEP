@@ -543,6 +543,7 @@ export class ConversationStreamService {
             const execResult = await this.capabilityService.execute(
               cap.id,
               input,
+              { subscriptionId },
             );
             resultText = execResult.success
               ? execResult.output
@@ -557,6 +558,8 @@ export class ConversationStreamService {
                 duration: Date.now() - startTime,
                 status: execResult.success ? "SUCCESS" : "FAILED",
                 errorMessage: execResult.error,
+                skillVersionId: execResult.skillVersionId ?? null,
+                userId: userId ?? null,
               },
             });
           } catch (err) {

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -27,6 +28,10 @@ import {
   SkillVersionStatusSchema,
   UpdateSkillVersionDtoSchema,
 } from 'shared';
+import {
+  SkillVersionUsageSummaryDtoSchema,
+  SkillVersionExecutionListDtoSchema,
+} from './skill-version-usage.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -141,6 +146,35 @@ export class EnterpriseSkillVersionController {
   @ApiOperation({ summary: '将企业审核通过版本提交平台审核' })
   submitPlatformReview(@Request() req: AuthRequest, @Param('id') id: string) {
     return this.service.submitPlatformReview(req.user.id, id);
+  }
+
+  @Get('capabilities/:capabilityId/usage')
+  @ApiOperation({ summary: '技能使用记录汇总（三层聚合：总览+员工+用户）' })
+  async getUsageSummary(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+  ) {
+    const ctx = await this.service['enterpriseContext'].resolve(req.user.id);
+    const isAdmin = ctx.role === 'ENTERPRISE_ADMIN';
+    return this.service.getUsageSummary(req.user.id, capabilityId, isAdmin);
+  }
+
+  @Get('capabilities/:capabilityId/executions')
+  @ApiOperation({ summary: '技能执行明细（仅企业管理员）' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  async getExecutionDetails(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+    @Query('limit') limitStr?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const ctx = await this.service['enterpriseContext'].resolve(req.user.id);
+    if (ctx.role !== 'ENTERPRISE_ADMIN') {
+      throw new ForbiddenException('执行明细仅企业管理员可见');
+    }
+    const limit = limitStr ? parseInt(limitStr, 10) : 20;
+    return this.service.getExecutionDetails(req.user.id, capabilityId, limit, cursor);
   }
 }
 

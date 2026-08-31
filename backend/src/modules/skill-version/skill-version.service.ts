@@ -645,4 +645,154 @@ export class SkillVersionService {
   private stripFrontmatter(content: string) {
     return matter(content).content.trimStart();
   }
+
+  // ────────────────── 使用记录与统计 ──────────────────
+
+  /**
+   * 使用记录汇总：三层聚合（总览 + 分员工 + 分用户）。
+   *
+   * 调用方权限决定可见范围：
+   * - 普通员工看到 summary + byEmployee（全企业范围）
+   * - 企业管理员额外看到 byMember（具体到人）
+   */
+  async getUsageSummary(userId: string, capabilityId: string, isAdmin: boolean) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+
+    // 查本企业对这个技能的所有执行记录（不限版本 —— 企业可能在不同版本间切换）
+    const executions = await this.prisma.toolExecution.findMany({
+      where: {
+        capabilityId,
+        // userId 通过 session → user 关联，先查出本企业的所有会话再过滤
+        session: {
+          user: {
+            memberships: {
+              some: { enterpriseId: ctx.enterpriseId },
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        sessionId: true,
+        userId: true,
+        skillVersionId: true,
+        session: {
+          select: {
+            employeeId: true,
+            employee: { select: { name: true } },
+          },
+        },
+        user: { select: { name: true } },
+      },
+    });
+
+    const distinctUserIds = new Set(executions.map((e) => e.userId).filter(Boolean));
+    const distinctSessionIds = new Set(executions.map((e) => e.sessionId));
+
+    // 按员工聚合
+    const byEmployeeMap = new Map<string, { name: string; count: number }>();
+    for (const exec of executions) {
+      const id = exec.session.employeeId;
+      const entry = byEmployeeMap.get(id) ?? { name: exec.session.employee.name, count: 0 };
+      entry.count += 1;
+      byEmployeeMap.set(id, entry);
+    }
+
+    const byEmployee = Array.from(byEmployeeMap.entries()).map(([employeeId, data]) => ({
+      employeeId,
+      employeeName: data.name,
+      rounds: data.count,
+    }));
+
+    // 按用户聚合（仅管理员可见）
+    let byMember: Array<{ userId: string; userName: string | null; rounds: number }> | undefined;
+    if (isAdmin) {
+      const byMemberMap = new Map<string, { name: string | null; count: number }>();
+      for (const exec of executions) {
+        if (!exec.userId) continue;
+        const entry = byMemberMap.get(exec.userId) ?? { name: exec.user?.name ?? null, count: 0 };
+        entry.count += 1;
+        byMemberMap.set(exec.userId, entry);
+      }
+      byMember = Array.from(byMemberMap.entries()).map(([userId, data]) => ({
+        userId,
+        userName: data.name,
+        rounds: data.count,
+      }));
+    }
+
+    return {
+      summary: {
+        distinctUserCount: distinctUserIds.size,
+        totalConversations: distinctSessionIds.size,
+        totalRounds: executions.length,
+      },
+      byEmployee,
+      byMember,
+    };
+  }
+
+  /**
+   * 执行明细：单次调用的输入输出与版本归属，游标分页。
+   *
+   * 仅企业管理员可见 —— 涉及员工对话内容，普通员工不该看到。
+   */
+  async getExecutionDetails(
+    userId: string,
+    capabilityId: string,
+    limit: number,
+    cursor?: string,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+
+    const executions = await this.prisma.toolExecution.findMany({
+      where: {
+        capabilityId,
+        session: {
+          user: {
+            memberships: {
+              some: { enterpriseId: ctx.enterpriseId },
+            },
+          },
+        },
+        ...(cursor && { createdAt: { lt: new Date(cursor) } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        sessionId: true,
+        input: true,
+        output: true,
+        status: true,
+        errorMessage: true,
+        duration: true,
+        skillVersionId: true,
+        skillVersion: { select: { scope: true } },
+        userId: true,
+        user: { select: { name: true } },
+        createdAt: true,
+      },
+    });
+
+    const items = executions.map((exec) => ({
+      id: exec.id,
+      sessionId: exec.sessionId,
+      input: exec.input,
+      output: exec.output,
+      status: exec.status,
+      errorMessage: exec.errorMessage,
+      duration: exec.duration,
+      skillVersionId: exec.skillVersionId,
+      versionScope: exec.skillVersion?.scope ?? null,
+      userId: exec.userId,
+      userName: exec.user?.name ?? null,
+      createdAt: exec.createdAt.toISOString(),
+    }));
+
+    const nextCursor =
+      executions.length === limit ? executions[executions.length - 1].createdAt.toISOString() : null;
+
+    return { items, nextCursor };
+  }
 }

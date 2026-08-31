@@ -53,6 +53,7 @@ model User {
   taskRuns                          TaskRun[]
   taskTemplates                     TaskTemplate[]
   computeUsageRecords               ComputeUsageRecord[]
+  toolExecutions                    ToolExecution[]
 
   @@map("users")
 }
@@ -689,6 +690,7 @@ model SkillVersion {
   selections          SubscriptionSkillVersion[]
   defaultBindings     EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
   contributionRewards ContributionRewardEvent[]
+  executions          ToolExecution[]
 
   @@index([capabilityId, status])
   @@index([enterpriseId, status])
@@ -1033,6 +1035,16 @@ model ToolExecution {
   capabilityId String
   capability   Capability @relation(fields: [capabilityId], references: [id])
 
+  /// 本次执行实际生效的技能版本（企业选定 > 模板默认 > 平台最新）。
+  /// 使用记录必须归因到具体版本，企业才能评估「本企业正在用哪些版本」。
+  skillVersionId String?
+  skillVersion   SkillVersion? @relation(fields: [skillVersionId], references: [id])
+
+  /// 发起调用的最终用户 ID。
+  /// 从「企业范围内有多少人在用这个技能」的统计需求倒推，必须记到人。
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
   input  Json
   output Json?
 
@@ -1045,6 +1057,8 @@ model ToolExecution {
   createdAt DateTime @default(now())
 
   @@index([sessionId, createdAt])
+  @@index([capabilityId, createdAt])
+  @@index([skillVersionId, createdAt])
   @@map("tool_executions")
 }
 

@@ -10,9 +10,11 @@ describe('CapabilityService public projection', () => {
       skillConfig: { id: 'skill-config-1' },
     });
     const prisma = { capability: { findFirst } };
+    const skillVersionService = {} as any;
     const service = new CapabilityService(
       prisma as unknown as PrismaService,
       {} as AdapterFactory,
+      skillVersionService,
     );
 
     const result = await service.findOne('capability-1');
