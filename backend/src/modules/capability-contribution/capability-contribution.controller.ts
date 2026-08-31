@@ -21,9 +21,15 @@ import {
   ContributionReviewDecisionSchema,
   ContributionVersionCreateDtoSchema,
   ContributionVersionUpdateDtoSchema,
+  type ContributionCapabilityCreateDto,
+  type ContributionCapabilityUpdateDto,
+  type ContributionReviewDecision,
+  type ContributionVersionCreateDto,
+  type ContributionVersionUpdateDto,
   type SkillPackageParseResult,
 } from 'shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   SKILL_PACKAGE_MAX_BYTES,
   SkillPackageService,
@@ -103,8 +109,8 @@ export class CapabilityContributionController {
   @Patch('versions/:versionId')
   @ApiOperation({ summary: '编辑草稿版本正文（仅在线编写的版本）' })
   @ApiResponse({ status: 409, description: '版本状态不可编辑，或正文来自上传的包' })
-  updateVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string, @Body() body: unknown) {
-    return this.service.updateVersion(req.user.id, versionId, ContributionVersionUpdateDtoSchema.parse(body));
+  updateVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string, @Body(new ZodValidationPipe(ContributionVersionUpdateDtoSchema)) dto: ContributionVersionUpdateDto) {
+    return this.service.updateVersion(req.user.id, versionId, dto);
   }
 
   @Post('versions/:versionId/submit')
@@ -156,14 +162,14 @@ export class CapabilityContributionController {
   @Post()
   @ApiOperation({ summary: '创建企业私有能力草稿' })
   @ApiResponse({ status: 201, description: '能力草稿已创建' })
-  create(@Request() req: AuthRequest, @Body() body: unknown) {
-    return this.service.create(req.user.id, ContributionCapabilityCreateDtoSchema.parse(body));
+  create(@Request() req: AuthRequest, @Body(new ZodValidationPipe(ContributionCapabilityCreateDtoSchema)) dto: ContributionCapabilityCreateDto) {
+    return this.service.create(req.user.id, dto);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: '编辑能力草稿' })
-  update(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.service.update(req.user.id, id, ContributionCapabilityUpdateDtoSchema.parse(body));
+  update(@Request() req: AuthRequest, @Param('id') id: string, @Body(new ZodValidationPipe(ContributionCapabilityUpdateDtoSchema)) dto: ContributionCapabilityUpdateDto) {
+    return this.service.update(req.user.id, id, dto);
   }
 
   @Post(':id/submit-enterprise-review')
@@ -172,8 +178,8 @@ export class CapabilityContributionController {
 
   @Post(':id/enterprise-review')
   @ApiOperation({ summary: '企业管理员审核能力' })
-  reviewEnterprise(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.service.reviewEnterprise(req.user.id, id, ContributionReviewDecisionSchema.parse(body));
+  reviewEnterprise(@Request() req: AuthRequest, @Param('id') id: string, @Body(new ZodValidationPipe(ContributionReviewDecisionSchema)) dto: ContributionReviewDecision) {
+    return this.service.reviewEnterprise(req.user.id, id, dto);
   }
 
   @Post(':id/request-platform-review')
@@ -186,8 +192,8 @@ export class CapabilityContributionController {
 
   @Post(':id/platform-review')
   @ApiOperation({ summary: '平台运营审核投稿' })
-  reviewPlatform(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.service.reviewPlatform(req.user.id, id, ContributionReviewDecisionSchema.parse(body));
+  reviewPlatform(@Request() req: AuthRequest, @Param('id') id: string, @Body(new ZodValidationPipe(ContributionReviewDecisionSchema)) dto: ContributionReviewDecision) {
+    return this.service.reviewPlatform(req.user.id, id, dto);
   }
 
   @Post(':id/versions')
@@ -196,7 +202,7 @@ export class CapabilityContributionController {
     description: '正文来源与创建能力同规则：上传包只送 sha256，或直接送在线编写的 content。',
   })
   @ApiResponse({ status: 201, description: '新版本草稿已创建' })
-  createVersion(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.service.createSkillVersion(req.user.id, id, ContributionVersionCreateDtoSchema.parse(body));
+  createVersion(@Request() req: AuthRequest, @Param('id') id: string, @Body(new ZodValidationPipe(ContributionVersionCreateDtoSchema)) dto: ContributionVersionCreateDto) {
+    return this.service.createSkillVersion(req.user.id, id, dto);
   }
 }

@@ -136,7 +136,13 @@ export function useDeleteTaskRun() {
   });
 }
 
-/** 回收孤儿运行：执行中关掉标签页后，记录会永远停在 running */
+/**
+ * 手动回收一条卡住的运行。
+ *
+ * 常规路径已经不需要它了 —— 服务端 TaskReconcileService 每分钟自动接回或收口
+ * 失联的运行。保留这个 hook 是给「自动回收也没救回来」留一个人工兜底入口，
+ * 目前界面上没有挂它。
+ */
 export function useReconcileTaskRun() {
   const qc = useQueryClient();
   return useMutation({

@@ -53,6 +53,34 @@ function edgePath(from: { x: number; y: number }, to: { x: number; y: number }):
   return `M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}`;
 }
 
+/** 连线中点，用来挂「交接」标签 */
+function edgeMidpoint(from: { x: number; y: number }, to: { x: number; y: number }) {
+  const sx = from.x + NODE_W;
+  const sy = from.y + NODE_H / 2;
+  const tx = to.x;
+  const ty = to.y + NODE_H / 2;
+  // 三次贝塞尔 t=0.5 处，控制点与端点同 y，所以 x 是四点均值、y 是两端均值
+  return { x: (sx + tx) / 2, y: (sy + ty) / 2 };
+}
+
+/**
+ * 连线的三种状态。
+ *
+ * 会议要求「连线和流程展示需要优化，确保流程关系清楚」。光有曲线还不够 ——
+ * 一张静态的灰线图看不出「东西已经交过去了」还是「还没开始」。所以：
+ *   done   上游已交付 → 实线 + 绿色 + 「交接」标签
+ *   active 下游正在跑 → 品牌色 + 流动虚线（肉眼可见的方向感）
+ *   idle   还没轮到   → 灰色细线
+ */
+type EdgeTone = 'idle' | 'active' | 'done';
+
+const EDGE_STROKE: Record<EdgeTone, string> = {
+  idle: 'var(--gtext-muted)',
+  active: 'rgb(var(--gbrand-rgb))',
+  done: 'var(--gsuccess)',
+};
+
+
 export interface TaskDependencyGraphProps {
   plan: TaskPlan;
   layout: GraphLayout | null;
@@ -192,19 +220,126 @@ export function TaskDependencyGraph({
       >
         <div className="relative" style={{ width, height }}>
           <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
+            <defs>
+              {(['idle', 'active', 'done'] as EdgeTone[]).map((tone) => (
+                <marker
+                  key={tone}
+                  id={`arrow-${tone}`}
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={EDGE_STROKE[tone]} />
+                </marker>
+              ))}
+            </defs>
+
             {roots.map((step) => (
-              <path key={`in-${step.id}`} d={edgePath(inputPos, positions[step.id])} fill="none" stroke="var(--glass-border-hover)" strokeWidth="1.5" strokeDasharray="4 5" strokeLinecap="round" />
+              <path
+                key={`in-${step.id}`}
+                d={edgePath(inputPos, positions[step.id])}
+                fill="none"
+                stroke="var(--glass-border-hover)"
+                strokeWidth="1.5"
+                strokeDasharray="4 5"
+                strokeLinecap="round"
+                markerEnd="url(#arrow-idle)"
+              />
             ))}
+
             {ordered.flatMap((step) =>
               step.dependsOn
                 .filter((id) => positions[id])
-                .map((id) => (
-                  <path key={`${id}-${step.id}`} d={edgePath(positions[id], positions[step.id])} fill="none" stroke="var(--gtext-muted)" strokeWidth="1.75" strokeLinecap="round" opacity="0.55" />
-                )),
+                .map((id) => {
+                  const upstream = ordered.find((candidate) => candidate.id === id);
+                  const tone: EdgeTone =
+                    upstream?.status === 'completed'
+                      ? step.status === 'running'
+                        ? 'active'
+                        : 'done'
+                      : step.status === 'running'
+                        ? 'active'
+                        : 'idle';
+                  const mid = edgeMidpoint(positions[id], positions[step.id]);
+                  const handedOver = upstream?.status === 'completed' && Boolean(upstream.output);
+
+                  return (
+                    <g key={`${id}-${step.id}`}>
+                      <path
+                        d={edgePath(positions[id], positions[step.id])}
+                        fill="none"
+                        stroke={EDGE_STROKE[tone]}
+                        strokeWidth={tone === 'idle' ? 1.75 : 2.25}
+                        strokeLinecap="round"
+                        opacity={tone === 'idle' ? 0.5 : 0.9}
+                        strokeDasharray={tone === 'active' ? '7 6' : undefined}
+                        markerEnd={`url(#arrow-${tone})`}
+                      >
+                        {/* 流动虚线：用 SVG 原生 animate，不依赖 tailwind 配置里
+                            额外的 keyframes，避免「本地看得见、别人机器上看不见」 */}
+                        {tone === 'active' && (
+                          <animate
+                            attributeName="stroke-dashoffset"
+                            from="26"
+                            to="0"
+                            dur="0.9s"
+                            repeatCount="indefinite"
+                          />
+                        )}
+                      </path>
+
+                      {/* 「交接」标签：会议要求展示交接内容，图上至少要说明这条线
+                          已经真的传过东西，而不只是一条依赖声明 */}
+                      {handedOver && (
+                        <g transform={`translate(${mid.x}, ${mid.y})`}>
+                          <rect
+                            x="-19"
+                            y="-8"
+                            width="38"
+                            height="16"
+                            rx="8"
+                            fill="var(--surface-solid-raised, var(--gbg-raised))"
+                            stroke={EDGE_STROKE.done}
+                            strokeWidth="1"
+                            opacity="0.95"
+                          />
+                          <text
+                            x="0"
+                            y="4"
+                            textAnchor="middle"
+                            fontSize="9"
+                            fill={EDGE_STROKE.done}
+                            fontWeight="600"
+                          >
+                            交接
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                }),
             )}
-            {leaves.map((step) => (
-              <path key={`out-${step.id}`} d={edgePath(positions[step.id], outputPos)} fill="none" stroke="var(--glass-border-hover)" strokeWidth="1.5" strokeDasharray="4 5" strokeLinecap="round" />
-            ))}
+
+            {leaves.map((step) => {
+              const tone: EdgeTone = step.status === 'completed' ? 'done' : 'idle';
+              return (
+                <path
+                  key={`out-${step.id}`}
+                  d={edgePath(positions[step.id], outputPos)}
+                  fill="none"
+                  stroke={tone === 'done' ? EDGE_STROKE.done : 'var(--glass-border-hover)'}
+                  strokeWidth={tone === 'done' ? 2 : 1.5}
+                  strokeDasharray={tone === 'done' ? undefined : '4 5'}
+                  strokeLinecap="round"
+                  opacity={tone === 'done' ? 0.9 : 1}
+                  markerEnd={`url(#arrow-${tone})`}
+                />
+              );
+            })}
+
             {connectingFrom && pointer && positions[connectingFrom] && (
               <path
                 d={`M ${positions[connectingFrom].x + NODE_W} ${positions[connectingFrom].y + NODE_H / 2} L ${pointer.x} ${pointer.y}`}
@@ -212,6 +347,7 @@ export function TaskDependencyGraph({
                 stroke="rgb(var(--gbrand-rgb))"
                 strokeWidth="2"
                 strokeDasharray="5 5"
+                markerEnd="url(#arrow-active)"
               />
             )}
           </svg>
@@ -363,6 +499,13 @@ function GraphNode({
   );
 }
 
+/**
+ * 起点与终点节点。
+ *
+ * 会议原话：*页面中的「任务开始」节点、连线和流程展示需要优化，确保流程关系清楚、美观*。
+ * 做成胶囊态、与员工工位卡明显不同形状 —— 它们不是「谁在干活」，而是流程的两端，
+ * 长得跟员工节点一样会让人以为也是一位员工。
+ */
 function Endpoint({
   kind,
   plan,
@@ -378,36 +521,49 @@ function Endpoint({
 }) {
   const isInput = kind === 'input';
   const done = plan.status === 'completed';
+  const doneCount = plan.steps.filter((step) => step.status === 'completed').length;
+
   return (
     <div className="absolute" style={{ left: position.x, top: position.y, width: NODE_W - 24, height: NODE_H }}>
       <div
         onPointerDown={onPointerDown}
         className={cn(
-          'relative flex h-full cursor-grab flex-col justify-between rounded-glass-lg border px-3 py-2.5 active:cursor-grabbing',
+          'relative flex h-full cursor-grab flex-col justify-center gap-1.5 rounded-glass-pill border-2 px-4 py-3 text-center active:cursor-grabbing',
           isInput
-            ? 'border-glassline-brand bg-gbrand/[0.07]'
+            ? 'border-glassline-brand bg-gbrand/[0.09] shadow-glass-sm'
             : done
-              ? 'border-gsuccess/25 bg-gsuccess/[0.08]'
-              : 'border-glassline bg-glass-1',
+              ? 'border-gsuccess/45 bg-gsuccess/[0.10] shadow-glass-sm'
+              : 'border-dashed border-glassline bg-glass-1',
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-1.5">
           <span
             className={cn(
-              'grid h-6 w-6 shrink-0 place-items-center rounded-glass-md',
-              isInput ? 'bg-gbrand/15 text-gbrand-text' : 'bg-gsuccess/15 text-gsuccess',
+              'grid h-5 w-5 shrink-0 place-items-center rounded-full',
+              isInput ? 'bg-gbrand text-white' : done ? 'bg-gsuccess text-white' : 'bg-glass-3 text-gtext-muted',
             )}
           >
             {isInput ? <Sparkles className="h-3 w-3" /> : <FileOutput className="h-3 w-3" />}
           </span>
-          <p className={cn('text-[10px] font-semibold uppercase tracking-[0.1em]', isInput ? 'text-gbrand-text' : 'text-gsuccess')}>
-            {isInput ? '任务输入' : '交付出口'}
+          <p
+            className={cn(
+              'text-[11px] font-bold',
+              isInput ? 'text-gbrand-text' : done ? 'text-gsuccess' : 'text-gtext-secondary',
+            )}
+          >
+            {isInput ? '任务开始' : '最终交付'}
           </p>
         </div>
-        <p className="line-clamp-2 text-[10px] leading-4 text-gtext-secondary">
-          {isInput ? plan.objective : done ? '全部步骤已交付' : '所有末端步骤汇入这里'}
+
+        <p className="line-clamp-2 text-[10px] leading-4 text-gtext-muted">
+          {isInput
+            ? plan.objective
+            : done
+              ? `${doneCount} 步全部交付`
+              : `等 ${plan.steps.length - doneCount} 步完成后汇总`}
         </p>
-        {!isInput && onViewOutput && (
+
+        {!isInput && onViewOutput && done && (
           <button
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
@@ -415,9 +571,9 @@ function Endpoint({
               event.stopPropagation();
               onViewOutput();
             }}
-            className="self-start text-[10px] font-medium text-gsuccess underline-offset-2 hover:underline"
+            className="text-[10px] font-semibold text-gsuccess underline-offset-2 hover:underline"
           >
-            查看结果
+            查看交付物
           </button>
         )}
       </div>

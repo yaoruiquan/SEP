@@ -94,10 +94,6 @@ export function resetSteps(steps: TaskPlanStep[]): TaskPlanStep[] {
   }));
 }
 
-/** 执行中断留下的孤儿运行：还挂在 running，但已经很久没动静 */
-const ORPHAN_AFTER_MS = 10 * 60 * 1000;
-
-export function isOrphanRun(run: Pick<TaskRunSummary, 'status' | 'updatedAt'>): boolean {
-  if (run.status !== 'running') return false;
-  return Date.now() - new Date(run.updatedAt).getTime() > ORPHAN_AFTER_MS;
-}
+// 「孤儿运行」这个概念随执行引擎搬到服务端一起消失了：以前执行在浏览器里，
+// 关掉标签页就留下一条永远 running 的记录，需要前端自己识别并提供回收入口。
+// 现在 worker 有心跳，失联的运行由 TaskReconcileService 每分钟自动接回或收口。

@@ -1,34 +1,47 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, FolderOpen, History, Plus, Radio, Workflow } from 'lucide-react';
+import { FolderOpen, History, Plus, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
-import { useChatStream } from '@/features/chat/use-chat-stream';
-import { useCreateTaskConversation } from '@/features/chat/use-conversations';
 import { TaskObjectiveComposer } from '@/features/task/task-objective-composer';
-import { TaskWorkbench } from '@/features/task/components/task-workbench';
 import { TaskDependencyGraph } from '@/features/task/components/task-dependency-graph';
 import { TaskHistoryDrawer } from '@/features/task/components/task-history-drawer';
 import { TaskTemplateDrawer } from '@/features/task/components/task-template-drawer';
-import { TaskResultDialog } from '@/features/task/components/task-result-dialog';
+import { TeamReadinessBar } from '@/features/task/components/team-readiness-bar';
+import { TaskFlowTheater, type FlowView } from '@/features/task/components/task-flow-theater';
+import { StepConversationDialog } from '@/features/task/components/step-conversation-dialog';
 import { useCreateTaskPlan } from '@/features/task/use-task-plan';
+import {
+  usePauseStep,
+  useResumeStep,
+  useRunTask,
+  useStepConversation,
+  useStopTask,
+  useTaskExecution,
+} from '@/features/task/use-task-execution';
 import {
   useCreateTaskRun,
   useCreateTaskTemplate,
   useDeleteTaskRun,
   useDeleteTaskTemplate,
-  useReconcileTaskRun,
   useTaskRun,
   useTaskRuns,
   useTaskTemplates,
   useUpdateTaskRun,
-  useUpdateTaskStep,
 } from '@/features/task/use-task-runs';
-import { resetSteps, toPlan, type GraphLayoutPayload, type TaskRunSummary, type TaskTemplate } from '@/features/task/task-run';
+import {
+  resetSteps,
+  toPlan,
+  type GraphLayoutPayload,
+  type TaskRunSummary,
+  type TaskTemplate,
+} from '@/features/task/task-run';
+import { planToSnapshot } from '@/features/task/task-execution-view-model';
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
-import { useTaskUpdates } from '@/hooks/use-realtime';
-import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/auth-store';
+import { nav } from '@/locales/zh-CN';
+import type { TaskExecutionSnapshot } from '@/features/task/task-execution';
 import type { TaskCandidateEmployee, TaskPlan, TaskPlanStep } from '@/features/task/task-orchestration';
 import type { MyEmployee } from '@/lib/types';
 
@@ -48,115 +61,94 @@ function toCandidateEmployee(item: MyEmployee): TaskCandidateEmployee {
   };
 }
 
-function clonePlanForExecution(plan: TaskPlan, startIndex: number): TaskPlan {
-  return {
-    ...plan,
-    status: 'running',
-    steps: plan.steps.map((step, index) => {
-      if (index < startIndex && step.status === 'completed') return { ...step };
-      return { ...step, status: 'queued', progress: 0, output: undefined, error: undefined, startedAt: undefined, completedAt: undefined, durationMs: undefined };
-    }),
-  };
-}
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback;
 
-const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
-
+/**
+ * 工作安排（原「任务中心」）。
+ *
+ * 页面只做三件事：写目标、改计划、看过程。执行发生在服务端 —— 改造前
+ * `executePlan` 是一个前端 for 循环，关标签页任务当场死掉，只留一条永远 running
+ * 的孤儿记录。
+ *
+ * 规划与执行共用 `TaskFlowTheater` 这一块舞台：确认执行不换页面，同一张卡原地
+ * 亮起来。此前是两个组件互相替换，确认那一刻整屏跳变，看起来像跳到了另一个功能。
+ */
 export default function TasksPage() {
+  const enterprise = useAuthStore((state) => state.enterprise);
+
   const runsQuery = useTaskRuns({ limit: 50 });
   const templatesQuery = useTaskTemplates();
   const createRun = useCreateTaskRun();
   const updateRun = useUpdateTaskRun();
-  const patchStep = useUpdateTaskStep();
   const deleteRun = useDeleteTaskRun();
-  const reconcileRun = useReconcileTaskRun();
   const createTemplate = useCreateTaskTemplate();
   const deleteTemplate = useDeleteTaskTemplate();
   const planner = useCreateTaskPlan();
-  const createTaskConversation = useCreateTaskConversation();
   const { data: myEmployees = [] } = useMyEmployees();
-  const { isConnected } = useTaskUpdates();
-  const { state: stream, send, stop, reset } = useChatStream();
 
+  const [activeRunId, setActiveRunId] = useState<string>();
   const [objective, setObjective] = useState('');
   const [plan, setPlan] = useState<TaskPlan | null>(null);
   const [layout, setLayout] = useState<GraphLayoutPayload | null>(null);
-  const [selectedStepId, setSelectedStepId] = useState<string>();
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [pausedStepIds, setPausedStepIds] = useState<string[]>([]);
-  const [view, setView] = useState<'workbench' | 'graph'>('workbench');
+  const [view, setView] = useState<FlowView>('timeline');
+  const [expandedStepKey, setExpandedStepKey] = useState<string>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [resultOpen, setResultOpen] = useState(false);
-  const [resultStepId, setResultStepId] = useState<string>();
-  const [loadingRunId, setLoadingRunId] = useState<string>();
+  const [conversationOpen, setConversationOpen] = useState(false);
 
-  const stopRequested = useRef(false);
-  const pausedRef = useRef(new Set<string>());
   const layoutTimer = useRef<number | undefined>(undefined);
 
+  const execution = useTaskExecution(activeRunId);
+  const runTask = useRunTask(activeRunId);
+  const stopTask = useStopTask(activeRunId);
+  const pauseStep = usePauseStep(activeRunId);
+  const resumeStep = useResumeStep(activeRunId);
+  const stepConversation = useStepConversation(activeRunId);
+
   const runs = runsQuery.data?.items ?? [];
-  const loadedRun = useTaskRun(loadingRunId ?? '');
+  const loadedRun = useTaskRun(activeRunId ?? '');
 
   const availableEmployees = useMemo(
     () => myEmployees.map(toCandidateEmployee).filter((employee) => employee.capabilities.length > 0),
     [myEmployees],
   );
+  const teamMembers = useMemo(
+    () => availableEmployees.map((employee) => ({ id: employee.id, name: employee.name, avatar: employee.avatar })),
+    [availableEmployees],
+  );
 
   useEffect(() => {
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    if (stored === 'workbench' || stored === 'graph') setView(stored);
+    if (stored === 'timeline' || stored === 'graph') setView(stored);
   }, []);
 
-  const changeView = (next: 'workbench' | 'graph') => {
+  const changeView = (next: FlowView) => {
     setView(next);
     window.localStorage.setItem(VIEW_STORAGE_KEY, next);
   };
 
-  // 点开历史记录里的某条 → 拉详情 → 载入为当前工作计划
+  // 选中某条运行 → 拉计划详情 → 载入为当前可编辑计划
   useEffect(() => {
-    if (!loadingRunId || !loadedRun.data) return;
-    const run = loadedRun.data;
-    setPlan(toPlan(run));
-    setLayout(run.layout);
-    setObjective(run.objective);
-    setSelectedStepId(
-      run.steps.find((step) => step.status === 'running' || step.status === 'failed')?.id ?? run.steps[0]?.id,
-    );
-    setLoadingRunId(undefined);
-    setHistoryOpen(false);
-    reset();
-  }, [loadedRun.data, loadingRunId, reset]);
+    if (!activeRunId || !loadedRun.data || loadedRun.data.id !== activeRunId) return;
+    setPlan(toPlan(loadedRun.data));
+    setLayout(loadedRun.data.layout);
+    setObjective(loadedRun.data.objective);
+  }, [activeRunId, loadedRun.data]);
 
-  /** 本地立即改，同时把这一步落库（不 await，避免拖慢执行循环） */
-  const applyStep = useCallback(
-    (runId: string, stepId: string, patch: Partial<TaskPlanStep>, persist = true) => {
-      setPlan((current) => {
-        if (!current || current.id !== runId) return current;
-        return { ...current, steps: current.steps.map((step) => (step.id === stepId ? { ...step, ...patch } : step)) };
-      });
-      if (!persist) return;
-      // 只带上真正有值的字段：DTO 是 strict 的，塞 null 会被 400 拒掉。
-      // 清除旧的 error 不靠这里 —— executePlan 起步时会整份 PATCH steps，
-      // clonePlanForExecution 已经把重跑范围内的 error 抹掉了。
-      patchStep.mutate(
-        {
-          id: runId,
-          stepId,
-          ...(patch.status !== undefined && { status: patch.status }),
-          ...(patch.progress !== undefined && { progress: patch.progress }),
-          ...(patch.output !== undefined && { output: patch.output }),
-          ...(patch.error !== undefined && { error: patch.error }),
-          ...(patch.startedAt !== undefined && { startedAt: patch.startedAt }),
-          ...(patch.completedAt !== undefined && { completedAt: patch.completedAt }),
-          ...(patch.durationMs !== undefined && { durationMs: patch.durationMs }),
-        },
-        { onError: (error) => toast.error(errorMessage(error, '步骤状态没能保存')) },
-      );
-    },
-    [patchStep],
-  );
+  /**
+   * 舞台上渲染的那份数据。
+   *
+   * 服务端快照是唯一权威（步骤在第一次读执行视图时就实体化了，所以规划期也有）。
+   * `planToSnapshot` 只在 SSE 首帧还没到的那一两百毫秒里兜底，避免闪一下空屏。
+   */
+  const snapshot: TaskExecutionSnapshot | null =
+    execution.snapshot ?? (plan ? planToSnapshot(plan) : null);
+  const started = Boolean(snapshot?.startedAt);
+  const running = snapshot?.status === 'running';
+  const busy = runTask.isPending || stopTask.isPending || pauseStep.isPending || resumeStep.isPending;
 
-  /** 改计划结构（增删/连线/换人）→ 整份 steps 落库 */
+  /** 改计划结构（增删/连线/换人）→ 整份 steps 落库，然后重取执行快照 */
   const applyPlanEdit = useCallback(
     (updater: (current: TaskPlan) => TaskPlan) => {
       setPlan((current) => {
@@ -165,12 +157,17 @@ export default function TasksPage() {
         if (next === current) return current;
         updateRun.mutate(
           { id: next.id, steps: next.steps, status: next.status },
-          { onError: (error) => toast.error(errorMessage(error, '计划改动没能保存')) },
+          {
+            // 步骤行的同步发生在服务端读执行视图时，不主动拉一次的话
+            // 用户改完看到的还是旧的那张卡
+            onSuccess: () => void execution.refresh(),
+            onError: (error) => toast.error(errorMessage(error, '计划改动没能保存')),
+          },
         );
         return next;
       });
     },
-    [updateRun],
+    [execution, updateRun],
   );
 
   const persistLayout = useCallback(
@@ -202,9 +199,10 @@ export default function TasksPage() {
             },
             {
               onSuccess: (run) => {
+                setActiveRunId(run.id);
                 setPlan(toPlan(run));
                 setLayout(run.layout);
-                setSelectedStepId(undefined);
+                setExpandedStepKey(undefined);
               },
               onError: (error) => toast.error(errorMessage(error, '计划没能保存')),
             },
@@ -214,8 +212,10 @@ export default function TasksPage() {
     );
   };
 
-  const addEmployeeNode = useCallback(() => {
-    if (!plan || isExecuting || plan.status === 'completed') return;
+  // ── 计划编辑（仅在还没开始跑时可用） ────────────────────────────────────────
+
+  const addEmployeeStep = useCallback(() => {
+    if (!plan || started) return;
     const employee = availableEmployees[0];
     const capability = employee?.capabilities[0];
     if (!employee || !capability) return;
@@ -232,19 +232,19 @@ export default function TasksPage() {
         employee,
         capability,
         dependsOn: previous ? [previous.id] : [],
-        rationale: '由你手动加入工作流，默认接在当前最后一个节点之后。',
+        rationale: '由你手动加入工作流，默认接在当前最后一步之后。',
         estimatedSeconds: 60,
         status: 'queued',
         progress: 0,
       };
       return { ...current, status: 'awaiting_confirmation', steps: [...current.steps, nextStep] };
     });
-    setSelectedStepId(stepId);
-  }, [applyPlanEdit, availableEmployees, isExecuting, plan]);
+    setExpandedStepKey(stepId);
+  }, [applyPlanEdit, availableEmployees, plan, started]);
 
   const connectSteps = useCallback(
     (sourceId: string, targetId: string) => {
-      if (isExecuting || sourceId === targetId) return;
+      if (started || sourceId === targetId) return;
       applyPlanEdit((current) => {
         const source = current.steps.find((step) => step.id === sourceId);
         const target = current.steps.find((step) => step.id === targetId);
@@ -252,38 +252,41 @@ export default function TasksPage() {
         return {
           ...current,
           status: 'awaiting_confirmation',
-          steps: current.steps.map((step) => (step.id === targetId ? { ...step, dependsOn: [...step.dependsOn, sourceId] } : step)),
+          steps: current.steps.map((step) =>
+            step.id === targetId ? { ...step, dependsOn: [...step.dependsOn, sourceId] } : step,
+          ),
         };
       });
     },
-    [applyPlanEdit, isExecuting],
+    [applyPlanEdit, started],
   );
 
   const removeDependency = useCallback(
-    (stepId: string, dependencyId: string) => {
-      if (isExecuting) return;
+    (stepKey: string, dependencyKey: string) => {
+      if (started) return;
       applyPlanEdit((current) => ({
         ...current,
         status: 'awaiting_confirmation',
         steps: current.steps.map((step) =>
-          step.id === stepId ? { ...step, dependsOn: step.dependsOn.filter((id) => id !== dependencyId) } : step,
+          step.id === stepKey ? { ...step, dependsOn: step.dependsOn.filter((id) => id !== dependencyKey) } : step,
         ),
       }));
     },
-    [applyPlanEdit, isExecuting],
+    [applyPlanEdit, started],
   );
 
   const replaceStepEmployee = useCallback(
-    (stepId: string, employeeId: string) => {
-      if (isExecuting) return;
+    (stepKey: string, employeeId: string) => {
+      if (started) return;
       const employee = availableEmployees.find((candidate) => candidate.id === employeeId);
       if (!employee || employee.capabilities.length === 0) return;
       applyPlanEdit((current) => ({
         ...current,
         status: 'awaiting_confirmation',
         steps: current.steps.map((step) => {
-          if (step.id !== stepId) return step;
-          const capability = employee.capabilities.find((candidate) => candidate.id === step.capability.id) ?? employee.capabilities[0];
+          if (step.id !== stepKey) return step;
+          const capability =
+            employee.capabilities.find((candidate) => candidate.id === step.capability.id) ?? employee.capabilities[0];
           return {
             ...step,
             title: step.title.replace(/^调用 .*$/, `调用 ${employee.name}`),
@@ -298,185 +301,65 @@ export default function TasksPage() {
         }),
       }));
     },
-    [applyPlanEdit, availableEmployees, isExecuting],
+    [applyPlanEdit, availableEmployees, started],
   );
 
   const deleteStep = useCallback(
-    (stepId: string) => {
-      if (isExecuting) return;
+    (stepKey: string) => {
+      if (started) return;
       applyPlanEdit((current) => {
-        const remaining = current.steps.filter((step) => step.id !== stepId).sort((left, right) => left.order - right.order);
+        const remaining = current.steps
+          .filter((step) => step.id !== stepKey)
+          .sort((left, right) => left.order - right.order);
         return {
           ...current,
           status: 'awaiting_confirmation',
           steps: remaining.map((step, index) => ({
             ...step,
             order: index + 1,
-            dependsOn: step.dependsOn.filter((id) => id !== stepId),
+            dependsOn: step.dependsOn.filter((id) => id !== stepKey),
           })),
         };
       });
-      setSelectedStepId((current) => (current === stepId ? undefined : current));
+      setExpandedStepKey((current) => (current === stepKey ? undefined : current));
     },
-    [applyPlanEdit, isExecuting],
+    [applyPlanEdit, started],
   );
 
-  const waitForResume = (stepId: string) =>
-    new Promise<void>((resolve) => {
-      const poll = () => {
-        if (stopRequested.current) return resolve();
-        if (!pausedRef.current.has(stepId)) return resolve();
-        window.setTimeout(poll, 180);
-      };
-      poll();
-    });
+  // ── 执行指令 ────────────────────────────────────────────────────────────────
 
-  const executePlan = async (sourcePlan: TaskPlan, startIndex = 0) => {
-    if (isExecuting) return;
-    setIsExecuting(true);
-    stopRequested.current = false;
-    pausedRef.current.clear();
-    setPausedStepIds([]);
-    reset();
-
-    const runningPlan = clonePlanForExecution(sourcePlan, startIndex);
-    const outputs = new Map(
-      runningPlan.steps.filter((step, index) => index < startIndex && step.output).map((step) => [step.id, step.output as string]),
-    );
-    setPlan(runningPlan);
-    setSelectedStepId(runningPlan.steps[startIndex]?.id);
-    updateRun.mutate({
-      id: runningPlan.id,
-      status: 'running',
-      steps: runningPlan.steps,
-      startedAt: new Date().toISOString(),
-    });
-
-    const finish = (status: TaskPlan['status']) => {
-      setPlan((current) => (current?.id === runningPlan.id ? { ...current, status } : current));
-      updateRun.mutate({
-        id: runningPlan.id,
-        status,
-        completedAt: status === 'completed' ? new Date().toISOString() : null,
-      });
-    };
-
-    try {
-      for (let index = startIndex; index < runningPlan.steps.length; index += 1) {
-        if (stopRequested.current) break;
-        const step = runningPlan.steps[index];
-
-        while (pausedRef.current.has(step.id) && !stopRequested.current) {
-          applyStep(runningPlan.id, step.id, { status: 'queued', progress: 0 }, false);
-          await waitForResume(step.id);
-        }
-        if (stopRequested.current) break;
-
-        const startedAt = Date.now();
-        setSelectedStepId(step.id);
-        step.status = 'running';
-        step.progress = 0;
-        step.startedAt = new Date(startedAt).toISOString();
-        applyStep(runningPlan.id, step.id, { status: 'running', progress: 0, startedAt: step.startedAt, error: undefined });
-
-        const dependencyOutputs = step.dependsOn
-          .map((dependencyId) => outputs.get(dependencyId))
-          .filter((output): output is string => Boolean(output));
-
-        try {
-          const conversation = await createTaskConversation.mutateAsync({
-            employeeId: step.employee.id,
-            title: sourcePlan.objective.slice(0, 60),
-            taskPlanId: runningPlan.id,
-            taskStepId: step.id,
-          });
-          const prompt = [
-            `这是一个经过用户确认的多步骤任务。总目标：${sourcePlan.objective}`,
-            `当前步骤：${step.title}\n${step.description}`,
-            dependencyOutputs.length > 0 ? `上游步骤输出：\n${dependencyOutputs.join('\n\n---\n\n')}` : '',
-            '请只完成当前步骤，并返回可供后续步骤直接使用的清晰结果。',
-          ]
-            .filter(Boolean)
-            .join('\n\n');
-
-          let output = '';
-          const outcome = await send(conversation.id, prompt, step.employee.id, (info) => {
-            output = info.text?.trim() ?? '';
-          });
-
-          if (outcome === 'aborted' && pausedRef.current.has(step.id) && !stopRequested.current) {
-            step.status = 'queued';
-            step.progress = 0;
-            applyStep(runningPlan.id, step.id, { status: 'queued', progress: 0 }, false);
-            index -= 1;
-            continue;
-          }
-          if (outcome !== 'ok') throw new Error(outcome === 'aborted' ? '执行已停止' : '执行连接中断');
-
-          step.status = 'completed';
-          step.progress = 100;
-          step.output = output;
-          step.completedAt = new Date().toISOString();
-          step.durationMs = Date.now() - startedAt;
-          outputs.set(step.id, output);
-          applyStep(runningPlan.id, step.id, {
-            status: 'completed',
-            progress: 100,
-            output,
-            completedAt: step.completedAt,
-            durationMs: step.durationMs,
-          });
-        } catch (error) {
-          if (stopRequested.current) {
-            finish('stopped');
-            return;
-          }
-          const message = errorMessage(error, '执行失败');
-          step.status = 'failed';
-          step.error = message;
-          applyStep(runningPlan.id, step.id, { status: 'failed', progress: 0, error: message });
-          finish('failed');
-          return;
-        }
-      }
-      finish(stopRequested.current ? 'stopped' : 'completed');
-    } finally {
-      setIsExecuting(false);
-    }
+  const confirmAndRun = () => {
+    if (!activeRunId) return;
+    runTask.mutate(undefined, { onError: (error) => toast.error(errorMessage(error, '没能开始执行')) });
   };
 
   const stopExecution = () => {
-    stopRequested.current = true;
-    pausedRef.current.clear();
-    setPausedStepIds([]);
-    stop();
+    stopTask.mutate(undefined, { onError: (error) => toast.error(errorMessage(error, '停止请求没能送达')) });
   };
 
-  const togglePauseStep = (stepId: string) => {
-    if (!isExecuting) return;
-    const wasPaused = pausedRef.current.has(stepId);
-    if (wasPaused) pausedRef.current.delete(stepId);
-    else pausedRef.current.add(stepId);
-    setPausedStepIds([...pausedRef.current]);
-    if (!wasPaused && plan?.steps.find((step) => step.id === stepId)?.status === 'running') stop();
+  const retryFromStep = (stepKey: string) => {
+    runTask.mutate({ fromStepKey: stepKey }, { onError: (error) => toast.error(errorMessage(error, '重跑没能开始')) });
   };
 
-  const retryStep = (step: TaskPlanStep) => {
-    if (!plan) return;
-    const index = plan.steps.findIndex((candidate) => candidate.id === step.id);
-    if (index >= 0) void executePlan(plan, index);
+  const openConversation = (stepKey: string) => {
+    setConversationOpen(true);
+    stepConversation.mutate(stepKey, {
+      onError: (error) => toast.error(errorMessage(error, '对话记录读取失败')),
+    });
   };
+
+  const toggleStep = (stepKey: string) =>
+    setExpandedStepKey((current) => (current === stepKey ? undefined : stepKey));
+
+  // ── 任务与模板 ──────────────────────────────────────────────────────────────
 
   const createNewTask = () => {
-    if (isExecuting) return;
+    setActiveRunId(undefined);
     setPlan(null);
     setLayout(null);
-    setSelectedStepId(undefined);
+    setExpandedStepKey(undefined);
     setObjective('');
-    pausedRef.current.clear();
-    setPausedStepIds([]);
     planner.reset();
-    reset();
     setHistoryOpen(false);
   };
 
@@ -484,7 +367,7 @@ export default function TasksPage() {
     if (!plan) return;
     createTemplate.mutate(
       {
-        name: plan.objective.slice(0, 32) || '未命名工作流',
+        name: plan.objective.slice(0, 32) || '未命名工作安排',
         objective: plan.objective,
         steps: resetSteps(plan.steps),
         layout,
@@ -509,10 +392,11 @@ export default function TasksPage() {
       },
       {
         onSuccess: (run) => {
+          setActiveRunId(run.id);
           setPlan(toPlan(run));
           setLayout(run.layout);
           setObjective(run.objective);
-          setSelectedStepId(undefined);
+          setExpandedStepKey(undefined);
           setTemplateOpen(false);
         },
         onError: (error) => toast.error(errorMessage(error, '模板载入失败')),
@@ -520,32 +404,13 @@ export default function TasksPage() {
     );
   };
 
-  const openResult = useCallback(() => {
-    if (!plan) return;
-    const last = [...plan.steps].reverse().find((step) => step.output);
-    if (!last) return;
-    setResultStepId(last.id);
-    setResultOpen(true);
-  }, [plan]);
-
   const removeRun = (run: TaskRunSummary) => {
     deleteRun.mutate(run.id, {
       onSuccess: () => {
-        if (plan?.id === run.id) createNewTask();
+        if (activeRunId === run.id) createNewTask();
       },
       onError: (error) => toast.error(errorMessage(error, '删除失败')),
     });
-  };
-
-  const currentStep = plan?.steps.find((step) => step.id === selectedStepId) ?? plan?.steps.find((step) => step.status === 'running');
-  const liveOutput = currentStep?.status === 'running' ? stream.text : '';
-
-  /** 从第一个还没完成的步骤开始跑；全部完成就从头重跑 */
-  const confirmAndRun = () => {
-    if (!plan) return;
-    const ordered = [...plan.steps].sort((left, right) => left.order - right.order);
-    const resumeIndex = ordered.findIndex((step) => step.status !== 'completed');
-    void executePlan(plan, resumeIndex < 0 ? 0 : resumeIndex);
   };
 
   return (
@@ -556,20 +421,14 @@ export default function TasksPage() {
             <Workflow className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h1 className="truncate text-[15px] font-semibold text-gtext-primary">任务编排中心</h1>
-              <span className="hidden items-center gap-1.5 border-l border-glassline pl-2.5 text-[10px] text-gtext-muted sm:flex">
-                <Radio className={cn('h-3 w-3', isConnected ? 'text-gsuccess' : 'text-gtext-disabled')} />
-                {isConnected ? '实时事件已连接' : '实时事件未连接'}
-              </span>
-            </div>
+            <h1 className="truncate text-[15px] font-semibold text-gtext-primary">{nav.tasks}</h1>
             <p className="mt-0.5 truncate text-[11px] text-gtext-muted">描述目标，我来安排员工完成并交付</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button size="sm" variant="glass" onClick={() => setHistoryOpen(true)}>
             <History className="h-4 w-4" />
-            <span className="hidden sm:inline">任务记录</span>
+            <span className="hidden sm:inline">工作记录</span>
             {runs.length > 0 && (
               <span className="grid h-4 min-w-4 place-items-center rounded-glass-pill bg-gbrand px-1 text-[9px] text-white">
                 {runs.length}
@@ -580,101 +439,90 @@ export default function TasksPage() {
             <FolderOpen className="h-4 w-4" />
             <span className="hidden sm:inline">模板</span>
           </Button>
-          {plan && (
+          {plan && !started && (
             <Button size="sm" variant="glass" onClick={saveAsTemplate} loading={createTemplate.isPending}>
-              <Bookmark className="h-4 w-4" />
-              <span className="hidden sm:inline">存为模板</span>
+              存为模板
             </Button>
           )}
-          <Button size="sm" variant="glass-primary" onClick={createNewTask} disabled={isExecuting || !plan}>
+          <Button size="sm" variant="glass-primary" onClick={createNewTask} disabled={!activeRunId}>
             <Plus className="h-4 w-4" />
-            新建任务
+            新建
           </Button>
         </div>
       </header>
 
+      {/* 会议要求：顶部突出显示当前可用的硅基员工数量，数字要明显。
+          有任务在手时收成紧凑态，把竖向空间让给时间线。 */}
+      <div className="shrink-0 border-b border-glassline bg-gbg-deep/25 px-4 py-2.5 sm:px-6">
+        <TeamReadinessBar
+          enterpriseName={enterprise?.name}
+          members={teamMembers}
+          compact={Boolean(activeRunId)}
+          className="mx-auto max-w-4xl"
+        />
+      </div>
+
       <main className="flex min-h-0 flex-1 flex-col">
-        {!plan ? (
+        {!activeRunId || !snapshot ? (
           <TaskObjectiveComposer
             objective={objective}
             planning={planner.isPending || createRun.isPending}
             error={planner.error instanceof Error ? planner.error.message : undefined}
-            employees={availableEmployees.slice(0, 4)}
-            employeeCount={availableEmployees.length}
             onObjectiveChange={(value) => {
               setObjective(value);
               if (planner.error) planner.reset();
             }}
             onGenerate={generatePlan}
           />
-        ) : view === 'workbench' ? (
-          <TaskWorkbench
-            plan={plan}
-            running={isExecuting}
-            pausedStepIds={pausedStepIds}
-            selectedStepId={selectedStepId}
-            liveOutput={liveOutput}
-            liveReasoning={stream.reasoning}
-            toolCalls={stream.toolCalls}
+        ) : (
+          <TaskFlowTheater
+            snapshot={snapshot}
+            events={execution.events}
+            liveText={execution.liveText}
+            liveTools={execution.liveTools}
+            connected={execution.connected}
+            streamError={execution.error}
+            editable={!started}
+            busy={busy}
+            expandedStepKey={expandedStepKey}
             availableEmployees={availableEmployees}
             view={view}
+            graphSlot={
+              plan ? (
+                <TaskDependencyGraph
+                  plan={{ ...plan, status: snapshot.status, steps: mergeExecutionIntoPlan(plan, snapshot) }}
+                  layout={layout}
+                  running={running}
+                  pausedStepIds={snapshot.steps.filter((step) => step.status === 'paused').map((step) => step.stepKey)}
+                  selectedStepId={expandedStepKey}
+                  onLayoutChange={persistLayout}
+                  onResetLayout={() => {
+                    setLayout(null);
+                    updateRun.mutate({ id: plan.id, layout: null });
+                  }}
+                  onSelectStep={(step) => toggleStep(step.id)}
+                  onConnectSteps={connectSteps}
+                  onViewOutput={() => changeView('timeline')}
+                />
+              ) : null
+            }
             onViewChange={changeView}
-            onSelectStep={(step) => setSelectedStepId(step.id)}
-            onClearSelection={() => setSelectedStepId(undefined)}
-            onConfirm={confirmAndRun}
+            onToggleStep={toggleStep}
+            onRun={confirmAndRun}
             onStop={stopExecution}
-            onTogglePause={togglePauseStep}
-            onRetry={retryStep}
-            onDeleteStep={deleteStep}
-            onReplaceStep={replaceStepEmployee}
+            onRetryStep={retryFromStep}
+            onPauseStep={(stepKey) =>
+              pauseStep.mutate(stepKey, { onError: (error) => toast.error(errorMessage(error, '暂停失败')) })
+            }
+            onResumeStep={(stepKey) =>
+              resumeStep.mutate(stepKey, { onError: (error) => toast.error(errorMessage(error, '恢复失败')) })
+            }
+            onOpenConversation={openConversation}
+            onReplaceEmployee={replaceStepEmployee}
             onRemoveDependency={removeDependency}
-            onAddNode={addEmployeeNode}
-            onViewOutput={openResult}
+            onDeleteStep={deleteStep}
+            onAddStep={addEmployeeStep}
           />
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <TaskWorkbench
-              plan={plan}
-              running={isExecuting}
-              pausedStepIds={pausedStepIds}
-              selectedStepId={selectedStepId}
-              liveOutput=""
-              liveReasoning=""
-              toolCalls={[]}
-              availableEmployees={availableEmployees}
-              view={view}
-              onViewChange={changeView}
-              onSelectStep={(step) => setSelectedStepId(step.id)}
-              onClearSelection={() => setSelectedStepId(undefined)}
-              onConfirm={confirmAndRun}
-              onStop={stopExecution}
-              onTogglePause={togglePauseStep}
-              onRetry={retryStep}
-              onDeleteStep={deleteStep}
-              onReplaceStep={replaceStepEmployee}
-              onRemoveDependency={removeDependency}
-              onAddNode={addEmployeeNode}
-              onViewOutput={openResult}
-              headerOnly
-            />
-            <div className="min-h-0 flex-1">
-              <TaskDependencyGraph
-                plan={plan}
-                layout={layout}
-                running={isExecuting}
-                pausedStepIds={pausedStepIds}
-                selectedStepId={selectedStepId}
-                onLayoutChange={persistLayout}
-                onResetLayout={() => {
-                  setLayout(null);
-                  updateRun.mutate({ id: plan.id, layout: null });
-                }}
-                onSelectStep={(step) => setSelectedStepId(step.id)}
-                onConnectSteps={connectSteps}
-                onViewOutput={openResult}
-              />
-            </div>
-          </div>
         )}
       </main>
 
@@ -682,13 +530,15 @@ export default function TasksPage() {
         open={historyOpen}
         runs={runs}
         loading={runsQuery.isLoading}
-        activeRunId={plan?.id}
-        running={isExecuting}
-        reconcilingId={reconcileRun.isPending ? reconcileRun.variables : undefined}
+        activeRunId={activeRunId}
+        running={running}
         onOpenChange={setHistoryOpen}
-        onSelect={(run) => setLoadingRunId(run.id)}
+        onSelect={(run) => {
+          setActiveRunId(run.id);
+          setExpandedStepKey(undefined);
+          setHistoryOpen(false);
+        }}
         onDelete={removeRun}
-        onReconcile={(run) => reconcileRun.mutate(run.id, { onError: (error) => toast.error(errorMessage(error, '回收失败')) })}
         onNew={createNewTask}
       />
 
@@ -699,15 +549,45 @@ export default function TasksPage() {
         busyId={createRun.isPending ? undefined : deleteTemplate.variables}
         onOpenChange={setTemplateOpen}
         onLoad={loadTemplate}
-        onDelete={(template) => deleteTemplate.mutate(template.id, { onError: (error) => toast.error(errorMessage(error, '删除失败')) })}
+        onDelete={(template) =>
+          deleteTemplate.mutate(template.id, {
+            onError: (error) => toast.error(errorMessage(error, '删除失败')),
+          })
+        }
       />
 
-      {plan && (
-        <TaskResultDialog plan={plan} open={resultOpen} initialStepId={resultStepId} onOpenChange={setResultOpen} />
-      )}
+      <StepConversationDialog
+        open={conversationOpen}
+        loading={stepConversation.isPending}
+        error={stepConversation.error instanceof Error ? stepConversation.error.message : null}
+        data={stepConversation.data ?? null}
+        onOpenChange={setConversationOpen}
+      />
     </div>
   );
 }
 
-
-
+/**
+ * 把服务端的执行状态盖回计划步骤，供依赖图渲染。
+ *
+ * 依赖图吃的是 TaskPlanStep（规划期形状），执行状态在 TaskRunStep 里。
+ * 与其为了一张图再造一套画布，不如在这里做一次形状映射。
+ */
+function mergeExecutionIntoPlan(plan: TaskPlan, snapshot: TaskExecutionSnapshot): TaskPlanStep[] {
+  const byKey = new Map(snapshot.steps.map((step) => [step.stepKey, step]));
+  return plan.steps.map((step) => {
+    const executed = byKey.get(step.id);
+    if (!executed) return step;
+    return {
+      ...step,
+      // 画布不认识 paused，映射成 queued 并由 pausedStepIds 单独标注
+      status: executed.status === 'paused' ? 'queued' : executed.status,
+      progress: executed.status === 'completed' ? 100 : executed.status === 'running' ? 50 : 0,
+      output: executed.output ?? undefined,
+      error: executed.error ?? undefined,
+      startedAt: executed.startedAt ?? undefined,
+      completedAt: executed.completedAt ?? undefined,
+      durationMs: executed.durationMs ?? undefined,
+    };
+  });
+}

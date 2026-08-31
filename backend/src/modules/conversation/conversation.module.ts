@@ -33,6 +33,8 @@ import { AttachmentContextService } from './attachment-context.service';
     SessionLockService,
     AttachmentContextService,
   ],
-  exports: [ConversationService],
+  // ConversationStreamService 也导出：任务执行引擎在服务端复用同一条对话链路
+  // （计费、企业模型策略、知识检索、会话锁都挂在它上面），另写一套必然漏掉计费。
+  exports: [ConversationService, ConversationStreamService],
 })
 export class ConversationModule {}

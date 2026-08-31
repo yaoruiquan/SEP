@@ -129,7 +129,9 @@ export const nav = {
   marketplace: employee.market,
   subscriptions: employment.section,
   chat: '对话中心',
-  tasks: '任务中心',
+  // 会议决议：「任务中心」改成更贴近用户的「工作安排」，并减少「自动编排」这类
+  // 技术化表达。术语对照见 docs/plans/2026-08-31-会议7五决策落地开发方案.md 附录 B。
+  tasks: '工作安排',
   contributions: '能力贡献中心',
   knowledge: knowledge.management,
   usage: '用量统计',

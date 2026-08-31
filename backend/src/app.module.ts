@@ -34,6 +34,7 @@ import { SkillVersionModule } from './modules/skill-version/skill-version.module
 import { TaskPlanningModule } from './modules/task-planning/task-planning.module';
 import { CapabilityContributionModule } from './modules/capability-contribution/capability-contribution.module';
 import { TaskModule } from './modules/task/task.module';
+import { TaskExecutionModule } from './modules/task-execution/task-execution.module';
 
 @Module({
   imports: [
@@ -75,6 +76,10 @@ import { TaskModule } from './modules/task/task.module';
     TaskPlanningModule,
     CapabilityContributionModule,
     TaskModule,
+    // 注册顺序在 TaskModule 之后：两者共用 `tasks` 前缀，具体路由（:id/run、
+    // :id/stream）与 TaskModule 的 :id 不冲突，但把执行相关的放在后面更符合
+    // 「CRUD 是底座，执行是上层」的读法。
+    TaskExecutionModule,
   ],
   controllers: [],
   providers: [],

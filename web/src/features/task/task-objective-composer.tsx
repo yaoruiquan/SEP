@@ -1,22 +1,13 @@
 'use client';
 
 import { ArrowRight, FileText, Loader2, Search, Sparkles } from 'lucide-react';
-import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-interface ComposerEmployee {
-  id: string;
-  name: string;
-  avatar: string | null;
-}
 
 interface TaskObjectiveComposerProps {
   objective: string;
   planning: boolean;
   error?: string;
-  employees?: ComposerEmployee[];
-  employeeCount?: number;
   onObjectiveChange: (value: string) => void;
   onGenerate: () => void;
 }
@@ -68,57 +59,21 @@ export function TaskObjectiveComposer({
   objective,
   planning,
   error,
-  employees = [],
-  employeeCount = employees.length,
   onObjectiveChange,
   onGenerate,
 }: TaskObjectiveComposerProps) {
   const state = composerState(objective, planning);
   const trimmed = objective.trim();
   const canSubmit = trimmed.length >= MIN_LENGTH && !planning;
-  const visible = employees.slice(0, 4);
 
   return (
     <section className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 py-6 sm:px-8">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(ellipse_at_top,rgb(var(--gbrand-rgb)/0.10),transparent_70%)]" />
 
       <div className="relative flex w-full max-w-2xl flex-col items-center">
+        {/* 头像堆与团队人数已由顶部的 TeamReadinessBar 常驻展示，这里不再重复一遍 ——
+            同一句话在一屏里说两遍，两处都会显得不重要。 */}
         <div className="flex flex-col items-center text-center">
-          <div className="relative flex h-[72px] items-end justify-center px-3">
-            <div className="absolute bottom-1 h-14 w-32 rounded-full bg-gbrand/15 blur-2xl" />
-            <div className="relative flex items-center -space-x-3">
-              {visible.length > 0 ? (
-                visible.map((employee, index) => (
-                  <div
-                    key={employee.id}
-                    className={cn(
-                      'relative rounded-full ring-[3px] ring-gbg-canvas',
-                      index === 0 && 'z-40',
-                      index === 1 && 'z-30 -translate-y-1',
-                      index === 2 && 'z-20 translate-y-1',
-                      index === 3 && 'z-10 -translate-y-0.5',
-                    )}
-                  >
-                    <Avatar name={employee.name} src={employee.avatar} className="h-12 w-12 text-sm" />
-                    {index === 0 && (
-                      <>
-                        <span className="pointer-events-none absolute -inset-1 rounded-full border border-glassline-brand motion-safe:animate-pulse" />
-                        <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-gsuccess ring-2 ring-gbg-canvas motion-safe:animate-pulse" />
-                      </>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="relative rounded-full ring-[3px] ring-gbg-canvas">
-                  <div className="grid h-12 w-12 place-items-center rounded-full border border-glassline-brand bg-gbrand/10 text-gbrand-text">
-                    <Sparkles className="h-5 w-5" />
-                  </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-gwarning ring-2 ring-gbg-canvas" />
-                </div>
-              )}
-            </div>
-          </div>
-
           <div className="mt-2 flex items-center gap-2" aria-live="polite">
             <span
               className={cn(
@@ -219,11 +174,6 @@ export function TaskObjectiveComposer({
             </button>
           </div>
         )}
-
-        <div className="mt-5 flex items-center gap-2 text-[11px] text-gtext-muted">
-          <span className={cn('h-1.5 w-1.5 rounded-full', employeeCount > 0 ? 'bg-gsuccess motion-safe:animate-pulse' : 'bg-gwarning')} />
-          {employeeCount > 0 ? `${employeeCount} 位员工在线，随时可以开始工作` : '正在同步可调用员工'}
-        </div>
       </div>
     </section>
   );

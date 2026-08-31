@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { autoLayout } from './components/task-dependency-graph';
 import type { TaskPlan, TaskPlanStep } from './task-orchestration';
-import { formatDuration, narrateRun, narrateStep, participatingEmployees } from './task-step-state';
+import { formatDuration, narrateStep } from './task-step-state';
 
 function employee(id: string, name: string) {
   return {
@@ -104,53 +104,6 @@ describe('narrateStep', () => {
 
     const done = step({ id: 's2', order: 2, status: 'completed', durationMs: 1000 });
     expect(narrateStep(done, { plan: plan([done]), paused: true }).tone).toBe('done');
-  });
-});
-
-describe('narrateRun', () => {
-  const a = step({ id: 's1', order: 1, status: 'completed', employee: employee('e1', '甲') });
-  const b = step({ id: 's2', order: 2, status: 'running', dependsOn: ['s1'], employee: employee('e2', '乙') });
-  const c = step({ id: 's3', order: 3, dependsOn: ['s2'], employee: employee('e3', '丙') });
-
-  it('运行中报出第 N/M 步与当前执行人', () => {
-    const narration = narrateRun(plan([a, b, c], 'running'));
-    expect(narration.label).toBe('第 2/3 步进行中');
-    expect(narration.detail).toBe('乙 正在会议纪要整理');
-    expect(narration.doneCount).toBe(1);
-    expect(narration.focusStep?.id).toBe('s2');
-  });
-
-  it('待确认时报参与人数与步数', () => {
-    const narration = narrateRun(plan([a, b, c]));
-    expect(narration.tone).toBe('ready');
-    expect(narration.detail).toBe('3 位员工 · 3 步，确认后开始执行');
-  });
-
-  it('失败时指向卡住的那一步', () => {
-    const broken = step({ id: 's3', order: 3, status: 'failed', error: '接口超时', employee: employee('e3', '丙') });
-    const narration = narrateRun(plan([a, b, broken], 'failed'));
-    expect(narration.label).toBe('第 3 步卡住了');
-    expect(narration.detail).toBe('接口超时');
-    expect(narration.focusStep?.id).toBe('s3');
-  });
-
-  it('停止后提示可以从中断处继续', () => {
-    const narration = narrateRun(plan([a, c], 'stopped'));
-    expect(narration.tone).toBe('stopped');
-    expect(narration.detail).toContain('可以从中断处继续');
-    expect(narration.focusStep?.id).toBe('s3');
-  });
-});
-
-describe('participatingEmployees', () => {
-  it('去重并保持首次出现顺序', () => {
-    const shared = employee('e1', '甲');
-    const steps = [
-      step({ id: 's1', order: 1, employee: shared }),
-      step({ id: 's2', order: 2, employee: employee('e2', '乙') }),
-      step({ id: 's3', order: 3, employee: shared }),
-    ];
-    expect(participatingEmployees(plan(steps)).map((item) => item.name)).toEqual(['甲', '乙']);
   });
 });
 

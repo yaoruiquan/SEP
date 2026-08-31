@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TaskRunStatus } from '../task-orchestration';
 import type { TaskRunSummary } from '../task-run';
-import { isOrphanRun } from '../task-run';
+
 
 const STATUS_CHIP: Record<TaskRunStatus, string> = {
   draft: 'border-glassline bg-glass-2 text-gtext-muted',
@@ -26,10 +26,11 @@ const STATUS_LABEL: Record<TaskRunStatus, string> = {
 };
 
 /**
- * 任务记录抽屉。
+ * 工作记录抽屉。
  *
- * 重构前记录只存在 localStorage，界面上没有任何提示 —— 用户看到「任务记录 8」会以为
- * 是服务端的。现在数据真的在服务端，同时把「执行中断」的孤儿运行标出来并提供回收。
+ * 「孤儿运行 + 手动回收」那套东西在执行引擎搬到服务端后不再需要：失联的运行由
+ * TaskReconcileService 每分钟自动接回或收口，用户不用（也不该）自己去点
+ * 「标记为已停止」—— 他看到的现象是「一直转圈」，本来就不会想到去点那个按钮。
  */
 export function TaskHistoryDrawer({
   open,
@@ -37,11 +38,9 @@ export function TaskHistoryDrawer({
   loading,
   activeRunId,
   running,
-  reconcilingId,
   onOpenChange,
   onSelect,
   onDelete,
-  onReconcile,
   onNew,
 }: {
   open: boolean;
@@ -49,11 +48,9 @@ export function TaskHistoryDrawer({
   loading: boolean;
   activeRunId?: string;
   running: boolean;
-  reconcilingId?: string;
   onOpenChange: (open: boolean) => void;
   onSelect: (run: TaskRunSummary) => void;
   onDelete: (run: TaskRunSummary) => void;
-  onReconcile: (run: TaskRunSummary) => void;
   onNew: () => void;
 }) {
   if (!open) return null;
@@ -68,7 +65,7 @@ export function TaskHistoryDrawer({
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-sm font-semibold text-gtext-primary">
               <History className="h-4 w-4 text-gbrand-text" />
-              任务记录
+              工作记录
             </p>
             <p className="mt-1 text-[11px] text-gtext-muted">保存在你的账号下，换设备也能看到</p>
           </div>
@@ -76,7 +73,7 @@ export function TaskHistoryDrawer({
             type="button"
             onClick={() => onOpenChange(false)}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-glass-md text-gtext-muted transition-colors hover:bg-glass-2 hover:text-gtext-primary"
-            aria-label="关闭任务记录"
+            aria-label="关闭工作记录"
           >
             <X className="h-4 w-4" />
           </button>
@@ -86,18 +83,17 @@ export function TaskHistoryDrawer({
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-xs text-gtext-muted">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在读取任务记录
+              正在读取工作记录
             </div>
           ) : runs.length === 0 ? (
             <div className="grid place-items-center py-12 text-center">
               <History className="h-6 w-6 text-gtext-disabled" />
-              <p className="mt-3 text-sm font-medium text-gtext-secondary">还没有任务记录</p>
+              <p className="mt-3 text-sm font-medium text-gtext-secondary">还没有工作记录</p>
               <p className="mt-1 text-[11px] text-gtext-muted">描述一个目标，编排出的计划会存在这里</p>
             </div>
           ) : (
             <div className="space-y-2">
               {runs.map((run) => {
-                const orphan = isOrphanRun(run);
                 const active = run.id === activeRunId;
                 const percent = run.stepCount > 0 ? Math.round((run.completedStepCount / run.stepCount) * 100) : 0;
                 return (
@@ -133,22 +129,6 @@ export function TaskHistoryDrawer({
                       )}
                     </button>
 
-                    {orphan && (
-                      <div className="mt-2 flex items-center justify-between gap-2 rounded-glass-md border border-gwarning/25 bg-gwarning/[0.08] px-2 py-1.5">
-                        <p className="min-w-0 text-[10px] leading-4 text-gwarning">
-                          执行中断了（标签页被关掉），状态还挂在进行中
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => onReconcile(run)}
-                          disabled={reconcilingId === run.id}
-                          className="shrink-0 text-[10px] font-medium text-gwarning underline-offset-2 hover:underline disabled:opacity-50"
-                        >
-                          {reconcilingId === run.id ? '处理中' : '标记为已停止'}
-                        </button>
-                      </div>
-                    )}
-
                     <div className="mt-1.5 flex justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
@@ -156,7 +136,7 @@ export function TaskHistoryDrawer({
                         disabled={run.status === 'running'}
                         title={run.status === 'running' ? '进行中的任务不能删除' : '删除这条记录'}
                         className="grid h-6 w-6 place-items-center rounded-glass-md text-gtext-muted transition-colors hover:bg-gdanger/12 hover:text-gdanger disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="删除任务记录"
+                        aria-label="删除工作记录"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -171,7 +151,7 @@ export function TaskHistoryDrawer({
         <div className="shrink-0 border-t border-glassline p-3">
           <Button variant="glass" className="w-full" onClick={onNew} disabled={running}>
             <Plus className="h-4 w-4" />
-            新建任务
+            新建
           </Button>
         </div>
       </aside>

@@ -52,7 +52,12 @@ export class TaskService {
   }
 
   private async owned(id: string, userId: string) {
-    const r = await this.prisma.taskRun.findUnique({ where: { id } });
+    const r = await this.prisma.taskRun.findUnique({
+      where: { id },
+      // runSteps 供 toTaskRunSummary 统计真实进度；这里同样只取三列，
+      // 详情接口的 steps 字段仍然来自 JSON 快照（前端规划期要的形状）。
+      include: { runSteps: { select: { order: true, status: true, employeeName: true } } },
+    });
     if (!r || r.userId !== userId) throw new NotFoundException('Task not found');
     return r;
   }
@@ -95,15 +100,35 @@ export class TaskService {
     if (ev.length) await this.prisma.taskRunEvent.createMany({ data: ev });
   }
 
+  /**
+   * 列表与详情里的进度统计。
+   *
+   * 执行引擎搬到服务端后权威状态是 `TaskRunStep` 行，`TaskRun.steps` 这个 JSON
+   * 快照只在规划期被写。所以有行就按行算 —— 否则跑完的任务在工作记录里会显示
+   * 「已完成 · 0/2 步」，状态和进度自相矛盾。
+   */
   private toTaskRunSummary(r: any, owner = false) {
-    const steps: any[] = Array.isArray(r.steps) ? r.steps : [];
+    const jsonSteps: any[] = Array.isArray(r.steps) ? r.steps : [];
+    const rows: any[] = Array.isArray(r.runSteps) ? r.runSteps : [];
+    const useRows = rows.length > 0;
+
+    const ordered = useRows
+      ? [...rows].sort((a, b) => a.order - b.order)
+      : [...jsonSteps].sort((a, b) => a.order - b.order);
+
     const summary: any = {
       id: r.id,
       objective: r.objective,
       status: statusFromDb[r.status] || r.status,
-      stepCount: steps.length,
-      completedStepCount: steps.filter((s) => s.status === 'completed').length,
-      employeeNames: [...new Set([...steps].sort((a, b) => a.order - b.order).map((s) => s.employee?.name).filter(Boolean))].slice(0, 4),
+      stepCount: ordered.length,
+      completedStepCount: useRows
+        ? rows.filter((s) => s.status === 'COMPLETED').length
+        : jsonSteps.filter((s) => s.status === 'completed').length,
+      employeeNames: [
+        ...new Set(
+          ordered.map((s) => (useRows ? s.employeeName : s.employee?.name)).filter(Boolean),
+        ),
+      ].slice(0, 4),
       startedAt: r.startedAt?.toISOString() || null,
       completedAt: r.completedAt?.toISOString() || null,
       createdAt: r.createdAt.toISOString(),
@@ -168,7 +193,12 @@ export class TaskService {
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: q.limit + 1,
-      include: q.scope === 'enterprise' ? { user: { select: { id: true, name: true } } } : undefined,
+      include: {
+        // 只取统计要用的三列。带上全部字段的话，列表接口会把每一步的
+        // inputPrompt 和 output 全拉回来 —— 那是几十 KB 一条的东西。
+        runSteps: { select: { order: true, status: true, employeeName: true } },
+        ...(q.scope === 'enterprise' ? { user: { select: { id: true, name: true } } } : {}),
+      },
     });
 
     const has = rows.length > q.limit;

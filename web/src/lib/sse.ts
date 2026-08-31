@@ -8,6 +8,45 @@ export interface SseEvent {
 }
 
 /**
+ * 订阅任务执行事件流。
+ *
+ * 不用原生 `EventSource`：它不能带 Authorization 头，而后端 JwtStrategy 只从
+ * Bearer 头取令牌（见 backend/src/modules/auth/jwt.strategy.ts）。所以这里和
+ * 对话流一样用 fetch + 手工解帧。
+ *
+ * 服务端首帧一定是 `snapshot` 全量，之后是增量补丁 —— 因此中途连上（刷新页面、
+ * 任务跑到一半才打开）不会丢内容。
+ */
+export async function* streamTaskExecution(
+  taskRunId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<SseEvent> {
+  const token = authAccessor.getToken();
+  const res = await fetch(`${API_BASE}/tasks/${taskRunId}/stream`, {
+    method: 'GET',
+    credentials: 'include',
+    signal,
+    headers: {
+      Accept: 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!res.ok || !res.body) {
+    let message = `连接执行流失败 (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.message) message = Array.isArray(body.message) ? body.message.join('; ') : body.message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+
+  yield* readFrames(res.body);
+}
+
+/**
  * POST a message to the conversation SSE endpoint and yield parsed events.
  * EventSource can't POST, so we stream the fetch body and parse the
  * `event: <name>\ndata: <json>\n\n` frames ourselves.
@@ -49,7 +88,12 @@ export async function* streamMessage(
     throw new Error(msg);
   }
 
-  const reader = res.body.getReader();
+  yield* readFrames(res.body);
+}
+
+/** 把响应体拆成 `event: <name>\ndata: <json>\n\n` 帧。对话流与任务执行流共用。 */
+async function* readFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 

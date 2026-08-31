@@ -2232,6 +2232,23 @@ enum TASK_EVENT_TYPE {
   STEP_PAUSED
   STEP_RESUMED
   PLAN_EDITED
+  /// 上游产出被交给下游步骤的那一刻。会议要求「展示交接内容」，
+  /// 交接必须是流水上的一个可见事件，而不是只体现在下游的 prompt 里。
+  STEP_HANDOFF
+  /// 全部步骤完成后，聚合交付物已生成
+  DELIVERABLE_READY
+}
+
+/// 步骤状态。与前端 TaskStepStatus（小写）一一对应，转换见 task-step-mapper.ts。
+enum TASK_STEP_STATUS {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+  /// 用户在步骤边界主动暂停。QUEUED 表示「等依赖」，PAUSED 表示「等人」，
+  /// 两者混用会让「为什么不动」这个问题无法回答。
+  PAUSED
 }
 
 model TaskRun {
@@ -2239,7 +2256,10 @@ model TaskRun {
   objective    String          @db.Text
   summary      String          @db.Text @default("")
   status       TASK_RUN_STATUS @default(AWAITING_CONFIRMATION)
-  /// TaskPlanStep[] 快照，形状由 shared/task.dto.ts 校验
+  /// TaskPlanStep[] 快照。
+  ///
+  /// ⚠️ 兼容读字段。执行引擎搬到服务端后，权威数据是 `TaskRunStep` 行，
+  /// 这里只保留一个版本周期供旧前端与历史记录读取，新逻辑不要写它。
   steps        Json
   /// 画布布局 { nodes: Record<stepId,{x,y}>, endpoints: { input?, output? } }
   layout       Json?
@@ -2247,6 +2267,23 @@ model TaskRun {
   planner      Json?
   startedAt    DateTime?
   completedAt  DateTime?
+
+  /// 会议要求的「最终交付结果」：全部步骤完成后由 LLM 汇总的正文（Markdown）。
+  /// 与逐步产出分开存：翻步骤和看交付物是两种阅读需求，不能只给前者。
+  deliverable            String?   @db.Text
+  deliverableGeneratedAt DateTime?
+  /// true = 汇总模型不可用，退化成机械拼接。前端要如实标注，不能假装是正常交付物。
+  deliverableDegraded    Boolean   @default(false)
+
+  /// 抢到这次运行的 worker 标识（`${hostname}:${pid}`）。
+  /// 多实例部署时防止两个 worker 同时推进同一个 run。
+  claimedBy   String?
+  /// worker 心跳。孤儿判定依据 —— 此前靠 updatedAt 猜，而 updatedAt 会被
+  /// 任何无关写入刷新（例如用户改画布布局），导致真的挂掉了也看不出来。
+  heartbeatAt DateTime?
+  /// 用户请求停止的时刻。worker 在步骤边界检查它，实现「优雅停止」。
+  stopRequestedAt DateTime?
+
   userId       String
   enterpriseId String?
   createdAt    DateTime        @default(now())
@@ -2255,10 +2292,74 @@ model TaskRun {
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   enterprise Enterprise?    @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
   events     TaskRunEvent[]
+  runSteps   TaskRunStep[]
 
   @@index([userId, createdAt])
   @@index([enterpriseId, createdAt])
+  /// 孤儿扫描的查询形状：status=RUNNING AND heartbeatAt < cutoff
+  @@index([status, heartbeatAt])
   @@map("task_runs")
+}
+
+/// 任务步骤。执行引擎的权威状态。
+///
+/// 为什么从 `TaskRun.steps` 这个 JSON 里提出来：会议要求展示「每一步的输入、
+/// 输出和交接内容」，其中 inputPrompt 是整段 prompt、handoff 是结构化引用，
+/// 都不适合塞进一个每次改状态都要整体重写的 JSON 快照 —— 并发推进多个步骤时
+/// 整体重写必然互相覆盖。
+model TaskRunStep {
+  id        String  @id @default(cuid())
+  taskRunId String
+  taskRun   TaskRun @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+
+  /// 计划内的步骤标识（`step-1`…），前端沿用它做画布节点键与依赖引用。
+  /// 不用主键 id 是因为依赖关系在 LLM 出计划时就已按这个键生成。
+  stepKey String
+  order   Int
+  title   String
+  description String @db.Text
+
+  employeeId   String
+  /// 冗余员工名与头像：任务流水要长期可读，员工被删或改名不该让历史记录失真
+  employeeName String
+  employeeAvatar String?
+  capabilityId   String
+  capabilityName String
+
+  /// 本次执行实际生效的技能版本。阶段二把 resolveEffectiveVersion 接进执行链后
+  /// 由执行器写入；在此之前为 null。
+  skillVersionId String?
+
+  /// 依赖的上游 stepKey 列表
+  dependsOn String[] @default([])
+  /// LLM 给出的选人理由，前端在步骤详情里展示
+  rationale String   @db.Text @default("")
+  estimatedSeconds Int @default(0)
+
+  status TASK_STEP_STATUS @default(QUEUED)
+
+  /// 会议要求的「输入」：真正送进模型的 prompt 全文（含总目标、本步说明、上游产出）
+  inputPrompt String? @db.Text
+  /// 会议要求的「交接内容」：[{ fromStepKey, fromEmployeeName, excerpt, chars }]
+  handoff     Json?
+  output      String? @db.Text
+  error       String? @db.Text
+
+  /// 执行该步骤的任务会话（source=TASK），用于回溯完整对话
+  sessionId String?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  durationMs  Int?
+  /// 重试次数，用于前端展示「第 2 次尝试」
+  attempt     Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([taskRunId, stepKey])
+  @@index([taskRunId, order])
+  @@map("task_run_steps")
 }
 
 model TaskTemplate {
@@ -2289,6 +2390,9 @@ model TaskRunEvent {
   stepTitle    String?
   employeeName String?
   message      String?         @db.Text
+  /// 结构化附加数据。STEP_HANDOFF 存 { fromStepKey, fromEmployeeName, chars }，
+  /// DELIVERABLE_READY 存 { degraded, chars }。前端时间线据此渲染不同样式。
+  payload      Json?
   createdAt    DateTime        @default(now())
 
   taskRun TaskRun @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
