@@ -279,7 +279,7 @@ export default function EmployeeDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="monitoring">
             <BarChart3 className="h-4 w-4" />
-            运行监控
+            运行情况
           </TabsTrigger>
           <TabsTrigger value="config">
             <Settings2 className="h-4 w-4" />
@@ -325,7 +325,7 @@ export default function EmployeeDetailPage() {
                     onClick={() => setActiveTab('monitoring')}
                     className="inline-flex items-center gap-1 text-xs text-gbrand-text hover:text-gbrand-text-hover"
                   >
-                    查看监控
+                    查看运行情况
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 }
@@ -523,7 +523,7 @@ export default function EmployeeDetailPage() {
               </div>
             </div>
             {statsQuery.isLoading ? (
-              <CenteredSpinner label="加载监控数据..." />
+              <CenteredSpinner label="加载运行数据..." />
             ) : (
               <TrendChart points={stats?.trend ?? []} />
             )}
@@ -727,7 +727,7 @@ function TrendChart({
 }) {
   const max = Math.max(...points.map((point) => point.total), 1);
   return points.length === 0 ? (
-    <p className="py-12 text-center text-sm text-gtext-muted">暂无监控数据</p>
+    <p className="py-12 text-center text-sm text-gtext-muted">暂无运行数据</p>
   ) : (
     <div className="space-y-3">
       {points.map((point) => (

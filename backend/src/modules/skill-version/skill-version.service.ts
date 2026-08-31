@@ -649,6 +649,222 @@ export class SkillVersionService {
   // ────────────────── 使用记录与统计 ──────────────────
 
   /**
+   * 「这个成员看得到这个能力吗」的统一把关。
+   *
+   * 判据是「有一个授权订阅，且该订阅的员工绑定了这个能力」。三个读接口
+   * （版本时间线 / 使用统计 / 执行明细）共用它 —— 各写一遍必然有一处漏掉，
+   * 而漏掉的那个接口会把别的部门的技能数据交出去。
+   */
+  private async assertCapabilityVisible(
+    ctx: { enterpriseId: string; memberId: string; departmentId: string | null },
+    capabilityId: string,
+  ) {
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        enterpriseId: ctx.enterpriseId,
+        status: 'ACTIVE',
+        grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) },
+        employee: { bindings: { some: { capabilityId } } },
+      },
+      select: { id: true },
+    });
+    if (!subscription) throw new ForbiddenException('当前成员未获得该技能的使用授权');
+    return subscription;
+  }
+
+  /**
+   * 「能力迭代」列表：当前成员有授权的所有 SKILL 类能力。
+   *
+   * 与 `listEmployeeSkills` 的区别：那个按员工进入（我要看这位员工带哪些技能），
+   * 这个按能力进入（我要迭代这个技能）。同一个技能可能绑在多位员工身上，
+   * 这里按 capability 去重，并带上「哪些员工在用」。
+   */
+  async listIterableCapabilities(userId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+
+    // 本成员有授权的 ACTIVE 订阅
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: {
+        enterpriseId: ctx.enterpriseId,
+        status: 'ACTIVE',
+        grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            bindings: {
+              where: { capability: { type: 'SKILL' } },
+              select: {
+                capability: { select: { id: true, name: true, description: true } },
+                defaultSkillVersion: { select: VERSION_SUMMARY_SELECT },
+              },
+              orderBy: { priority: 'asc' },
+            },
+          },
+        },
+        skillVersionSelections: {
+          select: { capabilityId: true, version: { select: VERSION_SUMMARY_SELECT } },
+        },
+      },
+    });
+
+    // 按 capability 归并：一个技能可能绑在多位员工身上
+    type CapabilityEntry = {
+      capability: { id: string; name: string; description: string };
+      employees: Array<{ employeeId: string; employeeName: string; subscriptionId: string }>;
+      currentVersion: { id: string; version: string; scope: SkillVersionScope } | null;
+    };
+    const byCapability = new Map<string, CapabilityEntry>();
+
+    for (const subscription of subscriptions) {
+      const selected = new Map(
+        subscription.skillVersionSelections.map((s) => [s.capabilityId, s.version]),
+      );
+      for (const binding of subscription.employee.bindings) {
+        const capabilityId = binding.capability.id;
+        const entry = byCapability.get(capabilityId) ?? {
+          capability: binding.capability,
+          employees: [],
+          // 生效版本：企业选版 > 员工模板默认版。与 resolveEffectiveVersion 同序，
+          // 但这里不查平台兜底 —— 列表只需要展示「企业当前的选择」，
+          // 兜底版本在详情页由 listVersionTimeline 给出。
+          currentVersion: selected.get(capabilityId) ?? binding.defaultSkillVersion ?? null,
+        };
+        entry.employees.push({
+          employeeId: subscription.employee.id,
+          employeeName: subscription.employee.name,
+          subscriptionId: subscription.id,
+        });
+        // 已有条目时，企业选版优先于模板默认版
+        const explicit = selected.get(capabilityId);
+        if (explicit) entry.currentVersion = explicit;
+        byCapability.set(capabilityId, entry);
+      }
+    }
+
+    const capabilityIds = [...byCapability.keys()];
+    if (capabilityIds.length === 0) return { canManage: ctx.role === 'ENTERPRISE_ADMIN', items: [] };
+
+    // 每个能力的调用轮次与使用人数，一次 groupBy 拿全，避免 N+1
+    const [roundsByCapability, executions] = await Promise.all([
+      this.prisma.toolExecution.groupBy({
+        by: ['capabilityId'],
+        where: {
+          capabilityId: { in: capabilityIds },
+          session: {
+            user: { memberships: { some: { enterpriseId: ctx.enterpriseId } } },
+          },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.toolExecution.findMany({
+        where: {
+          capabilityId: { in: capabilityIds },
+          session: {
+            user: { memberships: { some: { enterpriseId: ctx.enterpriseId } } },
+          },
+        },
+        select: { capabilityId: true, userId: true },
+        distinct: ['capabilityId', 'userId'],
+      }),
+    ]);
+
+    const roundsMap = new Map(roundsByCapability.map((row) => [row.capabilityId, row._count._all]));
+    const userCountMap = new Map<string, number>();
+    for (const row of executions) {
+      if (!row.userId) continue;
+      userCountMap.set(row.capabilityId, (userCountMap.get(row.capabilityId) ?? 0) + 1);
+    }
+
+    return {
+      canManage: ctx.role === 'ENTERPRISE_ADMIN',
+      items: [...byCapability.values()].map((entry) => ({
+        capability: entry.capability,
+        employees: entry.employees,
+        currentVersion: entry.currentVersion,
+        usage: {
+          totalRounds: roundsMap.get(entry.capability.id) ?? 0,
+          distinctUserCount: userCountMap.get(entry.capability.id) ?? 0,
+        },
+      })),
+    };
+  }
+
+  /**
+   * 版本时间线：这个能力在本企业可见的全部版本，标出当前生效的那个。
+   *
+   * 平台版与企业版混排、按创建时间倒序 —— 用户要的是「我改过几版、现在用哪版、
+   * 能退回哪版」，而不是两个分开的列表。
+   */
+  async listVersionTimeline(userId: string, capabilityId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const subscription = await this.assertCapabilityVisible(ctx, capabilityId);
+
+    const [capability, versions, selection] = await Promise.all([
+      this.prisma.capability.findUnique({
+        where: { id: capabilityId },
+        select: { id: true, name: true, description: true },
+      }),
+      this.prisma.skillVersion.findMany({
+        where: {
+          capabilityId,
+          OR: [
+            { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+            // 企业版把草稿与待审也列出来：迭代过程本身要可见，
+            // 只显示已通过的版本会让「我提交的那版去哪了」无从回答
+            { scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId },
+          ],
+        },
+        select: {
+          ...VERSION_SUMMARY_SELECT,
+          createdBy: { select: { id: true, name: true } },
+          enterpriseReviewedBy: { select: { id: true, name: true } },
+          enterpriseReviewedAt: true,
+          rejectionReason: true,
+          reviews: {
+            select: {
+              id: true,
+              actorType: true,
+              decision: true,
+              comment: true,
+              createdAt: true,
+              reviewer: { select: { id: true, name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+          promotedVersions: { select: { id: true }, take: 1 },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.subscriptionSkillVersion.findUnique({
+        where: {
+          subscriptionId_capabilityId: { subscriptionId: subscription.id, capabilityId },
+        },
+        select: { versionId: true, selectedAt: true },
+      }),
+    ]);
+
+    if (!capability) throw new NotFoundException('能力不存在');
+
+    return {
+      capability,
+      subscriptionId: subscription.id,
+      canManage: ctx.role === 'ENTERPRISE_ADMIN',
+      currentVersionId: selection?.versionId ?? null,
+      selectedAt: selection?.selectedAt?.toISOString() ?? null,
+      versions: versions.map(({ promotedVersions, ...version }) => ({
+        ...version,
+        hasPlatformSubmission: promotedVersions.length > 0,
+        isCurrent: version.id === selection?.versionId,
+      })),
+    };
+  }
+
+  /**
    * 使用记录汇总：三层聚合（总览 + 分员工 + 分用户）。
    *
    * 调用方权限决定可见范围：
@@ -657,6 +873,9 @@ export class SkillVersionService {
    */
   async getUsageSummary(userId: string, capabilityId: string, isAdmin: boolean) {
     const ctx = await this.enterpriseContext.resolve(userId);
+    // 授权校验：没有授权的成员连这个技能的存在都不该感知到，
+    // 更不能读它的使用统计。与 listVersionTimeline 用同一把关。
+    await this.assertCapabilityVisible(ctx, capabilityId);
 
     // 查本企业对这个技能的所有执行记录（不限版本 —— 企业可能在不同版本间切换）
     const executions = await this.prisma.toolExecution.findMany({
@@ -744,6 +963,7 @@ export class SkillVersionService {
     cursor?: string,
   ) {
     const ctx = await this.enterpriseContext.resolve(userId);
+    await this.assertCapabilityVisible(ctx, capabilityId);
 
     const executions = await this.prisma.toolExecution.findMany({
       where: {

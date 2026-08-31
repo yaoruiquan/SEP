@@ -132,6 +132,9 @@ export const nav = {
   // 会议决议：「任务中心」改成更贴近用户的「工作安排」，并减少「自动编排」这类
   // 技术化表达。术语对照见 docs/plans/2026-08-31-会议7五决策落地开发方案.md 附录 B。
   tasks: '工作安排',
+  // 会议决议：对外避免「监控」，统一用「能力迭代」。企业内部迭代（这个）与
+  // 向平台投稿（contributions）拆成两个入口，回应「目录过度收拢」的批评。
+  capabilities: '能力迭代',
   contributions: '能力贡献中心',
   knowledge: knowledge.management,
   usage: '用量统计',

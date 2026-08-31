@@ -22,7 +22,6 @@ import {
   MessageSquare,
   Wallet,
   Gauge,
-  Sparkles,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -92,10 +91,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: '能力与知识',
+    title: '组织能力',
     links: [
-      { href: '/contributions', label: nav.contributions, icon: Sparkles },
-      // 知识库是企业可复用资产，与能力贡献中心并列
+      // 企业内部迭代已有技能。与「能力贡献中心」（向平台投稿）分开 ——
+      // 会议批评过「过度收拢到一个模块」，两者受众和动作都不同。
+      { href: '/capabilities', label: nav.capabilities, icon: GitBranch },
+      // 知识库是企业可复用资产，与能力迭代并列
       { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
     ],
   },
@@ -125,7 +126,8 @@ const CRUMBS: CrumbMap = {
   models: '模型配置',
   chat: '对话',
   contributions: nav.contributions,
-  skills: nav.contributions,
+  capabilities: nav.capabilities,
+  skills: nav.capabilities,
   wallet: '企业钱包',
   'compute-quota': '算力余额',
   recharge: '充值',

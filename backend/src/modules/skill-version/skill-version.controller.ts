@@ -148,6 +148,24 @@ export class EnterpriseSkillVersionController {
     return this.service.submitPlatformReview(req.user.id, id);
   }
 
+  @Get('capabilities')
+  @ApiOperation({ summary: '「能力迭代」列表：本成员有授权的 SKILL 类能力及其生效版本' })
+  @ApiResponse({ status: 200, description: '能力列表，含使用人数与调用轮次' })
+  listIterableCapabilities(@Request() req: AuthRequest) {
+    return this.service.listIterableCapabilities(req.user.id);
+  }
+
+  @Get('capabilities/:capabilityId/versions')
+  @ApiOperation({ summary: '版本时间线：平台版与企业版混排，标出当前生效版本' })
+  @ApiResponse({ status: 200, description: '版本列表，含审核历史' })
+  @ApiResponse({ status: 403, description: '未获得该技能的使用授权' })
+  listVersionTimeline(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+  ) {
+    return this.service.listVersionTimeline(req.user.id, capabilityId);
+  }
+
   @Get('capabilities/:capabilityId/usage')
   @ApiOperation({ summary: '技能使用记录汇总（三层聚合：总览+员工+用户）' })
   async getUsageSummary(
