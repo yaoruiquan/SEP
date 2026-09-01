@@ -71,6 +71,19 @@ export interface TimelineVersion {
 export interface VersionTimeline {
   capability: { id: string; name: string; description: string };
   subscriptionId: string;
+  /**
+   * 这个能力绑在哪几位员工身上，以及各自的选版。
+   *
+   * 一个技能可能被多位员工带着 —— 切版是按订阅（雇佣关系）生效的，
+   * 所以管理员要先选「给哪位员工切」。后端 `listVersionTimeline` 恒返回此字段。
+   */
+  subscriptions: Array<{
+    subscriptionId: string;
+    employeeId: string;
+    employeeName: string;
+    currentVersionId: string | null;
+    selectedAt: string | null;
+  }>;
   canManage: boolean;
   currentVersionId: string | null;
   selectedAt: string | null;

@@ -757,6 +757,9 @@ export class SkillVersionService {
           capabilityId: { in: capabilityIds },
           session: {
             user: { memberships: { some: { enterpriseId: ctx.enterpriseId } } },
+            employee: {
+              subscriptions: { some: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' } },
+            },
           },
         },
         _count: { _all: true },
@@ -766,6 +769,9 @@ export class SkillVersionService {
           capabilityId: { in: capabilityIds },
           session: {
             user: { memberships: { some: { enterpriseId: ctx.enterpriseId } } },
+            employee: {
+              subscriptions: { some: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' } },
+            },
           },
         },
         select: { capabilityId: true, userId: true },
@@ -804,7 +810,7 @@ export class SkillVersionService {
     const ctx = await this.enterpriseContext.resolve(userId);
     const subscription = await this.assertCapabilityVisible(ctx, capabilityId);
 
-    const [capability, versions, selection] = await Promise.all([
+    const [capability, versions, selection, subscriptions] = await Promise.all([
       this.prisma.capability.findUnique({
         where: { id: capabilityId },
         select: { id: true, name: true, description: true },
@@ -841,10 +847,23 @@ export class SkillVersionService {
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.subscriptionSkillVersion.findUnique({
-        where: {
-          subscriptionId_capabilityId: { subscriptionId: subscription.id, capabilityId },
-        },
+        where: { subscriptionId_capabilityId: { subscriptionId: subscription.id, capabilityId } },
         select: { versionId: true, selectedAt: true },
+      }),
+      this.prisma.subscription.findMany({
+        where: {
+          enterpriseId: ctx.enterpriseId,
+          status: 'ACTIVE',
+          employee: { bindings: { some: { capabilityId } } },
+        },
+        select: {
+          id: true,
+          employee: { select: { id: true, name: true } },
+          skillVersionSelections: {
+            where: { capabilityId },
+            select: { versionId: true, selectedAt: true },
+          },
+        },
       }),
     ]);
 
@@ -853,9 +872,18 @@ export class SkillVersionService {
     return {
       capability,
       subscriptionId: subscription.id,
+      subscriptions: subscriptions.map((item) => ({
+        subscriptionId: item.id,
+        employeeId: item.employee.id,
+        employeeName: item.employee.name,
+        currentVersionId: item.skillVersionSelections[0]?.versionId ?? null,
+        selectedAt: item.skillVersionSelections[0]?.selectedAt?.toISOString() ?? null,
+      })),
       canManage: ctx.role === 'ENTERPRISE_ADMIN',
-      currentVersionId: selection?.versionId ?? null,
-      selectedAt: selection?.selectedAt?.toISOString() ?? null,
+      currentVersionId:
+        selection?.versionId ?? null,
+      selectedAt:
+        selection?.selectedAt?.toISOString() ?? null,
       versions: versions.map(({ promotedVersions, ...version }) => ({
         ...version,
         hasPlatformSubmission: promotedVersions.length > 0,
@@ -871,7 +899,7 @@ export class SkillVersionService {
    * - 普通员工看到 summary + byEmployee（全企业范围）
    * - 企业管理员额外看到 byMember（具体到人）
    */
-  async getUsageSummary(userId: string, capabilityId: string, isAdmin: boolean) {
+  async getUsageSummary(userId: string, capabilityId: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
     // 授权校验：没有授权的成员连这个技能的存在都不该感知到，
     // 更不能读它的使用统计。与 listVersionTimeline 用同一把关。
@@ -887,6 +915,9 @@ export class SkillVersionService {
             memberships: {
               some: { enterpriseId: ctx.enterpriseId },
             },
+          },
+          employee: {
+            subscriptions: { some: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' } },
           },
         },
       },
@@ -925,7 +956,7 @@ export class SkillVersionService {
 
     // 按用户聚合（仅管理员可见）
     let byMember: Array<{ userId: string; userName: string | null; rounds: number }> | undefined;
-    if (isAdmin) {
+    if (ctx.role === 'ENTERPRISE_ADMIN') {
       const byMemberMap = new Map<string, { name: string | null; count: number }>();
       for (const exec of executions) {
         if (!exec.userId) continue;
@@ -963,6 +994,7 @@ export class SkillVersionService {
     cursor?: string,
   ) {
     const ctx = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
     await this.assertCapabilityVisible(ctx, capabilityId);
 
     const executions = await this.prisma.toolExecution.findMany({
@@ -973,6 +1005,9 @@ export class SkillVersionService {
             memberships: {
               some: { enterpriseId: ctx.enterpriseId },
             },
+          },
+          employee: {
+            subscriptions: { some: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' } },
           },
         },
         ...(cursor && { createdAt: { lt: new Date(cursor) } }),

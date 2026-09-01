@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -168,17 +167,18 @@ export class EnterpriseSkillVersionController {
 
   @Get('capabilities/:capabilityId/usage')
   @ApiOperation({ summary: '技能使用记录汇总（三层聚合：总览+员工+用户）' })
-  async getUsageSummary(
+  @ApiResponse({ status: 200, description: '使用统计汇总' })
+  getUsageSummary(
     @Request() req: AuthRequest,
     @Param('capabilityId') capabilityId: string,
   ) {
-    const ctx = await this.service['enterpriseContext'].resolve(req.user.id);
-    const isAdmin = ctx.role === 'ENTERPRISE_ADMIN';
-    return this.service.getUsageSummary(req.user.id, capabilityId, isAdmin);
+    return this.service.getUsageSummary(req.user.id, capabilityId);
   }
 
   @Get('capabilities/:capabilityId/executions')
   @ApiOperation({ summary: '技能执行明细（仅企业管理员）' })
+  @ApiResponse({ status: 200, description: '执行明细列表' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可见' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'cursor', required: false, type: String })
   async getExecutionDetails(
@@ -187,11 +187,8 @@ export class EnterpriseSkillVersionController {
     @Query('limit') limitStr?: string,
     @Query('cursor') cursor?: string,
   ) {
-    const ctx = await this.service['enterpriseContext'].resolve(req.user.id);
-    if (ctx.role !== 'ENTERPRISE_ADMIN') {
-      throw new ForbiddenException('执行明细仅企业管理员可见');
-    }
-    const limit = limitStr ? parseInt(limitStr, 10) : 20;
+    const parsedLimit = limitStr === undefined ? 20 : Number.parseInt(limitStr, 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20;
     return this.service.getExecutionDetails(req.user.id, capabilityId, limit, cursor);
   }
 }

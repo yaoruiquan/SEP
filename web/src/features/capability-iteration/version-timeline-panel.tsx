@@ -8,9 +8,13 @@ import {
   Clock,
   FileText,
   GitBranch,
+  GitFork,
+  Pencil,
   RotateCcw,
   ShieldCheck,
+  XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
@@ -20,6 +24,10 @@ import {
   type TimelineVersion,
   type VersionTimeline,
 } from './use-capability-iteration';
+import { useCreateEnterpriseSkillVersion, useReviewEnterpriseSkillVersion } from '@/features/skill-version/use-skill-version';
+import { RejectReasonDialog } from '@/features/contribution/components/reject-reason-dialog';
+import { useQueryClient } from '@tanstack/react-query';
+import { capabilityIterationKeys } from './use-capability-iteration';
 
 /**
  * 版本时间线。
@@ -30,12 +38,54 @@ import {
 export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }) {
   const [expandedId, setExpandedId] = useState<string>();
   const selectVersion = useSelectEffectiveVersion(timeline.capability.id);
+  const createVersion = useCreateEnterpriseSkillVersion();
+  const reviewVersion = useReviewEnterpriseSkillVersion();
+  const queryClient = useQueryClient();
+
+  /**
+   * 审核完刷新本页数据。
+   *
+   * `useReviewEnterpriseSkillVersion` 只失效 `['skill-versions']`（它是给员工技能页
+   * 用的），而这一页的数据挂在 `['capability-iteration']` 下 —— 不手动失效的话
+   * 审核通过后时间线上的状态不会变，看起来像没生效。
+   */
+  const refreshTimeline = () => {
+    void queryClient.invalidateQueries({
+      queryKey: capabilityIterationKeys.versions(timeline.capability.id),
+    });
+    void queryClient.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
+  };
+  const [subscriptionId, setSubscriptionId] = useState(timeline.subscriptionId);
+  const [rejectTarget, setRejectTarget] = useState<TimelineVersion>();
+  const selectedSubscription = timeline.subscriptions.find((item) => item.subscriptionId === subscriptionId) ?? timeline.subscriptions[0];
+  const currentId = selectedSubscription?.currentVersionId ?? timeline.currentVersionId;
+  const parentVersion = timeline.versions.find((version) => version.id === currentId) ?? timeline.versions.find((version) => version.status === 'PLATFORM_APPROVED');
+
+  const createDraft = () => {
+    if (!selectedSubscription || !parentVersion) return;
+    createVersion.mutate(
+      { subscriptionId: selectedSubscription.subscriptionId, capabilityId: timeline.capability.id, parentVersionId: parentVersion.id, changeSummary: `基于 v${parentVersion.version} 创建` },
+      {
+        onSuccess: (version) => { toast.success('企业版本草稿已创建'); window.location.href = `/skills/${version.id}/edit?returnTo=/capabilities/${timeline.capability.id}`; },
+        onError: (error) => toast.error(error instanceof Error ? error.message : '创建版本失败'),
+      },
+    );
+  };
 
   const setEffective = (version: TimelineVersion) => {
+    // 必须用**选中的**订阅，不能用 timeline.subscriptionId ——
+    // 后者只是后端授权校验时命中的第一条，切版按雇佣关系生效，
+    // 用错了就会「选了员工 B，切版切在员工 A 身上」，而界面上看不出来。
+    const targetSubscriptionId = selectedSubscription?.subscriptionId ?? timeline.subscriptionId;
     selectVersion.mutate(
-      { subscriptionId: timeline.subscriptionId, versionId: version.id },
+      { subscriptionId: targetSubscriptionId, versionId: version.id },
       {
-        onSuccess: () => toast.success(`已切换到 ${versionLabel(version)}`),
+        onSuccess: () =>
+          toast.success(
+            selectedSubscription
+              ? `${selectedSubscription.employeeName} 已切换到 ${versionLabel(version)}`
+              : `已切换到 ${versionLabel(version)}`,
+          ),
         onError: (error) =>
           toast.error(error instanceof Error ? error.message : '切换版本失败'),
       },
@@ -51,16 +101,34 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
   }
 
   return (
-    <ol className="space-y-0">
+    <div className="space-y-4">
+      {timeline.canManage && timeline.subscriptions.length > 1 && (
+        <label className="block text-xs text-gtext-muted">
+          当前操作员工
+          <select value={subscriptionId} onChange={(event) => setSubscriptionId(event.target.value)} className="mt-1 h-9 w-full rounded-md border border-glassline bg-glass-1 px-3 text-xs text-gtext-primary">
+            {timeline.subscriptions.map((item) => <option key={item.subscriptionId} value={item.subscriptionId}>{item.employeeName}</option>)}
+          </select>
+        </label>
+      )}
+      {timeline.canManage && parentVersion && selectedSubscription && (
+        <div className="flex flex-wrap items-center gap-2 rounded-glass-lg border border-glassline-brand bg-gbrand/[0.05] px-3.5 py-3">
+          <span className="text-xs text-gtext-secondary">为 {selectedSubscription.employeeName} 创建企业版本</span>
+          <Button size="sm" variant="glass-primary" className="h-7 px-2.5 text-[11px]" onClick={createDraft} loading={createVersion.isPending}><GitFork className="h-3 w-3" /> 创建草稿</Button>
+        </div>
+      )}
+      <ol className="space-y-0">
       {timeline.versions.map((version, index) => {
         const status = SKILL_VERSION_STATUS[version.status];
         const expanded = expandedId === version.id;
         const isEnterprise = version.scope === 'ENTERPRISE';
+        // 用 currentId 而不是后端给的 version.isCurrent：后者是按「授权校验命中的
+        // 第一条订阅」算的，切换上方的员工下拉后就不准了。
+        const isCurrent = version.id === currentId;
         // 能被选为生效版本的前提：平台已通过，或企业内部已通过。
         // 草稿和待审版本不能生效 —— 那等于绕过审核流。
         const selectable =
           timeline.canManage &&
-          !version.isCurrent &&
+          !isCurrent &&
           (version.status === 'PLATFORM_APPROVED' || version.status === 'ENTERPRISE_APPROVED');
 
         return (
@@ -72,14 +140,14 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
             <span
               className={cn(
                 'relative z-10 mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2',
-                version.isCurrent
+                isCurrent
                   ? 'border-gsuccess bg-gsuccess text-white'
                   : isEnterprise
                     ? 'border-glassline-brand bg-gbrand/10 text-gbrand-text'
                     : 'border-glassline bg-glass-2 text-gtext-muted',
               )}
             >
-              {version.isCurrent ? (
+              {isCurrent ? (
                 <Check className="h-4 w-4" strokeWidth={3} />
               ) : isEnterprise ? (
                 <GitBranch className="h-3.5 w-3.5" />
@@ -92,7 +160,7 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
               <div
                 className={cn(
                   'rounded-glass-lg border px-3.5 py-3 transition-colors',
-                  version.isCurrent
+                  isCurrent
                     ? 'border-gsuccess/40 bg-gsuccess/[0.06]'
                     : 'border-glassline bg-glass-1',
                 )}
@@ -114,7 +182,7 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
                       >
                         {status.label}
                       </span>
-                      {version.isCurrent && (
+                      {isCurrent && (
                         <span className="rounded-glass-pill bg-gsuccess px-1.5 py-0.5 text-[10px] font-bold text-white">
                           当前生效
                         </span>
@@ -140,6 +208,15 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
                   </button>
 
                   <div className="flex shrink-0 items-center gap-1.5">
+                    {timeline.canManage && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
+                      <Link href={`/skills/${version.id}/edit?returnTo=/capabilities/${timeline.capability.id}`} aria-label="编辑企业版本" className="grid h-7 w-7 place-items-center rounded-glass-md text-gtext-muted hover:bg-glass-3 hover:text-gtext-primary"><Pencil className="h-3.5 w-3.5" /></Link>
+                    )}
+                    {timeline.canManage && isEnterprise && version.status === 'PENDING_ENTERPRISE_REVIEW' && (
+                      <>
+                        <Button size="sm" variant="glass" className="h-7 px-2 text-[11px]" onClick={() => reviewVersion.mutate({ id: version.id, decision: 'APPROVE' }, { onSuccess: () => { toast.success(`已通过 ${versionLabel(version)}`); refreshTimeline(); }, onError: (error) => toast.error(error instanceof Error ? error.message : '审核失败') })} loading={reviewVersion.isPending}><ShieldCheck className="h-3 w-3" /> 通过</Button>
+                        <Button size="sm" variant="glass" className="h-7 px-2 text-[11px]" onClick={() => setRejectTarget(version)}><XCircle className="h-3 w-3" /> 驳回</Button>
+                      </>
+                    )}
                     {selectable && (
                       <Button
                         size="sm"
@@ -213,7 +290,32 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
           </li>
         );
       })}
-    </ol>
+      </ol>
+
+      <RejectReasonDialog
+        open={Boolean(rejectTarget)}
+        capabilityName={rejectTarget ? versionLabel(rejectTarget) : ''}
+        loading={reviewVersion.isPending}
+        onOpenChange={(open) => {
+          if (!open) setRejectTarget(undefined);
+        }}
+        onConfirm={(reason) => {
+          if (!rejectTarget) return;
+          reviewVersion.mutate(
+            { id: rejectTarget.id, decision: 'REJECT', comment: reason },
+            {
+              onSuccess: () => {
+                toast.success(`已驳回 ${versionLabel(rejectTarget)}`);
+                setRejectTarget(undefined);
+                refreshTimeline();
+              },
+              onError: (error) =>
+                toast.error(error instanceof Error ? error.message : '驳回失败'),
+            },
+          );
+        }}
+      />
+    </div>
   );
 }
 

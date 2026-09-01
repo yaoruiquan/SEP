@@ -7,11 +7,18 @@ import { SkillVersionService } from './skill-version.service';
  * 两者都是「写错了不会报错、只会静默给出错数据」的地方。
  */
 describe('SkillVersionService 使用记录与统计', () => {
-  const ADMIN_CTX = {
+  // role 不用 `as const`：测试要靠 `{ ...ADMIN_CTX, role: 'MEMBER' }` 覆盖非管理员路径，
+  // 收窄成字面量后那种写法过不了类型检查。
+  const ADMIN_CTX: {
+    enterpriseId: string;
+    memberId: string;
+    departmentId: string | null;
+    role: 'ENTERPRISE_ADMIN' | 'DEPT_MANAGER' | 'MEMBER';
+  } = {
     enterpriseId: 'ent-1',
     memberId: 'mem-admin',
     departmentId: null,
-    role: 'ENTERPRISE_ADMIN' as const,
+    role: 'ENTERPRISE_ADMIN',
   };
 
   function build(overrides: {
@@ -22,6 +29,7 @@ describe('SkillVersionService 使用记录与统计', () => {
     capabilityFindUnique?: jest.Mock;
     skillVersionFindMany?: jest.Mock;
     subscriptionSkillVersionFindUnique?: jest.Mock;
+    context?: typeof ADMIN_CTX;
   } = {}) {
     const prisma = {
       subscription: {
@@ -44,7 +52,12 @@ describe('SkillVersionService 使用记录与统计', () => {
         findUnique: overrides.subscriptionSkillVersionFindUnique ?? jest.fn().mockResolvedValue(null),
       },
     };
-    const enterpriseContext = { resolve: jest.fn().mockResolvedValue(ADMIN_CTX) };
+    const enterpriseContext = {
+      resolve: jest.fn().mockResolvedValue(overrides.context ?? ADMIN_CTX),
+      assertEnterpriseAdmin: jest.fn((ctx) => {
+        if (ctx.role !== 'ENTERPRISE_ADMIN') throw new ForbiddenException();
+      }),
+    };
     const service = new SkillVersionService(prisma as never, enterpriseContext as never);
     return { service, prisma, enterpriseContext };
   }
@@ -57,7 +70,7 @@ describe('SkillVersionService 使用记录与统计', () => {
 
     it('没有授权订阅时，使用统计同样拒绝 —— 三个接口不能有一个漏掉', async () => {
       const { service } = build({ subscriptionFindFirst: jest.fn().mockResolvedValue(null) });
-      await expect(service.getUsageSummary('u1', 'cap-1', true)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getUsageSummary('u1', 'cap-1')).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('没有授权订阅时，执行明细同样拒绝', async () => {
@@ -68,7 +81,7 @@ describe('SkillVersionService 使用记录与统计', () => {
     it('授权关按「订阅的员工绑定了这个能力」判定，而不只是「企业有这个订阅」', async () => {
       const findFirst = jest.fn().mockResolvedValue({ id: 'sub-1' });
       const { service } = build({ subscriptionFindFirst: findFirst });
-      await service.getUsageSummary('u1', 'cap-1', false);
+      await service.getUsageSummary('u1', 'cap-1');
 
       expect(findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -91,9 +104,10 @@ describe('SkillVersionService 使用记录与统计', () => {
 
     it('会话与用户各自去重，调用轮次按行数算', async () => {
       const { service } = build({
+        context: { ...ADMIN_CTX, role: 'MEMBER' },
         toolExecutionFindMany: jest.fn().mockResolvedValue(executions),
       });
-      const result = await service.getUsageSummary('u1', 'cap-1', true);
+      const result = await service.getUsageSummary('u1', 'cap-1');
 
       expect(result.summary).toEqual({
         distinctUserCount: 2, // u-boss、u-staff；null 不计
@@ -109,7 +123,7 @@ describe('SkillVersionService 使用记录与统计', () => {
           execution('e5', 'u-boss', 'sess-3', 'emp-2', '直播教练'),
         ]),
       });
-      const result = await service.getUsageSummary('u1', 'cap-1', true);
+      const result = await service.getUsageSummary('u1', 'cap-1');
 
       expect(result.byEmployee).toEqual([
         { employeeId: 'emp-1', employeeName: '电商专家', rounds: 4 },
@@ -121,7 +135,7 @@ describe('SkillVersionService 使用记录与统计', () => {
       const { service } = build({
         toolExecutionFindMany: jest.fn().mockResolvedValue(executions),
       });
-      const result = await service.getUsageSummary('u1', 'cap-1', true);
+      const result = await service.getUsageSummary('u1', 'cap-1');
 
       expect(result.byMember).toEqual([
         { userId: 'u-boss', userName: '甲总', rounds: 2 },
@@ -131,18 +145,43 @@ describe('SkillVersionService 使用记录与统计', () => {
 
     it('非管理员拿不到 byMember —— 那里面是成员的使用明细', async () => {
       const { service } = build({
+        context: { ...ADMIN_CTX, role: 'MEMBER' },
         toolExecutionFindMany: jest.fn().mockResolvedValue(executions),
       });
-      const result = await service.getUsageSummary('u1', 'cap-1', false);
+      const result = await service.getUsageSummary('u1', 'cap-1');
 
       expect(result.byMember).toBeUndefined();
       // 但总览和按员工两层照常返回
       expect(result.summary.distinctUserCount).toBe(2);
       expect(result.byEmployee).toHaveLength(1);
     });
+
+    it('统计查询同时约束会话员工在当前企业的有效订阅', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const { service } = build({ toolExecutionFindMany: findMany });
+
+      await service.getUsageSummary('u1', 'cap-1');
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            session: expect.objectContaining({
+              employee: {
+                subscriptions: { some: { enterpriseId: 'ent-1', status: 'ACTIVE' } },
+              },
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('getExecutionDetails', () => {
+    it('拒绝非管理员读取含对话内容的执行明细', async () => {
+      const { service } = build({ context: { ...ADMIN_CTX, role: 'MEMBER' } });
+      await expect(service.getExecutionDetails('u1', 'cap-1', 20)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it('版本作用域展平成 versionScope，供前端打「企业版 / 平台版」标签', async () => {
       const { service } = build({
         toolExecutionFindMany: jest.fn().mockResolvedValue([
@@ -234,6 +273,68 @@ describe('SkillVersionService 使用记录与统计', () => {
           }),
         }),
       );
+    });
+
+    it('明细查询同时约束会话员工在当前企业的有效订阅', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const { service } = build({ toolExecutionFindMany: findMany });
+
+      await service.getExecutionDetails('u1', 'cap-1', 20);
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            session: expect.objectContaining({
+              employee: {
+                subscriptions: { some: { enterpriseId: 'ent-1', status: 'ACTIVE' } },
+              },
+            }),
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('listIterableCapabilities', () => {
+    it('能力列表统计同样按会话员工的企业订阅隔离', async () => {
+      const groupBy = jest.fn().mockResolvedValue([]);
+      const findMany = jest.fn().mockResolvedValue([]);
+      const { service } = build({
+        subscriptionFindMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sub-1',
+            employee: {
+              id: 'emp-1',
+              name: '电商专家',
+              bindings: [
+                {
+                  capability: { id: 'cap-1', name: '电商运营', description: '' },
+                  defaultSkillVersion: null,
+                },
+              ],
+            },
+            skillVersionSelections: [],
+          },
+        ]),
+        toolExecutionGroupBy: groupBy,
+        toolExecutionFindMany: findMany,
+      });
+
+      await service.listIterableCapabilities('u1');
+
+      for (const query of [groupBy, findMany]) {
+        expect(query).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              session: expect.objectContaining({
+                employee: {
+                  subscriptions: { some: { enterpriseId: 'ent-1', status: 'ACTIVE' } },
+                },
+              }),
+            }),
+          }),
+        );
+      }
     });
   });
 
