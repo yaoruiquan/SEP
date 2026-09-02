@@ -888,6 +888,11 @@ export class AdminService {
           contributor: {
             select: { id: true, email: true, name: true },
           },
+          // 「来源」列要区分平台自有能力和企业投稿，只有 enterpriseId 不够，
+          // 还得显示企业名 —— 否则运营看到的是一串 cuid。
+          enterprise: {
+            select: { id: true, name: true },
+          },
         },
       }),
       this.prisma.capability.count({ where }),

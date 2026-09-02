@@ -5,36 +5,65 @@ import { api } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
 import type { Capability, DigitalEmployee } from '@/lib/types';
 
-interface CapabilityListResponse {
-  total: number;
-  page: number;
-  limit: number;
-  items: Capability[];
+/**
+ * 运营端能力列表行。比公开的 `Capability` 多出投稿相关字段 ——
+ * 「来源」列和「该走哪条审核路径」都靠它们判断。
+ */
+export interface AdminCapabilityRow extends Capability {
+  enterpriseId: string | null;
+  visibility: 'ENTERPRISE_PRIVATE' | 'MARKET_PUBLIC';
+  platformReviewStatus:
+    | 'NOT_SUBMITTED'
+    | 'PENDING_REVIEW'
+    | 'APPROVED'
+    | 'REJECTED';
+  enterprise: { id: string; name: string } | null;
+  contributor: { id: string; email: string; name: string | null } | null;
 }
 
 // ─── Capability admin ───────────────────────────────────────────────────────
 
+/**
+ * 运营端能力列表。
+ *
+ * `status` 语义由后端展开，不是简单的字段相等：
+ *   · PENDING  → 平台自有待审 OR 企业投稿待平台审核
+ *   · APPROVED → 平台自有已通过 OR 市场公开已过审
+ */
 export function useAllCapabilities(status?: string) {
-  const qs = status ? `?status=${encodeURIComponent(status)}&pageSize=50` : '?pageSize=50';
+  const qs = status ? `?status=${encodeURIComponent(status)}&pageSize=200` : '?pageSize=200';
   return useQuery({
     queryKey: ['capabilities', { status: status ?? 'ALL' }],
     queryFn: async () => {
       const response = await api.get<{
-        items: Capability[];
+        items: AdminCapabilityRow[];
         total: number;
         page: number;
         pageSize: number;
       }>(`/admin/capabilities${qs}`);
-      return { ...response, limit: response.pageSize } satisfies CapabilityListResponse;
+      return { ...response, limit: response.pageSize };
     },
   });
 }
 
+/**
+ * 能力审核。**必须走 `/admin/capabilities/:id/...`**，不能走 `/capabilities/:id/...`。
+ *
+ * 两个 approve 端点长得几乎一样，但只有 admin 那个会在投稿场景下同时推进
+ * `platformReviewStatus` / `visibility` 并发放贡献积分；公开端点只改 `status`，
+ * 用它审投稿会让投稿永远卡在队列里、进不了市场、贡献者拿不到积分。
+ * 原「审核中心」调的正是错的那个。
+ */
 export function useApproveCapability() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post(`/capabilities/${id}/approve`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['capabilities'] }),
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      api.post(`/admin/capabilities/${id}/approve`, { note }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'capability-review'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'stats'] });
+    },
   });
 }
 
@@ -42,8 +71,24 @@ export function useRejectCapability() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      api.post(`/capabilities/${id}/reject`, { reason }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['capabilities'] }),
+      api.post(`/admin/capabilities/${id}/reject`, { reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'capability-review'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'stats'] });
+    },
+  });
+}
+
+/** 删除能力。后端只允许删待审核或已拒绝的。 */
+export function useDeleteCapability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/capabilities/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'stats'] });
+    },
   });
 }
 

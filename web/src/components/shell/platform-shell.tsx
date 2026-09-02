@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { LayoutDashboard, ShieldCheck, Users, Settings, Cpu, Building2, CheckSquare, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react';
+import { LayoutDashboard, ShieldCheck, Users, Settings, Building2, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AuroraBackground } from '@/components/ui/aurora-background';
@@ -14,28 +14,67 @@ import { useLogout } from '@/features/auth/use-auth';
 import { useTheme } from '@/lib/theme-provider';
 import { cn } from '@/lib/utils';
 
-const LINKS: NavLink[] = [
-  { href: '/admin', label: '仪表盘', icon: LayoutDashboard, exact: true },
-  { href: '/admin/audit', label: '审核中心', icon: CheckSquare },
-  { href: '/admin/capability-review', label: '能力审核', icon: CheckSquare },
-  { href: '/admin/capabilities', label: '能力管理', icon: ShieldCheck },
-  { href: '/admin/employees', label: '员工管理', icon: Users },
-  { href: '/admin/enterprises', label: '企业管理', icon: Building2 },
-  { href: '/admin/compute', label: '账户管理', icon: Wallet },
-  { href: '/admin/announcements', label: '公告管理', icon: Megaphone },
-  { href: '/admin/settings', label: '系统设置', icon: Settings },
+interface NavGroup {
+  title?: string;
+  links: NavLink[];
+}
+
+/**
+ * 运营端导航。分组对齐企业端（企业端是 6 组，这边 4 组），不再是一列平铺。
+ *
+ * 这一版删掉了三个入口：
+ *   · 「审核中心」—— 员工审核在员工管理已有完整闭环（待审核 tab + 详情页通过/驳回），
+ *     能力审核并入能力管理；它调的还是只改 status 的错端点，审投稿会把数据改坏
+ *   · 「能力审核」—— 本身不做决定，只是个跳转列表，两个队列的计数移到能力管理页头
+ *   · 「模型管理」—— 与「系统设置 → 模型管理」是同一套 hook 的两份实现
+ *
+ * 「投稿审核」`/admin/contributions` 和「版本审核」`/admin/skills` 刻意不进导航：
+ * 它们是能力管理的下钻队列，从能力管理页头的待办徽章进，避免侧栏再堆两个审核入口。
+ */
+const NAV_GROUPS: NavGroup[] = [
+  {
+    links: [
+      { href: '/admin', label: '仪表盘', icon: LayoutDashboard, exact: true },
+    ],
+  },
+  {
+    title: '内容',
+    links: [
+      { href: '/admin/employees', label: '硅基员工', icon: Users },
+      { href: '/admin/capabilities', label: '硅基能力', icon: ShieldCheck },
+    ],
+  },
+  {
+    title: '运营对象',
+    links: [
+      { href: '/admin/enterprises', label: '企业', icon: Building2 },
+      // 与「企业」并列而不是合并：企业页是租户名册（一行一家），
+      // 这页是全平台资金账本（跨企业筛选 + 导出 + 平台合计），两个altitude
+      { href: '/admin/compute', label: '资金流水', icon: Wallet },
+    ],
+  },
+  {
+    title: '平台',
+    links: [
+      { href: '/admin/announcements', label: '公告', icon: Megaphone },
+      { href: '/admin/settings', label: '系统设置', icon: Settings },
+    ],
+  },
 ];
 
 /**
  * 顶栏面包屑映射。运营端路由都在 /admin 下，故 'admin' 段自己不出现在面包屑里
- * （由 rootLabel 承担），其余段从 LINKS 推导 + 补上详情页里的动作段。
+ * （由 rootLabel 承担），其余段从 NAV_GROUPS 推导 + 补上不在导航里的下钻路由。
  */
 const CRUMBS: CrumbMap = {
   ...Object.fromEntries(
-    LINKS.map((l) => [l.href.replace(/^\/admin\/?/, ''), l.label] as const).filter(
-      ([seg]) => seg !== '',
-    ),
+    NAV_GROUPS.flatMap((g) =>
+      g.links.map((l) => [l.href.replace(/^\/admin\/?/, ''), l.label] as const),
+    ).filter(([seg]) => seg !== ''),
   ),
+  // 能力管理的两个下钻队列
+  contributions: '投稿审核',
+  skills: '版本审核',
   new: '新建',
   edit: '编辑',
   bindings: '能力绑定',
@@ -73,9 +112,23 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto scroll-thin px-3 py-4">
-          {LINKS.map((link) => (
-            <NavItem key={link.href} {...link} collapsed={collapsed} />
+        <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-4">
+          {NAV_GROUPS.map((group, i) => (
+            <div key={group.title ?? `g${i}`} className="mb-1">
+              {group.title && !collapsed && (
+                <p className="mb-2 px-3 text-xs font-medium uppercase tracking-wider text-gtext-muted">
+                  {group.title}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {group.links.map((link) => (
+                  <NavItem key={link.href} {...link} collapsed={collapsed} />
+                ))}
+              </div>
+              {i < NAV_GROUPS.length - 1 && (
+                <div className="my-3 border-t border-glassline" />
+              )}
+            </div>
           ))}
         </nav>
 

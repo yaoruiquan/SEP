@@ -202,10 +202,10 @@ export default function AdminDashboardPage() {
           <p className="mt-0.5 text-sm text-fg-muted">平台全局数据概览 · 每 60 秒自动刷新</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className="border border-glassline bg-glass-accent-2 px-3 py-1 text-gneon-green">
-            <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gneon-green" />
-            数据正常
-          </Badge>
+          {/*
+            这里原先有一个写死的「数据正常」绿点徽章 —— 背后没有任何健康检查，
+            无论后端什么状态都显示正常，属于假信号，删掉。
+          */}
           <Button
             variant="glass"
             size="sm"
@@ -218,38 +218,11 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* 快速操作 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Link href="/admin/employees/new">
-          <Card className="cursor-pointer border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 transition-all hover:border-primary/40 hover:shadow-lg">
-            <CardContent className="flex items-center gap-4 p-6">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <UserPlus className="h-7 w-7" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold">创建硅基员工</h3>
-                <p className="text-sm text-fg-muted">上架新员工，组合能力开始服务</p>
-              </div>
-              <ArrowRight className="h-5 w-5 text-primary" />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/admin/capabilities/new">
-          <Card className="cursor-pointer border-2 border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-purple-500/10 transition-all hover:border-purple-500/40 hover:shadow-lg">
-            <CardContent className="flex items-center gap-4 p-6">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-purple-500 text-white">
-                <Layers className="h-7 w-7" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold">上架新能力</h3>
-                <p className="text-sm text-fg-muted">集成 Coze、Skill、RPA 等能力</p>
-              </div>
-              <ArrowRight className="h-5 w-5 text-purple-500" />
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+      {/*
+        原先这里有两张「创建硅基员工 / 上架新能力」的大卡片，占掉 KPI 之上
+        整整一屏最贵的位置，做的事和员工管理 / 能力管理右上角的按钮完全一样。
+        仪表盘的职责是看数，动作留在各自的管理页。
+      */}
 
       {/* KPI 卡片 */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -415,58 +388,12 @@ export default function AdminDashboardPage() {
         </Card>
       </div>
 
-      {/* 待处理事项 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">待处理事项</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {data.kpi.pendingEmployees === 0 &&
-           data.kpi.pendingCapabilities === 0 &&
-           data.kpi.suspendedEnterprises === 0 ? (
-            <p className="py-4 text-center text-sm text-fg-subtle">暂无待处理事项</p>
-          ) : (
-            <>
-              {data.kpi.pendingEmployees > 0 && (
-                <Link
-                  href="/admin/audit"
-                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gwarning/25 px-4 py-3 transition-colors hover:border-gwarning/40 hover:bg-gwarning/8"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gwarning" />
-                  <p className="flex-1 text-sm">
-                    有 <strong>{data.kpi.pendingEmployees}</strong> 位员工待审核
-                  </p>
-                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" />
-                </Link>
-              )}
-              {data.kpi.pendingCapabilities > 0 && (
-                <Link
-                  href="/admin/audit"
-                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gwarning/25 px-4 py-3 transition-colors hover:border-gwarning/40 hover:bg-gwarning/8"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gwarning" />
-                  <p className="flex-1 text-sm">
-                    有 <strong>{data.kpi.pendingCapabilities}</strong> 个能力待审核
-                  </p>
-                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" />
-                </Link>
-              )}
-              {data.kpi.suspendedEnterprises > 0 && (
-                <Link
-                  href="/admin/enterprises"
-                  className="fake-glass flex items-start gap-3 rounded-glass-md border border-gdanger/25 px-4 py-3 transition-colors hover:border-gdanger/40 hover:bg-gdanger/8"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gdanger" />
-                  <p className="flex-1 text-sm">
-                    有 <strong>{data.kpi.suspendedEnterprises}</strong> 家企业处于冻结状态
-                  </p>
-                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" />
-                </Link>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {/*
+        原先这里有一张「待处理事项」卡片，三条内容分别是待审员工数、待审能力数、
+        冻结企业数 —— 全都是上面 KPI 卡片里已有的同一批数字，且链接指向已删除的
+        「审核中心」。待办已经回到各自的管理页（员工管理的待审核 tab、能力管理的
+        待审核筛选与两个队列计数、企业管理的状态列），不再在仪表盘上复述一遍。
+      */}
     </div>
   );
 }
