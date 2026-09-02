@@ -36,7 +36,7 @@ export class WalletController {
   @ApiOperation({ summary: '获取钱包余额和统计' })
   @ApiResponse({ status: 200, description: '返回钱包余额和统计信息' })
   async getBalance(@Request() req) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
     return this.walletService.getBalance(ctx.enterpriseId);
   }
 
@@ -49,7 +49,7 @@ export class WalletController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
     const result = await this.walletService.getTransactions(ctx.enterpriseId, {
       type,
       page: page ? parseInt(page, 10) : 1,
@@ -67,7 +67,7 @@ export class WalletController {
     @Request() req,
     @Body() dto: { amount: number },
   ) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
 
     // 1. 创建充值订单
     const account = await this.prisma.computeAccount.findUnique({
@@ -129,7 +129,7 @@ export class WalletController {
       dto.enterpriseId,
       dto.amount,
       dto.reason,
-      req.user.userId,
+      req.user.id,
     );
   }
 }

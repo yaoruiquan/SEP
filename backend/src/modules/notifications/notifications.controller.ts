@@ -32,7 +32,7 @@ export class NotificationsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     return this.notificationsService.findByUser(
       userId,
       limit ? parseInt(limit) : 50,
@@ -43,7 +43,7 @@ export class NotificationsController {
   @Get('unread-count')
   @ApiOperation({ summary: '获取未读通知数量' })
   async unreadCount(@Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     const count = await this.notificationsService.countUnread(userId);
     return { count };
   }
@@ -52,7 +52,7 @@ export class NotificationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '标记单条通知为已读' })
   async markAsRead(@Param('id') id: string, @Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     await this.notificationsService.markAsRead(id, userId);
 
     // 推送未读数更新
@@ -64,7 +64,7 @@ export class NotificationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '标记所有通知为已读' })
   async markAllAsRead(@Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     await this.notificationsService.markAllAsRead(userId);
 
     // 推送未读数更新
@@ -75,7 +75,7 @@ export class NotificationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除通知' })
   async delete(@Param('id') id: string, @Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     await this.notificationsService.delete(id, userId);
 
     // 推送未读数更新
@@ -87,7 +87,7 @@ export class NotificationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '清空所有已读通知' })
   async clearRead(@Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     await this.notificationsService.clearRead(userId);
   }
 }
