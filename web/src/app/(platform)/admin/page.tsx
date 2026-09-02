@@ -73,8 +73,10 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
     },
     {
       label: '今日算力消费',
-      value: fmtMoney(kpi.todayTokens),
-      sub: kpi.pendingCapabilities > 0 ? `待审核能力 ${kpi.pendingCapabilities} 个` : '能力审核已清空',
+      // ⚠️ 必须读 costCNY。这里曾经写的是 fmtMoney(kpi.todayTokens)，
+      // 把 token 数套上 ¥ —— ¥2.08 的真实消费显示成了 ¥162221.00。
+      value: fmtMoney(kpi.todayCostCNY),
+      sub: `${fmtNumber(kpi.todayTokens)} tokens`,
       trend: kpi.tokenTrendPct,
       trendLabel: '较昨日',
       icon: Zap,
@@ -188,7 +190,7 @@ export default function AdminDashboardPage() {
   }
 
   const kpiItems = buildKpi(data.kpi);
-  const hasComputeData = data.computeTrend.some((d) => d.tokens > 0);
+  const hasComputeData = data.computeTrend.some((d) => d.costCNY > 0);
   const hasEnterpriseData = data.enterpriseTrend.some((d) => d.count > 0);
 
   return (
@@ -277,13 +279,16 @@ export default function AdminDashboardPage() {
                   <XAxis dataKey="date" tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} interval={4} />
                   <YAxis tick={{ ...CHART_AXIS_TICK, fontSize: 11 }} tickLine={false} />
                   <Tooltip
-                    formatter={(v) => [fmtMoney(Number(v)), '消费']}
+                    formatter={(v, _name, item) => [
+                      `${fmtMoney(Number(v))} · ${fmtNumber(Number(item?.payload?.tokens ?? 0))} tokens`,
+                      '消费',
+                    ]}
                     contentStyle={CHART_TOOLTIP_STYLE}
                     labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                   />
                   <Area
                     type="monotone"
-                    dataKey="tokens"
+                    dataKey="costCNY"
                     stroke={CHART_SERIES.purple}
                     strokeWidth={2}
                     fill="url(#gradTokens)"
@@ -357,7 +362,7 @@ export default function AdminDashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{ent.name}</p>
                     </div>
-                    <p className="text-right text-sm font-semibold">{fmtMoney(ent.tokens)}</p>
+                    <p className="text-right text-sm font-semibold">{fmtMoney(ent.costCNY)}</p>
                   </Link>
                 ))}
               </div>

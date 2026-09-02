@@ -49,13 +49,13 @@ export class AdminService {
             },
           },
         },
-        computeAccount: {
+        wallet: {
           include: {
             transactions: {
               orderBy: { createdAt: 'desc' },
               take: 20,
             },
-          }
+          },
         },
         departments: {
           select: {
@@ -71,7 +71,25 @@ export class AdminService {
       throw new NotFoundException('企业不存在');
     }
 
-    return enterprise;
+    // 余额与流水统一读钱包（EnterpriseWallet / WalletTransaction）。
+    // 原先这里 include 的是 ComputeAccount + ComputeTransaction —— 前者是
+    // schema 里标注废弃的字段，后者只剩 gateway 链路在写，运营端看到的
+    // 余额和流水都对不上企业自己看到的数。
+    const { wallet, ...rest } = enterprise;
+    return {
+      ...rest,
+      balance: Number(wallet?.balance ?? 0),
+      computeReservedCNY: Number(wallet?.computeReservedCNY ?? 0),
+      transactions: (wallet?.transactions ?? []).map((tx) => ({
+        id: tx.id,
+        type: tx.type,
+        amount: Number(tx.amount),
+        balanceAfter: Number(tx.balanceAfter),
+        description: tx.description,
+        metadata: tx.metadata,
+        createdAt: tx.createdAt,
+      })),
+    };
   }
 
   /**

@@ -26,6 +26,33 @@ import {
   Unlock,
 } from 'lucide-react';
 
+/**
+ * 钱包流水类型的中文名与配色。
+ *
+ * 用玻璃底 + 品牌色文字，不用 bg-green-100 这类硬编码浅色 —— 后者在深色主题下破版。
+ */
+const WALLET_TX_LABEL: Record<string, string> = {
+  DEPOSIT: '充值',
+  CONSUME: '消费',
+  REFUND: '退款',
+  ADJUSTMENT: '人工调整',
+  FREEZE: '冻结',
+  UNFREEZE: '解冻',
+  COMPUTE_RESERVE: '划入算力专款',
+  COMPUTE_RELEASE: '专款划回',
+};
+
+const WALLET_TX_TONE: Record<string, string> = {
+  DEPOSIT: 'border border-glassline bg-glass-2 text-gsuccess',
+  CONSUME: 'border border-glassline bg-glass-2 text-gwarning',
+  REFUND: 'border border-glassline bg-glass-2 text-gneon-blue',
+  ADJUSTMENT: 'border border-glassline bg-glass-2 text-gneon-purple',
+  FREEZE: 'border border-glassline bg-glass-2 text-gtext-secondary',
+  UNFREEZE: 'border border-glassline bg-glass-2 text-gtext-secondary',
+  COMPUTE_RESERVE: 'border border-glassline bg-glass-2 text-gneon-green',
+  COMPUTE_RELEASE: 'border border-glassline bg-glass-2 text-gtext-secondary',
+};
+
 export default function EnterpriseDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -129,7 +156,9 @@ export default function EnterpriseDetailPage() {
     );
   }
 
-  const balance = enterprise.computeAccount?.balance ?? 0;
+  // 钱包余额（元）。原先读 enterprise.computeAccount?.balance —— 已废弃字段。
+  const balance = enterprise.balance ?? 0;
+  const transactions = enterprise.transactions ?? [];
 
   return (
     <div className="container mx-auto py-8 space-y-6">
@@ -352,11 +381,11 @@ export default function EnterpriseDetailPage() {
           <Card variant="solid">
             <CardHeader>
               <CardTitle>
-                交易记录 ({enterprise.computeAccount?.transactions.length || 0})
+                交易记录 ({transactions.length})
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {!enterprise.computeAccount?.transactions.length ? (
+              {!transactions.length ? (
                 <div className="text-center py-8 text-fg-muted">暂无交易记录</div>
               ) : (
                 <table className="w-full text-sm">
@@ -369,19 +398,11 @@ export default function EnterpriseDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {enterprise.computeAccount.transactions.map((tx) => (
+                    {transactions.map((tx) => (
                       <tr key={tx.id} className="border-b border-border last:border-0">
                         <td className="px-5 py-3">
-                          <Badge
-                            className={
-                              tx.type === 'RECHARGE'
-                                ? 'bg-green-100 text-green-800'
-                                : tx.type === 'REFUND'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-muted text-foreground'
-                            }
-                          >
-                            {tx.type}
+                          <Badge className={WALLET_TX_TONE[tx.type] ?? 'bg-muted text-foreground'}>
+                            {WALLET_TX_LABEL[tx.type] ?? tx.type}
                           </Badge>
                         </td>
                         <td

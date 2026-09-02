@@ -92,7 +92,9 @@ export default function AdminComputePage() {
       )
     : { totalRecharge: 0, totalConsume: 0 };
 
-  const totalBalance = enterprises?.reduce((sum, ent) => sum + (ent.computeAccount?.balance ?? 0), 0) ?? 0;
+  // 钱包余额之和（元）。旧代码求和的是 ent.computeAccount?.balance ——
+  // 那个字段已废弃，导致这里显示 ¥15,507.95 而平台实际持有 ¥93,558.98。
+  const totalBalance = enterprises?.reduce((sum, ent) => sum + (ent.balance ?? 0), 0) ?? 0;
 
   const exportCSV = () => {
     if (!data?.data || data.data.length === 0) {
@@ -230,7 +232,7 @@ export default function AdminComputePage() {
                       <div className="flex justify-between items-center">
                         <span>{ent.name}</span>
                         <span className="text-xs text-fg-muted">
-                          余额: ¥{(ent.computeAccount?.balance ?? 0).toFixed(2)}
+                          余额: ¥{(ent.balance ?? 0).toFixed(2)}
                         </span>
                       </div>
                     </button>

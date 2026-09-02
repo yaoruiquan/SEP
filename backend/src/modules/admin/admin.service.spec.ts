@@ -55,21 +55,34 @@ describe('AdminService', () => {
   });
 
   describe('getEnterpriseDetail', () => {
-    it('should return enterprise detail with all relations', async () => {
+    it('should flatten wallet balance and transactions onto the detail', async () => {
+      const createdAt = new Date();
       const mockEnterprise = {
         id: 'ent1',
         name: 'Test Enterprise',
         description: 'Test Description',
         logo: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt,
+        updatedAt: createdAt,
         members: [],
         // 收敛后企业下挂的是雇佣关系，不再有中间的实例层
         subscriptions: [],
-        computeAccount: {
-          id: 'acc1',
-          balance: 100,
-          transactions: [],
+        // 余额与流水读钱包，不读已废弃的 ComputeAccount
+        wallet: {
+          id: 'w1',
+          balance: 49568,
+          computeReservedCNY: 2000,
+          transactions: [
+            {
+              id: 'tx1',
+              type: 'DEPOSIT',
+              amount: 49568,
+              balanceAfter: 49568,
+              description: '支付宝充值',
+              metadata: null,
+              createdAt,
+            },
+          ],
         },
         departments: [],
       };
@@ -78,11 +91,42 @@ describe('AdminService', () => {
 
       const result = await service.getEnterpriseDetail('ent1');
 
-      expect(result).toEqual(mockEnterprise);
+      // wallet 被摊平成 balance / computeReservedCNY / transactions，自身不再外泄
+      expect(result).not.toHaveProperty('wallet');
+      expect(result.balance).toBe(49568);
+      expect(result.computeReservedCNY).toBe(2000);
+      expect(result.transactions).toEqual([
+        {
+          id: 'tx1',
+          type: 'DEPOSIT',
+          amount: 49568,
+          balanceAfter: 49568,
+          description: '支付宝充值',
+          metadata: null,
+          createdAt,
+        },
+      ]);
       expect(prisma.enterprise.findUnique).toHaveBeenCalledWith({
         where: { id: 'ent1' },
         include: expect.any(Object),
       });
+    });
+
+    it('should default balance to 0 when the enterprise has no wallet yet', async () => {
+      mockPrismaService.enterprise.findUnique.mockResolvedValue({
+        id: 'ent2',
+        name: 'No Wallet',
+        members: [],
+        subscriptions: [],
+        wallet: null,
+        departments: [],
+      });
+
+      const result = await service.getEnterpriseDetail('ent2');
+
+      expect(result.balance).toBe(0);
+      expect(result.computeReservedCNY).toBe(0);
+      expect(result.transactions).toEqual([]);
     });
 
     it('should throw NotFoundException if enterprise does not exist', async () => {

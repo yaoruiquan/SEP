@@ -177,25 +177,24 @@ export function useUnbindCapability() {
 
 // ─── Enterprise admin ─────────────────────────────────────────────────────────
 
-export interface EnterpriseListItem {
-  id: string;
-  name: string;
-  description: string | null;
-  metadata: any;
-  createdAt: string;
-  computeAccount: {
-    balance: number;
-  } | null;
-  _count: {
-    members: number;
-    subscriptions: number;
-  };
-}
-
+/**
+ * 全部企业。走 `/admin/enterprises`（钱包口径），而不是
+ * `/enterprise/admin/all-enterprises`（返回的是废弃的 ComputeAccount.balance）。
+ *
+ * ⚠️ 列表项里的 `balance` 是**钱包余额**（EnterpriseWallet.balance）。
+ * ComputeAccount.balance 在 schema 里已标注废弃、只有 gateway 链路还在写，
+ * 运营端读它会看到一个永远不变的假余额 —— 演示租户钱包里有 ¥49,568，那个字段是 ¥0。
+ *
+ * pageSize 给足：这个列表同时喂「企业管理」表格和「账户管理」的充值企业选择器，
+ * 分页截断会让选择器里搜不到企业。
+ */
 export function useAllEnterprises() {
   return useQuery({
     queryKey: ['admin', 'enterprises'],
-    queryFn: () => api.get<EnterpriseListItem[]>('/enterprise/admin/all-enterprises'),
+    queryFn: async () => {
+      const response = await adminApi.listEnterprises({ pageSize: 200 });
+      return response.data;
+    },
   });
 }
 

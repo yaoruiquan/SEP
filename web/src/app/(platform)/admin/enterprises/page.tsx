@@ -65,8 +65,10 @@ export default function EnterprisesPage() {
               </thead>
               <tbody>
                 {enterprises.map((ent) => {
-                  const balance = ent.computeAccount?.balance ?? 0;
-                  const isSuspended = ent.metadata?.suspended === true;
+                  // 钱包余额（元）。旧代码读的是 ent.computeAccount?.balance ——
+                  // 那是已废弃字段，演示租户在这里会显示 ¥0 并被标成低余额警告。
+                  const balance = ent.balance ?? 0;
+                  const isSuspended = ent.suspended;
 
                   return (
                     <tr
@@ -88,8 +90,8 @@ export default function EnterprisesPage() {
                           ¥{balance.toFixed(2)}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-fg-muted">{ent._count.members}</td>
-                      <td className="px-5 py-3 text-fg-muted">{ent._count.subscriptions}</td>
+                      <td className="px-5 py-3 text-fg-muted">{ent.memberCount}</td>
+                      <td className="px-5 py-3 text-fg-muted">{ent.subscriptionCount}</td>
                       <td className="px-5 py-3">
                         {isSuspended ? (
                           <Badge className="bg-danger text-white">

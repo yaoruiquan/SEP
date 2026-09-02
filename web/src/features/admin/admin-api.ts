@@ -71,18 +71,20 @@ export interface EnterpriseDetail {
       description: string;
     };
   }>;
-  computeAccount: {
+  /** 钱包可用余额（元）。不是废弃的 ComputeAccount.balance */
+  balance: number;
+  /** 其中已划入「算力专款」的金额（元），是 balance 的子集 */
+  computeReservedCNY: number;
+  /** 最近 20 条钱包流水（WalletTransaction） */
+  transactions: Array<{
     id: string;
-    balance: number;
-    transactions: Array<{
-      id: string;
-      type: string;
-      amount: number;
-      description: string | null;
-      metadata: any;
-      createdAt: string;
-    }>;
-  } | null;
+    type: string;
+    amount: number;
+    balanceAfter: number;
+    description: string | null;
+    metadata: any;
+    createdAt: string;
+  }>;
   departments: Array<{
     id: string;
     name: string;
@@ -432,8 +434,18 @@ export const adminApi = {
   /**
    * 获取可用能力列表
    */
+  /**
+   * 绑定选择器用的可用能力列表。
+   *
+   * 两个参数都不能省：
+   *   · `status=APPROVED` —— 后端会展开成「平台自有已通过 OR 市场公开已过审」，
+   *     既挡住未审核能力，也挡住其他企业的私有能力（原先不传，70 个能力全都能绑）
+   *   · `pageSize=200`    —— 后端默认 20，原先只有最新 20 个能力能被绑定
+   */
   getAvailableCapabilities: () => {
-    return api.get<{ items: CapabilityItem[]; total: number; page: number; pageSize: number }>('/admin/capabilities');
+    return api.get<{ items: CapabilityItem[]; total: number; page: number; pageSize: number }>(
+      '/admin/capabilities?status=APPROVED&pageSize=200',
+    );
   },
 
   /**
