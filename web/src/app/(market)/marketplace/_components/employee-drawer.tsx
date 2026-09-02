@@ -111,6 +111,8 @@ function DrawerContent({
   onClose,
 }: Required<Omit<EmployeeDrawerProps, 'emp'>> & { emp: MarketEmployee }) {
   const capTypes = Array.from(new Set(emp.bindings?.map((b) => b.capability.type) ?? []));
+  // 列表接口已带履历；缺失时兜底零值
+  const track = emp.stats ?? { totalExecutions: 0, successRate: null };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -228,9 +230,18 @@ function DrawerContent({
           </h3>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: '已服务企业', value: String(emp._count?.subscriptions ?? 0) },
-              { label: '累计任务量', value: '—' },
-              { label: '成功率', value: '—' },
+              { label: '已服务企业', value: `${emp._count?.subscriptions ?? 0} 家` },
+              {
+                label: '累计任务量',
+                // 没有执行记录时留破折号 —— 写 0 会被读成「跑过但全失败」
+                value: track.totalExecutions
+                  ? track.totalExecutions.toLocaleString('zh-CN')
+                  : '—',
+              },
+              {
+                label: '成功率',
+                value: track.successRate === null ? '—' : `${track.successRate}%`,
+              },
             ].map((stat) => (
               <div
                 key={stat.label}
@@ -242,7 +253,9 @@ function DrawerContent({
             ))}
           </div>
           <p className="mt-2 text-[11px] text-gtext-muted">
-            任务量/成功率依赖客户端回传，本期尚未接入。
+            {track.totalExecutions > 0
+              ? '任务量与成功率取自平台侧能力执行记录，跨企业累计。'
+              : '该员工在平台侧尚无能力执行记录，故两项暂无数据，而非为 0。'}
           </p>
         </div>
       </div>

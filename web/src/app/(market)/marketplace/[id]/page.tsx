@@ -137,6 +137,9 @@ export default function EmployeeDetailPage() {
 
   const createRequest = useCreateSubscriptionRequest();
 
+  // 履历缺失时兜底为零值，让下面的渲染只判断数值、不再判断 undefined
+  const trackRecord = emp?.stats ?? { totalExecutions: 0, successRate: null };
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
@@ -361,17 +364,31 @@ export default function EmployeeDetailPage() {
         </ol>
       </GlassSection>
 
-      {/* 五 · 做得怎么样 —— 本期无履历上报，显式说明而非放假数字 */}
+      {/* 五 · 做得怎么样 —— 真实聚合，没有记录时保留破折号而不是写 0（方案 §4.3）*/}
       <GlassSection icon={<BarChart3 className="h-4 w-4" />} title="做得怎么样">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
             {
               label: "已服务企业",
-              value: String(emp._count?.subscriptions ?? 0),
+              value: `${emp._count?.subscriptions ?? 0} 家`,
               real: true,
             },
-            { label: "累计任务量", value: "—", real: false },
-            { label: "任务成功率", value: "—", real: false },
+            {
+              label: "累计任务量",
+              // 0 次执行走破折号：写「0」会让新上架员工看起来像跑失败了
+              value: trackRecord.totalExecutions
+                ? trackRecord.totalExecutions.toLocaleString("zh-CN")
+                : "—",
+              real: trackRecord.totalExecutions > 0,
+            },
+            {
+              label: "任务成功率",
+              value:
+                trackRecord.successRate === null
+                  ? "—"
+                  : `${trackRecord.successRate}%`,
+              real: trackRecord.successRate !== null,
+            },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -394,10 +411,11 @@ export default function EmployeeDetailPage() {
             </div>
           ))}
         </div>
-        {/* 空数据必须说清「为什么没有」，否则用户无法判断是没数据还是坏了 */}
+        {/* 有数据说口径，没数据说「为什么没有」—— 两种情况都不能让用户猜 */}
         <p className="mt-3 text-[12px] leading-relaxed text-gtext-muted">
-          员工在本地运行，任务量与成功率依赖客户端回传履历，本期尚未接入 ——
-          故这两项暂无数据，而非为 0。「已服务企业」取自平台订阅记录，是真实值。
+          {trackRecord.totalExecutions > 0
+            ? "任务量与成功率取自平台侧能力执行记录，跨企业累计，不含客户端本地运行的部分。「已服务企业」取自平台订阅记录。"
+            : "该员工在平台侧尚无能力执行记录，故任务量与成功率暂无数据，而非为 0。「已服务企业」取自平台订阅记录，是真实值。"}
         </p>
       </GlassSection>
 

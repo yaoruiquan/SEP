@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmployeeTrackRecordService } from './employee-track-record.service';
 import {
   DigitalEmployeeCreateDto,
   DigitalEmployeeUpdateDto,
@@ -13,7 +14,10 @@ import {
 
 @Injectable()
 export class DigitalEmployeeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly trackRecord: EmployeeTrackRecordService,
+  ) {}
 
   // ────────────────────────────────────────────────────────────────────────────
   // CRUD
@@ -89,7 +93,7 @@ export class DigitalEmployeeService {
    */
   async findPublicList(search?: string) {
     const q = search?.trim();
-    return this.prisma.digitalEmployee.findMany({
+    const employees = await this.prisma.digitalEmployee.findMany({
       where: {
         status: 'APPROVED',
         ...(q
@@ -106,6 +110,16 @@ export class DigitalEmployeeService {
       select: this.publicSelect(),
       orderBy: { publishedAt: 'desc' },
     });
+
+    // 履历一次批量算完（一条 SQL），列表卡片与抽屉都用它 ——
+    // 抽屉的数据就来自列表，逐个员工再查一次是 N+1。
+    const records = await this.trackRecord.forEmployees(
+      employees.map((e) => e.id),
+    );
+    return employees.map((e) => ({
+      ...e,
+      stats: records.get(e.id) ?? { totalExecutions: 0, successRate: null },
+    }));
   }
 
   /** 公开员工详情。同样只返回白名单字段，且非 APPROVED 一律 404。 */
@@ -118,7 +132,7 @@ export class DigitalEmployeeService {
       // 未上架的员工对访客应表现为「不存在」，不泄漏其存在性
       throw new NotFoundException(`员工 ${id} 不存在`);
     }
-    return employee;
+    return { ...employee, stats: await this.trackRecord.forEmployee(id) };
   }
 
   /**

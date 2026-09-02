@@ -1001,6 +1001,46 @@ export interface MyEmployeeView {
   giftRemainingCNY?: string;
   /** ACTIVE 可用 · EXHAUSTED 已用尽 · EXPIRED 订阅已终止 · NONE 无赠送记录 */
   giftStatus?: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
+
+  /**
+   * 使用情况（会议2 §6.1「使用人数即口碑」）。
+   * 全部限定在**本企业范围内**：跨企业的用量既不该看见，也不是管理员想问的。
+   */
+  usage?: MyEmployeeUsage;
+}
+
+/**
+ * 一张员工卡片上的使用情况。
+ *
+ * 「在用人数 vs 已授权人数」是这里唯一的重点：授权 8 人只 3 人在用，
+ * 说明这个员工买了没人用 —— 单看任何一个数都得不出这个结论。
+ */
+export interface MyEmployeeUsage {
+  /** 近 30 天在本企业调用过该员工的人数（去重）。系统内部调用不计人。 */
+  activeUserCount30d: number;
+  /** 当前有效授权覆盖到的人数。部门授权已展开成人数，与直接授权去重。 */
+  grantedUserCount: number;
+  /** 本企业最后一次调用时间。从未用过为 null —— 「没用过」不等于「很久没用」。 */
+  lastUsedAt: string | null;
+  /** 本自然月消费（元）。自然月而非滚动 30 天 —— 要能和账单、算力余额页对上。 */
+  monthCostCNY: string;
+  /** 本自然月计费调用次数（模型调用，与消费同源） */
+  monthCallCount: number;
+  /**
+   * 近 30 天能力执行总次数 —— 成功率的分母。
+   *
+   * 必须和比例一起给：4/6 和 87/100 都是 67%，但前者说明不了任何事。
+   * 前端要靠它决定「显示成功率」还是「样本太少」。
+   */
+  executionCount30d: number;
+  /**
+   * 近 30 天能力执行成功率（0–100 整数）。
+   *
+   * 窗口与 `activeUserCount30d` 一致，**不是**自然月：月初样本只有几次，
+   * 一次失败就能把它从 100% 打到 67%，那不是质量信号。
+   * 无执行记录时为 null 而非 0 —— 「没跑过」和「全失败」是两件事。
+   */
+  successRate30d: number | null;
 }
 
 // ── 员工包 ──────────────────────────────────────────────────────────────────

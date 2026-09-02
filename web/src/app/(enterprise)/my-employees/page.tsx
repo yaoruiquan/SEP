@@ -14,6 +14,7 @@ import { useDownloadPackage } from '@/features/employee/use-packages';
 import { useEmployeeStatus } from '@/lib/websocket';
 import { MyEmployeeListSkeleton } from '@/features/employee/employee-skeleton';
 import { employee as employeeCopy } from '@/locales/zh-CN';
+import { summarizeEmployees } from '@/features/employee/usage-summary';
 import { EmployeeCard } from './EmployeeCard';
 
 type SortOption = 'name' | 'recent';
@@ -56,10 +57,14 @@ export default function MyEmployeesPage() {
     if (sortBy === 'name') {
       result.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     }
-    // 'recent' 保持原顺序（后端已按某种顺序返回）
+    // 'recent' 保持后端顺序 —— 后端已按「本企业最后一次调用时间」倒序返回
+    // （从未用过的排最后）。口径只在一处，前端不重算。
 
     return result;
   }, [mine, searchQuery, sortBy]);
+
+  // 汇总条的分母是「我可用的」，与页头的徽章一致；不随搜索变化
+  const summary = useMemo(() => summarizeEmployees(mine), [mine]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -168,6 +173,32 @@ export default function MyEmployeesPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* 顶部汇总 —— 管理员一眼看到「花了多少 / 谁快用完了」（方案 §4.2） */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-sm text-gtext-secondary">
+              <span>
+                我可用{' '}
+                <span className="font-medium text-gtext-primary">
+                  {summary.employeeCount}
+                </span>{' '}
+                位硅基员工
+              </span>
+              <span className="text-gtext-muted">·</span>
+              <span>
+                本月共消费{' '}
+                <span className="font-medium text-gtext-primary">
+                  ¥{summary.monthCostCNY}
+                </span>
+              </span>
+              {summary.lowGiftCount > 0 && (
+                <>
+                  <span className="text-gtext-muted">·</span>
+                  <span className="text-warning">
+                    {summary.lowGiftCount} 位赠送额度快用完
+                  </span>
+                </>
+              )}
+            </div>
 
             {/* 卡片网格 */}
             {filteredEmployees.length === 0 ? (

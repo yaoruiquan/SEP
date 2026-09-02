@@ -20,6 +20,7 @@ import { seedDemoUsage } from './03-demo-usage';
 import { seedDashboardAnalytics } from './07-dashboard-analytics';
 import { seedShuyiAccounts, SHUYI_PEOPLE } from './08-shuyi-accounts';
 import { seedShuyiBusiness } from './09-shuyi-business';
+import { seedToolExecutions } from './10-tool-executions';
 
 const prisma = new PrismaClient();
 
@@ -70,6 +71,14 @@ async function main() {
     `🏢 ${shuyi.enterprise.name}：${shuyi.departments.size} 个部门 / ` +
       `${shuyi.members.size} 名成员 / ${shuyiBusiness.subscriptionCount} 个雇佣关系` +
       (shuyiBusiness.skippedUsage ? '（用量数据已存在，跳过）' : ''),
+  );
+
+  // 能力执行记录挂在已有会话上，所以必须排在所有造会话的步骤之后。
+  const executions = await seedToolExecutions(prisma);
+  console.log(
+    executions.skipped
+      ? '🔧 能力执行记录：已存在，跳过'
+      : `🔧 能力执行记录：${executions.created} 条`,
   );
 
   // TODO(演示数据): 业务数据模块待落地，规模与场景待确认。
