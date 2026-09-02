@@ -143,7 +143,7 @@ describe('MemberAllowanceService', () => {
       prisma.enterpriseMember.findMany.mockResolvedValue([
         {
           userId: 'user-1',
-          user: { name: '张三', email: '***@***cal' },
+          user: { name: '张三', email: 'lisi@acme.local' },
           department: null,
         },
       ]);

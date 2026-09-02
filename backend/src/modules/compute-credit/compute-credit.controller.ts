@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { ComputeCreditService } from './compute-credit.service';
 import { MemberAllowanceService } from './member-allowance.service';
+import { UsageAnalyticsService } from './usage-analytics.service';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { MemberAllowanceSetDtoSchema, type MemberAllowanceSetDto } from 'shared';
 
@@ -35,6 +36,7 @@ export class ComputeCreditController {
   constructor(
     private readonly creditService: ComputeCreditService,
     private readonly memberAllowance: MemberAllowanceService,
+    private readonly usageAnalytics: UsageAnalyticsService,
     private readonly enterpriseContext: EnterpriseContextService,
   ) {}
 
@@ -75,6 +77,22 @@ export class ComputeCreditController {
       startDate,
       endDate,
     });
+  }
+
+  @Get('usage-breakdown')
+  @ApiOperation({
+    summary: '用量分析：花费在模型 / 部门 / 碳基员工 / 硅基员工间的分布',
+    description:
+      '一次返回四个维度 + 趋势 + 环比，因为它们读的是同一张表的同一个区间。' +
+      '这里没有余额也没有逐笔账单 —— 那两样在「算力余额」页。',
+  })
+  @ApiResponse({ status: 200, description: '返回区间总额、环比、趋势与四个维度的分布' })
+  async getUsageBreakdown(@Request() req, @Query('days') days?: string) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    return this.usageAnalytics.getBreakdown(
+      ctx.enterpriseId,
+      days ? Number(days) : undefined,
+    );
   }
 
   @Get('allowances')

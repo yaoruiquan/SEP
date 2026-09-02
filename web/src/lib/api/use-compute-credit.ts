@@ -57,6 +57,39 @@ export interface SubscriptionCreditItem {
   grantedAt: string;
 }
 
+// ── 用量分析（花费分布）────────────────────────────────────────────────────
+
+/** 某个维度上的一行花费分布。 */
+export interface BreakdownRow {
+  key: string;
+  label: string;
+  avatar?: string | null;
+  /** 次要说明：成员的部门、部门下的人数 */
+  hint?: string | null;
+  costCNY: string;
+  callCount: number;
+  /** 占区间总花费的百分比（0–100） */
+  pct: number;
+}
+
+export type UsageRange = 7 | 30 | 90;
+
+export interface UsageBreakdown {
+  rangeDays: number;
+  totalCNY: string;
+  prevTotalCNY: string;
+  /** 环比变化百分比；上期为 0 时为 null */
+  deltaPct: number | null;
+  callCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  trend: Array<{ date: string; costCNY: string }>;
+  byModel: BreakdownRow[];
+  byDepartment: BreakdownRow[];
+  byMember: BreakdownRow[];
+  byEmployee: BreakdownRow[];
+}
+
 /** 一位碳基员工的算力分配情况。 */
 export interface MemberAllowanceItem {
   userId: string;
@@ -125,6 +158,8 @@ export const computeCreditKeys = {
   credit: (subscriptionId: string) =>
     [...computeCreditKeys.all, 'subscription-credits', subscriptionId] as const,
   allowances: () => [...computeCreditKeys.all, 'allowances'] as const,
+  breakdown: (days: number) =>
+    [...computeCreditKeys.all, 'usage-breakdown', days] as const,
   usage: (filters: UsageRecordFilters) =>
     [...computeCreditKeys.all, 'usage-records', filters] as const,
 };
@@ -280,5 +315,17 @@ export function useSetMemberAllowance() {
       qc.invalidateQueries({ queryKey: computeCreditKeys.allowances() });
       qc.invalidateQueries({ queryKey: computeCreditKeys.overview() });
     },
+  });
+}
+
+/**
+ * 花费分布。四个维度一次拿回来 —— 分开打接口会让这一页发五次请求，
+ * 而且各维度的时间区间还得前端自己对齐。
+ */
+export function useUsageBreakdown(days: UsageRange = 30) {
+  return useQuery({
+    queryKey: computeCreditKeys.breakdown(days),
+    queryFn: () =>
+      api.get<UsageBreakdown>(`/compute-credit/usage-breakdown?days=${days}`),
   });
 }

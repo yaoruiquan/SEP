@@ -5,6 +5,7 @@ import { SettingModule } from '../setting/setting.module';
 import { ComputeCreditService } from './compute-credit.service';
 import { ComputeCreditController } from './compute-credit.controller';
 import { MemberAllowanceService } from './member-allowance.service';
+import { UsageAnalyticsService } from './usage-analytics.service';
 
 /**
  * 统一人民币算力账本。订阅履约、对话计费、企业算力查询都经过这里，
@@ -24,7 +25,7 @@ import { MemberAllowanceService } from './member-allowance.service';
 @Module({
   imports: [PrismaModule, forwardRef(() => WalletModule), SettingModule],
   controllers: [ComputeCreditController],
-  providers: [ComputeCreditService, MemberAllowanceService],
-  exports: [ComputeCreditService, MemberAllowanceService],
+  providers: [ComputeCreditService, MemberAllowanceService, UsageAnalyticsService],
+  exports: [ComputeCreditService, MemberAllowanceService, UsageAnalyticsService],
 })
 export class ComputeCreditModule {}
