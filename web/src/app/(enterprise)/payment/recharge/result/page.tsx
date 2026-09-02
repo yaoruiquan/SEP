@@ -52,7 +52,7 @@ export default function RechargeResultPage() {
             <div className="text-center">
               <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
               <h2 className="text-xl font-semibold mb-2">缺少订单号</h2>
-              <Button onClick={() => router.push('/usage')}>返回用量统计</Button>
+              <Button onClick={() => router.push('/usage')}>返回用量分析</Button>
             </div>
           </CardContent>
         </Card>
@@ -95,7 +95,7 @@ export default function RechargeResultPage() {
                   订单号：{order.orderNo}
                 </p>
               </div>
-              <p className="text-sm text-neutral-600">3 秒后自动返回用量统计页面...</p>
+              <p className="text-sm text-neutral-600">3 秒后自动返回用量分析页面...</p>
               <Button onClick={() => router.push('/usage')} className="w-full">
                 立即返回
               </Button>
@@ -123,7 +123,7 @@ export default function RechargeResultPage() {
                 </p>
               </div>
               <Button onClick={() => router.push('/usage')} className="w-full">
-                返回用量统计
+                返回用量分析
               </Button>
             </div>
           </CardContent>
@@ -159,7 +159,7 @@ export default function RechargeResultPage() {
               onClick={() => router.push('/usage')}
               className="w-full"
             >
-              返回用量统计
+              返回用量分析
             </Button>
           </div>
         </CardContent>

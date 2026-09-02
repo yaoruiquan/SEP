@@ -110,7 +110,9 @@ describe('ComputeCreditService.chargeUsage', () => {
       getEffectiveValue: jest.fn((key: string) => FLAT_PRICE_SETTINGS[key]),
     };
 
-    svc = new ComputeCreditService(prisma, wallet, settings);
+    // 额度闸门在这两组测试里一律放行 —— 它们锁的是扣费与发放，不是分配规则
+    const allowance = { check: jest.fn().mockResolvedValue({ allowed: true }) } as never;
+    svc = new ComputeCreditService(prisma, wallet, settings, allowance);
   });
 
   const charge = (overrides: Record<string, unknown> = {}) =>

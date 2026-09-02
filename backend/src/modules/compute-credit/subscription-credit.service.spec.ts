@@ -39,7 +39,9 @@ describe('ComputeCreditService —— 赠送额度', () => {
         key === SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_CNY ? defaultGift : undefined,
       ),
     };
-    svc = new ComputeCreditService(prisma, wallet, settings);
+    // 额度闸门在这两组测试里一律放行 —— 它们锁的是扣费与发放，不是分配规则
+    const allowance = { check: jest.fn().mockResolvedValue({ allowed: true }) } as never;
+    svc = new ComputeCreditService(prisma, wallet, settings, allowance);
   });
 
   describe('resolveGrantAmountCNY —— 员工级配置 > 系统默认值', () => {

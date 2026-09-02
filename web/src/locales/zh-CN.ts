@@ -137,7 +137,9 @@ export const nav = {
   capabilities: '能力迭代',
   contributions: '能力贡献中心',
   knowledge: knowledge.management,
-  usage: '用量统计',
+  // 会议决议：三个「钱」相关页面各回答一个问题 —— 企业钱包（还有多少钱）、
+  // 算力余额（算力还剩多少、怎么分的）、用量分析（花出去的钱怎么分布）。
+  usage: '用量分析',
   personalSettings: '个人设置',
 } as const;
 

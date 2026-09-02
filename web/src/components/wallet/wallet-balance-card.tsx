@@ -2,7 +2,8 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWalletBalance } from '@/lib/api/wallet';
-import { Wallet, TrendingUp, TrendingDown, RotateCw } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, RotateCw, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
@@ -79,6 +80,32 @@ export function WalletBalanceCard() {
             <p className="text-xs text-gray-500 mt-1">
               冻结金额: ¥{Number(balance.frozenAmount).toFixed(2)}
             </p>
+          )}
+
+          {/*
+            「算力余额」页显示的是下面这个算力数，不是上面的总余额。
+            两个页面的数字不同不是 bug —— 在这里把拆分写明，用户才不会以为对不上账。
+          */}
+          {Number(balance.computeReservedCNY) > 0 && (
+            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-6 text-emerald-900">
+              其中{' '}
+              <strong className="tabular-nums">
+                ¥{Number(balance.computeReservedCNY).toFixed(2)}
+              </strong>{' '}
+              已充值为<strong>算力</strong>，只能用于与硅基员工对话，订阅与员工采购不可挪用；
+              可用于其他支出{' '}
+              <strong className="tabular-nums">
+                ¥{Number(balance.spendableCNY).toFixed(2)}
+              </strong>
+              。
+              <Link
+                href="/compute-quota"
+                className="ml-1 inline-flex items-center gap-1 font-medium underline"
+              >
+                去算力余额页管理
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </div>
           )}
         </div>
 

@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MemberAllowanceService } from './member-allowance.service';
 import { WalletService } from '../wallet/wallet.service';
 import { SettingService } from '../setting/setting.service';
 import {
@@ -48,6 +49,7 @@ export class ComputeCreditService {
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
     private readonly settings: SettingService,
+    private readonly memberAllowance: MemberAllowanceService,
   ) {}
 
   // ── 赠送额度配置与发放 ─────────────────────────────────────────────────────
@@ -142,7 +144,21 @@ export class ComputeCreditService {
   async checkBalanceBeforeConversation(
     enterpriseId: string,
     subscriptionId?: string | null,
+    userId?: string | null,
   ): Promise<BalanceCheckResult> {
+    // 算力分配的闸门排在余额之前：额度用尽是「这个人不能再花」，
+    // 与「企业没钱了」是两件事，话术和出路都不同，不能合并成一句「余额不足」。
+    const allowance = await this.memberAllowance.check(enterpriseId, userId);
+    if (!allowance.allowed) {
+      return {
+        allowed: false,
+        creditRemainingCNY: 0,
+        walletBalanceCNY: 0,
+        totalAvailableCNY: 0,
+        reason: allowance.reason,
+      };
+    }
+
     const [credit, wallet] = await Promise.all([
       subscriptionId
         ? this.prisma.subscriptionCredit.findUnique({
@@ -404,6 +420,13 @@ export class ComputeCreditService {
 
     return {
       walletBalanceCNY: wallet.balance.toFixed(2),
+      /// 算力专款：钱包里贴了「只能用于对话」标签的那部分，订阅费动不了它。
+      /// 这是「算力余额」页的头号数字 —— 与钱包余额刻意不同源。
+      computeReservedCNY: wallet.computeReservedCNY.toFixed(2),
+      /// 钱包里没被专款占用的部分，订阅等非算力支出只能动这里。
+      walletSpendableCNY: wallet.balance
+        .sub(wallet.computeReservedCNY)
+        .toFixed(2),
       creditRemainingCNY: creditRemaining.toFixed(2),
       totalAvailableCNY: wallet.balance.add(creditRemaining).toFixed(2),
       creditGrantedTotalCNY: (creditAgg._sum.grantedCNY ?? new Decimal(0)).toFixed(2),

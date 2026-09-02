@@ -86,7 +86,7 @@ describe('EnterpriseShell 导航角色过滤', () => {
     expect(screen.queryByText(nav.departments)).not.toBeInTheDocument();
   });
 
-  it('所有角色都能看到「我的硅基员工」与用量统计', () => {
+  it('所有角色都能看到「我的硅基员工」与用量分析', () => {
     for (const role of ['ENTERPRISE_ADMIN', 'MEMBER', 'DEPT_MANAGER']) {
       setRole(role);
       const { unmount } = renderShell();

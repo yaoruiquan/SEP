@@ -16,6 +16,9 @@ describe('WalletService', () => {
     id: 'wallet-1',
     enterpriseId: 'ent-1',
     balance: new Decimal(1000),
+    frozenAmount: new Decimal(0),
+    /// 算力专款默认 0 = 未启用，行为与加这个字段之前完全一致
+    computeReservedCNY: new Decimal(0),
     totalDeposit: new Decimal(5000),
     totalConsume: new Decimal(3500),
     totalRefund: new Decimal(500),

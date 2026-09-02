@@ -70,6 +70,8 @@ export class ConversationService {
     const balanceCheck = await this.computeCredit.checkBalanceBeforeConversation(
       ctx.enterpriseId,
       subscription?.id,
+      // 传 userId 才能过「这个人本月的算力额度」这道闸门
+      userId,
     );
     if (!balanceCheck.allowed) {
       throw new BadRequestException(balanceCheck.reason);

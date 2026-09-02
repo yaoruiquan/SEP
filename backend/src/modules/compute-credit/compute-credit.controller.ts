@@ -1,4 +1,13 @@
-import { Controller, Get, Param, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Put,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -8,6 +17,9 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { ComputeCreditService } from './compute-credit.service';
+import { MemberAllowanceService } from './member-allowance.service';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { MemberAllowanceSetDtoSchema, type MemberAllowanceSetDto } from 'shared';
 
 /**
  * 企业算力（人民币口径）查询接口。
@@ -22,6 +34,7 @@ import { ComputeCreditService } from './compute-credit.service';
 export class ComputeCreditController {
   constructor(
     private readonly creditService: ComputeCreditService,
+    private readonly memberAllowance: MemberAllowanceService,
     private readonly enterpriseContext: EnterpriseContextService,
   ) {}
 
@@ -62,6 +75,42 @@ export class ComputeCreditController {
       startDate,
       endDate,
     });
+  }
+
+  @Get('allowances')
+  @ApiOperation({
+    summary: '算力分配：全体碳基员工的本月额度与已用金额',
+    description:
+      '额度是闸门不是钱包 —— 分配不会从企业算力余额里预先划走钱，' +
+      '只在成员本月已花到上限时拦下他的下一次对话。未分配 = 不限额。',
+  })
+  @ApiResponse({ status: 200, description: '按成员返回上限、已用、剩余与重置时间' })
+  async listAllowances(@Request() req) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    return this.memberAllowance.listAllowances(ctx.enterpriseId);
+  }
+
+  @Put('allowances/:userId')
+  @ApiOperation({
+    summary: '给某位碳基员工分配算力额度（仅企业管理员）',
+    description: 'limitCNY 传 null 表示取消额度限制（不限额）。',
+  })
+  @ApiResponse({ status: 200, description: '返回该成员分配后的额度视图' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可分配' })
+  @ApiResponse({ status: 404, description: '该成员不属于当前企业' })
+  async setAllowance(
+    @Request() req,
+    @Param('userId') userId: string,
+    @Body(new ZodValidationPipe(MemberAllowanceSetDtoSchema))
+    dto: MemberAllowanceSetDto,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
+    return this.memberAllowance.setAllowance(
+      ctx.enterpriseId,
+      userId,
+      dto.limitCNY,
+    );
   }
 
   @Get('subscription-credits/:subscriptionId')

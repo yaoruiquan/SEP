@@ -53,6 +53,7 @@ model User {
   taskRuns                          TaskRun[]
   taskTemplates                     TaskTemplate[]
   computeUsageRecords               ComputeUsageRecord[]
+  computeAllowances                 MemberComputeAllowance[]
   toolExecutions                    ToolExecution[]
 
   @@map("users")
@@ -92,6 +93,7 @@ model Enterprise {
   wallet               EnterpriseWallet?
   subscriptionCredits  SubscriptionCredit[]
   computeUsageRecords  ComputeUsageRecord[]
+  memberAllowances     MemberComputeAllowance[]
   knowledgeBases       KnowledgeBase[]
   modelConfig          EnterpriseModelConfig?
   settings             EnterpriseSetting?
@@ -1088,6 +1090,15 @@ model EnterpriseWallet {
   /// 冻结金额（退款处理中、订单待支付等）
   frozenAmount Decimal @default(0) @db.Decimal(14, 6)
 
+  /// 已划入「算力专款」的金额（元）。
+  ///
+  /// 它是 balance 的**一个子集**，不是第二本账 —— 划入不会让企业多一分钱，
+  /// 只是给这部分钱贴上「只能用于与硅基员工对话」的标签：
+  ///   · 订阅付费只能动 balance - computeReservedCNY（专款不被订阅费吃掉）
+  ///   · 对话扣费优先动这部分，用尽后仍可动自由余额（对话不中断）
+  /// 恒等式：0 <= computeReservedCNY <= balance
+  computeReservedCNY Decimal @default(0) @db.Decimal(14, 6)
+
   /// 乐观锁版本号（防止并发余额错乱）
   version Int @default(0)
 
@@ -1150,6 +1161,8 @@ enum WalletTransactionType {
   ADJUSTMENT // 调整（管理员手动调整）
   FREEZE // 冻结（预留）
   UNFREEZE // 解冻（预留）
+  COMPUTE_RESERVE // 划入算力专款（余额不变，只改用途标签）
+  COMPUTE_RELEASE // 算力专款划回自由余额
 }
 
 // ============================================================================
@@ -1208,6 +1221,40 @@ model SubscriptionCredit {
 ///
 /// idempotencyKey 是防重复扣费的唯一防线：流式对话会因网络重试重复触发计费，
 /// 靠"调用方小心"挡不住。键由 sessionId + messageId 构成，DB 唯一约束兜底。
+/// 碳基员工（企业成员）的算力分配额度。
+///
+/// 是「闸门」不是「钱包」：给成员分配 ¥500 不会从企业的算力余额里预先划走钱，
+/// 只在他本周期已花到 ¥500 时拦下下一次对话。因此它不参与任何余额计算，
+/// 也不影响其他成员能花多少 —— 刘凌的原话是「算力是管道通到你家的水量，
+/// 装哪个水龙头是另一回事」，分配限的是水量，不指定水龙头。
+model MemberComputeAllowance {
+  id String @id @default(cuid())
+
+  /// 一个成员在一家企业只有一条额度；跨企业成员的额度互不相干。
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 每个周期的消费上限（元）。null = 不限额。
+  limitCNY Decimal? @db.Decimal(14, 6)
+
+  /// 结算周期。本版只支持 MONTH（自然月，Asia/Shanghai）。
+  /// DAY / WEEK / QUARTER / YEAR 与「结转、一次性额度」等规则待当面对齐后再加，
+  /// 先不放进枚举，避免出现选得到但不生效的选项。
+  period String @default("MONTH")
+
+  /// false = 暂停限额（保留已填的数字，先放行）
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([enterpriseId, userId])
+  @@index([userId])
+  @@map("member_compute_allowances")
+}
+
 model ComputeUsageRecord {
   id String @id @default(cuid())
 
@@ -1266,6 +1313,8 @@ model ComputeUsageRecord {
   @@index([subscriptionId, createdAt(sort: Desc)])
   @@index([sessionId])
   @@index([creditId])
+  /// 算力分配的闸门每轮对话都要按「成员 + 本周期」聚合已用金额，必须走索引
+  @@index([userId, createdAt(sort: Desc)])
   @@map("compute_usage_records")
 }
 

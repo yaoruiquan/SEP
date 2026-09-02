@@ -6,6 +6,10 @@ import { api } from '../api-client';
 export interface WalletBalance {
   balance: string; // Prisma Decimal 序列化为字符串
   frozenAmount: string;
+  /** 余额里已划入「算力专款」的部分：订阅等非算力支出不可挪用 */
+  computeReservedCNY: string;
+  /** 余额里可用于订阅等其他支出的部分 = balance - computeReservedCNY */
+  spendableCNY: string;
   totalDeposit: string;
   totalConsume: string;
   totalRefund: string;
@@ -14,7 +18,7 @@ export interface WalletBalance {
 export interface WalletTransaction {
   id: string;
   walletId: string;
-  type: 'DEPOSIT' | 'CONSUME' | 'REFUND';
+  type: 'DEPOSIT' | 'CONSUME' | 'REFUND' | 'COMPUTE_RESERVE' | 'COMPUTE_RELEASE';
   amount: string; // Prisma Decimal 序列化为字符串
   balanceBefore: string;
   balanceAfter: string;

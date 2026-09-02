@@ -17,6 +17,8 @@ import { EnterpriseContextService } from '../enterprise/enterprise-context.servi
 import { WalletTransactionType } from '@prisma/client';
 import { PaymentService } from '../payment/payment.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { ComputeReserveDtoSchema, type ComputeReserveDto } from 'shared';
 
 @ApiTags('wallet')
 @ApiBearerAuth()
@@ -36,7 +38,7 @@ export class WalletController {
   @ApiOperation({ summary: '获取钱包余额和统计' })
   @ApiResponse({ status: 200, description: '返回钱包余额和统计信息' })
   async getBalance(@Request() req) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
     return this.walletService.getBalance(ctx.enterpriseId);
   }
 
@@ -49,7 +51,7 @@ export class WalletController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
     const result = await this.walletService.getTransactions(ctx.enterpriseId, {
       type,
       page: page ? parseInt(page, 10) : 1,
@@ -67,7 +69,7 @@ export class WalletController {
     @Request() req,
     @Body() dto: { amount: number },
   ) {
-    const ctx = await this.enterpriseContext.resolve(req.user.userId);
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
 
     // 1. 创建充值订单
     const account = await this.prisma.computeAccount.findUnique({
@@ -117,6 +119,51 @@ export class WalletController {
     }
   }
 
+  @Post('compute-reserve')
+  @ApiOperation({
+    summary: '从钱包自由余额划入算力专款（仅企业管理员）',
+    description:
+      '专款是钱包余额里贴了用途标签的一部分，不是第二个账户：划入不改变钱包余额，' +
+      '但订阅付费从此动不了这部分钱。对话扣费会优先消耗专款，专款用尽后仍从自由余额扣，' +
+      '对话不会中断。',
+  })
+  @ApiResponse({ status: 201, description: '返回划转后的余额、专款与自由余额' })
+  @ApiResponse({ status: 400, description: '金额非法或可划入余额不足' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可划转' })
+  async reserveForCompute(
+    @Request() req,
+    @Body(new ZodValidationPipe(ComputeReserveDtoSchema)) dto: ComputeReserveDto,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
+    return this.walletService.reserveForCompute(
+      ctx.enterpriseId,
+      dto.amount,
+      req.user.id,
+    );
+  }
+
+  @Post('compute-release')
+  @ApiOperation({
+    summary: '把算力专款划回钱包自由余额（仅企业管理员）',
+    description: '划多了要能划回来，否则没人敢划。同样不改变钱包余额，只改用途标签。',
+  })
+  @ApiResponse({ status: 201, description: '返回划转后的余额、专款与自由余额' })
+  @ApiResponse({ status: 400, description: '金额非法或专款余额不足' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可划转' })
+  async releaseFromCompute(
+    @Request() req,
+    @Body(new ZodValidationPipe(ComputeReserveDtoSchema)) dto: ComputeReserveDto,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(req.user.id);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
+    return this.walletService.releaseFromCompute(
+      ctx.enterpriseId,
+      dto.amount,
+      req.user.id,
+    );
+  }
+
   @Post('adjust')
   @ApiOperation({ summary: '管理员手动调整余额（仅平台运营）' })
   @ApiResponse({ status: 201, description: '调整成功' })
@@ -129,7 +176,7 @@ export class WalletController {
       dto.enterpriseId,
       dto.amount,
       dto.reason,
-      req.user.userId,
+      req.user.id,
     );
   }
 }
