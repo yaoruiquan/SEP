@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -19,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { SkillVersionScope, SkillVersionStatus, UserRole } from '@prisma/client';
 import {
+  AdoptPersonalVersionsDtoSchema,
   CreateEnterpriseSkillVersionDtoSchema,
   CreatePlatformSkillVersionDtoSchema,
   ReviewSkillVersionDtoSchema,
@@ -55,6 +57,25 @@ export class EnterpriseSkillVersionController {
     @Param('employeeId') employeeId: string,
   ) {
     return this.service.listEmployeeSkills(req.user.id, employeeId);
+  }
+
+  @Get('employees/:employeeId/usage')
+  @ApiOperation({
+    summary: '硅基员工在本企业的使用情况',
+    description: '会议要的员工维度视角：谁在用、多少次会话、多少轮对话、成功率、上次使用时间。',
+  })
+  @ApiParam({ name: 'employeeId', description: '数字员工 ID' })
+  @ApiQuery({ name: 'days', required: false, type: Number, description: '统计窗口，默认 30 天' })
+  @ApiResponse({ status: 200, description: '使用情况汇总 + 按成员明细' })
+  @ApiResponse({ status: 403, description: '未获得该硅基员工的使用授权' })
+  getEmployeeUsage(
+    @Request() req: AuthRequest,
+    @Param('employeeId') employeeId: string,
+    @Query('days') daysStr?: string,
+  ) {
+    const parsed = daysStr === undefined ? 30 : Number.parseInt(daysStr, 10);
+    const days = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 90) : 30;
+    return this.service.getEmployeeUsage(req.user.id, employeeId, days);
   }
 
   @Get('skill-versions')
@@ -104,24 +125,16 @@ export class EnterpriseSkillVersionController {
     );
   }
 
-  @Post('skill-versions/:id/submit-review')
-  @ApiOperation({ summary: '提交企业内部审核' })
-  submitEnterpriseReview(@Request() req: AuthRequest, @Param('id') id: string) {
-    return this.service.submitEnterpriseReview(req.user.id, id);
-  }
-
-  @Post('skill-versions/:id/review')
-  @ApiOperation({ summary: '企业管理员审核企业技能版本' })
-  reviewEnterpriseVersion(
-    @Request() req: AuthRequest,
-    @Param('id') id: string,
-    @Body() body: unknown,
-  ) {
-    return this.service.reviewEnterpriseVersion(
-      req.user.id,
-      id,
-      ReviewSkillVersionDtoSchema.parse(body),
-    );
+  @Post('skill-versions/:id/publish')
+  @ApiOperation({
+    summary: '发布企业版草稿并立即生效',
+    description:
+      '取代「提交审核 → 自己批准」两步：管理员自建的草稿再走一遍自审是纯仪式。发布后切为所有相关雇佣关系的生效版本并通知成员。',
+  })
+  @ApiResponse({ status: 201, description: '发布后的版本 + 影响的雇佣关系数' })
+  @ApiResponse({ status: 409, description: '只有草稿可以发布' })
+  publishEnterpriseVersion(@Request() req: AuthRequest, @Param('id') id: string) {
+    return this.service.publishEnterpriseVersion(req.user.id, id);
   }
 
   @Post('subscriptions/:subscriptionId/skills/:capabilityId/select-version')
@@ -190,6 +203,80 @@ export class EnterpriseSkillVersionController {
     const parsedLimit = limitStr === undefined ? 20 : Number.parseInt(limitStr, 10);
     const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20;
     return this.service.getExecutionDetails(req.user.id, capabilityId, limit, cursor);
+  }
+
+  // ──────────── 员工个人副本与采纳（会议纪要2 §6.4）────────────
+
+  @Post('capabilities/:capabilityId/personal-version')
+  @ApiOperation({
+    summary: '创建我的技能副本',
+    description: '基于当前生效版本创建个人副本，直接生效，不需要提交审核。已有副本时返回它。',
+  })
+  @ApiResponse({ status: 201, description: '个人副本（含正文）' })
+  @ApiResponse({ status: 403, description: '未获得该技能的使用授权' })
+  createPersonalVersion(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+  ) {
+    return this.service.createPersonalVersion(req.user.id, capabilityId);
+  }
+
+  @Patch('personal-versions/:id')
+  @ApiOperation({ summary: '编辑我的技能副本（改完即生效）' })
+  @ApiResponse({ status: 200, description: '更新后的个人副本' })
+  @ApiResponse({ status: 404, description: '副本不存在或不属于当前用户' })
+  updatePersonalVersion(
+    @Request() req: AuthRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.service.updatePersonalVersion(
+      req.user.id,
+      id,
+      UpdateSkillVersionDtoSchema.parse(body),
+    );
+  }
+
+  @Delete('personal-versions/:id')
+  @ApiOperation({
+    summary: '弃用我的技能副本',
+    description: '回落到企业版。已被采纳过的副本改为归档而不删除，保留「这一版从哪来」的证据。',
+  })
+  discardPersonalVersion(@Request() req: AuthRequest, @Param('id') id: string) {
+    return this.service.discardPersonalVersion(req.user.id, id);
+  }
+
+  @Get('capabilities/:capabilityId/personal-diffs')
+  @ApiOperation({
+    summary: '大家的改动',
+    description: '管理员看本企业全部成员的个人副本；普通成员只看自己的。含与企业生效版本的对比基线。',
+  })
+  @ApiResponse({ status: 200, description: '个人副本列表 + 对比基线' })
+  listPersonalDiffs(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+  ) {
+    return this.service.listPersonalDiffs(req.user.id, capabilityId);
+  }
+
+  @Post('capabilities/:capabilityId/adopt')
+  @ApiOperation({
+    summary: '采纳成员改动',
+    description:
+      '一个 id 是逐条采纳，多个 id 是一键采纳多人改动。生成新企业版本并切为生效，同时通知企业成员。',
+  })
+  @ApiResponse({ status: 201, description: '新企业版本 + 采纳条数 + 影响的雇佣关系数' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可采纳' })
+  adoptPersonalVersions(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+    @Body() body: unknown,
+  ) {
+    return this.service.adoptPersonalVersions(
+      req.user.id,
+      capabilityId,
+      AdoptPersonalVersionsDtoSchema.parse(body),
+    );
   }
 }
 

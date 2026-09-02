@@ -1,6 +1,9 @@
 'use client';
 
-import { MessageSquareText, Sparkles, Users } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, MessageSquareText, Sparkles, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ExecutionDetailPanel } from './execution-detail-panel';
 import { useCapabilityUsage } from './use-capability-iteration';
 
 /**
@@ -12,8 +15,17 @@ import { useCapabilityUsage } from './use-capability-iteration';
  * 措辞刻意避开「监控」：会议原话是对外统一用「能力迭代」。数据要有，但框架是
  * 「沉淀企业能力」而不是「盯着员工」。
  */
-export function UsagePanel({ capabilityId }: { capabilityId: string }) {
+export function UsagePanel({
+  capabilityId,
+  canManage = false,
+}: {
+  capabilityId: string;
+  canManage?: boolean;
+}) {
   const { data, isLoading, isError } = useCapabilityUsage(capabilityId);
+  // 执行明细是使用统计的下钻，不是平级话题 —— 原先它占一个独立 tab，
+  // §6.7「目录层级越深越难用」之后收进这里，默认收起
+  const [showExecutions, setShowExecutions] = useState(false);
 
   if (isLoading) {
     return <div className="h-40 animate-pulse rounded-glass-lg border border-glassline bg-glass-1" />;
@@ -86,6 +98,33 @@ export function UsagePanel({ capabilityId }: { capabilityId: string }) {
           }))}
           note="仅企业管理员可见"
         />
+      )}
+
+      {canManage && (
+        <section className="rounded-glass-lg border border-glassline bg-glass-1">
+          <button
+            type="button"
+            onClick={() => setShowExecutions((prev) => !prev)}
+            aria-expanded={showExecutions}
+            className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left"
+          >
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 shrink-0 text-gtext-muted transition-transform',
+                !showExecutions && '-rotate-90',
+              )}
+            />
+            <span className="text-xs font-semibold text-gtext-primary">执行明细</span>
+            <span className="text-[11px] text-gtext-muted">
+              单次调用的输入输出与版本归属 · 仅企业管理员可见
+            </span>
+          </button>
+          {showExecutions && (
+            <div className="border-t border-glassline p-3.5">
+              <ExecutionDetailPanel capabilityId={capabilityId} canManage={canManage} />
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

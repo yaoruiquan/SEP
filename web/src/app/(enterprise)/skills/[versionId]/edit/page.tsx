@@ -11,9 +11,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { Markdown } from '@/features/chat/markdown';
+import { nav } from '@/locales/zh-CN';
 import {
+  usePublishEnterpriseSkillVersion,
   useSkillVersionPreview,
-  useSubmitEnterpriseSkillReview,
   useUpdateEnterpriseSkillVersion,
 } from '@/features/skill-version/use-skill-version';
 
@@ -22,7 +23,7 @@ export default function SkillVersionEditPage() {
   const router = useRouter();
   const query = useSkillVersionPreview(versionId);
   const update = useUpdateEnterpriseSkillVersion();
-  const submit = useSubmitEnterpriseSkillReview();
+  const publish = usePublishEnterpriseSkillVersion();
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState('');
   const [preview, setPreview] = useState(false);
@@ -50,19 +51,25 @@ export default function SkillVersionEditPage() {
     await update.mutateAsync({ id: versionId, content, changeSummary: summary });
     toast.success('草稿已保存');
   };
-  const submitReview = async () => {
+  /**
+   * 保存并发布。
+   *
+   * 会议纪要2 §6.4 否掉了企业内提审流 —— 这里原先是「提交企业审核」，
+   * 而审批人就是点这个按钮的管理员自己。现在一步发布并对全部雇佣关系生效。
+   */
+  const saveAndPublish = async () => {
     if (!validateSummary()) return;
     await update.mutateAsync({ id: versionId, content, changeSummary: summary });
-    await submit.mutateAsync(versionId);
-    toast.success('已提交企业审核');
-    router.push('/skills');
+    const result = await publish.mutateAsync(versionId);
+    toast.success('已发布并生效', `对 ${result.affectedSubscriptions} 个雇佣关系生效`);
+    router.push('/capabilities');
   };
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button onClick={() => router.push('/skills')} className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary">
-          <ArrowLeft className="h-4 w-4" /> 返回能力贡献中心
+        <button onClick={() => router.push('/capabilities')} className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary">
+          <ArrowLeft className="h-4 w-4" /> 返回{nav.capabilities}
         </button>
         <div className="flex gap-2">
           <Button variant="glass" size="sm" onClick={() => setPreview((value) => !value)}>
@@ -73,8 +80,8 @@ export default function SkillVersionEditPage() {
               <Button variant="glass" size="sm" loading={update.isPending} onClick={save}>
                 <Save className="h-4 w-4" /> 保存草稿
               </Button>
-              <Button variant="glass-primary" size="sm" loading={submit.isPending} onClick={submitReview}>
-                <Send className="h-4 w-4" /> 提交审核
+              <Button variant="glass-primary" size="sm" loading={publish.isPending} onClick={saveAndPublish}>
+                <Send className="h-4 w-4" /> 发布并生效
               </Button>
             </>
           )}
@@ -91,7 +98,7 @@ export default function SkillVersionEditPage() {
       <Card className="p-5">
         <label className="mb-2 block text-sm font-medium text-gtext-secondary">变更说明 {!original && <span className="text-gdanger">*</span>}</label>
         <Input value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!editable} placeholder={original ? '原始版本可填写初始化说明' : '说明这个版本改了什么、解决了什么问题'} />
-        <p className="mt-2 text-xs text-gtext-muted">{original ? '这是技能的原始正文，后续版本会从此版本派生。' : '提交审核前必须填写，审核人会据此快速判断改动范围。'}</p>
+        <p className="mt-2 text-xs text-gtext-muted">{original ? '这是技能的原始正文，后续版本会从此版本派生。' : '发布前必须填写 —— 版本时间线上就靠它说明这一版改了什么。'}</p>
       </Card>
       <Card className="min-h-[65vh] p-5">
         {preview ? (

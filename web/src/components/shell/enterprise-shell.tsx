@@ -9,6 +9,7 @@ import {
   GitBranch,
   MonitorPlay,
   Boxes,
+  Library,
   Store,
   Settings,
   LogOut,
@@ -93,10 +94,13 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '组织能力',
     links: [
-      // 企业内部迭代已有技能。与「能力贡献中心」（向平台投稿）分开 ——
-      // 会议批评过「过度收拢到一个模块」，两者受众和动作都不同。
-      { href: '/capabilities', label: nav.capabilities, icon: GitBranch },
-      // 知识库是企业可复用资产，与能力迭代并列
+      // 企业自己的技能资产：可改、可采纳别人的改法、可回滚。与「能力贡献中心」
+      // （向平台投稿）分开 —— 会议批评过「过度收拢到一个模块」，两者受众和动作都不同。
+      //
+      // 叫「技能库」而不是会议给的「能力迭代」：决策 1 要求「减少技术化表达」，
+      // 而「迭代」正是技术词；「技能库 / 知识库」在同一组里天然对称，一眼看得懂各是什么。
+      { href: '/capabilities', label: nav.capabilities, icon: Library },
+      // 知识库是企业的文档资产，与技能库并列
       { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
     ],
   },

@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { SkillVersionService } from './skill-version.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -41,7 +46,12 @@ function createPrismaMock() {
     subscription: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      // publishEnterpriseVersion 在事务里查「哪些雇佣关系要切到新版」
+      findMany: jest.fn().mockResolvedValue([]),
     },
+    capability: { findUnique: jest.fn().mockResolvedValue({ name: '测试能力' }) },
+    enterpriseMember: { findMany: jest.fn().mockResolvedValue([]) },
+    notification: { createMany: jest.fn() },
     employeeCapabilityBinding: { findFirst: jest.fn() },
     subscriptionSkillVersion: {
       findUnique: jest.fn(),
@@ -109,14 +119,16 @@ describe('SkillVersionService', () => {
     );
   });
 
-  it('does not allow an ordinary member to perform enterprise review', async () => {
-    enterpriseContext.assertCanApprove.mockImplementation(() => {
-      throw new ForbiddenException('仅企业管理员可审批');
+  // 企业内提审流已下线（会议纪要2 §6.4），取代它的是「发布并生效」一步。
+  // 这里守住的仍是同一条边界：普通成员不能让一个企业版生效。
+  it('does not allow an ordinary member to publish an enterprise version', async () => {
+    enterpriseContext.assertEnterpriseAdmin.mockImplementation(() => {
+      throw new ForbiddenException('仅企业管理员可执行此操作');
     });
 
-    await expect(
-      service.reviewEnterpriseVersion('user-1', 'version-1', { decision: 'APPROVE' }),
-    ).rejects.toThrow(ForbiddenException);
+    await expect(service.publishEnterpriseVersion('user-1', 'version-1')).rejects.toThrow(
+      ForbiddenException,
+    );
     expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
   });
 
@@ -162,20 +174,35 @@ describe('SkillVersionService', () => {
     expect(prisma.skillVersion.update).toHaveBeenCalled();
   });
 
-  it('requires a change description before submitting a derived version', async () => {
+  it('refuses to publish an already-approved version', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
     prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'draft-version',
-      enterpriseId: 'enterprise-1',
-      scope: 'ENTERPRISE',
-      parentVersionId: 'parent-version',
-      changeSummary: '   ',
-      status: 'DRAFT',
+      id: 'approved-version',
+      capabilityId: 'capability-1',
+      status: 'ENTERPRISE_APPROVED',
+      version: '1.1.0',
     });
 
-    await expect(service.submitEnterpriseReview('user-1', 'draft-version')).rejects.toThrow(
-      BadRequestException,
+    await expect(service.publishEnterpriseVersion('user-1', 'approved-version')).rejects.toThrow(
+      ConflictException,
     );
     expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+  });
+
+  // 提审流删掉后，存量卡在「待企业审核」的版本必须还有出路 ——
+  // 不接受它们等于把那些数据永久锁死在界面上
+  it('accepts a legacy PENDING_ENTERPRISE_REVIEW version for publishing', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'legacy-version',
+      capabilityId: 'capability-1',
+      status: 'PENDING_ENTERPRISE_REVIEW',
+      version: '1.0.2',
+    });
+
+    await expect(
+      service.publishEnterpriseVersion('user-1', 'legacy-version'),
+    ).resolves.toBeDefined();
   });
 
   it('creates a platform review copy without changing the enterprise source version', async () => {

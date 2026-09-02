@@ -543,7 +543,9 @@ export class ConversationStreamService {
             const execResult = await this.capabilityService.execute(
               cap.id,
               input,
-              { subscriptionId },
+              // userId 决定「有没有这位成员的个人副本」——
+              // 不传就静默落到企业选版，员工刚改的东西不会生效
+              { subscriptionId, userId },
             );
             resultText = execResult.success
               ? execResult.output

@@ -42,3 +42,41 @@ export function useEmployeeStats(employeeId: string, days: number = 7) {
     enabled: Boolean(employeeId),
   });
 }
+
+/**
+ * 硅基员工在本企业的使用情况（会议纪要2 §6.2）。
+ *
+ * 与上面的 `useEmployeeStats` 不同：那个只统计**当前用户自己**的会话
+ * （后端按 userId 过滤），这个是企业范围的「谁在用」。会议要的是后者 ——
+ * *点进硅基员工能看到使用情况跟踪：谁在用、用了多少次、聊了什么*。
+ */
+export interface EmployeeEnterpriseUsage {
+  period: { days: number; since: string };
+  summary: {
+    distinctUserCount: number;
+    totalConversations: number;
+    totalRounds: number;
+    totalExecutions: number;
+    /** 没有执行记录时为 null —— 「没跑过」和「全失败」是两件事 */
+    successRate: number | null;
+    avgDurationMs: number | null;
+    lastUsedAt: string | null;
+  };
+  byMember: Array<{
+    userId: string;
+    userName: string | null;
+    conversations: number;
+    rounds: number;
+    executions: number;
+    lastUsedAt: string;
+  }>;
+}
+
+export function useEmployeeEnterpriseUsage(employeeId: string, days = 30) {
+  return useQuery({
+    queryKey: ['employee-enterprise-usage', employeeId, days],
+    queryFn: () =>
+      api.get<EmployeeEnterpriseUsage>(`/enterprise/employees/${employeeId}/usage?days=${days}`),
+    enabled: Boolean(employeeId),
+  });
+}
