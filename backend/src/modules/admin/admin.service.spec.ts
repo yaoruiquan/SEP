@@ -23,6 +23,12 @@ describe('AdminService', () => {
     computeTransaction: {
       create: jest.fn(),
     },
+    walletTransaction: {
+      groupBy: jest.fn(),
+    },
+    enterpriseWallet: {
+      aggregate: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
   const mockWalletService = {
@@ -52,6 +58,73 @@ describe('AdminService', () => {
     jest.clearAllMocks();
     mockWalletService.adminDeposit.mockResolvedValue({ balance: 150 });
     mockWalletService.adminDeduct.mockResolvedValue({ balance: 50 });
+  });
+
+  describe('getComputeSummary', () => {
+    const walletTotals = {
+      _sum: { balance: 93558.98, computeReservedCNY: 2500 },
+    };
+
+    it('sums recharge and consume from wallet transactions, balance from wallets', async () => {
+      mockPrismaService.walletTransaction.groupBy.mockResolvedValue([
+        { type: 'DEPOSIT', _sum: { amount: 232999 } },
+        { type: 'CONSUME', _sum: { amount: -136468.95 } },
+      ]);
+      mockPrismaService.enterpriseWallet.aggregate.mockResolvedValue(walletTotals);
+
+      const result = await service.getComputeSummary();
+
+      expect(result).toEqual({
+        totalRecharge: 232999,
+        totalConsume: 136468.95,
+        totalRefund: 0,
+        totalBalance: 93558.98,
+        totalComputeReserved: 2500,
+      });
+    });
+
+    it('counts ADJUSTMENT as recharge, matching the transaction list mapping', async () => {
+      mockPrismaService.walletTransaction.groupBy.mockResolvedValue([
+        { type: 'DEPOSIT', _sum: { amount: 1000 } },
+        { type: 'ADJUSTMENT', _sum: { amount: 250 } },
+      ]);
+      mockPrismaService.enterpriseWallet.aggregate.mockResolvedValue(walletTotals);
+
+      const result = await service.getComputeSummary();
+
+      expect(result.totalRecharge).toBe(1250);
+    });
+
+    it('excludes COMPUTE_RESERVE / COMPUTE_RELEASE — they only relabel money, not move it', async () => {
+      mockPrismaService.walletTransaction.groupBy.mockResolvedValue([
+        { type: 'DEPOSIT', _sum: { amount: 500 } },
+        { type: 'COMPUTE_RESERVE', _sum: { amount: 3000 } },
+        { type: 'COMPUTE_RELEASE', _sum: { amount: -500 } },
+      ]);
+      mockPrismaService.enterpriseWallet.aggregate.mockResolvedValue(walletTotals);
+
+      const result = await service.getComputeSummary();
+
+      expect(result.totalRecharge).toBe(500);
+      expect(result.totalConsume).toBe(0);
+    });
+
+    it('returns zeros when there is no data at all', async () => {
+      mockPrismaService.walletTransaction.groupBy.mockResolvedValue([]);
+      mockPrismaService.enterpriseWallet.aggregate.mockResolvedValue({
+        _sum: { balance: null, computeReservedCNY: null },
+      });
+
+      const result = await service.getComputeSummary();
+
+      expect(result).toEqual({
+        totalRecharge: 0,
+        totalConsume: 0,
+        totalRefund: 0,
+        totalBalance: 0,
+        totalComputeReserved: 0,
+      });
+    });
   });
 
   describe('getEnterpriseDetail', () => {
