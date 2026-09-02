@@ -2,6 +2,12 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
 
+/**
+ * 模型分布的统计窗口（天）。与工作台消费趋势（30 天）对齐 ——
+ * 同屏卡片用同一时间口径，避免「有史以来 vs 最近 7 天」并排出现。
+ */
+const MODEL_DISTRIBUTION_DAYS = 30;
+
 @Injectable()
 export class EnterpriseService {
   constructor(
@@ -260,61 +266,45 @@ export class EnterpriseService {
   }
 
   /**
-   * 模型分布统计。
+   * 模型分布统计（最近 MODEL_DISTRIBUTION_DAYS 天）。
    *
-   * Message.modelId 是模型解析完成后的实际调用结果，也是成本和 Token 的
-   * 事实来源。ComputeTransaction 同时承载历史金额消费和当前配额 Token
-   * 扣减，amount / metadata 口径并不一致，不能用于模型调用分析。
+   * 数据源是 ComputeUsageRecord —— 统一人民币账本，自带 enterpriseId、
+   * modelId、token 与 costCNY。曾用 Message.role='ASSISTANT' 统计，
+   * 四个问题都源于那个选择：
+   *
+   *   1. Message 随会话级联删除（ComputeUsageRecord 刻意不建 Message 外键，
+   *      就是为了「会话清理策略会删消息，账单要留下」）。用户清理聊天记录
+   *      会让同一个月的模型分布凭空缩水，而旁边的本月算力一分不少。
+   *   2. 不产生对话消息的模型调用（任务执行、embedding/rerank、标题生成）
+   *      进账单但不进 Message，统计系统性偏低。
+   *   3. 归因路径 Message → session → user → memberships 用的是「此人当前
+   *      属于哪家企业」：离职后他的历史调用从原企业消失，换公司后又会出现
+   *      在新东家的统计里。账本自带 enterpriseId，不受人员流动影响。
+   *   4. 那条查询既无时间窗口也无 take，把全部历史消息拉进内存用 JS 聚合 ——
+   *      随数据量无上限增长，且「有史以来」的口径与相邻卡片（最近 7 天）不一致。
+   *
+   * ComputeTransaction 仍然不能用于此处：它同时承载历史金额消费与配额 token
+   * 扣减，amount / metadata 口径混杂。
    */
   private async getModelDistribution(enterpriseId: string) {
-    const messages = await this.prisma.message.findMany({
-      where: {
-        role: 'ASSISTANT',
-        modelId: { not: null },
-        session: {
-          user: {
-            memberships: { some: { enterpriseId } },
-          },
-        },
-      },
-      select: {
-        modelId: true,
-        inputTokens: true,
-        outputTokens: true,
-        cost: true,
-      },
+    const since = new Date();
+    since.setDate(since.getDate() - MODEL_DISTRIBUTION_DAYS);
+
+    // 聚合下推给数据库：groupBy 而非 findMany + JS reduce。
+    const rows = await this.prisma.computeUsageRecord.groupBy({
+      by: ['modelId'],
+      where: { enterpriseId, createdAt: { gte: since } },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, costCNY: true },
     });
 
-    const modelStats = new Map<
-      string,
-      { requests: number; tokens: number; cost: number }
-    >();
-
-    messages.forEach((message) => {
-      const model = message.modelId;
-      if (!model) return;
-
-      const current = modelStats.get(model) || {
-        requests: 0,
-        tokens: 0,
-        cost: 0,
-      };
-      const inputTokens = message.inputTokens ?? 0;
-      const outputTokens = message.outputTokens ?? 0;
-
-      modelStats.set(model, {
-        requests: current.requests + 1,
-        tokens: current.tokens + inputTokens + outputTokens,
-        cost: current.cost + Number(message.cost ?? 0),
-      });
-    });
-
-    return Array.from(modelStats.entries())
-      .map(([model, stats]) => ({
-        model,
-        requests: stats.requests,
-        tokens: stats.tokens,
-        cost: Math.round(stats.cost * 10_000) / 10_000,
+    return rows
+      .map((row) => ({
+        model: row.modelId,
+        requests: row._count._all,
+        tokens: (row._sum.inputTokens ?? 0) + (row._sum.outputTokens ?? 0),
+        // 元，保留 4 位 —— 单次对话成本常低于 1 分
+        cost: Math.round(Number(row._sum.costCNY ?? 0) * 10_000) / 10_000,
       }))
       .sort((a, b) => b.requests - a.requests);
   }
