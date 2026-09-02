@@ -16,7 +16,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "db:seed:shuyi": "tsx prisma/seed/shuyi.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed/index.ts"

@@ -18,6 +18,8 @@ import { seedAccounts, DEMO_PASSWORD } from './01-accounts';
 import { seedCatalog } from './02-catalog';
 import { seedDemoUsage } from './03-demo-usage';
 import { seedDashboardAnalytics } from './07-dashboard-analytics';
+import { seedShuyiAccounts, SHUYI_PEOPLE } from './08-shuyi-accounts';
+import { seedShuyiBusiness } from './09-shuyi-business';
 
 const prisma = new PrismaClient();
 
@@ -60,6 +62,16 @@ async function main() {
 
   await seedDashboardAnalytics();
 
+  // 常州数易 —— 真名演示租户。放在最后：它要挑已上架的员工模板来雇佣，
+  // 必须等 02-catalog 铺完目录。
+  const shuyi = await seedShuyiAccounts(prisma);
+  const shuyiBusiness = await seedShuyiBusiness(prisma, shuyi);
+  console.log(
+    `🏢 ${shuyi.enterprise.name}：${shuyi.departments.size} 个部门 / ` +
+      `${shuyi.members.size} 名成员 / ${shuyiBusiness.subscriptionCount} 个雇佣关系` +
+      (shuyiBusiness.skippedUsage ? '（用量数据已存在，跳过）' : ''),
+  );
+
   // TODO(演示数据): 业务数据模块待落地，规模与场景待确认。
   //   04-quota · 06-knowledge · 07-ops（公告+审批流）
 
@@ -69,6 +81,13 @@ async function main() {
   console.log('  甲·部门长 dev@acme.local        技术部');
   console.log('  甲·成员   staff@acme.local      技术部/研发组');
   console.log('  乙·管理员 boss@globex.local     另一家公司（越权对照）');
+  console.log(`\n  ${shuyi.enterprise.name}`);
+  for (const person of SHUYI_PEOPLE) {
+    console.log(
+      `  ${person.name.padEnd(4, '　')} ${person.email.padEnd(24)} ` +
+        `${person.position}${person.department ? ` · ${person.department}` : ''}`,
+    );
+  }
 }
 
 main()

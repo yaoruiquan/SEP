@@ -19,7 +19,7 @@ export const DEMO_PASSWORD = 'Demo123456';
  * 脚本里起 Nest 容器。种子脚本直连 Prisma 是有意的 —— 但这份复制品有
  * 漂移风险，改默认部门树时两处都要动。
  */
-const DEPARTMENT_TREE: Array<{ name: string; groups: string[] }> = [
+export const DEPARTMENT_TREE: Array<{ name: string; groups: string[] }> = [
   { name: '技术部', groups: ['研发组', '测试组', '运维组'] },
   { name: '产品部', groups: ['设计组', '产品经理组'] },
   { name: '市场部', groups: ['品牌组', '增长组'] },
