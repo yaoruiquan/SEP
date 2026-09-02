@@ -109,7 +109,7 @@ export default function CapabilitiesPage() {
     approve.mutate(
       { id: cap.id },
       {
-        onSuccess: () => toast.success(`能力「${cap.name}」已通过并上架`),
+        onSuccess: () => toast.success(`能力「${cap.name}」已通过`, '已收录为平台公共能力，可绑定到硅基员工'),
         onError: (e) => toast.error(e instanceof Error ? e.message : '审核失败'),
       },
     );
@@ -150,7 +150,8 @@ export default function CapabilitiesPage() {
           </div>
           <h1 className="mt-1 text-2xl font-semibold text-gtext-primary">能力管理</h1>
           <p className="mt-1 max-w-2xl text-sm text-gtext-muted">
-            平台能力目录与审核。企业投稿和 Skill 版本申请在下方两个队列里处理。
+            审核通过的能力会成为平台公共能力，可绑定到硅基员工 —— 用户在员工市场买到的是
+            带着这些能力的员工，平台没有单独的能力市场。企业投稿和 Skill 版本申请在右侧两个队列里处理。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

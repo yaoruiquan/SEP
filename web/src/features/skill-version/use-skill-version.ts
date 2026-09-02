@@ -133,12 +133,22 @@ export function useSelectSkillVersion(employeeId: string) {
   });
 }
 
+/**
+ * 把企业版本投稿到平台市场。只有 ENTERPRISE_APPROVED 的版本能投，一份只能投一次
+ * （后端靠 sourceVersionId 的唯一约束兜底）。
+ *
+ * 除了 skill-versions，还要失效 capability-iteration —— 技能库的版本时间线读的是
+ * 后者，不一起失效的话按钮点完不会变成「已投稿」。
+ */
 export function useSubmitPlatformSkillReview() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       api.post(`/enterprise/skill-versions/${id}/submit-platform-review`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['skill-versions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['skill-versions'] });
+      qc.invalidateQueries({ queryKey: ['capability-iteration'] });
+    },
   });
 }
 

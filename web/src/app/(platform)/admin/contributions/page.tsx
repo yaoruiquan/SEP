@@ -13,7 +13,7 @@ import { usePlatformContribution, usePlatformContributionQueue, usePlatformContr
 
 const tabs: Array<{ value: PlatformQueueStatus; label: string }> = [
   { value: 'PENDING_REVIEW', label: '待审核' },
-  { value: 'APPROVED', label: '已上架' },
+  { value: 'APPROVED', label: '已收录' },
   { value: 'REJECTED', label: '已驳回' },
 ];
 
@@ -83,10 +83,10 @@ function ContributionReviewDetail({ id, status }: { id: string; status: Platform
   const decide = (decision: 'APPROVE' | 'REJECT') => {
     const reason = comment.trim();
     if (decision === 'REJECT' && !reason) { toast.error('驳回时请填写原因'); return; }
-    review.mutate({ id, decision, comment: reason || undefined }, { onSuccess: () => { toast.success(decision === 'APPROVE' ? '投稿已上架市场' : '投稿已驳回'); setComment(''); }, onError: (error) => toast.error(error instanceof Error ? error.message : '审核失败') });
+    review.mutate({ id, decision, comment: reason || undefined }, { onSuccess: () => { toast.success(decision === 'APPROVE' ? '投稿已收录为平台公共能力' : '投稿已驳回'); setComment(''); }, onError: (error) => toast.error(error instanceof Error ? error.message : '审核失败') });
   };
   return <div className="flex h-full min-h-0 flex-col overflow-y-auto scroll-thin">
-    <header className="shrink-0 border-b border-glassline p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="mb-2 flex flex-wrap gap-2"><Badge variant={item.type === 'AGENT' ? 'glass-info' : 'glass'}>{item.type}</Badge><Badge variant={item.platformReviewStatus === 'APPROVED' ? 'glass-success' : item.platformReviewStatus === 'REJECTED' ? 'glass-danger' : 'glass-warning'}>{item.platformReviewStatus === 'APPROVED' ? '已上架' : item.platformReviewStatus === 'REJECTED' ? '已驳回' : '待平台审核'}</Badge><Badge variant="glass">{item.enterprise?.name || '个人投稿'}</Badge></div><h2 className="text-2xl font-semibold text-gtext-primary">{item.name}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-gtext-secondary">{item.description}</p></div>{canReview && <div className="flex shrink-0 gap-2"><Button variant="glass" loading={review.isPending} onClick={() => decide('REJECT')}><X className="h-4 w-4" />驳回</Button><Button variant="glass-primary" loading={review.isPending} onClick={() => decide('APPROVE')}><Check className="h-4 w-4" />通过并上架</Button></div>}</div></header>
+    <header className="shrink-0 border-b border-glassline p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="mb-2 flex flex-wrap gap-2"><Badge variant={item.type === 'AGENT' ? 'glass-info' : 'glass'}>{item.type}</Badge><Badge variant={item.platformReviewStatus === 'APPROVED' ? 'glass-success' : item.platformReviewStatus === 'REJECTED' ? 'glass-danger' : 'glass-warning'}>{item.platformReviewStatus === 'APPROVED' ? '已收录' : item.platformReviewStatus === 'REJECTED' ? '已驳回' : '待平台审核'}</Badge><Badge variant="glass">{item.enterprise?.name || '个人投稿'}</Badge></div><h2 className="text-2xl font-semibold text-gtext-primary">{item.name}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-gtext-secondary">{item.description}</p></div>{canReview && <div className="flex shrink-0 gap-2"><Button variant="glass" loading={review.isPending} onClick={() => decide('REJECT')}><X className="h-4 w-4" />驳回</Button><Button variant="glass-primary" loading={review.isPending} onClick={() => decide('APPROVE')}><Check className="h-4 w-4" />通过并收录</Button></div>}</div></header>
     <div className="grid gap-4 p-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
         <section className="rounded-md border border-glassline bg-glass-1 p-5"><h3 className="flex items-center gap-2 text-sm font-semibold text-gtext-primary"><CheckCircle2 className="h-4 w-4 text-gsuccess" />审核参与者</h3><div className="mt-4 grid gap-3 sm:grid-cols-3"><Person label="贡献者" value={item.contributor.name || item.contributor.email} /><Person label="企业审核人" value={item.enterpriseReviewedBy?.name || item.enterpriseReviewedBy?.email || '未记录'} /><Person label="投稿授权人" value={item.platformSubmittedBy?.name || item.platformSubmittedBy?.email || '未记录'} /></div></section>

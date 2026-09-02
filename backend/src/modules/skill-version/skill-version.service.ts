@@ -398,13 +398,24 @@ export class SkillVersionService {
           ...VERSION_SUMMARY_SELECT,
           capability: { select: { id: true, name: true, description: true } },
           enterprise: { select: { id: true, name: true } },
+          // 企业投稿创建的是 scope=PLATFORM 版本，自身 enterpriseId 为空，
+          // 来源企业要顺 sourceVersionId 回查，否则「来源企业」一栏永远是空的。
+          sourceVersion: { select: { enterprise: { select: { id: true, name: true } } } },
         },
         orderBy: { updatedAt: 'desc' },
         skip: (filters.page - 1) * filters.limit,
         take: filters.limit,
       }),
     ]);
-    return { total, page: filters.page, limit: filters.limit, items };
+    return {
+      total,
+      page: filters.page,
+      limit: filters.limit,
+      items: items.map(({ sourceVersion, ...item }) => ({
+        ...item,
+        enterprise: item.enterprise ?? sourceVersion?.enterprise ?? null,
+      })),
+    };
   }
 
   async getAdminVersion(versionId: string) {

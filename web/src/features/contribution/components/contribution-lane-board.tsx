@@ -16,7 +16,7 @@ const LANE_TITLE: Record<StageKey, string> = {
   enterprise: '企业审核中',
   authorize: '投稿与授权',
   platform: '平台审核中',
-  market: '已上架市场',
+  market: '已收录为公共能力',
 };
 
 /**

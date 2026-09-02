@@ -636,13 +636,17 @@ export class CapabilityContributionService {
       }),
       kind === 'CAPABILITY' ? Promise.resolve([]) : this.prisma.skillVersion.findMany({
         where: { status: 'PENDING_PLATFORM_REVIEW' },
-        select: { id: true, capabilityId: true, version: true, status: true, submittedAt: true, capability: { select: { name: true } }, enterprise: { select: { id: true, name: true } }, createdBy: { select: { id: true, name: true, email: true } } },
+        // sourceVersion.enterprise 是投稿版本的来源企业。
+        // 企业投稿时创建的是 scope=PLATFORM 的新版本，它自身 enterpriseId 为空
+        // （它要成为公共版本），来源企业只能顺着 sourceVersionId 往回查 ——
+        // 否则运营在审核队列里看到的一律是「个人贡献」，分不清是谁投的。
+        select: { id: true, capabilityId: true, version: true, status: true, submittedAt: true, capability: { select: { name: true } }, enterprise: { select: { id: true, name: true } }, sourceVersion: { select: { enterprise: { select: { id: true, name: true } } } }, createdBy: { select: { id: true, name: true, email: true } } },
         orderBy: { submittedAt: 'asc' },
       }),
     ]);
     const items = [
       ...capabilities.map((item) => ({ kind: 'CAPABILITY' as const, id: item.id, capabilityId: item.id, capabilityName: item.name, name: item.name, type: item.type, version: null, status: item.platformReviewStatus, submittedAt: item.platformSubmittedAt, enterprise: item.enterprise, submittedBy: item.platformSubmittedBy ?? item.contributor })),
-      ...versions.map((item) => ({ kind: 'SKILL_VERSION' as const, id: item.id, capabilityId: item.capabilityId, capabilityName: item.capability.name, name: `${item.capability.name} v${item.version}`, type: 'SKILL' as const, version: item.version, status: item.status, submittedAt: item.submittedAt, enterprise: item.enterprise, submittedBy: item.createdBy })),
+      ...versions.map((item) => ({ kind: 'SKILL_VERSION' as const, id: item.id, capabilityId: item.capabilityId, capabilityName: item.capability.name, name: `${item.capability.name} v${item.version}`, type: 'SKILL' as const, version: item.version, status: item.status, submittedAt: item.submittedAt, enterprise: item.enterprise ?? item.sourceVersion?.enterprise ?? null, submittedBy: item.createdBy })),
     ].sort((a, b) => +(a.submittedAt ?? 0) - +(b.submittedAt ?? 0));
     return { items, total: items.length };
   }

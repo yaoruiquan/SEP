@@ -31,7 +31,7 @@ export function OverviewSummaryBar({
   const facts: SummaryFact[] = [
     { icon: Layers3, value: overview.capabilityCount, label: '项能力资产', tone: 'muted' },
     { icon: Timer, value: pending, label: '项流程处理中', tone: 'warning' },
-    { icon: Store, value: overview.publicCapabilityCount, label: '项已上架市场', tone: 'success' },
+    { icon: Store, value: overview.publicCapabilityCount, label: '项已收录为公共能力', tone: 'success' },
     { icon: Coins, value: overview.pendingRewardPoints, label: '积分待结算', tone: 'brand' },
   ];
   // 能力总数恒显示（哪怕是 0，它是"还没开始"的有效信息）；其余零值不占位

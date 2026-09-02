@@ -23,6 +23,7 @@ import {
   MessageSquare,
   Wallet,
   Gauge,
+  Upload,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -102,6 +103,15 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/capabilities', label: nav.capabilities, icon: Library },
       // 知识库是企业的文档资产，与技能库并列
       { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
+      //
+      // 能力贡献中心：把企业的技能投到平台市场。
+      //
+      // 这个入口以前压根不存在 —— ContributionRouteShell 会给企业用户渲染
+      // EnterpriseShell，FULL_HEIGHT_ROUTES 里也早就列了 /contributions，
+      // 说明本来是打算给企业用户用的，但导航里从来没有这一项，只有无企业身份的
+      // 贡献者（ContributorShell）能看到。结果是平台侧的能力审核队列**没有上游**，
+      // 三个审核入口长期是 0/0/0。
+      { href: '/contributions', label: nav.contributions, icon: Upload },
     ],
   },
   {

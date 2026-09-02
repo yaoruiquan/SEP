@@ -12,6 +12,7 @@ import {
   Pencil,
   RotateCcw,
   ShieldCheck,
+  Upload,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,10 @@ import {
   type TimelineVersion,
   type VersionTimeline,
 } from './use-capability-iteration';
-import { useCreateEnterpriseSkillVersion } from '@/features/skill-version/use-skill-version';
+import {
+  useCreateEnterpriseSkillVersion,
+  useSubmitPlatformSkillReview,
+} from '@/features/skill-version/use-skill-version';
 
 /**
  * 版本时间线。
@@ -37,6 +41,7 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
   const selectVersion = useSelectEffectiveVersion(timeline.capability.id);
   const createVersion = useCreateEnterpriseSkillVersion();
   const publishVersion = usePublishEnterpriseVersion(timeline.capability.id);
+  const submitToPlatform = useSubmitPlatformSkillReview();
 
   const [subscriptionId, setSubscriptionId] = useState(timeline.subscriptionId);
   const selectedSubscription = timeline.subscriptions.find((item) => item.subscriptionId === subscriptionId) ?? timeline.subscriptions[0];
@@ -112,6 +117,19 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
           timeline.canManage &&
           !isCurrent &&
           (version.status === 'PLATFORM_APPROVED' || version.status === 'ENTERPRISE_APPROVED');
+
+        // 投稿到平台市场。
+        //
+        // 后端 `submitPlatformReview` 早就写好了（只收 ENTERPRISE_APPROVED，
+        // 且靠 sourceVersionId 唯一约束保证一份只投一次），前端 hook
+        // `useSubmitPlatformSkillReview` 也早就定义了 —— 但**没有任何组件调用它**。
+        // 于是企业改好的版本没有任何出口，平台侧的能力审核队列长期为空。
+        // hasPlatformSubmission 也是后端一直在返回、一直没人读的字段。
+        const promotable =
+          timeline.canManage &&
+          isEnterprise &&
+          version.status === 'ENTERPRISE_APPROVED' &&
+          !version.hasPlatformSubmission;
 
         return (
           <li key={version.id} className="relative flex gap-3">
@@ -208,6 +226,33 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
                         <RotateCcw className="h-3 w-3" />
                         设为生效
                       </Button>
+                    )}
+                    {promotable && (
+                      <Button
+                        size="sm"
+                        variant="glass"
+                        className="h-7 px-2.5 text-[11px]"
+                        loading={submitToPlatform.isPending}
+                        onClick={() =>
+                          submitToPlatform.mutate(version.id, {
+                            onSuccess: () =>
+                              toast.success(
+                                `${versionLabel(version)} 已投稿到平台`,
+                                '平台运营审核通过后会成为公共版本，你的企业版本不受影响',
+                              ),
+                            onError: (error) =>
+                              toast.error(error instanceof Error ? error.message : '投稿失败'),
+                          })
+                        }
+                      >
+                        <Upload className="h-3 w-3" />
+                        投稿到平台
+                      </Button>
+                    )}
+                    {timeline.canManage && isEnterprise && version.hasPlatformSubmission && (
+                      <span className="rounded-glass-md border border-glassline bg-glass-2 px-2 py-1 text-[11px] text-gtext-muted">
+                        已投稿
+                      </span>
                     )}
                     <button
                       type="button"

@@ -25,12 +25,14 @@ export const PLATFORM_META: Record<ContributionPlatformStatus, { label: string; 
   NOT_SUBMITTED: { label: '未申请', tone: 'muted' },
   REQUESTED: { label: '待企业授权', tone: 'warning' },
   PENDING_REVIEW: { label: '平台审核中', tone: 'warning' },
-  APPROVED: { label: '已上架市场', tone: 'success' },
+  // 「已上架市场」是句做不到的话 —— 平台没有能力市场页面，公共能力的去处是
+  // 「可以被绑定到硅基员工」，用户最终在员工市场里买到的是带这个能力的员工。
+  APPROVED: { label: '已收录为公共能力', tone: 'success' },
   REJECTED: { label: '平台驳回', tone: 'danger' },
 };
 
 export function currentContributionState(item: ContributionCapability) {
-  if (item.platformReviewStatus === 'APPROVED') return { label: '已上架市场', tone: 'success' as const };
+  if (item.platformReviewStatus === 'APPROVED') return { label: '已收录为公共能力', tone: 'success' as const };
   if (item.platformReviewStatus === 'PENDING_REVIEW') return { label: '平台审核中', tone: 'warning' as const };
   if (item.platformReviewStatus === 'REQUESTED') return { label: '待企业授权', tone: 'warning' as const };
   if (item.platformReviewStatus === 'REJECTED') return { label: '平台驳回', tone: 'danger' as const };
