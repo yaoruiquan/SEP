@@ -252,17 +252,6 @@ import type {
 } from './admin-api';
 import { adminApi } from './admin-api';
 
-export function useEnterprisesList(params?: {
-  page?: number;
-  pageSize?: number;
-  keyword?: string;
-}) {
-  return useQuery({
-    queryKey: ['admin', 'enterprises', 'list', params],
-    queryFn: () => adminApi.listEnterprises(params),
-  });
-}
-
 export function useEnterpriseDetail(id: string) {
   return useQuery({
     queryKey: ['admin', 'enterprises', id],
@@ -279,6 +268,10 @@ export function useCreditAdjustment() {
     onSuccess: (_res, { id }) => {
       qc.invalidateQueries({ queryKey: ['admin', 'enterprises', id] });
       qc.invalidateQueries({ queryKey: ['admin', 'enterprises', 'list'] });
+      // 充值改了余额和流水，企业列表与资金流水页（合计 + 列表）都要跟着刷 ——
+      // 原先只失效了带 'list' 的那个 key，充完钱回列表看还是旧余额
+      qc.invalidateQueries({ queryKey: ['admin', 'enterprises'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'compute'] });
     },
   });
 }
@@ -364,6 +357,26 @@ export function useComputeTransactions(params?: {
   return useQuery({
     queryKey: ['admin', 'compute', 'transactions', params],
     queryFn: () => adminApi.getComputeTransactions(params),
+  });
+}
+
+/**
+ * 平台资金合计。
+ *
+ * 以前这三个数是页面自己算的：另发一次 `pageSize: 9999` 的请求把整本账搬到浏览器
+ * 再 reduce。超过 9999 条后累计充值/消费会静默算错，现在由后端 groupBy 出。
+ */
+export function useComputeSummary() {
+  return useQuery({
+    queryKey: ['admin', 'compute', 'summary'],
+    queryFn: () =>
+      api.get<{
+        totalRecharge: number;
+        totalConsume: number;
+        totalRefund: number;
+        totalBalance: number;
+        totalComputeReserved: number;
+      }>('/admin/compute/summary'),
   });
 }
 

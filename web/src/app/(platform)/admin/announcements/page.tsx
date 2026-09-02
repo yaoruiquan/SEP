@@ -72,11 +72,13 @@ const typeLabels = {
   SUCCESS: '成功',
 };
 
+// 公告类型的圆点颜色。用语义令牌而不是 bg-blue-500 这类字面色 ——
+// 后者不跟随主题，深浅两套主题下的对比度不受控。
 const typeColors = {
-  INFO: 'bg-blue-500',
-  WARNING: 'bg-yellow-500',
-  ERROR: 'bg-red-500',
-  SUCCESS: 'bg-green-500',
+  INFO: 'bg-info',
+  WARNING: 'bg-warning',
+  ERROR: 'bg-danger',
+  SUCCESS: 'bg-success',
 };
 
 export default function AnnouncementsPage() {

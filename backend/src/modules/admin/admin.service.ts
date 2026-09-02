@@ -361,6 +361,45 @@ export class AdminService {
   }
 
   /**
+   * 平台资金合计。
+   *
+   * 原先这三个数是前端算的：拉 `pageSize=9999` 的全量流水到浏览器再 reduce。
+   * 两个问题 —— 一是每次进页面都搬一遍整本账，二是超过 9999 条之后累计充值/消费
+   * 会静默算错（只累加最新的 9999 条）。搬到后端用 groupBy 一次算完。
+   *
+   * 余额读 EnterpriseWallet，不读已废弃的 ComputeAccount.balance。
+   */
+  async getComputeSummary() {
+    const [byType, walletTotals] = await Promise.all([
+      this.prisma.walletTransaction.groupBy({
+        by: ['type'],
+        _sum: { amount: true },
+      }),
+      this.prisma.enterpriseWallet.aggregate({
+        _sum: { balance: true, computeReservedCNY: true },
+      }),
+    ]);
+
+    const sumOf = (...types: string[]) =>
+      byType
+        .filter((row) => types.includes(row.type))
+        .reduce((acc, row) => acc + Number(row._sum.amount ?? 0), 0);
+
+    // ADJUSTMENT 归入充值口径，与流水列表的 reverseTypeMap 保持一致
+    const totalRecharge = sumOf('DEPOSIT', 'ADJUSTMENT');
+    const totalConsume = Math.abs(sumOf('CONSUME'));
+    const totalRefund = Math.abs(sumOf('REFUND'));
+
+    return {
+      totalRecharge: +totalRecharge.toFixed(2),
+      totalConsume: +totalConsume.toFixed(2),
+      totalRefund: +totalRefund.toFixed(2),
+      totalBalance: +Number(walletTotals._sum.balance ?? 0).toFixed(2),
+      totalComputeReserved: +Number(walletTotals._sum.computeReservedCNY ?? 0).toFixed(2),
+    };
+  }
+
+  /**
    * 获取员工列表（运营端）
    */
   async listEmployees(params?: {
@@ -755,10 +794,20 @@ export class AdminService {
 
   /**
    * 获取可用能力列表（用于绑定选择）
+   *
+   * @deprecated 前端绑定选择器走 `GET /admin/capabilities?status=APPROVED&pageSize=200`。
+   * 那条路径上 `status=APPROVED` 会被 listCapabilities 展开成
+   * 「平台自有已通过 OR 市场公开已过审」，因此能挡住其他企业的私有能力；
+   * 这里只按 status 过滤，ENTERPRISE_PRIVATE 的企业能力会漏进来。保留仅为兼容。
    */
   async getAvailableCapabilities() {
     return this.prisma.capability.findMany({
-      where: { status: 'APPROVED' }, // 只显示已审核的能力
+      where: {
+        OR: [
+          { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+          { enterpriseId: null, status: 'APPROVED' },
+        ],
+      },
       select: {
         id: true,
         name: true,

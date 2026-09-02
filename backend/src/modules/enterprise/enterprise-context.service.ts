@@ -97,15 +97,24 @@ export class EnterpriseContextService {
    *
    * 仅供运营端调用，返回企业基础信息 + 成员数 + 订阅数。
    */
+  /**
+   * @deprecated 用 `GET /admin/enterprises`（AdminService.listEnterprises）替代 ——
+   * 那个接口带分页、关键词搜索，并且把 memberCount / subscriptionCount / suspended
+   * 摊平好了。这里保留只为兼容可能的外部调用方。
+   *
+   * 余额读 EnterpriseWallet。原先 select 的是 `computeAccount.balance`，
+   * 那是 schema 里标注废弃的字段（只剩 gateway 链路在写）：运营端两个页面读它，
+   * 于是演示租户显示 ¥0（真实钱包 ¥49,568）、平台总余额少算了 ¥78,051。
+   */
   async listAll() {
-    return this.prisma.enterprise.findMany({
+    const enterprises = await this.prisma.enterprise.findMany({
       select: {
         id: true,
         name: true,
         description: true,
         metadata: true,
         createdAt: true,
-        computeAccount: {
+        wallet: {
           select: {
             balance: true,
           },
@@ -119,5 +128,9 @@ export class EnterpriseContextService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return enterprises.map(({ wallet, ...enterprise }) => ({
+      ...enterprise,
+      balance: Number(wallet?.balance ?? 0),
+    }));
   }
 }

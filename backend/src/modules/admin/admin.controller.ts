@@ -246,6 +246,17 @@ export class AdminController {
     return this.adminService.rejectEmployee(id, req.user.id, dto.reason);
   }
 
+  @Get('compute/summary')
+  @ApiOperation({
+    summary: '平台资金合计',
+    description:
+      '累计充值 / 累计消费 / 当前总余额（元）。合计在服务端算，前端不再拉全量流水自行求和。',
+  })
+  @ApiResponse({ status: 200, description: '返回平台级资金合计' })
+  getComputeSummary() {
+    return this.adminService.getComputeSummary();
+  }
+
   @Get('compute/transactions')
   @ApiOperation({ summary: '获取平台级算力交易记录' })
   @ApiQuery({ name: 'type', required: false, enum: ['RECHARGE', 'CONSUME', 'REFUND'], description: '交易类型' })

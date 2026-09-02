@@ -17,8 +17,6 @@ export const qk = {
   marketEmployee: (id: string) => ['market', 'employees', id] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
-  capabilities: (params?: Record<string, unknown>) =>
-    ['capabilities', params ?? {}] as const,
   adminStats: ['admin', 'stats'] as const,
   adminUsers: ['admin', 'users'] as const,
   // 企业组织

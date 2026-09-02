@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/feedback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { useComputeTransactions, useAllEnterprises, useCreditAdjustment } from '@/features/admin/use-admin';
+import { useComputeTransactions, useComputeSummary, useAllEnterprises, useCreditAdjustment } from '@/features/admin/use-admin';
 import type { ComputeTransaction } from '@/features/admin/admin-api';
+import { toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
 export default function AdminComputePage() {
@@ -33,9 +34,9 @@ export default function AdminComputePage() {
     pageSize: 20,
   });
 
-  const { data: allTransactions } = useComputeTransactions({
-    pageSize: 9999,
-  });
+  // 合计由后端算。原先这里另发一次 pageSize: 9999 的请求把整本账搬到浏览器再
+  // reduce —— 每次进页面搬一遍，且超过 9999 条后累计充值/消费会静默算错。
+  const { data: summary } = useComputeSummary();
 
   const { data: enterprises } = useAllEnterprises();
   const creditAdjustmentMutation = useCreditAdjustment();
@@ -48,8 +49,13 @@ export default function AdminComputePage() {
   };
 
   const handleQuickRecharge = async () => {
-    if (!selectedEnterpriseId || !rechargeAmount || parseFloat(rechargeAmount) <= 0) {
-      alert('请选择企业并输入有效的充值金额');
+    if (!selectedEnterpriseId) {
+      toast.error('请先选择企业');
+      return;
+    }
+    const amount = parseFloat(rechargeAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('请输入有效的充值金额');
       return;
     }
 
@@ -57,20 +63,21 @@ export default function AdminComputePage() {
       await creditAdjustmentMutation.mutateAsync({
         id: selectedEnterpriseId,
         data: {
-          amount: parseFloat(rechargeAmount),
+          amount,
           type: 'RECHARGE',
           note: rechargeNote || '运营端快速充值',
         },
       });
 
-      alert('充值成功');
+      const name = enterprises?.find((e) => e.id === selectedEnterpriseId)?.name ?? '企业';
+      toast.success('充值成功', `${name} 已入账 ¥${amount.toFixed(2)}`);
       setRechargeDialogOpen(false);
       setSelectedEnterpriseId('');
       setRechargeAmount('');
       setRechargeNote('');
       setEnterpriseSearchTerm('');
-    } catch (error: any) {
-      alert(error?.message || '充值失败');
+    } catch (error) {
+      toast.error('充值失败', error instanceof Error ? error.message : undefined);
     }
   };
 
@@ -78,27 +85,9 @@ export default function AdminComputePage() {
     ent.name.toLowerCase().includes(enterpriseSearchTerm.toLowerCase())
   );
 
-  const stats = allTransactions?.data
-    ? allTransactions.data.reduce(
-        (acc, txn) => {
-          if (txn.type === 'RECHARGE') {
-            acc.totalRecharge += txn.amount;
-          } else if (txn.type === 'CONSUME') {
-            acc.totalConsume += Math.abs(txn.amount);
-          }
-          return acc;
-        },
-        { totalRecharge: 0, totalConsume: 0 }
-      )
-    : { totalRecharge: 0, totalConsume: 0 };
-
-  // 钱包余额之和（元）。旧代码求和的是 ent.computeAccount?.balance ——
-  // 那个字段已废弃，导致这里显示 ¥15,507.95 而平台实际持有 ¥93,558.98。
-  const totalBalance = enterprises?.reduce((sum, ent) => sum + (ent.balance ?? 0), 0) ?? 0;
-
   const exportCSV = () => {
     if (!data?.data || data.data.length === 0) {
-      alert('无数据可导出');
+      toast.error('无数据可导出');
       return;
     }
 
@@ -155,49 +144,31 @@ export default function AdminComputePage() {
         </div>
       </div>
 
-      {/* Statistics Cards */}
+      {/* 平台资金合计。三个数都由后端 groupBy 出，前端不再搬整本账 */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card variant="solid">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-fg-muted">累计充值</p>
-                <p className="text-2xl font-semibold mt-1">¥{stats.totalRecharge.toFixed(2)}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center">
-                <TrendingUp className="h-6 w-6 text-success" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card variant="solid">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-fg-muted">累计消费</p>
-                <p className="text-2xl font-semibold mt-1">¥{stats.totalConsume.toFixed(2)}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-danger/10 flex items-center justify-center">
-                <TrendingDown className="h-6 w-6 text-danger" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card variant="solid">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-fg-muted">当前总余额</p>
-                <p className="text-2xl font-semibold mt-1">¥{totalBalance.toFixed(2)}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <SummaryCard
+          label="累计充值"
+          value={summary?.totalRecharge}
+          icon={<TrendingUp className="h-6 w-6 text-success" />}
+          iconBg="bg-success/10"
+        />
+        <SummaryCard
+          label="累计消费"
+          value={summary?.totalConsume}
+          icon={<TrendingDown className="h-6 w-6 text-danger" />}
+          iconBg="bg-danger/10"
+        />
+        <SummaryCard
+          label="当前总余额"
+          value={summary?.totalBalance}
+          hint={
+            summary?.totalComputeReserved
+              ? `其中算力专款 ¥${summary.totalComputeReserved.toFixed(2)}`
+              : undefined
+          }
+          icon={<DollarSign className="h-6 w-6 text-primary" />}
+          iconBg="bg-primary/10"
+        />
       </div>
 
       {/* Quick Recharge Dialog */}
@@ -460,5 +431,41 @@ function TransactionRow({
         </>
       )}
     </tr>
+  );
+}
+
+/** 资金合计卡片。加载中显示骨架，避免先闪一个 ¥0.00 再跳到真实数字 */
+function SummaryCard({
+  label,
+  value,
+  hint,
+  icon,
+  iconBg,
+}: {
+  label: string;
+  value: number | undefined;
+  hint?: string;
+  icon: React.ReactNode;
+  iconBg: string;
+}) {
+  return (
+    <Card variant="solid">
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-fg-muted">{label}</p>
+            {value === undefined ? (
+              <Skeleton className="mt-1 h-8 w-32" />
+            ) : (
+              <p className="mt-1 text-2xl font-semibold">¥{value.toFixed(2)}</p>
+            )}
+            {hint && <p className="mt-1 text-xs text-fg-subtle">{hint}</p>}
+          </div>
+          <div className={cn('flex h-12 w-12 items-center justify-center rounded-full', iconBg)}>
+            {icon}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

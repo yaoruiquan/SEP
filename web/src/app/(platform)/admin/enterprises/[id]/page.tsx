@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/components/ui/toast';
 import { SUBSCRIPTION_STATUS_LABEL, SUBSCRIPTION_STATUS_STYLE } from '@/lib/utils';
 import {
   Building2,
@@ -82,13 +83,13 @@ export default function EnterpriseDetailPage() {
 
   const handleCreditAdjustment = async () => {
     const amount = parseFloat(creditAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert('请输入有效的金额');
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('请输入有效的金额');
       return;
     }
 
     if (!creditNote.trim()) {
-      alert('请输入备注');
+      toast.error('请输入备注');
       return;
     }
 
@@ -101,18 +102,21 @@ export default function EnterpriseDetailPage() {
           note: creditNote,
         },
       });
-      alert(`${creditType === 'RECHARGE' ? '充值' : '扣减'}成功`);
+      toast.success(
+        `${creditType === 'RECHARGE' ? '充值' : '扣减'}成功`,
+        `${enterprise?.name ?? '企业'} ${creditType === 'RECHARGE' ? '入账' : '扣减'} ¥${amount.toFixed(2)}`,
+      );
       setCreditDialogOpen(false);
       setCreditAmount('');
       setCreditNote('');
-    } catch (err: any) {
-      alert(`操作失败: ${err.message || '请稍后重试'}`);
+    } catch (err) {
+      toast.error('操作失败', err instanceof Error ? err.message : '请稍后重试');
     }
   };
 
   const handleSuspend = async () => {
     if (!suspendReason.trim()) {
-      alert('请输入冻结原因');
+      toast.error('请输入冻结原因');
       return;
     }
 
@@ -121,20 +125,20 @@ export default function EnterpriseDetailPage() {
         id: enterpriseId,
         data: { reason: suspendReason },
       });
-      alert('企业已冻结');
+      toast.success('企业已冻结', `${enterprise?.name ?? '该企业'} 的成员将无法继续使用`);
       setSuspendDialogOpen(false);
       setSuspendReason('');
-    } catch (err: any) {
-      alert(`冻结失败: ${err.message || '请稍后重试'}`);
+    } catch (err) {
+      toast.error('冻结失败', err instanceof Error ? err.message : '请稍后重试');
     }
   };
 
   const handleResume = async () => {
     try {
       await resumeEnterprise.mutateAsync(enterpriseId);
-      alert('企业已解冻');
-    } catch (err: any) {
-      alert(`解冻失败: ${err.message || '请稍后重试'}`);
+      toast.success('企业已解冻');
+    } catch (err) {
+      toast.error('解冻失败', err instanceof Error ? err.message : '请稍后重试');
     }
   };
 
