@@ -92,7 +92,7 @@ export default function UsagePage() {
 
   return (
     <div className="space-y-6 p-6">
-      <section className="border-b border-border/70 pb-6">
+      <section className="border-b border-border/70 pb-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold text-foreground">用量分析</h1>

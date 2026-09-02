@@ -18,14 +18,18 @@ import { UsageRecordTable } from './usage-record-table';
  */
 export default function ComputeQuotaPage() {
   return (
-    <div className="space-y-8 pb-10">
-      <section className="border-b border-border/70 pb-7">
+    <div className="space-y-6 pb-10">
+      {/*
+        页头到第一个板块的间距：pb-4 + space-y-6 共 40px。
+        原来是 pb-7 + space-y-8（60px），标题和内容像分了两屏。
+      */}
+      <section className="border-b border-border/70 pb-4">
         <div className="inline-flex items-center gap-2 text-xs font-medium text-primary">
           <Zap className="h-3.5 w-3.5" />
           企业算力中心
         </div>
-        <h1 className="mt-3 text-2xl font-semibold text-foreground">算力余额</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-fg-muted">
+        <h1 className="mt-2 text-2xl font-semibold text-foreground">算力余额</h1>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-fg-muted">
           算力余额、给碳基员工的分配额度与消费明细
         </p>
       </section>
@@ -35,7 +39,7 @@ export default function ComputeQuotaPage() {
       <MemberAllowancePanel />
 
       <section id="usage-records" className="scroll-mt-8">
-        <div className="mb-4">
+        <div className="mb-3">
           <div className="flex items-center gap-2 text-base font-semibold text-foreground">
             <TrendingDown className="h-4 w-4 text-sky-600" />
             算力消费明细

@@ -110,7 +110,7 @@ export function MemberAllowancePanel() {
 
   return (
     <section id="allowances" className="scroll-mt-8">
-      <div className="mb-4">
+      <div className="mb-3">
         <div className="flex items-center gap-2 text-base font-semibold text-foreground">
           <SlidersHorizontal className="h-4 w-4 text-violet-600" />
           算力分配 · 按碳基员工
