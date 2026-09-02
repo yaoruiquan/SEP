@@ -45,6 +45,10 @@ model User {
   userQuotas                        UserQuota[]
   allocatedUserQuotas               UserQuota[]                @relation("UserQuotaAllocator")
   createdSkillVersions              SkillVersion[]             @relation("SkillVersionCreator")
+  ownedSkillVersions                SkillVersion[]             @relation("SkillVersionOwner")
+  skillVersionAdoptions             SkillVersionAdoption[]     @relation("SkillVersionAdopter")
+  createdCapabilityInsights         CapabilityInsight[]        @relation("CapabilityInsightCreator")
+  adoptedCapabilityInsights         CapabilityInsight[]        @relation("CapabilityInsightAdopter")
   enterpriseReviewedSkillVersions   SkillVersion[]             @relation("SkillVersionEnterpriseReviewer")
   platformReviewedSkillVersions     SkillVersion[]             @relation("SkillVersionPlatformReviewer")
   skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
@@ -107,6 +111,7 @@ model Enterprise {
   contributionRewards  ContributionRewardEvent[]
   taskRuns             TaskRun[]
   taskTemplates        TaskTemplate[]
+  capabilityInsights   CapabilityInsight[]
 
   @@map("enterprises")
 }
@@ -284,7 +289,7 @@ model DigitalEmployee {
   price Float? // 保留兼容存量数据
 
   /// 年费（元）。会议示例：5000 元/年
-  annualPriceCNY     Decimal? @db.Decimal(12, 2)
+  annualPriceCNY Decimal? @db.Decimal(12, 2)
 
   /// 订阅赠送算力（元）—— 员工级覆盖值。
   ///
@@ -425,7 +430,7 @@ model Capability {
 
   /// Agent 或无版本能力的最近一次自动校验结果，不包含敏感凭据原文。
   validationResult Json?
-  validatedAt     DateTime?
+  validatedAt      DateTime?
 
   // Status
   status CapabilityStatus @default(PENDING)
@@ -453,6 +458,7 @@ model Capability {
   skillVersions             SkillVersion[]
   subscriptionSkillVersions SubscriptionSkillVersion[]
   contributionRewards       ContributionRewardEvent[]
+  capabilityInsights        CapabilityInsight[]
 
   @@index([enterpriseId, enterpriseReviewStatus])
   @@index([visibility, platformReviewStatus])
@@ -619,17 +625,25 @@ model SkillConfig {
 enum SkillVersionScope {
   PLATFORM
   ENTERPRISE
+  /// 员工个人副本。改完立刻对他本人生效，不进审核流 ——
+  /// 会议明确否掉了「普通员工上传+提审」，改动天然可见即可。
+  PERSONAL
 }
 
 enum SkillVersionStatus {
   DRAFT
+  /// ⚠️ 历史状态。会议否掉了「普通员工上传+提审」，企业内不再走这条流；
+  /// 存量数据仍可读，向平台投稿的链路不受影响。
   PENDING_ENTERPRISE_REVIEW
   ENTERPRISE_APPROVED
   PENDING_PLATFORM_REVIEW
   PLATFORM_APPROVED
+  /// ⚠️ 历史状态，同 PENDING_ENTERPRISE_REVIEW。
   ENTERPRISE_REJECTED
   PLATFORM_REJECTED
   ARCHIVED
+  /// 个人副本的唯一状态：存在即生效。个人副本没有草稿/待审之分。
+  PERSONAL_ACTIVE
 }
 
 model SkillVersion {
@@ -640,6 +654,13 @@ model SkillVersion {
 
   enterpriseId String?
   enterprise   Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// PERSONAL 版本的归属成员，scope=PERSONAL 时必填。
+  ///
+  /// 不复用 createdById —— 那个记「谁建的」（管理员可能替人建），
+  /// 这个是「属于谁、对谁生效」。混用会让「加载某成员的生效版本」不可靠。
+  ownerId String?
+  owner   User?   @relation("SkillVersionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   parentVersionId String?
   parentVersion   SkillVersion?  @relation("SkillVersionFork", fields: [parentVersionId], references: [id], onDelete: SetNull)
@@ -681,13 +702,17 @@ model SkillVersion {
 
   /// 最近一次自动校验结果；仅用于审核门禁与审计展示，不包含密钥原文。
   validationResult Json?
-  validatedAt     DateTime?
+  validatedAt      DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   reviews             SkillVersionReview[]
   selections          SubscriptionSkillVersion[]
+  /// 本版本采纳了哪些个人副本（scope=ENTERPRISE 时有值）
+  adoptedSources      SkillVersionAdoption[]      @relation("AdoptionTarget")
+  /// 本个人副本被哪些企业版采纳过（scope=PERSONAL 时有值）
+  adoptedInto         SkillVersionAdoption[]      @relation("AdoptionSource")
   defaultBindings     EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
   contributionRewards ContributionRewardEvent[]
   executions          ToolExecution[]
@@ -695,7 +720,98 @@ model SkillVersion {
   @@index([capabilityId, status])
   @@index([enterpriseId, status])
   @@index([parentVersionId])
+  /// resolveEffectiveVersion 每次执行都要查「这个成员对这个能力有没有个人副本」
+  @@index([ownerId, capabilityId])
   @@map("skill_versions")
+}
+
+/// 「这个企业版本采纳了哪些成员的个人改动」。
+///
+/// 一键采纳意味着一个企业版本可能同时来自多人，SkillVersion 上单个
+/// sourceVersionId（那是「投稿到平台」用的）表达不了多对多。
+model SkillVersionAdoption {
+  id String @id @default(cuid())
+
+  /// 采纳动作产生的企业版本
+  targetVersionId String
+  targetVersion   SkillVersion @relation("AdoptionTarget", fields: [targetVersionId], references: [id], onDelete: Cascade)
+
+  /// 被采纳的个人副本
+  sourceVersionId String
+  sourceVersion   SkillVersion @relation("AdoptionSource", fields: [sourceVersionId], references: [id], onDelete: Cascade)
+
+  adoptedById String
+  adoptedBy   User   @relation("SkillVersionAdopter", fields: [adoptedById], references: [id], onDelete: Restrict)
+
+  /// 一次「一键采纳」的批次号。用于「这次采纳了 5 个人的改动」这种展示 ——
+  /// 没有它就只能看到 5 条孤立记录，说不出它们是同一个决定。
+  batchId String?
+
+  adoptedAt DateTime @default(now())
+
+  @@unique([targetVersionId, sourceVersionId])
+  @@index([sourceVersionId])
+  @@index([batchId])
+  @@map("skill_version_adoptions")
+}
+
+/// 智能沉淀建议（会议纪要2 §6.5）。
+///
+/// *系统给出建议 ——「某员工在使用过程中产生了 X，建议升级到你的技能中」，
+/// 管理员选择采纳或拒绝；支持针对单个员工提取，也支持对全部使用者一键 AI 分析。*
+///
+/// 建议永不自动生效：采纳动作会走 adoptInsight 生成一个新的企业版本，
+/// 由管理员显式点下去。模型产出的东西直接改生效正文，出错时没人拦得住。
+model CapabilityInsight {
+  id String @id @default(cuid())
+
+  capabilityId String
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  /// MEMBER = 针对单个成员提取；ALL = 全员一键分析后的统一提炼
+  scope    CAPABILITY_INSIGHT_SCOPE
+  /// scope=MEMBER 时的目标成员（User.id）
+  memberId String?
+
+  /// [{ phenomenon, suggestion, affectedSnippet?, confidence }]
+  /// 存 Json 而不是拆表：建议条目只被整体读写，拆表只会多一次 join
+  findings Json
+
+  /// 这次分析看了多少条执行记录 + 多少个人副本。没有它，
+  /// 「建议靠不靠谱」无从判断 —— 看 3 条记录和看 300 条得出的结论不是一回事
+  sampleSize    Int
+  personalCount Int    @default(0)
+  modelId       String
+
+  status CAPABILITY_INSIGHT_STATUS @default(PENDING)
+
+  /// 采纳后产生的企业版本，便于「这一版是 AI 建议来的」这种追溯
+  adoptedVersionId String?
+  adoptedById      String?
+  adoptedBy        User?     @relation("CapabilityInsightAdopter", fields: [adoptedById], references: [id], onDelete: SetNull)
+  resolvedAt       DateTime?
+
+  createdById String
+  createdBy   User     @relation("CapabilityInsightCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([capabilityId, status])
+  @@index([enterpriseId, createdAt(sort: Desc)])
+  @@map("capability_insights")
+}
+
+enum CAPABILITY_INSIGHT_SCOPE {
+  MEMBER
+  ALL
+}
+
+enum CAPABILITY_INSIGHT_STATUS {
+  PENDING
+  ADOPTED
+  DISMISSED
 }
 
 enum SkillReviewActorType {
@@ -950,7 +1066,7 @@ model ConversationSession {
   status SessionStatus @default(ACTIVE)
 
   // 会话来源：对话中心与任务中心在数据层隔离。
-  source ConversationSource @default(CHAT)
+  source     ConversationSource @default(CHAT)
   // 任务会话上下文。任务计划目前由任务中心维护，故不建立 Prisma 外键。
   taskPlanId String?
   taskStepId String?
@@ -966,9 +1082,9 @@ model ConversationSession {
   toolExecutions     ToolExecution[]
   knowledgeUsageLogs KnowledgeUsageLog[]
 
-  @@map("conversation_sessions")
   @@index([userId, source])
   @@index([taskPlanId, taskStepId])
+  @@map("conversation_sessions")
 }
 
 enum SessionStatus {
@@ -1174,7 +1290,7 @@ model SubscriptionCredit {
 
   /// 冗余存企业与员工：账单聚合与多租户校验都需要，避免每次 join 两跳。
   enterpriseId String
-  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  enterprise   Enterprise      @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
   employeeId   String
   employee     DigitalEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -1733,10 +1849,10 @@ model TextChunk {
 
   // Phase 2: Vector + Lexical fields
   // Legacy compatibility column. New vector search uses embeddingVector.
-  embedding      Bytes?
+  embedding       Bytes?
   embeddingVector Unsupported("vector(1024)")?
-  embeddingModel String? // bge-m3:latest
-  tokens         String[] // 预分词结果，用于 BM25
+  embeddingModel  String? // bge-m3:latest
+  tokens          String[] // 预分词结果，用于 BM25
 
   vectorId  String? // 外部向量库 ID（Phase 1 遗留，Phase 2 不用）
   createdBy String?
@@ -1798,6 +1914,8 @@ enum NotificationType {
   SUBSCRIPTION_REQUEST_CREATED
   SUBSCRIPTION_REQUEST_APPROVED
   SUBSCRIPTION_REQUEST_REJECTED
+  /// 企业采纳成员改动、生成新企业版本后推给企业成员：「XX 技能更新了能力」。
+  SKILL_VERSION_UPDATED
 }
 
 // ============================================================================
@@ -2266,21 +2384,21 @@ enum TASK_STEP_STATUS {
 }
 
 model TaskRun {
-  id           String          @id @default(cuid())
-  objective    String          @db.Text
-  summary      String          @db.Text @default("")
-  status       TASK_RUN_STATUS @default(AWAITING_CONFIRMATION)
+  id          String          @id @default(cuid())
+  objective   String          @db.Text
+  summary     String          @default("") @db.Text
+  status      TASK_RUN_STATUS @default(AWAITING_CONFIRMATION)
   /// TaskPlanStep[] 快照。
   ///
   /// ⚠️ 兼容读字段。执行引擎搬到服务端后，权威数据是 `TaskRunStep` 行，
   /// 这里只保留一个版本周期供旧前端与历史记录读取，新逻辑不要写它。
-  steps        Json
+  steps       Json
   /// 画布布局 { nodes: Record<stepId,{x,y}>, endpoints: { input?, output? } }
-  layout       Json?
+  layout      Json?
   /// { type: 'llm', model: string }
-  planner      Json?
-  startedAt    DateTime?
-  completedAt  DateTime?
+  planner     Json?
+  startedAt   DateTime?
+  completedAt DateTime?
 
   /// 会议要求的「最终交付结果」：全部步骤完成后由 LLM 汇总的正文（Markdown）。
   /// 与逐步产出分开存：翻步骤和看交付物是两种阅读需求，不能只给前者。
@@ -2291,17 +2409,17 @@ model TaskRun {
 
   /// 抢到这次运行的 worker 标识（`${hostname}:${pid}`）。
   /// 多实例部署时防止两个 worker 同时推进同一个 run。
-  claimedBy   String?
+  claimedBy       String?
   /// worker 心跳。孤儿判定依据 —— 此前靠 updatedAt 猜，而 updatedAt 会被
   /// 任何无关写入刷新（例如用户改画布布局），导致真的挂掉了也看不出来。
-  heartbeatAt DateTime?
+  heartbeatAt     DateTime?
   /// 用户请求停止的时刻。worker 在步骤边界检查它，实现「优雅停止」。
   stopRequestedAt DateTime?
 
   userId       String
   enterpriseId String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   enterprise Enterprise?    @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
@@ -2328,14 +2446,14 @@ model TaskRunStep {
 
   /// 计划内的步骤标识（`step-1`…），前端沿用它做画布节点键与依赖引用。
   /// 不用主键 id 是因为依赖关系在 LLM 出计划时就已按这个键生成。
-  stepKey String
-  order   Int
-  title   String
+  stepKey     String
+  order       Int
+  title       String
   description String @db.Text
 
-  employeeId   String
+  employeeId     String
   /// 冗余员工名与头像：任务流水要长期可读，员工被删或改名不该让历史记录失真
-  employeeName String
+  employeeName   String
   employeeAvatar String?
   capabilityId   String
   capabilityName String
@@ -2345,10 +2463,10 @@ model TaskRunStep {
   skillVersionId String?
 
   /// 依赖的上游 stepKey 列表
-  dependsOn String[] @default([])
+  dependsOn        String[] @default([])
   /// LLM 给出的选人理由，前端在步骤详情里展示
-  rationale String   @db.Text @default("")
-  estimatedSeconds Int @default(0)
+  rationale        String   @default("") @db.Text
+  estimatedSeconds Int      @default(0)
 
   status TASK_STEP_STATUS @default(QUEUED)
 
@@ -2366,7 +2484,7 @@ model TaskRunStep {
   completedAt DateTime?
   durationMs  Int?
   /// 重试次数，用于前端展示「第 2 次尝试」
-  attempt     Int      @default(0)
+  attempt     Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

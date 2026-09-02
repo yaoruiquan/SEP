@@ -12,7 +12,6 @@ import {
   Pencil,
   RotateCcw,
   ShieldCheck,
-  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -20,14 +19,12 @@ import { toast } from '@/components/ui/toast';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 import { cn } from '@/lib/utils';
 import {
+  usePublishEnterpriseVersion,
   useSelectEffectiveVersion,
   type TimelineVersion,
   type VersionTimeline,
 } from './use-capability-iteration';
-import { useCreateEnterpriseSkillVersion, useReviewEnterpriseSkillVersion } from '@/features/skill-version/use-skill-version';
-import { RejectReasonDialog } from '@/features/contribution/components/reject-reason-dialog';
-import { useQueryClient } from '@tanstack/react-query';
-import { capabilityIterationKeys } from './use-capability-iteration';
+import { useCreateEnterpriseSkillVersion } from '@/features/skill-version/use-skill-version';
 
 /**
  * 版本时间线。
@@ -39,24 +36,9 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
   const [expandedId, setExpandedId] = useState<string>();
   const selectVersion = useSelectEffectiveVersion(timeline.capability.id);
   const createVersion = useCreateEnterpriseSkillVersion();
-  const reviewVersion = useReviewEnterpriseSkillVersion();
-  const queryClient = useQueryClient();
+  const publishVersion = usePublishEnterpriseVersion(timeline.capability.id);
 
-  /**
-   * 审核完刷新本页数据。
-   *
-   * `useReviewEnterpriseSkillVersion` 只失效 `['skill-versions']`（它是给员工技能页
-   * 用的），而这一页的数据挂在 `['capability-iteration']` 下 —— 不手动失效的话
-   * 审核通过后时间线上的状态不会变，看起来像没生效。
-   */
-  const refreshTimeline = () => {
-    void queryClient.invalidateQueries({
-      queryKey: capabilityIterationKeys.versions(timeline.capability.id),
-    });
-    void queryClient.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
-  };
   const [subscriptionId, setSubscriptionId] = useState(timeline.subscriptionId);
-  const [rejectTarget, setRejectTarget] = useState<TimelineVersion>();
   const selectedSubscription = timeline.subscriptions.find((item) => item.subscriptionId === subscriptionId) ?? timeline.subscriptions[0];
   const currentId = selectedSubscription?.currentVersionId ?? timeline.currentVersionId;
   const parentVersion = timeline.versions.find((version) => version.id === currentId) ?? timeline.versions.find((version) => version.status === 'PLATFORM_APPROVED');
@@ -211,11 +193,9 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
                     {timeline.canManage && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
                       <Link href={`/skills/${version.id}/edit?returnTo=/capabilities/${timeline.capability.id}`} aria-label="编辑企业版本" className="grid h-7 w-7 place-items-center rounded-glass-md text-gtext-muted hover:bg-glass-3 hover:text-gtext-primary"><Pencil className="h-3.5 w-3.5" /></Link>
                     )}
-                    {timeline.canManage && isEnterprise && version.status === 'PENDING_ENTERPRISE_REVIEW' && (
-                      <>
-                        <Button size="sm" variant="glass" className="h-7 px-2 text-[11px]" onClick={() => reviewVersion.mutate({ id: version.id, decision: 'APPROVE' }, { onSuccess: () => { toast.success(`已通过 ${versionLabel(version)}`); refreshTimeline(); }, onError: (error) => toast.error(error instanceof Error ? error.message : '审核失败') })} loading={reviewVersion.isPending}><ShieldCheck className="h-3 w-3" /> 通过</Button>
-                        <Button size="sm" variant="glass" className="h-7 px-2 text-[11px]" onClick={() => setRejectTarget(version)}><XCircle className="h-3 w-3" /> 驳回</Button>
-                      </>
+                    {/* 会议否掉提审流：草稿由管理员一步发布，没有「提交审核 → 自己批准」 */}
+                    {timeline.canManage && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
+                      <Button size="sm" variant="glass-primary" className="h-7 px-2 text-[11px]" onClick={() => publishVersion.mutate(version.id, { onSuccess: (result) => toast.success(`${versionLabel(version)} 已发布并生效`, `对 ${result.affectedSubscriptions} 个雇佣关系生效`), onError: (error) => toast.error(error instanceof Error ? error.message : '发布失败') })} loading={publishVersion.isPending}><ShieldCheck className="h-3 w-3" /> 发布并生效</Button>
                     )}
                     {selectable && (
                       <Button
@@ -291,30 +271,6 @@ export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }
         );
       })}
       </ol>
-
-      <RejectReasonDialog
-        open={Boolean(rejectTarget)}
-        capabilityName={rejectTarget ? versionLabel(rejectTarget) : ''}
-        loading={reviewVersion.isPending}
-        onOpenChange={(open) => {
-          if (!open) setRejectTarget(undefined);
-        }}
-        onConfirm={(reason) => {
-          if (!rejectTarget) return;
-          reviewVersion.mutate(
-            { id: rejectTarget.id, decision: 'REJECT', comment: reason },
-            {
-              onSuccess: () => {
-                toast.success(`已驳回 ${versionLabel(rejectTarget)}`);
-                setRejectTarget(undefined);
-                refreshTimeline();
-              },
-              onError: (error) =>
-                toast.error(error instanceof Error ? error.message : '驳回失败'),
-            },
-          );
-        }}
-      />
     </div>
   );
 }

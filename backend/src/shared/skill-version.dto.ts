@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const SkillVersionScopeSchema = z.enum(['PLATFORM', 'ENTERPRISE']);
+export const SkillVersionScopeSchema = z.enum(['PLATFORM', 'ENTERPRISE', 'PERSONAL']);
 export const SkillVersionStatusSchema = z.enum([
   'DRAFT',
   'PENDING_ENTERPRISE_REVIEW',
@@ -10,6 +10,7 @@ export const SkillVersionStatusSchema = z.enum([
   'ENTERPRISE_REJECTED',
   'PLATFORM_REJECTED',
   'ARCHIVED',
+  'PERSONAL_ACTIVE',
 ]);
 
 export const CreateEnterpriseSkillVersionDtoSchema = z.object({
@@ -45,6 +46,20 @@ export const CreatePlatformSkillVersionDtoSchema = z.object({
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
+/**
+ * 采纳成员的个人改动。
+ *
+ * 一个 id 是「逐条采纳」，多个 id 是「一键采纳多人改动」—— 会议两种都要，
+ * 所以接口只有一个、靠数组长度区分，而不是两个端点。
+ */
+export const AdoptPersonalVersionsDtoSchema = z.object({
+  sourceVersionIds: z
+    .array(z.string().min(1))
+    .min(1, '至少选择一条改动')
+    .max(50, '一次最多采纳 50 条'),
+  changeSummary: z.string().trim().max(2000).optional(),
+});
+
 export type CreateEnterpriseSkillVersionDto = z.infer<
   typeof CreateEnterpriseSkillVersionDtoSchema
 >;
@@ -53,4 +68,7 @@ export type ReviewSkillVersionDto = z.infer<typeof ReviewSkillVersionDtoSchema>;
 export type SelectSkillVersionDto = z.infer<typeof SelectSkillVersionDtoSchema>;
 export type CreatePlatformSkillVersionDto = z.infer<
   typeof CreatePlatformSkillVersionDtoSchema
+>;
+export type AdoptPersonalVersionsDto = z.infer<
+  typeof AdoptPersonalVersionsDtoSchema
 >;

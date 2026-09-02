@@ -31,6 +31,7 @@ import { ComputeCreditModule } from './modules/compute-credit/compute-credit.mod
 import { SubscriptionFulfillmentModule } from './modules/subscription-fulfillment/subscription-fulfillment.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SkillVersionModule } from './modules/skill-version/skill-version.module';
+import { CapabilityInsightModule } from './modules/capability-insight/capability-insight.module';
 import { TaskPlanningModule } from './modules/task-planning/task-planning.module';
 import { CapabilityContributionModule } from './modules/capability-contribution/capability-contribution.module';
 import { TaskModule } from './modules/task/task.module';
@@ -73,6 +74,7 @@ import { TaskExecutionModule } from './modules/task-execution/task-execution.mod
     SubscriptionFulfillmentModule,
     DashboardModule,
     SkillVersionModule,
+    CapabilityInsightModule,
     TaskPlanningModule,
     CapabilityContributionModule,
     TaskModule,

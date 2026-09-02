@@ -96,23 +96,24 @@ export function useUpdateEnterpriseSkillVersion() {
   });
 }
 
-export function useSubmitEnterpriseSkillReview() {
+/**
+ * 发布企业版草稿并立即生效。
+ *
+ * 取代了原先的「提交审核 → 通过/驳回」两步 —— 会议纪要2 §6.4 否掉了企业内提审流，
+ * 管理员自建草稿再自审是纯仪式（批准人和提交人是同一个人）。后端那两个端点已删除。
+ */
+export function usePublishEnterpriseSkillVersion() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post(`/enterprise/skill-versions/${id}/submit-review`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['skill-versions'] }),
-  });
-}
-
-export function useReviewEnterpriseSkillVersion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { id: string; decision: 'APPROVE' | 'REJECT'; comment?: string }) =>
-      api.post(`/enterprise/skill-versions/${data.id}/review`, {
-        decision: data.decision,
-        comment: data.comment,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['skill-versions'] }),
+    mutationFn: (id: string) =>
+      api.post<{ affectedSubscriptions: number }>(
+        `/enterprise/skill-versions/${id}/publish`,
+        {},
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['skill-versions'] });
+      void qc.invalidateQueries({ queryKey: ['capability-iteration'] });
+    },
   });
 }
 

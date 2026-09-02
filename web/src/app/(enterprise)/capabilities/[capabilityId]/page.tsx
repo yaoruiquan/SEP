@@ -1,34 +1,44 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileStack, ListTree, Sparkles } from 'lucide-react';
-import { ExecutionDetailPanel } from '@/features/capability-iteration/execution-detail-panel';
+import { ArrowLeft, GitCompare, ListTree, Sparkles, Users } from 'lucide-react';
+import { InsightsPanel } from '@/features/capability-iteration/insights-panel';
+import { PersonalChangesPanel } from '@/features/capability-iteration/personal-changes-panel';
 import { UsagePanel } from '@/features/capability-iteration/usage-panel';
 import { VersionTimelinePanel } from '@/features/capability-iteration/version-timeline-panel';
 import { useVersionTimeline } from '@/features/capability-iteration/use-capability-iteration';
+import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
+import { nav } from '@/locales/zh-CN';
 
-type Tab = 'versions' | 'usage' | 'executions';
-
-const TABS: Array<{ key: Tab; label: string; icon: React.ElementType }> = [
-  { key: 'versions', label: '版本', icon: ListTree },
-  { key: 'usage', label: '使用', icon: Sparkles },
-  { key: 'executions', label: '明细', icon: FileStack },
-];
+type Tab = 'versions' | 'changes' | 'usage' | 'insights';
 
 /**
- * 能力迭代详情。
+ * 四个 tab 对应会议纪要2 §6 的四件事，且**封顶四个** ——
+ * §6.7 说「目录层级越深越难用」，第五个 tab 就该考虑是不是塞多了。
  *
- * 三个 tab 对应会议决策 2 的三件事：改到第几版（版本）、多少人在用（使用）、
- * 输入输出是什么（明细）。「迭代建议」（T2.8 智能沉淀）留到后续，那需要新的
- * LLM 分析模块，不在本轮范围。
+ * 执行明细原先是独立 tab，现在降级为「使用」tab 里的折叠区：它是使用统计的下钻，
+ * 不是一个平级的话题。
  */
+const TABS: Array<{ key: Tab; label: string; icon: React.ElementType; adminLabel?: string }> = [
+  { key: 'versions', label: '版本', icon: ListTree },
+  { key: 'changes', label: '我的副本', adminLabel: '大家的改动', icon: GitCompare },
+  { key: 'usage', label: '使用', icon: Users },
+  { key: 'insights', label: '迭代建议', icon: Sparkles },
+];
+
 export default function CapabilityIterationDetailPage() {
   const params = useParams<{ capabilityId: string }>();
+  const searchParams = useSearchParams();
   const capabilityId = params.capabilityId;
-  const [tab, setTab] = useState<Tab>('versions');
+  // 列表页的待办区直接跳 ?tab=changes，落地就在改动那一屏
+  const initialTab = (searchParams.get('tab') as Tab | null) ?? 'versions';
+  const [tab, setTab] = useState<Tab>(
+    TABS.some((item) => item.key === initialTab) ? initialTab : 'versions',
+  );
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   const { data: timeline, isLoading, isError, error } = useVersionTimeline(capabilityId);
 
@@ -62,7 +72,7 @@ export default function CapabilityIterationDetailPage() {
       </div>
 
       <div className="flex items-center gap-1 rounded-glass-md border border-glassline bg-glass-2 p-1">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {TABS.map(({ key, label, adminLabel, icon: Icon }) => (
           <button
             key={key}
             type="button"
@@ -76,15 +86,20 @@ export default function CapabilityIterationDetailPage() {
             )}
           >
             <Icon className="h-3.5 w-3.5" />
-            {label}
+            {timeline.canManage && adminLabel ? adminLabel : label}
           </button>
         ))}
       </div>
 
       {tab === 'versions' && <VersionTimelinePanel timeline={timeline} />}
-      {tab === 'usage' && <UsagePanel capabilityId={capabilityId} />}
-      {tab === 'executions' && (
-        <ExecutionDetailPanel capabilityId={capabilityId} canManage={timeline.canManage} />
+      {tab === 'changes' && (
+        <PersonalChangesPanel capabilityId={capabilityId} currentUserId={currentUserId} />
+      )}
+      {tab === 'usage' && (
+        <UsagePanel capabilityId={capabilityId} canManage={timeline.canManage} />
+      )}
+      {tab === 'insights' && (
+        <InsightsPanel capabilityId={capabilityId} canManage={timeline.canManage} />
       )}
     </div>
   );
@@ -97,7 +112,7 @@ function BackLink() {
       className="inline-flex items-center gap-1 text-xs text-gtext-muted transition-colors hover:text-gbrand-text"
     >
       <ArrowLeft className="h-3.5 w-3.5" />
-      返回能力迭代
+      返回{nav.capabilities}
     </Link>
   );
 }

@@ -41,12 +41,17 @@ export interface AdapterConfig {
  * 执行上下文：决定「用哪个版本」需要知道「谁在用」。
  *
  * 版本解析顺序（见 SkillVersionService.resolveEffectiveVersion）：
- *   企业选版 → 员工模板默认版 → 最新平台审核通过版
- * 没有 subscriptionId 就只能落到最后一档，所以调用方必须传。
+ *   该成员的个人副本 → 企业选版 → 员工模板默认版 → 最新平台审核通过版
+ * 少传一个字段就少一层解析，会静默落到更下面的版本，所以两个都要传。
  */
 export interface CapabilityExecutionContext {
   /** 雇佣关系 ID。有它才能解析出企业选定的版本 */
   subscriptionId?: string;
+  /**
+   * 发起这次执行的成员。有它才能解析出**他自己的**个人副本 ——
+   * 「使用发生在个人」这条会议要求就落在这个字段上。
+   */
+  userId?: string;
 }
 
 export interface CapabilityAdapter {

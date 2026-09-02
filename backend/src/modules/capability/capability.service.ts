@@ -366,11 +366,13 @@ export class CapabilityService {
     let skillContent: string | null = null;
     let skillVersionId: string | null = null;
 
-    // SKILL 类能力：解析出本次执行应该用的版本（企业私有 > 员工模板默认 > 最新平台审核通过版）
+    // SKILL 类能力：解析本次执行该用的版本
+    // （个人副本 > 企业选版 > 员工模板默认 > 最新平台审核通过版）
     if (capability.type === 'SKILL' && ctx.subscriptionId) {
       const resolved = await this.skillVersionService.resolveEffectiveVersion(
         ctx.subscriptionId,
         capabilityId,
+        ctx.userId,
       );
       if (resolved) {
         skillContent = resolved.content;

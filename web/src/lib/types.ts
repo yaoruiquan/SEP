@@ -9,16 +9,20 @@ export type ContributionReviewStatus = 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' 
 export type ContributionPlatformStatus = 'NOT_SUBMITTED' | 'REQUESTED' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 export type UserRole = 'USER' | 'ADMIN';
-export type SkillVersionScope = 'PLATFORM' | 'ENTERPRISE';
+export type SkillVersionScope = 'PLATFORM' | 'ENTERPRISE' | 'PERSONAL';
 export type SkillVersionStatus =
   | 'DRAFT'
+  /** @deprecated 企业内提审流已下线，仅历史数据可能出现 */
   | 'PENDING_ENTERPRISE_REVIEW'
   | 'ENTERPRISE_APPROVED'
   | 'PENDING_PLATFORM_REVIEW'
   | 'PLATFORM_APPROVED'
+  /** @deprecated 同 PENDING_ENTERPRISE_REVIEW */
   | 'ENTERPRISE_REJECTED'
   | 'PLATFORM_REJECTED'
-  | 'ARCHIVED';
+  | 'ARCHIVED'
+  /** 个人副本的唯一状态：存在即生效 */
+  | 'PERSONAL_ACTIVE';
 
 export interface SkillVersionSummary {
   id: string;

@@ -19,6 +19,7 @@ import {
   PlayCircle,
   Settings2,
   Sparkles,
+  Users,
   XCircle,
   Zap,
 } from 'lucide-react';
@@ -40,7 +41,11 @@ import {
 } from '@/features/subscription/use-subscriptions';
 import { useSubscriptionGrants } from '@/features/enterprise/use-enterprise';
 import { useEmployeeDetail } from '@/features/employee/use-employee-detail';
-import { useEmployeeStats } from '@/features/employee/use-employee-stats';
+import {
+  useEmployeeEnterpriseUsage,
+  useEmployeeStats,
+  type EmployeeEnterpriseUsage,
+} from '@/features/employee/use-employee-stats';
 import type { CapabilityType, SubscriptionStatus } from '@/lib/types';
 import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
 import {
@@ -111,6 +116,8 @@ export default function EmployeeDetailPage() {
   const employeeId = subscription?.employee?.id ?? '';
   const employeeQuery = useEmployeeDetail(employeeId);
   const statsQuery = useEmployeeStats(employeeId, days);
+  // 会议 §6.2 要的是企业范围的「谁在用」，statsQuery 只算当前用户自己的会话
+  const enterpriseUsageQuery = useEmployeeEnterpriseUsage(employeeId, days);
   const grantsQuery = useSubscriptionGrants(id);
   const updateSubscription = useUpdateSubscription();
   const changeStatus = useChangeSubscriptionStatus();
@@ -507,6 +514,11 @@ export default function EmployeeDetailPage() {
           </Card>
         </TabsContent>
         <TabsContent value="monitoring" className="mt-5 space-y-5">
+          <EnterpriseUsageCard
+            data={enterpriseUsageQuery.data}
+            isLoading={enterpriseUsageQuery.isLoading}
+            days={days}
+          />
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <SectionTitle icon={<BarChart3 className="h-4 w-4" />} title="调用趋势" />
@@ -661,6 +673,93 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+/**
+ * 「谁在用」（会议纪要2 §6.2）。
+ *
+ * 与下方的「调用趋势」区别：趋势图是当前用户自己的会话，这一块是**企业范围**的 ——
+ * 会议原话是「点进硅基员工能看到使用情况跟踪：谁在用、用了多少次、聊了什么」。
+ * 措辞用「使用情况」而不是「监控」：§6 有明确的用词禁令。
+ */
+function EnterpriseUsageCard({
+  data,
+  isLoading,
+  days,
+}: {
+  data: EmployeeEnterpriseUsage | undefined;
+  isLoading: boolean;
+  days: number;
+}) {
+  if (isLoading) {
+    return <div className="h-32 animate-pulse rounded-glass-lg border border-glassline bg-glass-1" />;
+  }
+  if (!data) return null;
+
+  const { summary, byMember } = data;
+  if (summary.totalConversations === 0) {
+    return (
+      <Card className="p-5">
+        <SectionTitle icon={<Users className="h-4 w-4" />} title={`谁在用（近 ${days} 天）`} />
+        <p className="mt-2 text-xs text-gtext-muted">
+          这位硅基员工在近 {days} 天内还没有被本企业成员使用过。
+        </p>
+      </Card>
+    );
+  }
+
+  const maxRounds = Math.max(...byMember.map((row: { rounds: number }) => row.rounds), 1);
+
+  return (
+    <Card className="p-5">
+      <SectionTitle icon={<Users className="h-4 w-4" />} title={`谁在用（近 ${days} 天）`} />
+
+      <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold text-gtext-primary">
+        <span>本企业</span>
+        <span className="text-2xl font-bold tabular-nums text-gbrand-text">
+          {summary.distinctUserCount}
+        </span>
+        <span>人在用</span>
+        <span className="text-gtext-muted">·</span>
+        <span className="tabular-nums">{summary.totalConversations}</span>
+        <span>个会话</span>
+        <span className="text-gtext-muted">·</span>
+        <span className="tabular-nums">{summary.totalRounds}</span>
+        <span>轮对话</span>
+        {summary.successRate !== null && (
+          <>
+            <span className="text-gtext-muted">·</span>
+            <span className="tabular-nums">{summary.successRate}%</span>
+            <span>成功率</span>
+          </>
+        )}
+      </p>
+      {summary.lastUsedAt && (
+        <p className="mt-1 text-[11px] text-gtext-muted">
+          上次使用 {new Date(summary.lastUsedAt).toLocaleString('zh-CN')}
+        </p>
+      )}
+
+      <div className="mt-4 space-y-1.5">
+        {byMember.map((row: EmployeeEnterpriseUsage['byMember'][number]) => (
+          <div key={row.userId} className="flex items-center gap-3">
+            <span className="w-28 shrink-0 truncate text-xs text-gtext-primary">
+              {row.userName ?? '未知成员'}
+            </span>
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-glass-pill bg-glass-3">
+              <span
+                className="block h-full rounded-glass-pill bg-gbrand transition-all duration-500"
+                style={{ width: `${Math.max((row.rounds / maxRounds) * 100, 3)}%` }}
+              />
+            </div>
+            <span className="w-36 shrink-0 text-right text-[11px] tabular-nums text-gtext-secondary">
+              {row.conversations} 个会话 · {row.rounds} 轮
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function ExecutionTable({
   entries,
 }: {
