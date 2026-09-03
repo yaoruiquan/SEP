@@ -83,6 +83,8 @@ function pickModel(rnd: () => number) {
 export interface ShuyiBusinessResult {
   subscriptionCount: number;
   grantCount: number;
+  /** 本次新建的 Message 条数（模型分布面板的数据源） */
+  messageCount: number;
   sessionCount: number;
   usageRecordCount: number;
   walletBalanceCNY: number;
@@ -352,9 +354,12 @@ export async function seedShuyiBusiness(
   const existingUsage = await prisma.computeUsageRecord.count({
     where: { enterpriseId },
   });
-  const bail = (): ShuyiBusinessResult => ({
+  const bail = async (): Promise<ShuyiBusinessResult> => ({
     subscriptionCount,
     grantCount,
+    // 用量已存在时仍要补消息：会话早已建好、账单也在，
+    // 缺的只是 Message 这一路（模型分布面板唯一的数据源）。
+    messageCount: await ensureShuyiMessages(prisma, accounts),
     sessionCount: 0,
     usageRecordCount: 0,
     walletBalanceCNY: Number(balance),
@@ -528,12 +533,87 @@ export async function seedShuyiBusiness(
     });
   }
 
+  const messageCount = await ensureShuyiMessages(prisma, accounts);
+
   return {
     subscriptionCount,
     grantCount,
+    messageCount,
     sessionCount: sessionIds.length,
     usageRecordCount: usageRows.length,
     walletBalanceCNY: Number(balance),
     skippedUsage: false,
   };
+}
+
+/**
+ * 补齐 Message —— 模型分布面板（enterprise.service.getModelDistribution）
+ * **只**读 Message.role='ASSISTANT' 且 modelId 非空的行，不读账单表。
+ * 光有 ConversationSession + ComputeUsageRecord 那一格永远是「暂无模型调用数据」。
+ *
+ * 模型、token、成本一律从该会话对应的 ComputeUsageRecord 回填，
+ * 不重新随机 —— 否则模型分布与算力账单会给出两套互相矛盾的数字。
+ *
+ * 幂等：只处理「一条消息都没有」的会话。Message 没有唯一约束，
+ * 靠这个前置判断防重复，不能靠 skipDuplicates。
+ */
+export async function ensureShuyiMessages(
+  prisma: PrismaClient,
+  accounts: SeededShuyi,
+): Promise<number> {
+  const userIds = [...accounts.members.values()].map((m) => m.userId);
+
+  const sessions = await prisma.conversationSession.findMany({
+    where: { userId: { in: userIds }, messages: { none: {} } },
+    select: {
+      id: true,
+      title: true,
+      createdAt: true,
+      employee: { select: { name: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (sessions.length === 0) return 0;
+
+  const records = await prisma.computeUsageRecord.findMany({
+    where: { sessionId: { in: sessions.map((s) => s.id) } },
+    select: {
+      sessionId: true,
+      modelId: true,
+      inputTokens: true,
+      outputTokens: true,
+      costCNY: true,
+    },
+  });
+  const bySession = new Map(records.map((r) => [r.sessionId!, r]));
+
+  const rows: Prisma.MessageCreateManyInput[] = [];
+  for (const session of sessions) {
+    const usage = bySession.get(session.id);
+    // 没有对应账单的会话跳过：宁可这一条不进统计，
+    // 也不要凭空编一个模型名和成本进去。
+    if (!usage) continue;
+
+    const employeeName = session.employee?.name ?? '硅基员工';
+    rows.push({
+      sessionId: session.id,
+      role: 'USER',
+      content: `（演示数据）${employeeName}，请协助处理本次工作事项。`,
+      createdAt: session.createdAt,
+    });
+    rows.push({
+      sessionId: session.id,
+      role: 'ASSISTANT',
+      content: `（演示数据）已完成本次${employeeName}任务，结论与后续建议见上文要点。`,
+      modelId: usage.modelId,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cost: usage.costCNY,
+      createdAt: new Date(session.createdAt.getTime() + 8000),
+    });
+  }
+
+  if (rows.length === 0) return 0;
+  await prisma.message.createMany({ data: rows });
+  return rows.length;
 }

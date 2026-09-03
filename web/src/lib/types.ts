@@ -341,6 +341,16 @@ export interface MarketEmployee {
     };
   }[];
   _count?: { subscriptions?: number };
+  /** 跨企业累计履历。列表和详情都带，缺失时界面留破折号 */
+  stats?: EmployeeTrackRecord;
+}
+
+/** 员工模板的跨企业履历（后端 EmployeeTrackRecordService） */
+export interface EmployeeTrackRecord {
+  /** 累计能力执行次数（全平台） */
+  totalExecutions: number;
+  /** 成功率 0–100 整数；从未执行过为 null，界面留破折号而不是 0% */
+  successRate: number | null;
 }
 
 // ── 企业组织 ──────────────────────────────────────────────────────────────────
@@ -461,6 +471,27 @@ export interface MyEmployee {
   /** 剩余可用赠送金额。非 ACTIVE 状态一律为 '0.00' */
   giftRemainingCNY?: string;
   giftStatus?: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
+
+  /** 本企业范围内的使用情况。后端没算出结果时为 undefined，此时整段隐藏 */
+  usage?: MyEmployeeUsage;
+}
+
+/**
+ * 卡片上的使用情况（会议2 §6.1「使用人数即口碑」）。
+ * 与后端 `MyEmployeeUsage` 一一对应，字段含义见 backend/src/shared/index.ts。
+ */
+export interface MyEmployeeUsage {
+  activeUserCount30d: number;
+  grantedUserCount: number;
+  /** 从未用过为 null —— 不要渲染成「1970」或「0 天前」 */
+  lastUsedAt: string | null;
+  /** 自然月 —— 与账单、算力余额页同口径，不要和上面的 30 天混着讲 */
+  monthCostCNY: string;
+  monthCallCount: number;
+  /** 成功率的分母（近 30 天执行次数）。比例必须带分母显示，4/6 和 87/100 不是一回事 */
+  executionCount30d: number;
+  /** 无执行记录时为 null，界面上应留空而不是显示 0% */
+  successRate30d: number | null;
 }
 
 /** 员工包的一个已发布版本 */

@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { GrantService } from "./grant.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
@@ -33,6 +34,7 @@ describe("GrantService", () => {
   let prisma: any;
   let ctx: any;
   let packages: any;
+  let usage: any;
 
   beforeEach(async () => {
     prisma = {
@@ -56,6 +58,10 @@ describe("GrantService", () => {
       // 默认无包 —— 测 myEmployees 时不关心 packageAvailable 的具体值
       employeeIdsWithPackage: jest.fn().mockResolvedValue(new Set()),
     };
+    usage = {
+      // 默认「没有使用情况」—— 聚合口径由 employee-usage.service.spec.ts 覆盖
+      forSubscriptions: jest.fn().mockResolvedValue(new Map()),
+    };
 
     const mod = await Test.createTestingModule({
       providers: [
@@ -64,6 +70,7 @@ describe("GrantService", () => {
         { provide: EnterpriseContextService, useValue: ctx },
         // 只用于给 myEmployees 标注 packageAvailable，默认「都没有包」
         { provide: PackageService, useValue: packages },
+        { provide: EmployeeUsageService, useValue: usage },
       ],
     }).compile();
 
@@ -155,6 +162,74 @@ describe("GrantService", () => {
       const rows = await service.myEmployees("u1");
 
       expect(rows[0].packageAvailable).toBe(false);
+    });
+
+    it("附上使用情况，且只按去重后的订阅批量算一次", async () => {
+      prisma.employeeGrant.findMany
+        .mockResolvedValueOnce([grantRow("i-a")])
+        .mockResolvedValueOnce([grantRow("i-b")]);
+      usage.forSubscriptions.mockResolvedValue(
+        new Map([
+          [
+            "i-a",
+            {
+              activeUserCount30d: 3,
+              grantedUserCount: 8,
+              lastUsedAt: "2026-09-01T00:00:00.000Z",
+              monthCostCNY: "12.40",
+              monthCallCount: 27,
+              executionCount30d: 115,
+              successRate30d: 96,
+            },
+          ],
+        ]),
+      );
+
+      const rows = await service.myEmployees("u1");
+
+      expect(usage.forSubscriptions).toHaveBeenCalledTimes(1);
+      expect(usage.forSubscriptions).toHaveBeenCalledWith("ent-a", [
+        { subscriptionId: "i-a", employeeId: "t1" },
+        { subscriptionId: "i-b", employeeId: "t1" },
+      ]);
+      expect(rows.find((r) => r.subscriptionId === "i-a")?.usage)
+        .toMatchObject({ activeUserCount30d: 3, grantedUserCount: 8 });
+      // 没有聚合结果的行留 undefined，前端据此隐藏这一段而不是显示 0
+      expect(rows.find((r) => r.subscriptionId === "i-b")?.usage).toBeUndefined();
+    });
+
+    it("默认按最近使用排序，从没用过的排最后", async () => {
+      prisma.employeeGrant.findMany
+        .mockResolvedValueOnce([
+          grantRow("i-old"),
+          grantRow("i-never"),
+          grantRow("i-new"),
+        ])
+        .mockResolvedValueOnce([]);
+      const usageRow = (lastUsedAt: string | null) => ({
+        activeUserCount30d: 0,
+        grantedUserCount: 0,
+        lastUsedAt,
+        monthCostCNY: "0.00",
+        monthCallCount: 0,
+        executionCount30d: 0,
+        successRate30d: null,
+      });
+      usage.forSubscriptions.mockResolvedValue(
+        new Map([
+          ["i-old", usageRow("2026-08-01T00:00:00.000Z")],
+          ["i-never", usageRow(null)],
+          ["i-new", usageRow("2026-09-02T00:00:00.000Z")],
+        ]),
+      );
+
+      const rows = await service.myEmployees("u1");
+
+      expect(rows.map((r) => r.subscriptionId)).toEqual([
+        "i-new",
+        "i-old",
+        "i-never",
+      ]);
     });
   });
 

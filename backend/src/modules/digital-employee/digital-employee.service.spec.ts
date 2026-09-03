@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { DigitalEmployeeService } from './digital-employee.service';
+import { EmployeeTrackRecordService } from './employee-track-record.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // ─── Mock PrismaService ───────────────────────────────────────────────────────
@@ -76,6 +77,16 @@ describe('DigitalEmployeeService', () => {
       providers: [
         DigitalEmployeeService,
         { provide: PrismaService, useValue: prismaMock },
+        {
+          // 人才市场履历由独立 service 算（一条原生 SQL），这里只需它别真跑
+          provide: EmployeeTrackRecordService,
+          useValue: {
+            forEmployees: jest.fn().mockResolvedValue(new Map()),
+            forEmployee: jest
+              .fn()
+              .mockResolvedValue({ totalExecutions: 0, successRate: null }),
+          },
+        },
       ],
     }).compile();
 

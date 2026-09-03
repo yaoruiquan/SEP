@@ -32,8 +32,8 @@ describe('EnterpriseService', () => {
               count: jest.fn(),
               findMany: jest.fn(),
             },
-            message: {
-              findMany: jest.fn(),
+            computeUsageRecord: {
+              groupBy: jest.fn(),
             },
           },
         },
@@ -106,7 +106,7 @@ describe('EnterpriseService', () => {
       jest
         .spyOn(prisma.computeTransaction, 'findMany')
         .mockResolvedValue([]);
-      jest.spyOn(prisma.message, 'findMany').mockResolvedValue([]);
+      (prisma.computeUsageRecord.groupBy as jest.Mock).mockResolvedValue([]);
       jest
         .spyOn(prisma.subscription, 'findMany')
         .mockResolvedValue([]);
@@ -127,7 +127,7 @@ describe('EnterpriseService', () => {
       });
     });
 
-    it('should build model distribution from actual assistant messages', async () => {
+    it('模型分布来自统一账本，按 enterpriseId + 30 天窗口在库内聚合', async () => {
       jest.spyOn(ctx, 'resolve').mockResolvedValue({
         enterpriseId: 'ent-1',
         memberId: 'mem-1',
@@ -147,38 +147,40 @@ describe('EnterpriseService', () => {
       jest.spyOn(prisma.computeTransaction, 'findMany').mockResolvedValue([]);
       jest.spyOn(prisma.subscription, 'findMany').mockResolvedValue([]);
       jest.spyOn(prisma.enterpriseMember, 'findMany').mockResolvedValue([]);
-      jest.spyOn(prisma.message, 'findMany').mockResolvedValue([
+      // 不用 jest.spyOn：groupBy 的泛型签名会让 mockResolvedValue 触发
+      // Prisma 的 TS2615 循环引用报错，直接按 jest.Mock 断言。
+      (prisma.computeUsageRecord.groupBy as jest.Mock).mockResolvedValue([
         {
-          modelId: 'gemini-3.5-flash-high',
-          inputTokens: 120,
-          outputTokens: 80,
-          cost: 0.0012,
+          modelId: 'gpt-4o-mini',
+          _count: { _all: 2 },
+          _sum: { inputTokens: 220, outputTokens: 130, costCNY: 0.002 },
         },
         {
-          modelId: 'gemini-3.5-flash-high',
-          inputTokens: 100,
-          outputTokens: 50,
-          cost: 0.0008,
+          modelId: 'gpt-4o',
+          _count: { _all: 5 },
+          _sum: { inputTokens: 1000, outputTokens: 400, costCNY: 1.23456 },
         },
-      ] as any);
+      ]);
 
       const result = await service.getDashboardStats('user-1');
 
-      expect(prisma.message.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            role: 'ASSISTANT',
-            modelId: { not: null },
-          }),
-        }),
+      // 多租户归因直接落在账本的 enterpriseId 上，不再绕 session → user → memberships
+      const call = (prisma.computeUsageRecord.groupBy as jest.Mock).mock
+        .calls[0][0];
+      expect(call.by).toEqual(['modelId']);
+      expect(call.where.enterpriseId).toBe('ent-1');
+      expect(call.where.createdAt.gte).toBeInstanceOf(Date);
+
+      // 窗口是 30 天（与消费趋势同口径），而非「有史以来」
+      const windowDays = Math.round(
+        (Date.now() - call.where.createdAt.gte.getTime()) / 86_400_000,
       );
+      expect(windowDays).toBe(30);
+
+      // 按调用次数倒序；成本保留 4 位小数
       expect(result.modelDistribution).toEqual([
-        {
-          model: 'gemini-3.5-flash-high',
-          requests: 2,
-          tokens: 350,
-          cost: 0.002,
-        },
+        { model: 'gpt-4o', requests: 5, tokens: 1400, cost: 1.2346 },
+        { model: 'gpt-4o-mini', requests: 2, tokens: 350, cost: 0.002 },
       ]);
     });
   });

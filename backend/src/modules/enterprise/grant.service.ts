@@ -7,6 +7,7 @@ import {
 import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
 import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 
@@ -16,6 +17,7 @@ export class GrantService {
     private readonly prisma: PrismaService,
     private readonly ctx: EnterpriseContextService,
     private readonly packages: PackageService,
+    private readonly usage: EmployeeUsageService,
   ) {}
 
   /**
@@ -301,6 +303,31 @@ export class GrantService {
     // 附上每个员工的剩余赠送算力余额。使用者最关心「这个员工还能用多少钱」，
     // 让他们为此再跳一次算力中心是没必要的。
     await this.attachGiftBalances(rows);
+
+    // 附上使用情况（在用人数 / 已授权人数 / 上次使用 / 本月消费 / 成功率）。
+    // 6 条查询覆盖全部卡片，与员工数无关。
+    const usageBySubscription = await this.usage.forSubscriptions(
+      context.enterpriseId,
+      rows.map((r) => ({
+        subscriptionId: r.subscriptionId,
+        employeeId: r.employee.id,
+      })),
+    );
+    for (const row of rows) {
+      row.usage = usageBySubscription.get(row.subscriptionId);
+    }
+
+    // 默认按「最近用过的在前」返回，从没用过的排在末尾（按名称）。
+    // 前端的「最近使用」排序直接沿用这个顺序 —— 排序依据只有后端有
+    // （lastUsedAt 是聚合出来的），放前端就得再造一次口径。
+    rows.sort((a, b) => {
+      const at = a.usage?.lastUsedAt ?? null;
+      const bt = b.usage?.lastUsedAt ?? null;
+      if (at && bt) return bt.localeCompare(at);
+      if (at) return -1;
+      if (bt) return 1;
+      return a.name.localeCompare(b.name, "zh-CN");
+    });
 
     return rows;
   }

@@ -37,6 +37,11 @@ async function main() {
       ? '📊 用量数据已存在，跳过（避免重复堆积）'
       : `📊 会话 ${business.sessionCount} 条 / 账单 ${business.usageRecordCount} 条`,
   );
+  console.log(
+    business.messageCount > 0
+      ? `💬 补齐消息 ${business.messageCount} 条（模型分布面板的数据源）`
+      : '💬 消息已齐备，无需补写',
+  );
 
   console.log(`\n✅ 密码统一 ${DEMO_PASSWORD}`);
   for (const p of SHUYI_PEOPLE) {
