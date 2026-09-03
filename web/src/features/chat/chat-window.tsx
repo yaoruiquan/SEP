@@ -9,6 +9,7 @@ import { MessageBubble } from './message-bubble';
 import { InputBar } from './input-bar';
 import { ModelSwitcher } from './model-switcher';
 import { useChatStream, type SendOutcome } from './use-chat-stream';
+import { QuotaBlockedDialog } from './quota-blocked-dialog';
 import { useConversation } from './use-conversations';
 import { useSubscribedEmployees } from './use-subscribed-employees';
 import { useAuthStore } from '@/lib/auth-store';
@@ -29,7 +30,7 @@ interface PendingUser {
 export function ChatWindow({ conversationId }: ChatWindowProps) {
   const qc = useQueryClient();
   const { data: conversation, isLoading } = useConversation(conversationId);
-  const { state, send, stop, reset } = useChatStream();
+  const { state, send, stop, reset, dismissBlocked } = useChatStream();
   const [pendingUser, setPendingUser] = useState<PendingUser | null>(null);
   // 本轮流式回复的作者，用于让实时气泡显示正确的员工而非会话默认员工
   const [streamingAuthorId, setStreamingAuthorId] = useState<string | null>(null);
@@ -173,7 +174,14 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     return outcome;
   };
 
-  const isEmpty = persisted.length === 0 && !pendingUser && !showLiveAssistant;
+  // notice 也算「有内容」：改道自费的提示可能出现在第一条消息上，
+  // 那时历史还是空的。只看 showLiveAssistant 的话空态会盖住这条提示 ——
+  // 但它不该反过来撑出一个空的助手气泡，所以判据放这里而不是并进 showLiveAssistant。
+  const isEmpty =
+    persisted.length === 0 &&
+    !pendingUser &&
+    !showLiveAssistant &&
+    !state.notice;
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
@@ -254,6 +262,14 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
               />
             )}
 
+            {/* 非致命提示（目前只有「本轮由个人余额支付」）。琥珀色而非红色 ——
+                这一轮照常出结果，红字会让用户以为发失败了。 */}
+            {state.notice && (
+              <p className="rounded-lg bg-amber-500/10 px-4 py-2 text-sm text-amber-700">
+                {state.notice}
+              </p>
+            )}
+
             {state.error && (
               <p className="rounded-lg bg-danger/10 px-4 py-2 text-sm text-danger">
                 {state.error}
@@ -262,6 +278,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
           </div>
         )}
       </div>
+
+      {/* 无条件挂载：点「个人余额充值」时它会先自关，条件挂载会把充值弹窗一起卸掉 */}
+      <QuotaBlockedDialog info={state.blocked} onClose={dismissBlocked} />
 
       <div className="z-20 flex-shrink-0 border-t bg-white">
         <InputBar

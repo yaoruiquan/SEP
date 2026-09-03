@@ -36,10 +36,17 @@ function member(over: Partial<MemberAllowanceItem> = {}): MemberAllowanceItem {
     email: 'dev@acme.local',
     departmentName: '技术部',
     limitCNY: null,
+    period: 'MONTH',
+    periodLabel: '每月',
+    carryOver: true,
     enabled: true,
+    carriedInCNY: '0.00',
     usedCNY: '0.0000',
     remainingCNY: null,
+    topUpRemainingCNY: '0.00',
+    totalRemainingCNY: null,
     usedPct: null,
+    periodStart: '2026-08-31T16:00:00.000Z',
     resetAt: '2026-09-30T16:00:00.000Z',
     ...over,
   };
@@ -60,7 +67,7 @@ describe('AllocateComputeDialog', () => {
     expect(screen.getByRole('button', { name: /改为不限额/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('每月算力额度（元）'), {
+    fireEvent.change(screen.getByLabelText('每周期算力额度（元）'), {
       target: { value: '500' },
     });
     expect(screen.getByRole('button', { name: /保存额度/ })).toBeInTheDocument();
@@ -68,26 +75,33 @@ describe('AllocateComputeDialog', () => {
 
   it('填了金额点保存，按元提交给后端', () => {
     open();
-    fireEvent.change(screen.getByLabelText('每月算力额度（元）'), {
+    fireEvent.change(screen.getByLabelText('每周期算力额度（元）'), {
       target: { value: '500' },
     });
     fireEvent.click(screen.getByRole('button', { name: /保存额度/ }));
 
+    // 周期与结转跟着一起提交：只发金额的话，弹窗里选的「每周 / 不结转」
+    // 会被后端按旧值保留，界面显示的和实际生效的不是一套。
     expect(setAllowance).toHaveBeenCalledWith(
-      { userId: 'user-1', limitCNY: 500 },
+      expect.objectContaining({
+        userId: 'user-1',
+        limitCNY: 500,
+        period: 'MONTH',
+        carryOver: true,
+      }),
       expect.anything(),
     );
   });
 
   it('留空 = 不限额，按钮文案跟着变，提交 null', () => {
     open(member({ limitCNY: '200.00' }));
-    fireEvent.change(screen.getByLabelText('每月算力额度（元）'), {
+    fireEvent.change(screen.getByLabelText('每周期算力额度（元）'), {
       target: { value: '' },
     });
 
     fireEvent.click(screen.getByRole('button', { name: /改为不限额/ }));
     expect(setAllowance).toHaveBeenCalledWith(
-      { userId: 'user-1', limitCNY: null },
+      expect.objectContaining({ userId: 'user-1', limitCNY: null }),
       expect.anything(),
     );
   });
@@ -95,12 +109,12 @@ describe('AllocateComputeDialog', () => {
   it('快捷额度按钮把金额填进输入框', () => {
     open();
     fireEvent.click(screen.getByRole('button', { name: '¥500/月' }));
-    expect(screen.getByLabelText('每月算力额度（元）')).toHaveValue(500);
+    expect(screen.getByLabelText('每周期算力额度（元）')).toHaveValue(500);
   });
 
   it('金额非法时保存按钮禁用，不会发请求', () => {
     open();
-    fireEvent.change(screen.getByLabelText('每月算力额度（元）'), {
+    fireEvent.change(screen.getByLabelText('每周期算力额度（元）'), {
       target: { value: '-3' },
     });
 
@@ -112,7 +126,7 @@ describe('AllocateComputeDialog', () => {
 
   it('新额度低于本月已花时先警告，别让管理员误伤成员', () => {
     open(member({ usedCNY: '120.0000' }));
-    fireEvent.change(screen.getByLabelText('每月算力额度（元）'), {
+    fireEvent.change(screen.getByLabelText('每周期算力额度（元）'), {
       target: { value: '50' },
     });
     expect(screen.getByText(/超过这个额度/)).toBeInTheDocument();
