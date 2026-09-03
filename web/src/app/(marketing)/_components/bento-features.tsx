@@ -63,9 +63,9 @@ export function BentoFeatures() {
           <div className="mb-14 text-center">
             <h2
               id="features-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
+              className="text-3xl font-bold tracking-tight text-gtext-primary sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">核心能力</span>
+              核心能力
             </h2>
             <p className="mt-4 text-gtext-secondary">
               让硅基劳动力进入碳基组织，而不是再多一个孤立工具

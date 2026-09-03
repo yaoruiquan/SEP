@@ -64,11 +64,14 @@ function CountStat({
 
   return (
     <div ref={ref} className="flex flex-col items-center gap-1 py-4">
-      <span className="text-3xl font-black tracking-tight sm:text-4xl">
-        <span className="gradient-text-glass inline-block">
-          {decimals > 0 ? current.toFixed(decimals) : Math.round(current)}
-        </span>
-        <span className="gradient-text-glass text-2xl">{suffix}</span>
+      {/*
+        四个数字改纯色。原来数字和后缀各套一层 gradient-text-glass，
+        一屏里就有 8 个渐变文字元素，和 H1 抢同一种强调手法 ——
+        渐变到处都是，强调就不成立了。渐变现在只留给 H1 的落点词。
+      */}
+      <span className="text-3xl font-black tracking-tight text-gtext-primary sm:text-4xl">
+        {decimals > 0 ? current.toFixed(decimals) : Math.round(current)}
+        <span className="text-2xl text-gbrand-text">{suffix}</span>
       </span>
       <span className="text-sm text-gtext-secondary">{label}</span>
     </div>

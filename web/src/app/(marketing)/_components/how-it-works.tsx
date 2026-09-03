@@ -35,11 +35,9 @@ export function HowItWorks() {
           <div className="mb-14 text-center">
             <h2
               id="how-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
+              className="text-3xl font-bold tracking-tight text-gtext-primary sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">
-                让硅基员工上岗，只需三步
-              </span>
+              让硅基员工上岗，只需三步
             </h2>
             <p className="mt-4 text-gtext-secondary">
               从发现岗位到团队协作，流程清晰可控

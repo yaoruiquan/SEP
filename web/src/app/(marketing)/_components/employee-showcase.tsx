@@ -93,11 +93,9 @@ export function EmployeeShowcase() {
           <div className="text-center">
             <h2
               id="showcase-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
+              className="text-3xl font-bold tracking-tight text-gtext-primary sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">
-                热门硅基员工
-              </span>
+              热门硅基员工
             </h2>
             <p className="mt-4 text-gtext-secondary">
               从真实人才市场挑选岗位，让硅基员工和碳基团队一起工作

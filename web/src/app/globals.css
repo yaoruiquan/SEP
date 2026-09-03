@@ -720,6 +720,47 @@ body {
   color: transparent;
 }
 
+/**
+ * 强调用渐变文字。用品牌 accent 渐变（浅色是 #ec4899 → #f97316，两个色标），
+ * 而不是 --ggradient-text（三色标，第一个是 #1f2937 深灰）。
+ *
+ * 区别很实际：--ggradient-text 是为整句长标题设计的，ramp 里那段深灰要占掉
+ * 开头三分之一才过渡到粉。用它给「组织提效」这种四字短语上色，深灰会吃掉一半，
+ * 看起来像没上色成功。accent 渐变没有灰标，短语从头到尾都是品牌色。
+ *
+ * ⚠️ 只给展示级字号用（≥ 24px 且 bold）。浅色 #ec4899 → #f97316 压 #f8f9fb
+ * 画布是 3.9:1 → 3.0:1，刚过 WCAG 大字号的 3:1，达不到正文要求的 4.5:1。
+ * 深色另有一条覆盖，见下。
+ */
+.gradient-text-accent {
+  background: var(--ggradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/**
+ * 深色下换一对更亮的色标 —— 这不是对比度问题，是「强调方向反了」。
+ *
+ * 深色主题里标题正文是纯白（21:1）。旁边那个本该被强调的词如果只有 3.2:1，
+ * 它就成了整句里最暗的部分：白字抢眼、彩字发闷，读起来像那个词被划掉了，
+ * 而不是被挑出来。浅色下同一套配色成立，是因为正文接近纯黑，粉橙相对更亮。
+ *
+ * 所以深色改用 violet-400 → cyan-400（6.7:1 → 10.3:1），比白字更亮更跳。
+ * 只覆盖这个类、不改 --ggradient-accent —— 那个变量用在实心表面上时
+ * 饱和的紫→粉才是对的，只有当文字用才需要提亮。
+ *
+ * ⚠️ 必须写 background-image，不能写 background 简写。`background` 会把
+ * 同一简写族里没显式给值的子属性重置回初始值，包括基类设的
+ * background-clip: text —— 一旦被重置回 border-box，渐变就不再被裁进字形，
+ * 而是整块画出来，配上 text-fill-color: transparent 的效果是：
+ * 「组织提效」变成一个纯色矩形，字彻底看不见。
+ */
+.theme-glass .gradient-text-accent {
+  background-image: linear-gradient(135deg, #a78bfa 0%, #22d3ee 100%);
+}
+
 /* ─── 焦点可见性
    玻璃背景上默认 focus ring 容易看不见，用亮 ring + 暗描边双层保证可见。  */
 .theme-glass :focus-visible {
@@ -1363,15 +1404,26 @@ html.js-reveal .reveal[data-visible='true'] {
     -webkit-backdrop-filter: var(--glass-blur-md) saturate(140%);
     backdrop-filter: var(--glass-blur-md) saturate(140%);
   }
+  /**
+   * 未滚动时的浅色胶囊导航。
+   *
+   * saturate 从 160% 降到 115%，底色不透明度从 --glass-2(0.72) 提到 0.80。
+   *
+   * 原因：backdrop-filter 采样的是导航条**背后**的页面。首屏左侧压着粉色
+   * aurora blob、右侧是接近白的画布，saturate(160%) 会把左边那团粉再放大 60%，
+   * 于是导航条左半截出现一块饱和的粉、到 blob 边缘处突然收住 —— 看起来像渲染
+   * 残留而不是设计。saturate 是深色玻璃的手法（深底上要靠它把颜色提出来），
+   * 浅底上等于给背景杂色加增益。
+   */
   .theme-glass-light .glass-pill {
-    background: var(--glass-2);
-    -webkit-backdrop-filter: var(--glass-blur-md) saturate(160%);
-    backdrop-filter: var(--glass-blur-md) saturate(160%);
+    background: rgba(255, 255, 255, 0.80);
+    -webkit-backdrop-filter: var(--glass-blur-md) saturate(115%);
+    backdrop-filter: var(--glass-blur-md) saturate(115%);
   }
   .theme-glass-light .glass-pill[data-scrolled='true'] {
-    background: rgba(255, 255, 255, 0.84);
-    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(160%);
-    backdrop-filter: var(--glass-blur-lg) saturate(160%);
+    background: rgba(255, 255, 255, 0.88);
+    -webkit-backdrop-filter: var(--glass-blur-lg) saturate(120%);
+    backdrop-filter: var(--glass-blur-lg) saturate(120%);
   }
   .theme-glass-light .glass-accent {
     background: var(--glass-accent-2);

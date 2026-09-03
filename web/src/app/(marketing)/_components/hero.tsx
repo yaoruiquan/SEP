@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bot, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 /**
@@ -159,7 +159,13 @@ export function Hero() {
   return (
     <section
       aria-label="产品介绍"
-      className="relative min-h-dvh overflow-hidden pt-28 pb-16 sm:pt-32 sm:pb-24"
+      /*
+        原来是 min-h-dvh。首屏内容只有 ~470px 高，1440×900 下从 y≈600 到底部
+        是一整片空渐变 —— 占掉首屏三分之一，还把下面的数据背书条推到了折叠线外。
+        改成内容驱动高度 + 34rem 兜底（短屏 / 横屏手机不至于压塌），
+        这样 TrustBar 会在首屏底部露出一条边，用户知道下面还有东西。
+      */
+      className="relative min-h-[34rem] overflow-hidden pt-28 pb-14 sm:pt-32 sm:pb-16"
     >
       {/* Aurora 背景 blobs */}
       <div className="aurora-layer" aria-hidden>
@@ -202,14 +208,22 @@ export function Hero() {
                    会折成「让公司从个体提 / 效」把「效」挤成孤字一行
               60px 时 8 字约 465px，从 lg(1024) 到 7xl(1280) 都能单行放下。
             */}
-            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em]">
-              <span className="gradient-text-glass inline-block">
-                让公司从个体提效
-              </span>
+            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em] text-gtext-primary">
+              {/*
+                渐变只落在「组织提效」四个字上。
+
+                原来两行各自套 `gradient-text-glass inline-block`，于是同一条
+                `#1f2937 → #ec4899 → #f97316` 的 ramp 各跑一遍：第一行 8 字盒子宽，
+                「让公司从」还在深灰；第二行盒子窄，ramp 被压缩，「到」就已经是粉的了。
+                两行同一横向位置颜色对不上，看起来像没对齐而不像刻意。
+
+                现在整句用纯色，只把落点那个词染成品牌色 —— 一句话里只强调一处，
+                对比反而更强，也不再有两条 ramp 对不齐的问题。
+              */}
+              让公司从个体提效
               <br />
-              <span className="gradient-text-glass inline-block">
-                到组织提效
-              </span>
+              到
+              <span className="gradient-text-accent">组织提效</span>
             </h1>
 
             <p className="animate-fade-up-d2 mb-4 text-lg font-medium text-gbrand-text">
@@ -245,20 +259,17 @@ export function Hero() {
               </Link>
             </div>
 
-            {/* 信任徽章 */}
-            <div className="animate-fade-up-d3 mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gtext-muted">
-              {["支持余额与支付宝", "按部门或成员授权", "每次执行可追踪"].map(
-                (t) => (
-                  <span key={t} className="flex items-center gap-1.5">
-                    <CheckCircle2
-                      className="h-4 w-4 text-gsuccess"
-                      aria-hidden
-                    />
-                    {t}
-                  </span>
-                ),
-              )}
-            </div>
+            {/*
+              这里原先有一行三个勾选项：支持余额与支付宝 / 按部门或成员授权 /
+              每次执行可追踪。三条都是下面章节的原文复述 ——
+
+                支持余额与支付宝  ↔  HowItWorks 步骤 02「使用余额或支付宝完成订阅」
+                按部门或成员授权  ↔  HowItWorks 步骤 03「授权给部门或指定碳基成员」
+                每次执行可追踪    ↔  HowItWorks 步骤 03「查看执行记录」
+
+              而 TrustBar 紧贴首屏下方，社会背书（在架员工数 / 服务企业 / 累计任务）
+              已经由它承担。首屏留标题 + 一段说明 + 一个主 CTA 就够了。
+            */}
           </div>
 
           {/* 右侧 3D Mockup */}

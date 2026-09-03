@@ -47,9 +47,9 @@ export function FaqGlass() {
           <div className="mb-14 text-center">
             <h2
               id="faq-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
+              className="text-3xl font-bold tracking-tight text-gtext-primary sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">常见问题</span>
+              常见问题
             </h2>
             <p className="mt-4 text-gtext-secondary">
               关于订阅、授权、支付与团队协作

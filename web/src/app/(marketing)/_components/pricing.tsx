@@ -77,11 +77,9 @@ export function Pricing() {
           <div className="mb-14 text-center">
             <h2
               id="pricing-heading"
-              className="text-3xl font-bold tracking-tight sm:text-4xl"
+              className="text-3xl font-bold tracking-tight text-gtext-primary sm:text-4xl"
             >
-              <span className="gradient-text-glass inline-block">
-                按需订阅，随时调整
-              </span>
+              按需订阅，随时调整
             </h2>
             <p className="mt-4 text-gtext-secondary">
               员工订阅费用与任务算力分开呈现，支付前均可确认
@@ -112,11 +110,16 @@ export function Pricing() {
                 <p className="mt-1.5 text-sm text-gtext-muted">{plan.desc}</p>
 
                 <div className="mt-6 flex items-baseline gap-1">
+                  {/*
+                    唯一保留渐变的第二处。它和章节标题那种「装饰性渐变」不是一回事：
+                    三张卡里只有主推那张的价格上色，作用是在同级卡片中区分出一张，
+                    去掉它整个价格表就一样平了。其余装饰性用法已全部收掉。
+                  */}
                   <span
                     className={cn(
                       "text-4xl font-bold tracking-tight",
                       plan.featured
-                        ? "gradient-text-glass inline-block"
+                        ? "gradient-text-accent inline-block"
                         : "text-gtext-primary",
                     )}
                   >
