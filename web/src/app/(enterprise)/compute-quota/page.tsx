@@ -1,42 +1,95 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, Bot, TrendingDown, Zap } from 'lucide-react';
+import { ArrowRight, BarChart3, Bot, TrendingDown, Wallet, Zap } from 'lucide-react';
+import { useAuthStore } from '@/lib/auth-store';
+import { MyComputePanel } from '@/features/compute/my-compute-panel';
+import { AllowanceAuditPanel } from './allowance-audit-panel';
 import { ComputeBalanceStrip } from './compute-balance-strip';
 import { MemberAllowancePanel } from './member-allowance-panel';
 import { UsageRecordTable } from './usage-record-table';
 
+/** 页头。两种角色进的是同一个概念的两个面，标题一致、副标题分开写。 */
+function PageHeader({ eyebrow, subtitle }: { eyebrow: string; subtitle: string }) {
+  return (
+    /*
+      页头到第一个板块的间距：pb-4 + space-y-6 共 40px。
+      原来是 pb-7 + space-y-8（60px），标题和内容像分了两屏。
+    */
+    <section className="border-b border-border/70 pb-4">
+      <div className="inline-flex items-center gap-2 text-xs font-medium text-primary">
+        <Zap className="h-3.5 w-3.5" />
+        {eyebrow}
+      </div>
+      <h1 className="mt-2 text-2xl font-semibold text-foreground">算力余额</h1>
+      <p className="mt-1 max-w-3xl text-sm leading-6 text-fg-muted">{subtitle}</p>
+    </section>
+  );
+}
+
 /**
- * 算力余额页。
+ * 普通成员视角：**公司给我的额度 + 我的个人余额**，没有企业池、没有别人的账。
+ *
+ * 这一屏原来挂在「硅基员工」页上。搬过来的理由：额度是**算力**这件事，
+ * 与「我被授权用哪几位硅基员工」是两个概念（方案 §5.5 #5：取消授权后
+ * 看不到员工，额度数字不变），混在一页会让人以为额度是员工的属性。
+ *
+ * 页面里没有逐笔账单：那是全公司的账，后端对非管理员直接 403。
+ * 成员要看自己花在哪，去「用量分析」——底部有入口。
+ */
+function MemberView() {
+  return (
+    <div className="space-y-6 pb-10">
+      <PageHeader
+        eyebrow="我的算力"
+        subtitle="公司给我的额度、我的个人余额，以及额度用尽后会发生什么"
+      />
+
+      {/* `id` 供对话里「额度用尽」弹窗跳回来定位 */}
+      <div id="my-compute" className="scroll-mt-8">
+        <MyComputePanel />
+      </div>
+
+      <Link
+        href="/usage"
+        className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <BarChart3 className="h-4 w-4 text-sky-600" />
+          看我这段时间花在哪
+        </span>
+        <span className="flex items-center gap-1 text-xs text-fg-muted">
+          在「用量分析」页，按模型 / 硅基员工看自己的花费分布
+          <ArrowRight className="h-3.5 w-3.5" />
+        </span>
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * 企业管理员视角。
  *
  * 这一页只回答两件事：**企业为算力留了多少钱、这些钱怎么分给碳基员工、花在哪**。
  *
- * 三处刻意不放在这里：
+ * 两处刻意不放在这里：
  *   · 企业钱包余额与资金流水 → `/wallet`（这一页显示的是从钱包充值进来的算力）
  *   · 硅基员工自带的赠送额度 → 「硅基员工」页每张卡片（那是员工的属性，不是企业算力池）
  *   · 按部门 / 员工的花费分布 → `/usage`
  */
-export default function ComputeQuotaPage() {
+function AdminView() {
   return (
     <div className="space-y-6 pb-10">
-      {/*
-        页头到第一个板块的间距：pb-4 + space-y-6 共 40px。
-        原来是 pb-7 + space-y-8（60px），标题和内容像分了两屏。
-      */}
-      <section className="border-b border-border/70 pb-4">
-        <div className="inline-flex items-center gap-2 text-xs font-medium text-primary">
-          <Zap className="h-3.5 w-3.5" />
-          企业算力中心
-        </div>
-        <h1 className="mt-2 text-2xl font-semibold text-foreground">算力余额</h1>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-fg-muted">
-          算力余额、给碳基员工的分配额度与消费明细
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="企业算力中心"
+        subtitle="算力余额、给碳基员工的分配额度与消费明细"
+      />
 
       <ComputeBalanceStrip />
 
       <MemberAllowancePanel />
+
+      <AllowanceAuditPanel />
 
       <section id="usage-records" className="scroll-mt-8">
         <div className="mb-3">
@@ -49,6 +102,25 @@ export default function ComputeQuotaPage() {
           </p>
         </div>
         <UsageRecordTable />
+      </section>
+
+      {/*
+        管理员也是「用的人」：他自己也有额度、也有个人余额，充值入口只在这块里。
+        放在企业信息之后 —— 上面几块讲的是公司的钱，这一块讲的是他自己的钱，
+        混排会让人分不清「本周期已用」是谁的。锚点与成员视角同名，
+        对话弹窗的 `#my-compute` 两种角色都能落地。
+      */}
+      <section id="my-compute" className="scroll-mt-8">
+        <div className="mb-3">
+          <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Wallet className="h-4 w-4 text-emerald-600" />
+            我自己的算力
+          </div>
+          <p className="mt-1 text-sm text-fg-muted">
+            你作为使用者的额度与个人余额，与上面的企业算力池是两笔钱。
+          </p>
+        </div>
+        <MyComputePanel />
       </section>
 
       {/* 赠送额度从本页移走了，得告诉用户去哪找 —— 否则会以为功能没了 */}
@@ -67,4 +139,25 @@ export default function ComputeQuotaPage() {
       </Link>
     </div>
   );
+}
+
+/**
+ * 算力余额页 —— 三种企业内角色都能进，看到的东西完全不同。
+ *
+ * 分叉在页面这一层而不是各面板内部：管理员那几块（企业池、分配表、审计、
+ * 逐笔账单）读的接口后端已对非管理员 403，成员视角必须**不挂载**它们，
+ * 而不是挂上再隐藏 —— 否则一进页面就是四个失败请求。
+ *
+ * ⚠️ 这里的角色判断只决定「渲染什么」。真正的隔离在后端
+ * （`assertEnterpriseAdmin` + 用量分析的服务端作用域）：store 里的
+ * `roleInEnterprise` 是浏览器里的值，用户改得动。
+ *
+ * 不需要等 hydrate：`(enterprise)` 路由组外面是 `AuthGate`，
+ * 它在 refresh 落定前不渲染 children，进到这里角色已经定了。
+ */
+export default function ComputeQuotaPage() {
+  const roleInEnterprise = useAuthStore((s) => s.roleInEnterprise);
+  const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
+
+  return isAdmin ? <AdminView /> : <MemberView />;
 }

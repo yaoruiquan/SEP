@@ -118,7 +118,13 @@ const NAV_GROUPS: NavGroup[] = [
     title: '服务',
     links: [
       { href: '/wallet', label: '企业钱包', icon: Wallet, adminOnly: true },
-      { href: '/compute-quota', label: '算力余额', icon: Gauge, adminOnly: true },
+      //
+      // 算力余额对三种角色都开，页面内按角色分叉：管理员看企业算力池与分配，
+      // 普通成员看「公司给我的额度 + 我的个人余额」。
+      //
+      // 曾经这里是 adminOnly，于是成员在站内**没有任何地方**能查到
+      // 「公司还愿意为我付多少、我自己还剩多少」—— 被额度拦下时只能干瞪眼。
+      { href: '/compute-quota', label: '算力余额', icon: Gauge },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
     ],
   },

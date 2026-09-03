@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { MonitorPlay, Search, Clock } from 'lucide-react';
+import { ArrowRight, Clock, Gauge, MonitorPlay, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -89,6 +89,29 @@ export default function MyEmployeesPage() {
             )}
           </div>
         </div>
+
+        {/*
+          「公司给我的额度 + 我的个人余额」原来整块摊在这里。搬去「算力余额」页了：
+          额度是**算力**这件事，与「我被授权用哪几位硅基员工」是两个概念
+          （方案 §5.5 #5：取消授权后看不到员工，额度数字不变），
+          摆在员工列表上方会让人以为额度是员工的属性。
+
+          留一行指路而不是直接删干净 —— 天天在这看额度的人，
+          突然找不到会以为功能没了。
+        */}
+        <Link
+          href="/compute-quota#my-compute"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-glass-sm border border-glassline bg-glass-1 px-4 py-3 transition-colors hover:bg-glass-2"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-gtext-primary">
+            <Gauge className="h-4 w-4 text-emerald-600" />
+            公司给我的额度、我的个人余额
+          </span>
+          <span className="flex items-center gap-1 text-xs text-gtext-muted">
+            在「算力余额」页，含额度用尽后会发生什么
+            <ArrowRight className="h-3.5 w-3.5" />
+          </span>
+        </Link>
 
         {isLoading ? (
           <MyEmployeeListSkeleton count={6} />

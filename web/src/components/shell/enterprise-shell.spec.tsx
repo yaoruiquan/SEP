@@ -121,6 +121,27 @@ describe('EnterpriseShell 导航角色过滤', () => {
   // 原有断言「导航里没有对话中心入口（会话已暂停）」已删除：
   // 会话功能在 4f0704a 恢复，导航入口与 chat/page.tsx 都已回归，
   // 该断言是暂停期的遗留，与当前实现矛盾。
+  // 「算力余额」曾经是 adminOnly，于是成员在站内没有任何地方能查到
+  // 「公司还愿意为我付多少、我自己还剩多少」。企业钱包仍然只给管理员 ——
+  // 那是公司的钱，两者不能一起放开。
+  it('「算力余额」三种角色都可见，「企业钱包」仍只给管理员', () => {
+    for (const role of ['ENTERPRISE_ADMIN', 'MEMBER', 'DEPT_MANAGER']) {
+      setRole(role);
+      const { unmount } = renderShell();
+      expect(screen.getByText('算力余额')).toBeInTheDocument();
+      unmount();
+    }
+
+    setRole('MEMBER');
+    const { unmount } = renderShell();
+    expect(screen.queryByText('企业钱包')).not.toBeInTheDocument();
+    unmount();
+
+    setRole('ENTERPRISE_ADMIN');
+    renderShell();
+    expect(screen.getByText('企业钱包')).toBeInTheDocument();
+  });
+
   it('对话中心与任务中心对所有角色可见', () => {
     setRole('MEMBER');
     renderShell();

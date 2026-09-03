@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  ArrowRight, Bot, Building2, Cpu, Receipt, TrendingDown, TrendingUp, Users,
+  ArrowRight, Bot, Building2, Cpu, Gauge, Receipt, TrendingDown, TrendingUp, Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -15,6 +15,7 @@ import {
   useUsageBreakdown,
   type UsageRange,
 } from '@/lib/api/use-compute-credit';
+import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
 import { BreakdownList } from './breakdown-list';
 
@@ -77,16 +78,25 @@ function DeltaBadge({ deltaPct }: { deltaPct: number | null }) {
 /**
  * 用量分析。
  *
- * 只回答一个问题：**已经花掉的钱，在模型 / 部门 / 碳基员工 / 硅基员工之间怎么分布**。
+ * 只回答一个问题：**已经花掉的钱，怎么分布**。谁的钱取决于是谁在看：
+ *   · 企业管理员 —— 全企业，四个维度（模型 / 部门 / 碳基员工 / 硅基员工）
+ *   · 普通成员   —— 只有自己的花费，且没有「按部门 / 按碳基员工」
+ *
+ * 后端 `usage-breakdown` 已按调用者身份定死作用域（非管理员一律只算他自己，
+ * 那两个维度返回空数组），这里的 `isAdmin` 只决定**画不画**这两块 ——
+ * 空数组照渲染出来会是两张「这个区间还没有产生花费」的空卡片，
+ * 让成员误以为公司没人花钱。真正的隔离在后端，不在这一行。
  *
  * 三处刻意不在这里：
  *   · 还剩多少算力、怎么分配给成员 → `/compute-quota`
  *   · 钱包余额与资金流水 → `/wallet`
- *   · 逐笔账单 → `/compute-quota#usage-records`（全站只有一处，底部有入口）
+ *   · 逐笔账单 → `/compute-quota#usage-records`（全站只有一处，管理员专属）
  */
 export default function UsagePage() {
   const [range, setRange] = useState<UsageRange>(30);
   const { data, isLoading } = useUsageBreakdown(range);
+  const roleInEnterprise = useAuthStore((s) => s.roleInEnterprise);
+  const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
   const trend = data?.trend ?? [];
 
@@ -97,7 +107,9 @@ export default function UsagePage() {
           <div>
             <h1 className="text-xl font-semibold text-foreground">用量分析</h1>
             <p className="mt-1 text-sm text-fg-muted">
-              按模型 / 部门 / 员工看花费分布
+              {isAdmin
+                ? '按模型 / 部门 / 员工看全公司的花费分布'
+                : '按模型 / 硅基员工看我自己的花费分布'}
             </p>
           </div>
           <RangeTabs value={range} onChange={setRange} />
@@ -111,8 +123,9 @@ export default function UsagePage() {
           {/* 汇总条：这个区间一共花了多少、比上期多还是少 */}
           <section className="flex flex-wrap items-end justify-between gap-4 border border-border/70 bg-card p-5">
             <div>
+              {/* 同一个数字，管理员看到的是全公司、成员看到的是自己 —— 标签必须说清 */}
               <p className="text-xs font-medium text-fg-muted">
-                近 {data.rangeDays} 天算力花费
+                {isAdmin ? '' : '我'}近 {data.rangeDays} 天算力花费
               </p>
               <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">
                 {formatCnyPrecise(data.totalCNY)}
@@ -186,20 +199,28 @@ export default function UsagePage() {
               rows={data.byModel}
               emptyHint="这个区间还没有模型调用"
             />
-            <BreakdownList
-              title="按部门"
-              subtitle="由成员上卷得出。成员换部门后历史花费归入新部门"
-              icon={<Building2 className="h-4 w-4 text-amber-600" />}
-              rows={data.byDepartment}
-              emptyHint="这个区间还没有部门产生花费"
-            />
-            <BreakdownList
-              title="按碳基员工"
-              subtitle="谁花得多 —— 对照「算力余额」页的分配额度看"
-              icon={<Users className="h-4 w-4 text-sky-600" />}
-              rows={data.byMember}
-              emptyHint="这个区间还没有成员产生花费"
-            />
+            {/*
+              「按部门 / 按碳基员工」是管理信息：谁花得多、哪个部门超支。
+              普通成员看不得，也确实拿不到 —— 后端给他的这两个维度是空数组。
+            */}
+            {isAdmin && (
+              <>
+                <BreakdownList
+                  title="按部门"
+                  subtitle="由成员上卷得出。成员换部门后历史花费归入新部门"
+                  icon={<Building2 className="h-4 w-4 text-amber-600" />}
+                  rows={data.byDepartment}
+                  emptyHint="这个区间还没有部门产生花费"
+                />
+                <BreakdownList
+                  title="按碳基员工"
+                  subtitle="谁花得多 —— 对照「算力余额」页的分配额度看"
+                  icon={<Users className="h-4 w-4 text-sky-600" />}
+                  rows={data.byMember}
+                  emptyHint="这个区间还没有成员产生花费"
+                />
+              </>
+            )}
             <BreakdownList
               title="按硅基员工"
               subtitle="哪位数字员工最费钱，也是「谁最被用」的口碑指标"
@@ -211,17 +232,30 @@ export default function UsagePage() {
         </>
       )}
 
-      {/* 逐笔账单只有一处 —— 在算力余额页 */}
+      {/*
+        底部入口两种角色去的是同一页的两块内容：
+          · 管理员 → 逐笔账单（全站只有一处，在算力余额页）
+          · 成员   → 他自己的额度与个人余额
+
+        成员不能给逐笔账单的入口：那张表读的接口后端对非管理员 403，
+        点过去只会看到一屏加载失败。
+      */}
       <Link
-        href="/compute-quota#usage-records"
+        href={isAdmin ? '/compute-quota#usage-records' : '/compute-quota#my-compute'}
         className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Receipt className="h-4 w-4 text-fg-muted" />
-          查看逐笔算力消费明细
+          {isAdmin ? (
+            <Receipt className="h-4 w-4 text-fg-muted" />
+          ) : (
+            <Gauge className="h-4 w-4 text-emerald-600" />
+          )}
+          {isAdmin ? '查看逐笔算力消费明细' : '看公司给我的额度还剩多少'}
         </span>
         <span className="flex items-center gap-1 text-xs text-fg-muted">
-          在「算力余额」页，可按员工 / 成员 / 日期筛选并导出 CSV
+          {isAdmin
+            ? '在「算力余额」页，可按员工 / 成员 / 日期筛选并导出 CSV'
+            : '在「算力余额」页，含我的个人余额与额度重置时间'}
           <ArrowRight className="h-3.5 w-3.5" />
         </span>
       </Link>
