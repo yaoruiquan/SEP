@@ -19,6 +19,10 @@ export interface AdminCapabilityRow extends Capability {
     | 'REJECTED';
   enterprise: { id: string; name: string } | null;
   contributor: { id: string; email: string; name: string | null } | null;
+  /** 被几位硅基员工绑着。已通过但为 0 = 审了没人用 */
+  _count: { bindings: number };
+  /** 前 6 位绑定它的员工，用于列表里直接显示名字 */
+  bindings: Array<{ employee: { id: string; name: string } }>;
 }
 
 // ─── Capability admin ───────────────────────────────────────────────────────
@@ -386,7 +390,7 @@ export function useAvailableCapabilities() {
   return useQuery({
     queryKey: ['available-capabilities'],
     queryFn: async () => {
-      const response = await adminApi.getAvailableCapabilities();
+      const response = await adminApi.listApprovedCapabilities();
       // 后端返回 { items, total, page, pageSize }，提取 items 数组
       return response.items;
     },

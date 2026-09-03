@@ -793,34 +793,6 @@ export class AdminService {
   }
 
   /**
-   * 获取可用能力列表（用于绑定选择）
-   *
-   * @deprecated 前端绑定选择器走 `GET /admin/capabilities?status=APPROVED&pageSize=200`。
-   * 那条路径上 `status=APPROVED` 会被 listCapabilities 展开成
-   * 「平台自有已通过 OR 市场公开已过审」，因此能挡住其他企业的私有能力；
-   * 这里只按 status 过滤，ENTERPRISE_PRIVATE 的企业能力会漏进来。保留仅为兼容。
-   */
-  async getAvailableCapabilities() {
-    return this.prisma.capability.findMany({
-      where: {
-        OR: [
-          { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
-          { enterpriseId: null, status: 'APPROVED' },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        description: true,
-        industry: true,
-        position: true,
-      },
-      orderBy: { name: 'asc' },
-    });
-  }
-
-  /**
    * 创建能力（运营）
    */
   async createCapability(data: {
@@ -941,6 +913,15 @@ export class AdminService {
           // 还得显示企业名 —— 否则运营看到的是一串 cuid。
           enterprise: {
             select: { id: true, name: true },
+          },
+          // 能力审核通过后到底有没有用上，看的是它被哪几位硅基员工带着 ——
+          // 平台没有能力市场页面，「已收录」的真实去处就是绑定到员工。
+          // 已通过但 0 绑定 = 审了但没人用，这是运营需要看见的信号。
+          _count: { select: { bindings: true } },
+          bindings: {
+            take: 6,
+            orderBy: { createdAt: 'asc' },
+            select: { employee: { select: { id: true, name: true } } },
           },
         },
       }),

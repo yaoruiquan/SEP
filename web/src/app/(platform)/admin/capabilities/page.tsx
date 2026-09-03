@@ -228,6 +228,7 @@ export default function CapabilitiesPage() {
                   <th className="px-5 py-2 text-left font-medium">名称</th>
                   <th className="px-5 py-2 text-left font-medium">类型</th>
                   <th className="px-5 py-2 text-left font-medium">来源</th>
+                  <th className="px-5 py-2 text-left font-medium">已绑定员工</th>
                   <th className="px-5 py-2 text-left font-medium">状态</th>
                   <th className="px-5 py-2 text-left font-medium">创建时间</th>
                   <th className="px-5 py-2 text-right font-medium">操作</th>
@@ -261,6 +262,9 @@ export default function CapabilitiesPage() {
                         ) : (
                           '平台自有'
                         )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <BoundEmployees cap={cap} />
                       </td>
                       <td className="px-5 py-3">
                         <Badge className={statusMeta?.tone ?? ''}>
@@ -366,6 +370,56 @@ export default function CapabilitiesPage() {
         variant="danger"
         onConfirm={handleDelete}
       />
+    </div>
+  );
+}
+
+/**
+ * 「已绑定员工」列。
+ *
+ * 这一列回答的是「我审这个能力有用吗」—— 平台没有能力市场页面，
+ * 能力通过审核后的真实去处就是被硅基员工带着，用户在员工市场的
+ * 「我能做什么」里看到的正是这些绑定。所以「已通过 + 0 绑定」
+ * 是个需要运营看见的信号：审是审了，但还没人用上。
+ */
+function BoundEmployees({ cap }: { cap: AdminCapabilityRow }) {
+  const total = cap._count?.bindings ?? 0;
+
+  if (total === 0) {
+    return (
+      <span
+        className={cn(
+          'text-xs',
+          cap.status === 'APPROVED' ? 'text-gwarning' : 'text-fg-subtle',
+        )}
+        title={
+          cap.status === 'APPROVED'
+            ? '已收录为公共能力，但还没有硅基员工带着它 —— 去员工的「能力绑定」里挂上才会被用户看到'
+            : undefined
+        }
+      >
+        {cap.status === 'APPROVED' ? '未绑定' : '—'}
+      </span>
+    );
+  }
+
+  const names = cap.bindings?.map((b) => b.employee) ?? [];
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {names.slice(0, 2).map((emp) => (
+        <Link
+          key={emp.id}
+          href={`/admin/employees/${emp.id}`}
+          className="rounded border border-glassline bg-glass-2 px-1.5 py-0.5 text-xs text-fg-muted transition-colors hover:text-primary"
+        >
+          {emp.name}
+        </Link>
+      ))}
+      {total > 2 && (
+        <span className="text-xs text-fg-subtle" title={names.map((e) => e.name).join('、')}>
+          等 {total} 位
+        </span>
+      )}
     </div>
   );
 }

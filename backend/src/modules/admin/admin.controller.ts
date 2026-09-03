@@ -556,11 +556,4 @@ export class AdminController {
   deleteCapabilityAdmin(@Param('id') id: string) {
     return this.adminService.deleteCapability(id);
   }
-
-  @Get('capabilities/available/list')
-  @ApiOperation({ summary: '获取可用能力列表（用于绑定）' })
-  @ApiResponse({ status: 200, description: '返回已审核的能力列表' })
-  getAvailableCapabilities() {
-    return this.adminService.getAvailableCapabilities();
-  }
 }

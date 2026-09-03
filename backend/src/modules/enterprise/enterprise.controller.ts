@@ -380,21 +380,4 @@ export class EnterpriseController {
   async markOnboardingCompleted(@Request() req: AuthedRequest) {
     return this.enterprise.markOnboardingCompleted(req.user.id);
   }
-
-  // ── P3.3：运营端 ──────────────────────────────────────────────────────────
-
-  @Get("admin/all-enterprises")
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary: "P3.3：全部企业列表（仅平台运营）",
-    description: "运营后台用，查看全平台所有企业的基础信息 + 成员数 + 订阅数。",
-  })
-  @ApiResponse({
-    status: 200,
-    description: "企业列表，按创建时间倒序",
-  })
-  async listAllEnterprises() {
-    return this.enterpriseCtx.listAll();
-  }
 }

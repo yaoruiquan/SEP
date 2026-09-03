@@ -442,7 +442,7 @@ export const adminApi = {
    *     既挡住未审核能力，也挡住其他企业的私有能力（原先不传，70 个能力全都能绑）
    *   · `pageSize=200`    —— 后端默认 20，原先只有最新 20 个能力能被绑定
    */
-  getAvailableCapabilities: () => {
+  listApprovedCapabilities: () => {
     return api.get<{ items: CapabilityItem[]; total: number; page: number; pageSize: number }>(
       '/admin/capabilities?status=APPROVED&pageSize=200',
     );
