@@ -866,6 +866,51 @@ body {
   transform: rotateX(4deg) rotateY(-2deg) translateY(-8px);
 }
 
+/* ─── Hero mockup 内部进场动效 ──────────────────────────────────────────────
+   目的是让首屏的产品示意图「活一下」：卡片和任务行逐条落位，正在执行的那一步
+   有一条会长的进度条。全部纯 CSS，Hero 因此仍是服务端组件。
+
+   ⚠️ 降级不能挂在 `.theme-glass *` 上 —— 那个类只在深色主题下存在
+   （见 theme-provider：light 主题挂的是 `.theme-glass-light`），
+   所以浅色主题下的动效必须自己写一条 prefers-reduced-motion。            */
+.mock-in {
+  animation: mock-in 0.45s var(--gease) both;
+}
+/* 整组在 ~1.1s 内落定。原来最后一行要等到 1.7s —— hero 的动效超过 1s
+   就会被当成加载中，用户会看到一张半空的卡片。 */
+.mock-d1 { animation-delay: 0.32s; }
+.mock-d2 { animation-delay: 0.40s; }
+.mock-d3 { animation-delay: 0.48s; }
+.mock-d4 { animation-delay: 0.58s; }
+.mock-d5 { animation-delay: 0.66s; }
+.mock-d6 { animation-delay: 0.74s; }
+
+@keyframes mock-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 正在执行那一步的进度条：长到 68% 就停住 —— 不做无限循环，
+   循环的进度条等于告诉用户「这东西永远跑不完」。 */
+.mock-bar {
+  animation: mock-bar 1.6s 0.95s var(--gease) both;
+}
+
+@keyframes mock-bar {
+  from { width: 4%; }
+  to   { width: 68%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-in,
+  .mock-bar {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .mock-bar { width: 68%; }
+}
+
 /* ─── 大 CTA 玻璃块 ─────────────────────────────────────────────────────────
    三层阴影：顶部 1px 内高光 + 外投影 + 品牌色氛围光。
    Tailwind 的 shadow 工具类没法叠 inset + 两层 outer，所以写成 CSS。      */

@@ -1,8 +1,19 @@
 import Link from "next/link";
-import { ArrowRight, Play, Bot, BarChart3, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Bot, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-/** Hero 中的 Dashboard 示意图（CSS + 内联 JSX，不依赖截图）。 */
+/**
+ * Hero 里的工作台示意图（CSS + 内联 JSX，不用截图）。
+ *
+ * 内容对齐**当前真实产品**，不是占位文案：
+ *   · 侧栏用企业端 shell 的真实导航项（原来写的「工作台 / 市场」两个路由已经不存在）
+ *   · 指标沿用真实仪表盘 MetricCard 的口径：硅基员工 / 本月对话 / 本月算力（元）
+ *   · 任务行的状态词取自 task-execution-narration.ts —— 那里定的规矩是
+ *     「措辞一律写成员工在汇报工作，主语是人不是节点」。原来这里挂的是
+ *     Agent / Skill / RPA 技术标签 + 在线小圆点，读起来像流程引擎的节点列表，
+ *     正好是那份文件明确不要的写法。
+ *   · 员工名用市场上真实在架的岗位名，不用「营销助理」这种泛化占位
+ */
 function DashboardMockup() {
   return (
     <div className="glass-hero overflow-hidden">
@@ -12,23 +23,26 @@ function DashboardMockup() {
         <span className="h-2.5 w-2.5 rounded-full bg-gwarning/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-gsuccess/70" />
         <span className="ml-3 text-xs text-gtext-muted">
-          dashboard · 硅基人才平台
+          工作台 · 硅基人才平台
         </span>
       </div>
 
       <div className="flex min-h-0">
-        {/* 侧栏 */}
-        <aside className="flex w-32 flex-col gap-1 border-r border-glassline p-3">
+        {/* 侧栏 —— 与企业端真实导航一致 */}
+        <aside className="flex w-[7.5rem] shrink-0 flex-col gap-0.5 border-r border-glassline p-3 sm:w-36">
           {[
-            { label: "工作台", active: true },
+            { label: "仪表盘", active: true },
             { label: "我的硅基员工", active: false },
-            { label: "市场", active: false },
-            { label: "设置", active: false },
+            { label: "任务", active: false },
+            { label: "技能库", active: false },
+            { label: "算力余额", active: false },
           ].map(({ label, active }) => (
             <div
               key={label}
-              className={`rounded-glass-sm px-2 py-1.5 text-xs ${
-                active ? "bg-gbrand/20 text-gbrand-text" : "text-gtext-muted"
+              className={`truncate rounded-glass-sm px-2 py-2 text-xs ${
+                active
+                  ? "bg-gbrand/20 font-medium text-gbrand-text"
+                  : "text-gtext-muted"
               }`}
             >
               {label}
@@ -37,61 +51,97 @@ function DashboardMockup() {
         </aside>
 
         {/* 主区 */}
-        <main className="flex-1 p-4">
-          {/* 顶部指标行 */}
+        <main className="min-w-0 flex-1 p-4">
+          {/* 指标行 —— 口径同真实仪表盘 */}
           <div className="mb-3 grid grid-cols-3 gap-2">
             {[
-              { label: "已授权员工", val: "6", up: true },
-              { label: "本周任务", val: "38", up: true },
-              { label: "剩余余额", val: "¥126", up: true },
-            ].map(({ label, val, up }) => (
-              <div key={label} className="glass-card p-3">
+              { label: "硅基员工", val: "14", detail: "6 位正在活跃", d: "mock-d1" },
+              { label: "本月对话", val: "1,284", detail: "+38% 较上月", d: "mock-d2" },
+              { label: "本月算力", val: "¥21.40", detail: "+12% 较上月", d: "mock-d3" },
+            ].map(({ label, val, detail, d }) => (
+              <div key={label} className={`glass-card mock-in ${d} p-3`}>
                 <div className="text-[10px] text-gtext-muted">{label}</div>
-                <div className="mt-0.5 text-sm font-bold gradient-text-glass inline-block">
+                <div className="mt-1 text-lg font-bold leading-none text-gtext-primary">
                   {val}
                 </div>
-                <div
-                  className={`text-[10px] ${up ? "text-gsuccess" : "text-gdanger"}`}
-                >
-                  {up ? "↑" : "↓"} 本周
-                </div>
+                <div className="mt-1.5 text-[10px] text-gsuccess">{detail}</div>
               </div>
             ))}
           </div>
 
-          {/* 员工列表 */}
+          {/* 任务执行 —— 员工在汇报工作，不是节点在跑 */}
           <div className="glass-card overflow-hidden">
-            <div className="border-b border-glassline px-3 py-2">
+            <div className="flex items-center justify-between border-b border-glassline px-3 py-2.5">
               <span className="text-xs font-medium text-gtext-secondary">
-                任务执行 · 演示工作台
+                任务 · 双十一退货工单清理
               </span>
+              <span className="text-[10px] text-gtext-muted">第 2/3 步</span>
             </div>
+
+            {/* 进行中：脉冲点 + 会长的进度条 */}
+            <div className="mock-in mock-d4 border-b border-[rgba(255,255,255,0.10)] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gbrand/20">
+                    <Bot className="h-3 w-3 text-gbrand-text" aria-hidden />
+                  </span>
+                  <span className="truncate text-xs text-gtext-primary">
+                    电商售后与退货专员
+                  </span>
+                </div>
+                <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-gbrand-text">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-gbrand-text opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-gbrand-text" />
+                  </span>
+                  正在工作
+                </span>
+              </div>
+              <p className="mt-1.5 pl-8 text-[10px] text-gtext-muted">
+                正在核对 38 条退货工单
+              </p>
+              <div className="mt-1.5 ml-8 h-1 overflow-hidden rounded-full bg-glass-2">
+                <div className="mock-bar h-full rounded-full bg-gbrand-text" />
+              </div>
+            </div>
+
+            {/* 已交付 / 候场中 */}
             {[
-              { name: "营销助理", tag: "Agent", online: true },
-              { name: "数据分析师", tag: "Skill", online: true },
-              { name: "合规审核员", tag: "RPA", online: false },
-            ].map(({ name, tag, online }) => (
+              {
+                name: "商品内容与详情页策划",
+                status: "已交付",
+                tone: "text-gsuccess",
+                detail: "重写了 12 个商品详情页",
+                d: "mock-d5",
+              },
+              {
+                name: "电商投放优化师",
+                status: "候场中",
+                tone: "text-gtext-muted",
+                detail: "等上一步的退货数据",
+                d: "mock-d6",
+              },
+            ].map(({ name, status, tone, detail, d }) => (
               <div
                 key={name}
-                className="flex items-center justify-between border-b border-[rgba(255,255,255,0.10)] px-3 py-2 last:border-0"
+                className={`mock-in ${d} border-b border-[rgba(255,255,255,0.10)] px-3 py-2.5 last:border-0`}
               >
-                <div className="flex items-center gap-2">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gbrand/20">
-                    <Bot className="h-3 w-3 text-gbrand-text" aria-hidden />
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gbrand/20">
+                      <Bot className="h-3 w-3 text-gbrand-text" aria-hidden />
+                    </span>
+                    <span className="truncate text-xs text-gtext-primary">
+                      {name}
+                    </span>
                   </div>
-                  <span className="text-xs text-gtext-primary">{name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-glass-sm bg-glass-2 px-1.5 py-0.5 text-[10px] text-gtext-muted">
-                    {tag}
+                  <span className={`shrink-0 text-[10px] font-medium ${tone}`}>
+                    {status}
                   </span>
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      online ? "bg-gsuccess" : "bg-gtext-disabled"
-                    }`}
-                    aria-label={online ? "在线" : "离线"}
-                  />
                 </div>
+                <p className="mt-1.5 pl-8 text-[10px] text-gtext-muted">
+                  {detail}
+                </p>
               </div>
             ))}
           </div>
@@ -124,7 +174,11 @@ export function Hero() {
       />
 
       <div className="relative z-10 mx-auto max-w-7xl px-6">
-        <div className="grid items-center gap-12 lg:grid-cols-2">
+        {/*
+          左右不再对半分。文案收窄、示意图放大到 1.15fr —— 首屏的说服力来自
+          「看见产品长什么样」，不是来自多读两行字。
+        */}
+        <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           {/* 左侧文案 */}
           <div>
             {/* 更新角标 */}
@@ -138,7 +192,17 @@ export function Hero() {
               </Badge>
             </div>
 
-            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.08] tracking-[-0.03em]">
+            {/*
+              字号上限从 4.5rem(72px) 收到 3.75rem(60px)。
+              两个原因，第二个是硬约束：
+                1. 中文是全宽方块字，同样 px 的视觉重量远大于西文 ——
+                   照英文 SaaS hero 的 72px 抄，中文会糊脸
+                2. 左栏收窄到 0.85fr 后可用宽约 483px（1440 视口），
+                   而「让公司从个体提效」8 字 × 72px ≈ 576px 放不下，
+                   会折成「让公司从个体提 / 效」把「效」挤成孤字一行
+              60px 时 8 字约 465px，从 lg(1024) 到 7xl(1280) 都能单行放下。
+            */}
+            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em]">
               <span className="gradient-text-glass inline-block">
                 让公司从个体提效
               </span>
@@ -160,6 +224,14 @@ export function Hero() {
               再用自然语言把重复工作交给 TA。
             </p>
 
+            {/*
+              原来这里还有一个「查看任务演示」按钮，href="#demo" 指向右侧的
+              mockup 容器 —— 而那个容器是 `hidden lg:block`：
+                · 桌面端目标本来就在同一屏内，点了页面几乎不动，像坏了
+                · 移动端目标 display:none，锚点跳转什么也不会发生
+              两种尺寸下都是空按钮，删掉。真要放演示入口，得先有一个真的
+              录屏或可交互 demo 页可跳。
+            */}
             <div className="animate-fade-up-d3 flex flex-wrap items-center gap-4">
               <Link
                 href="/marketplace"
@@ -170,13 +242,6 @@ export function Hero() {
                   className="h-4 w-4 transition-transform group-hover:translate-x-1"
                   aria-hidden
                 />
-              </Link>
-              <Link
-                href="#demo"
-                className="inline-flex items-center gap-2 rounded-glass-pill border border-glassline bg-glass-2 px-6 py-3 text-sm font-semibold text-gtext-primary backdrop-blur-glass-sm transition-all hover:border-glassline-hover hover:bg-glass-3"
-              >
-                <Play className="h-4 w-4" aria-hidden />
-                查看任务演示
               </Link>
             </div>
 
@@ -197,7 +262,7 @@ export function Hero() {
           </div>
 
           {/* 右侧 3D Mockup */}
-          <div id="demo" className="hero-mockup hidden lg:block scroll-mt-28">
+          <div className="hero-mockup hidden lg:block">
             <DashboardMockup />
           </div>
         </div>
