@@ -34,7 +34,9 @@ type SubscriptionWithEmployee = Prisma.SubscriptionGetPayload<{
  * 一次模型调用 → 一条消费日志。
  *
  * amount 用负数保持与钱包流水一致的符号约定（前端按 `Math.abs` 展示）。
- * creditPaid / walletPaid 拆开给出，回答用户最常问的「这笔钱从哪扣的」。
+ * creditPaid / walletPaid / personalPaid 三腿拆开给出，回答用户最常问的
+ * 「这笔钱从哪扣的」—— 少了 personalPaid，成员自费的那几笔会显示成
+ * 「花了 ¥0.12，但三处来源都是 0」，没人能解释。
  */
 function toComputeLog(record: UsageRecordWithRelations): ConsumptionLog {
   return {
@@ -55,6 +57,7 @@ function toComputeLog(record: UsageRecordWithRelations): ConsumptionLog {
       modelName: record.modelId,
       creditPaidCNY: record.creditPaidCNY.toString(),
       walletPaidCNY: record.walletPaidCNY.toString(),
+      personalPaidCNY: record.personalPaidCNY.toString(),
       unpaidCNY: record.unpaidCNY.toString(),
       fallbackPricing: record.fallbackPricing,
     },

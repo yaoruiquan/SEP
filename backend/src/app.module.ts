@@ -25,6 +25,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { PersonalWalletModule } from './modules/personal-wallet/personal-wallet.module';
 import { SubscriptionRequestModule } from './modules/subscription-request/subscription-request.module';
 import { ComputeQuotaModule } from './modules/compute-quota/compute-quota.module';
 import { ComputeCreditModule } from './modules/compute-credit/compute-credit.module';
@@ -68,6 +69,7 @@ import { TaskExecutionModule } from './modules/task-execution/task-execution.mod
     AnnouncementModule,
     UploadModule,
     WalletModule,
+    PersonalWalletModule,
     SubscriptionRequestModule,
     ComputeQuotaModule,
     ComputeCreditModule,

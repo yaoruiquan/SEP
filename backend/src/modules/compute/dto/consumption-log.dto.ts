@@ -29,7 +29,9 @@ export interface ConsumptionLogDetail {
   creditPaidCNY?: string;
   /** 本次消费由企业钱包承担的金额（元） */
   walletPaidCNY?: string;
-  /** > 0 表示余额不足，这部分未能扣款 */
+  /** 本次消费由成员个人钱包承担的金额（元）—— 额度用尽或企业没钱时的自费部分 */
+  personalPaidCNY?: string;
+  /** > 0 表示企业资金与个人余额都不足，这部分未能扣款 */
   unpaidCNY?: string;
   /** true = 该模型未配价，按保底价计费 */
   fallbackPricing?: boolean;

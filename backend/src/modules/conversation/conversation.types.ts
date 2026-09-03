@@ -2,7 +2,16 @@
  * SSE 事件类型定义
  */
 export interface SseEvent {
-  event: 'reasoning_delta' | 'text_delta' | 'tool_start' | 'tool_end' | 'done' | 'error';
+  event:
+    | 'reasoning_delta'
+    | 'text_delta'
+    | 'tool_start'
+    | 'tool_end'
+    | 'done'
+    // 非致命提示：本轮对话照常进行，只是有事要告诉用户（例如额度用尽后
+    // 改由个人余额支付）。与 error 分开 —— 前端的 error 分支会中止本轮渲染。
+    | 'notice'
+    | 'error';
   data: unknown;
 }
 
