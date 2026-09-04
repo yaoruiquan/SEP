@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
+  Prisma,
   SkillReviewActorType,
   SkillReviewDecision,
   SkillVersionScope,
@@ -17,8 +18,14 @@ import matter from 'gray-matter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { mergePersonalEdits } from './merge-personal-edits';
+import {
+  PLATFORM_PROMOTION_SOURCE_SELECT,
+  buildPlatformPromotion,
+  platformPromotionSummary,
+} from './promote-to-platform';
 import { nextSemver } from './skill-version-numbering';
 import type {
+  AdoptEnterpriseVersionDto,
   AdoptPersonalVersionsDto,
   CreateEnterpriseSkillVersionDto,
   CreatePlatformSkillVersionDto,
@@ -351,6 +358,10 @@ export class SkillVersionService {
         scope: 'ENTERPRISE',
         enterpriseId: ctx.enterpriseId,
       },
+      select: {
+        ...PLATFORM_PROMOTION_SOURCE_SELECT,
+        enterprise: { select: { name: true } },
+      },
     });
     if (!version) throw new NotFoundException('技能版本不存在');
     if (version.status !== 'ENTERPRISE_APPROVED') {
@@ -362,22 +373,32 @@ export class SkillVersionService {
     });
     if (existing) throw new ConflictException('该企业版本已提交平台审核');
 
-    const platformVersion = await this.nextVersion(version.capabilityId, 'PLATFORM');
     return this.prisma.skillVersion.create({
-      data: {
-        capabilityId: version.capabilityId,
-        scope: 'PLATFORM',
-        sourceVersionId: version.id,
-        parentVersionId: version.parentVersionId,
-        version: platformVersion,
-        content: version.content,
-        changeSummary: version.changeSummary,
+      data: buildPlatformPromotion({
+        source: version,
+        version: await this.nextVersion(version.capabilityId, 'PLATFORM'),
+        platformParentId: await this.latestPlatformVersionId(version.capabilityId),
         status: 'PENDING_PLATFORM_REVIEW',
-        submittedAt: new Date(),
-        createdById: userId,
-      },
+        actorId: userId,
+        changeSummary: platformPromotionSummary({
+          enterpriseName: version.enterprise?.name ?? null,
+          sourceVersion: version.version,
+          sourceSummary: version.changeSummary,
+        }),
+        now: new Date(),
+      }),
       select: VERSION_SUMMARY_SELECT,
     });
+  }
+
+  /** 平台谱系的当前头部：新平台版的父版本就挂在它下面。 */
+  private async latestPlatformVersionId(capabilityId: string) {
+    const latest = await this.prisma.skillVersion.findFirst({
+      where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    return latest?.id ?? null;
   }
 
   async listAdminVersions(filters: {
@@ -386,9 +407,16 @@ export class SkillVersionService {
     page: number;
     limit: number;
   }) {
+    if (filters.scope === 'PERSONAL') {
+      throw new BadRequestException('个人副本不进平台审核列表');
+    }
     const where = {
       ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.scope ? { scope: filters.scope } : {}),
+      // 个人副本永远不是审核材料：它对本人立即生效、不上行，运营也不该逐个成员看。
+      // 不排掉的话「全部」页会被每个成员的副本淹掉。
+      ...(filters.scope
+        ? { scope: filters.scope }
+        : { scope: { in: [SkillVersionScope.PLATFORM, SkillVersionScope.ENTERPRISE] } }),
     };
     const [total, items] = await Promise.all([
       this.prisma.skillVersion.count({ where }),
@@ -428,7 +456,12 @@ export class SkillVersionService {
         capability: { select: { id: true, name: true, description: true } },
         enterprise: { select: { id: true, name: true } },
         parentVersion: { select: VERSION_SUMMARY_SELECT },
-        sourceVersion: { select: VERSION_SUMMARY_SELECT },
+        sourceVersion: {
+          select: { ...VERSION_SUMMARY_SELECT, enterprise: { select: { id: true, name: true } } },
+        },
+        // 企业版本看「有没有被平台收录过」靠这个反查：sourceVersionId 是唯一索引，
+        // 所以这里最多一条。没有它，界面只能把已采纳过的版本再摆一个可点的采纳按钮。
+        promotedVersions: { select: VERSION_SUMMARY_SELECT },
         reviews: {
           select: {
             id: true,
@@ -443,7 +476,12 @@ export class SkillVersionService {
       },
     });
     if (!version) throw new NotFoundException('技能版本不存在');
-    return version;
+    return {
+      ...version,
+      // 企业投稿创建的是 scope=PLATFORM 版本，自身 enterpriseId 为空，
+      // 来源企业要顺 sourceVersionId 回查 —— 与列表口径保持一致。
+      enterprise: version.enterprise ?? version.sourceVersion?.enterprise ?? null,
+    };
   }
 
   async createPlatformVersion(
@@ -523,8 +561,121 @@ export class SkillVersionService {
           comment: dto.comment,
         },
       });
+      // 审核通过要真的改变什么。以前批完只改状态，绑定还钉在旧平台版上，
+      // 于是企业投稿→运营通过全程走完，谁都没看出技能变了。
+      if (approved) {
+        await this.advancePlatformBindingDefaults(tx, version.capabilityId, version.id);
+      }
       return updated;
     });
+  }
+
+  /**
+   * 平台主动采纳一个企业版本 —— 不用等企业投稿。
+   *
+   * 会议纪要2 §6 的三层阶梯里，最上面那一级写的是「采纳与否由平台自己决定
+   * （数据本身都在平台）」。在此之前唯一的上行入口是企业管理员的
+   * `submitPlatformReview`，运营在 `scope=ENTERPRISE` 列表里看得到每家企业改成了
+   * 什么样，却一个动作都做不了。这个方法就是那条缺失的入口。
+   *
+   * 和投稿一样复制成独立的 PLATFORM 版本，而不是把企业那行改掉：企业原版的归属、
+   * 生效状态、后续迭代都不受影响，`sourceVersionId` 记住「这一版从哪家企业来」。
+   * 该字段是唯一索引，所以同一个企业版本只能被收录一次 —— 企业已经投过稿的版本
+   * 也会因此被挡住，不会出现同一份正文在平台侧进两遍。
+   */
+  async adoptEnterpriseVersion(
+    userId: string,
+    versionId: string,
+    dto: AdoptEnterpriseVersionDto,
+  ) {
+    const source = await this.prisma.skillVersion.findFirst({
+      where: { id: versionId, scope: 'ENTERPRISE' },
+      select: {
+        ...PLATFORM_PROMOTION_SOURCE_SELECT,
+        enterprise: { select: { name: true } },
+      },
+    });
+    if (!source) throw new NotFoundException('企业技能版本不存在');
+    // 归档意味着企业自己已经弃用它，平台再收录就是把别人扔掉的东西端上市场。
+    // 其余状态（含草稿）都放行 —— 运营看的是正文，不是企业内部走到哪一步了。
+    if (source.status === 'ARCHIVED') {
+      throw new ConflictException('已归档的企业版本不能采纳');
+    }
+
+    const existing = await this.prisma.skillVersion.findUnique({
+      where: { sourceVersionId: source.id },
+      select: { version: true, status: true },
+    });
+    if (existing) {
+      throw new ConflictException(`该企业版本已收录为平台版 v${existing.version}`);
+    }
+
+    const publish = dto.mode === 'PUBLISH';
+    const now = new Date();
+    const data = buildPlatformPromotion({
+      source,
+      version: await this.nextVersion(source.capabilityId, 'PLATFORM'),
+      platformParentId: await this.latestPlatformVersionId(source.capabilityId),
+      status: publish ? 'PLATFORM_APPROVED' : 'PENDING_PLATFORM_REVIEW',
+      actorId: userId,
+      changeSummary: platformPromotionSummary({
+        enterpriseName: source.enterprise?.name ?? null,
+        sourceVersion: source.version,
+        sourceSummary: source.changeSummary,
+        override: dto.changeSummary,
+      }),
+      now,
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.skillVersion.create({
+        data,
+        select: { ...VERSION_SUMMARY_SELECT, content: true },
+      });
+
+      if (publish) {
+        // 直接发布也要留一行审核记录：没有它，「谁把这一版放进平台的」在详情页查不到。
+        await tx.skillVersionReview.create({
+          data: {
+            versionId: created.id,
+            actorType: SkillReviewActorType.PLATFORM,
+            decision: SkillReviewDecision.APPROVE,
+            reviewerId: userId,
+            comment: dto.changeSummary?.trim() || '平台主动采纳企业版本，直接发布',
+          },
+        });
+        await this.advancePlatformBindingDefaults(tx, source.capabilityId, created.id);
+      }
+
+      return created;
+    });
+  }
+
+  /**
+   * 把员工模板里钉在旧平台版上的 `defaultSkillVersionId` 推到新平台版。
+   *
+   * 少了这一步，「发布为平台版」是个看不出效果的空动作：
+   * `resolveEffectiveVersion` 里绑定默认版排在「最新平台版」之前，而实测 72 条
+   * SKILL 绑定有 63 条钉着具体版本 —— 不推的话新版本只对那 9 条没钉的生效。
+   *
+   * 只动指向 PLATFORM 版本的绑定：
+   *   - `null` 的不动 —— 它本来就自动跟随最新平台版，钉上去反而收紧了语义；
+   *   - 企业自己的选版存在 `SubscriptionSkillVersion`，不在这张表里，天然不受影响。
+   */
+  private async advancePlatformBindingDefaults(
+    tx: Prisma.TransactionClient,
+    capabilityId: string,
+    versionId: string,
+  ) {
+    const { count } = await tx.employeeCapabilityBinding.updateMany({
+      where: {
+        capabilityId,
+        defaultSkillVersion: { scope: 'PLATFORM' },
+        NOT: { defaultSkillVersionId: versionId },
+      },
+      data: { defaultSkillVersionId: versionId },
+    });
+    return count;
   }
 
 
@@ -754,6 +905,9 @@ export class SkillVersionService {
           enterpriseId: ctx.enterpriseId,
           scope: 'ENTERPRISE',
           status: 'ENTERPRISE_APPROVED',
+          // 采纳出来的版本也有父版本：合并的基线就是它。漏了这个字段，界面上
+          // 「无父版本 + 无来源」会被当成原始版本，一条采纳记录被标成「原始版本」。
+          parentVersionId: baseline?.id,
           version,
           content: merged.content,
           changeSummary,
@@ -871,6 +1025,9 @@ export class SkillVersionService {
     changeSummary: string,
   ) {
     const version = await this.nextVersion(capabilityId, 'ENTERPRISE', enterpriseId);
+    // 采纳 AI 建议同样是「基于当前基线改出来的」，父版本不能空 —— 空了就会被
+    // 界面当成原始版本，也断掉版本时间线上的血缘。
+    const baseline = await this.resolveEnterpriseBaseline(enterpriseId, capabilityId);
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.skillVersion.create({
         data: {
@@ -878,6 +1035,7 @@ export class SkillVersionService {
           enterpriseId,
           scope: 'ENTERPRISE',
           status: 'ENTERPRISE_APPROVED',
+          parentVersionId: baseline?.id,
           version,
           content: this.stripFrontmatter(content),
           changeSummary,

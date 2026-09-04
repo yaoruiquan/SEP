@@ -31,7 +31,7 @@ describe('CapabilityContributionService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-    skillVersion: { updateMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    skillVersion: { updateMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     agentConfig: { findUnique: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -423,10 +423,73 @@ describe('CapabilityContributionService', () => {
       platformReviewStatus: 'REQUESTED',
     });
 
+    prisma.skillVersion.findFirst
+      .mockResolvedValueOnce({
+        id: 'ent-v3',
+        capabilityId: 'cap-1',
+        version: '1.0.3',
+        content: '# 正文',
+        changeSummary: '加术语表',
+        status: 'ENTERPRISE_APPROVED',
+        parentVersionId: 'ent-v2',
+        packageKey: null,
+        packageSha256: null,
+        packageFileCount: null,
+        packageFilename: null,
+        enterprise: { name: '示例科技有限公司' },
+      })
+      .mockResolvedValueOnce(null);
+    prisma.skillVersion.findUnique.mockResolvedValue(null);
+    prisma.skillVersion.findMany.mockResolvedValue([]);
+
     await service.authorizePlatformSubmission('admin-1', 'cap-1');
 
     expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: 'admin-1' }),
+    }));
+    // 投稿要复制成平台副本，而不是把企业那行的状态改掉 —— 原地改会让企业版在自家
+    // 界面上显示成「待平台审核」，运营点通过还会 404（只认 scope=PLATFORM）。
+    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        scope: 'PLATFORM',
+        sourceVersionId: 'ent-v3',
+        status: 'PENDING_PLATFORM_REVIEW',
+        content: '# 正文',
+      }),
+    }));
+    expect(prisma.skillVersion.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('re-queues the existing platform copy when a rejected contribution is submitted again', async () => {
+    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+    prisma.capability.findFirst.mockResolvedValue({
+      ...capability,
+      enterpriseReviewStatus: 'APPROVED',
+      platformReviewStatus: 'REQUESTED',
+    });
+    prisma.skillVersion.findFirst.mockResolvedValueOnce({
+      id: 'ent-v3',
+      capabilityId: 'cap-1',
+      version: '1.0.3',
+      content: '# 正文',
+      changeSummary: null,
+      status: 'PLATFORM_REJECTED',
+      parentVersionId: null,
+      packageKey: null,
+      packageSha256: null,
+      packageFileCount: null,
+      packageFilename: null,
+      enterprise: { name: '示例科技有限公司' },
+    });
+    // 上一轮驳回时已经建过副本，sourceVersionId 是唯一索引，不能再建第二份
+    prisma.skillVersion.findUnique.mockResolvedValue({ id: 'platform-copy' });
+
+    await service.authorizePlatformSubmission('admin-1', 'cap-1');
+
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'platform-copy' },
+      data: expect.objectContaining({ status: 'PENDING_PLATFORM_REVIEW', rejectionReason: null }),
     }));
   });
 
@@ -446,8 +509,10 @@ describe('CapabilityContributionService', () => {
       skipDuplicates: true,
       data: [expect.objectContaining({ dedupeKey: 'platform-approved:cap-1', points: 50 })],
     }));
+    // scope 约束不能少：漏了它会把 scope=ENTERPRISE 那行也改成 PLATFORM_APPROVED，
+    // 结果是「MARKET_PUBLIC 的能力一个平台版本都没有」，别的企业订阅后拿不到正文。
     expect(prisma.skillVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { capabilityId: 'cap-1', status: 'PENDING_PLATFORM_REVIEW' },
+      where: { capabilityId: 'cap-1', scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW' },
       data: expect.objectContaining({ status: 'PLATFORM_APPROVED' }),
     }));
   });

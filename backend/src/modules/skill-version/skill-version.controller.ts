@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { SkillVersionScope, SkillVersionStatus, UserRole } from '@prisma/client';
 import {
+  AdoptEnterpriseVersionDtoSchema,
   AdoptPersonalVersionsDtoSchema,
   CreateEnterpriseSkillVersionDtoSchema,
   CreatePlatformSkillVersionDtoSchema,
@@ -331,6 +332,24 @@ export class AdminSkillVersionController {
   @ApiOperation({ summary: '提交平台技能草稿审核' })
   submitReview(@Param('id') id: string) {
     return this.service.submitAdminPlatformReview(id);
+  }
+
+  @Post(':id/adopt')
+  @ApiOperation({
+    summary: '平台主动采纳企业版本',
+    description:
+      '不等企业投稿：运营在企业版本列表里直接把某一版收进平台。mode=DRAFT 收成待审草稿再走审核，' +
+      'mode=PUBLISH 直接发布为平台版并成为员工模板的默认版。企业原版不受影响，同一个企业版本只能收一次。',
+  })
+  @ApiResponse({ status: 201, description: '新建的平台版本（含正文）' })
+  @ApiResponse({ status: 404, description: '企业技能版本不存在' })
+  @ApiResponse({ status: 409, description: '已归档，或该企业版本已被收录/投稿过' })
+  adopt(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.service.adoptEnterpriseVersion(
+      req.user.id,
+      id,
+      AdoptEnterpriseVersionDtoSchema.parse(body),
+    );
   }
 
   @Post(':id/review')

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import type { AdminVersionRow } from './group-admin-versions';
 import type {
   EmployeeSkillVersionsResponse,
   SkillVersionPreview,
@@ -156,25 +157,46 @@ interface AdminSkillVersionListResponse {
   total: number;
   page: number;
   limit: number;
-  items: Array<
-    SkillVersionSummary & {
-      capability: { id: string; name: string; description: string };
-      enterprise: { id: string; name: string } | null;
-    }
-  >;
+  items: AdminVersionRow[];
 }
 
 export function useAdminSkillVersions(filters?: {
   status?: SkillVersionStatus;
   scope?: SkillVersionScope;
+  limit?: number;
 }) {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
   if (filters?.scope) params.set('scope', filters.scope);
+  // 列表按「企业 → 技能」折叠展示，一页 20 条会把一个企业的版本截断在中间 ——
+  // 看起来像完整的一组，其实少了几版。拉到后端上限，超出时界面上明说。
+  params.set('limit', String(filters?.limit ?? 100));
   return useQuery({
     queryKey: [...skillVersionKeys.admin(), filters],
     queryFn: () =>
       api.get<AdminSkillVersionListResponse>(`/admin/skill-versions?${params.toString()}`),
+  });
+}
+
+/**
+ * 运营主动采纳一个企业版本 —— 不等企业投稿。
+ *
+ * 会议纪要2 §6 的阶梯顶端是「采纳与否由平台自己决定（数据本身都在平台）」，
+ * 这个 mutation 就是那条入口。`DRAFT` 收成待审草稿再走一遍通过/驳回，
+ * `PUBLISH` 直接落成平台版并成为员工模板的默认版。
+ */
+export function useAdoptEnterpriseSkillVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; mode: 'DRAFT' | 'PUBLISH'; changeSummary?: string }) =>
+      api.post<SkillVersionPreview>(`/admin/skill-versions/${data.id}/adopt`, {
+        mode: data.mode,
+        changeSummary: data.changeSummary,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['skill-versions'] });
+      void qc.invalidateQueries({ queryKey: ['capability-iteration'] });
+    },
   });
 }
 

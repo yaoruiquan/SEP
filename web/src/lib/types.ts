@@ -43,6 +43,16 @@ export interface SkillVersionPreview extends SkillVersionSummary {
   content: string;
   rejectionReason?: string | null;
   capability: Pick<Capability, 'id' | 'name' | 'description'>;
+  /**
+   * 来源企业。仅运营审核详情返回：企业投稿产生的是 scope=PLATFORM 副本、自身
+   * enterpriseId 为空，后端顺 sourceVersionId 回查后填在这里。
+   */
+  enterprise?: { id: string; name: string } | null;
+  /**
+   * 该企业版本已被收录成的平台版本。sourceVersionId 是唯一索引，所以最多一条 ——
+   * 有值就说明这一版投过稿或被采纳过，不该再给一个可点的采纳按钮。
+   */
+  promotedVersions?: SkillVersionSummary[];
 }
 
 export interface EmployeeSkillVersionItem {

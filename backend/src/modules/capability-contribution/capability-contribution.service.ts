@@ -9,6 +9,7 @@ import {
   CapabilityType,
   ContributionPlatformStatus,
   ContributionReviewStatus,
+  Prisma,
   SkillVersionScope,
   SkillVersionStatus,
 } from '@prisma/client';
@@ -23,6 +24,11 @@ import type {
   ContributionVersionUpdateDto,
 } from 'shared';
 import { SkillPackageService } from '../skill-package/skill-package.service';
+import {
+  PLATFORM_PROMOTION_SOURCE_SELECT,
+  buildPlatformPromotion,
+  platformPromotionSummary,
+} from '../skill-version/promote-to-platform';
 import { nextSemver } from '../skill-version/skill-version-numbering';
 import { AUTHOR_VERSION_SELECT, CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT, USAGE_VERSION_SELECT } from './capability-contribution.types';
 import { CapabilityValidatorService } from './capability-validator.service';
@@ -364,14 +370,17 @@ export class CapabilityContributionService {
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === 'SKILL') {
+      // 企业路径这一步只是「发起申请」（REQUESTED），要等企业管理员授权才真的进平台，
+      // 所以这里不该动任何版本。以前会把 scope=ENTERPRISE 那几行直接改成
+      // PENDING_PLATFORM_REVIEW，于是运营的待审列表里出现一批点通过必然 404 的行
+      // —— reviewPlatformVersion 只认 scope=PLATFORM。改到 authorizePlatformSubmission
+      // 那步去建平台副本。
+      if (capability.type === 'SKILL' && directPlatformSubmission) {
         await tx.skillVersion.updateMany({
           where: {
             capabilityId: capability.id,
-            scope: directPlatformSubmission ? 'PLATFORM' : 'ENTERPRISE',
-            status: directPlatformSubmission
-              ? { in: ['DRAFT', 'PLATFORM_REJECTED'] }
-              : { in: ['ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] },
+            scope: 'PLATFORM',
+            status: { in: ['DRAFT', 'PLATFORM_REJECTED'] },
           },
           data: {
             status: 'PENDING_PLATFORM_REVIEW',
@@ -401,12 +410,80 @@ export class CapabilityContributionService {
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
       if (capability.type === 'SKILL') {
-        await tx.skillVersion.updateMany({
-          where: { capabilityId: capability.id, scope: 'ENTERPRISE', status: { in: ['ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] } },
-          data: { status: 'PENDING_PLATFORM_REVIEW' },
-        });
+        await this.promoteLatestEnterpriseVersion(tx, capability.id, userId);
       }
       return updated;
+    });
+  }
+
+  /**
+   * 整能力投稿时，把企业最新的那一版复制成平台待审版本。
+   *
+   * 两处和以前不同，都是原来那套写法留下的坑：
+   *   - **复制而不是原地改**：企业那行保持 ENTERPRISE_APPROVED 继续在本企业生效，
+   *     平台审核作用在 scope=PLATFORM 的副本上。原地改会让企业版本在自家界面上
+   *     显示成「待平台审核」，而且运营点通过会 404。
+   *   - **只投最新一版**：原来 updateMany 把该企业所有 ENTERPRISE_APPROVED 版本
+   *     一起翻牌，一个改过 9 版的技能会产生 9 条待审记录。投稿投的是当前这一版。
+   */
+  private async promoteLatestEnterpriseVersion(
+    tx: Prisma.TransactionClient,
+    capabilityId: string,
+    actorId: string,
+  ) {
+    const source = await tx.skillVersion.findFirst({
+      where: {
+        capabilityId,
+        scope: 'ENTERPRISE',
+        status: { in: ['ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { ...PLATFORM_PROMOTION_SOURCE_SELECT, enterprise: { select: { name: true } } },
+    });
+    if (!source) return null;
+
+    // 重新投稿（上一轮被驳回）会撞 sourceVersionId 的唯一索引。同一份正文没必要
+    // 再复制一份，把上次那条退回待审即可 —— 驳回理由一起清掉，否则界面会同时显示
+    // 「待平台审核」和上一轮的驳回原因。
+    const existing = await tx.skillVersion.findUnique({
+      where: { sourceVersionId: source.id },
+      select: { id: true },
+    });
+    if (existing) {
+      return tx.skillVersion.update({
+        where: { id: existing.id },
+        data: {
+          status: 'PENDING_PLATFORM_REVIEW',
+          submittedAt: new Date(),
+          rejectionReason: null,
+        },
+      });
+    }
+
+    const siblings = await tx.skillVersion.findMany({
+      where: { capabilityId, scope: 'PLATFORM', enterpriseId: null },
+      select: { version: true },
+    });
+    const platformParent = await tx.skillVersion.findFirst({
+      where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    return tx.skillVersion.create({
+      data: buildPlatformPromotion({
+        source,
+        version: nextSemver(siblings.map((row) => row.version)),
+        platformParentId: platformParent?.id ?? null,
+        status: 'PENDING_PLATFORM_REVIEW',
+        actorId,
+        changeSummary: platformPromotionSummary({
+          enterpriseName: source.enterprise?.name ?? null,
+          sourceVersion: source.version,
+          sourceSummary: source.changeSummary,
+        }),
+        now: new Date(),
+      }),
     });
   }
 
@@ -429,9 +506,14 @@ export class CapabilityContributionService {
       });
       if (capability.type === 'SKILL') {
         await tx.skillVersion.updateMany({
-          // 企业投稿使用 ENTERPRISE 快照，个人直投使用 PLATFORM 版本；
-          // 两条路径都必须在平台审核完成后落到同一公共版本状态。
-          where: { capabilityId: capability.id, status: 'PENDING_PLATFORM_REVIEW' },
+          // 只作用在平台副本上。企业投稿与个人直投现在都产出 scope=PLATFORM 的行，
+          // 少了这个 scope 约束，企业那行会被改成 PLATFORM_APPROVED —— 于是出现
+          // 「MARKET_PUBLIC 的能力一个平台版本都没有」，别的企业订阅后拿不到正文。
+          where: {
+            capabilityId: capability.id,
+            scope: 'PLATFORM',
+            status: 'PENDING_PLATFORM_REVIEW',
+          },
           data: { status: approved ? 'PLATFORM_APPROVED' : 'PLATFORM_REJECTED', rejectionReason: approved ? null : dto.comment },
         });
       }

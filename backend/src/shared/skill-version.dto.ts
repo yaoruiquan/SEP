@@ -72,3 +72,21 @@ export type CreatePlatformSkillVersionDto = z.infer<
 export type AdoptPersonalVersionsDto = z.infer<
   typeof AdoptPersonalVersionsDtoSchema
 >;
+
+/**
+ * 平台主动采纳一个企业版本（运营侧发起）。
+ *
+ * 会议纪要2 §6 的三层阶梯里，最上面那一级写的是「采纳与否由平台自己决定
+ * （数据本身都在平台）」。此前只有企业管理员能发起（submitPlatformReview），
+ * 运营在企业版本列表里看得到却动不了 —— 这个 DTO 补的是那条缺失的入口。
+ */
+export const AdoptEnterpriseVersionDtoSchema = z.object({
+  /**
+   * DRAFT   = 收成待审草稿，再走一遍现有的通过/驳回；
+   * PUBLISH = 直接落成平台版并成为平台默认，跳过审核。
+   */
+  mode: z.enum(['DRAFT', 'PUBLISH']),
+  changeSummary: z.string().trim().max(2000).optional(),
+});
+
+export type AdoptEnterpriseVersionDto = z.infer<typeof AdoptEnterpriseVersionDtoSchema>;
