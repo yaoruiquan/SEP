@@ -415,6 +415,42 @@ describe('CapabilityContributionService', () => {
     expect(prisma.capability.update).not.toHaveBeenCalled();
   });
 
+  it('leaves enterprise versions alone while the request only waits for authorization', async () => {
+    prisma.capability.findFirst.mockResolvedValue({
+      ...capability,
+      enterpriseReviewStatus: 'APPROVED',
+    });
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      content: '# 角色\n验收助手\n# 输入\n页面截图\n# 步骤\n检查页面\n# 输出\n验收报告',
+    });
+
+    await service.requestPlatformReview('user-1', 'cap-1');
+
+    // 这一步只是「发起申请」（REQUESTED），要等企业管理员授权才真的进平台队列。
+    // 以前这里就把 scope=ENTERPRISE 的版本改成 PENDING_PLATFORM_REVIEW，于是运营的
+    // 待审列表里出现一批点通过必然 404 的行 —— reviewPlatformVersion 只认 PLATFORM。
+    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ platformReviewStatus: 'REQUESTED' }),
+    }));
+    expect(prisma.skillVersion.updateMany).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('authorizes without a platform copy when the enterprise has no eligible version', async () => {
+    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+    prisma.capability.findFirst.mockResolvedValue({
+      ...capability,
+      enterpriseReviewStatus: 'APPROVED',
+      platformReviewStatus: 'REQUESTED',
+    });
+    prisma.skillVersion.findFirst.mockResolvedValue(null);
+
+    await service.authorizePlatformSubmission('admin-1', 'cap-1');
+
+    expect(prisma.capability.update).toHaveBeenCalled();
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+  });
+
   it('lets an enterprise admin authorize the creator request into the platform queue', async () => {
     enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
     prisma.capability.findFirst.mockResolvedValue({
