@@ -90,6 +90,8 @@ export interface UsageBreakdown {
   byEmployee: BreakdownRow[];
 }
 
+export type AllowancePeriod = 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR';
+
 /** 一位碳基员工的算力分配情况。 */
 export interface MemberAllowanceItem {
   userId: string;
@@ -98,13 +100,64 @@ export interface MemberAllowanceItem {
   departmentName: string | null;
   /** null = 未分配额度（不限额） */
   limitCNY: string | null;
+  period: AllowancePeriod;
+  /** 周期的中文名（每月 / 每周 …）。后端给现成的，前端不再维护第二份映射 */
+  periodLabel: string;
+  /** 未用完的额度是否结转到下一周期（封顶 1 个周期） */
+  carryOver: boolean;
   enabled: boolean;
+  /** 上一周期结转进来的金额；未开结转时为 "0.00" */
+  carriedInCNY: string;
+  /**
+   * 本周期已消耗的**企业资金**（赠送 + 企业钱包 + 欠费）。
+   *
+   * 刻意不含成员自付部分：否则「自己掏钱反而更快撞上公司给的上限」，
+   * 自费变成自我惩罚。
+   */
   usedCNY: string;
-  /** 不限额时为 null */
+  /** 常规额度（上限 + 结转）还剩多少。不限额时为 null */
   remainingCNY: string | null;
-  /** 0–100；不限额时为 null */
+  /** 未用完的一次性追加额度合计（跨周期存活，排在常规额度之后消耗） */
+  topUpRemainingCNY: string;
+  /** 常规 + 追加，本周期还能花的企业资金合计。不限额时为 null */
+  totalRemainingCNY: string | null;
+  /** 已用占「上限 + 结转」的百分比（0–100）；不限额时为 null */
   usedPct: number | null;
+  periodStart: string;
+  /** 本周期结束、额度重置的时刻 */
   resetAt: string;
+}
+
+/** 一笔追加额度。 */
+export interface AllowanceTopUpItem {
+  id: string;
+  userId: string;
+  /** 成员姓名（无名字时回落邮箱）—— 全企业留痕列表里只有 userId 等于不可读 */
+  userName: string;
+  amountCNY: string;
+  consumedCNY: string;
+  remainingCNY: string;
+  note: string | null;
+  grantedByName: string | null;
+  createdAt: string;
+}
+
+/** 一条额度变更留痕。「为什么他这月只花了 ¥200 就被改道」要靠它回答。 */
+export interface AllowanceChangeItem {
+  id: string;
+  userId: string;
+  userName: string;
+  fromLimitCNY: string | null;
+  toLimitCNY: string | null;
+  fromPeriod: AllowancePeriod | null;
+  toPeriod: AllowancePeriod | null;
+  fromCarryOver: boolean | null;
+  toCarryOver: boolean | null;
+  /** 变更当时该成员本周期已用多少 —— 没有它就没法解释当时的判定 */
+  usedAtChangeCNY: string | null;
+  changedByName: string | null;
+  note: string | null;
+  createdAt: string;
 }
 
 export interface UsageRecordItem {
@@ -124,7 +177,14 @@ export interface UsageRecordItem {
   creditPaidCNY: string;
   /** 由企业钱包承担的部分（元） */
   walletPaidCNY: string;
-  /** > 0 表示余额已耗尽，本次消费有欠费 */
+  /**
+   * 由成员**个人钱包**承担的部分（元）。
+   *
+   * 个人钱包排在扣费链最后一位，所以这一列 > 0 只有两种成因：
+   * 他本周期的算力额度用尽了，或者企业资金见底了。
+   */
+  personalPaidCNY: string;
+  /** > 0 表示企业资金与个人余额都已耗尽，本次消费有欠费 */
   unpaidCNY: string;
   /** true = 该模型未配价，按保底价计费 */
   fallbackPricing: boolean;
@@ -158,6 +218,11 @@ export const computeCreditKeys = {
   credit: (subscriptionId: string) =>
     [...computeCreditKeys.all, 'subscription-credits', subscriptionId] as const,
   allowances: () => [...computeCreditKeys.all, 'allowances'] as const,
+  myAllowance: () => [...computeCreditKeys.all, 'my-allowance'] as const,
+  topUps: (userId?: string) =>
+    [...computeCreditKeys.all, 'allowance-top-ups', userId ?? 'all'] as const,
+  changes: (userId?: string) =>
+    [...computeCreditKeys.all, 'allowance-changes', userId ?? 'all'] as const,
   breakdown: (days: number) =>
     [...computeCreditKeys.all, 'usage-breakdown', days] as const,
   usage: (filters: UsageRecordFilters) =>
@@ -290,7 +355,7 @@ export function useUsageRecords(filters: UsageRecordFilters = {}) {
 
 // ── 算力分配（给碳基员工设本周期上限）──────────────────────────────────────
 
-/** 全体碳基员工的本月额度与已用金额。 */
+/** 全体碳基员工的本周期额度与已用金额（仅企业管理员）。 */
 export function useMemberAllowances() {
   return useQuery({
     queryKey: computeCreditKeys.allowances(),
@@ -299,22 +364,102 @@ export function useMemberAllowances() {
 }
 
 /**
+ * 我自己的额度。成员端自查用，不需要管理员权限。
+ *
+ * 注意它只回答「公司这个周期还愿意为我付多少」—— 能不能对话还要看个人余额，
+ * 两个数字要一起看，见 `usePersonalWallet`。
+ */
+export function useMyAllowance() {
+  return useQuery({
+    queryKey: computeCreditKeys.myAllowance(),
+    queryFn: () => api.get<MemberAllowanceItem>('/compute-credit/my-allowance'),
+  });
+}
+
+export interface SetAllowanceVars {
+  userId: string;
+  /** null = 取消限额（不限额） */
+  limitCNY: number | null;
+  period?: AllowancePeriod;
+  carryOver?: boolean;
+  note?: string;
+}
+
+/**
  * 给某位成员分配额度。`limitCNY: null` = 取消限额。
  *
  * 成功后要连总览一起失效：分配本身不动余额，但页面上两处都会显示
- * 「已分配几人」这类派生数字，只刷一边会不一致。
+ * 「已分配几人」这类派生数字，只刷一边会不一致。变更留痕也要刷 ——
+ * 保存完看不到自己刚做的那条改动，会让人怀疑没保存成功。
  */
 export function useSetMemberAllowance() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, limitCNY }: { userId: string; limitCNY: number | null }) =>
-      api.put<MemberAllowanceItem>(`/compute-credit/allowances/${userId}`, {
-        limitCNY,
-      }),
+    mutationFn: ({ userId, ...body }: SetAllowanceVars) =>
+      api.put<MemberAllowanceItem>(`/compute-credit/allowances/${userId}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: computeCreditKeys.allowances() });
+      qc.invalidateQueries({ queryKey: computeCreditKeys.myAllowance() });
       qc.invalidateQueries({ queryKey: computeCreditKeys.overview() });
+      qc.invalidateQueries({ queryKey: [...computeCreditKeys.all, 'allowance-changes'] });
     },
+  });
+}
+
+/**
+ * 追加一次性额度。与「调高上限」是两回事：追加额度跨周期存活，
+ * 且排在常规额度之后消耗 —— 用途是「他这个月要多干点活」，
+ * 不是「他以后每期都能花更多」。
+ */
+export function useTopUpMemberAllowance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      ...body
+    }: {
+      userId: string;
+      amountCNY: number;
+      note?: string;
+    }) =>
+      api.post<MemberAllowanceItem>(
+        `/compute-credit/allowances/${userId}/top-up`,
+        body,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: computeCreditKeys.allowances() });
+      qc.invalidateQueries({ queryKey: computeCreditKeys.myAllowance() });
+      qc.invalidateQueries({ queryKey: [...computeCreditKeys.all, 'allowance-top-ups'] });
+    },
+  });
+}
+
+/**
+ * 追加额度记录（最近 50 条）。传 userId 只看某位成员。
+ *
+ * `enabled` 不是可选的性能优化：这两个 hook 会挂在**每一行成员**的弹窗里，
+ * 不关掉就是开一次页面打 N 次请求。
+ */
+export function useAllowanceTopUps(userId?: string, enabled = true) {
+  return useQuery({
+    queryKey: computeCreditKeys.topUps(userId),
+    enabled,
+    queryFn: () =>
+      api.get<AllowanceTopUpItem[]>(
+        `/compute-credit/allowance-top-ups${userId ? `?userId=${userId}` : ''}`,
+      ),
+  });
+}
+
+/** 额度变更留痕（最近 50 条）。传 userId 只看某位成员。 */
+export function useAllowanceChanges(userId?: string, enabled = true) {
+  return useQuery({
+    queryKey: computeCreditKeys.changes(userId),
+    enabled,
+    queryFn: () =>
+      api.get<AllowanceChangeItem[]>(
+        `/compute-credit/allowance-changes${userId ? `?userId=${userId}` : ''}`,
+      ),
   });
 }
 

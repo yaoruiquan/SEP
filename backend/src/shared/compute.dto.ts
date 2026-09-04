@@ -27,10 +27,46 @@ export type ComputeReserveDto = z.infer<typeof ComputeReserveDtoSchema>;
  * `limitCNY: null` = 取消限额。用 nullable 而不是 optional：
  * 「没传」和「明确要求不限额」必须能区分，否则清空额度会变成静默无操作。
  */
+export const AllowancePeriodSchema = z.enum([
+  'DAY',
+  'WEEK',
+  'MONTH',
+  'QUARTER',
+  'YEAR',
+]);
+export type AllowancePeriodDto = z.infer<typeof AllowancePeriodSchema>;
+
 export const MemberAllowanceSetDtoSchema = z.object({
   limitCNY: z.number().positive().max(1_000_000).multipleOf(0.01).nullable(),
+  /// 结算周期。不传 = 沿用现有设置（新建时默认自然月）。
+  period: AllowancePeriodSchema.optional(),
+  /// 未用完是否结转到下一周期（上限固定 1 个周期，即最多攒到 2 倍）。
+  /// 不传 = 沿用现有设置（新建时默认结转）。
+  carryOver: z.boolean().optional(),
+  /// 变更备注，写进 MemberAllowanceChange 留痕。
+  note: z.string().max(200).optional(),
 });
 export type MemberAllowanceSetDto = z.infer<typeof MemberAllowanceSetDtoSchema>;
+
+/**
+ * 给某成员追加一次性额度。
+ *
+ * 与「调高上限」不同：追加额度**跨周期存活**，扣减排在常规周期额度之后。
+ * 用途是「他这个月要多干点活」，不是「他以后每期都能花更多」。
+ */
+export const MemberAllowanceTopUpDtoSchema = z.object({
+  amountCNY: z.number().positive().max(1_000_000).multipleOf(0.01),
+  note: z.string().max(200).optional(),
+});
+export type MemberAllowanceTopUpDto = z.infer<
+  typeof MemberAllowanceTopUpDtoSchema
+>;
+
+/** 个人钱包充值（成员自掏腰包）。 */
+export const PersonalDepositDtoSchema = z.object({
+  amountCNY: z.number().positive().max(100_000).multipleOf(0.01),
+});
+export type PersonalDepositDto = z.infer<typeof PersonalDepositDtoSchema>;
 
 export const TransactionQueryDtoSchema = z.object({
   type: z.enum(['RECHARGE', 'CONSUME', 'REFUND']).optional(),

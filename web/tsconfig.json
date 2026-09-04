@@ -36,6 +36,18 @@
     ".next-dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // next.config.mjs 把 dev 产物放到 .next-dev，与生产的 .next 隔离
+    // （dev server 跑着的时候做生产构建，不至于把浏览器 chunk 打碎）。
+    //
+    // 代价是：`next dev` 每次启动都会把 ".next-dev/types/**/*.ts" 自动回填进
+    // 上面的 include —— 于是 `next build` 会去类型检查 **dev 模式留下的过期路由类型**。
+    // 删掉一个路由后，dev 残留的那份 page.ts 仍在 import 已经不存在的文件，
+    // 生产构建就此失败，只能 rm -rf .next-dev 手动救。
+    //
+    // exclude 优先于 include，所以这一行能让 Next 的自动回填失效；
+    // 只是回填，不删这一行的话每次都要手动清一遍。
+    // dev 期间的路由类型由 next dev 自己实时检查，不靠 tsc --noEmit 兜。
+    ".next-dev"
   ]
 }

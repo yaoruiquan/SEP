@@ -3,13 +3,18 @@ import {
   Logger,
   ConflictException,
   NotFoundException,
-} from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MemberAllowanceService } from './member-allowance.service';
-import { WalletService } from '../wallet/wallet.service';
-import { SettingService } from '../setting/setting.service';
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
+import { PrismaService } from "../../prisma/prisma.service";
+import { MemberAllowanceService } from "./member-allowance.service";
+import { WalletService } from "../wallet/wallet.service";
+import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
+import { SettingService } from "../setting/setting.service";
+import {
+  AllowanceNotifierService,
+  type AllowanceNotifyInput,
+} from "./allowance-notifier.service";
 import {
   SETTING_KEYS,
   calculateCost,
@@ -17,7 +22,7 @@ import {
   parseFallbackPriceConfig,
   parseUsdToCnyRate,
   type FallbackPriceConfigCNY,
-} from 'shared';
+} from "shared";
 import type {
   BalanceCheckResult,
   ChargeUsageParams,
@@ -25,7 +30,7 @@ import type {
   GrantCreditParams,
   SubscriptionCreditView,
   UsageRecordQuery,
-} from './compute-credit.types';
+} from "./compute-credit.types";
 
 /** 账本精度：6 位小数。所有写库前的金额都过一遍它，避免 Prisma 层静默截断。 */
 const MONEY_DP = 6;
@@ -37,9 +42,16 @@ function money(value: Decimal.Value): Decimal {
 /**
  * 统一人民币算力账本。
  *
- * 财务口径只有「元」：订阅赠送余额（SubscriptionCredit）优先，用尽后扣企业钱包
- * （EnterpriseWallet）。Token 只作为用量与定价输入落在 ComputeUsageRecord 明细里，
- * 不是可扣减余额。
+ * 财务口径只有「元」。一次对话的钱按固定顺序出（§5.7 ②）：
+ *
+ *   订阅赠送余额 → 企业钱包 → 个人钱包 → 欠费
+ *   ↑ 前两腿受成员算力分配的闸门约束，闸门说「企业资金已用尽」时它们出 0，
+ *     这一笔直接落到个人钱包 —— 对话照常发生，只是这次由成员自费。
+ *
+ * 个人钱包排**最后**而不是第二：排第二会让充了钱的成员静默补贴公司 ——
+ * 他一充值，公司的钱就永远花不到他头上。
+ *
+ * Token 只作为用量与定价输入落在 ComputeUsageRecord 明细里，不是可扣减余额。
  */
 @Injectable()
 export class ComputeCreditService {
@@ -48,8 +60,10 @@ export class ComputeCreditService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
+    private readonly personalWallet: PersonalWalletService,
     private readonly settings: SettingService,
     private readonly memberAllowance: MemberAllowanceService,
+    private readonly allowanceNotifier: AllowanceNotifierService,
   ) {}
 
   // ── 赠送额度配置与发放 ─────────────────────────────────────────────────────
@@ -97,10 +111,12 @@ export class ComputeCreditService {
     });
 
     if (existing) {
-      const exhausted = existing.usedCNY.greaterThanOrEqualTo(existing.grantedCNY);
+      const exhausted = existing.usedCNY.greaterThanOrEqualTo(
+        existing.grantedCNY,
+      );
       return client.subscriptionCredit.update({
         where: { id: existing.id },
-        data: { status: exhausted ? 'EXHAUSTED' : 'ACTIVE' },
+        data: { status: exhausted ? "EXHAUSTED" : "ACTIVE" },
       });
     }
 
@@ -112,7 +128,7 @@ export class ComputeCreditService {
         grantedCNY: granted,
         usedCNY: 0,
         // 赠送 0 元的额度直接标记用尽，免得前端把它显示成「有额度可用」
-        status: granted.greaterThan(0) ? 'ACTIVE' : 'EXHAUSTED',
+        status: granted.greaterThan(0) ? "ACTIVE" : "EXHAUSTED",
         sourceType: params.sourceType,
         sourceId: params.sourceId ?? null,
       },
@@ -130,31 +146,40 @@ export class ComputeCreditService {
     subscriptionId: string,
   ) {
     await client.subscriptionCredit.updateMany({
-      where: { subscriptionId, status: { not: 'EXPIRED' } },
-      data: { status: 'EXPIRED' },
+      where: { subscriptionId, status: { not: "EXPIRED" } },
+      data: { status: "EXPIRED" },
     });
   }
 
   // ── 对话前余额检查 ─────────────────────────────────────────────────────────
 
   /**
-   * 对话前的余额闸门。赠送余额与钱包余额任一有钱就放行 ——
-   * 二者是同一个人民币口径的两个来源，没必要分别判断。
+   * 对话前的余额闸门。
+   *
+   * 返回两个布尔值而不是一个（§5.7 ④）：**「公司不为这次对话付钱」与「这次对话不能
+   * 发生」是两件事**。成员个人钱包有余额时，两种「企业资金不可用」都只是改道自费：
+   *   · 他的分配额度用尽（公司资金对他关闸）
+   *   · 企业赠送额度与钱包都见底（公司资金对所有人关闸）
+   * 把任一种直接拦死，就是拒掉一次账本本来付得起的对话。
    */
   async checkBalanceBeforeConversation(
     enterpriseId: string,
     subscriptionId?: string | null,
     userId?: string | null,
   ): Promise<BalanceCheckResult> {
-    // 算力分配的闸门排在余额之前：额度用尽是「这个人不能再花」，
+    // 算力分配的闸门排在余额之前：额度用尽是「这个人不能再花公司的钱」，
     // 与「企业没钱了」是两件事，话术和出路都不同，不能合并成一句「余额不足」。
     const allowance = await this.memberAllowance.check(enterpriseId, userId);
-    if (!allowance.allowed) {
+    if (!allowance.enterpriseFundsAllowed) {
+      // 闸门已经查过个人余额并把结论写进了 reason，这里不重复查库
       return {
-        allowed: false,
+        allowed: allowance.allowed,
+        enterpriseFundsAllowed: false,
         creditRemainingCNY: 0,
         walletBalanceCNY: 0,
         totalAvailableCNY: 0,
+        personalBalanceCNY: Number(allowance.personalBalanceCNY ?? 0),
+        enterpriseFundsBlockedBy: "ALLOWANCE",
         reason: allowance.reason,
       };
     }
@@ -169,28 +194,55 @@ export class ComputeCreditService {
     ]);
 
     const creditRemaining =
-      credit && credit.status === 'ACTIVE'
+      credit && credit.status === "ACTIVE"
         ? Decimal.max(0, credit.grantedCNY.sub(credit.usedCNY))
         : new Decimal(0);
     const walletBalance = Decimal.max(0, wallet.balance);
     const total = creditRemaining.add(walletBalance);
 
     if (total.lessThanOrEqualTo(0)) {
+      // 企业资金见底 —— 与额度用尽同样是改道，不是拦停。扣费链走到个人钱包那一腿
+      // 照样会付款，这里拦死等于凭空拒掉一次能付的对话。
+      const personalBalance = userId
+        ? await this.personalWallet.getBalance(userId)
+        : new Decimal(0);
+
+      if (personalBalance.greaterThan(0)) {
+        return {
+          allowed: true,
+          enterpriseFundsAllowed: false,
+          creditRemainingCNY: 0,
+          walletBalanceCNY: 0,
+          totalAvailableCNY: 0,
+          personalBalanceCNY: personalBalance.toNumber(),
+          enterpriseFundsBlockedBy: "BALANCE",
+          reason:
+            "该硅基员工的赠送算力余额与企业钱包余额均已用尽，" +
+            `本次对话将由你的个人余额支付（当前 ¥${personalBalance.toFixed(2)}）。`,
+        };
+      }
+
       return {
         allowed: false,
+        enterpriseFundsAllowed: false,
         creditRemainingCNY: 0,
         walletBalanceCNY: 0,
         totalAvailableCNY: 0,
+        personalBalanceCNY: 0,
+        enterpriseFundsBlockedBy: "BALANCE",
         reason:
-          '该硅基员工的赠送算力余额与企业钱包余额均已用尽，请为企业钱包充值后继续对话',
+          "该硅基员工的赠送算力余额与企业钱包余额均已用尽，" +
+          "请为企业钱包充值后继续对话；也可为个人余额充值后自费使用。",
       };
     }
 
     return {
       allowed: true,
+      enterpriseFundsAllowed: true,
       creditRemainingCNY: creditRemaining.toNumber(),
       walletBalanceCNY: walletBalance.toNumber(),
       totalAvailableCNY: total.toNumber(),
+      personalBalanceCNY: 0,
     };
   }
 
@@ -199,8 +251,13 @@ export class ComputeCreditService {
   /**
    * 为一次模型调用扣费并落一条用量账单。
    *
-   * 扣费顺序：订阅赠送余额 → 企业钱包。两步在**同一个事务**里，
+   * 扣费顺序：赠送余额 → 企业钱包 → 个人钱包 → 欠费，四步在**同一个事务**里，
    * 否则赠送余额扣了而钱包扣失败会让账本对不上。
+   * 恒等式：`creditPaid + walletPaid + personalPaid + unpaid == cost`。
+   *
+   * 前两腿的总额受成员额度闸门约束。闸门在**事务内**重算（`planCharge`），不复用
+   * 对话前 `check` 的结论 —— 那之间隔着一整次模型调用，同一个人的并发对话早把
+   * 用量改了；闸门只在检查时生效、扣费时不生效，等于额度形同虚设。
    *
    * 幂等：以 `sessionId:messageId` 为业务键，唯一约束兜底。流式对话的网络重试
    * 会重复触发计费，靠调用方自觉挡不住 —— 命中唯一约束即视为已入账。
@@ -218,83 +275,178 @@ export class ComputeCreditService {
       fallbackConfig,
     );
     const costCNY = money(cost.costCNY);
+    const description = `对话算力消费（${params.modelId}，${params.inputTokens}+${params.outputTokens} tokens）`;
 
     // 钱包必须在事务前就位：事务内新建钱包会和乐观锁的版本比对纠缠在一起
     await this.wallet.ensureWalletExists(params.enterpriseId);
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. 幂等：已入账则原样返回，绝不二次扣费
-      const existing = await tx.computeUsageRecord.findUnique({
-        where: { idempotencyKey },
-      });
-      if (existing) {
-        return {
-          alreadyCharged: true,
-          usageRecordId: existing.id,
-          costCNY: existing.costCNY,
-          creditPaidCNY: existing.creditPaidCNY,
-          walletPaidCNY: existing.walletPaidCNY,
-          unpaidCNY: existing.unpaidCNY,
-          fallbackPricing: existing.fallbackPricing,
-        };
-      }
-
-      // 2. 先扣当前订阅的赠送余额
-      const { creditId, creditPaid } = await this.consumeCreditUpTo(
+    const { result, notify } = await this.prisma.$transaction(
+      async (
         tx,
-        params.subscriptionId,
-        params.enterpriseId,
-        costCNY,
-      );
+      ): Promise<{
+        result: ChargeUsageResult;
+        notify: AllowanceNotifyInput | null;
+      }> => {
+        // 1. 幂等：已入账则原样返回，绝不二次扣费
+        const existing = await tx.computeUsageRecord.findUnique({
+          where: { idempotencyKey },
+        });
+        if (existing) {
+          // 重放不再发通知：首次入账时该发的已经发过了
+          return {
+            result: {
+              alreadyCharged: true,
+              usageRecordId: existing.id,
+              costCNY: existing.costCNY,
+              creditPaidCNY: existing.creditPaidCNY,
+              walletPaidCNY: existing.walletPaidCNY,
+              personalPaidCNY: existing.personalPaidCNY,
+              unpaidCNY: existing.unpaidCNY,
+              fallbackPricing: existing.fallbackPricing,
+            },
+            notify: null,
+          };
+        }
 
-      // 3. 差额扣企业钱包；钱包也不够时扣到 0 并记欠费，余额永不为负
-      const remaining = costCNY.sub(creditPaid);
-      const walletResult = await this.wallet.consumeComputeUpTo(
-        tx,
-        params.enterpriseId,
-        remaining,
-        {
-          relatedId: params.sessionId,
-          description: `对话算力消费（${params.modelId}，${params.inputTokens}+${params.outputTokens} tokens）`,
-        },
-      );
-
-      // 4. 落账单。Token 在这里只是明细，不参与任何余额判断。
-      const record = await tx.computeUsageRecord.create({
-        data: {
+        // 2. 额度闸门：这一笔企业最多能出多少（不限额时为 null）
+        const plan = await this.memberAllowance.planCharge(tx, {
           enterpriseId: params.enterpriseId,
-          subscriptionId: params.subscriptionId ?? null,
-          creditId,
-          employeeId: params.employeeId ?? null,
-          userId: params.userId ?? null,
-          sessionId: params.sessionId,
-          messageId: params.messageId,
-          modelId: params.modelId,
-          inputTokens: params.inputTokens,
-          outputTokens: params.outputTokens,
-          inputPriceUsdPerMillion: money(cost.inputPriceUsdPerMillion),
-          outputPriceUsdPerMillion: money(cost.outputPriceUsdPerMillion),
-          usdToCnyRate: new Decimal(rate).toDecimalPlaces(4),
-          fallbackPricing: cost.isFallback,
-          costCNY,
-          creditPaidCNY: creditPaid,
-          walletPaidCNY: walletResult.paid,
-          unpaidCNY: walletResult.unpaid,
-          idempotencyKey,
-          walletTransactionId: walletResult.transactionId,
-        },
-      });
+          userId: params.userId,
+        });
+        // 上限是金额而不是「能/不能」：额度剩 ¥0.30 而这笔要 ¥0.50 时，
+        // 自然拆成「公司 0.30 + 成员 0.20」，既不让公司超额付、也不浪费公司给的额度。
+        const enterpriseBudget =
+          plan.enterpriseCapCNY === null
+            ? costCNY
+            : money(
+                Decimal.min(costCNY, Decimal.max(0, plan.enterpriseCapCNY)),
+              );
 
-      return {
-        alreadyCharged: false,
-        usageRecordId: record.id,
-        costCNY,
-        creditPaidCNY: creditPaid,
-        walletPaidCNY: walletResult.paid,
-        unpaidCNY: walletResult.unpaid,
-        fallbackPricing: cost.isFallback,
-      };
-    });
+        // 3. 先扣当前订阅的赠送余额（限额内）
+        const { creditId, creditPaid } = await this.consumeCreditUpTo(
+          tx,
+          params.subscriptionId,
+          params.enterpriseId,
+          enterpriseBudget,
+        );
+
+        // 4. 差额扣企业钱包（仍在限额内）；钱包不够时扣到 0，余额永不为负
+        const walletResult = await this.wallet.consumeComputeUpTo(
+          tx,
+          params.enterpriseId,
+          enterpriseBudget.sub(creditPaid),
+          { relatedId: params.sessionId, description },
+        );
+
+        // 5. 企业出完之后还差的部分由成员自费兜底。
+        //    注意 `walletResult.unpaid` **不能**当作本次欠费：它是相对**限额**的差额，
+        //    额度用尽时限额为 0、这一步压根没调用钱包，真正的差额要对着 cost 重算。
+        const afterEnterprise = money(
+          Decimal.max(0, costCNY.sub(creditPaid).sub(walletResult.paid)),
+        );
+        const personalResult = params.userId
+          ? await this.personalWallet.consumeUpTo(
+              tx,
+              params.userId,
+              afterEnterprise,
+              { relatedId: params.sessionId, description },
+            )
+          : {
+              transactionId: null,
+              paid: new Decimal(0),
+              unpaid: afterEnterprise,
+            };
+        const unpaid = money(
+          Decimal.max(0, afterEnterprise.sub(personalResult.paid)),
+        );
+
+        // 6. 回写追加额度的消耗。口径与闸门的「已用」一致（credit + wallet + 欠费），
+        //    但**封顶在这一笔的企业预算内** —— 超出预算的欠费是成员自己欠的，
+        //    不该拿公司给的追加额度去抵。
+        const { fromTopUpCNY } = await this.memberAllowance.commitCharge(
+          tx,
+          plan,
+          Decimal.min(
+            enterpriseBudget,
+            creditPaid.add(walletResult.paid).add(unpaid),
+          ),
+        );
+        if (fromTopUpCNY.greaterThan(0)) {
+          this.logger.log(
+            `追加额度消耗 ¥${fromTopUpCNY.toFixed(4)}（user=${params.userId}）`,
+          );
+        }
+
+        // 7. 落账单。Token 在这里只是明细，不参与任何余额判断。
+        const record = await tx.computeUsageRecord.create({
+          data: {
+            enterpriseId: params.enterpriseId,
+            subscriptionId: params.subscriptionId ?? null,
+            creditId,
+            employeeId: params.employeeId ?? null,
+            userId: params.userId ?? null,
+            sessionId: params.sessionId,
+            messageId: params.messageId,
+            modelId: params.modelId,
+            inputTokens: params.inputTokens,
+            outputTokens: params.outputTokens,
+            inputPriceUsdPerMillion: money(cost.inputPriceUsdPerMillion),
+            outputPriceUsdPerMillion: money(cost.outputPriceUsdPerMillion),
+            usdToCnyRate: new Decimal(rate).toDecimalPlaces(4),
+            fallbackPricing: cost.isFallback,
+            costCNY,
+            creditPaidCNY: creditPaid,
+            walletPaidCNY: walletResult.paid,
+            personalPaidCNY: personalResult.paid,
+            unpaidCNY: unpaid,
+            idempotencyKey,
+            walletTransactionId: walletResult.transactionId,
+            personalWalletTransactionId: personalResult.transactionId,
+            // 账单归到发生消费的那个周期窗口，「本周期已用」因此能按窗口归集
+            allowanceWindowId: plan.windowId,
+          },
+        });
+
+        return {
+          result: {
+            alreadyCharged: false,
+            usageRecordId: record.id,
+            costCNY,
+            creditPaidCNY: creditPaid,
+            walletPaidCNY: walletResult.paid,
+            personalPaidCNY: personalResult.paid,
+            unpaidCNY: unpaid,
+            fallbackPricing: cost.isFallback,
+          },
+          // 通知判定所需的一切都在这儿了：闸门刚读出的额度快照 + 这一笔的实际去向。
+          // 攒成一个对象带出事务，是为了让「要不要发通知」这一步不必再打库。
+          notify: {
+            enterpriseId: params.enterpriseId,
+            userId: params.userId,
+            windowId: plan.windowId,
+            limitCNY: plan.limitCNY,
+            carriedInCNY: plan.carriedInCNY,
+            availableBeforeCNY: plan.enterpriseCapCNY,
+            regularRemainingBeforeCNY: plan.regularRemainingCNY,
+            // 与闸门「已用」同口径（credit + 钱包 + 欠费），且**不封顶** ——
+            // 这里宁可高估：高估只会多跑一次复核（复核会否掉），
+            // 低估则会漏掉一次「刚好越线」的通知。
+            enterpriseUsedDeltaCNY: creditPaid
+              .add(walletResult.paid)
+              .add(unpaid),
+            walletPaidCNY: walletResult.paid,
+          },
+        };
+      },
+    );
+
+    // 通知在事务外发：写通知不该延长持锁时间，更不该因为通知失败
+    // 回滚一笔已经真实发生的模型调用。afterCharge 内部自己吞异常。
+    if (notify) {
+      await this.allowanceNotifier.afterCharge(notify);
+    }
+
+    return result;
   }
 
   /**
@@ -320,7 +472,7 @@ export class ComputeCreditService {
     if (!credit || credit.enterpriseId !== enterpriseId) {
       return { creditId: null, creditPaid: new Decimal(0) };
     }
-    if (credit.status !== 'ACTIVE') {
+    if (credit.status !== "ACTIVE") {
       return { creditId: credit.id, creditPaid: new Decimal(0) };
     }
 
@@ -336,14 +488,14 @@ export class ComputeCreditService {
       data: {
         usedCNY: newUsed,
         status: newUsed.greaterThanOrEqualTo(credit.grantedCNY)
-          ? 'EXHAUSTED'
-          : 'ACTIVE',
+          ? "EXHAUSTED"
+          : "ACTIVE",
         version: { increment: 1 },
       },
     });
     if (updated.count === 0) {
       // 并发扣同一笔赠送额度。整笔重试即可，幂等键保证不会重复入账。
-      throw new ConflictException('赠送余额更新冲突，请重试');
+      throw new ConflictException("赠送余额更新冲突，请重试");
     }
 
     return { creditId: credit.id, creditPaid: paid };
@@ -377,7 +529,7 @@ export class ComputeCreditService {
         employee: { select: { id: true, name: true, avatar: true } },
         subscription: { select: { name: true } },
       },
-      orderBy: { grantedAt: 'desc' },
+      orderBy: { grantedAt: "desc" },
     });
 
     return credits.map((c) => ({
@@ -398,18 +550,19 @@ export class ComputeCreditService {
   async getOverview(enterpriseId: string) {
     const wallet = await this.wallet.ensureWalletExists(enterpriseId);
 
-    const [creditAgg, activeCredits, monthUsage, todayUsage] = await Promise.all([
-      this.prisma.subscriptionCredit.aggregate({
-        where: { enterpriseId },
-        _sum: { grantedCNY: true, usedCNY: true },
-      }),
-      this.prisma.subscriptionCredit.findMany({
-        where: { enterpriseId, status: 'ACTIVE' },
-        select: { grantedCNY: true, usedCNY: true },
-      }),
-      this.sumUsage(enterpriseId, startOfMonth()),
-      this.sumUsage(enterpriseId, startOfToday()),
-    ]);
+    const [creditAgg, activeCredits, monthUsage, todayUsage] =
+      await Promise.all([
+        this.prisma.subscriptionCredit.aggregate({
+          where: { enterpriseId },
+          _sum: { grantedCNY: true, usedCNY: true },
+        }),
+        this.prisma.subscriptionCredit.findMany({
+          where: { enterpriseId, status: "ACTIVE" },
+          select: { grantedCNY: true, usedCNY: true },
+        }),
+        this.sumUsage(enterpriseId, startOfMonth()),
+        this.sumUsage(enterpriseId, startOfToday()),
+      ]);
 
     // 可用赠送余额只统计 ACTIVE 的额度：EXPIRED（订阅已终止）的剩余额度
     // 不能再花，把它算进「可用」会让企业以为还有钱
@@ -429,7 +582,9 @@ export class ComputeCreditService {
         .toFixed(2),
       creditRemainingCNY: creditRemaining.toFixed(2),
       totalAvailableCNY: wallet.balance.add(creditRemaining).toFixed(2),
-      creditGrantedTotalCNY: (creditAgg._sum.grantedCNY ?? new Decimal(0)).toFixed(2),
+      creditGrantedTotalCNY: (
+        creditAgg._sum.grantedCNY ?? new Decimal(0)
+      ).toFixed(2),
       creditUsedTotalCNY: (creditAgg._sum.usedCNY ?? new Decimal(0)).toFixed(2),
       todayConsumeCNY: todayUsage.cost.toFixed(2),
       monthConsumeCNY: monthUsage.cost.toFixed(2),
@@ -490,7 +645,7 @@ export class ComputeCreditService {
           user: { select: { id: true, name: true, email: true } },
           subscription: { select: { id: true, name: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -505,7 +660,7 @@ export class ComputeCreditService {
         id: r.id,
         createdAt: r.createdAt,
         employeeId: r.employeeId,
-        employeeName: r.subscription?.name ?? r.employee?.name ?? '—',
+        employeeName: r.subscription?.name ?? r.employee?.name ?? "—",
         memberId: r.userId,
         memberName: r.user?.name ?? r.user?.email ?? null,
         sessionId: r.sessionId,
@@ -515,6 +670,7 @@ export class ComputeCreditService {
         costCNY: r.costCNY.toFixed(4),
         creditPaidCNY: r.creditPaidCNY.toFixed(4),
         walletPaidCNY: r.walletPaidCNY.toFixed(4),
+        personalPaidCNY: r.personalPaidCNY.toFixed(4),
         unpaidCNY: r.unpaidCNY.toFixed(4),
         fallbackPricing: r.fallbackPricing,
       })),
@@ -528,7 +684,7 @@ export class ComputeCreditService {
     });
     // 用 404 而非 403：不向越权者确认该资源是否存在
     if (!credit || credit.enterpriseId !== enterpriseId) {
-      throw new NotFoundException('赠送余额不存在');
+      throw new NotFoundException("赠送余额不存在");
     }
     return {
       subscriptionId: credit.subscriptionId,

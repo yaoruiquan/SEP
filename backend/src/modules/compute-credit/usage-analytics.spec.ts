@@ -11,6 +11,7 @@ import { UsageAnalyticsService } from './usage-analytics.service';
  *   2. 部门维度由成员上卷得出，不额外打库；没部门的归「未分配部门」
  *   3. 账单里 userId / employeeId 可为空（离职、员工下架），不能显示 null
  *   4. 上期为 0 时不算环比 —— 「增长 ∞%」没有信息量
+ *   5. 成员视角只统计他自己 —— 每一处聚合（含裸 SQL 趋势）都得带上 userId
  */
 describe('UsageAnalyticsService', () => {
   let service: UsageAnalyticsService;
@@ -164,6 +165,55 @@ describe('UsageAnalyticsService', () => {
 
       const r = await service.getBreakdown('ent-1', 30);
       expect(r.deltaPct).toBeNull();
+    });
+  });
+
+  describe('成员视角（只看自己那一份）', () => {
+    it('每一处聚合都带 userId —— 漏一处就漏出别人的账', async () => {
+      withMembers();
+      await service.getBreakdown('ent-1', 30, 'u-1');
+
+      for (const call of prisma.computeUsageRecord.aggregate.mock.calls) {
+        expect(call[0].where.userId).toBe('u-1');
+      }
+      for (const call of prisma.computeUsageRecord.groupBy.mock.calls) {
+        expect(call[0].where.userId).toBe('u-1');
+      }
+    });
+
+    it('趋势用的裸 SQL 也带 userId，否则折线画的还是全公司', async () => {
+      withMembers();
+      await service.getBreakdown('ent-1', 30, 'u-1');
+
+      // 标签模板的插值里会多出一个 Prisma.sql 片段，userId 在它的 values 里
+      const fragment = prisma.$queryRaw.mock.calls[0].find(
+        (a: any) => a && Array.isArray(a.values),
+      );
+      expect(fragment?.values).toContain('u-1');
+    });
+
+    it('不返回「按碳基员工 / 按部门」，也不去查成员名单', async () => {
+      withMembers();
+      const r = await service.getBreakdown('ent-1', 30, 'u-1');
+
+      expect(r.byMember).toEqual([]);
+      expect(r.byDepartment).toEqual([]);
+      // 但「我花在哪个模型 / 哪个硅基员工」照常给 —— 那是他自己的账
+      expect(r.byModel.length).toBeGreaterThan(0);
+      expect(r.byEmployee.length).toBeGreaterThan(0);
+      expect(prisma.enterpriseMember.findMany).not.toHaveBeenCalled();
+    });
+
+    it('管理员视角不受影响，四个维度都在', async () => {
+      withMembers();
+      const r = await service.getBreakdown('ent-1', 30);
+
+      expect(r.byMember.length).toBeGreaterThan(0);
+      expect(r.byDepartment.length).toBeGreaterThan(0);
+      const scoped = prisma.computeUsageRecord.groupBy.mock.calls.some(
+        (c: any[]) => 'userId' in c[0].where,
+      );
+      expect(scoped).toBe(false);
     });
   });
 

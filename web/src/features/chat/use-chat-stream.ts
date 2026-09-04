@@ -13,6 +13,20 @@ export interface LiveToolCall {
   status: 'running' | 'done';
 }
 
+/**
+ * 算力被拦下的详情。
+ *
+ * `blockedBy` 决定第二条出路：`ALLOWANCE` 是「你这周期花超了」——
+ * 找管理员调额度；`BALANCE` 是「公司账上没钱了」—— 给企业钱包充值。
+ * 两者都说成「余额不足」，成员会去催财务充值，而公司的钱其实是够的。
+ */
+export interface ComputeBlockedInfo {
+  message: string;
+  blockedBy: 'ALLOWANCE' | 'BALANCE';
+  /** 成员个人余额（元，字符串）。被拦下时通常是 "0.00" */
+  personalBalanceCNY: string;
+}
+
 export interface StreamState {
   /** assistant text accumulated so far */
   text: string;
@@ -22,6 +36,16 @@ export interface StreamState {
   toolCalls: LiveToolCall[];
   streaming: boolean;
   error: string | null;
+  /**
+   * 算力额度 / 余额把这条消息拦下了。非空即应弹窗 ——
+   * 这是方案 §5.5 #3 的验收点：必须是**明确弹窗**，不能只在气泡下留一行红字。
+   */
+  blocked: ComputeBlockedInfo | null;
+  /**
+   * 非致命提示，最典型的是「本轮由你的个人余额支付」。
+   * 与 error 分开：这一轮照常出结果，红字会让用户以为发失败了。
+   */
+  notice: string | null;
 }
 
 const EMPTY: StreamState = {
@@ -30,6 +54,8 @@ const EMPTY: StreamState = {
   toolCalls: [],
   streaming: false,
   error: null,
+  blocked: null,
+  notice: null,
 };
 
 export interface DoneInfo {
@@ -58,6 +84,12 @@ export function useChatStream() {
 
   const reset = useCallback(() => setState(EMPTY), []);
 
+  /** 关掉「额度用尽」弹窗。红字提示留在气泡区，不跟着一起清。 */
+  const dismissBlocked = useCallback(
+    () => setState((s) => ({ ...s, blocked: null })),
+    [],
+  );
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -83,6 +115,10 @@ export function useChatStream() {
 
       let doneInfo: DoneInfo = { toolCalls: [] };
       let finalText = '';
+      // 闸门拦下时流会正常结束（没有 done 事件），不会走进 catch。
+      // 不记这一笔就会返回 'ok'，乐观气泡留在界面上、输入框也被清空 ——
+      // 用户得重新打一遍这条根本没发出去的消息。
+      let blockedByCompute = false;
 
       try {
         for await (const e of streamMessage(
@@ -92,6 +128,9 @@ export function useChatStream() {
           controller.signal,
           attachments,
         )) {
+          if (e.event === 'error' && isComputeBlocked(e.data)) {
+            blockedByCompute = true;
+          }
           applyEvent(e, setState, (info) => {
             doneInfo = info;
           }, (delta) => {
@@ -113,13 +152,25 @@ export function useChatStream() {
 
       abortRef.current = null;
       setState((s) => ({ ...s, streaming: false }));
+      // 被算力闸门拦下等同于「这条没发出去」：不能触发 onDone（会去
+      // refetch 历史并清掉输入框），要按 failed 处理，把文字还给用户。
+      if (blockedByCompute) return 'failed';
       onDone?.({ ...doneInfo, text: finalText });
       return 'ok';
     },
     [],
   );
 
-  return { state, send, stop, reset };
+  return { state, send, stop, reset, dismissBlocked };
+}
+
+/** 后端 COMPUTE_BLOCKED 事件的判别。字段缺失时按「不是算力问题」处理。 */
+function isComputeBlocked(data: unknown): boolean {
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    (data as { code?: unknown }).code === 'COMPUTE_BLOCKED'
+  );
 }
 
 function applyEvent(
@@ -173,9 +224,35 @@ function applyEvent(
       captureDone({ messageId, toolCalls: Array.isArray(tc) ? tc : [], usage });
       break;
     }
+    // 非致命提示：本轮照常出结果，只是有事要告诉用户
+    // （目前只有一种：额度用尽，本轮改由个人余额支付）。
+    case 'notice': {
+      const message = (d as any)?.message;
+      if (typeof message === 'string' && message) {
+        setState((s) => ({ ...s, notice: message }));
+      }
+      break;
+    }
     case 'error': {
       const message = (d as any)?.message ?? '生成失败';
-      setState((s) => ({ ...s, streaming: false, error: message }));
+      // 算力被拦下要弹窗，不能只留一行红字 —— 用户看不出下一步该做什么。
+      // error 也一起设：弹窗关掉后气泡区仍需留下「这条没发出去」的痕迹。
+      const blocked = isComputeBlocked(d)
+        ? {
+            message,
+            blockedBy:
+              (d as any)?.blockedBy === 'ALLOWANCE'
+                ? ('ALLOWANCE' as const)
+                : ('BALANCE' as const),
+            personalBalanceCNY: String((d as any)?.personalBalanceCNY ?? '0.00'),
+          }
+        : null;
+      setState((s) => ({
+        ...s,
+        streaming: false,
+        error: message,
+        blocked: blocked ?? s.blocked,
+      }));
       break;
     }
     default:

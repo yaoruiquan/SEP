@@ -1,11 +1,15 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { PrismaModule } from '../../prisma/prisma.module';
-import { WalletModule } from '../wallet/wallet.module';
-import { SettingModule } from '../setting/setting.module';
-import { ComputeCreditService } from './compute-credit.service';
-import { ComputeCreditController } from './compute-credit.controller';
-import { MemberAllowanceService } from './member-allowance.service';
-import { UsageAnalyticsService } from './usage-analytics.service';
+import { Module, forwardRef } from "@nestjs/common";
+import { PrismaModule } from "../../prisma/prisma.module";
+import { WalletModule } from "../wallet/wallet.module";
+import { SettingModule } from "../setting/setting.module";
+import { PersonalWalletModule } from "../personal-wallet/personal-wallet.module";
+import { NotificationsModule } from "../notifications/notifications.module";
+import { ComputeCreditService } from "./compute-credit.service";
+import { ComputeCreditController } from "./compute-credit.controller";
+import { MemberAllowanceService } from "./member-allowance.service";
+import { MemberAllowanceQueryService } from "./member-allowance-query.service";
+import { UsageAnalyticsService } from "./usage-analytics.service";
+import { AllowanceNotifierService } from "./allowance-notifier.service";
 
 /**
  * 统一人民币算力账本。订阅履约、对话计费、企业算力查询都经过这里，
@@ -21,11 +25,34 @@ import { UsageAnalyticsService } from './usage-analytics.service';
  *
  * 注意这只影响**模块**引用：ComputeCreditService 直接注入 WalletService 即可，
  * wallet.service.ts 本身不在环上。
+ *
+ * PersonalWalletModule 不需要 forwardRef：它只依赖 PrismaModule，
+ * 单向被本模块引入（额度用尽改道自费时要读个人余额），没给环加新边。
+ * NotificationsModule 同理（只依赖 PrismaModule + JwtModule），
+ * 额度类通知靠它发出去。
  */
 @Module({
-  imports: [PrismaModule, forwardRef(() => WalletModule), SettingModule],
+  imports: [
+    PrismaModule,
+    forwardRef(() => WalletModule),
+    SettingModule,
+    PersonalWalletModule,
+    NotificationsModule,
+  ],
   controllers: [ComputeCreditController],
-  providers: [ComputeCreditService, MemberAllowanceService, UsageAnalyticsService],
-  exports: [ComputeCreditService, MemberAllowanceService, UsageAnalyticsService],
+  providers: [
+    ComputeCreditService,
+    MemberAllowanceService,
+    MemberAllowanceQueryService,
+    UsageAnalyticsService,
+    AllowanceNotifierService,
+  ],
+  exports: [
+    ComputeCreditService,
+    MemberAllowanceService,
+    MemberAllowanceQueryService,
+    UsageAnalyticsService,
+    AllowanceNotifierService,
+  ],
 })
 export class ComputeCreditModule {}

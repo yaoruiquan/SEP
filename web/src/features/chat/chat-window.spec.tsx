@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatWindow } from './chat-window';
@@ -17,16 +17,39 @@ import type { Message, MessageAttachment } from '@/lib/types';
 const sendSpy = vi.fn();
 const stopSpy = vi.fn();
 const resetSpy = vi.fn();
+const dismissBlockedSpy = vi.fn();
+
+// jsdom 没有 matchMedia，而「额度用尽」弹窗的 DialogContent 走 usePrefersReducedMotion。
+beforeAll(() => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+});
 
 let conversationData: unknown = undefined;
 let conversationLoading = false;
 let subscribedData: unknown[] = [];
+type BlockedInfo = {
+  message: string;
+  blockedBy: 'ALLOWANCE' | 'BALANCE';
+  personalBalanceCNY: string;
+};
+
 let streamState = {
   streaming: false,
   text: '',
   reasoning: '',
   toolCalls: [] as unknown[],
   error: null as string | null,
+  blocked: null as BlockedInfo | null,
+  notice: null as string | null,
 };
 
 vi.mock('./use-conversations', () => ({
@@ -42,6 +65,7 @@ vi.mock('./use-chat-stream', () => ({
     send: sendSpy,
     stop: stopSpy,
     reset: resetSpy,
+    dismissBlocked: dismissBlockedSpy,
   }),
 }));
 
@@ -188,6 +212,8 @@ describe('ChatWindow', () => {
       reasoning: '',
       toolCalls: [],
       error: null,
+      blocked: null,
+      notice: null,
     };
     conversationData = {
       id: 'c1',
@@ -606,6 +632,69 @@ describe('ChatWindow', () => {
       renderWindow();
 
       expect(screen.queryByText('开始和 小艾 对话')).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * §5.5 #3 的验收点：额度用尽必须是**明确弹窗**，而不是气泡下一行红字 ——
+   * 只有红字的话，用户看不出下一步该做什么（等重置？找谁？还是自己充值？）。
+   */
+  describe('额度闸门', () => {
+    it('被拦下时弹出「额度用尽」弹窗，后端文案原样展示', () => {
+      streamState = {
+        ...streamState,
+        error: '你本月的算力额度已用完，个人余额也已用尽。额度将于 2026年10月1日 重置；',
+        blocked: {
+          message:
+            '你本月的算力额度已用完，个人余额也已用尽。额度将于 2026年10月1日 重置；',
+          blockedBy: 'ALLOWANCE',
+          personalBalanceCNY: '0.00',
+        },
+      };
+      renderWindow();
+
+      const dialog = screen.getByRole('dialog');
+      expect(screen.getByText('算力额度已用尽')).toBeInTheDocument();
+      // 重置时间由后端按业务时区渲染在 reason 里，前端不许再拼一遍
+      expect(dialog).toHaveTextContent('额度将于 2026年10月1日 重置');
+      // 弹窗关掉后气泡区仍要留下「这条没发出去」的痕迹，所以两处都有文案
+      expect(screen.getAllByText(/额度将于 2026年10月1日 重置/)).toHaveLength(2);
+    });
+
+    it('关闭弹窗调用 dismissBlocked，不动气泡区的红字', () => {
+      streamState = {
+        ...streamState,
+        error: '额度已用尽',
+        blocked: {
+          message: '额度已用尽',
+          blockedBy: 'ALLOWANCE',
+          personalBalanceCNY: '0.00',
+        },
+      };
+      renderWindow();
+
+      fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+      expect(dismissBlockedSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('没被拦下时不弹窗', () => {
+      streamState = { ...streamState, error: '模型调用失败' };
+      renderWindow();
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('改道自费是提示不是错误：出 notice 文案且不弹窗', () => {
+      streamState = {
+        ...streamState,
+        notice: '你本月的算力额度已用完，本次对话将由你的个人余额支付（当前 ¥8.00）。',
+      };
+      renderWindow();
+
+      expect(
+        screen.getByText(/本次对话将由你的个人余额支付/),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 

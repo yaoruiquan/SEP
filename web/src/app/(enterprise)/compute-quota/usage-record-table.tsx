@@ -37,8 +37,10 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 /**
  * 算力消费明细 —— 全站唯一的逐笔算力账单。
  *
- * 每行的主口径是人民币成本，并拆出「赠送 / 钱包」两个来源 ——
- * 用户最常问的是「这笔钱从哪扣的」。Token 放在中间作为用量明细：
+ * 每行的主口径是人民币成本，并拆出「赠送 / 钱包 / 成员自付」三个来源 ——
+ * 用户最常问的是「这笔钱从哪扣的」。四者相加恒等于合计成本
+ * （`credit + wallet + personal + unpaid == cost`，后端有单测锁死）。
+ * Token 放在中间作为用量明细：
  * 它是明细口径，不是余额单位，所以留在这张表里而不出现在上方的余额横条。
  *
  * 「用量分析」页原本还有一张同源的日志表，已收敛到这里，只留一个跳转链接。
@@ -109,6 +111,12 @@ export function UsageRecordTable() {
                     <th className="px-4 py-3 text-right font-medium">输入 / 输出 tokens</th>
                     <th className="px-4 py-3 text-right font-medium">赠送扣减</th>
                     <th className="px-4 py-3 text-right font-medium">钱包扣减</th>
+                    {/*
+                      成员自付单独一列，不并进「钱包扣减」：这一列 > 0 的含义很具体 ——
+                      他本周期的算力额度用尽了，或者企业资金见底了。混进企业支出里，
+                      「公司这个月花了多少」这个数字就不准了。
+                    */}
+                    <th className="px-4 py-3 text-right font-medium">成员自付</th>
                     <th className="px-4 py-3 text-right font-medium">合计成本</th>
                   </tr>
                 </thead>
@@ -149,6 +157,15 @@ export function UsageRecordTable() {
                         {Number(r.walletPaidCNY) > 0
                           ? `-${formatCnyPrecise(r.walletPaidCNY)}`
                           : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-amber-600">
+                        {Number(r.personalPaidCNY) > 0 ? (
+                          <span title="企业资金或本周期额度已用尽，这部分由该成员的个人余额支付">
+                            -{formatCnyPrecise(r.personalPaidCNY)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium tabular-nums">
                         {formatCnyPrecise(r.costCNY)}

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -50,6 +51,9 @@ function sortDesc(rows: BreakdownRow[]): BreakdownRow[] {
  * 与「算力余额」页的分工：那一页回答「还剩多少、怎么分的、每一笔花在哪」，
  * 这一页只回答「已经花掉的钱，分布长什么样」。所以这里没有余额、没有逐笔账单。
  *
+ * 两种视角共用这一个方法：企业管理员看全企业，普通成员只看自己
+ * （`memberUserId`，此时「按碳基员工 / 按部门」为空）。
+ *
  * 一个接口返回全部维度：四个维度分开打接口会让这一页发五次请求，
  * 而它们读的是同一张表的同一个时间区间 —— 合成一次，前端也不必对齐区间。
  * 所有聚合都在 SQL 层完成，查询数与成员/模型数量无关。
@@ -58,10 +62,23 @@ function sortDesc(rows: BreakdownRow[]): BreakdownRow[] {
 export class UsageAnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getBreakdown(enterpriseId: string, days = 30): Promise<UsageBreakdown> {
+  /**
+   * @param memberUserId 传了 = 只统计这一个人自己的花费。
+   *
+   * 这个参数不是筛选器，是**作用域**：控制器在调用方不是企业管理员时强制填上
+   * 他自己的 userId，成员因此永远看不到别人的账。它不来自 query —— 否则
+   * 「传谁的 id 就看谁的账」，等于没有隔离。
+   */
+  async getBreakdown(
+    enterpriseId: string,
+    days = 30,
+    memberUserId?: string,
+  ): Promise<UsageBreakdown> {
     const rangeDays = (ALLOWED_RANGES as readonly number[]).includes(days)
       ? days
       : 30;
+    const scoped = !!memberUserId;
+    const mine = scoped ? { userId: memberUserId } : {};
 
     const since = new Date();
     since.setDate(since.getDate() - rangeDays);
@@ -70,7 +87,7 @@ export class UsageAnalyticsService {
     const prevSince = new Date(since);
     prevSince.setDate(prevSince.getDate() - rangeDays);
 
-    const where = { enterpriseId, createdAt: { gte: since } };
+    const where = { enterpriseId, createdAt: { gte: since }, ...mine };
 
     const [agg, prevAgg, byModelRaw, byMemberRaw, byEmployeeRaw, trendRaw] =
       await Promise.all([
@@ -80,7 +97,11 @@ export class UsageAnalyticsService {
           _count: true,
         }),
         this.prisma.computeUsageRecord.aggregate({
-          where: { enterpriseId, createdAt: { gte: prevSince, lt: since } },
+          where: {
+            enterpriseId,
+            createdAt: { gte: prevSince, lt: since },
+            ...mine,
+          },
           _sum: { costCNY: true },
         }),
         this.prisma.computeUsageRecord.groupBy({
@@ -106,6 +127,7 @@ export class UsageAnalyticsService {
           FROM compute_usage_records cur
           WHERE cur."enterpriseId" = ${enterpriseId}
             AND cur."createdAt" >= ${since}
+            ${scoped ? Prisma.sql`AND cur."userId" = ${memberUserId}` : Prisma.empty}
           GROUP BY DATE(cur."createdAt")
           ORDER BY date ASC
         `,
@@ -115,10 +137,15 @@ export class UsageAnalyticsService {
     const prevTotal = prevAgg._sum.costCNY ?? new Decimal(0);
 
     const [members, employees] = await Promise.all([
-      this.loadMembers(
-        enterpriseId,
-        byMemberRaw.map((r) => r.userId).filter((id): id is string => !!id),
-      ),
+      // 成员视角不出「按碳基员工 / 按部门」，成员名与部门名都用不上，省一次查询
+      scoped
+        ? Promise.resolve(
+            new Map<string, { name: string; departmentName: string | null }>(),
+          )
+        : this.loadMembers(
+            enterpriseId,
+            byMemberRaw.map((r) => r.userId).filter((id): id is string => !!id),
+          ),
       this.loadEmployees(
         byEmployeeRaw.map((r) => r.employeeId).filter((id): id is string => !!id),
       ),
@@ -151,22 +178,33 @@ export class UsageAnalyticsService {
           };
         }),
       ),
-      byMember: sortDesc(
-        byMemberRaw.map((r) => {
-          const cost = r._sum.costCNY ?? new Decimal(0);
-          const m = r.userId ? members.get(r.userId) : undefined;
-          return {
-            key: r.userId ?? 'unknown',
-            // 记录里 userId 可为空（系统内部调用、成员已离职被 SetNull）
-            label: m?.name ?? (r.userId ? '已离职成员' : '系统调用'),
-            hint: m?.departmentName ?? null,
-            costCNY: cost.toFixed(4),
-            callCount: r._count,
-            pct: pct(cost, total),
-          };
-        }),
-      ),
-      byDepartment: sortDesc(this.rollUpDepartments(byMemberRaw, members, total)),
+      /*
+        「按碳基员工 / 按部门」是管理信息：谁花得多、哪个部门超支，普通成员看不得。
+        成员视角下这两个维度返回空数组，前端据此不渲染这两块。
+
+        空数组而不是删字段：UsageBreakdown 的形状不变，前端不必维护两套类型；
+        「有没有权限看」由后端说了算，前端只是不画。
+      */
+      byMember: scoped
+        ? []
+        : sortDesc(
+            byMemberRaw.map((r) => {
+              const cost = r._sum.costCNY ?? new Decimal(0);
+              const m = r.userId ? members.get(r.userId) : undefined;
+              return {
+                key: r.userId ?? 'unknown',
+                // 记录里 userId 可为空（系统内部调用、成员已离职被 SetNull）
+                label: m?.name ?? (r.userId ? '已离职成员' : '系统调用'),
+                hint: m?.departmentName ?? null,
+                costCNY: cost.toFixed(4),
+                callCount: r._count,
+                pct: pct(cost, total),
+              };
+            }),
+          ),
+      byDepartment: scoped
+        ? []
+        : sortDesc(this.rollUpDepartments(byMemberRaw, members, total)),
       byEmployee: sortDesc(
         byEmployeeRaw.map((r) => {
           const cost = r._sum.costCNY ?? new Decimal(0);

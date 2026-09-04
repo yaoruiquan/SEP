@@ -58,6 +58,11 @@ model User {
   taskTemplates                     TaskTemplate[]
   computeUsageRecords               ComputeUsageRecord[]
   computeAllowances                 MemberComputeAllowance[]
+  allowanceTopUps                   MemberAllowanceTopUp[]
+  grantedAllowanceTopUps            MemberAllowanceTopUp[]     @relation("AllowanceTopUpGranter")
+  allowanceChanges                  MemberAllowanceChange[]    @relation("AllowanceChangeSubject")
+  authoredAllowanceChanges          MemberAllowanceChange[]    @relation("AllowanceChangeAuthor")
+  personalWallet                    PersonalWallet?
   toolExecutions                    ToolExecution[]
 
   @@map("users")
@@ -98,6 +103,8 @@ model Enterprise {
   subscriptionCredits  SubscriptionCredit[]
   computeUsageRecords  ComputeUsageRecord[]
   memberAllowances     MemberComputeAllowance[]
+  allowanceTopUps      MemberAllowanceTopUp[]
+  allowanceChanges     MemberAllowanceChange[]
   knowledgeBases       KnowledgeBase[]
   modelConfig          EnterpriseModelConfig?
   settings             EnterpriseSetting?
@@ -1343,10 +1350,28 @@ model SubscriptionCredit {
 /// 只在他本周期已花到 ¥500 时拦下下一次对话。因此它不参与任何余额计算，
 /// 也不影响其他成员能花多少 —— 刘凌的原话是「算力是管道通到你家的水量，
 /// 装哪个水龙头是另一回事」，分配限的是水量，不指定水龙头。
+/// 分配额度的结算周期。Asia/Shanghai 固定 +08:00，边界由
+/// `backend/src/modules/compute-credit/allowance-period.ts` 纯函数统一计算 ——
+/// 不要在别处用 `new Date(y, m, 1)` 自行推导，那读的是服务器时区。
+///
+/// 没有 TOTAL（永不重置）：它等价于「不限额」或「一次性追加额度」，
+/// 多一个语义重叠的选项只会让人选错。
+enum AllowancePeriod {
+  DAY
+  WEEK
+  MONTH
+  QUARTER
+  YEAR
+}
+
 model MemberComputeAllowance {
   id String @id @default(cuid())
 
   /// 一个成员在一家企业只有一条额度；跨企业成员的额度互不相干。
+  ///
+  /// 一人一行是硬约束：一次性额度做成了独立的 MemberAllowanceTopUp 流水，
+  /// 而**不是**第二条 allowance。否则「算力分配」页会退化成
+  /// 「这人有 3 条额度」，正是会议要拆开四个概念的反面。
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
   userId       String
@@ -1355,10 +1380,16 @@ model MemberComputeAllowance {
   /// 每个周期的消费上限（元）。null = 不限额。
   limitCNY Decimal? @db.Decimal(14, 6)
 
-  /// 结算周期。本版只支持 MONTH（自然月，Asia/Shanghai）。
-  /// DAY / WEEK / QUARTER / YEAR 与「结转、一次性额度」等规则待当面对齐后再加，
-  /// 先不放进枚举，避免出现选得到但不生效的选项。
-  period String @default("MONTH")
+  /// 结算周期。
+  period AllowancePeriod @default(MONTH)
+
+  /// 未用完的额度是否结转到下一周期。
+  ///
+  /// 上限固定为「1 个周期」（最多攒到 2 倍），刻意**不做成 Int**：
+  /// 写成「可攒 N 个周期」会有人填 12，而 N>1 就把 O(1) 递推变回链式回溯 ——
+  /// 这是每轮对话都要跑的热路径。不封顶更糟：每天 ¥50 攒 30 天后某天能花 ¥1500，
+  /// 而设 DAY 周期的唯一目的就是限制单日爆炸半径。
+  carryOver Boolean @default(true)
 
   /// false = 暂停限额（保留已填的数字，先放行）
   enabled Boolean @default(true)
@@ -1366,9 +1397,193 @@ model MemberComputeAllowance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  windows MemberAllowanceWindow[]
+  changes MemberAllowanceChange[]
+
   @@unique([enterpriseId, userId])
   @@index([userId])
   @@map("member_compute_allowances")
+}
+
+/// 一个成员一个周期的窗口行。**懒创建**：本周期第一次对话时才写。
+///
+/// 只存 `carriedInCNY`，**不存已用金额** —— 已用继续对账单
+/// （`compute_usage_records`，走 `[userId, createdAt desc]` 索引）聚合，
+/// 避免双写与漂移。这张表唯一的职责是把结转递推记忆化成 O(1)：
+///
+///     carriedIn(N) = min(limit, limit + carriedIn(N-1) − used(N-1))
+///
+/// 「上限 = 1 个周期」正是让它只需读上一行、不必回溯到额度创建那天的原因。
+model MemberAllowanceWindow {
+  id String @id @default(cuid())
+
+  allowanceId String
+  allowance   MemberComputeAllowance @relation(fields: [allowanceId], references: [id], onDelete: Cascade)
+
+  /// 窗口区间 [periodStart, periodEnd)，UTC 存储、北京时区语义
+  periodStart DateTime
+  periodEnd   DateTime
+
+  /// 从上一周期结转进来的金额（元）。已封顶在一个周期的上限内。
+  carriedInCNY Decimal @default(0) @db.Decimal(14, 6)
+
+  /// 结转计算时所依据的上限。管理员中途改额度后，窗口行记录的仍是
+  /// 周期初的事实 —— 结转不因改额度而重算（见方案 §5.4 Q4）。
+  limitAtOpenCNY Decimal? @db.Decimal(14, 6)
+
+  createdAt DateTime @default(now())
+
+  usageRecords ComputeUsageRecord[]
+
+  @@unique([allowanceId, periodStart])
+  @@index([allowanceId, periodStart(sort: Desc)])
+  @@map("member_allowance_windows")
+}
+
+/// 一次性追加额度（取代草案里的 `mode: ONE_TIME`）。
+///
+/// 语义是**追加不是替代**：批 ¥200 是因为「他这个月要多干点活」。
+/// 所以扣减顺序是「先常规周期额度，后追加额度」—— 追加额度就能活到下个周期，
+/// 管理员不必每期重批。这个顺序可观测（追加额度跨周期存活，常规额度不），所以必须定。
+///
+/// 不设有效期：上限机制已封住无限累积，再加有效期就要按批次 FIFO 记账，
+/// 同一个目的两套机制，多的那套是纯负债。
+model MemberAllowanceTopUp {
+  id String @id @default(cuid())
+
+  /// 不挂 allowanceId：额度被清成「不限额」时会删 allowance 行，
+  /// 而追加额度的历史必须留下（它是管理员的批准记录）。
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 追加金额（元），必须 > 0
+  amountCNY Decimal @db.Decimal(14, 6)
+
+  /// 已被消耗的部分。amountCNY - consumedCNY = 这笔还剩多少。
+  consumedCNY Decimal @default(0) @db.Decimal(14, 6)
+
+  /// 乐观锁：并发扣同一笔追加额度时靠它避免双花
+  version Int @default(0)
+
+  note        String?
+  grantedById String?
+  grantedBy   User?   @relation("AllowanceTopUpGranter", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// 扣减按 createdAt 升序（先批的先花完），所以索引带上它
+  @@index([enterpriseId, userId, createdAt])
+  @@map("member_allowance_topups")
+}
+
+/// 额度变更留痕。成员被拦住时第一个问题是「谁改的、什么时候改的」——
+/// 这行历史很便宜，事后补很贵。
+model MemberAllowanceChange {
+  id String @id @default(cuid())
+
+  /// SetNull 而非 Cascade：额度行被删（改为不限额）时变更历史要留下。
+  allowanceId String?
+  allowance   MemberComputeAllowance? @relation(fields: [allowanceId], references: [id], onDelete: SetNull)
+
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation("AllowanceChangeSubject", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// null 表示「当时不限额」。改额度前后各存一份，不用推导。
+  fromLimitCNY Decimal?         @db.Decimal(14, 6)
+  toLimitCNY   Decimal?         @db.Decimal(14, 6)
+  fromPeriod   AllowancePeriod?
+  toPeriod     AllowancePeriod?
+  fromCarryOver Boolean?
+  toCarryOver   Boolean?
+
+  /// 改额度当时该成员本周期已用金额（元）。调低到已用金额以下，公司这一周期
+  /// 就不再为他付费（他仍可用个人余额自费对话）。事后追问「为什么我突然要自付了」
+  /// 时这个数字是答案。
+  usedAtChangeCNY Decimal? @db.Decimal(14, 6)
+
+  changedById String?
+  changedBy   User?   @relation("AllowanceChangeAuthor", fields: [changedById], references: [id], onDelete: SetNull)
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([enterpriseId, userId, createdAt(sort: Desc)])
+  @@map("member_allowance_changes")
+}
+
+// ============================================================================
+// Personal Wallet (个人钱包 —— 成员自掏腰包继续对话)
+// ============================================================================
+
+/// 成员个人钱包。**兜底**，不是主力：扣费顺序里排在最后一位
+///   赠送额度 → 企业钱包 → 个人钱包 → 欠费
+/// 只在「企业资金已用尽或分配额度已用尽」时才出场。
+///
+/// 排第二位会让自掏钱的成员静默补贴公司：他一充值，公司的钱就永远花不到他头上。
+///
+/// 个人充值属个人行为：不计入企业分配额度的已用金额，不进企业账，
+/// 企业管理员看不到他充了多少（只看得到「本周期已用（企业资金）」）。
+model PersonalWallet {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 可用余额（元）。恒 >= 0，与企业钱包同一硬约束。
+  balance Decimal @default(0) @db.Decimal(14, 6)
+
+  /// 乐观锁版本号，与 EnterpriseWallet 同一套并发处理
+  version Int @default(0)
+
+  /// 累计统计（只增不减，用于展示）
+  totalDepositCNY Decimal @default(0) @db.Decimal(14, 6)
+  totalConsumeCNY Decimal @default(0) @db.Decimal(14, 6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions PersonalWalletTransaction[]
+
+  @@map("personal_wallets")
+}
+
+enum PersonalWalletTransactionType {
+  DEPOSIT // 个人充值
+  CONSUME // 对话消费
+  REFUND // 退款
+  ADJUSTMENT // 平台手工调整
+}
+
+/// 个人钱包流水。镜像 WalletTransaction 的审计口径（前后余额快照）——
+/// 没有流水表，「我充的 ¥20 去哪了」无从回答。
+model PersonalWalletTransaction {
+  id       String         @id @default(cuid())
+  walletId String
+  wallet   PersonalWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  type PersonalWalletTransactionType
+
+  /// 正数=入账，负数=出账
+  amount        Decimal @db.Decimal(14, 6)
+  balanceBefore Decimal @db.Decimal(14, 6)
+  balanceAfter  Decimal @db.Decimal(14, 6)
+
+  relatedType String? // 'compute' | 'recharge_order'
+  relatedId   String? // 会话 ID / 充值单 ID
+
+  description String?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  createdBy String? // 操作人 userId（平台调整时记录）
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([relatedType, relatedId])
+  @@map("personal_wallet_transactions")
 }
 
 model ComputeUsageRecord {
@@ -1411,10 +1626,13 @@ model ComputeUsageRecord {
   creditPaidCNY Decimal @default(0) @db.Decimal(14, 6)
   /// 由企业钱包承担的部分
   walletPaidCNY Decimal @default(0) @db.Decimal(14, 6)
+  /// 由成员个人钱包承担的部分（企业资金用尽后的兜底）。
+  /// 分配额度的「本周期已用」**不含**这部分 —— 否则自掏钱反而更快撞上公司给的上限。
+  personalPaidCNY Decimal @default(0) @db.Decimal(14, 6)
   /// 欠费：赠送余额与钱包都不够时的差额。
   /// 余额永不为负是硬约束，所以这里如实记录差额而不是让扣款失败 ——
   /// 扣款失败会连"这次消费发生过"一起丢掉，对账时无从解释。
-  /// 恒等式：creditPaidCNY + walletPaidCNY + unpaidCNY == costCNY
+  /// 恒等式：creditPaidCNY + walletPaidCNY + personalPaidCNY + unpaidCNY == costCNY
   unpaidCNY     Decimal @default(0) @db.Decimal(14, 6)
 
   /// 业务幂等键：`${sessionId}:${messageId}`。重试命中唯一约束即视为已计费。
@@ -1422,6 +1640,13 @@ model ComputeUsageRecord {
 
   /// 钱包扣款流水（仅当 walletPaidCNY > 0）
   walletTransactionId String?
+  /// 个人钱包扣款流水（仅当 personalPaidCNY > 0）
+  personalWalletTransactionId String?
+
+  /// 归属的分配额度窗口。SetNull：额度被清成「不限额」时窗口行会随之删除，
+  /// 账单必须留下。为空表示这笔消费发生时该成员没有限额。
+  allowanceWindowId String?
+  allowanceWindow   MemberAllowanceWindow? @relation(fields: [allowanceWindowId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
@@ -1431,6 +1656,7 @@ model ComputeUsageRecord {
   @@index([creditId])
   /// 算力分配的闸门每轮对话都要按「成员 + 本周期」聚合已用金额，必须走索引
   @@index([userId, createdAt(sort: Desc)])
+  @@index([allowanceWindowId])
   @@map("compute_usage_records")
 }
 
@@ -1965,6 +2191,12 @@ enum NotificationType {
   SUBSCRIPTION_REQUEST_REJECTED
   /// 企业采纳成员改动、生成新企业版本后推给企业成员：「XX 技能更新了能力」。
   SKILL_VERSION_UPDATED
+  /// 成员本周期算力额度用到 80%：给他和管理员各一条，留出反应时间。
+  ALLOWANCE_WARNING
+  /// 成员本周期算力额度已用尽：话术必须带重置时间与两个出路（找管理员 / 个人充值）。
+  ALLOWANCE_EXHAUSTED
+  /// 企业钱包（含算力专款）余额偏低，推给企业管理员。
+  WALLET_LOW_BALANCE
 }
 
 // ============================================================================

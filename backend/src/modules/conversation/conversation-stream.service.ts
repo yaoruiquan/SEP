@@ -166,6 +166,47 @@ export class ConversationStreamService {
     });
     const subscriptionId = subscription?.id;
 
+    // 1c. 额度 / 余额闸门 —— **每条消息**都要过，不能只在建会话时过一次。
+    //
+    // 只在 ConversationService.create 里查的话，额度是「开会话那一刻够不够」：
+    // 老会话开着不关，额度用尽后照样能一直发，事后只在账单上堆欠费。
+    // 而这道闸门本来的意思是「公司这周期还愿不愿意为你付钱」，逐条判定才成立。
+    //
+    // 放在加锁与落库之前：被拦下的消息不该占用会话锁，也不该在历史里留下
+    // 一条永远等不到回复的用户消息。
+    const gate = await this.computeCredit.checkBalanceBeforeConversation(
+      enterpriseCtx.enterpriseId,
+      subscriptionId,
+      userId,
+    );
+    if (!gate.allowed) {
+      // 结构化字段而不是只给一句话：前端要据此弹「额度用尽」对话框并给出
+      // 对应的出路（找管理员调额度 / 给企业钱包充值 / 个人充值）。
+      yield {
+        event: "error",
+        data: {
+          message: gate.reason ?? "算力余额不足，无法继续对话。",
+          code: "COMPUTE_BLOCKED",
+          blockedBy: gate.enterpriseFundsBlockedBy ?? "BALANCE",
+          personalBalanceCNY: gate.personalBalanceCNY.toFixed(2),
+        },
+      };
+      return;
+    }
+    if (!gate.enterpriseFundsAllowed) {
+      // 改道自费不是错误：对话照常进行，只是这一轮的钱从成员个人余额出。
+      // 用 notice 而不是 error —— 前端的 error 分支会中止本轮渲染。
+      yield {
+        event: "notice",
+        data: {
+          message: gate.reason,
+          code: "COMPUTE_SELF_PAID",
+          blockedBy: gate.enterpriseFundsBlockedBy ?? "BALANCE",
+          personalBalanceCNY: gate.personalBalanceCNY.toFixed(2),
+        },
+      };
+    }
+
     // 2. 获取分布式锁（防并发）
     const lockValue = await this.sessionLockService.acquireLock(sessionId);
 
@@ -865,18 +906,32 @@ export class ConversationStreamService {
         return;
       }
 
+      // 四条腿全打出来：它们之和恒等于 cost，所以这一行日志自带对账能力。
+      // 少印「个人」那条，成员自费的对话会显示成「花了 ¥0.12，来源全是 0」。
       this.logger.log(
         `[Billing] session=${sessionId} tokens=${params.inputTokens}/${params.outputTokens} ` +
           `cost=¥${result.costCNY.toFixed(6)} ` +
-          `(赠送 ¥${result.creditPaidCNY.toFixed(6)} + 钱包 ¥${result.walletPaidCNY.toFixed(6)})` +
+          `(赠送 ¥${result.creditPaidCNY.toFixed(6)} + 钱包 ¥${result.walletPaidCNY.toFixed(6)}` +
+          ` + 个人 ¥${result.personalPaidCNY.toFixed(6)}` +
+          ` + 欠费 ¥${result.unpaidCNY.toFixed(6)})` +
           `${result.fallbackPricing ? " [FALLBACK PRICING]" : ""}`,
       );
 
       if (result.unpaidCNY.greaterThan(0)) {
         // 余额永不为负是硬约束，所以欠费如实记账而不是让扣款失败。
-        // 下一次对话前的余额检查会拦下后续调用。
+        // 走到这里意味着企业资金**和**成员个人余额都见底了 —— 个人钱包排在扣费链
+        // 最后一位，它还有钱的话这笔就不会欠。下一次对话前的闸门会拦下后续调用。
         this.logger.warn(
-          `[Billing] 企业 ${enterpriseId} 余额不足，本次欠费 ¥${result.unpaidCNY.toFixed(6)}`,
+          `[Billing] 企业 ${enterpriseId} 与成员 ${userId} 的余额均已用尽，` +
+            `本次欠费 ¥${result.unpaidCNY.toFixed(6)}`,
+        );
+      }
+      if (result.personalPaidCNY.greaterThan(0)) {
+        // 改道自费是正常路径（额度用尽或企业没钱），但管理员事后一定会问
+        // 「为什么这笔算在员工头上」，所以留一条可检索的痕。
+        this.logger.log(
+          `[Billing] 成员 ${userId} 自费承担 ¥${result.personalPaidCNY.toFixed(6)}` +
+            `（企业资金不足或本周期算力额度已用尽）`,
         );
       }
       if (result.fallbackPricing) {

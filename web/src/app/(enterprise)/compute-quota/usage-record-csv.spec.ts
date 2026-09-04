@@ -23,6 +23,7 @@ function record(overrides: Partial<UsageRecordItem> = {}): UsageRecordItem {
     costCNY: '0.0123',
     creditPaidCNY: '0.0123',
     walletPaidCNY: '0.0000',
+    personalPaidCNY: '0.0000',
     unpaidCNY: '0.0000',
     fallbackPricing: false,
     ...overrides,
@@ -86,6 +87,21 @@ describe('toCsvRow', () => {
   it('保底计价写成是 / 否', () => {
     expect(toCsvRow(record({ fallbackPricing: true }))).toContain('"是"');
     expect(toCsvRow(record({ fallbackPricing: false }))).toContain('"否"');
+  });
+
+  it('成员自付独立成列，不与企业支出混在一起', () => {
+    // 混列会让「公司这个月花了多少」把员工自掏的钱算进来
+    const row = toCsvRow(
+      record({
+        costCNY: '10.0000',
+        creditPaidCNY: '0.0000',
+        walletPaidCNY: '0.3000',
+        personalPaidCNY: '9.7000',
+      }),
+    );
+    const cells = row.split(',').map((c) => c.slice(1, -1));
+    expect(cells[CSV_HEADER.indexOf('钱包扣减(元)')]).toBe('0.3000');
+    expect(cells[CSV_HEADER.indexOf('成员自付(元)')]).toBe('9.7000');
   });
 
   it('金额列是裸数字，不带 ¥ —— 财务要直接求和', () => {
