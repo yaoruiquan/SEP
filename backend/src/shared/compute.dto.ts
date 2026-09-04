@@ -62,11 +62,20 @@ export type MemberAllowanceTopUpDto = z.infer<
   typeof MemberAllowanceTopUpDtoSchema
 >;
 
-/** 个人钱包充值（成员自掏腰包）。 */
-export const PersonalDepositDtoSchema = z.object({
+/**
+ * 个人充值下单（成员自掏腰包）。
+ *
+ * 这个 DTO 只决定「下多少钱的单」，不决定余额 —— 余额由支付回调履约。
+ * 上限 10 万：个人自费的量级，超出多半是把企业充值当成了这里。
+ */
+export const PersonalRechargeCreateDtoSchema = z.object({
   amountCNY: z.number().positive().max(100_000).multipleOf(0.01),
+  /** 支付完成后跳回的前端地址；不传则用后端默认的结果页 */
+  returnUrl: z.string().url().max(500).optional(),
 });
-export type PersonalDepositDto = z.infer<typeof PersonalDepositDtoSchema>;
+export type PersonalRechargeCreateDto = z.infer<
+  typeof PersonalRechargeCreateDtoSchema
+>;
 
 export const TransactionQueryDtoSchema = z.object({
   type: z.enum(['RECHARGE', 'CONSUME', 'REFUND']).optional(),

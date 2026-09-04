@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Query,
-  Request,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -16,9 +8,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
-  PersonalDepositDtoSchema,
   TransactionQueryDtoSchema,
-  type PersonalDepositDto,
   type TransactionQueryDto,
 } from 'shared';
 import { PersonalWalletService } from './personal-wallet.service';
@@ -29,6 +19,10 @@ import { PersonalWalletService } from './personal-wallet.service';
  * 所有接口都只操作 `req.user.id` 自己的钱包：路径里没有 userId，
  * 也不接受 body 里的 userId。少一个参数就少一条越权路径 ——
  * 「帮别人充值」不是需求，「替别人花钱」更不是。
+ *
+ * 这里**只读**。充值走 `personal-wallet/recharge/*`（在 PaymentModule 里，
+ * 因为下单要立刻拿到支付宝表单）—— 曾经这里有个 `POST deposit` 直接加余额，
+ * 成员点一下就凭空多出算力，那是一台不要钱的印钞机，已经删掉。
  */
 @ApiTags('personal-wallet')
 @ApiBearerAuth()
@@ -42,17 +36,6 @@ export class PersonalWalletController {
   @ApiResponse({ status: 200, description: '余额、累计充值、累计消费' })
   async getMine(@Request() req) {
     return this.wallet.getView(req.user.id);
-  }
-
-  @Post('deposit')
-  @ApiOperation({ summary: '个人充值（演示口径：直接入账，未接支付渠道）' })
-  @ApiResponse({ status: 201, description: '返回充值后的余额' })
-  async deposit(
-    @Request() req,
-    @Body(new ZodValidationPipe(PersonalDepositDtoSchema))
-    dto: PersonalDepositDto,
-  ) {
-    return this.wallet.deposit(req.user.id, dto.amountCNY);
   }
 
   @Get('transactions')

@@ -7,6 +7,7 @@ describe("PaymentService", () => {
   let prisma: any;
   let orderService: any;
   let walletService: any;
+  let personalWalletService: any;
 
   beforeEach(() => {
     prisma = {
@@ -20,6 +21,7 @@ describe("PaymentService", () => {
       }),
     };
     walletService = { consume: jest.fn().mockResolvedValue({ id: "tx-1" }) };
+    personalWalletService = { fulfillRechargeOrder: jest.fn() };
 
     service = new PaymentService(
       prisma,
@@ -28,6 +30,7 @@ describe("PaymentService", () => {
       {} as any,
       {} as any,
       walletService,
+      personalWalletService,
     );
   });
 

@@ -63,6 +63,7 @@ model User {
   allowanceChanges                  MemberAllowanceChange[]    @relation("AllowanceChangeSubject")
   authoredAllowanceChanges          MemberAllowanceChange[]    @relation("AllowanceChangeAuthor")
   personalWallet                    PersonalWallet?
+  personalRechargeOrders            PersonalRechargeOrder[]
   toolExecutions                    ToolExecution[]
 
   @@map("users")
@@ -1584,6 +1585,43 @@ model PersonalWalletTransaction {
   @@index([walletId, createdAt(sort: Desc)])
   @@index([relatedType, relatedId])
   @@map("personal_wallet_transactions")
+}
+
+/// 个人充值订单。**入账的唯一入口** —— 个人余额只能由已支付的订单驱动增加，
+/// 没有「直接加余额」的接口：那等于让成员给自己免费发算力。
+///
+/// 与企业的 RechargeOrder 刻意分表，不是加一个可空的 userId：
+///   · 收款主体、发票与退款口径不同（企业开票给企业，个人自费是个人消费）
+///   · 混一张表后每个企业侧查询都要额外带 `userId IS NULL`，漏一处就串账
+///
+/// 订单号前缀 `PRC`（企业充值是 `RCH`、订阅是 `ORD`）——
+/// 支付宝异步通知只带 out_trade_no，回调靠前缀分流到对应履约链。
+model PersonalRechargeOrder {
+  id String @id @default(cuid())
+
+  /// 订单号（格式：PRC + yyyyMMddHHmmss + 6 位随机数），同时用作支付宝 out_trade_no
+  orderNo String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 充值金额（元）。两位小数 —— 支付渠道按分收款，不存在更细的粒度
+  amount Decimal @db.Decimal(12, 2)
+
+  status RechargeOrderStatus @default(PENDING)
+
+  payChannel PayChannel?
+  /// 第三方支付流水号（支付宝 trade_no），履约幂等的对账依据
+  payTradeNo String?
+
+  paidAt   DateTime?
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("personal_recharge_orders")
 }
 
 model ComputeUsageRecord {

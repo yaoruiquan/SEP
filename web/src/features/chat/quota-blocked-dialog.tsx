@@ -82,8 +82,8 @@ export function QuotaBlockedDialog({ info, onClose }: Props) {
               用户会怕充值反而把自己的额度烧得更快。
             */}
             <p className="mt-1.5 text-xs leading-5 text-fg-muted">
-              个人余额只在公司不为这次对话付钱时才被动用。充值后即可继续对话，
-              管理员端的「本周期已用」不会因此增长。
+              个人余额只在公司不为这次对话付钱时才被动用。充值走支付宝，
+              到账后即可继续对话，管理员端的「本周期已用」不会因此增长。
             </p>
           </div>
 

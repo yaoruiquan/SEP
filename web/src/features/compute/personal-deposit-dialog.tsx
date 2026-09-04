@@ -14,9 +14,9 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
 import { formatCny } from '@/lib/api/use-compute-credit';
-import { usePersonalDeposit } from '@/lib/api/use-personal-wallet';
+import { useCreatePersonalRecharge } from '@/lib/api/use-personal-wallet';
 
-/** 后端 PersonalDepositDtoSchema 的上限，前端先拦一道，省一次必失败的请求。 */
+/** 后端 PersonalRechargeCreateDtoSchema 的上限，前端先拦一道，省一次必失败的请求。 */
 const MAX_DEPOSIT = 100_000;
 
 const PRESETS = [20, 50, 100, 500];
@@ -32,16 +32,21 @@ interface Props {
 }
 
 /**
- * 个人余额充值。
+ * 个人余额充值 —— 走支付宝。
  *
  * 这笔钱只在**公司不为这一次对话付钱**时才会被动用（额度用尽或企业资金见底），
  * 排在扣费链最后一位。文案必须把这点说清楚：否则用户会以为充了就得自己花，
  * 或者以为充了公司额度就变多了。
+ *
+ * 这里**只下单**，余额不在这一步变化：点确认拿到支付地址就整页跳去支付宝，
+ * 付完由支付宝回调（或结果页的对账）入账。曾经这个按钮直接调
+ * `POST /personal-wallet/deposit` 把金额加进余额 —— 那等于给每个成员
+ * 发一台免费印钞机，接口已经删了。
  */
 export function PersonalDepositDialog({ trigger, open, onOpenChange }: Props) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [value, setValue] = useState('');
-  const deposit = usePersonalDeposit();
+  const createOrder = useCreatePersonalRecharge();
 
   const controlled = open !== undefined;
   const isOpen = controlled ? open : internalOpen;
@@ -56,15 +61,15 @@ export function PersonalDepositDialog({ trigger, open, onOpenChange }: Props) {
 
   const submit = () => {
     if (invalid) return;
-    deposit.mutate(Math.round(amount * 100) / 100, {
-      onSuccess: (result) => {
-        toast.success('充值成功', `个人余额 ${formatCny(result.balanceCNY)}`);
-        setOpen(false);
-        setValue('');
+    createOrder.mutate(Math.round(amount * 100) / 100, {
+      onSuccess: (order) => {
+        // 整页跳去支付宝收银台。不 setOpen(false) —— 页面马上就被替换掉，
+        // 先关弹窗只会让用户看到一帧空白
+        window.location.href = order.payUrl;
       },
       onError: (error) => {
         toast.error(
-          '充值失败',
+          '下单失败',
           error instanceof Error ? error.message : undefined,
         );
       },
@@ -118,7 +123,7 @@ export function PersonalDepositDialog({ trigger, open, onOpenChange }: Props) {
               </p>
             )}
             <p className="text-xs text-fg-muted">
-              演示环境直接入账，未接支付渠道。
+              点确认后跳转支付宝，付款完成自动返回本页并到账。
             </p>
           </div>
 
@@ -130,15 +135,15 @@ export function PersonalDepositDialog({ trigger, open, onOpenChange }: Props) {
                 glass-scope 令牌，白字压在玻璃底上几乎看不见 */}
             <Button
               variant="primary"
-              disabled={invalid || deposit.isPending}
+              disabled={invalid || createOrder.isPending}
               onClick={submit}
             >
-              {deposit.isPending ? (
+              {createOrder.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Wallet className="h-4 w-4" />
               )}
-              确认充值
+              {createOrder.isPending ? '正在创建订单…' : '去支付宝支付'}
             </Button>
           </DialogFooter>
         </DialogContent>

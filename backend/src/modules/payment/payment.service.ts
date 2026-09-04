@@ -12,6 +12,7 @@ import { OrderService } from "./order.service";
 import { AlipayProvider } from "./alipay.provider";
 import { ComputeService } from "../compute/compute.service";
 import { WalletService } from "../wallet/wallet.service";
+import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
 
 @Injectable()
 export class PaymentService {
@@ -26,6 +27,9 @@ export class PaymentService {
     private computeService: ComputeService,
     @Inject(forwardRef(() => WalletService))
     private walletService: WalletService,
+    // 个人钱包没有反向依赖（它只 import PrismaModule），这条边是单向的，
+    // 不需要 forwardRef —— 加了反而会掩盖将来真的成环
+    private personalWalletService: PersonalWalletService,
   ) {}
 
   /**
@@ -200,6 +204,91 @@ export class PaymentService {
   }
 
   /**
+   * 发起支付宝支付（个人充值订单）
+   *
+   * 与企业充值同一条支付链路，但收款主体与入账目标不同：
+   * 这笔钱进的是**成员自己的**个人钱包，企业账上看不到它 ——
+   * 所以 subject 必须写清「个人」，否则用户在支付宝账单里分不出是替公司充的还是自费。
+   */
+  async createPersonalRechargeAlipayPayment(orderNo: string, returnUrl?: string) {
+    const order = await this.prisma.personalRechargeOrder.findUnique({
+      where: { orderNo },
+    });
+
+    if (!order) {
+      throw new NotFoundException("充值订单不存在");
+    }
+
+    if (order.status !== "PENDING") {
+      throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
+    }
+
+    await this.initializeAlipay();
+
+    const paymentForm = await this.alipayProvider.pagePayment({
+      outTradeNo: order.orderNo,
+      totalAmount: order.amount.toString(),
+      subject: "个人算力余额充值",
+      body: `充值金额: ¥${order.amount}`,
+      // 同企业充值：支付宝回跳不带 orderNo，结果页靠它定位订单，必须显式拼入
+      returnUrl: returnUrl ?? this.buildPersonalRechargeReturnUrl(order.orderNo),
+    });
+
+    this.logger.log(`个人充值订单 ${order.orderNo} 支付请求已生成`);
+
+    return {
+      orderId: order.id,
+      orderNo: order.orderNo,
+      paymentForm,
+    };
+  }
+
+  /** 个人充值结果页回跳地址（带订单号）。与企业充值是两个页面，返回按钮的去处不同。 */
+  private buildPersonalRechargeReturnUrl(orderNo: string): string {
+    const webUrl = this.configService.get<string>("WEB_BASE_URL");
+    return `${webUrl}/payment/personal-recharge/result?orderNo=${encodeURIComponent(orderNo)}`;
+  }
+
+  /**
+   * 主动查单兜底（个人充值对账）
+   *
+   * 与企业充值同理：异步通知可能丢失，用户已付款却始终看不到余额。
+   * 结果页轮询调用它，把「支付宝已收钱、平台没入账」的窗口收敛掉。
+   */
+  async reconcilePersonalRechargeOrder(orderNo: string) {
+    const order = await this.prisma.personalRechargeOrder.findUnique({
+      where: { orderNo },
+    });
+
+    if (!order) {
+      throw new NotFoundException("充值订单不存在");
+    }
+
+    if (order.status !== "PENDING") {
+      return { status: order.status, reconciled: false };
+    }
+
+    await this.initializeAlipay();
+
+    const trade = await this.queryAlipayTrade(orderNo);
+    if (!trade.paid) {
+      return { status: order.status, reconciled: false };
+    }
+
+    // fulfillRechargeOrder 自身幂等，与通知撞车也只会入账一次
+    this.logger.warn(
+      `个人充值订单 ${orderNo} 支付宝显示已支付但本地为 PENDING，触发主动履约（tradeNo=${trade.tradeNo}）`,
+    );
+    await this.personalWalletService.fulfillRechargeOrder(
+      orderNo,
+      trade.tradeNo!,
+      "ALIPAY",
+    );
+
+    return { status: "PAID", reconciled: true };
+  }
+
+  /**
    * 构造订阅订单结果页回跳地址（带订单 ID）
    *
    * 注意结果页用的是 orderId（非 orderNo），与充值页不同。
@@ -290,6 +379,14 @@ export class PaymentService {
           "ALIPAY",
         );
         this.logger.log(`充值订单 ${outTradeNo} 支付成功，履约完成`);
+      } else if (outTradeNo.startsWith("PRC")) {
+        // 个人充值订单 —— 钱进成员自己的个人钱包，不进企业账
+        await this.personalWalletService.fulfillRechargeOrder(
+          outTradeNo,
+          tradeNo,
+          "ALIPAY",
+        );
+        this.logger.log(`个人充值订单 ${outTradeNo} 支付成功，履约完成`);
       } else if (outTradeNo.startsWith("ORD")) {
         // 员工订阅订单
         const order = await this.orderService.findByOrderNo(outTradeNo);

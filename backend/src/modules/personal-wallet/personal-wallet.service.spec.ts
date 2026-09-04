@@ -8,7 +8,11 @@
  *   3. 对话前的闸门每轮都要问余额，那条路径上**不许写库**（不给人凭空发钱包）
  *   4. 乐观锁没命中要抛冲突让整笔重试，绝不静默少扣
  */
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PersonalWalletService } from './personal-wallet.service';
 
@@ -21,9 +25,26 @@ describe('PersonalWalletService', () => {
 
   /** 钱包行。设为 null 表示「这个人从没充过钱」。 */
   let walletRow: any;
+  /** 充值订单行。设为 null 表示「查不到这张订单」。 */
+  let orderRow: any;
+  let createdOrder: any;
+
+  /** 一张待支付的 ¥30 订单，履约用例的共同起点。 */
+  const pendingOrder = () => ({
+    id: 'pro-1',
+    orderNo: 'PRC-1',
+    userId: 'user-1',
+    amount: d(30),
+    status: 'PENDING',
+    payChannel: null,
+    payTradeNo: null,
+    paidAt: null,
+  });
 
   beforeEach(() => {
     createdTx = null;
+    createdOrder = null;
+    orderRow = null;
     walletRow = {
       id: 'pw-1',
       userId: 'user-1',
@@ -46,6 +67,20 @@ describe('PersonalWalletService', () => {
             totalConsumeCNY: d(0),
             version: 0,
           };
+          return Promise.resolve(walletRow);
+        }),
+        // 履约在事务里用 upsert 取钱包：version 必须是本事务看到的值
+        upsert: jest.fn((a: any) => {
+          if (!walletRow) {
+            walletRow = {
+              id: 'pw-new',
+              userId: a.where.userId,
+              balance: d(0),
+              totalDepositCNY: d(0),
+              totalConsumeCNY: d(0),
+              version: 0,
+            };
+          }
           return Promise.resolve(walletRow);
         }),
         updateMany: jest.fn((a: any) => {
@@ -75,6 +110,21 @@ describe('PersonalWalletService', () => {
         }),
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([]),
+      },
+      personalRechargeOrder: {
+        create: jest.fn((a: any) => {
+          createdOrder = { id: 'pro-1', ...a.data };
+          return Promise.resolve(createdOrder);
+        }),
+        findUnique: jest.fn(() => Promise.resolve(orderRow)),
+        findFirst: jest.fn(() => Promise.resolve(orderRow)),
+        updateMany: jest.fn((a: any) => {
+          if (!orderRow || orderRow.status !== a.where.status) {
+            return Promise.resolve({ count: 0 });
+          }
+          orderRow = { ...orderRow, ...a.data };
+          return Promise.resolve({ count: 1 });
+        }),
       },
     };
     prisma.$transaction = jest.fn((cb: any) => cb(prisma));
@@ -243,22 +293,80 @@ describe('PersonalWalletService', () => {
     });
   });
 
-  describe('deposit —— 演示口径的充值', () => {
-    it('金额必须大于 0', async () => {
-      await expect(svc.deposit('user-1', 0)).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(svc.deposit('user-1', -1)).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(svc.deposit('user-1', Number.NaN)).rejects.toThrow(
-        BadRequestException,
-      );
+  /**
+   * 充值 —— 唯一的入账路径。
+   *
+   * 这一组锁的是「白送钱」和「重复送钱」两类事故：
+   *   · 下单**不加余额**（下单就入账 = 每个成员一台印钞机）
+   *   · 履约幂等：支付宝会重推通知，对账任务也可能与通知撞车
+   *   · 订单翻 PAID 与钱包入账必须同一个事务（否则出现「已付款、没余额」的黑洞）
+   */
+  describe('createRechargeOrder —— 只下单，不加钱', () => {
+    it('❗下单不动余额、不写流水 —— 这条红了就是印钞机回来了', async () => {
+      await svc.createRechargeOrder('user-1', 30);
+
       expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+      expect(createdOrder.status).toBe('PENDING');
     });
 
-    it('加余额、累计充值额与一条 DEPOSIT 流水', async () => {
-      const view = await svc.deposit('user-1', 30);
+    it('订单号以 PRC 开头 —— 支付回调靠前缀分流到个人履约链', async () => {
+      await svc.createRechargeOrder('user-1', 30);
+
+      expect(createdOrder.orderNo).toMatch(/^PRC\d{20}$/);
+      expect(createdOrder.userId).toBe('user-1');
+      expect(createdOrder.amount.toFixed(2)).toBe('30.00');
+    });
+
+    it('金额必须大于 0', async () => {
+      await expect(svc.createRechargeOrder('user-1', 0)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(svc.createRechargeOrder('user-1', -1)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(
+        svc.createRechargeOrder('user-1', Number.NaN),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.personalRechargeOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('金额截到分 —— 订单金额与支付渠道实收必须一致', async () => {
+      await svc.createRechargeOrder('user-1', 10.009);
+      expect(createdOrder.amount.toFixed(2)).toBe('10.00');
+    });
+
+    it('不足 1 分的充值直接拒掉，不生成一张 ¥0.00 的订单', async () => {
+      await expect(svc.createRechargeOrder('user-1', 0.004)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('先确保钱包存在 —— 履约时钱包缺失会让一笔已收的钱无处入账', async () => {
+      walletRow = null;
+      await svc.createRechargeOrder('user-1', 10);
+      expect(prisma.personalWallet.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('getRechargeOrder —— 作用域', () => {
+    it('❗userId 写进 where：别人的订单号问不出「它存在」', async () => {
+      orderRow = null;
+
+      await expect(svc.getRechargeOrder('user-1', 'PRC1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.personalRechargeOrder.findFirst).toHaveBeenCalledWith({
+        where: { orderNo: 'PRC1', userId: 'user-1' },
+      });
+    });
+  });
+
+  describe('fulfillRechargeOrder —— 履约幂等', () => {
+    it('加余额、累计充值额与一条 DEPOSIT 流水，订单翻 PAID', async () => {
+      orderRow = pendingOrder();
+
+      await svc.fulfillRechargeOrder('PRC-1', 'alipay-tx-1', 'ALIPAY');
 
       const { data } = prisma.personalWallet.updateMany.mock.calls[0][0];
       expect(data.balance.toFixed(2)).toBe('50.00');
@@ -268,28 +376,81 @@ describe('PersonalWalletService', () => {
       expect(createdTx.amount.toFixed(2)).toBe('30.00');
       expect(createdTx.balanceBefore.toFixed(2)).toBe('20.00');
       expect(createdTx.balanceAfter.toFixed(2)).toBe('50.00');
-      // 返回的是充值**之后**重读的视图，前端拿到就能直接刷新余额
-      expect(view.balanceCNY).toBe('50.00');
-      expect(view.totalDepositCNY).toBe('80.00');
+      // 流水指回订单，日后对账能顺着 relatedId 找到那笔支付
+      expect(createdTx.relatedType).toBe('recharge_order');
+      expect(createdTx.relatedId).toBe('pro-1');
+
+      expect(orderRow.status).toBe('PAID');
+      expect(orderRow.payTradeNo).toBe('alipay-tx-1');
+      expect(orderRow.payChannel).toBe('ALIPAY');
     });
 
-    it('第一次充值时建钱包', async () => {
-      walletRow = null;
+    it('❗已 PAID 的订单直接返回 —— 支付宝重推通知不会重复入账', async () => {
+      orderRow = { ...pendingOrder(), status: 'PAID' };
 
-      await svc.deposit('user-1', 10);
+      await svc.fulfillRechargeOrder('PRC-1', 'alipay-tx-1', 'ALIPAY');
 
-      expect(prisma.personalWallet.create).toHaveBeenCalledWith({
-        data: { userId: 'user-1' },
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('❗状态翻转拿到 0 行也不入账 —— 与对账任务撞车时的那一路', async () => {
+      orderRow = pendingOrder();
+      prisma.personalRechargeOrder.updateMany.mockResolvedValueOnce({
+        count: 0,
       });
+
+      await svc.fulfillRechargeOrder('PRC-1', 'alipay-tx-1', 'ALIPAY');
+
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
     });
 
-    it('乐观锁没命中就抛冲突，不留一条对不上余额的流水', async () => {
+    it('已关闭的订单不入账 —— 钱真收到了要走人工退款，不能默默加余额', async () => {
+      orderRow = { ...pendingOrder(), status: 'CLOSED' };
+
+      await expect(
+        svc.fulfillRechargeOrder('PRC-1', 'tx', 'ALIPAY'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('订单不存在时 404，而不是凭空建一个', async () => {
+      orderRow = null;
+      await expect(
+        svc.fulfillRechargeOrder('PRC-nope', 'tx', 'ALIPAY'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('❗订单翻转与入账在同一个事务里 —— 否则会有「已付款、没余额」的黑洞', async () => {
+      orderRow = pendingOrder();
+
+      await svc.fulfillRechargeOrder('PRC-1', 'tx', 'ALIPAY');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      // 翻转与入账都在事务客户端上发生
+      expect(prisma.personalRechargeOrder.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.personalWalletTransaction.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('乐观锁没命中就抛冲突，让整笔事务回滚回 PENDING 等重试', async () => {
+      orderRow = pendingOrder();
       prisma.personalWallet.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(svc.deposit('user-1', 10)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        svc.fulfillRechargeOrder('PRC-1', 'tx', 'ALIPAY'),
+      ).rejects.toThrow(ConflictException);
       expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('钱包不存在时就地建出来 —— 已收的钱必须有地方落', async () => {
+      orderRow = pendingOrder();
+      walletRow = null;
+
+      await svc.fulfillRechargeOrder('PRC-1', 'tx', 'ALIPAY');
+
+      expect(createdTx.type).toBe('DEPOSIT');
+      expect(createdTx.balanceAfter.toFixed(2)).toBe('30.00');
     });
   });
 

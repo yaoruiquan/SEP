@@ -3,9 +3,16 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
-import { Prisma, PersonalWalletTransactionType } from '@prisma/client';
+import {
+  PayChannel,
+  PersonalWalletTransactionType,
+  Prisma,
+  RechargeOrderStatus,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { format } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   PersonalConsumeResult,
@@ -82,52 +89,179 @@ export class PersonalWalletService {
     };
   }
 
+  // ── 充值（订单驱动） ──────────────────────────────────────────────────────
+
   /**
-   * 充值入账。
+   * 创建个人充值订单。
    *
-   * 第一版是**演示口径**：直接加余额，不接支付渠道。真实支付接入后这里要改成
-   * 由支付回调驱动（幂等键 = 支付单号），当前签名刻意保留 `relatedId` 以便那时复用。
+   * 这是个人余额增加的**唯一起点**，且它只产生一张 PENDING 订单 —— 不加钱。
+   * 加钱只发生在 `fulfillRechargeOrder()`，而那个方法只被支付回调/对账调用。
+   * 曾经这里是 `deposit()`：直接把金额加进余额，成员点一下就凭空多出算力，
+   * 等于给每个人开了一台免费印钞机。
+   *
+   * 订单号前缀 `PRC`（企业充值 `RCH`、订阅 `ORD`）—— 支付宝异步通知只带
+   * out_trade_no，回调靠前缀分流到对应履约链。
    */
-  async deposit(
-    userId: string,
-    amountCNY: number,
-    meta?: { relatedId?: string | null; description?: string },
-  ): Promise<PersonalWalletView> {
+  async createRechargeOrder(userId: string, amountCNY: number) {
     if (!Number.isFinite(amountCNY) || amountCNY <= 0) {
       throw new BadRequestException('充值金额必须大于 0');
     }
-    const amount = money(amountCNY);
-    const wallet = await this.ensureWallet(userId);
+    // 支付渠道按分收款，落库前就抹掉更细的粒度，避免订单金额与实收金额不一致
+    const amount = new Decimal(amountCNY).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    if (amount.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('充值金额必须大于 0');
+    }
 
-    await this.prisma.$transaction(async (tx) => {
-      const before = wallet.balance;
-      const after = before.add(amount);
-      const updated = await tx.personalWallet.updateMany({
-        where: { id: wallet.id, version: wallet.version },
+    // 建订单前先确保钱包存在：履约时钱包缺失会让一笔已收的钱无处入账
+    await this.ensureWallet(userId);
+
+    return this.prisma.personalRechargeOrder.create({
+      data: {
+        orderNo: this.generateOrderNo(),
+        userId,
+        amount,
+        status: RechargeOrderStatus.PENDING,
+      },
+    });
+  }
+
+  /**
+   * 查自己的充值订单。
+   *
+   * `userId` 写在 where 里而不是查完再比 —— 不存在与不属于我返回同一个 404，
+   * 别人的订单号也就问不出「这个号存在」这条信息。
+   */
+  async getRechargeOrder(userId: string, orderNo: string) {
+    const order = await this.prisma.personalRechargeOrder.findFirst({
+      where: { orderNo, userId },
+    });
+    if (!order) {
+      throw new NotFoundException('充值订单不存在');
+    }
+    return order;
+  }
+
+  /**
+   * 履约：把已支付的订单变成余额。**幂等** —— 支付宝会重复推同一条通知，
+   * 对账任务也可能和通知撞在一起，重复入账就是白送钱。
+   *
+   * 幂等靠两层：
+   *   1. `status === 'PAID'` 直接返回（通知重推的常见情况）
+   *   2. 状态翻转用 `updateMany({ where: { status: PENDING } })`，
+   *      拿到 0 行说明另一路已经处理完了，这条就什么都不做
+   *
+   * 订单翻 PAID 与钱包入账在**同一个** $transaction 里 ——
+   * 分成两个事务的话，中间崩一次就会出现「订单已付但余额没加」的黑洞。
+   */
+  async fulfillRechargeOrder(
+    orderNo: string,
+    payTradeNo: string,
+    payChannel: PayChannel,
+  ) {
+    const existing = await this.prisma.personalRechargeOrder.findUnique({
+      where: { orderNo },
+    });
+    if (!existing) {
+      throw new NotFoundException(`个人充值订单不存在: ${orderNo}`);
+    }
+    if (existing.status === RechargeOrderStatus.PAID) {
+      return existing;
+    }
+    if (existing.status === RechargeOrderStatus.CLOSED) {
+      // 已关闭的订单不再入账：钱若真的收到了，走人工对账退款，不能默默加余额
+      throw new BadRequestException(`充值订单已关闭: ${orderNo}`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const flipped = await tx.personalRechargeOrder.updateMany({
+        where: { id: existing.id, status: RechargeOrderStatus.PENDING },
         data: {
-          balance: after,
-          totalDepositCNY: { increment: amount },
-          version: { increment: 1 },
+          status: RechargeOrderStatus.PAID,
+          payChannel,
+          payTradeNo,
+          paidAt: new Date(),
         },
       });
-      if (updated.count === 0) {
-        throw new ConflictException('个人余额更新冲突，请重试');
+      if (flipped.count === 0) {
+        // 另一路（通知 or 对账）已经履约完了，这次是重复投递
+        const current = await tx.personalRechargeOrder.findUnique({
+          where: { id: existing.id },
+        });
+        return current!;
       }
-      await tx.personalWalletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          type: PersonalWalletTransactionType.DEPOSIT,
-          amount,
-          balanceBefore: before,
-          balanceAfter: after,
-          relatedType: meta?.relatedId ? 'recharge_order' : null,
-          relatedId: meta?.relatedId ?? null,
-          description: meta?.description ?? `个人充值 ¥${amount.toFixed(2)}`,
-        },
+
+      await this.creditInTx(tx, existing.userId, new Decimal(existing.amount), {
+        relatedId: existing.id,
+        description: `个人充值 ${existing.orderNo}`,
       });
+
+      this.logger.log(
+        `个人充值到账: ${existing.orderNo} ¥${existing.amount.toFixed(2)} user=${existing.userId}`,
+      );
+
+      const paid = await tx.personalRechargeOrder.findUnique({
+        where: { id: existing.id },
+      });
+      return paid!;
+    });
+  }
+
+  /** 订单号：PRC + yyyyMMddHHmmss + 6 位随机数，同时用作支付宝 out_trade_no。 */
+  private generateOrderNo(): string {
+    const timestamp = format(new Date(), 'yyyyMMddHHmmss');
+    const random = Math.floor(Math.random() * 1_000_000)
+      .toString()
+      .padStart(6, '0');
+    return `PRC${timestamp}${random}`;
+  }
+
+  /**
+   * 入账，必须在调用方的事务里执行。
+   *
+   * 不做成 public 的 `deposit()`：任何「不带支付单号就能加余额」的入口
+   * 都是印钞机。想加钱只有一条路 —— 先有一张已支付的订单。
+   */
+  private async creditInTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amountCNY: Decimal,
+    meta: { relatedId: string; description: string },
+  ): Promise<void> {
+    const amount = money(amountCNY);
+    // 事务内重新取一次：version 必须是本事务看到的值，用外面读到的会误判冲突
+    const wallet = await tx.personalWallet.upsert({
+      where: { userId },
+      create: { userId },
+      update: {},
     });
 
-    return this.getView(userId);
+    const before = wallet.balance;
+    const after = before.add(amount);
+    const updated = await tx.personalWallet.updateMany({
+      where: { id: wallet.id, version: wallet.version },
+      data: {
+        balance: after,
+        totalDepositCNY: { increment: amount },
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) {
+      // 抛出去让整笔事务回滚：订单会留在 PENDING，等下一次通知/对账重试
+      throw new ConflictException('个人余额更新冲突，请重试');
+    }
+
+    await tx.personalWalletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: PersonalWalletTransactionType.DEPOSIT,
+        amount,
+        balanceBefore: before,
+        balanceAfter: after,
+        relatedType: 'recharge_order',
+        relatedId: meta.relatedId,
+        description: meta.description,
+      },
+    });
   }
 
   /**
