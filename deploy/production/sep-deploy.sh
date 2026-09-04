@@ -11,8 +11,13 @@ COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 BLUE_GREEN_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.blue-green.yml"
 STATE_DIR="${SEP_DEPLOY_STATE_DIR:-/opt/sep/.deploy}"
 ACTIVE_COLOR_FILE="$STATE_DIR/active-color"
-CADDYFILE="${SEP_CADDYFILE:-/opt/longdao/deploy/production/Caddyfile}"
+# SEP 的站点配置已从龙道主 Caddyfile 拆出来单独成文件（主 Caddyfile 用 import 引入），
+# 两个应用的发布流程不再改同一个文件。
+CADDYFILE="${SEP_CADDYFILE:-/opt/longdao/deploy/production/conf.d/sep.caddy}"
 CADDY_CONTAINER="${SEP_CADDY_CONTAINER:-longdao-caddy}"
+# 切换前的配置备份放在 SEP 自己的目录，不要落在龙道仓库里 ——
+# 那边 build_production_image.sh 有干净工作区检查（REL-002），多一个文件就构建失败。
+CADDY_BACKUP_DIR="${SEP_CADDY_BACKUP_DIR:-/opt/sep/backups/caddy}"
 LOCK_FILE="${SEP_DEPLOY_LOCK_FILE:-/opt/sep/.deploy.lock}"
 SHARED_NETWORK="${SEP_SHARED_NETWORK:-longdao-network}"
 
@@ -194,7 +199,8 @@ switch_caddy_upstream() {
   [[ -f "$CADDYFILE" ]] || { error "Caddyfile 不存在: $CADDYFILE"; return 1; }
   local temp backup
   temp=$(mktemp)
-  backup="$CADDYFILE.blue-green.$(date +%Y%m%d%H%M%S).bak"
+  mkdir -p "$CADDY_BACKUP_DIR"
+  backup="$CADDY_BACKUP_DIR/$(basename "$CADDYFILE").$(date +%Y%m%d%H%M%S).bak"
   sed -E "s#reverse_proxy (sep-web|sep-(blue|green)-web):3000#reverse_proxy $target:3000#" "$CADDYFILE" > "$temp"
   if ! grep -q "reverse_proxy $target:3000" "$temp"; then
     rm -f "$temp"
@@ -202,9 +208,8 @@ switch_caddy_upstream() {
     return 1
   fi
   cp "$CADDYFILE" "$backup"
-  # Caddyfile is a single-file bind mount. In-place replacement keeps the
-  # mounted inode visible inside the container; renaming it would leave Caddy
-  # reading the old inode until the container is recreated.
+  # 原地覆盖内容（不要 mv）：单文件 bind mount 时改名会让容器继续读旧 inode；
+  # 现在 conf.d 是目录挂载，原地覆盖同样安全。
   cp "$temp" "$CADDYFILE"
   rm -f "$temp"
   if ! docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile >/dev/null; then
@@ -213,6 +218,15 @@ switch_caddy_upstream() {
     return 1
   fi
   docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile >/dev/null
+  # caddy reload 内部应用失败时会回滚到旧配置，但 CLI 退出码仍是 0 —— 不能只看退出码。
+  # 通过 admin API 确认目标 upstream 真的生效了。
+  if ! docker exec "$CADDY_CONTAINER" wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams \
+       | grep -q "$target:3000"; then
+    cp "$backup" "$CADDYFILE"
+    docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile >/dev/null || true
+    error "reload 后未在 Caddy 运行态配置里看到 $target:3000（reload 可能已静默回滚），已恢复旧配置"
+    return 1
+  fi
 }
 
 stop_legacy() {

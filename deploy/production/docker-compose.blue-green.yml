@@ -4,7 +4,10 @@
 x-backend-environment: &backend-environment
   NODE_ENV: production
   PORT: "3001"
-  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@longdao-postgres:5432/sep_prod
+  # 用 SEP 专属的低权角色，不要复用中转的超级用户：那个用户对中转的 sub2api 库
+  # 有完全控制权，SEP 侧一次写错库名的迁移就能删掉中转的生产数据。
+  # sep_app 是非超级用户，且已被撤销对 sub2api 库的 CONNECT 权限。
+  DATABASE_URL: postgresql://${SEP_DB_USER:?SEP_DB_USER is required}:${SEP_DB_PASSWORD:?SEP_DB_PASSWORD is required}@longdao-postgres:5432/sep_prod
   REDIS_URL: ${REDIS_URL:-redis://longdao-redis:6379/1}
   JWT_SECRET: ${JWT_SECRET}
   JWT_EXPIRE_DAYS: "7"
