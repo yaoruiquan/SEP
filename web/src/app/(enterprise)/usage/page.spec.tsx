@@ -104,22 +104,23 @@ describe('用量分析按角色显示维度', () => {
     expect(screen.getByText(/^近 30 天算力花费$/)).toBeInTheDocument();
   });
 
-  it('底部入口分角色：管理员去逐笔账单，成员去自己的额度', () => {
+  it('底部入口分角色：管理员去全公司的逐笔账单，成员去自己那张', () => {
     setRole('ENTERPRISE_ADMIN');
     const { unmount } = render(<UsagePage />);
     expect(
-      screen.getByRole('link', { name: /查看逐笔算力消费明细/ }),
+      screen.getByRole('link', { name: /^查看逐笔算力消费明细/ }),
     ).toHaveAttribute('href', '/compute-quota#usage-records');
     unmount();
 
     setRole('MEMBER');
     render(<UsagePage />);
-    // 成员点逐笔账单只会看到一屏 403，所以这条入口对他必须换成别的去处
+    /*
+      锚点必须是 `#my-usage-records` 而不是管理员那个 `#usage-records`：
+      成员视角根本不挂载管理员那张表（它的筛选栏要拉员工与成员列表，两个
+      接口对他都是 403），指过去会滚不到任何东西。
+    */
     expect(
-      screen.queryByRole('link', { name: /查看逐笔算力消费明细/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: /看公司给我的额度还剩多少/ }),
-    ).toHaveAttribute('href', '/compute-quota#my-compute');
+      screen.getByRole('link', { name: /查看我的逐笔算力消费明细/ }),
+    ).toHaveAttribute('href', '/compute-quota#my-usage-records');
   });
 });

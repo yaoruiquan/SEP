@@ -74,12 +74,16 @@ export class ComputeCreditController {
   }
 
   @Get("usage-records")
-  @ApiOperation({ summary: "算力用量账单（人民币金额 + Token 明细）" })
+  @ApiOperation({
+    summary: "算力用量账单（人民币金额 + Token 明细）",
+    description:
+      "管理员看全公司逐笔账单；普通成员看**自己**的那些行。" +
+      "成员的作用域由 JWT 推出并覆盖 memberId 参数，改地址栏翻不到同事的账。",
+  })
   @ApiResponse({
     status: 200,
     description: "分页返回每次模型调用的成本与扣费来源",
   })
-  @ApiResponse({ status: 403, description: "仅企业管理员可查看全公司逐笔账单" })
   async listUsage(
     @Request() req,
     @Query("page") page?: string,
@@ -90,17 +94,29 @@ export class ComputeCreditController {
     @Query("endDate") endDate?: string,
   ) {
     const ctx = await this.enterpriseContext.resolve(req.user.id);
-    // 逐笔账单会带出「谁、用哪个硅基员工、花了多少」——
-    // 这是全公司的账，成员只在「用量分析」里看自己那一份汇总。
-    this.enterpriseContext.assertEnterpriseAdmin(ctx);
-    return this.creditService.listUsageRecords(ctx.enterpriseId, {
-      page: page ? Number(page) : undefined,
-      pageSize: pageSize ? Number(pageSize) : undefined,
-      employeeId,
-      memberId,
-      startDate,
-      endDate,
-    });
+    /*
+      这里曾经是 `assertEnterpriseAdmin` —— 成员连自己花在哪都看不到，
+      只有一个「本月已用 ¥0.12」的汇总数字，问不出这 ¥0.12 是哪几次对话。
+      账其实一直都记着（ComputeUsageRecord 逐笔带 userId），只是没人给他看。
+
+      放开的是**范围**，不是权限：成员的 scopeUserId 由 JWT 推出，
+      在 service 里写在 where 的最后一位，覆盖 memberId 参数。
+      管理员照旧 undefined —— 他要的就是全公司。
+    */
+    const scopeUserId =
+      ctx.role === "ENTERPRISE_ADMIN" ? undefined : req.user.id;
+    return this.creditService.listUsageRecords(
+      ctx.enterpriseId,
+      {
+        page: page ? Number(page) : undefined,
+        pageSize: pageSize ? Number(pageSize) : undefined,
+        employeeId,
+        memberId,
+        startDate,
+        endDate,
+      },
+      scopeUserId,
+    );
   }
 
   @Get("usage-breakdown")

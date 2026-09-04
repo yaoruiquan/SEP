@@ -611,7 +611,11 @@ export class ComputeCreditService {
    * 用量账单明细。人民币金额是主口径，Token 作为明细同列展示。
    * 筛选在 SQL 层完成，避免「先分页再过滤」把 total 算错。
    */
-  async listUsageRecords(enterpriseId: string, query: UsageRecordQuery) {
+  async listUsageRecords(
+    enterpriseId: string,
+    query: UsageRecordQuery,
+    scopeUserId?: string,
+  ) {
     const page = Math.max(1, query.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
 
@@ -619,6 +623,15 @@ export class ComputeCreditService {
       enterpriseId,
       ...(query.employeeId && { employeeId: query.employeeId }),
       ...(query.memberId && { userId: query.memberId }),
+      /*
+        作用域，不是筛选项 —— 所以写在**最后**。
+
+        `scopeUserId` 由控制层从 JWT 推出（成员 = 他自己，管理员 = undefined），
+        写在 `query.memberId` 之后才能覆盖它：否则成员在地址栏加一个
+        `?memberId=<同事的 id>` 就能翻别人的逐笔账单。
+        换句话说，这一行的位置本身就是权限边界。
+      */
+      ...(scopeUserId && { userId: scopeUserId }),
     };
 
     if (query.startDate || query.endDate) {

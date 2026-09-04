@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  ArrowRight, Bot, Building2, Cpu, Gauge, Receipt, TrendingDown, TrendingUp, Users,
+  ArrowRight, Bot, Building2, Cpu, Receipt, TrendingDown, TrendingUp, Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -90,7 +90,8 @@ function DeltaBadge({ deltaPct }: { deltaPct: number | null }) {
  * 三处刻意不在这里：
  *   · 还剩多少算力、怎么分配给成员 → `/compute-quota`
  *   · 钱包余额与资金流水 → `/wallet`
- *   · 逐笔账单 → `/compute-quota#usage-records`（全站只有一处，管理员专属）
+ *   · 逐笔账单 → 「算力余额」页（管理员看全公司 `#usage-records`，
+ *     成员看自己 `#my-usage-records`）
  */
 export default function UsagePage() {
   const [range, setRange] = useState<UsageRange>(30);
@@ -233,29 +234,29 @@ export default function UsagePage() {
       )}
 
       {/*
-        底部入口两种角色去的是同一页的两块内容：
-          · 管理员 → 逐笔账单（全站只有一处，在算力余额页）
-          · 成员   → 他自己的额度与个人余额
+        这一页是**分布**，逐笔明细在「算力余额」页 —— 底部把两者接上。
+        两种角色去同一页的不同锚点：管理员是全公司那张表，成员是他自己那张。
 
-        成员不能给逐笔账单的入口：那张表读的接口后端对非管理员 403，
-        点过去只会看到一屏加载失败。
+        成员以前只能去 `#my-compute`（额度与个人余额）：逐笔账单那个接口
+        曾经对非管理员一律 403，点过去只有一屏加载失败。现在接口按 JWT
+        作用域返回他自己的行，这条入口才敢指向明细。
       */}
       <Link
-        href={isAdmin ? '/compute-quota#usage-records' : '/compute-quota#my-compute'}
+        href={
+          isAdmin
+            ? '/compute-quota#usage-records'
+            : '/compute-quota#my-usage-records'
+        }
         className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-          {isAdmin ? (
-            <Receipt className="h-4 w-4 text-fg-muted" />
-          ) : (
-            <Gauge className="h-4 w-4 text-emerald-600" />
-          )}
-          {isAdmin ? '查看逐笔算力消费明细' : '看公司给我的额度还剩多少'}
+          <Receipt className="h-4 w-4 text-fg-muted" />
+          {isAdmin ? '查看逐笔算力消费明细' : '查看我的逐笔算力消费明细'}
         </span>
         <span className="flex items-center gap-1 text-xs text-fg-muted">
           {isAdmin
             ? '在「算力余额」页，可按员工 / 成员 / 日期筛选并导出 CSV'
-            : '在「算力余额」页，含我的个人余额与额度重置时间'}
+            : '在「算力余额」页，每次调用一行，同页还有我的额度与个人余额'}
           <ArrowRight className="h-3.5 w-3.5" />
         </span>
       </Link>

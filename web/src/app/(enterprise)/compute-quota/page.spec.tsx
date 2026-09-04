@@ -6,9 +6,12 @@ import { useAuthStore } from '@/lib/auth-store';
 /**
  * 这一页对三种角色开放，但**渲染什么**必须分得干净：
  *
- *   · 企业池、成员额度分配、审计、逐笔账单 —— 这四块读的接口后端对非管理员
- *     一律 403。成员视角必须「不挂载」，而不是挂上再用 CSS 隐藏 ——
- *     否则他一进页面就是四个失败请求，控制台四条红字。
+ *   · 企业池、成员额度分配、审计 —— 这三块读的接口后端对非管理员一律 403。
+ *     成员视角必须「不挂载」，而不是挂上再用 CSS 隐藏 ——
+ *     否则他一进页面就是三个失败请求，控制台三条红字。
+ *   · 逐笔账单两种角色都有，但**是两个不同的组件**：管理员那张带筛选栏
+ *     （筛选栏要拉员工与成员列表，两个接口对成员都是 403），成员那张只有分页。
+ *     挂错一张的后果不是样式问题，是一进页面就失败。
  *   · 「我的算力」（公司给我的额度 + 我的个人余额）两种角色都要有 ——
  *     管理员同样是用的人，个人余额充值入口只在这一块里。
  *
@@ -24,13 +27,21 @@ vi.mock('./allowance-audit-panel', () => ({
   AllowanceAuditPanel: () => <div>桩·额度变更审计</div>,
 }));
 vi.mock('./usage-record-table', () => ({
-  UsageRecordTable: () => <div>桩·逐笔账单</div>,
+  UsageRecordTable: () => <div>桩·全公司逐笔账单</div>,
+}));
+vi.mock('./my-usage-records', () => ({
+  MyUsageRecords: () => <div>桩·我的逐笔账单</div>,
 }));
 vi.mock('@/features/compute/my-compute-panel', () => ({
   MyComputePanel: () => <div>桩·我的算力</div>,
 }));
 
-const ADMIN_ONLY = ['桩·企业算力池', '桩·成员额度分配', '桩·额度变更审计', '桩·逐笔账单'];
+const ADMIN_ONLY = [
+  '桩·企业算力池',
+  '桩·成员额度分配',
+  '桩·额度变更审计',
+  '桩·全公司逐笔账单',
+];
 
 const setRole = (roleInEnterprise: string | null) =>
   useAuthStore.setState({
@@ -60,13 +71,16 @@ describe('算力余额页按角色分叉', () => {
       expect(screen.getByText(stub)).toBeInTheDocument();
     }
     expect(screen.getByText('桩·我的算力')).toBeInTheDocument();
+    // 管理员那张表已经能筛出任何人，再挂一张「只有我」的重复且矛盾
+    expect(screen.queryByText('桩·我的逐笔账单')).not.toBeInTheDocument();
   });
 
-  it('❗普通成员：只有「我的算力」，企业那四块一块都不挂载', () => {
+  it('❗普通成员：我的算力 + 我自己的逐笔账单，企业那四块一块都不挂载', () => {
     setRole('MEMBER');
     render(<ComputeQuotaPage />);
 
     expect(screen.getByText('桩·我的算力')).toBeInTheDocument();
+    expect(screen.getByText('桩·我的逐笔账单')).toBeInTheDocument();
     for (const stub of ADMIN_ONLY) {
       expect(screen.queryByText(stub)).not.toBeInTheDocument();
     }
@@ -77,6 +91,7 @@ describe('算力余额页按角色分叉', () => {
     render(<ComputeQuotaPage />);
 
     expect(screen.getByText('桩·我的算力')).toBeInTheDocument();
+    expect(screen.getByText('桩·我的逐笔账单')).toBeInTheDocument();
     expect(screen.queryByText('桩·成员额度分配')).not.toBeInTheDocument();
   });
 
@@ -89,13 +104,19 @@ describe('算力余额页按角色分叉', () => {
     }
   });
 
-  it('成员的底部入口指向用量分析，不指向他看不了的逐笔账单', () => {
+  it('成员那块逐笔账单带 #my-usage-records 锚点 —— 用量分析页按它跳过来', () => {
+    setRole('MEMBER');
+    const { container } = render(<ComputeQuotaPage />);
+
+    expect(container.querySelector('#my-usage-records')).not.toBeNull();
+  });
+
+  it('成员的底部入口指向用量分析 —— 逐笔在本页，分布在那一页', () => {
     setRole('MEMBER');
     render(<ComputeQuotaPage />);
 
-    expect(screen.getByRole('link', { name: /看我这段时间花在哪/ })).toHaveAttribute(
-      'href',
-      '/usage',
-    );
+    expect(
+      screen.getByRole('link', { name: /看我这段时间的花费分布/ }),
+    ).toHaveAttribute('href', '/usage');
   });
 });

@@ -8,9 +8,9 @@ import { ComputeCreditController } from "./compute-credit.controller";
  *
  * 这一层不是 UI 细节：前端隐藏板块只是不画，地址栏和 curl 照样能打接口。
  * 这组测试锁三条 ——
- *   1. 企业余额 / 全部赠送额度 / 全公司逐笔账单，只有企业管理员能读
- *   2. 「用量分析」两种人都能进，但成员的作用域被后端钉死在自己身上，
- *      不接受任何 query 参数放宽（否则改个 id 就能看同事的账）
+ *   1. 企业余额 / 全部赠送额度，只有企业管理员能读
+ *   2. 「用量分析」和「逐笔账单」两种人都能进，但成员的作用域被后端钉死在
+ *      自己身上，不接受任何 query 参数放宽（否则改个 id 就能看同事的账）
  *   3. 成员自查（my-allowance）不能被顺手关掉 —— 那是他唯一的自助入口
  *
  * DEPT_MANAGER 按普通成员对待，与 EnterpriseContextService 的既定口径一致。
@@ -55,7 +55,7 @@ describe("ComputeCreditController 权限边界", () => {
     it.each<[string, EnterpriseRole]>([
       ["MEMBER", "MEMBER"],
       ["DEPT_MANAGER", "DEPT_MANAGER"],
-    ])("%s 读不到企业余额 / 全部赠送额度 / 全公司逐笔账单", async (_l, role) => {
+    ])("%s 读不到企业余额与全部赠送额度", async (_l, role) => {
       const { controller, creditService } = build(role);
 
       await expect(controller.getOverview(req)).rejects.toThrow(
@@ -64,14 +64,10 @@ describe("ComputeCreditController 权限边界", () => {
       await expect(controller.listCredits(req)).rejects.toThrow(
         ForbiddenException,
       );
-      await expect(controller.listUsage(req)).rejects.toThrow(
-        ForbiddenException,
-      );
 
       // 拦在查库之前 —— 抛错但已经把全公司的账捞出来了不算拦住
       expect(creditService.getOverview).not.toHaveBeenCalled();
       expect(creditService.listSubscriptionCredits).not.toHaveBeenCalled();
-      expect(creditService.listUsageRecords).not.toHaveBeenCalled();
     });
 
     it("企业管理员照常能读这三个接口", async () => {
@@ -89,7 +85,41 @@ describe("ComputeCreditController 权限边界", () => {
       expect(creditService.listUsageRecords).toHaveBeenCalledWith(
         "ent-1",
         expect.objectContaining({ page: 2, employeeId: "e-1", memberId: "u-9" }),
+        undefined,
       );
+    });
+  });
+
+  /**
+   * 逐笔账单的作用域。
+   *
+   * 成员现在能看这个接口了 —— 之前是 403，导致他只有一个「本月已用 ¥0.12」
+   * 的汇总数字，问不出这钱花在哪几次对话上。放开的是范围，不是权限：
+   * 第三个参数（scopeUserId）在 service 里写在 where 的最后一位，覆盖 memberId。
+   */
+  describe("逐笔账单的作用域", () => {
+    it.each<[string, EnterpriseRole]>([
+      ["MEMBER", "MEMBER"],
+      ["DEPT_MANAGER", "DEPT_MANAGER"],
+    ])("%s 能看自己的逐笔账单", async (_l, role) => {
+      const { controller, creditService } = build(role);
+
+      await controller.listUsage(req);
+
+      expect(creditService.listUsageRecords).toHaveBeenCalledWith(
+        "ent-1",
+        expect.any(Object),
+        "u-1",
+      );
+    });
+
+    it("❗成员传 memberId 也只能看自己 —— 改地址栏翻不到同事的账", async () => {
+      const { controller, creditService } = build("MEMBER");
+
+      await controller.listUsage(req, "1", "20", undefined, "u-9");
+
+      const [, , scopeUserId] = creditService.listUsageRecords.mock.calls[0];
+      expect(scopeUserId).toBe("u-1");
     });
   });
 
