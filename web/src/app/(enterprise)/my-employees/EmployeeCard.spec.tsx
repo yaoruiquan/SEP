@@ -80,6 +80,8 @@ describe('EmployeeCard', () => {
       usage: {
         activeUserCount30d: 3,
         grantedUserCount: 8,
+        grantedDepartmentCount: 1,
+        grantedMemberCount: 0,
         lastUsedAt: new Date(Date.now() - 86400_000).toISOString(),
         monthCostCNY: '12.40',
         monthCallCount: 27,
@@ -100,6 +102,8 @@ describe('EmployeeCard', () => {
       usage: {
         activeUserCount30d: 1,
         grantedUserCount: 1,
+        grantedDepartmentCount: 1,
+        grantedMemberCount: 0,
         lastUsedAt: new Date().toISOString(),
         monthCostCNY: '0.04',
         monthCallCount: 1,
@@ -118,6 +122,8 @@ describe('EmployeeCard', () => {
       usage: {
         activeUserCount30d: 1,
         grantedUserCount: 1,
+        grantedDepartmentCount: 1,
+        grantedMemberCount: 0,
         lastUsedAt: null,
         monthCostCNY: '0.00',
         monthCallCount: 0,

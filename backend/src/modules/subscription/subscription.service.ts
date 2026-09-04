@@ -14,6 +14,7 @@ import {
   SubscriptionStatusValue,
 } from 'shared';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { EmployeeUsageService } from '../enterprise/employee-usage.service';
 import { WalletService } from '../wallet/wallet.service';
 import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
@@ -38,6 +39,7 @@ export class SubscriptionService {
     private walletService: WalletService,
     private fulfillment: SubscriptionFulfillmentService,
     private credits: ComputeCreditService,
+    private usage: EmployeeUsageService,
   ) {}
 
   /**
@@ -165,12 +167,22 @@ export class SubscriptionService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // 使用情况与「我的硅基员工」同源（同一个 EmployeeUsageService）——
+    // 雇佣管理要回答的是「谁在用、谁白雇着」，那必须和员工卡片上的数字一致，
+    // 否则同一个员工在两页显示两个「在用人数」，没人知道该信哪个。
+    // 6 条查询覆盖整张列表，与行数无关。
+    const usageBySubscription = await this.usage.forSubscriptions(
+      ctx.enterpriseId,
+      rows.map((r) => ({ subscriptionId: r.id, employeeId: r.employee.id })),
+    );
+
     return rows.map((r) => ({
       ...r,
       // 未自定义称呼时回落到模板名，前端不必各自兜底
       name: r.name ?? r.employee.name,
       latestVersion: r.employee.version,
       upgradeAvailable: r.employee.version !== r.templateVersion,
+      usage: usageBySubscription.get(r.id),
       // 赠送余额扁平化到列表项：员工卡片要展示「剩余 ¥X.XX」，
       // 让前端各自从 credit 里算剩余，容易漏掉 EXPIRED 不可用这一层
       giftGrantedCNY: r.credit ? r.credit.grantedCNY.toFixed(2) : '0.00',

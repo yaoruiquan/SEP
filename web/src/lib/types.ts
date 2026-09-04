@@ -252,6 +252,14 @@ export interface Subscription {
   giftRemainingCNY: string;
   /** ACTIVE 可用 · EXHAUSTED 已用尽 · EXPIRED 订阅已终止 · NONE 无赠送记录 */
   giftStatus: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
+
+  /**
+   * 使用情况，与「我的硅基员工」同源（后端同一个 EmployeeUsageService）。
+   *
+   * 雇佣管理页靠它回答「谁在用、谁白雇着」—— 没有这组数，那一页只剩状态和
+   * 日期，看不出任何该处理的事。聚合失败或无数据时为 undefined。
+   */
+  usage?: MyEmployeeUsage;
 }
 
 export interface ConversationSession {
@@ -493,6 +501,14 @@ export interface MyEmployee {
 export interface MyEmployeeUsage {
   activeUserCount30d: number;
   grantedUserCount: number;
+  /**
+   * 授权是怎么给出去的：几个部门、几个人。
+   *
+   * 与 grantedUserCount 是两个问题 —— 那个答「覆盖到多少人」，这两个答
+   * 「这些人是怎么覆盖到的」。收回方式取决于后者（改部门授权 vs 删若干条）。
+   */
+  grantedDepartmentCount: number;
+  grantedMemberCount: number;
   /** 从未用过为 null —— 不要渲染成「1970」或「0 天前」 */
   lastUsedAt: string | null;
   /** 自然月 —— 与账单、算力余额页同口径，不要和上面的 30 天混着讲 */

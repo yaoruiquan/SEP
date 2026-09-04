@@ -14,7 +14,12 @@ import { DigitalEmployeeModule } from "../digital-employee/digital-employee.modu
  * 故声明为 @Global 避免在每个模块里重复 imports。
  *
  * 注意：@Global 只对 exports 生效（EnterpriseContextService、InvitationService、
- * MemberService），DepartmentService / GrantService 仅本模块内部使用。
+ * MemberService、EmployeeUsageService），DepartmentService / GrantService
+ * 仅本模块内部使用。
+ *
+ * EmployeeUsageService 需导出：雇佣管理列表（SubscriptionModule）与「我的硅基员工」
+ * （本模块）要展示同一组使用口径。复制一份聚合等于把「30 天窗口 / 自然月 / 租户边界」
+ * 这三处判断复制一遍，两页迟早对不上数。
  *
  * InvitationService 需导出：受邀注册在 AuthModule 里落地（要签发 token），
  * 但邀请校验的逻辑属于本模块。反向 import 会成环，靠 @Global + exports 解决。
@@ -39,6 +44,11 @@ import { DigitalEmployeeModule } from "../digital-employee/digital-employee.modu
     GrantService,
     EmployeeUsageService,
   ],
-  exports: [EnterpriseContextService, InvitationService, MemberService],
+  exports: [
+    EnterpriseContextService,
+    InvitationService,
+    MemberService,
+    EmployeeUsageService,
+  ],
 })
 export class EnterpriseModule {}

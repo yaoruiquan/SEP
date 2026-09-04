@@ -1020,6 +1020,15 @@ export interface MyEmployeeUsage {
   activeUserCount30d: number;
   /** 当前有效授权覆盖到的人数。部门授权已展开成人数，与直接授权去重。 */
   grantedUserCount: number;
+  /**
+   * 授权是怎么给出去的：几个部门、几个人。
+   *
+   * 光有 grantedUserCount 说不清「4 人」是点了 4 次还是授权了一个 4 人部门 ——
+   * 而这两种情况的收回方式完全不同（改部门授权 vs 删 4 条记录）。
+   * 数据来自同一批已查出的授权记录，不额外查库。
+   */
+  grantedDepartmentCount: number;
+  grantedMemberCount: number;
   /** 本企业最后一次调用时间。从未用过为 null —— 「没用过」不等于「很久没用」。 */
   lastUsedAt: string | null;
   /** 本自然月消费（元）。自然月而非滚动 30 天 —— 要能和账单、算力余额页对上。 */

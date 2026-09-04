@@ -23,6 +23,8 @@ const employee = (patch: Partial<MyEmployee> = {}): MyEmployee =>
 const usage = (patch: Partial<NonNullable<MyEmployee['usage']>> = {}) => ({
   activeUserCount30d: 0,
   grantedUserCount: 0,
+  grantedDepartmentCount: 0,
+  grantedMemberCount: 0,
   lastUsedAt: null,
   monthCostCNY: '0.00',
   monthCallCount: 0,

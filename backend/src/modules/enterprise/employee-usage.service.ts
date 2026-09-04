@@ -101,6 +101,16 @@ export class EmployeeUsageService {
       enterpriseId,
       grantRows,
     );
+    // 「授权给了几个部门 / 几个人」直接数已查出的授权记录，不再查库。
+    // 与 grantedUserCount 是两个问题：那个答「覆盖到多少人」，
+    // 这个答「这些人是怎么覆盖到的」—— 收回方式取决于后者。
+    const grantShape = new Map<string, { departments: number; members: number }>();
+    for (const row of grantRows) {
+      const shape = grantShape.get(row.subscriptionId) ?? { departments: 0, members: 0 };
+      if (row.departmentId) shape.departments += 1;
+      if (row.memberId) shape.members += 1;
+      grantShape.set(row.subscriptionId, shape);
+    }
 
     const activeUsers = new Map<string, Set<string>>();
     for (const row of activeRows) {
@@ -125,6 +135,8 @@ export class EmployeeUsageService {
       result.set(target.subscriptionId, {
         activeUserCount30d: activeUsers.get(target.employeeId)?.size ?? 0,
         grantedUserCount: grantedCounts.get(target.subscriptionId) ?? 0,
+        grantedDepartmentCount: grantShape.get(target.subscriptionId)?.departments ?? 0,
+        grantedMemberCount: grantShape.get(target.subscriptionId)?.members ?? 0,
         lastUsedAt:
           lastUsedByEmployee.get(target.employeeId)?.toISOString() ?? null,
         monthCostCNY: (month?._sum.costCNY ?? new Decimal(0)).toFixed(2),

@@ -72,7 +72,17 @@ describe('SubscriptionService', () => {
     // 用真实的履约服务：订阅创建/复活/授权的断言都落在它身上，
     // mock 掉就等于不测「订阅到底建成什么样」
     const fulfillment = new SubscriptionFulfillmentService(prisma, creditSvc);
-    svc = new SubscriptionService(prisma, ctxSvc, walletSvc, fulfillment, creditSvc);
+    // 使用情况聚合另有自己的测试（employee-usage 那边），这里只要它不影响列表主体，
+    // 所以给一个空 Map —— 真跑一遍会需要 5 张表的 mock，与本文件要守的边界无关
+    const usageSvc = { forSubscriptions: jest.fn().mockResolvedValue(new Map()) } as any;
+    svc = new SubscriptionService(
+      prisma,
+      ctxSvc,
+      walletSvc,
+      fulfillment,
+      creditSvc,
+      usageSvc,
+    );
   });
 
   describe('多租户隔离（越权路径）', () => {
