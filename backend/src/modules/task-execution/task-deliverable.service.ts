@@ -4,6 +4,8 @@ import { TASK_EVENT_TYPE, TASK_STEP_STATUS, type TaskRun, type TaskRunStep } fro
 import { DEFAULT_MODEL_ID } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TaskEventBus } from './task-event-bus';
+import { SettingService } from '../setting/setting.service';
+import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import { TaskEventRecorder } from './task-event-recorder';
 
 /** 单步产出送进汇总模型时的截断长度。太长会把上下文吃满且对成稿帮助有限。 */
@@ -23,6 +25,7 @@ export class TaskDeliverableService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly settings: SettingService,
     private readonly bus: TaskEventBus,
     private readonly events: TaskEventRecorder,
   ) {}
@@ -97,9 +100,8 @@ export class TaskDeliverableService {
   }
 
   private async summarize(run: TaskRun, steps: TaskRunStep[]): Promise<string> {
-    const baseURL = this.config.get<string>('SUB2API_BASE_URL', 'https://longdaoai.cn/v1');
-    const apiKey = this.config.get<string>('SUB2API_API_KEY');
-    if (!apiKey) throw new Error('SUB2API_API_KEY 未配置');
+    // 中转参数统一从系统设置取，不读 env（见 resolveSub2ApiProviderConfig）
+    const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
 
     const modelId = this.config.get<string>(
       'SUB2API_PLANNER_MODEL',

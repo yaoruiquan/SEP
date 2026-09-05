@@ -7,6 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { SettingService } from '../setting/setting.service';
+import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { DEFAULT_MODEL_ID } from 'shared';
 import {
@@ -35,6 +37,7 @@ export class TaskPlanningService {
     private readonly subscriptions: SubscriptionService,
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly config: ConfigService,
+    private readonly settings: SettingService,
   ) {}
 
   async preview(userId: string, dto: TaskPlanPreviewDto) {
@@ -101,6 +104,7 @@ export class TaskPlanningService {
     }
 
     const plannerOutput: PlannerOutput = await this.generatePlan(dto.objective, candidates);
+    const plannerModel = await this.resolvePlannerModel();
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const stepIds = plannerOutput.steps.map((_, index) => `step-${index + 1}`);
     const steps = plannerOutput.steps.flatMap((step, index) => {
@@ -141,20 +145,26 @@ export class TaskPlanningService {
       createdAt: new Date().toISOString(),
       planner: {
         type: 'llm',
-        model: this.config.get<string>('SUB2API_PLANNER_MODEL', this.config.get<string>('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID)),
+        model: plannerModel,
       },
     };
   }
 
-  private async generatePlan(objective: string, candidates: CandidateEmployee[]): Promise<PlannerOutput> {
-    const baseURL = this.config.get<string>('SUB2API_BASE_URL', 'https://longdaoai.cn/v1');
-    const apiKey = this.config.get<string>('SUB2API_API_KEY');
-    if (!apiKey) throw new BadGatewayException('任务规划模型未配置，请联系管理员');
+  /** 规划器实际使用的模型。与 generatePlan 内部保持同一解析口径。 */
+  private async resolvePlannerModel(): Promise<string> {
+    const { defaultModel } = await resolveSub2ApiProviderConfig(this.settings);
+    return this.config.get<string>('SUB2API_PLANNER_MODEL') || defaultModel;
+  }
 
-    const modelId = this.config.get<string>(
-      'SUB2API_PLANNER_MODEL',
-      this.config.get<string>('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID),
+  private async generatePlan(objective: string, candidates: CandidateEmployee[]): Promise<PlannerOutput> {
+    // 走系统设置而不是 env —— 这里原来直接读 ConfigService，而线上 env 里的
+    // SUB2API_API_KEY 已失效、SystemSetting 里的是有效的，于是「对话正常、
+    // 任务规划报 relay 401」，同一台机器两个功能两种结果。见该函数的注释。
+    const { baseURL, apiKey, defaultModel } = await resolveSub2ApiProviderConfig(
+      this.settings,
     );
+    // 规划器可以单独指定模型（只有 env 这一个口子，没有对应的系统设置项）
+    const modelId = this.config.get<string>('SUB2API_PLANNER_MODEL') || defaultModel;
     const catalog = JSON.stringify(candidates, null, 2);
 
     try {

@@ -12,6 +12,8 @@ import { DEFAULT_MODEL_ID } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
+import { SettingService } from '../setting/setting.service';
+import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import {
   InsightOutputSchema,
   type AdoptInsightDto,
@@ -33,6 +35,7 @@ export class CapabilityInsightService {
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly skillVersions: SkillVersionService,
     private readonly config: ConfigService,
+    private readonly settings: SettingService,
   ) {}
 
   /**
@@ -238,8 +241,8 @@ export class CapabilityInsightService {
     personalVersions: Array<{ owner: string; changeSummary: string | null; content: string }>;
     modelId: string;
   }): Promise<InsightOutput> {
-    const baseURL = this.config.get<string>('SUB2API_BASE_URL', 'https://longdaoai.cn/v1');
-    const apiKey = this.config.get<string>('SUB2API_API_KEY');
+    // 中转参数统一从系统设置取，不读 env（见 resolveSub2ApiProviderConfig）
+    const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
     if (!apiKey) throw new BadGatewayException('分析模型未配置，请联系管理员');
 
     const material = [

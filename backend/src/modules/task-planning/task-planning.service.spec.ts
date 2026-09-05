@@ -15,14 +15,25 @@ describe('TaskPlanningService', () => {
     }),
   };
   const config = { get: jest.fn((key: string, fallback?: string) => {
-    if (key === 'SUB2API_API_KEY') return 'test-key';
+    // SUB2API_PLANNER_MODEL 之外的键都由系统设置回答了，这里只留规划器覆盖口
     return fallback;
   }) };
+  // 中转参数统一从系统设置取（见 resolveSub2ApiProviderConfig 的注释：
+  // 读 env 会与运营在管理端改的值不同步，线上因此出过 401）
+  const settings = {
+    getEffectiveValue: jest.fn(async (key: string) => {
+      if (key === 'SUB2API_BASE_URL') return 'https://relay.test/v1';
+      if (key === 'SUB2API_API_KEY') return 'test-key';
+      if (key === 'SUB2API_DEFAULT_MODEL') return 'gemini-3.5-flash-high';
+      return null;
+    }),
+  };
   const service = new TaskPlanningService(
     prisma as never,
     subscriptions as never,
     enterpriseContext as never,
     config as never,
+    settings as never,
   );
 
   const validPlan = {
@@ -81,9 +92,14 @@ describe('TaskPlanningService', () => {
   it('generates a validated LLM plan without executing any employee', async () => {
     const plan = await service.preview('user-1', { objective: '分析销售数据并生成报告' });
 
+    // 地址与密钥都来自系统设置，不是 env —— 这条断言同时守住「规划器和对话
+    // 用同一套中转参数」，线上曾因为规划器读 env 而独自报 401
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://longdaoai.cn/v1/chat/completions',
-      expect.objectContaining({ method: 'POST' }),
+      'https://relay.test/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-key' }),
+      }),
     );
     expect(plan.status).toBe('awaiting_confirmation');
     expect(plan.planner.type).toBe('llm');
