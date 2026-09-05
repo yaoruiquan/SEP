@@ -28,6 +28,14 @@ export interface SyncResult {
   staled: number; // 上游已消失，标记为失效
 }
 
+/**
+ * 模型可用性测试的等待上限。
+ *
+ * 判定的是「首个流式片段能不能到」，不是「答完要多久」，所以不必给很长 ——
+ * 卡住的模型是一个字节都不给，20 秒足以区分「慢」和「死」。
+ */
+const TEST_TIMEOUT_MS = 20_000;
+
 @Injectable()
 export class ModelService {
   private readonly logger = new Logger(ModelService.name);
@@ -260,15 +268,18 @@ export class ModelService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
+        // 必须用 stream: true 测。对话链路（streamText）永远是流式的，而中转对
+        // 「非流式能回、流式一个字节都不回」的模型是真实存在的：2026-09-05 实测
+        // 14 个上游模型有 6 个如此，其中 gemini-3.5-flash 还是某企业的默认会话模型。
+        // 用非流式测出来的「可用」是假绿灯 —— 管理员据此启用，用户那边永远「正在输入」。
         body: JSON.stringify({
           model: model.modelId,
           messages: [{ role: 'user', content: '你好，请回复一个字：好' }],
           max_tokens: 10,
+          stream: true,
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
       });
-
-      const latency = Date.now() - startTime;
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -278,21 +289,88 @@ export class ModelService {
         );
       }
 
-      const json = await res.json();
-      const content = json.choices?.[0]?.message?.content || '';
+      const stream = await this.readFirstStreamDelta(res);
+      const latency = Date.now() - startTime;
+
+      if (!stream.receivedAnyByte) {
+        throw new ServiceUnavailableException(
+          `模型测试失败：上游接受了请求但 ${Math.round(TEST_TIMEOUT_MS / 1000)} 秒内没有返回任何流式数据。` +
+            '该模型不能用于对话（对话链路只走流式）。',
+        );
+      }
+      if (!stream.text) {
+        throw new ServiceUnavailableException(
+          `模型测试失败：上游返回了流但没有任何文本内容${stream.raw ? `（原始片段：${stream.raw.slice(0, 160)}）` : ''}。`,
+        );
+      }
 
       return {
         success: true,
         modelId: model.modelId,
         latency,
-        response: content,
-        message: `测试成功，响应延迟 ${latency}ms`,
+        response: stream.text,
+        message: `流式测试成功，首字延迟 ${latency}ms`,
       };
     } catch (err) {
       this.logger.error(`Model test error for ${model.modelId}`, err);
+      // fetch 的 AbortSignal.timeout 抛的是 "The operation was aborted due to
+      // timeout"，对运营毫无信息量 —— 他要判断的是「这个模型能不能启用」。
+      // 上游连响应头都不给的情况实测存在（gemini-3.5-flash 就是），必须说清。
+      const raw = (err as Error).message ?? '';
+      const timedOut =
+        (err as Error).name === 'TimeoutError' || raw.includes('aborted');
       throw new ServiceUnavailableException(
-        `模型测试失败：${(err as Error).message}`,
+        timedOut
+          ? `模型测试失败：${Math.round(TEST_TIMEOUT_MS / 1000)} 秒内上游没有返回任何流式数据。` +
+            '该模型不能用于对话（对话链路只走流式），不要启用它。'
+          : `模型测试失败：${raw}`,
       );
     }
+  }
+
+  /**
+   * 读 SSE 响应，拿到第一段有内容的 delta 就返回。
+   *
+   * 只读开头、不读完整回复：测试要回答的是「这个模型能不能开始流」，
+   * 读完整段既慢又白花上游的钱。
+   */
+  private async readFirstStreamDelta(res: Response): Promise<{
+    receivedAnyByte: boolean;
+    text: string;
+    raw: string;
+  }> {
+    const body = res.body;
+    if (!body) return { receivedAnyByte: false, text: '', raw: '' };
+
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let raw = '';
+    let text = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+        for (const line of raw.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(payload) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+            };
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) text += delta;
+          } catch {
+            // 半截 JSON：下一个 chunk 拼上再解析
+          }
+        }
+        if (text) break;
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    return { receivedAnyByte: raw.length > 0, text, raw };
   }
 }

@@ -40,6 +40,21 @@ import {
 export class ConversationStreamService {
   private readonly logger = new Logger(ConversationStreamService.name);
 
+  /**
+   * 上游一个字节都不回时，等多久放弃。
+   *
+   * 实测中转（sub2api）对部分模型 `stream: true` 永远不返回任何数据 ——
+   * 2026-09-05 逐个探测 14 个模型，6 个如此，其中 `gemini-3.5-flash` 恰好是
+   * 某企业的默认会话模型。而 `for await (result.fullStream)` 会一直等，
+   * 于是 SSE 连接不关、前端「正在输入」永不结束、也永远不报错。
+   *
+   * 是**空闲**超时而不是总时长上限：长回答本来就该慢，不能因为写得久被砍断；
+   * 每收到一个 chunk 就重新计时。用 env 覆盖便于排障时调短。
+   */
+  private readonly streamIdleTimeoutMs = Number(
+    process.env.SUB2API_STREAM_IDLE_TIMEOUT_MS ?? 45_000,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly capabilityService: CapabilityService,
@@ -336,6 +351,20 @@ export class ConversationStreamService {
           `[Stream Step] step=${stepCount}, messages=${messages.length}`,
         );
 
+        // 上游卡死时必须有人叫停，见 streamIdleTimeoutMs 的说明。
+        // 控制器按「步」创建：一次工具循环里的每一段流各自计时。
+        const abort = new AbortController();
+        let idleTimer: ReturnType<typeof setTimeout> | undefined;
+        let idleTimedOut = false;
+        const bumpIdle = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            idleTimedOut = true;
+            abort.abort();
+          }, this.streamIdleTimeoutMs);
+        };
+        bumpIdle();
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
           model: provider(modelId),
@@ -343,6 +372,7 @@ export class ConversationStreamService {
           instructions: this.buildSystemPrompt(employee.systemPrompt, knowledgeContext),
           messages: messages as Parameters<typeof streamText>[0]["messages"],
           tools: hasTools ? tools : undefined,
+          abortSignal: abort.signal,
         });
 
         this.logger.debug(`[Stream Result Created] session=${sessionId}`);
@@ -359,6 +389,8 @@ export class ConversationStreamService {
           // Cast to any: AI SDK v7 stream chunk property names are unstable across patch versions
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           for await (const rawChunk of result.fullStream) {
+            // 有动静就重新计时 —— 判定的是「卡住了」，不是「写得久」
+            bumpIdle();
             const chunk = rawChunk as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             switch (chunk.type) {
               case "text-delta": {
@@ -409,12 +441,21 @@ export class ConversationStreamService {
             `Stream consumption error for session ${sessionId}:`,
             streamError,
           );
+          // 空闲超时要说清是「上游没回」而不是含糊的 aborted：
+          // AI SDK 把 abort 包装成 AbortError，原话对用户毫无信息量，
+          // 而这条消息决定了用户下一步该找谁（换模型 / 找运维看中转）。
+          const timedOutSeconds = Math.round(this.streamIdleTimeoutMs / 1000);
           yield {
             event: "error",
-            data: {
-              message: `AI 回复生成失败: ${(streamError as Error).message}`,
-              code: "STREAM_CONSUMPTION_ERROR",
-            },
+            data: idleTimedOut
+              ? {
+                  message: `模型 ${modelId} 超过 ${timedOutSeconds} 秒没有返回任何内容，可能是中转未提供该模型的流式响应。请换一个模型或联系管理员。`,
+                  code: "MODEL_STREAM_TIMEOUT",
+                }
+              : {
+                  message: `AI 回复生成失败: ${(streamError as Error).message}`,
+                  code: "STREAM_CONSUMPTION_ERROR",
+                },
           };
           // 保存错误消息到数据库
           await this.prisma.message.create({
@@ -426,6 +467,36 @@ export class ConversationStreamService {
             },
           });
           break; // 中断循环
+        } finally {
+          // 正常走完也要清，否则悬着的定时器会把事件循环拖住
+          if (idleTimer) clearTimeout(idleTimer);
+        }
+
+        // 中止时 AI SDK 让 fullStream **静默结束**，真正的 reject 发生在下面
+        // `await result.finishReason` 上 —— 那个异常跑到生成器外面，被控制器的
+        // catch 兜成一句 "This operation was aborted"，既没有 code 也没有出路。
+        // 所以在这里就地判定：只有本轮真的空闲超时了才走这一支。
+        if (idleTimedOut) {
+          const timedOutSeconds = Math.round(this.streamIdleTimeoutMs / 1000);
+          this.logger.error(
+            `Upstream model ${modelId} sent nothing for ${timedOutSeconds}s (session ${sessionId})`,
+          );
+          yield {
+            event: "error",
+            data: {
+              message: `模型 ${modelId} 超过 ${timedOutSeconds} 秒没有返回任何内容，可能是中转未提供该模型的流式响应。请在右上角换一个模型，或联系管理员检查中转。`,
+              code: "MODEL_STREAM_TIMEOUT",
+            },
+          };
+          await this.prisma.message.create({
+            data: {
+              sessionId,
+              role: "ASSISTANT",
+              content: `❌ 模型 ${modelId} 无响应（等待 ${timedOutSeconds} 秒），本轮未产生回复`,
+              metadata: handledByMetadata,
+            },
+          });
+          break;
         }
 
         [finishReason, usage] = await Promise.all([

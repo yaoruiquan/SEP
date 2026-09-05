@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { EmptyState } from '@/components/ui/feedback';
+import { toast } from '@/components/ui/toast';
+import { ApiError } from '@/lib/api-client';
 import { SessionList } from '@/features/chat/session-list';
 import { ChatWindow } from '@/features/chat/chat-window';
 import { NewSessionDialog } from '@/features/chat/new-session-dialog';
@@ -46,6 +48,18 @@ export default function ChatPage() {
           setActiveId(conv.id);
           setPickerOpen(false);
         },
+        /*
+          没有这个分支时，创建失败的表现是「点了开始对话，什么都不发生」——
+          弹窗不关、没有提示、按钮的 loading 转一下就恢复。而后端在这条路上有三种
+          明确的拒绝理由（员工不存在 / 无有效雇佣 / 算力与个人余额都见底），
+          全被吞掉了。线上就是这么表现的：按钮像坏了，其实后端每次都回了原因。
+        */
+        onError: (error) =>
+          toast.error(
+            error instanceof ApiError || error instanceof Error
+              ? error.message
+              : '创建会话失败，请稍后重试',
+          ),
       },
     );
   };
@@ -87,7 +101,7 @@ export default function ChatPage() {
             <EmptyState
               icon={<MessageSquare className="h-8 w-8" />}
               title="选择或新建一个会话"
-              description="从左侧选择已有会话，或点击新建会话挑选一位碳基员工开始对话。"
+              description="从左侧选择已有会话，或点击新建会话挑选一位硅基员工开始对话。"
             />
           </div>
         )}

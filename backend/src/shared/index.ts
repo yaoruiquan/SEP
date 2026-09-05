@@ -2,48 +2,35 @@ import { z } from "zod";
 export * from './task.dto';
 
 // ============================================================================
-// Model Catalog (sub2api 上游可用模型)
+// Model Catalog —— 已删除（2026-09-05）
 // ----------------------------------------------------------------------------
-// 所有 ID 均已通过 GET /v1/models 在 sub2api 确认可用。
-// 切勿随手填写未验证的 ID（例如 deepseek-chat 在上游不存在，会 model_not_found）。
-// 完整调研见 docs/research/sub2api用量追踪与计费对接调研.md
-// 前端镜像见 web/src/lib/models.ts —— 两处需保持同步。
+// 这里原来有一份硬编码的 MODEL_CATALOG 和 isKnownModelId()。删掉的理由：
+//
+//  1. **没有任何代码读它**（全仓 grep 只有定义处），却让人以为它是模型白名单；
+//  2. **内容已经是错的**：里面列着 gpt-4o / gpt-4o-mini / claude-sonnet-5 等，
+//     而中转（sub2api）2026-09-05 实测只提供 gemini-* 一族，那些 ID 一律
+//     404 model_not_found。一份没人读、又与上游不符的清单只会误导下一个人。
+//
+// 真正的白名单是 `platform_models` 表：`ModelService.syncFromUpstream()` 从
+// GET /v1/models 拉全量、新模型默认 enabled=false、上游消失的标 isStale。
+// 「这个模型能不能用」由 `POST /models/:id/test` 回答（按**流式**测，见该方法）。
+// 价格仍在下方 MODEL_PRICING，未配价的走 FALLBACK_PRICING 保底。
 // ============================================================================
-
-export interface ModelCatalogEntry {
-  id: string;
-  label: string;
-  provider: string;
-}
-
-export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek" },
-  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek" },
-  {
-    id: "gemini-3.5-flash-high",
-    label: "Gemini 3.5 Flash High",
-    provider: "google",
-  },
-  { id: "gpt-4o", label: "GPT-4o", provider: "openai" },
-  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
-  { id: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic" },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "anthropic" },
-] as const;
 
 /**
  * 系统默认模型（与 .env 的 SUB2API_DEFAULT_MODEL 保持一致）。
  *
- * 必须选支持 function calling 的模型 —— 员工未指定 modelId 时会落到这里，
- * 若默认模型不支持 tools，所有绑定了能力的员工都会因上游返回
- * 400 Invalid request 而对话失败。已实测：deepseek 系不支持 tools，
- * gemini / claude 系支持。
+ * 两个硬约束，都踩过：
+ *  1. **必须支持 function calling** —— 员工未指定 modelId 时会落到这里，
+ *     默认模型不支持 tools 的话，所有绑定了能力的员工都会因上游 400 而失败。
+ *     实测 deepseek 系不支持，gemini 系支持。
+ *  2. **必须支持流式** —— 对话链路只走 streamText。中转存在「非流式能回、
+ *     流式一个字节都不回」的模型（2026-09-05 实测 14 个里 6 个如此，
+ *     `gemini-3.5-flash` 就是其中一个），选到那种模型的表现是前端
+ *     「正在输入」永不结束。换默认值前先用 `POST /models/:id/test` 验一遍，
+ *     那个接口现在就是按流式测的。
  */
 export const DEFAULT_MODEL_ID = "gemini-3.5-flash-high";
-
-/** 校验模型 ID 是否在目录内。 */
-export function isKnownModelId(id: string): boolean {
-  return MODEL_CATALOG.some((m) => m.id === id);
-}
 
 // ============================================================================
 // System Settings (可在管理端配置的运行时设置)
@@ -1262,13 +1249,35 @@ export interface ModelPricing {
 }
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
-  "deepseek-v4-flash": { inputPrice: 0.14, outputPrice: 0.55 },
-  "deepseek-v4-pro": { inputPrice: 2.19, outputPrice: 8.77 },
+  // ── 中转（sub2api）实际提供的模型。2026-09-05 用 GET /v1/models 核过：
+  //    上游只有 gemini-* 一族，任何 gpt-* / claude-* 都会 404 model_not_found。
+  //    价格按 flash / flash-lite / pro 三档定，同档不同后缀（-low/-high/-extra-low）
+  //    只是推理预算档位，单价相同。
+  "gemini-2.5-flash": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.5-flash": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.5-flash-low": { inputPrice: 0.15, outputPrice: 0.6 },
   "gemini-3.5-flash-high": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.5-flash-extra-low": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.5-flash-lite": { inputPrice: 0.075, outputPrice: 0.3 },
+  "gemini-3.6-flash": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.7-flash": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.8-flash": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.1-flash-image": { inputPrice: 0.15, outputPrice: 0.6 },
+  "gemini-3.1-flash-lite-preview": { inputPrice: 0.075, outputPrice: 0.3 },
+  "gemini-3-pro-preview": { inputPrice: 1.25, outputPrice: 10.0 },
+  "gemini-3.1-pro-preview": { inputPrice: 1.25, outputPrice: 10.0 },
+  "gemini-3.1-pro-preview-low": { inputPrice: 1.25, outputPrice: 10.0 },
+  // ── 上游已不提供，但**历史账单里还有这些 modelId**（实测本地库：gpt-4o-mini
+  //    106 条、gpt-4o 41 条、claude-3-5-sonnet 14 条），价格必须留着：
+  //    删掉会让老记录在任何重算路径上掉到保底价，与已入账金额对不上；
+  //    而且 FALLBACK_PRICING 取的是本表最高价，删掉最贵的那几档等于悄悄
+  //    调低了「未配价模型」的保底单价 —— 那正是用来堵免费对话漏洞的。
   "gpt-4o": { inputPrice: 2.5, outputPrice: 10.0 },
   "gpt-4o-mini": { inputPrice: 0.15, outputPrice: 0.6 },
   "claude-sonnet-5": { inputPrice: 3.0, outputPrice: 15.0 },
   "claude-haiku-4-5": { inputPrice: 0.8, outputPrice: 4.0 },
+  "deepseek-v4-flash": { inputPrice: 0.14, outputPrice: 0.55 },
+  "deepseek-v4-pro": { inputPrice: 2.19, outputPrice: 8.77 },
 };
 
 /** 解析汇率配置值，非法输入回退默认值（避免把 NaN 写进账单）。 */

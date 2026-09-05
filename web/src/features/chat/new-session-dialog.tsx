@@ -42,7 +42,9 @@ export function NewSessionDialog({
       />
       <div className="relative z-10 w-full max-w-md overflow-hidden rounded-xl border border-border bg-white shadow-md">
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-          <h3 className="text-base font-semibold text-foreground">选择碳基员工</h3>
+          {/* 列表里是硅基员工（数字员工模板），不是碳基员工（真人成员）。
+              原文案把两者说反了，而这两个词在本产品里是核心区分。 */}
+          <h3 className="text-base font-semibold text-foreground">选择硅基员工</h3>
           <button
             type="button"
             onClick={() => !creating && onClose()}
@@ -55,14 +57,14 @@ export function NewSessionDialog({
 
         <div className="max-h-[50vh] overflow-y-auto p-3 scroll-thin">
           {isLoading ? (
-            <CenteredSpinner label="加载订阅…" />
+            <CenteredSpinner label="加载雇佣关系…" />
           ) : subs.length === 0 ? (
             <EmptyState
-              title="你还没有订阅任何员工"
-              description="先去员工广场订阅一位碳基员工吧。"
+              title="你还没有可对话的硅基员工"
+              description="先去硅基人才市场雇佣一位硅基员工，再回来开始对话。"
               action={
                 <Link href="/marketplace">
-                  <Button size="sm">前往员工广场</Button>
+                  <Button size="sm">前往硅基人才市场</Button>
                 </Link>
               }
             />

@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2, PlusCircle, SlidersHorizontal, Users } from 'lucide-react';
+import { AlertTriangle, Loader2, PlusCircle, SlidersHorizontal, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   formatCny,
@@ -159,7 +159,7 @@ function MemberRow({ member }: { member: MemberAllowanceItem }) {
  * 「他为什么这个月只花了 ¥200 就被改道」。
  */
 export function MemberAllowancePanel() {
-  const { data: members, isLoading } = useMemberAllowances();
+  const { data: members, isLoading, isError, error, refetch } = useMemberAllowances();
 
   const list = members ?? [];
   const allocated = list.filter((m) => m.limitCNY !== null).length;
@@ -184,6 +184,25 @@ export function MemberAllowancePanel() {
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-fg-muted" />
+          </div>
+        ) : isError ? (
+          /*
+            请求失败必须和「这家企业没有成员」分开说。
+            以前两者都落到下面那个空态，于是接口 500/403 时界面照样写着
+            「还没有碳基员工」—— 一个明确的、错误的结论。线上真出过这个：
+            成员管理页有 5 个人，这里说没有人，因为两处读的是同一张表，
+            列表为空在数据上不可能发生，只可能是这个请求挂了。
+          */
+          <div className="py-10 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-500 opacity-70" />
+            <p className="font-medium text-foreground">额度列表加载失败</p>
+            <p className="mx-auto mt-1 max-w-md text-sm text-fg-muted">
+              这不代表企业里没有成员 —— 成员名单请看「碳基员工」页。
+              {error instanceof Error && error.message ? `失败原因：${error.message}` : ''}
+            </p>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => void refetch()}>
+              重试
+            </Button>
           </div>
         ) : list.length === 0 ? (
           <div className="py-12 text-center text-fg-muted">

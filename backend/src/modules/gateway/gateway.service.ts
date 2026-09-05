@@ -2,7 +2,7 @@ import { Injectable, ForbiddenException, Logger, BadRequestException } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
-import { SETTING_KEYS, calculateModelCost } from 'shared';
+import { DEFAULT_MODEL_ID, SETTING_KEYS, calculateModelCost } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
 
 const DEFAULT_USD_RATE = 7.2;
@@ -89,9 +89,12 @@ export class GatewayService {
       'https://longdaoai.cn/v1';
     const apiKey =
       (await this.settingService.getEffectiveValue(SETTING_KEYS.SUB2API_API_KEY)) || '';
+    // 兜底值必须与 DEFAULT_MODEL_ID 一致。这里原来写死 'gpt-3.5-turbo'，
+    // 而中转早就不提供任何 gpt-* 模型（实测 /v1/models 只有 gemini-*），
+    // 系统设置一旦为空，客户端网关就会拿一个必然 404 的模型去请求。
     const defaultModel =
       (await this.settingService.getEffectiveValue(SETTING_KEYS.SUB2API_DEFAULT_MODEL)) ||
-      'gpt-3.5-turbo';
+      DEFAULT_MODEL_ID;
 
     if (!apiKey) {
       throw new BadRequestException('sub2api API Key 未配置');

@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -71,6 +76,7 @@ export class EnterpriseModelConfigService {
     this.ctx.assertEnterpriseAdmin(context);
 
     await this.get(userId);
+    await this.assertSelectableModels(dto);
 
     const updated = await this.prisma.enterpriseModelConfig.update({
       where: { enterpriseId: context.enterpriseId },
@@ -90,6 +96,46 @@ export class EnterpriseModelConfigService {
     });
 
     return this.serializeConfig(updated);
+  }
+
+  /**
+   * 把「默认模型 / 白名单」限制在平台已启用且上游仍在的模型内。
+   *
+   * 不校验的代价是真实的：某企业的 defaultChatModel 曾被设成 `gemini-3.5-flash`，
+   * 而中转对它的流式请求一个字节都不回 —— 该企业每次对话都停在「正在输入」，
+   * 而配置页看不出任何异常。写入时挡住，比事后从日志里刨要便宜得多。
+   *
+   * 只校验「是不是平台启用的模型」这一层：具体能不能跑由
+   * `POST /models/:id/test`（按流式测）回答，那是运营启用模型时的关卡。
+   */
+  private async assertSelectableModels(dto: UpdateEnterpriseModelConfigDto) {
+    const wanted = [
+      dto.defaultChatModel,
+      dto.employeeDefaultModel,
+      ...(dto.allowedChatModels ?? []),
+    ].filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (wanted.length === 0) return;
+
+    const rows = await this.prisma.platformModel.findMany({
+      where: { modelId: { in: [...new Set(wanted)] } },
+      select: { modelId: true, enabled: true, isStale: true },
+    });
+    const byId = new Map(rows.map((r) => [r.modelId, r]));
+
+    for (const id of new Set(wanted)) {
+      const row = byId.get(id);
+      if (!row) {
+        throw new BadRequestException(
+          `模型 ${id} 不在平台模型库中。请先在运营端「系统设置 → 模型管理」同步上游并启用。`,
+        );
+      }
+      if (row.isStale) {
+        throw new BadRequestException(`模型 ${id} 已从上游下架，不能再选用。`);
+      }
+      if (!row.enabled) {
+        throw new BadRequestException(`模型 ${id} 未被平台启用，请联系平台运营。`);
+      }
+    }
   }
 
   async getAvailableModels(userId: string): Promise<AvailableModel[]> {
