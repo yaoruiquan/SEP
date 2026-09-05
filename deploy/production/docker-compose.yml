@@ -55,8 +55,19 @@ services:
       - JWT_EXPIRE_DAYS=7
 
       # sub2api（已在 longdao-network 运行）
-      - SUB2API_BASE_URL=http://longdao-sub2api-blue:8080/v1
+      #
+      # ⚠️ 容器名写死成 -blue 是个隐患：中转若切到 green 或改名，这里会连不上，
+      # 表现是「工作安排」报「任务规划模型暂时不可用」、对话无响应 —— 而其他页面
+      # 完全正常，很难联想到中转。故做成可覆盖，默认仍是 blue。
+      - SUB2API_BASE_URL=${SUB2API_BASE_URL:-http://longdao-sub2api-blue:8080/v1}
       - SUB2API_API_KEY=${SUB2API_API_KEY}
+      # 必须显式钉住模型：不传时后端回落到代码常量 DEFAULT_MODEL_ID，
+      # 换个默认值就要重新构建镜像才能改。中转实际提供哪些模型用
+      # `curl -H "Authorization: Bearer $KEY" <base>/models` 确认，
+      # 实测只有 gemini-* 系列，任何 gpt-* / claude-* 都会 404 model_not_found。
+      - SUB2API_DEFAULT_MODEL=${SUB2API_DEFAULT_MODEL:-gemini-3.5-flash-high}
+      # 任务编排规划器可单独指定（不设则跟随 SUB2API_DEFAULT_MODEL）
+      - SUB2API_PLANNER_MODEL=${SUB2API_PLANNER_MODEL:-}
 
       # 知识库 Embedding：使用独立 Ollama 服务，禁止回退到容器内 localhost
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
