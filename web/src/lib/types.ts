@@ -547,9 +547,8 @@ export interface UpdateEnterpriseModelConfigDto {
   rerankModel?: string | null;
   employeeModelPolicy?: EmployeeModelPolicy;
   employeeDefaultModel?: string | null;
-  monthlyBudgetCNY?: number | null;
-  alertThreshold?: number;
-  hardStopOnBudget?: boolean;
+  /** 编排与分析模型。null = 跟随平台默认 */
+  plannerModel?: string | null;
 }
 
 export interface DepartmentModelPolicyDto {
@@ -573,8 +572,6 @@ export interface EffectiveModelConfig {
   rerankModel: string | null;
   embeddingBatchSize: number;
   embeddingTimeoutMs: number;
-  /** 本月是否已超预算（事实判断，与是否硬性阻断无关） */
-  budgetExceeded: boolean;
   source: EffectiveModelSource;
 }
 

@@ -28,12 +28,15 @@ describe('TaskPlanningService', () => {
       return null;
     }),
   };
+  // 企业没指定编排模型 → 落到系统设置那一档
+  const modelConfig = { getPlannerModel: jest.fn().mockResolvedValue(null) };
   const service = new TaskPlanningService(
     prisma as never,
     subscriptions as never,
     enterpriseContext as never,
     config as never,
     settings as never,
+    modelConfig as never,
   );
 
   const validPlan = {
@@ -87,6 +90,14 @@ describe('TaskPlanningService', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('企业指定了编排模型就用它，而不是平台默认', async () => {
+    modelConfig.getPlannerModel.mockResolvedValueOnce('gemini-3.1-pro-preview');
+    const plan = await service.preview('user-1', { objective: '分析销售数据并生成报告' });
+    expect(plan.planner.model).toBe('gemini-3.1-pro-preview');
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls.at(-1)[1].body);
+    expect(body.model).toBe('gemini-3.1-pro-preview');
   });
 
   it('generates a validated LLM plan without executing any employee', async () => {

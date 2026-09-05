@@ -22,10 +22,8 @@ export const EnterpriseModelConfigSchema = z.object({
   employeeModelPolicy: z.enum(['FOLLOW_TEMPLATE', 'FORCE_DEFAULT']),
   employeeDefaultModel: z.string().nullable(),
 
-  // 成本控制
-  monthlyBudgetCNY: z.string().nullable(), // Decimal as string
-  alertThreshold: z.number().min(0).max(1),
-  hardStopOnBudget: z.boolean(),
+  /** 编排与分析模型（工作安排 / 迭代建议 / 交付物生成共用）。null = 跟随平台默认 */
+  plannerModel: z.string().nullable(),
 
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -41,10 +39,8 @@ export const UpdateEnterpriseModelConfigDtoSchema = z.object({
   employeeModelPolicy: z.enum(['FOLLOW_TEMPLATE', 'FORCE_DEFAULT']).optional(),
   employeeDefaultModel: z.string().nullable().optional(),
 
-  /** 前端传数字，也兼容 Decimal 字符串；null = 不限预算 */
-  monthlyBudgetCNY: z.union([z.number().nonnegative(), z.string()]).nullable().optional(),
-  alertThreshold: z.number().min(0).max(1).optional(),
-  hardStopOnBudget: z.boolean().optional(),
+  /** null / 空串 = 跟随平台默认模型 */
+  plannerModel: z.string().nullable().optional(),
 });
 
 export type EnterpriseModelConfig = z.infer<typeof EnterpriseModelConfigSchema>;
@@ -84,8 +80,6 @@ export const EffectiveModelConfigSchema = z.object({
   embeddingBatchSize: z.number().int().positive(),
   embeddingTimeoutMs: z.number().int().positive(),
 
-  /** 本月消费已达预算上限且开启了硬性阻断 */
-  budgetExceeded: z.boolean(),
   /** 该模型来自哪一层配置，便于前端解释「为什么是这个模型」 */
   source: z.enum(['USER_CHOICE', 'EMPLOYEE_INSTANCE', 'DEPARTMENT', 'ENTERPRISE', 'SYSTEM_DEFAULT']),
 });

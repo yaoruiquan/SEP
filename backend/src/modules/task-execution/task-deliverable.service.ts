@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TASK_EVENT_TYPE, TASK_STEP_STATUS, type TaskRun, type TaskRunStep } from '@prisma/client';
-import { DEFAULT_MODEL_ID } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TaskEventBus } from './task-event-bus';
 import { SettingService } from '../setting/setting.service';
+import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import { TaskEventRecorder } from './task-event-recorder';
 
@@ -26,6 +26,7 @@ export class TaskDeliverableService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly settings: SettingService,
+    private readonly modelConfig: EnterpriseModelConfigService,
     private readonly bus: TaskEventBus,
     private readonly events: TaskEventRecorder,
   ) {}
@@ -103,10 +104,18 @@ export class TaskDeliverableService {
     // 中转参数统一从系统设置取，不读 env（见 resolveSub2ApiProviderConfig）
     const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
 
-    const modelId = this.config.get<string>(
-      'SUB2API_PLANNER_MODEL',
-      this.config.get<string>('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID),
-    );
+    // 与任务规划同一档「编排与分析模型」：
+    // env 强制覆盖（排障）→ 企业选择 → 平台系统设置 → 代码常量。
+    // run.enterpriseId 可空（历史数据/无企业归属的任务），空时直接落平台档。
+    const override = this.config.get<string>('SUB2API_PLANNER_MODEL');
+    const enterpriseChoice =
+      !override && run.enterpriseId
+        ? await this.modelConfig.getPlannerModel(run.enterpriseId)
+        : null;
+    const modelId =
+      override ||
+      enterpriseChoice ||
+      (await resolveSub2ApiProviderConfig(this.settings)).defaultModel;
 
     const response = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',

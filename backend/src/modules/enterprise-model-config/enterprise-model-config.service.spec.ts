@@ -2,13 +2,18 @@
  * 企业模型配置服务测试。
  *
  * 重点覆盖两处**容易悄悄错掉、且错了不会报错只会用错模型**的逻辑：
- *   ① 优先级链：用户选择 > 员工实例 > 部门 > 企业 > 系统兜底。
+ *   ① 会话模型的优先级链：用户选择 > 员工实例 > 部门 > 企业 > 系统兜底。
  *      每层还要各自受白名单和开关约束 —— 少判一个条件不会抛异常，
  *      只会安静地用错模型，线上很难发现。
- *   ② 预算：checkBudgetExceeded 是**事实判断**，与 hardStopOnBudget 无关。
- *      两者合并会让只告警的企业永远读到 false，前端就没法提示。
+ *   ② 编排与分析模型（工作安排 / 迭代建议 / 交付物生成共用）：与会话是两条独立的
+ *      链，null 表示「跟随平台默认」而不是「没有模型」。清空成空串必须落库 null，
+ *      否则会存进一个查不到的模型 id，规划直接 404。
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { EnterpriseModelConfigService } from './enterprise-model-config.service';
 
 const ACME = {
@@ -32,9 +37,7 @@ function makeConfig(over: Record<string, unknown> = {}) {
     embeddingTimeoutMs: 30000,
     employeeModelPolicy: 'FOLLOW_TEMPLATE',
     employeeDefaultModel: null,
-    monthlyBudgetCNY: null,
-    alertThreshold: 0.8,
-    hardStopOnBudget: false,
+    plannerModel: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...over,
@@ -85,13 +88,16 @@ describe('EnterpriseModelConfigService', () => {
       expect(cfg.defaultChatModel).toBe('gemini-3.5-flash-high');
     });
 
-    it('Decimal 预算序列化成字符串下发', async () => {
+    it('编排模型原样下发，未指定时为 null（= 跟随平台默认）', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ monthlyBudgetCNY: { toString: () => '5000' } }),
+        makeConfig({ plannerModel: null }),
       );
+      expect((await svc.get('u1')).plannerModel).toBeNull();
 
-      const cfg = await svc.get('u1');
-      expect(cfg.monthlyBudgetCNY).toBe('5000');
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
+        makeConfig({ plannerModel: 'gemini-3.6-flash' }),
+      );
+      expect((await svc.get('u1')).plannerModel).toBe('gemini-3.6-flash');
     });
   });
 
@@ -360,64 +366,42 @@ describe('EnterpriseModelConfigService', () => {
     });
   });
 
-  describe('预算', () => {
-    it('未设预算 = 不限额', async () => {
-      const exceeded = await svc.checkBudgetExceeded('ent-acme');
-      expect(exceeded).toBe(false);
-    });
-
-    it('超预算即为 true —— 与 hardStopOnBudget 无关', async () => {
+  describe('编排与分析模型', () => {
+    it('企业没指定时返回 null —— 由调用方落到平台默认', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ monthlyBudgetCNY: '1000', hardStopOnBudget: false }),
+        makeConfig({ plannerModel: null }),
       );
-      // CONSUME 存负数
-      prisma.computeTransaction.aggregate.mockResolvedValue({
-        _sum: { amount: -1200 },
-      });
-
-      expect(await svc.checkBudgetExceeded('ent-acme')).toBe(true);
+      expect(await svc.getPlannerModel('ent-acme')).toBeNull();
     });
 
-    it('未超预算为 false', async () => {
+    it('企业指定了就用企业的', async () => {
       prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ monthlyBudgetCNY: '1000' }),
+        makeConfig({ plannerModel: 'gemini-3.1-pro-preview' }),
       );
-      prisma.computeTransaction.aggregate.mockResolvedValue({
-        _sum: { amount: -300 },
-      });
-
-      expect(await svc.checkBudgetExceeded('ent-acme')).toBe(false);
+      expect(await svc.getPlannerModel('ent-acme')).toBe('gemini-3.1-pro-preview');
     });
 
-    it('没有算力账户时消费按 0 算', async () => {
-      prisma.computeAccount.findUnique.mockResolvedValue(null);
-      expect(await svc.getMonthlySpentCNY('ent-acme')).toBe(0);
-    });
-
-    it('hardStop 开启且超预算 → 抛 403', async () => {
-      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ monthlyBudgetCNY: '1000', hardStopOnBudget: true }),
-      );
-      prisma.computeTransaction.aggregate.mockResolvedValue({
-        _sum: { amount: -1500 },
-      });
-
-      await expect(svc.assertBudgetAllowsNewSession('ent-acme')).rejects.toThrow(
-        ForbiddenException,
-      );
-    });
-
-    it('hardStop 关闭时超预算也放行（只告警）', async () => {
-      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(
-        makeConfig({ monthlyBudgetCNY: '1000', hardStopOnBudget: false }),
-      );
-      prisma.computeTransaction.aggregate.mockResolvedValue({
-        _sum: { amount: -1500 },
-      });
+    it('未启用的模型不能设为编排模型 —— 否则工作安排会 404 而配置页看不出异常', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig());
+      prisma.platformModel.findMany.mockResolvedValue([
+        { modelId: 'gemini-3.5-flash', enabled: false, isStale: false },
+      ]);
 
       await expect(
-        svc.assertBudgetAllowsNewSession('ent-acme'),
-      ).resolves.toBeUndefined();
+        svc.update('u1', { plannerModel: 'gemini-3.5-flash' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.enterpriseModelConfig.update).not.toHaveBeenCalled();
+    });
+
+    it('清空成空串按「跟随平台」落库 null，而不是原样存一个查不到的模型 id', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig());
+      prisma.enterpriseModelConfig.update.mockResolvedValue(makeConfig());
+
+      await svc.update('u1', { plannerModel: '   ' });
+
+      expect(prisma.enterpriseModelConfig.update.mock.calls[0][0].data).toEqual({
+        plannerModel: null,
+      });
     });
   });
 
@@ -427,7 +411,7 @@ describe('EnterpriseModelConfigService', () => {
         throw new ForbiddenException('仅企业管理员可执行此操作');
       });
 
-      await expect(svc.update('u1', { alertThreshold: 0.5 })).rejects.toThrow(
+      await expect(svc.update('u1', { plannerModel: 'gemini-3.7-flash' })).rejects.toThrow(
         ForbiddenException,
       );
     });

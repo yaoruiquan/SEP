@@ -31,9 +31,8 @@ export interface EnterpriseModelConfig {
   employeeModelPolicy: EmployeeModelPolicy;
   employeeDefaultModel: string | null;
   /** Decimal 序列化为字符串；null = 不限预算 */
-  monthlyBudgetCNY: string | null;
-  alertThreshold: number;
-  hardStopOnBudget: boolean;
+  /** 编排与分析模型（工作安排 / 迭代建议 / 交付物生成共用）。null = 跟随平台默认 */
+  plannerModel: string | null;
   createdAt: string;
   updatedAt: string;
 }

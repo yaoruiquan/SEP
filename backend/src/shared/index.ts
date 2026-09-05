@@ -1194,9 +1194,8 @@ export const UpdateEnterpriseModelConfigDtoSchema = z.object({
   rerankModel: z.string().nullable().optional(),
   employeeModelPolicy: z.enum(EMPLOYEE_MODEL_POLICIES).optional(),
   employeeDefaultModel: z.string().nullable().optional(),
-  monthlyBudgetCNY: z.number().positive().nullable().optional(),
-  alertThreshold: z.number().min(0).max(1).optional(),
-  hardStopOnBudget: z.boolean().optional(),
+  /** 编排与分析模型。null / 空串 = 跟随平台默认模型 */
+  plannerModel: z.string().nullable().optional(),
 });
 export type UpdateEnterpriseModelConfigDto = z.infer<typeof UpdateEnterpriseModelConfigDtoSchema>;
 
@@ -1215,8 +1214,6 @@ export interface EffectiveModelConfig {
   rerankModel: string | null;
   embeddingBatchSize: number;
   embeddingTimeoutMs: number;
-  /** 超预算且 hardStopOnBudget=true 时为 true */
-  budgetExceeded: boolean;
 }
 
 export const ChangePasswordDtoSchema = z.object({

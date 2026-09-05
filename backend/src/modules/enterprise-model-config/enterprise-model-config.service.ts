@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -40,7 +39,6 @@ export class EnterpriseModelConfigService {
       ...config,
       ...this.getEffectiveEmbeddingConfig(),
       embeddingModelSource: 'platform' as const,
-      monthlyBudgetCNY: config.monthlyBudgetCNY?.toString() ?? null,
       createdAt: config.createdAt.toISOString(),
       updatedAt: config.updatedAt.toISOString(),
     };
@@ -62,8 +60,6 @@ export class EnterpriseModelConfigService {
           allowUserSwitchModel: true,
           ...this.getEffectiveEmbeddingConfig(),
           employeeModelPolicy: 'FOLLOW_TEMPLATE',
-          alertThreshold: 0.8,
-          hardStopOnBudget: false,
         },
       });
     }
@@ -87,11 +83,11 @@ export class EnterpriseModelConfigService {
         ...(dto.rerankModel !== undefined && { rerankModel: dto.rerankModel }),
         ...(dto.employeeModelPolicy !== undefined && { employeeModelPolicy: dto.employeeModelPolicy }),
         ...(dto.employeeDefaultModel !== undefined && { employeeDefaultModel: dto.employeeDefaultModel }),
-        ...(dto.monthlyBudgetCNY !== undefined && {
-          monthlyBudgetCNY: dto.monthlyBudgetCNY !== null ? dto.monthlyBudgetCNY : null,
+        // 空串按「跟随平台默认」处理：下拉框清空时前端传的是 ''，
+        // 原样落库会得到一个查不到的模型 id，规划直接 404
+        ...(dto.plannerModel !== undefined && {
+          plannerModel: dto.plannerModel?.trim() ? dto.plannerModel.trim() : null,
         }),
-        ...(dto.alertThreshold !== undefined && { alertThreshold: dto.alertThreshold }),
-        ...(dto.hardStopOnBudget !== undefined && { hardStopOnBudget: dto.hardStopOnBudget }),
       },
     });
 
@@ -112,8 +108,13 @@ export class EnterpriseModelConfigService {
     const wanted = [
       dto.defaultChatModel,
       dto.employeeDefaultModel,
+      // 编排模型同样要校验：它现在也是企业自己选的，选到一个未启用/已下架的
+      // 模型，表现是「工作安排」报 404 model_not_found，而配置页看不出异常。
+      dto.plannerModel,
       ...(dto.allowedChatModels ?? []),
-    ].filter((id): id is string => typeof id === 'string' && id.length > 0);
+    ]
+      .map((id) => (typeof id === 'string' ? id.trim() : id))
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
     if (wanted.length === 0) return;
 
     const rows = await this.prisma.platformModel.findMany({
@@ -188,7 +189,6 @@ export class EnterpriseModelConfigService {
   }): Promise<EffectiveModelConfig> {
     const context = await this.ctx.resolve(opts.userId);
     const config = await this.get(opts.userId);
-    const budgetExceeded = await this.checkBudgetExceeded(context.enterpriseId);
 
     // 所有分支共享的知识库/开关字段，只有 chatModel 与 allowedChatModels 会被覆盖
     const base = {
@@ -196,7 +196,6 @@ export class EnterpriseModelConfigService {
       allowUserSwitchModel: config.allowUserSwitchModel,
       ...this.getEffectiveEmbeddingConfig(),
       rerankModel: config.rerankModel,
-      budgetExceeded,
     };
 
     // 部门策略先解析：它同时影响用户可选范围（白名单收窄）
@@ -375,6 +374,27 @@ export class EnterpriseModelConfigService {
     };
   }
 
+  /**
+   * 编排与分析模型：工作安排的任务规划、迭代建议、交付物生成共用这一个。
+   *
+   * 解析顺序 **企业 → 平台**，与会话那条链的形状一致：
+   *   企业 plannerModel → 平台系统设置 SUB2API_DEFAULT_MODEL → 代码常量
+   *
+   * 为什么单独一层而不是复用 defaultChatModel：这三件事都要把大段上下文
+   * （员工能力目录、执行记录）塞进 prompt 并输出严格 JSON，而用户感知不到延迟；
+   * 会话要的恰好相反。两者共用一个值等于强迫双方妥协。
+   *
+   * 落到平台那一档由调用方处理（它们已持有 SettingService），这里只回答
+   * 「这家企业有没有自己指定过」——返回 null 表示跟随平台。
+   */
+  async getPlannerModel(enterpriseId: string): Promise<string | null> {
+    const config = await this.prisma.enterpriseModelConfig.findUnique({
+      where: { enterpriseId },
+      select: { plannerModel: true },
+    });
+    return config?.plannerModel ?? null;
+  }
+
   /** 防止跨企业越权操作别人的部门。 */
   private async assertDepartmentInEnterprise(departmentId: string, enterpriseId: string) {
     const dept = await this.prisma.department.findUnique({
@@ -387,69 +407,4 @@ export class EnterpriseModelConfigService {
     }
   }
 
-  /**
-   * 本月消费额（元）。CONSUME 的 amount 存的是负数，这里取绝对值。
-   *
-   * 用聚合而不是把当月流水全查回来再 reduce —— 单个企业一个月的调用量
-   * 可以到几十万条，全量载入内存没有必要。
-   */
-  async getMonthlySpentCNY(enterpriseId: string): Promise<number> {
-    const account = await this.prisma.computeAccount.findUnique({
-      where: { enterpriseId },
-      select: { id: true },
-    });
-    if (!account) return 0;
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const agg = await this.prisma.computeTransaction.aggregate({
-      where: {
-        accountId: account.id,
-        type: 'CONSUME',
-        createdAt: { gte: startOfMonth },
-      },
-      _sum: { amount: true },
-    });
-
-    return Math.abs(agg._sum.amount ?? 0);
-  }
-
-  /**
-   * 本月是否已超预算 —— 这是**事实判断**，与 hardStopOnBudget 无关。
-   *
-   * 故意不在这里合并 hardStop：调用方需要区分「超了但只告警」和
-   * 「超了且要拦截」。把两件事塞进一个 boolean 会让 budgetExceeded
-   * 在只告警的企业里永远是 false，前端就没法提示了。
-   * 需要拦截判断的走 assertBudgetAllowsNewSession()。
-   */
-  async checkBudgetExceeded(enterpriseId: string): Promise<boolean> {
-    const config = await this.prisma.enterpriseModelConfig.findUnique({
-      where: { enterpriseId },
-      select: { monthlyBudgetCNY: true },
-    });
-
-    // 没设预算 = 不限额
-    if (!config?.monthlyBudgetCNY) return false;
-
-    const spent = await this.getMonthlySpentCNY(enterpriseId);
-    return spent >= Number(config.monthlyBudgetCNY);
-  }
-
-  /**
-   * 超预算且开启硬性阻断时抛 403，供会话入口调用。
-   */
-  async assertBudgetAllowsNewSession(enterpriseId: string): Promise<void> {
-    const config = await this.prisma.enterpriseModelConfig.findUnique({
-      where: { enterpriseId },
-      select: { monthlyBudgetCNY: true, hardStopOnBudget: true },
-    });
-
-    if (!config?.monthlyBudgetCNY || !config.hardStopOnBudget) return;
-
-    const spent = await this.getMonthlySpentCNY(enterpriseId);
-    if (spent >= Number(config.monthlyBudgetCNY)) {
-      throw new ForbiddenException('企业本月算力预算已用尽');
-    }
-  }
 }

@@ -15,12 +15,14 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 import { ModelWhitelistPicker } from './model-whitelist-picker';
-import { BudgetControlCard } from './budget-control-card';
 import type { EnterpriseModelConfig, PlatformModel } from './use-model-config';
 import type {
   UpdateEnterpriseModelConfigDto,
   EmployeeModelPolicy,
 } from '@/lib/types';
+
+/** Radix Select 不接受空字符串作为 value，用它表示「跟随平台默认」。 */
+const FOLLOW_PLATFORM = '__platform__';
 
 interface ModelConfigFormProps {
   config: EnterpriseModelConfig;
@@ -30,7 +32,7 @@ interface ModelConfigFormProps {
   readOnly?: boolean;
 }
 
-/** 表单内部状态：monthlyBudgetCNY 用 number 便于输入控件，提交时后端接受 number。 */
+/** 表单内部状态。`plannerModel` 用空串表示「跟随平台默认」（Radix Select 不接受 null）。 */
 type FormState = {
   defaultChatModel: string;
   allowedChatModels: string[];
@@ -41,9 +43,7 @@ type FormState = {
   embeddingTimeoutMs: number;
   employeeModelPolicy: EmployeeModelPolicy;
   employeeDefaultModel: string | null;
-  monthlyBudgetCNY: number | null;
-  alertThreshold: number;
-  hardStopOnBudget: boolean;
+  plannerModel: string;
 };
 
 function toFormState(config: EnterpriseModelConfig): FormState {
@@ -57,18 +57,20 @@ function toFormState(config: EnterpriseModelConfig): FormState {
     embeddingTimeoutMs: config.embeddingTimeoutMs,
     employeeModelPolicy: config.employeeModelPolicy,
     employeeDefaultModel: config.employeeDefaultModel,
-    monthlyBudgetCNY: config.monthlyBudgetCNY
-      ? Number(config.monthlyBudgetCNY)
-      : null,
-    alertThreshold: config.alertThreshold,
-    hardStopOnBudget: config.hardStopOnBudget,
+    // null → 空串：Radix Select 的 value 不能是 null，用 FOLLOW_PLATFORM 当哨兵
+    plannerModel: config.plannerModel ?? FOLLOW_PLATFORM,
   };
 }
 
 /**
  * 模型配置表单。
  *
- * 四个 Tab：会话模型 / 知识库模型 / 员工模型 / 预算控制。
+ * 四个 Tab：会话模型 / 知识库模型 / 员工模型 / 编排模型。
+ *
+ * 「预算控制」已删除（2026-09-05）：它的拦截读的是对话链路早已不写的
+ * compute_transactions，告警读的 cost_daily_rollups 在本地与生产都是 0 行，
+ * 且从来没有企业设过预算 —— 一个按下去什么都不会发生的开关。花钱管控由
+ * 「算力余额」页的三层承担（企业钱包 / 订阅赠送算力 / 成员算力额度）。
  */
 export function ModelConfigForm({
   config,
@@ -105,7 +107,7 @@ export function ModelConfigForm({
           <TabsTrigger value="chat">会话模型</TabsTrigger>
           <TabsTrigger value="knowledge">知识库模型</TabsTrigger>
           <TabsTrigger value="employee">员工模型</TabsTrigger>
-          <TabsTrigger value="budget">预算控制</TabsTrigger>
+          <TabsTrigger value="planner">编排模型</TabsTrigger>
         </TabsList>
 
         {/* ── Tab 1: 会话模型 ─────────────────────────────────────────── */}
@@ -304,17 +306,42 @@ export function ModelConfigForm({
           </section>
         </TabsContent>
 
-        {/* ── Tab 4: 预算控制 ─────────────────────────────────────────── */}
-        <TabsContent value="budget" className="mt-4">
-          <BudgetControlCard
-            monthlyBudget={form.monthlyBudgetCNY}
-            alertThreshold={form.alertThreshold}
-            hardStopOnBudget={form.hardStopOnBudget}
-            onBudgetChange={(v) => patch({ monthlyBudgetCNY: v })}
-            onThresholdChange={(v) => patch({ alertThreshold: v })}
-            onHardStopChange={(v) => patch({ hardStopOnBudget: v })}
-            disabled={readOnly}
-          />
+        {/* ── Tab 4: 编排模型 ─────────────────────────────────────────── */}
+        <TabsContent value="planner" className="mt-4 space-y-6">
+          <section className="space-y-4 rounded-lg border border-border bg-card p-6">
+            <div>
+              <h3 className="text-lg font-semibold">编排与分析模型</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                「工作安排」的任务拆解、迭代建议、交付物生成共用这个模型。它和会话模型
+                分开设：这三件事要把大段上下文塞进提示词并输出结构化结果，成员感知不到
+                延迟；会话相反，要的是快。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>模型</Label>
+              <Select
+                value={form.plannerModel}
+                onValueChange={(v) => patch({ plannerModel: v })}
+                disabled={readOnly}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="跟随平台默认" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FOLLOW_PLATFORM}>跟随平台默认</SelectItem>
+                  {chatModels.map((m) => (
+                    <SelectItem key={m.modelId} value={m.modelId}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                必须支持 function calling 且能稳定输出 JSON —— 规划失败最常见的原因就是
+                模型没按格式返回。选完建议去「工作安排」实际跑一次验证。
+              </p>
+            </div>
+          </section>
         </TabsContent>
       </Tabs>
 
@@ -330,7 +357,17 @@ export function ModelConfigForm({
           >
             重置
           </Button>
-          <Button onClick={() => onSave(form)} disabled={!isDirty || isSaving}>
+          <Button
+            onClick={() =>
+              onSave({
+                ...form,
+                // 哨兵值不能落库 —— 后端把空/空白都当作「跟随平台」，这里显式转 null
+                plannerModel:
+                  form.plannerModel === FOLLOW_PLATFORM ? null : form.plannerModel,
+              })
+            }
+            disabled={!isDirty || isSaving}
+          >
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             保存配置
           </Button>

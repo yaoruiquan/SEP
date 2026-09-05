@@ -125,11 +125,4 @@ export class CostAnalyticsController {
     });
     res!.send(buffer);
   }
-
-  @Get('alerts')
-  @ApiOperation({ summary: '当前告警列表' })
-  @ApiResponse({ status: 200, description: '当月超阈值告警' })
-  async getAlerts(@Param('enterpriseId') enterpriseId: string) {
-    return this.costService.getAlerts(enterpriseId);
-  }
 }

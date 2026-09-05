@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SettingModule } from '../setting/setting.module';
+import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
 import { ConversationModule } from '../conversation/conversation.module';
 import { TaskDeliverableService } from './task-deliverable.service';
 import { TaskEventBus } from './task-event-bus';
@@ -19,7 +20,7 @@ import { TaskStepExecutor } from './task-step-executor.service';
  * 拖成 800 行。
  */
 @Module({
-  imports: [ConversationModule, SettingModule],
+  imports: [ConversationModule, SettingModule, EnterpriseModelConfigModule],
   controllers: [TaskExecutionController],
   providers: [
     TaskExecutionService,

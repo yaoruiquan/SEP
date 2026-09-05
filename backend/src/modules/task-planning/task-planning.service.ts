@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { SettingService } from '../setting/setting.service';
+import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { DEFAULT_MODEL_ID } from 'shared';
@@ -38,6 +39,7 @@ export class TaskPlanningService {
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly config: ConfigService,
     private readonly settings: SettingService,
+    private readonly modelConfig: EnterpriseModelConfigService,
   ) {}
 
   async preview(userId: string, dto: TaskPlanPreviewDto) {
@@ -103,8 +105,13 @@ export class TaskPlanningService {
       throw new BadRequestException('已订阅员工都没有绑定可执行能力');
     }
 
-    const plannerOutput: PlannerOutput = await this.generatePlan(dto.objective, candidates);
-    const plannerModel = await this.resolvePlannerModel();
+    // 先解析模型再请求：报错文案里要带上模型名，否则用户不知道该去改哪个设置
+    const plannerModel = await this.resolvePlannerModel(context.enterpriseId);
+    const plannerOutput: PlannerOutput = await this.generatePlan(
+      dto.objective,
+      candidates,
+      plannerModel,
+    );
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const stepIds = plannerOutput.steps.map((_, index) => `step-${index + 1}`);
     const steps = plannerOutput.steps.flatMap((step, index) => {
@@ -150,21 +157,34 @@ export class TaskPlanningService {
     };
   }
 
-  /** 规划器实际使用的模型。与 generatePlan 内部保持同一解析口径。 */
-  private async resolvePlannerModel(): Promise<string> {
+  /**
+   * 规划器用哪个模型。解析顺序：
+   *   env SUB2API_PLANNER_MODEL（排障用的强制覆盖，平时不设）
+   *     → 企业「编排与分析模型」
+   *       → 平台系统设置 SUB2API_DEFAULT_MODEL
+   *         → 代码常量 DEFAULT_MODEL_ID
+   *
+   * env 放最前面是刻意的：线上模型出问题时要能不动数据库就把全站切到已知可用的
+   * 模型；平时它是空的，所以企业的选择才是实际生效的那一档。
+   */
+  private async resolvePlannerModel(enterpriseId: string): Promise<string> {
+    const override = this.config.get<string>('SUB2API_PLANNER_MODEL');
+    if (override) return override;
+    const enterpriseChoice = await this.modelConfig.getPlannerModel(enterpriseId);
+    if (enterpriseChoice) return enterpriseChoice;
     const { defaultModel } = await resolveSub2ApiProviderConfig(this.settings);
-    return this.config.get<string>('SUB2API_PLANNER_MODEL') || defaultModel;
+    return defaultModel;
   }
 
-  private async generatePlan(objective: string, candidates: CandidateEmployee[]): Promise<PlannerOutput> {
+  private async generatePlan(
+    objective: string,
+    candidates: CandidateEmployee[],
+    modelId: string,
+  ): Promise<PlannerOutput> {
     // 走系统设置而不是 env —— 这里原来直接读 ConfigService，而线上 env 里的
     // SUB2API_API_KEY 已失效、SystemSetting 里的是有效的，于是「对话正常、
     // 任务规划报 relay 401」，同一台机器两个功能两种结果。见该函数的注释。
-    const { baseURL, apiKey, defaultModel } = await resolveSub2ApiProviderConfig(
-      this.settings,
-    );
-    // 规划器可以单独指定模型（只有 env 这一个口子，没有对应的系统设置项）
-    const modelId = this.config.get<string>('SUB2API_PLANNER_MODEL') || defaultModel;
+    const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
     const catalog = JSON.stringify(candidates, null, 2);
 
     try {

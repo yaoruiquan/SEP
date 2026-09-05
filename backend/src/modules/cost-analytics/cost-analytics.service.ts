@@ -24,18 +24,10 @@ export class CostAnalyticsService {
       _sum: { costCNY: true },
     });
 
-    // 预算
-    const modelConfig = await this.prisma.enterpriseModelConfig.findUnique({
-      where: { enterpriseId },
-      select: { monthlyBudgetCNY: true, alertThreshold: true },
-    });
-
+    // 「月度预算」已随企业模型配置一起删除（2026-09-05）：它的告警链路依赖
+    // cost_daily_rollups，而那张表在本地与生产都是 0 行，且从来没有企业设过预算。
+    // 花钱管控由「算力余额」页的三层承担：企业钱包、订阅赠送算力、成员算力额度。
     const totalCost = Number(current._sum.costCNY ?? 0);
-    const budgetCNY = modelConfig?.monthlyBudgetCNY
-      ? Number(modelConfig.monthlyBudgetCNY)
-      : null;
-    const budgetUsagePercent =
-      budgetCNY ? (totalCost / budgetCNY) * 100 : null;
 
     // 环比（前一周期同长度）
     const periodDays = Math.ceil(
@@ -55,8 +47,6 @@ export class CostAnalyticsService {
 
     return {
       totalCost,
-      budgetCNY,
-      budgetUsagePercent,
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
       comparisonPeriodCost,
@@ -256,58 +246,6 @@ export class CostAnalyticsService {
   /**
    * 告警列表（当月超阈值）
    */
-  async getAlerts(enterpriseId: string): Promise<
-    {
-      type: 'BUDGET_THRESHOLD' | 'BUDGET_EXCEEDED';
-      severity: 'WARNING' | 'ERROR';
-      message: string;
-      usagePercent: number;
-    }[]
-  > {
-    const modelConfig = await this.prisma.enterpriseModelConfig.findUnique({
-      where: { enterpriseId },
-      select: {
-        monthlyBudgetCNY: true,
-        alertThreshold: true,
-        hardStopOnBudget: true,
-      },
-    });
-
-    if (!modelConfig?.monthlyBudgetCNY) return [];
-
-    const budgetCNY = Number(modelConfig.monthlyBudgetCNY);
-    const periodStart = startOfMonth(new Date());
-    const agg = await this.prisma.costDailyRollup.aggregate({
-      where: { enterpriseId, date: { gte: periodStart } },
-      _sum: { costCNY: true },
-    });
-    const used = Number(agg._sum.costCNY ?? 0);
-    const usagePercent = (used / budgetCNY) * 100;
-    const alerts: {
-      type: 'BUDGET_THRESHOLD' | 'BUDGET_EXCEEDED';
-      severity: 'WARNING' | 'ERROR';
-      message: string;
-      usagePercent: number;
-    }[] = [];
-
-    if (usagePercent >= 100) {
-      alerts.push({
-        type: 'BUDGET_EXCEEDED',
-        severity: 'ERROR',
-        message: `本月算力预算已用尽（已用 ¥${used.toFixed(2)} / ¥${budgetCNY.toFixed(2)}）`,
-        usagePercent,
-      });
-    } else if (usagePercent >= modelConfig.alertThreshold * 100) {
-      alerts.push({
-        type: 'BUDGET_THRESHOLD',
-        severity: 'WARNING',
-        message: `本月算力用量已达 ${usagePercent.toFixed(1)}%，接近 ¥${budgetCNY.toFixed(2)} 预算上限`,
-        usagePercent,
-      });
-    }
-
-    return alerts;
-  }
 
   /**
    * 导出为 CSV（二进制 Buffer）

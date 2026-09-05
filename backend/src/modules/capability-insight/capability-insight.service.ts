@@ -8,11 +8,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DEFAULT_MODEL_ID } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { SettingService } from '../setting/setting.service';
+import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import {
   InsightOutputSchema,
@@ -36,6 +36,7 @@ export class CapabilityInsightService {
     private readonly skillVersions: SkillVersionService,
     private readonly config: ConfigService,
     private readonly settings: SettingService,
+    private readonly modelConfig: EnterpriseModelConfigService,
   ) {}
 
   /**
@@ -118,7 +119,7 @@ export class CapabilityInsightService {
       );
     }
 
-    const modelId = this.resolveModelId();
+    const modelId = await this.resolveModelId(ctx.enterpriseId);
     const output = await this.askModel({
       capabilityName: capability.name,
       baselineContent: baseline.content,
@@ -222,11 +223,17 @@ export class CapabilityInsightService {
     });
   }
 
-  private resolveModelId() {
-    return this.config.get<string>(
-      'SUB2API_PLANNER_MODEL',
-      this.config.get<string>('SUB2API_DEFAULT_MODEL', DEFAULT_MODEL_ID),
-    );
+  /**
+   * 与任务规划同一档「编排与分析模型」：
+   * env 强制覆盖（排障）→ 企业选择 → 平台系统设置 → 代码常量。
+   */
+  private async resolveModelId(enterpriseId: string): Promise<string> {
+    const override = this.config.get<string>('SUB2API_PLANNER_MODEL');
+    if (override) return override;
+    const enterpriseChoice = await this.modelConfig.getPlannerModel(enterpriseId);
+    if (enterpriseChoice) return enterpriseChoice;
+    const { defaultModel } = await resolveSub2ApiProviderConfig(this.settings);
+    return defaultModel;
   }
 
   private truncate(value: unknown) {

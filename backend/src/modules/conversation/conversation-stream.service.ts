@@ -166,7 +166,6 @@ export class ConversationStreamService {
     const enterpriseCtx = await this.enterpriseContext.resolve(userId);
 
     // 1b. 预算硬阻断：超额且开启了 hardStopOnBudget 时，直接 403，不加锁不落库
-    await this.modelConfig.assertBudgetAllowsNewSession(enterpriseCtx.enterpriseId);
 
     // 获取雇佣关系（订阅）ID，用于知识库检索 + 模型解析。
     // 收敛后「一企业一员工一雇佣关系」，唯一约束保证这里最多命中一条。

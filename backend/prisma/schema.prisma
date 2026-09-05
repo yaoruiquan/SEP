@@ -2264,12 +2264,15 @@ model EnterpriseModelConfig {
   employeeModelPolicy  String  @default("FOLLOW_TEMPLATE")
   employeeDefaultModel String?
 
-  // 月度预算控制
-  monthlyBudgetCNY Decimal? @db.Decimal(12, 2)
-  /// 触发告警的预算使用率，默认 80%
-  alertThreshold   Float    @default(0.8)
-  /// 超预算后是否硬性阻断新会话
-  hardStopOnBudget Boolean  @default(false)
+  /// 编排与分析模型：工作安排的任务规划、迭代建议、交付物生成共用这一个。
+  ///
+  /// 与 defaultChatModel 分开，因为它们要的东西不一样：这三件事都要把大段上下文
+  /// （员工能力目录、执行记录）塞进 prompt，并且必须输出严格符合 schema 的 JSON，
+  /// 而用户感知不到延迟。会话相反 —— 要快、要能闲聊、失败一次重发即可。
+  /// 共用一个而不是拆三个：三者的取舍完全一致，拆开只会得到三个填一样值的下拉框。
+  ///
+  /// null = 跟随平台的系统设置 SUB2API_DEFAULT_MODEL（保持接入前的行为）。
+  plannerModel String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
