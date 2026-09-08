@@ -6,6 +6,11 @@ import type { TaskExecutionSnapshot, TaskExecutionStep } from './task-execution'
 export type { LiveStepTool } from './task-execution';
 export type { TaskCandidateEmployee } from './task-orchestration';
 
+/** 只有尚未确认的计划可以使用本地快照；执行中的状态必须来自服务端。 */
+export function canUsePlanSnapshot(plan: Pick<TaskPlan, 'status'> | null | undefined): boolean {
+  return plan?.status === 'draft' || plan?.status === 'awaiting_confirmation';
+}
+
 /**
  * 规划期的计划 → 执行期的快照形状。
  *

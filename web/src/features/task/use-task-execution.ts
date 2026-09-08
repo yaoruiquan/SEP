@@ -40,6 +40,16 @@ export function useTaskExecution(taskRunId: string | undefined) {
     let disposed = false;
     let controller: AbortController | null = null;
     let timer: number | undefined;
+    let streamConnected = false;
+
+    // 先拉一次权威执行快照。SSE 是实时增量通道，不能承担首屏状态初始化；
+    // 否则连接失败时页面会退回旧计划，把正在工作显示成候场中。
+    void api
+      .get<TaskExecutionSnapshot>(`/tasks/${taskRunId}/execution`)
+      .then((snapshot) => {
+        if (!disposed) dispatch({ kind: 'frame', frame: { type: 'snapshot', snapshot } });
+      })
+      .catch(() => undefined);
 
     // 历史流水单独拉一次：SSE 只推新事件，不重放已发生的
     void api
@@ -57,6 +67,7 @@ export function useTaskExecution(taskRunId: string | undefined) {
         for await (const message of streamTaskExecution(taskRunId, controller.signal)) {
           if (disposed) return;
           attemptRef.current = 0;
+          streamConnected = true;
           dispatch({ kind: 'connected', connected: true });
           dispatch({ kind: 'frame', frame: message.data as TaskStreamFrame });
         }
@@ -69,6 +80,7 @@ export function useTaskExecution(taskRunId: string | undefined) {
       }
 
       if (disposed) return;
+      streamConnected = false;
       dispatch({ kind: 'connected', connected: false });
 
       // 服务端主动结束流（进程重启、代理超时）后自动接回。
@@ -80,10 +92,23 @@ export function useTaskExecution(taskRunId: string | undefined) {
 
     void connect();
 
+    // SSE 断开时仍定期读取服务端快照，确保步骤从排队切到正在工作时不会
+    // 依赖某一帧恰好穿过浏览器连接。请求走 api-client，会自动刷新 401。
+    const snapshotPoll = window.setInterval(() => {
+      if (streamConnected) return;
+      void api
+        .get<TaskExecutionSnapshot>(`/tasks/${taskRunId}/execution`)
+        .then((snapshot) => {
+          if (!disposed) dispatch({ kind: 'frame', frame: { type: 'snapshot', snapshot } });
+        })
+        .catch(() => undefined);
+    }, 15_000);
+
     return () => {
       disposed = true;
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
+      window.clearInterval(snapshotPoll);
     };
   }, [taskRunId]);
 

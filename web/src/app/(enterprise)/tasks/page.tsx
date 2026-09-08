@@ -37,7 +37,8 @@ import {
   type TaskRunSummary,
   type TaskTemplate,
 } from '@/features/task/task-run';
-import { planToSnapshot } from '@/features/task/task-execution-view-model';
+import { canUsePlanSnapshot, planToSnapshot } from '@/features/task/task-execution-view-model';
+import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useAuthStore } from '@/lib/auth-store';
 import { nav } from '@/locales/zh-CN';
@@ -139,11 +140,13 @@ export default function TasksPage() {
   /**
    * 舞台上渲染的那份数据。
    *
-   * 服务端快照是唯一权威（步骤在第一次读执行视图时就实体化了，所以规划期也有）。
-   * `planToSnapshot` 只在 SSE 首帧还没到的那一两百毫秒里兜底，避免闪一下空屏。
+   * 服务端快照是执行期唯一权威。计划快照只服务于待确认阶段，避免执行开始后
+   * 用旧 JSON 里的 queued 覆盖真实的 running。
    */
+  // 计划快照只用于待确认阶段。任务一旦开始执行，必须等服务端执行快照，
+  // 否则旧 JSON 里的 queued 会把真实的「正在工作」覆盖掉。
   const snapshot: TaskExecutionSnapshot | null =
-    execution.snapshot ?? (plan ? planToSnapshot(plan) : null);
+    execution.snapshot ?? (canUsePlanSnapshot(plan) && plan ? planToSnapshot(plan) : null);
   const started = Boolean(snapshot?.startedAt);
   const running = snapshot?.status === 'running';
   const busy = runTask.isPending || stopTask.isPending || pauseStep.isPending || resumeStep.isPending;
@@ -330,7 +333,14 @@ export default function TasksPage() {
 
   const confirmAndRun = () => {
     if (!activeRunId) return;
-    runTask.mutate(undefined, { onError: (error) => toast.error(errorMessage(error, '没能开始执行')) });
+    runTask.mutate(undefined, {
+      onSuccess: (snapshot) => {
+        if (snapshot && typeof snapshot === 'object' && 'status' in snapshot) {
+          execution.refresh();
+        }
+      },
+      onError: (error) => toast.error(errorMessage(error, '没能开始执行')),
+    });
   };
 
   const stopExecution = () => {
@@ -338,7 +348,13 @@ export default function TasksPage() {
   };
 
   const retryFromStep = (stepKey: string) => {
-    runTask.mutate({ fromStepKey: stepKey }, { onError: (error) => toast.error(errorMessage(error, '重跑没能开始')) });
+    runTask.mutate(
+      { fromStepKey: stepKey },
+      {
+        onSuccess: () => void execution.refresh(),
+        onError: (error) => toast.error(errorMessage(error, '重跑没能开始')),
+      },
+    );
   };
 
   const openConversation = (stepKey: string) => {
@@ -463,7 +479,7 @@ export default function TasksPage() {
       </div>
 
       <main className="flex min-h-0 flex-1 flex-col">
-        {!activeRunId || !snapshot ? (
+        {!activeRunId ? (
           <TaskObjectiveComposer
             objective={objective}
             planning={planner.isPending || createRun.isPending}
@@ -474,6 +490,8 @@ export default function TasksPage() {
             }}
             onGenerate={generatePlan}
           />
+        ) : !snapshot ? (
+          <CenteredSpinner label="正在读取员工执行状态…" />
         ) : (
           <TaskFlowTheater
             snapshot={snapshot}

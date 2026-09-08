@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pendingHandoffs, planToSnapshot } from './task-execution-view-model';
+import { canUsePlanSnapshot, pendingHandoffs, planToSnapshot } from './task-execution-view-model';
 import type { TaskExecutionStep } from './task-execution';
 import type { TaskPlan, TaskPlanStep } from './task-orchestration';
 
@@ -59,6 +59,15 @@ const execStep = (over: Partial<TaskExecutionStep> & Pick<TaskExecutionStep, 'st
 });
 
 describe('planToSnapshot', () => {
+  it('执行阶段不使用计划快照兜底，避免正在工作被显示成候场中', () => {
+    expect(canUsePlanSnapshot({ status: 'awaiting_confirmation' })).toBe(true);
+    expect(canUsePlanSnapshot({ status: 'draft' })).toBe(true);
+    expect(canUsePlanSnapshot({ status: 'running' })).toBe(false);
+    expect(canUsePlanSnapshot({ status: 'completed' })).toBe(false);
+    expect(canUsePlanSnapshot({ status: 'failed' })).toBe(false);
+    expect(canUsePlanSnapshot({ status: 'stopped' })).toBe(false);
+  });
+
   it('按 order 排序并保留计划里的选人理由与预计时长', () => {
     const snapshot = planToSnapshot(
       plan([

@@ -1,4 +1,4 @@
-import { API_BASE } from './api-client';
+import { API_BASE, tryRefresh } from './api-client';
 import { authAccessor } from './auth-store';
 import type { MessageAttachment } from './types';
 
@@ -21,16 +21,13 @@ export async function* streamTaskExecution(
   taskRunId: string,
   signal?: AbortSignal,
 ): AsyncGenerator<SseEvent> {
-  const token = authAccessor.getToken();
-  const res = await fetch(`${API_BASE}/tasks/${taskRunId}/stream`, {
-    method: 'GET',
-    credentials: 'include',
-    signal,
-    headers: {
-      Accept: 'text/event-stream',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  let res = await openTaskStream(taskRunId, signal);
+
+  // SSE 不经过 api-client，之前 access token 过期时只会不断重连 401。
+  // 借用同一枚 refresh cookie 静默换 token，再重试一次即可恢复观察通道。
+  if (res.status === 401 && !signal?.aborted && (await tryRefresh())) {
+    res = await openTaskStream(taskRunId, signal);
+  }
 
   if (!res.ok || !res.body) {
     let message = `连接执行流失败 (${res.status})`;
@@ -44,6 +41,19 @@ export async function* streamTaskExecution(
   }
 
   yield* readFrames(res.body);
+}
+
+function openTaskStream(taskRunId: string, signal?: AbortSignal) {
+  const token = authAccessor.getToken();
+  return fetch(`${API_BASE}/tasks/${taskRunId}/stream`, {
+    method: 'GET',
+    credentials: 'include',
+    signal,
+    headers: {
+      Accept: 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
 }
 
 /**
