@@ -58,7 +58,11 @@ export function PersonalChangesPanel({
   const canManage = data?.canManage ?? false;
   const items = data?.items ?? [];
   const mine = items.find((item) => item.owner?.id === currentUserId);
-  const others = items.filter((item) => item.owner?.id !== currentUserId);
+  // 管理员需要在「大家的改动」里看到企业内全部副本，包括自己的，才能采纳
+  // 自己创建的副本；普通成员仍只看到自己的副本。
+  const others = canManage
+    ? items
+    : items.filter((item) => item.owner?.id !== currentUserId);
   const pendingIds = items.filter((item) => item.pending).map((item) => item.id);
 
   const handleAdoptSelected = () => {
