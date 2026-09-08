@@ -104,8 +104,9 @@ export class SubscriptionController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Unsubscribe (sets status to EXPIRED)' })
+  @ApiOperation({ summary: '退订雇佣关系（设置为 EXPIRED；仅企业管理员）' })
   @ApiResponse({ status: 200, description: 'Unsubscribed' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可退订雇佣关系' })
   @ApiResponse({ status: 409, description: 'Subscription not active' })
   async unsubscribe(
     @Param('id') id: string,
@@ -117,7 +118,7 @@ export class SubscriptionController {
   @Post(':id/terminate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '解雇员工（TERMINATED）：7 天试用期内全额退款' })
-  @ApiResponse({ status: 200, description: 'Terminated with refund info' })
+  @ApiResponse({ status: 200, description: '已解聘，并返回试用期退款信息（退款进入企业钱包）' })
   @ApiResponse({ status: 409, description: 'Subscription not active' })
   async terminate(
     @Param('id') id: string,

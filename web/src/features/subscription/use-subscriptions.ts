@@ -56,6 +56,26 @@ export function useUnsubscribe() {
   });
 }
 
+/** 解雇雇佣关系：试用期内退款到企业钱包，之后不退款。 */
+export function useTerminateSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{
+        id: string;
+        status: SubscriptionStatus;
+        refunded: boolean;
+        refundAmount: number | null;
+        refundDestination: 'ENTERPRISE_WALLET' | null;
+      }>(`/subscriptions/${id}/terminate`, {}),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: qk.subscriptions });
+      qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: ['subscriptions', id] });
+    },
+  });
+}
+
 /**
  * 修改雇佣关系（自定义称呼 / 配置）。
  *

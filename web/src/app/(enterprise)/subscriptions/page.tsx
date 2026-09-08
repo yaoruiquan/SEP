@@ -13,7 +13,7 @@ import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
 import {
   useSubscriptions,
-  useUnsubscribe,
+  useTerminateSubscription,
   useUpdateSubscription,
   useChangeSubscriptionStatus,
   useUpgradeSubscription,
@@ -32,6 +32,7 @@ import {
 import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { employment } from '@/locales/zh-CN';
 import type { Subscription, SubscriptionRequest } from '@/lib/types';
+import { getExpectedRefund } from '@/features/subscription/release-policy';
 import { EmploymentTable } from './employment-table';
 import { RequestList } from './request-list';
 import { Modal } from './modal';
@@ -57,7 +58,7 @@ export default function SubscriptionsPage() {
   const { data: subs = [], isLoading } = useSubscriptions();
   const { data: pendingRequests = [], isLoading: loadingRequests } =
     usePendingSubscriptionRequests();
-  const unsubscribe = useUnsubscribe();
+  const terminate = useTerminateSubscription();
   const updateSub = useUpdateSubscription();
   const changeStatus = useChangeSubscriptionStatus();
   const upgradeSub = useUpgradeSubscription();
@@ -94,14 +95,22 @@ export default function SubscriptionsPage() {
   }, [allRows, attentionFilter, keyword]);
 
   const busy =
-    unsubscribe.isPending || changeStatus.isPending || upgradeSub.isPending;
+    terminate.isPending || changeStatus.isPending || upgradeSub.isPending;
+
+  const expectedRefund = releasing
+    ? getExpectedRefund(releasing)
+    : 0;
 
   const handleRelease = () => {
     if (!releasing) return;
     const name = releasing.employee.name;
-    unsubscribe.mutate(releasing.id, {
-      onSuccess: () => {
-        toast.success(`已解除与「${name}」的雇佣关系`);
+    terminate.mutate(releasing.id, {
+      onSuccess: (result) => {
+        toast.success(
+          result.refunded
+            ? `已解除「${name}」，¥${Number(result.refundAmount ?? 0).toFixed(2)} 已退回企业钱包`
+            : `已解除「${name}」，本次不退款`,
+        );
         setReleasing(null);
       },
       onError: (e) => toast.error(e instanceof ApiError ? e.message : '解除失败'),
@@ -341,7 +350,7 @@ export default function SubscriptionsPage() {
         <Modal title={employment.release} onClose={() => setReleasing(null)}>
           <div className="space-y-4">
             <p className="text-sm leading-relaxed text-fg-muted">
-              {employment.releaseConfirm(releasing.employee.name)}
+              {employment.releaseConfirm(releasing.employee.name, expectedRefund)}
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setReleasing(null)}>
@@ -351,7 +360,7 @@ export default function SubscriptionsPage() {
                 variant="danger"
                 size="sm"
                 onClick={handleRelease}
-                disabled={unsubscribe.isPending}
+                disabled={terminate.isPending}
               >
                 确认解除
               </Button>

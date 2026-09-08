@@ -67,6 +67,10 @@ const STATUS_META: Record<SubscriptionStatus, { label: string; tone: string }> =
     label: '已结束',
     tone: 'border-gdanger/30 bg-gdanger/12 text-gdanger',
   },
+  TERMINATED: {
+    label: '已解聘',
+    tone: 'border-gdanger/30 bg-gdanger/12 text-gdanger',
+  },
 };
 
 const CAPABILITY_META: Record<CapabilityType, { label: string; tone: string }> = {

@@ -51,8 +51,10 @@ export const employment = {
   section: '雇佣管理',
   description: '一位硅基员工雇佣后，可在「员工授权」把 TA 分配给不同部门的碳基员工使用。',
   release: '解除雇佣',
-  releaseConfirm: (name: string) =>
-    `解除与「${name}」的雇佣关系后，TA 名下所有授权将不可用，且无法再新增。已沉淀的技能与知识保留。确定解除？`,
+  releaseConfirm: (name: string, refundAmount: number) =>
+    refundAmount > 0
+      ? `解除与「${name}」的雇佣关系后，TA 名下所有授权将不可用，且无法再新增。当前仍在 7 天试用期内，将全额退款 ¥${refundAmount.toFixed(2)} 到企业钱包；赠送算力不折现。已沉淀的技能与知识保留。确定解除？`
+      : `解除与「${name}」的雇佣关系后，TA 名下所有授权将不可用，且无法再新增。当前已超过 7 天试用期，本次不退款；剩余赠送算力也会失效。已沉淀的技能与知识保留。确定解除？`,
   unitCount: (n: number) => `${n} 位在岗`,
   empty: '尚未雇佣任何硅基员工',
 } as const;
@@ -96,14 +98,15 @@ export const knowledge = {
  * 雇佣关系状态。key 为后端 SubscriptionStatus 枚举值，不可改动。
  *
  * 收敛后 InstanceStatus 已并入此枚举（PENDING_ACTIVATION→ACTIVE、
- * SUSPENDED→PAUSED、REVOKED→EXPIRED），故只剩这三个值。
+ * SUSPENDED→PAUSED、REVOKED→EXPIRED），另有 TERMINATED 作为试用期解聘终态。
  * 措辞取雇佣视角而非订阅视角 —— 企业看到的是「这个员工在不在岗」。
- * EXPIRED 是终态，不可转回。
+ * EXPIRED / TERMINATED 是终态，不可转回。
  */
 export const subscriptionStatus: Record<string, string> = {
   ACTIVE: '工作中',
   PAUSED: '已暂停',
   EXPIRED: '已解聘',
+  TERMINATED: '已解聘',
 };
 
 /** 拟人化提示文案 */

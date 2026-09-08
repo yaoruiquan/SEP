@@ -179,14 +179,15 @@ export class WalletService {
     relatedType: "subscription" | "compute",
     relatedId: string,
     description?: string,
+    tx?: Prisma.TransactionClient,
   ) {
     if (amount <= 0) {
       throw new BadRequestException("退款金额必须大于 0");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const refund = async (client: Prisma.TransactionClient) => {
       // 1. 获取钱包
-      const wallet = await tx.enterpriseWallet.findUnique({
+      const wallet = await client.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
 
@@ -199,7 +200,7 @@ export class WalletService {
       const balanceAfter = balanceBefore.add(amountDecimal);
 
       // 2. 更新余额（乐观锁）
-      const updated = await tx.enterpriseWallet.updateMany({
+      const updated = await client.enterpriseWallet.updateMany({
         where: {
           enterpriseId,
           version: wallet.version,
@@ -216,7 +217,7 @@ export class WalletService {
       }
 
       // 3. 记录交易
-      return tx.walletTransaction.create({
+      return client.walletTransaction.create({
         data: {
           walletId: wallet.id,
           type: WalletTransactionType.REFUND,
@@ -228,7 +229,9 @@ export class WalletService {
           description,
         },
       });
-    });
+    };
+
+    return tx ? refund(tx) : this.prisma.$transaction(refund);
   }
 
   /**

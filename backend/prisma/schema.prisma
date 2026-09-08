@@ -2210,12 +2210,16 @@ model Notification {
   relatedType String? // 'subscription' | 'task' | 'instance' | 'balance'
   relatedId   String?
   read        Boolean          @default(false)
+  category    String? // SYSTEM | USAGE_ALERT | SECURITY | APPROVAL
+  severity    String? // INFO | WARNING | ERROR
+  actionUrl   String?
   createdAt   DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, read])
+  @@index([userId, category])
   @@map("notifications")
 }
 

@@ -649,6 +649,16 @@ describe('SubscriptionService', () => {
       );
     });
 
+    it('unsubscribe 仅允许企业管理员操作', async () => {
+      ctxSvc.resolve.mockResolvedValue(ACME_STAFF);
+      prisma.subscription.findUnique.mockResolvedValue(activeSub);
+
+      await expect(svc.unsubscribe('sub-1', 'user-acme-staff')).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.subscription.update).not.toHaveBeenCalled();
+    });
+
     it('试用期内解雇：退订阅费，但❗不退未用完的赠送算力', async () => {
       prisma.subscription.findUnique.mockResolvedValue(activeSub);
       prisma.digitalEmployee.findUnique.mockResolvedValue({
@@ -656,15 +666,21 @@ describe('SubscriptionService', () => {
         annualPriceCNY: { toNumber: () => 5000 },
       });
 
-      await svc.terminate('sub-1', 'user-acme-boss');
+      const result = await svc.terminate('sub-1', 'user-acme-boss');
 
       // 只退企业实际付过的钱；赠送额度不是企业付的，退它等于凭空发钱
       expect(walletSvc.refund).toHaveBeenCalledTimes(1);
       expect(walletSvc.refund.mock.calls[0][1]).toBe(5000);
+      expect(walletSvc.refund.mock.calls[0][5]).toBe(prisma);
       expect(creditSvc.expireSubscriptionCredit).toHaveBeenCalledWith(
         prisma,
         'sub-1',
       );
+      expect(result).toMatchObject({
+        refunded: true,
+        refundAmount: 5000,
+        refundDestination: 'ENTERPRISE_WALLET',
+      });
     });
 
     it('试用期外解雇：不退款，赠送额度同样停用', async () => {
@@ -683,6 +699,23 @@ describe('SubscriptionService', () => {
 
       expect(walletSvc.refund).not.toHaveBeenCalled();
       expect(creditSvc.expireSubscriptionCredit).toHaveBeenCalled();
+    });
+
+    it('暂停中的雇佣也可以解除，并按试用期规则退款', async () => {
+      prisma.subscription.findUnique.mockResolvedValue({
+        ...activeSub,
+        status: 'PAUSED',
+      });
+      prisma.digitalEmployee.findUnique.mockResolvedValue({
+        name: '客服小美',
+        annualPriceCNY: { toNumber: () => 5000 },
+      });
+
+      await expect(svc.terminate('sub-1', 'user-acme-boss')).resolves.toMatchObject({
+        status: 'TERMINATED',
+        refunded: true,
+        refundAmount: 5000,
+      });
     });
   });
 });

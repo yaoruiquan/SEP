@@ -24,6 +24,7 @@ export const SUBSCRIPTION_STATUS_META: Record<
   ACTIVE: { label: subscriptionStatus.ACTIVE, tone: 'text-success' },
   PAUSED: { label: subscriptionStatus.PAUSED, tone: 'text-warning' },
   EXPIRED: { label: subscriptionStatus.EXPIRED, tone: 'text-fg-subtle' },
+  TERMINATED: { label: subscriptionStatus.TERMINATED, tone: 'text-fg-subtle' },
 };
 
 /**
@@ -36,4 +37,5 @@ export const SUBSCRIPTION_STATUS_STYLE: Record<string, string> = {
   ACTIVE: 'bg-success/10 text-success',
   PAUSED: 'bg-muted text-fg-muted',
   EXPIRED: 'bg-danger/10 text-danger',
+  TERMINATED: 'bg-danger/10 text-danger',
 };

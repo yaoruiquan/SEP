@@ -158,6 +158,7 @@ export class SubscriptionService {
           select: {
             id: true, name: true, description: true, avatar: true,
             industry: true, position: true, functionalCategory: true, status: true, version: true,
+            annualPriceCNY: true,
           },
         },
         credit: {
@@ -178,6 +179,10 @@ export class SubscriptionService {
 
     return rows.map((r) => ({
       ...r,
+      employee: {
+        ...r.employee,
+        annualPriceCNY: r.employee.annualPriceCNY?.toNumber() ?? null,
+      },
       // 未自定义称呼时回落到模板名，前端不必各自兜底
       name: r.name ?? r.employee.name,
       latestVersion: r.employee.version,
@@ -275,7 +280,7 @@ export class SubscriptionService {
     if (current === next) {
       return { id: sub.id, status: current, changed: false };
     }
-    if (!ALLOWED_TRANSITIONS[current].includes(next)) {
+    if (!ALLOWED_TRANSITIONS[current] || !ALLOWED_TRANSITIONS[current].includes(next)) {
       throw new ConflictException(
         `雇佣关系状态不能从 ${current} 变为 ${next}`,
       );
@@ -339,6 +344,8 @@ export class SubscriptionService {
 
   /** Unsubscribe (set status to EXPIRED, keep record) */
   async unsubscribe(id: string, userId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertEnterpriseAdmin(ctx);
     const sub = await this.findOne(id, userId);
     if (sub.status !== 'ACTIVE') {
       throw new ConflictException('Subscription is not active');
@@ -364,8 +371,8 @@ export class SubscriptionService {
     this.enterpriseContext.assertEnterpriseAdmin(ctx);
     const sub = await this.findOne(id, userId);
 
-    if (sub.status !== 'ACTIVE') {
-      throw new ConflictException('Only active subscriptions can be terminated');
+    if (sub.status !== 'ACTIVE' && sub.status !== 'PAUSED') {
+      throw new ConflictException('Only active or paused subscriptions can be terminated');
     }
 
     // 获取员工信息（用于退款金额和描述）
@@ -381,27 +388,28 @@ export class SubscriptionService {
     trialEndDate.setDate(trialEndDate.getDate() + 7);
     const isWithinTrial = now <= trialEndDate;
 
-    let refundAmount = 0;
-    let refundTransactionId: string | null = null;
-
-    if (isWithinTrial && employee.annualPriceCNY) {
-      // 试用期内全额退**订阅费**。未用完的赠送算力不折现、不退回（见开发计划）：
-      // 赠送额度不是企业付过的钱，退它等于凭空发钱。
-      refundAmount = employee.annualPriceCNY.toNumber();
-      const refundTransaction = await this.walletService.refund(
-        ctx.enterpriseId,
-        refundAmount,
-        'subscription',
-        sub.id,
-        `解雇【${employee.name}】- 试用期退款`,
-      );
-      refundTransactionId = refundTransaction.id;
-    }
-
-    // 更新订阅状态为 TERMINATED，同时停用赠送余额
+    // 退款、停用赠送额度、更新订阅必须在同一个事务中完成，避免退款成功但状态更新失败。
     return this.prisma.$transaction(async (tx) => {
+      let refundAmount = 0;
+      let refundTransactionId: string | null = null;
+
+      if (isWithinTrial && employee.annualPriceCNY) {
+        // 试用期内全额退**订阅费**。未用完的赠送算力不折现、不退回（见开发计划）：
+        // 赠送额度不是企业付过的钱，退它等于凭空发钱。
+        refundAmount = employee.annualPriceCNY.toNumber();
+        const refundTransaction = await this.walletService.refund(
+          ctx.enterpriseId,
+          refundAmount,
+          'subscription',
+          sub.id,
+          `解雇【${employee.name}】- 试用期退款`,
+          tx,
+        );
+        refundTransactionId = refundTransaction.id;
+      }
+
       await this.credits.expireSubscriptionCredit(tx, sub.id);
-      return tx.subscription.update({
+      const updated = await tx.subscription.update({
         where: { id: sub.id },
         data: {
           status: 'TERMINATED',
@@ -414,6 +422,13 @@ export class SubscriptionService {
           refundTransactionId,
         },
       });
+
+      return {
+        ...updated,
+        refunded: refundAmount > 0,
+        refundAmount: refundAmount > 0 ? refundAmount : null,
+        refundDestination: refundAmount > 0 ? 'ENTERPRISE_WALLET' : null,
+      };
     });
   }
 

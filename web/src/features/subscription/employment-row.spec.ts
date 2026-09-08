@@ -50,6 +50,7 @@ function sub(overrides: Partial<Subscription> = {}): Subscription {
       functionalCategory: 'OPERATIONS_ORG',
       status: 'APPROVED',
       version: '1.0.0',
+      annualPriceCNY: 5000,
     },
     giftGrantedCNY: '20.00',
     giftUsedCNY: '2.00',
@@ -118,6 +119,15 @@ describe('buildEmploymentRow', () => {
         upgradeAvailable: true,
         usage: usage({ grantedUserCount: 0, grantedDepartmentCount: 0, activeUserCount30d: 0 }),
       }),
+      NOW,
+    );
+    expect(row.dismissed).toBe(true);
+    expect(row.attention).toEqual([]);
+  });
+
+  it('终止状态同样不显示待办，也不能继续管理', () => {
+    const row = buildEmploymentRow(
+      sub({ status: 'TERMINATED', usage: usage({ grantedUserCount: 0 }) }),
       NOW,
     );
     expect(row.dismissed).toBe(true);

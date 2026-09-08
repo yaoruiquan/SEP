@@ -994,6 +994,8 @@ export class SkillVersionService {
         data: members.map((member) => ({
           userId: member.userId,
           type: 'SKILL_VERSION_UPDATED' as const,
+          category: 'SYSTEM',
+          severity: 'INFO',
           title: `${capability.name} 更新了能力`,
           message: `企业已采纳成员改动，当前生效版本 ${version}。下次使用即生效。`,
           relatedType: 'capability',

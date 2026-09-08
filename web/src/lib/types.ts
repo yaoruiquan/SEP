@@ -2,7 +2,7 @@
 
 export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
 export type EmployeeStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
-export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'TERMINATED';
 export type CapabilityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export type CapabilityVisibility = 'ENTERPRISE_PRIVATE' | 'MARKET_PUBLIC';
 export type ContributionReviewStatus = 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -242,7 +242,7 @@ export interface Subscription {
   employee: Pick<
     DigitalEmployee,
     'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'functionalCategory' | 'status' | 'version'
-  >;
+  > & { annualPriceCNY: number | null };
 
   // ── 订阅赠送算力余额（人民币，Decimal 序列化为字符串）─────────────────────
   /** 订阅时按「员工级配置 > 系统默认值」生成的赠送金额快照 */

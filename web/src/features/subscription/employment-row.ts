@@ -95,7 +95,7 @@ export interface EmploymentRow {
   attention: AttentionKind[];
   /** 最严重的一项，没有则为 null */
   primaryAttention: AttentionKind | null;
-  /** 终态：已解聘，所有管理动作都该禁掉而不是让后端报 409 */
+  /** 终态：已解聘/终止，所有管理动作都该禁掉而不是让后端报 409 */
   dismissed: boolean;
 }
 
@@ -104,7 +104,7 @@ export function buildEmploymentRow(
   /** 注入当前时间便于测试；默认取实时 */
   now: number = Date.now(),
 ): EmploymentRow {
-  const dismissed = subscription.status === 'EXPIRED';
+  const dismissed = subscription.status === 'EXPIRED' || subscription.status === 'TERMINATED';
   const usage = subscription.usage;
   const attention: AttentionKind[] = [];
 
