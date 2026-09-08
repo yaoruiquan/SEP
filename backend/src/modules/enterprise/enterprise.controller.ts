@@ -167,7 +167,7 @@ export class EnterpriseController {
   @Put("departments/:id/leader")
   @ApiOperation({ summary: "设置/清除部门主管（仅企业管理员）" })
   @ApiResponse({ status: 200, description: "已更新" })
-  @ApiResponse({ status: 400, description: "新主管不在此部门中" })
+  @ApiResponse({ status: 400, description: "新主管不在此部门或其子部门中" })
   async setDeptLeader(
     @Request() req: AuthedRequest,
     @Param("id") id: string,

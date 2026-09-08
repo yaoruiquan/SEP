@@ -35,7 +35,10 @@ describe('DepartmentService', () => {
         delete: jest.fn().mockResolvedValue({}),
         count: jest.fn().mockResolvedValue(0),
       },
-      enterpriseMember: { count: jest.fn().mockResolvedValue(0) },
+      enterpriseMember: {
+        count: jest.fn().mockResolvedValue(0),
+        findUnique: jest.fn(),
+      },
     };
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),
@@ -189,6 +192,59 @@ describe('DepartmentService', () => {
         id: 'tech',
         deleted: true,
       });
+    });
+  });
+
+  describe('setLeader', () => {
+    beforeEach(() => {
+      prisma.department.findUnique.mockResolvedValue({
+        id: 'tech',
+        enterpriseId: 'ent-acme',
+      });
+    });
+
+    it('允许当前部门的子部门成员担任当前部门主管', async () => {
+      // listMembers 展示的是「当前部门 + 子部门」成员；主管校验必须使用同一口径。
+      prisma.department.findMany.mockResolvedValue([
+        { id: 'tech', parentId: null },
+        { id: 'research', parentId: 'tech' },
+      ]);
+      prisma.enterpriseMember.findUnique.mockResolvedValue({
+        id: 'mem-child',
+        enterpriseId: 'ent-acme',
+        departmentId: 'research',
+      });
+      prisma.department.update.mockResolvedValue({
+        id: 'tech',
+        name: '技术部',
+        leaderId: 'mem-child',
+      });
+
+      await expect(
+        svc.setLeader('u1', 'tech', { memberId: 'mem-child' }),
+      ).resolves.toEqual({
+        id: 'tech',
+        name: '技术部',
+        leaderId: 'mem-child',
+      });
+    });
+
+    it('拒绝企业内其他部门的成员担任主管', async () => {
+      prisma.department.findMany.mockResolvedValue([
+        { id: 'tech', parentId: null },
+        { id: 'research', parentId: 'tech' },
+        { id: 'sales', parentId: null },
+      ]);
+      prisma.enterpriseMember.findUnique.mockResolvedValue({
+        id: 'mem-sales',
+        enterpriseId: 'ent-acme',
+        departmentId: 'sales',
+      });
+
+      await expect(
+        svc.setLeader('u1', 'tech', { memberId: 'mem-sales' }),
+      ).rejects.toThrow(/主管必须属于该部门或其子部门/);
+      expect(prisma.department.update).not.toHaveBeenCalled();
     });
   });
 });

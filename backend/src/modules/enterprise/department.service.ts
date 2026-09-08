@@ -141,7 +141,7 @@ export class DepartmentService {
 
   // ── 成员管理 ──────────────────────────────────────────────────────────────
 
-  /** 列出指定部门的所有成员，支持姓名/邮箱搜索与分页。 */
+  /** 列出指定部门及其子部门的所有成员，支持姓名/邮箱搜索与分页。 */
   async listMembers(
     userId: string,
     deptId: string,
@@ -152,7 +152,7 @@ export class DepartmentService {
 
     const { search, page = 1, limit = 50 } = opts;
 
-    // 收集当前部门及所有子孙部门的 ID
+    // 部门视角包含所有子部门；主管/移出校验也复用这组 ID，避免列表能看到但操作失败。
     const allDeptIds = await this.collectDescendantIds(deptId, ctx.enterpriseId);
 
     const where: Record<string, unknown> = {
@@ -299,7 +299,7 @@ export class DepartmentService {
   /**
    * 设置或清除部门主管。
    *
-   * 新主管必须是该部门的成员；传 null 表示清除主管。
+   * 新主管必须是该部门或其子部门的成员；传 null 表示清除主管。
    * 仅企业管理员可操作（不允许主管自行指定继任者）。
    */
   async setLeader(userId: string, deptId: string, dto: SetDeptLeaderDto) {
@@ -315,8 +315,12 @@ export class DepartmentService {
       if (!member || member.enterpriseId !== ctx.enterpriseId) {
         throw new NotFoundException(`成员 ${dto.memberId} 不存在`);
       }
-      if (member.departmentId !== deptId) {
-        throw new BadRequestException("主管必须是该部门的成员");
+      const allDeptIds = await this.collectDescendantIds(
+        deptId,
+        ctx.enterpriseId,
+      );
+      if (!member.departmentId || !allDeptIds.includes(member.departmentId)) {
+        throw new BadRequestException("主管必须属于该部门或其子部门");
       }
     }
 
