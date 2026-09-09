@@ -92,6 +92,8 @@ export const SETTING_KEYS = {
   ADMIN_NOTIFICATION_EMAIL: "ADMIN_NOTIFICATION_EMAIL",
   ABNORMAL_USAGE_THRESHOLD: "ABNORMAL_USAGE_THRESHOLD",
   SYSTEM_MAINTENANCE_NOTICE: "SYSTEM_MAINTENANCE_NOTICE",
+  CONTRIBUTION_ENTERPRISE_REWARD_CNY: "CONTRIBUTION_ENTERPRISE_REWARD_CNY",
+  CONTRIBUTION_PLATFORM_REWARD_CNY: "CONTRIBUTION_PLATFORM_REWARD_CNY",
   // 支付宝配置
   ALIPAY_APP_ID: "alipay.appId",
   ALIPAY_PRIVATE_KEY: "alipay.privateKey",
@@ -327,6 +329,20 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     secret: false,
     envFallback: "SYSTEM_MAINTENANCE_NOTICE",
     placeholder: "",
+  },
+  {
+    key: SETTING_KEYS.CONTRIBUTION_ENTERPRISE_REWARD_CNY,
+    label: "企业审核奖励（元）",
+    secret: false,
+    envFallback: "CONTRIBUTION_ENTERPRISE_REWARD_CNY",
+    placeholder: "10",
+  },
+  {
+    key: SETTING_KEYS.CONTRIBUTION_PLATFORM_REWARD_CNY,
+    label: "平台审核奖励（元）",
+    secret: false,
+    envFallback: "CONTRIBUTION_PLATFORM_REWARD_CNY",
+    placeholder: "50",
   },
   // 支付宝配置
   {

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket, WebSocketMessage } from './use-websocket';
 
@@ -26,7 +26,7 @@ interface NotificationMessage {
 export function useTaskUpdates() {
   const queryClient = useQueryClient();
 
-  const handleMessage = (message: WebSocketMessage) => {
+  const handleMessage = useCallback((message: WebSocketMessage) => {
     switch (message.type) {
       case 'task:update': {
         const taskUpdate = message.data as TaskUpdateMessage;
@@ -43,7 +43,7 @@ export function useTaskUpdates() {
       default:
         break;
     }
-  };
+  }, [queryClient]);
 
   // /ws/tasks gateway 尚未实现，传空 URL 禁止连接
   const { isConnected, reconnectCount } = useWebSocket('', {
@@ -60,7 +60,7 @@ export function useTaskUpdates() {
 export function useNotifications(onNotification?: (notification: NotificationMessage) => void) {
   const queryClient = useQueryClient();
 
-  const handleMessage = (message: WebSocketMessage) => {
+  const handleMessage = useCallback((message: WebSocketMessage) => {
     switch (message.type) {
       case 'notification': {
         const notification = message.data as NotificationMessage;
@@ -81,12 +81,10 @@ export function useNotifications(onNotification?: (notification: NotificationMes
       default:
         break;
     }
-  };
+  }, [onNotification, queryClient]);
 
-  // WebSocket 通知功能暂未实现，传空 URL 禁止连接
-  const { isConnected, reconnectCount } = useWebSocket('', {
+  const { isConnected, reconnectCount } = useWebSocket(`${WS_BASE_URL}/ws/notifications`, {
     onMessage: handleMessage,
-    onConnect: () => queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] }),
   });
 
   return { isConnected, reconnectCount };

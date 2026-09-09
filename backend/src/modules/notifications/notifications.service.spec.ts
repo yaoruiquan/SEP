@@ -45,6 +45,10 @@ describe('NotificationsService', () => {
               'SUBSCRIPTION_REQUEST_CREATED',
               'SUBSCRIPTION_REQUEST_APPROVED',
               'SUBSCRIPTION_REQUEST_REJECTED',
+              'CONTRIBUTION_ENTERPRISE_APPROVED',
+              'CONTRIBUTION_ENTERPRISE_REJECTED',
+              'CONTRIBUTION_PLATFORM_APPROVED',
+              'CONTRIBUTION_PLATFORM_REJECTED',
             ],
           },
         },
@@ -75,6 +79,28 @@ describe('NotificationsService', () => {
         severity: 'WARNING',
       }),
     });
+  });
+
+  it('历史贡献审核通知没有 category 时仍归入审批分类', async () => {
+    await service.findByUser('user-1', 20, 0, 'APPROVAL');
+
+    expect(prisma.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              category: null,
+              type: {
+                in: expect.arrayContaining([
+                  'CONTRIBUTION_ENTERPRISE_APPROVED',
+                  'CONTRIBUTION_PLATFORM_REJECTED',
+                ]),
+              },
+            },
+          ]),
+        }),
+      }),
+    );
   });
 
   it('按用量分类统计、已读和清理，不影响其他类别', async () => {

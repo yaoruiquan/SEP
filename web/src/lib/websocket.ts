@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useWebSocket as useAuthenticatedWebSocket } from '@/hooks/use-websocket';
 
 type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
@@ -130,19 +131,39 @@ export function useWebSocket({
  * ```
  */
 export function useEmployeeStatus() {
-  const [statuses, setStatuses] = useState<Record<string, 'online' | 'offline' | 'busy'>>({});
+  const [statuses, setStatuses] = useState<Record<string, 'online' | 'offline' | 'busy' | 'unknown'>>({});
+  const handleStatusMessage = useCallback((message: { type: string; data?: unknown }) => {
+    if (message.type !== 'status_update') return;
+    const rows = Array.isArray(message.data) ? message.data : [message.data];
+    setStatuses((prev) => ({
+      ...prev,
+      ...Object.fromEntries(rows.filter(Boolean).map((row: any) => [
+        row.employeeId,
+        row.status === 'BUSY' ? 'busy' : row.status === 'ONLINE' ? 'online' : 'offline',
+      ])),
+    }));
+  }, []);
 
-  // /employee-status gateway 尚未实现，传空 URL 禁用连接
-  useWebSocket({
-    url: '',
-    onMessage: (data) => {
-      if (data.type === 'status_update') {
-        setStatuses((prev) => ({
-          ...prev,
-          [data.employeeId]: data.status,
-        }));
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { api } = await import('@/lib/api-client');
+        const rows = await api.get<Array<{ employeeId: string; status: string }>>('/enterprise/employee-status');
+        if (cancelled) return;
+        setStatuses(Object.fromEntries(rows.map((row) => [row.employeeId, row.status === 'BUSY' ? 'busy' : row.status === 'ONLINE' ? 'online' : 'offline'])));
+      } catch {
+        if (!cancelled) setStatuses((previous) => Object.fromEntries(Object.keys(previous).map((id) => [id, 'unknown'])) as typeof previous);
       }
-    },
+    };
+    void load();
+    const timer = window.setInterval(load, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
+  // 与通知网关一致，复用带 JWT、心跳和重连的认证 WebSocket。
+  useAuthenticatedWebSocket(`${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/ws/employee-status`, {
+    onMessage: handleStatusMessage,
   });
 
   return statuses;

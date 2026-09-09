@@ -320,6 +320,11 @@ export class DigitalEmployeeService {
             orderBy: { createdAt: 'desc' },
           })
         : [];
+    const usageRecords = (await this.prisma.computeUsageRecord?.findMany?.({
+      where: { employeeId, userId, createdAt: { gte: startDate } },
+      select: { createdAt: true, inputTokens: true, outputTokens: true, costCNY: true },
+      orderBy: { createdAt: 'asc' },
+    })) ?? [];
 
     // Aggregate totals
     const total = executions.length;
@@ -334,13 +339,13 @@ export class DigitalEmployeeService {
         : 0;
 
     // Build daily trend: { date: 'YYYY-MM-DD', total, success, failed }
-    const trendMap = new Map<string, { total: number; success: number; failed: number }>();
+    const trendMap = new Map<string, { total: number; success: number; failed: number; tokens: number; costCNY: number }>();
 
     // Pre-fill all days in range with zeroes so chart has continuous axis
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
       const key = d.toISOString().slice(0, 10);
-      trendMap.set(key, { total: 0, success: 0, failed: 0 });
+      trendMap.set(key, { total: 0, success: 0, failed: 0, tokens: 0, costCNY: 0 });
     }
 
     for (const exec of executions) {
@@ -352,10 +357,25 @@ export class DigitalEmployeeService {
         if (exec.status === 'FAILED') entry.failed += 1;
       }
     }
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let costCNY = 0;
+    for (const usage of usageRecords) {
+      inputTokens += usage.inputTokens;
+      outputTokens += usage.outputTokens;
+      costCNY += Number(usage.costCNY);
+      const entry = trendMap.get(usage.createdAt.toISOString().slice(0, 10));
+      if (entry) {
+        entry.tokens += usage.inputTokens + usage.outputTokens;
+        entry.costCNY += Number(usage.costCNY);
+      }
+    }
 
     const trend = Array.from(trendMap.entries()).map(([date, counts]) => ({
       date,
       ...counts,
+      tokens: counts.tokens,
+      costCNY: Number(counts.costCNY.toFixed(6)),
     }));
 
     // Recent executions log (last 10)
@@ -369,7 +389,7 @@ export class DigitalEmployeeService {
 
     return {
       period: { days, startDate: startDate.toISOString() },
-      summary: { total, successCount, failedCount, avgDuration },
+      summary: { total, successCount, failedCount, avgDuration, inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, costCNY: Number(costCNY.toFixed(6)) },
       trend,
       recentLog,
     };

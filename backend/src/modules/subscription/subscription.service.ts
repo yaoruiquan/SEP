@@ -4,7 +4,9 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,6 +20,7 @@ import { EmployeeUsageService } from '../enterprise/employee-usage.service';
 import { WalletService } from '../wallet/wallet.service';
 import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /** 允许的状态流转。EXPIRED 是终态。 */
 const ALLOWED_TRANSITIONS: Record<
@@ -40,7 +43,43 @@ export class SubscriptionService {
     private fulfillment: SubscriptionFulfillmentService,
     private credits: ComputeCreditService,
     private usage: EmployeeUsageService,
+    @Optional() private notifications?: NotificationsService,
   ) {}
+
+  /** 每日提醒未来 7 天到期的企业管理员；同一订阅每天最多一条。 */
+  @Cron('15 9 * * *')
+  async notifyExpiringSubscriptions() {
+    if (!this.notifications) return;
+    const now = new Date();
+    const until = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { status: 'ACTIVE', endDate: { gt: now, lte: until } },
+      select: {
+        id: true,
+        endDate: true,
+        employee: { select: { name: true } },
+        enterprise: { select: { members: { where: { role: 'ENTERPRISE_ADMIN' }, select: { userId: true } } } },
+      },
+    });
+    for (const subscription of subscriptions) {
+      const days = Math.max(1, Math.ceil((subscription.endDate!.getTime() - now.getTime()) / 86_400_000));
+      const targets = [] as string[];
+      for (const member of subscription.enterprise.members) {
+        const existing = await this.prisma.notification.findFirst({ where: { userId: member.userId, type: 'SUBSCRIPTION_EXPIRING', relatedType: 'subscription', relatedId: subscription.id, createdAt: { gte: dayStart } }, select: { id: true } });
+        if (!existing) targets.push(member.userId);
+      }
+      if (targets.length === 0) continue;
+      await this.notifications.createBatch(targets, {
+        type: 'SUBSCRIPTION_EXPIRING',
+        title: '员工订阅即将到期',
+        message: `「${subscription.employee.name}」将在约 ${days} 天后到期，请及时续费。`,
+        relatedType: 'subscription',
+        relatedId: subscription.id,
+        actionUrl: `/subscriptions/${subscription.id}`,
+      });
+    }
+  }
 
   /**
    * 企业订阅一个市场员工模板。

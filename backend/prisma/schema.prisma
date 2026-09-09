@@ -65,6 +65,7 @@ model User {
   personalWallet                    PersonalWallet?
   personalRechargeOrders            PersonalRechargeOrder[]
   toolExecutions                    ToolExecution[]
+  auditLogs                         AuditLog[]              @relation("AuditActor")
 
   @@map("users")
 }
@@ -122,8 +123,30 @@ model Enterprise {
   taskRuns             TaskRun[]
   taskTemplates        TaskTemplate[]
   capabilityInsights   CapabilityInsight[]
+  auditLogs            AuditLog[]
 
   @@map("enterprises")
+}
+
+/// 合规审计日志：只保存操作元数据和脱敏摘要，不保存请求正文、密码或密钥。
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String
+  actor        User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  enterpriseId String?
+  enterprise   Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
+  action       String
+  resourceType String
+  resourceId   String?
+  result       String   @default("SUCCESS")
+  summary      String?  @db.Text
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([enterpriseId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
 }
 
 /// 部门。树形结构，parentId 自引用。
@@ -2239,6 +2262,12 @@ enum NotificationType {
   ALLOWANCE_EXHAUSTED
   /// 企业钱包（含算力专款）余额偏低，推给企业管理员。
   WALLET_LOW_BALANCE
+  CONTRIBUTION_ENTERPRISE_APPROVED
+  CONTRIBUTION_ENTERPRISE_REJECTED
+  CONTRIBUTION_PLATFORM_APPROVED
+  CONTRIBUTION_PLATFORM_REJECTED
+  CONTRIBUTION_REWARD_CREDITED
+  SUBSCRIPTION_EXPIRING
 }
 
 // ============================================================================

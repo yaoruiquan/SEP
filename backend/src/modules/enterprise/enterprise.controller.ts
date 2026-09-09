@@ -306,6 +306,12 @@ export class EnterpriseController {
     return this.grants.myEmployees(req.user.id);
   }
 
+  @Get("employee-status")
+  @ApiOperation({ summary: "本企业员工实时状态" })
+  async employeeStatus(@Request() req: AuthedRequest) {
+    return this.enterprise.getEmployeeStatuses(req.user.id);
+  }
+
   @Get("subscriptions/:id/grants")
   @ApiOperation({ summary: "某雇佣关系的授权列表（管理员视角）" })
   @ApiResponse({ status: 200, description: "授权列表，expired=true 的已标灰" })

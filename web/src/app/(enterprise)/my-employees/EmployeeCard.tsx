@@ -31,7 +31,6 @@ interface EmployeeCardProps {
   employee: MyEmployee;
   isAdmin: boolean;
   download: ReturnType<typeof useDownloadPackage>;
-  /** @deprecated WebSocket 未实现，保留字段但不用于展示假数据 */
   status?: 'online' | 'offline' | 'busy';
 }
 
@@ -39,6 +38,7 @@ export const EmployeeCard = memo(function EmployeeCard({
   employee,
   isAdmin,
   download,
+  status = 'offline',
 }: EmployeeCardProps) {
   const router = useRouter();
   const downloadSkill = useDownloadSkill();
@@ -117,6 +117,10 @@ export const EmployeeCard = memo(function EmployeeCard({
               </p>
               <p className="mt-1.5 text-xs text-gtext-muted">
                 {grantSource === 'DIRECT' ? '自助订阅' : grantSource === 'DEPARTMENT' ? '部门授权' : '未知'}
+              </p>
+              <p className="mt-1 text-xs text-gtext-muted">
+                <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${status === 'busy' ? 'bg-amber-400' : status === 'online' ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+                {status === 'busy' ? '工作中' : status === 'online' ? '空闲' : '离线/未知'}
               </p>
             </div>
           </div>

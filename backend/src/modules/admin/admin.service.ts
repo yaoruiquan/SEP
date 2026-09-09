@@ -1,16 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType } from '@prisma/client';
 import { DICEBEAR_STYLES, generateAvatarUrl, generateSeedFromName } from '../../shared/dicebear-styles';
+import { SettingService } from '../setting/setting.service';
+import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
 export class AdminService {
   constructor(
     private prisma: PrismaService,
     private walletService: WalletService,
+    @Optional() private readonly setting?: SettingService,
+    @Optional() private readonly personalWallet?: PersonalWalletService,
   ) {}
+
+  private async contributionRewardAmount(kind: 'enterprise' | 'platform') {
+    const key = kind === 'enterprise' ? 'CONTRIBUTION_ENTERPRISE_REWARD_CNY' : 'CONTRIBUTION_PLATFORM_REWARD_CNY';
+    const value = Number(await this.setting?.getEffectiveValue(key as any));
+    return new Decimal(Number.isFinite(value) && value > 0 ? value : kind === 'enterprise' ? 10 : 50);
+  }
 
   /**
    * 获取企业详情（运营端视角）
@@ -1086,18 +1097,13 @@ export class AdminService {
         }
       }
       if (isContributionSubmission) {
-        await tx.contributionRewardEvent.createMany({
-          data: [{
-            recipientId: capability.contributorId,
-            enterpriseId: capability.enterpriseId,
-            capabilityId: capability.id,
-            eventType: 'PLATFORM_APPROVED',
-            points: 50,
-            dedupeKey: `platform-approved:${capability.id}`,
-            metadata: { reviewerId: operatorId },
-          }],
-          skipDuplicates: true,
-        });
+        const dedupeKey = `platform-approved:${capability.id}`;
+        const existingReward = await tx.contributionRewardEvent.findUnique({ where: { dedupeKey }, select: { id: true } });
+        if (!existingReward) {
+          const amount = await this.contributionRewardAmount('platform');
+          const event = await tx.contributionRewardEvent.create({ data: { recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'PLATFORM_APPROVED', points: 50, amount, status: 'AVAILABLE', settledAt: reviewedAt, dedupeKey, metadata: { reviewerId: operatorId, amountCNY: amount.toString() } } });
+          await this.personalWallet?.creditContributionRewardInTx(tx, capability.contributorId, amount, event.id, `平台审核通过奖励 ¥${amount.toFixed(2)}`);
+        }
       }
       return updated;
     });

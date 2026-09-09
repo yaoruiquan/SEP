@@ -58,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       { href: '/admin/announcements', label: '公告', icon: Megaphone },
       { href: '/admin/settings', label: '系统设置', icon: Settings },
+      { href: '/admin/audit', label: '安全与审计', icon: ShieldCheck },
     ],
   },
 ];

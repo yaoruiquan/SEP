@@ -9,6 +9,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
 import { JwtService } from '@nestjs/jwt';
+import { forwardRef, Inject } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 
 interface AuthenticatedWebSocket extends WebSocket {
@@ -33,7 +34,7 @@ export class NotificationsGateway
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => NotificationsService)) private readonly notificationsService: NotificationsService,
   ) {}
 
   afterInit() {

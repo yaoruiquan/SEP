@@ -15,6 +15,52 @@ export class EnterpriseService {
     private readonly ctx: EnterpriseContextService,
   ) {}
 
+  /** 企业员工实例状态：只返回状态元数据，不泄露任务/对话正文。 */
+  async getEmployeeStatuses(userId: string) {
+    const { enterpriseId } = await this.ctx.resolve(userId);
+    const now = new Date();
+    const activeSince = new Date(now.getTime() - 30_000);
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { enterpriseId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      select: { id: true, employeeId: true, name: true, employee: { select: { name: true } } },
+    });
+    if (subscriptions.length === 0) return [];
+    const employeeIds = subscriptions.map((item) => item.employeeId);
+    const [runningSteps, activeSessions, recentTools] = await Promise.all([
+      this.prisma.taskRunStep.findMany({
+        where: { employeeId: { in: employeeIds }, status: 'RUNNING', taskRun: { enterpriseId, status: 'RUNNING', OR: [{ heartbeatAt: { gte: activeSince } }, { heartbeatAt: null, updatedAt: { gte: activeSince } }] } },
+        select: { employeeId: true, taskRun: { select: { heartbeatAt: true, updatedAt: true } } },
+      }),
+      this.prisma.conversationSession.findMany({
+        where: { employeeId: { in: employeeIds }, status: 'ACTIVE', updatedAt: { gte: activeSince }, user: { memberships: { some: { enterpriseId } } } },
+        select: { employeeId: true, updatedAt: true },
+      }),
+      this.prisma.toolExecution.findMany({
+        where: { session: { employeeId: { in: employeeIds }, user: { memberships: { some: { enterpriseId } } } }, createdAt: { gte: activeSince } },
+        select: { session: { select: { employeeId: true } }, createdAt: true },
+      }),
+    ]);
+    const activity = new Map<string, { busy: boolean; last: Date }>();
+    const mark = (employeeId: string, date: Date, busy = true) => {
+      const current = activity.get(employeeId);
+      if (!current || date > current.last) activity.set(employeeId, { busy: busy || current.busy, last: date });
+      else if (busy) current.busy = true;
+    };
+    for (const row of runningSteps) mark(row.employeeId, row.taskRun.heartbeatAt ?? row.taskRun.updatedAt);
+    for (const row of activeSessions) mark(row.employeeId, row.updatedAt);
+    for (const row of recentTools) mark(row.session.employeeId, row.createdAt);
+    return subscriptions.map((subscription) => {
+      const current = activity.get(subscription.employeeId);
+      return {
+        subscriptionId: subscription.id,
+        employeeId: subscription.employeeId,
+        name: subscription.name ?? subscription.employee.name,
+        status: current?.busy ? 'BUSY' : current ? 'ONLINE' : 'OFFLINE',
+        lastActivityAt: current?.last.toISOString() ?? null,
+      };
+    });
+  }
+
   /**
    * 获取当前用户所属企业的详细信息
    */

@@ -1,18 +1,23 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
+import { NotificationsGateway } from './notifications.gateway';
 
 export type NotificationCategory = 'SYSTEM' | 'USAGE_ALERT' | 'SECURITY' | 'APPROVAL';
 export type NotificationSeverity = 'INFO' | 'WARNING' | 'ERROR';
 
 const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = {
-  SYSTEM: ['INFO', 'SUCCESS', 'WARNING', 'ERROR', 'SKILL_VERSION_UPDATED'],
+  SYSTEM: ['INFO', 'SUCCESS', 'WARNING', 'ERROR', 'SKILL_VERSION_UPDATED', 'CONTRIBUTION_REWARD_CREDITED', 'SUBSCRIPTION_EXPIRING'],
   USAGE_ALERT: ['ALLOWANCE_WARNING', 'ALLOWANCE_EXHAUSTED', 'WALLET_LOW_BALANCE'],
   SECURITY: [],
   APPROVAL: [
     'SUBSCRIPTION_REQUEST_CREATED',
     'SUBSCRIPTION_REQUEST_APPROVED',
     'SUBSCRIPTION_REQUEST_REJECTED',
+    'CONTRIBUTION_ENTERPRISE_APPROVED',
+    'CONTRIBUTION_ENTERPRISE_REJECTED',
+    'CONTRIBUTION_PLATFORM_APPROVED',
+    'CONTRIBUTION_PLATFORM_REJECTED',
   ],
 };
 
@@ -36,24 +41,34 @@ export interface CreateNotificationDto {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() @Inject(forwardRef(() => NotificationsGateway)) private readonly gateway?: NotificationsGateway) {}
 
   /**
    * 创建通知
    */
   async create(dto: CreateNotificationDto) {
-    return this.prisma.notification.create({
+    const created = await this.prisma.notification.create({
       data: this.enrich(dto),
     });
+    await this.gateway?.pushToUser(dto.userId, { ...created, category: created.category ?? TYPE_CATEGORY[created.type], severity: created.severity ?? this.resolveSeverity(created.type) });
+    if (this.gateway) await this.gateway.pushUnreadCount(dto.userId, await this.countUnread(dto.userId));
+    return created;
   }
 
   /**
    * 批量创建通知（给多个用户）
    */
   async createBatch(userIds: string[], notification: Omit<CreateNotificationDto, 'userId'>) {
-    return this.prisma.notification.createMany({
+    const result = await this.prisma.notification.createMany({
       data: userIds.map((userId) => this.enrich({ userId, ...notification })),
     });
+    if (this.gateway) {
+      await Promise.all(userIds.map(async (userId) => {
+        await this.gateway!.pushToUser(userId, { ...notification, userId, category: notification.category ?? TYPE_CATEGORY[notification.type], severity: notification.severity ?? this.resolveSeverity(notification.type) });
+        await this.gateway!.pushUnreadCount(userId, await this.countUnread(userId));
+      }));
+    }
+    return result;
   }
 
   /**

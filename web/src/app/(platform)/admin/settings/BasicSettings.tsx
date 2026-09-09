@@ -230,6 +230,17 @@ export default function BasicSettings() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>贡献奖励</CardTitle>
+          <CardDescription>审核通过后直接以人民币入账贡献者个人钱包；金额只影响新奖励，历史流水不变。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          {renderField('CONTRIBUTION_ENTERPRISE_REWARD_CNY', '企业审核奖励（元）', 'number', '默认 10 元')}
+          {renderField('CONTRIBUTION_PLATFORM_REWARD_CNY', '平台审核奖励（元）', 'number', '默认 50 元')}
+        </CardContent>
+      </Card>
+
       {/* 4. 安全与限制 */}
       <Card>
         <CardHeader>

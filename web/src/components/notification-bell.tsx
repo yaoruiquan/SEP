@@ -28,7 +28,6 @@ import {
   type NotificationCategory,
 } from '@/features/notifications/use-notifications';
 import { useNotifications as useNotificationsRealtime } from '@/hooks/use-realtime';
-import { useQueryClient } from '@tanstack/react-query';
 import { useActiveAnnouncements } from '@/features/announcement/use-announcements';
 
 const SEVERITY_STYLES = {
@@ -69,8 +68,6 @@ export function NotificationBell() {
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
-  const queryClient = useQueryClient();
-
   const unreadCount = unreadData?.count ?? 0;
   const notifications = notificationsData?.items ?? [];
 
@@ -80,9 +77,7 @@ export function NotificationBell() {
   );
 
   // WebSocket 实时更新
-  useNotificationsRealtime(() => {
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
-  });
+  useNotificationsRealtime();
 
   const handleMarkAsRead = useCallback(
     (id: string, e: React.MouseEvent) => {

@@ -37,6 +37,9 @@ import { TaskPlanningModule } from './modules/task-planning/task-planning.module
 import { CapabilityContributionModule } from './modules/capability-contribution/capability-contribution.module';
 import { TaskModule } from './modules/task/task.module';
 import { TaskExecutionModule } from './modules/task-execution/task-execution.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 @Module({
   imports: [
@@ -84,8 +87,9 @@ import { TaskExecutionModule } from './modules/task-execution/task-execution.mod
     // :id/stream）与 TaskModule 的 :id 不冲突，但把执行相关的放在后面更符合
     // 「CRUD 是底座，执行是上层」的读法。
     TaskExecutionModule,
+    AuditModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [{ provide: APP_INTERCEPTOR, useClass: AuditInterceptor }],
 })
 export class AppModule {}

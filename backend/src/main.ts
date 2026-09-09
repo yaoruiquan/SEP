@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
@@ -7,6 +7,11 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use((req, res, next) => {
+    const started = Date.now();
+    res.on('finish', () => Logger.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - started}ms`, 'HTTP'));
+    next();
+  });
 
   // WebSocket adapter
   app.useWebSocketAdapter(new WsAdapter(app));
@@ -22,6 +27,8 @@ async function bootstrap() {
 
   // Global API prefix
   app.setGlobalPrefix('api');
+
+  app.getHttpAdapter().get('/health', (_req, res) => res.status(200).json({ status: 'ok', service: 'sep-backend', timestamp: new Date().toISOString() }));
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -50,4 +57,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

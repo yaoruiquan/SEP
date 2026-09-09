@@ -264,6 +264,62 @@ export class PersonalWalletService {
     });
   }
 
+  /** 将平台奖励直接入个人钱包。以奖励事件 ID 做幂等键，审核重试不会重复发钱。 */
+  async creditContributionReward(
+    userId: string,
+    amountCNY: Decimal,
+    rewardEventId: string,
+    description: string,
+  ): Promise<void> {
+    const amount = money(amountCNY);
+    if (amount.lessThanOrEqualTo(0)) return;
+    await this.prisma.$transaction(async (tx) => this.creditContributionRewardInTx(tx, userId, amount, rewardEventId, description));
+  }
+
+  /**
+   * 在调用方事务中入账奖励。审核状态、奖励事件和钱包流水必须同事务提交，
+   * 以免审核已通过但余额未到账。relatedId 是奖励事件 ID，保证重试幂等。
+   */
+  async creditContributionRewardInTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amountCNY: Decimal,
+    rewardEventId: string,
+    description: string,
+  ): Promise<void> {
+    const amount = money(amountCNY);
+    if (amount.lessThanOrEqualTo(0)) return;
+    const wallet = await tx.personalWallet.upsert({
+        where: { userId },
+        create: { userId },
+        update: {},
+      });
+      const existing = await tx.personalWalletTransaction.findFirst({
+        where: { walletId: wallet.id, relatedType: 'contribution_reward', relatedId: rewardEventId },
+        select: { id: true },
+      });
+      if (existing) return;
+      const before = wallet.balance;
+      const after = before.add(amount);
+      const updated = await tx.personalWallet.updateMany({
+        where: { id: wallet.id, version: wallet.version },
+        data: { balance: after, totalDepositCNY: { increment: amount }, version: { increment: 1 } },
+      });
+      if (updated.count === 0) throw new ConflictException('个人余额更新冲突，请重试');
+      await tx.personalWalletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: PersonalWalletTransactionType.DEPOSIT,
+          amount,
+          balanceBefore: before,
+          balanceAfter: after,
+          relatedType: 'contribution_reward',
+          relatedId: rewardEventId,
+          description,
+        },
+      });
+  }
+
   /**
    * 从个人钱包扣「最多 amount」，返回实扣与差额。
    *

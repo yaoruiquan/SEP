@@ -32,9 +32,7 @@ export default function MyEmployeesPage() {
   const { data: mine = [], isLoading, isError, error } = useMyEmployees();
   const download = useDownloadPackage();
 
-  // WebSocket 功能暂时禁用（后端未实现）
-  // const employeeStatuses = useEmployeeStatus();
-  const employeeStatuses: Record<string, 'online' | 'busy' | 'offline'> = {}; // Mock 空对象
+  const employeeStatuses = useEmployeeStatus();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
@@ -242,7 +240,7 @@ export default function MyEmployeesPage() {
                     employee={emp}
                     isAdmin={isAdmin}
                     download={download}
-                    status={employeeStatuses[emp.subscriptionId] || 'offline'}
+                    status={employeeStatuses[emp.employee.id] === 'busy' ? 'busy' : employeeStatuses[emp.employee.id] === 'online' ? 'online' : 'offline'}
                   />
                 ))}
               </div>

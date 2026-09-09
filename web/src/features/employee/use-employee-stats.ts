@@ -6,6 +6,10 @@ export interface EmployeeStatsSummary {
   successCount: number;
   failedCount: number;
   avgDuration: number; // ms
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costCNY: number;
 }
 
 export interface EmployeeStatsTrendPoint {
@@ -13,6 +17,8 @@ export interface EmployeeStatsTrendPoint {
   total: number;
   success: number;
   failed: number;
+  tokens: number;
+  costCNY: number;
 }
 
 export interface EmployeeStatsLogEntry {

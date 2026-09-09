@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   CapabilityType,
@@ -32,6 +33,25 @@ import {
 import { nextSemver } from '../skill-version/skill-version-numbering';
 import { AUTHOR_VERSION_SELECT, CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT, USAGE_VERSION_SELECT } from './capability-contribution.types';
 import { CapabilityValidatorService } from './capability-validator.service';
+import { SettingService } from '../setting/setting.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+const DEFAULT_REWARD_CNY = { enterprise: '10', platform: '50' } as const;
+
+async function creditRewardInTx(tx: any, userId: string, amount: Prisma.Decimal, eventId: string, description: string) {
+  if (!tx.personalWallet || amount.lessThanOrEqualTo(0)) return;
+  const wallet = await tx.personalWallet.upsert({ where: { userId }, create: { userId }, update: {} });
+  const existing = await tx.personalWalletTransaction.findFirst?.({
+    where: { walletId: wallet.id, relatedType: 'contribution_reward', relatedId: eventId },
+    select: { id: true },
+  });
+  if (existing) return;
+  const before = wallet.balance;
+  const after = before.add(amount);
+  const updated = await tx.personalWallet.updateMany({ where: { id: wallet.id, version: wallet.version }, data: { balance: after, totalDepositCNY: { increment: amount }, version: { increment: 1 } } });
+  if (updated.count !== 1) throw new ConflictException('个人奖励入账冲突，请重试');
+  await tx.personalWalletTransaction.create({ data: { walletId: wallet.id, type: 'DEPOSIT', amount, balanceBefore: before, balanceAfter: after, relatedType: 'contribution_reward', relatedId: eventId, description } });
+}
 
 const CAPABILITY_TYPES: Record<ContributionCapabilityCreateDto['type'], CapabilityType> = {
   skill: 'SKILL',
@@ -45,7 +65,16 @@ export class CapabilityContributionService {
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly validator: CapabilityValidatorService,
     private readonly skillPackage: SkillPackageService,
+    private readonly setting?: SettingService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
+
+  private async rewardAmount(kind: 'enterprise' | 'platform') {
+    const key = kind === 'enterprise' ? 'CONTRIBUTION_ENTERPRISE_REWARD_CNY' : 'CONTRIBUTION_PLATFORM_REWARD_CNY';
+    const configured = await this.setting?.getEffectiveValue(key as any);
+    const value = Number(configured ?? DEFAULT_REWARD_CNY[kind]);
+    return Number.isFinite(value) && value > 0 ? new Prisma.Decimal(value) : new Prisma.Decimal(DEFAULT_REWARD_CNY[kind]);
+  }
 
   async overview(userId: string) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
@@ -281,7 +310,7 @@ export class CapabilityContributionService {
     if (!validation.valid) {
       throw new BadRequestException({ message: '自动校验未通过，暂不能提交审核', validation });
     }
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const validatedAt = new Date();
       const updated = await tx.capability.update({
         where: { id: capability.id },
@@ -301,6 +330,7 @@ export class CapabilityContributionService {
       }
       return updated;
     });
+    return result;
   }
 
   async reviewEnterprise(userId: string, capabilityId: string, dto: ContributionDecisionDto) {
@@ -310,7 +340,7 @@ export class CapabilityContributionService {
     if (!capability) throw new NotFoundException('能力不存在');
     if (capability.enterpriseReviewStatus !== 'PENDING') throw new ConflictException('只有待企业审核能力可以审核');
     const approved = dto.decision === 'APPROVE';
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
@@ -328,21 +358,16 @@ export class CapabilityContributionService {
         });
       }
       if (approved) {
-        await tx.contributionRewardEvent.createMany({
-          data: [{
-            recipientId: capability.contributorId,
-            enterpriseId: capability.enterpriseId,
-            capabilityId: capability.id,
-            eventType: 'ENTERPRISE_APPROVED',
-            points: 10,
-            dedupeKey: `enterprise-approved:${capability.id}`,
-            metadata: { reviewerId: userId },
-          }],
-          skipDuplicates: true,
-        });
+        const amount = await this.rewardAmount('enterprise');
+        const dedupeKey = `enterprise-approved:${capability.id}`;
+        await tx.contributionRewardEvent.createMany({ data: [{ recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'ENTERPRISE_APPROVED', points: 10, amount, status: 'AVAILABLE', settledAt: new Date(), dedupeKey, metadata: { reviewerId: userId, amountCNY: amount.toString() } }], skipDuplicates: true });
+        await creditRewardInTx(tx, capability.contributorId, amount, dedupeKey, `企业审核通过奖励 ¥${amount.toFixed(2)}`);
       }
       return updated;
     });
+    if (this.notifications) await this.notifications.create({ userId: capability.contributorId, type: approved ? 'CONTRIBUTION_ENTERPRISE_APPROVED' : 'CONTRIBUTION_ENTERPRISE_REJECTED', category: 'APPROVAL', title: approved ? '企业审核已通过' : '企业审核未通过', message: approved ? `能力「${capability.name}」已通过企业审核，奖励已入账。` : `能力「${capability.name}」未通过企业审核：${dto.comment ?? '请查看审核意见'}`, relatedType: 'capability', relatedId: capability.id, actionUrl: `/contributions/${capability.id}` });
+    if (approved && this.notifications) await this.notifications.create({ userId: capability.contributorId, type: 'CONTRIBUTION_REWARD_CREDITED', title: '贡献奖励已入账', message: `能力「${capability.name}」的企业审核奖励已进入个人钱包。`, relatedType: 'contribution_reward', relatedId: capability.id, actionUrl: '/wallet' });
+    return result;
   }
 
   async requestPlatformReview(userId: string, capabilityId: string) {
@@ -356,7 +381,7 @@ export class CapabilityContributionService {
     const validation = await this.validateCapability(capability.id, capability.type);
     if (!validation.valid) throw new BadRequestException({ message: '自动校验未通过，暂不能申请平台投稿', validation });
     const directPlatformSubmission = !capability.enterpriseId;
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const submittedAt = new Date();
       const updated = await tx.capability.update({
         where: { id: capability.id },
@@ -403,7 +428,7 @@ export class CapabilityContributionService {
     if (capability.enterpriseReviewStatus !== 'APPROVED' || capability.platformReviewStatus !== 'REQUESTED') {
       throw new ConflictException('只有企业审核通过且已发起投稿申请的能力可以授权');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: { platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: userId, platformSubmittedAt: new Date() },
@@ -414,6 +439,7 @@ export class CapabilityContributionService {
       }
       return updated;
     });
+    return result;
   }
 
   /**
@@ -493,7 +519,7 @@ export class CapabilityContributionService {
     const capability = await this.prisma.capability.findUnique({ where: { id: capabilityId } });
     if (!capability || capability.platformReviewStatus !== 'PENDING_REVIEW') throw new ConflictException('只有待平台审核能力可以审核');
     const approved = dto.decision === 'APPROVE';
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
@@ -518,21 +544,16 @@ export class CapabilityContributionService {
         });
       }
       if (approved) {
-        await tx.contributionRewardEvent.createMany({
-          data: [{
-            recipientId: capability.contributorId,
-            enterpriseId: capability.enterpriseId,
-            capabilityId: capability.id,
-            eventType: 'PLATFORM_APPROVED',
-            points: 50,
-            dedupeKey: `platform-approved:${capability.id}`,
-            metadata: { reviewerId: userId },
-          }],
-          skipDuplicates: true,
-        });
+        const amount = await this.rewardAmount('platform');
+        const dedupeKey = `platform-approved:${capability.id}`;
+        await tx.contributionRewardEvent.createMany({ data: [{ recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'PLATFORM_APPROVED', points: 50, amount, status: 'AVAILABLE', settledAt: new Date(), dedupeKey, metadata: { reviewerId: userId, amountCNY: amount.toString() } }], skipDuplicates: true });
+        await creditRewardInTx(tx, capability.contributorId, amount, dedupeKey, `平台审核通过奖励 ¥${amount.toFixed(2)}`);
       }
       return updated;
     });
+    if (this.notifications) await this.notifications.create({ userId: capability.contributorId, type: approved ? 'CONTRIBUTION_PLATFORM_APPROVED' : 'CONTRIBUTION_PLATFORM_REJECTED', category: 'APPROVAL', title: approved ? '平台审核已通过' : '平台审核未通过', message: approved ? `能力「${capability.name}」已公开，奖励已入账。` : `能力「${capability.name}」未通过平台审核：${dto.comment ?? '请查看审核意见'}`, relatedType: 'capability', relatedId: capability.id, actionUrl: `/contributions/${capability.id}` });
+    if (approved && this.notifications) await this.notifications.create({ userId: capability.contributorId, type: 'CONTRIBUTION_REWARD_CREDITED', title: '贡献奖励已入账', message: `能力「${capability.name}」的平台审核奖励已进入个人钱包。`, relatedType: 'contribution_reward', relatedId: capability.id, actionUrl: '/wallet' });
+    return result;
   }
 
   /**

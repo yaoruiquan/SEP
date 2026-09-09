@@ -24,6 +24,7 @@ import {
   Wallet,
   Gauge,
   Upload,
+  ShieldCheck,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ import { useLogout } from '@/features/auth/use-auth';
 import { NotificationBell } from '@/components/notification-bell';
 import { CartButton } from '@/components/cart-button';
 import Link from 'next/link';
+import { useEmployeeStatus } from '@/lib/websocket';
 
 /** 单条导航项，可单独标记仅管理员可见 */
 type GuardedNavLink = NavLink & { adminOnly?: boolean };
@@ -126,6 +128,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 「公司还愿意为我付多少、我自己还剩多少」—— 被额度拦下时只能干瞪眼。
       { href: '/compute-quota', label: '算力余额', icon: Gauge },
       { href: '/usage', label: nav.usage, icon: BarChart3 },
+      { href: '/audit', label: '安全与审计', icon: ShieldCheck, adminOnly: true },
     ],
   },
 ];
@@ -150,6 +153,7 @@ const CRUMBS: CrumbMap = {
   skills: nav.capabilities,
   wallet: '企业钱包',
   'compute-quota': '算力余额',
+  audit: '安全与审计',
   recharge: '充值',
   new: '新建',
   edit: '编辑',
@@ -174,7 +178,12 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
 
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
 
-  const statusDotStatus = 'offline' as const;
+  const employeeStatuses = useEmployeeStatus();
+  const statusDotStatus = Object.values(employeeStatuses).includes('busy')
+    ? 'busy'
+    : Object.values(employeeStatuses).includes('online')
+      ? 'online'
+      : ('offline' as const);
 
   // 先过滤整组，再过滤组内单项；两级都为空的组不渲染标题
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin)

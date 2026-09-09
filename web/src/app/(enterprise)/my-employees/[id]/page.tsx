@@ -22,6 +22,7 @@ import {
   Users,
   XCircle,
   Zap,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -120,6 +121,7 @@ export default function EmployeeDetailPage() {
   const employeeId = subscription?.employee?.id ?? '';
   const employeeQuery = useEmployeeDetail(employeeId);
   const statsQuery = useEmployeeStats(employeeId, days);
+  const todayStatsQuery = useEmployeeStats(employeeId, 1);
   // 会议 §6.2 要的是企业范围的「谁在用」，statsQuery 只算当前用户自己的会话
   const enterpriseUsageQuery = useEmployeeEnterpriseUsage(employeeId, days);
   const grantsQuery = useSubscriptionGrants(id);
@@ -300,15 +302,15 @@ export default function EmployeeDetailPage() {
         <TabsContent value="overview" className="mt-5 space-y-5">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
-              label="近 7 天调用"
-              value={stats?.summary.total ?? '—'}
+              label="今日调用"
+              value={todayStatsQuery.data?.summary.total ?? '—'}
               icon={<Activity className="h-4 w-4" />}
             />
             <Metric
               label="成功率"
               value={
-                stats && stats.summary.total > 0
-                  ? `${Math.round((stats.summary.successCount / stats.summary.total) * 100)}%`
+                todayStatsQuery.data && todayStatsQuery.data.summary.total > 0
+                  ? `${Math.round((todayStatsQuery.data.summary.successCount / todayStatsQuery.data.summary.total) * 100)}%`
                   : '—'
               }
               icon={<CheckCircle2 className="h-4 w-4" />}
@@ -316,7 +318,7 @@ export default function EmployeeDetailPage() {
             />
             <Metric
               label="平均响应"
-              value={stats ? formatDuration(stats.summary.avgDuration) : '—'}
+              value={todayStatsQuery.data ? formatDuration(todayStatsQuery.data.summary.avgDuration) : '—'}
               icon={<Clock3 className="h-4 w-4" />}
             />
             <Metric
@@ -325,6 +327,8 @@ export default function EmployeeDetailPage() {
               icon={<Zap className="h-4 w-4" />}
               tone="brand"
             />
+            <Metric label="Token 用量" value={stats ? stats.summary.totalTokens.toLocaleString() : '—'} icon={<Zap className="h-4 w-4" />} />
+            <Metric label="累计费用" value={stats ? `¥${stats.summary.costCNY.toFixed(4)}` : '—'} icon={<Wallet className="h-4 w-4" />} tone="brand" />
           </div>
           <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
             <Card className="p-5">
@@ -826,6 +830,8 @@ function TrendChart({
     total: number;
     success: number;
     failed: number;
+    tokens: number;
+    costCNY: number;
   }>;
 }) {
   const max = Math.max(...points.map((point) => point.total), 1);
@@ -833,8 +839,9 @@ function TrendChart({
     <p className="py-12 text-center text-sm text-gtext-muted">暂无运行数据</p>
   ) : (
     <div className="space-y-3">
+      <div className="grid grid-cols-[72px_1fr_72px_72px_40px] gap-3 text-[11px] text-gtext-muted"><span>日期</span><span>调用量</span><span className="text-right">Token</span><span className="text-right">费用</span><span className="text-right">次数</span></div>
       {points.map((point) => (
-        <div key={point.date} className="grid grid-cols-[72px_1fr_40px] items-center gap-3 text-xs">
+        <div key={point.date} className="grid grid-cols-[72px_1fr_72px_72px_40px] items-center gap-3 text-xs">
           <span className="text-gtext-muted">{point.date.slice(5)}</span>
           <div className="h-2 overflow-hidden rounded-full bg-glass-2">
             <div
@@ -844,6 +851,8 @@ function TrendChart({
               }}
             />
           </div>
+          <span className="text-right tabular-nums text-gtext-muted">{point.tokens.toLocaleString()}</span>
+          <span className="text-right tabular-nums text-gtext-muted">¥{point.costCNY.toFixed(4)}</span>
           <span className="text-right text-gtext-secondary">{point.total}</span>
         </div>
       ))}

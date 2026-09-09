@@ -6,7 +6,7 @@ export type NotificationSeverity = 'INFO' | 'WARNING' | 'ERROR';
 
 export interface Notification {
   id: string;
-  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
+  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CONTRIBUTION_ENTERPRISE_APPROVED' | 'CONTRIBUTION_ENTERPRISE_REJECTED' | 'CONTRIBUTION_PLATFORM_APPROVED' | 'CONTRIBUTION_PLATFORM_REJECTED' | 'CONTRIBUTION_REWARD_CREDITED' | 'SUBSCRIPTION_EXPIRING';
   title: string;
   message: string;
   relatedType?: string;
