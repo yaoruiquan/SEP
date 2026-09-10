@@ -34,7 +34,11 @@ export class TaskQueueService implements OnModuleInit, OnModuleDestroy {
     private readonly runner: TaskRunnerService,
   ) {}
 
-  onModuleInit() {
+  isReady(): boolean {
+    return this.queueReady;
+  }
+
+  async onModuleInit() {
     const connection = resolveRedisOptions(this.config);
 
     try {
@@ -56,12 +60,14 @@ export class TaskQueueService implements OnModuleInit, OnModuleDestroy {
         this.queueReady = false;
       });
 
+      await this.queue.waitUntilReady();
       this.queueReady = true;
       this.logger.log(`Task execution queue initialized (concurrency=3, queue=${QUEUE_NAME})`);
     } catch (error) {
       this.logger.warn(
         `Task execution queue unavailable, falling back to in-process execution: ${(error as Error).message}`,
       );
+      if (this.config.get('NODE_ENV') === 'production') throw error;
     }
   }
 

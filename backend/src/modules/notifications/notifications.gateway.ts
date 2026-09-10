@@ -11,6 +11,7 @@ import { Server, WebSocket } from 'ws';
 import { JwtService } from '@nestjs/jwt';
 import { forwardRef, Inject } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
+import { ConfigService } from '@nestjs/config';
 
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: string;
@@ -35,6 +36,7 @@ export class NotificationsGateway
   constructor(
     private readonly jwtService: JwtService,
     @Inject(forwardRef(() => NotificationsService)) private readonly notificationsService: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
 
   afterInit() {
@@ -43,6 +45,12 @@ export class NotificationsGateway
 
   async handleConnection(client: AuthenticatedWebSocket, req: any) {
     try {
+      const origin = req.headers.origin as string | undefined;
+      const allowed = (this.config.get<string>('CORS_ORIGIN') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+      if (allowed.length > 0 && (!origin || !allowed.includes(origin))) {
+        client.close(1008, 'Origin not allowed');
+        return;
+      }
       // 从查询参数中提取 token
       const url = new URL(req.url, `http://${req.headers.host}`);
       const token = url.searchParams.get('token');

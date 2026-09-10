@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, Job } from 'bullmq';
@@ -32,8 +33,9 @@ const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 分钟
 export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KnowledgeQueueService.name);
 
-  private queue: Queue<KnowledgeProcessingJob>;
-  private worker: Worker<KnowledgeProcessingJob>;
+  private queue?: Queue<KnowledgeProcessingJob>;
+  private worker?: Worker<KnowledgeProcessingJob>;
+  private queueReady = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -41,7 +43,11 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
     private readonly processor: DocumentProcessorService,
   ) {}
 
-  onModuleInit() {
+  isReady(): boolean {
+    return this.queueReady;
+  }
+
+  async onModuleInit() {
     const connection = resolveRedisOptions(this.config);
 
     this.queue = new Queue<KnowledgeProcessingJob>(QUEUE_NAME, { connection });
@@ -76,6 +82,22 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
         );
       }
     });
+    this.queue.on('error', (error) => {
+      this.queueReady = false;
+      this.logger.error(`Knowledge queue error: ${error.message}`);
+    });
+    this.worker.on('error', (error) => {
+      this.queueReady = false;
+      this.logger.error(`Knowledge worker error: ${error.message}`);
+    });
+    try {
+      await this.queue.waitUntilReady();
+      this.queueReady = true;
+    } catch (error) {
+      this.queueReady = false;
+      this.logger.error(`Knowledge queue unavailable: ${(error as Error).message}`);
+      if (this.config.get('NODE_ENV') === 'production') throw error;
+    }
 
     this.logger.log(
       `Knowledge processing queue initialized (concurrency=2, queue=${QUEUE_NAME})`,
@@ -99,7 +121,14 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
    * 失败重试 2 次（共 3 次尝试），指数退避 2s。
    */
   async enqueue(documentId: string) {
-    return this.queue.add(
+    if (!this.queueReady || !this.queue) {
+      if (this.config.get('NODE_ENV') === 'production') {
+        throw new ServiceUnavailableException('文档处理队列暂不可用，请稍后重试');
+      }
+      throw new ServiceUnavailableException('文档处理队列未初始化');
+    }
+    try {
+      return await this.queue.add(
       'process-document',
       { documentId },
       {
@@ -108,7 +137,11 @@ export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
         removeOnComplete: 100, // 保留最近 100 个成功任务
         removeOnFail: 500, // 保留最近 500 个失败任务
       },
-    );
+      );
+    } catch (error) {
+      this.queueReady = false;
+      throw new ServiceUnavailableException('文档处理队列暂不可用，请稍后重试', { cause: error as Error });
+    }
   }
 
   /**

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const RETENTION_DAYS = 90;
 
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
   constructor(private readonly prisma: PrismaService) {}
 
   async record(input: {
@@ -17,18 +18,28 @@ export class AuditService {
     summary?: string | null;
     metadata?: Record<string, unknown> | null;
   }) {
-    return this.prisma.auditLog.create({
-      data: {
-        actorId: input.actorId,
-        enterpriseId: input.enterpriseId ?? null,
-        action: input.action,
-        resourceType: input.resourceType,
-        resourceId: input.resourceId ?? null,
-        result: input.result ?? 'SUCCESS',
-        summary: input.summary ?? null,
-        metadata: input.metadata as any,
-      },
-    });
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.auditLog.create({
+          data: {
+            actorId: input.actorId,
+            enterpriseId: input.enterpriseId ?? null,
+            action: input.action,
+            resourceType: input.resourceType,
+            resourceId: input.resourceId ?? null,
+            result: input.result ?? 'SUCCESS',
+            summary: input.summary ?? null,
+            metadata: input.metadata as any,
+          },
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 50));
+      }
+    }
+    this.logger.error(`审计日志写入失败（已重试 3 次）: ${(lastError as Error)?.message ?? String(lastError)}`);
+    throw lastError;
   }
 
   async list(actor: { userId: string; role: 'ADMIN' | 'ENTERPRISE_ADMIN' | 'MEMBER'; enterpriseId?: string | null }, query: { actorId?: string; action?: string; from?: Date; to?: Date; page?: number; pageSize?: number }) {

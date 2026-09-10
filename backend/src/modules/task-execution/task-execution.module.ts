@@ -32,6 +32,6 @@ import { TaskStepExecutor } from './task-step-executor.service';
     TaskEventBus,
     TaskEventRecorder,
   ],
-  exports: [TaskExecutionService],
+  exports: [TaskExecutionService, TaskQueueService],
 })
 export class TaskExecutionModule {}

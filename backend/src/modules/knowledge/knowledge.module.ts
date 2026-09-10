@@ -21,9 +21,10 @@ import { LexicalSearchService } from './lexical-search.service';
 import { KnowledgeReindexService } from './knowledge-reindex.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  imports: [PrismaModule, EnterpriseModule],
+  imports: [PrismaModule, EnterpriseModule, ScheduleModule.forRoot()],
   controllers: [
     KnowledgeController,
     KnowledgeTestController,  // Must be before DocumentController to match /documents/status

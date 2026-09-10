@@ -3,10 +3,18 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
+import express from 'express';
 import { AppModule } from './app.module';
+import { requestContextMiddleware } from './common/middleware/request-context.middleware';
+import { basicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(requestContextMiddleware, basicRateLimitMiddleware);
+  app.use(express.json({ limit: process.env.REQUEST_JSON_LIMIT || '2mb' }));
+  app.use(express.urlencoded({ limit: process.env.REQUEST_URLENCODED_LIMIT || '2mb', extended: true }));
+  app.useGlobalFilters(new HttpExceptionFilter());
   app.use((req, res, next) => {
     const started = Date.now();
     res.on('finish', () => Logger.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - started}ms`, 'HTTP'));
