@@ -14,7 +14,8 @@ describe("ComputeCreditService.listUsageRecords 作用域", () => {
   let prisma: any;
   let svc: ComputeCreditService;
 
-  const whereOf = () => prisma.computeUsageRecord.findMany.mock.calls[0][0].where;
+  const whereOf = () =>
+    prisma.computeUsageRecord.findMany.mock.calls[0][0].where;
 
   beforeEach(() => {
     prisma = {
@@ -73,5 +74,33 @@ describe("ComputeCreditService.listUsageRecords 作用域", () => {
     expect(prisma.computeUsageRecord.count.mock.calls[0][0].where).toEqual(
       whereOf(),
     );
+  });
+
+  it("分页参数被限制在 1..100，避免一次查询拖垮数据库", async () => {
+    const result = await svc.listUsageRecords("ent-1", {
+      page: 0,
+      pageSize: 9999,
+    });
+
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(100);
+    expect(prisma.computeUsageRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 100 }),
+    );
+  });
+
+  it("拒绝无效或倒置的日期范围，而不是把 Invalid Date 传给 Prisma", async () => {
+    await expect(
+      svc.listUsageRecords("ent-1", { startDate: "not-a-date" }),
+    ).rejects.toThrow("startDate 必须是有效日期");
+
+    await expect(
+      svc.listUsageRecords("ent-1", {
+        startDate: "2026-09-10",
+        endDate: "2026-09-01",
+      }),
+    ).rejects.toThrow("startDate 不能晚于 endDate");
+
+    expect(prisma.computeUsageRecord.count).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { startOfDay, endOfDay, subDays, startOfMonth, format } from 'date-fns';
 import type { CostSummary, CostByDimensionItem, CostTrendPoint } from 'shared';
+
+const MAX_EMPLOYEE_LIMIT = 100;
+
+function assertValidDateRange(from?: Date, to?: Date): void {
+  for (const [name, value] of [
+    ['from', from],
+    ['to', to],
+  ] as const) {
+    if (value !== undefined && (!(value instanceof Date) || Number.isNaN(value.getTime()))) {
+      throw new BadRequestException(`${name} 必须是有效日期`);
+    }
+  }
+  if (from && to && from > to) {
+    throw new BadRequestException('from 不能晚于 to');
+  }
+}
 
 @Injectable()
 export class CostAnalyticsService {
@@ -15,6 +31,7 @@ export class CostAnalyticsService {
     from?: Date,
     to?: Date,
   ): Promise<CostSummary> {
+    assertValidDateRange(from, to);
     const periodStart = from ?? startOfMonth(new Date());
     const periodEnd = to ?? endOfDay(new Date());
 
@@ -62,6 +79,7 @@ export class CostAnalyticsService {
     from?: Date,
     to?: Date,
   ): Promise<CostByDimensionItem[]> {
+    assertValidDateRange(from, to);
     const periodStart = from ?? startOfMonth(new Date());
     const periodEnd = to ?? endOfDay(new Date());
 
@@ -110,6 +128,11 @@ export class CostAnalyticsService {
     to?: Date,
     limit = 20,
   ): Promise<CostByDimensionItem[]> {
+    assertValidDateRange(from, to);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new BadRequestException('limit 必须是大于 0 的整数');
+    }
+    const safeLimit = Math.min(limit, MAX_EMPLOYEE_LIMIT);
     const periodStart = from ?? startOfMonth(new Date());
     const periodEnd = to ?? endOfDay(new Date());
 
@@ -143,7 +166,7 @@ export class CostAnalyticsService {
         AND m."createdAt" <= ${periodEnd}
       GROUP BY u.id, u.name, u.email
       ORDER BY "cost" DESC
-      LIMIT ${limit}
+      LIMIT ${safeLimit}
     `;
 
     const total = rows.reduce((sum, r) => sum + r.cost, 0);
@@ -166,6 +189,7 @@ export class CostAnalyticsService {
     from?: Date,
     to?: Date,
   ): Promise<CostByDimensionItem[]> {
+    assertValidDateRange(from, to);
     const periodStart = from ?? startOfMonth(new Date());
     const periodEnd = to ?? endOfDay(new Date());
 
@@ -204,6 +228,10 @@ export class CostAnalyticsService {
     from?: Date,
     to?: Date,
   ): Promise<CostTrendPoint[]> {
+    assertValidDateRange(from, to);
+    if (!['day', 'week', 'month'].includes(granularity)) {
+      throw new BadRequestException('granularity 仅支持 day、week 或 month');
+    }
     const periodEnd = to ?? endOfDay(new Date());
     const defaultDays = granularity === 'day' ? 30 : granularity === 'week' ? 84 : 365;
     const periodStart = from ?? subDays(periodEnd, defaultDays);
@@ -255,6 +283,7 @@ export class CostAnalyticsService {
     from?: Date,
     to?: Date,
   ): Promise<Buffer> {
+    assertValidDateRange(from, to);
     const periodStart = from ?? startOfMonth(new Date());
     const periodEnd = to ?? endOfDay(new Date());
 

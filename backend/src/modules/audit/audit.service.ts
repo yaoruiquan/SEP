@@ -1,7 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const RETENTION_DAYS = 90;
+export const AUDIT_EXPORT_MAX_ROWS = 5_000;
+
+type AuditActor = {
+  userId: string;
+  role: 'ADMIN' | 'ENTERPRISE_ADMIN' | 'MEMBER';
+  enterpriseId?: string | null;
+};
+
+type AuditQuery = {
+  actorId?: string;
+  action?: string;
+  from?: Date;
+  to?: Date;
+  page?: number;
+  pageSize?: number;
+};
 
 @Injectable()
 export class AuditService {
@@ -42,29 +58,65 @@ export class AuditService {
     throw lastError;
   }
 
-  async list(actor: { userId: string; role: 'ADMIN' | 'ENTERPRISE_ADMIN' | 'MEMBER'; enterpriseId?: string | null }, query: { actorId?: string; action?: string; from?: Date; to?: Date; page?: number; pageSize?: number }) {
-    const page = Math.max(1, query.page ?? 1);
-    const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 50));
+  async list(actor: AuditActor, query: AuditQuery) {
+    const page = this.normalizeInteger(query.page, 1);
+    const pageSize = this.normalizeInteger(query.pageSize, 50, 100);
+    const where = this.buildWhere(actor, query);
+    const include = this.auditInclude();
+    const [total, items] = await Promise.all([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include }),
+    ]);
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) || 1 };
+  }
+
+  async csv(actor: AuditActor, query: AuditQuery) {
+    const where = this.buildWhere(actor, query);
+    const total = await this.prisma.auditLog.count({ where });
+    if (total > AUDIT_EXPORT_MAX_ROWS) {
+      throw new BadRequestException(`当前筛选命中 ${total} 条审计日志，单次最多导出 ${AUDIT_EXPORT_MAX_ROWS} 条，请缩小时间范围或分批导出`);
+    }
+
+    const items = await this.prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: AUDIT_EXPORT_MAX_ROWS,
+      include: this.auditInclude(),
+    });
+    const esc = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const lines = ['时间,操作人,企业,操作,资源类型,资源ID,结果,摘要'];
+    for (const item of items) lines.push([item.createdAt.toISOString(), item.actor.name ?? item.actor.email, item.enterprise?.name, item.action, item.resourceType, item.resourceId, item.result, item.summary].map(esc).join(','));
+    return `\ufeff${lines.join('\n')}`;
+  }
+
+  private normalizeInteger(value: number | undefined, fallback: number, max?: number): number {
+    if (value === undefined || !Number.isInteger(value)) return fallback;
+    const normalized = Math.max(1, value);
+    return max === undefined ? normalized : Math.min(max, normalized);
+  }
+
+  private buildWhere(actor: AuditActor, query: AuditQuery): any {
+    this.assertValidDateRange(query.from, query.to);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
-    const where: any = {
+    return {
       createdAt: { gte: query.from && query.from > cutoff ? query.from : cutoff, ...(query.to ? { lte: query.to } : {}) },
       ...(query.actorId ? { actorId: query.actorId } : {}),
       ...(query.action ? { action: query.action } : {}),
       ...(actor.role === 'ENTERPRISE_ADMIN' ? { enterpriseId: actor.enterpriseId ?? '__missing__' } : {}),
     };
-    const [total, items] = await Promise.all([
-      this.prisma.auditLog.count({ where }),
-      this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { actor: { select: { id: true, name: true, email: true } }, enterprise: { select: { id: true, name: true } } } }),
-    ]);
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) || 1 };
   }
 
-  async csv(actor: { userId: string; role: 'ADMIN' | 'ENTERPRISE_ADMIN' | 'MEMBER'; enterpriseId?: string | null }, query: Parameters<AuditService['list']>[1]) {
-    const result = await this.list(actor, { ...query, page: 1, pageSize: 10000 });
-    const esc = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const lines = ['时间,操作人,企业,操作,资源类型,资源ID,结果,摘要'];
-    for (const item of result.items) lines.push([item.createdAt.toISOString(), item.actor.name ?? item.actor.email, item.enterprise?.name, item.action, item.resourceType, item.resourceId, item.result, item.summary].map(esc).join(','));
-    return `\ufeff${lines.join('\n')}`;
+  private assertValidDateRange(from?: Date, to?: Date): void {
+    for (const [name, value] of [['from', from], ['to', to]] as const) {
+      if (value !== undefined && (!(value instanceof Date) || Number.isNaN(value.getTime()))) {
+        throw new BadRequestException(`${name} 必须是有效日期`);
+      }
+    }
+    if (from && to && from > to) throw new BadRequestException('from 不能晚于 to');
+  }
+
+  private auditInclude() {
+    return { actor: { select: { id: true, name: true, email: true } }, enterprise: { select: { id: true, name: true } } };
   }
 }

@@ -22,7 +22,7 @@ interface AuthenticatedWebSocket extends WebSocket {
  * WebSocket 网关 - 实时推送通知
  *
  * 使用原生 WebSocket (ws)，与前端 use-websocket.ts 兼容
- * 令牌通过 `sep-auth.<JWT>` 握手子协议传递，不进入 URL。
+ * JWT 在连接建立后通过首条 `auth` JSON 消息传递，不进入 URL 或握手子协议。
  */
 @WebSocketGateway({ path: '/ws/notifications' })
 export class NotificationsGateway

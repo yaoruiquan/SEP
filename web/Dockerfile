@@ -1,5 +1,5 @@
 # ── Stage 1: Install dependencies ────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20.19.0-alpine3.21 AS deps
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15 --activate
@@ -11,7 +11,7 @@ COPY backend/package.json ./backend/
 RUN pnpm install --frozen-lockfile --filter web... --filter backend...
 
 # ── Stage 2: Build ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20.19.0-alpine3.21 AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15 --activate
@@ -32,7 +32,7 @@ ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN pnpm --filter web run build
 
 # ── Stage 3: Runner ───────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20.19.0-alpine3.21 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -48,7 +48,13 @@ COPY --from=builder /app/web/node_modules ./web/node_modules
 COPY --from=builder /app/web/.next ./web/.next
 COPY --from=builder /app/web/public ./web/public
 
+# next start may write runtime cache/trace files below .next. The runner is
+# intentionally non-root, so make the complete self-contained app readable and
+# writable by the runtime user before dropping privileges.
+RUN chown -R node:node /app
+
 EXPOSE 3000
 
 WORKDIR /app/web
+USER node
 CMD ["node_modules/.bin/next", "start"]

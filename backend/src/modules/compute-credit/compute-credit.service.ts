@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  BadRequestException,
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
@@ -636,15 +637,26 @@ export class ComputeCreditService {
 
     if (query.startDate || query.endDate) {
       const createdAt: Prisma.DateTimeFilter = {};
+      let start: Date | undefined;
+      let end: Date | undefined;
       if (query.startDate) {
-        const start = new Date(query.startDate);
+        start = new Date(query.startDate);
+        if (Number.isNaN(start.getTime())) {
+          throw new BadRequestException("startDate 必须是有效日期");
+        }
         start.setHours(0, 0, 0, 0);
         createdAt.gte = start;
       }
       if (query.endDate) {
-        const end = new Date(query.endDate);
+        end = new Date(query.endDate);
+        if (Number.isNaN(end.getTime())) {
+          throw new BadRequestException("endDate 必须是有效日期");
+        }
         end.setHours(23, 59, 59, 999);
         createdAt.lte = end;
+      }
+      if (start && end && start > end) {
+        throw new BadRequestException("startDate 不能晚于 endDate");
       }
       where.createdAt = createdAt;
     }

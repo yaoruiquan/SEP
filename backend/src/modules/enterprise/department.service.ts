@@ -57,9 +57,10 @@ export class DepartmentService {
 
     const roots: DepartmentTreeNode[] = [];
     for (const node of byId.values()) {
-      if (node.parentId) {
-        // 父节点必然同企业（下方 create/update 保证），找不到则视为根
-        byId.get(node.parentId)?.children.push(node) ?? roots.push(node);
+      // 父节点必然同企业（下方 create/update 保证），找不到则视为根
+      const parent = node.parentId ? byId.get(node.parentId) : undefined;
+      if (parent) {
+        parent.children.push(node);
       } else {
         roots.push(node);
       }

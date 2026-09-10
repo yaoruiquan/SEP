@@ -1,5 +1,5 @@
 # ── Stage 1: Install dependencies ────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20.19.0-alpine3.21 AS deps
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15 --activate
@@ -10,7 +10,7 @@ COPY backend/package.json ./backend/
 RUN pnpm install --frozen-lockfile --filter backend...
 
 # ── Stage 2: Build ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20.19.0-alpine3.21 AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15 --activate
@@ -41,7 +41,7 @@ WORKDIR /app
 CMD ["sh", "-c", "pnpm --filter backend exec prisma migrate deploy"]
 
 # ── Stage 4: Runner ───────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20.19.0-alpine3.21 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -55,7 +55,9 @@ COPY --from=builder /app/backend/dist ./dist
 # prisma schema + migrations（供运行时读取）
 COPY --from=builder /app/backend/prisma ./prisma
 
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chown -R node:node /app
+
+USER node
 
 EXPOSE 3001
 

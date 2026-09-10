@@ -171,7 +171,7 @@ export class TaskService {
   }
 
   async list(userId: string, q: TaskQuery) {
-    let where: any = {};
+    const where: any = {};
 
     if (q.scope === 'enterprise') {
       const m = await this.membership(userId);

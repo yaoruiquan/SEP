@@ -7,17 +7,34 @@ import { ConfigService } from '@nestjs/config';
 
 interface Client extends WebSocket { userId?: string; authTimer?: NodeJS.Timeout }
 
+type EmployeeStatuses = Awaited<ReturnType<EnterpriseService['getEmployeeStatuses']>>;
+type StatusCacheEntry = { expiresAt: number; value: EmployeeStatuses };
+
+const STATUS_BROADCAST_INTERVAL_MS = 3_000;
+const STATUS_CACHE_TTL_MS = 2_500;
+const MAX_CONCURRENT_STATUS_QUERIES = 8;
+
 @WebSocketGateway({ path: '/ws/employee-status' })
 export class EmployeeStatusGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer() server!: Server;
   private readonly logger = new Logger(EmployeeStatusGateway.name);
   private readonly clients = new Map<string, Set<Client>>();
+  private readonly statusCache = new Map<string, StatusCacheEntry>();
+  private readonly statusRequests = new Map<string, Promise<EmployeeStatuses>>();
+  private readonly statusQueryWaiters: Array<() => void> = [];
+  private activeStatusQueries = 0;
+  private broadcastInProgress = false;
   private timer?: NodeJS.Timeout;
 
   constructor(private readonly jwt: JwtService, private readonly enterprise: EnterpriseService, private readonly config: ConfigService) {}
 
-  onModuleInit() { this.timer = setInterval(() => void this.broadcast(), 1000); }
-  onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
+  onModuleInit() { this.timer = setInterval(() => void this.broadcast(), STATUS_BROADCAST_INTERVAL_MS); }
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+    this.statusCache.clear();
+    this.statusRequests.clear();
+    this.statusQueryWaiters.length = 0;
+  }
 
   async handleConnection(client: Client, req: any) {
     try {
@@ -49,19 +66,73 @@ export class EmployeeStatusGateway implements OnGatewayConnection, OnGatewayDisc
     if (!client.userId) return;
     const set = this.clients.get(client.userId);
     set?.delete(client);
-    if (set && set.size === 0) this.clients.delete(client.userId);
+    if (!set || set.size === 0) {
+      this.clients.delete(client.userId);
+      this.statusCache.delete(client.userId);
+    }
   }
 
   private async broadcast() {
-    for (const [userId, clients] of this.clients) {
-      try { const statuses = await this.enterprise.getEmployeeStatuses(userId); const payload = JSON.stringify({ type: 'status_update', data: statuses, timestamp: Date.now() });
-        for (const client of clients) if (client.readyState === WebSocket.OPEN) client.send(payload);
-      } catch (error) { this.logger.debug(`status broadcast failed: ${(error as Error).message}`); }
+    if (this.broadcastInProgress) return;
+    this.broadcastInProgress = true;
+    try {
+      const entries = Array.from(this.clients.entries());
+      await Promise.all(entries.map(async ([userId, clients]) => {
+        try {
+          const statuses = await this.getStatuses(userId);
+          const payload = JSON.stringify({ type: 'status_update', data: statuses, timestamp: Date.now() });
+          for (const client of clients) {
+            if (client.readyState === WebSocket.OPEN && this.clients.get(userId)?.has(client)) client.send(payload);
+          }
+        } catch (error) {
+          this.logger.debug(`status broadcast failed: ${(error as Error).message}`);
+        }
+      }));
+    } finally {
+      this.broadcastInProgress = false;
     }
   }
 
   private async sendStatuses(client: Client, userId: string) {
-    const statuses = await this.enterprise.getEmployeeStatuses(userId);
-    if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'status_update', data: statuses, timestamp: Date.now() }));
+    const statuses = await this.getStatuses(userId);
+    if (client.readyState === WebSocket.OPEN && this.clients.get(userId)?.has(client)) {
+      client.send(JSON.stringify({ type: 'status_update', data: statuses, timestamp: Date.now() }));
+    }
+  }
+
+  private getStatuses(userId: string): Promise<EmployeeStatuses> {
+    const cached = this.statusCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
+
+    const inFlight = this.statusRequests.get(userId);
+    if (inFlight) return inFlight;
+
+    const request = this.runStatusQuery(async () => {
+      const value = await this.enterprise.getEmployeeStatuses(userId);
+      // A disconnected user must not leave a cache entry behind when its slow
+      // request resolves after the last socket has gone away.
+      if (this.clients.has(userId)) {
+        this.statusCache.set(userId, { value, expiresAt: Date.now() + STATUS_CACHE_TTL_MS });
+      }
+      return value;
+    }).finally(() => {
+      this.statusRequests.delete(userId);
+    });
+    this.statusRequests.set(userId, request);
+    return request;
+  }
+
+  private async runStatusQuery<T>(query: () => Promise<T>): Promise<T> {
+    if (this.activeStatusQueries >= MAX_CONCURRENT_STATUS_QUERIES) {
+      await new Promise<void>((resolve) => this.statusQueryWaiters.push(resolve));
+    }
+
+    this.activeStatusQueries += 1;
+    try {
+      return await query();
+    } finally {
+      this.activeStatusQueries -= 1;
+      this.statusQueryWaiters.shift()?.();
+    }
   }
 }

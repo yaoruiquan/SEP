@@ -15,6 +15,9 @@ import { CostAnalyticsService } from './cost-analytics.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import type { CostSummary, CostByDimensionItem, CostTrendPoint } from 'shared';
 
+const DEFAULT_EMPLOYEE_LIMIT = 20;
+const MAX_EMPLOYEE_LIMIT = 100;
+
 @ApiTags('Cost Analytics')
 @Controller('enterprises/:enterpriseId/cost')
 @UseGuards(JwtAuthGuard)
@@ -72,12 +75,15 @@ export class CostAnalyticsController {
   ): Promise<CostByDimensionItem[]> {
     const fromDate = from ? new Date(from) : undefined;
     const toDate = to ? new Date(to) : undefined;
-    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const limitNum = limit === undefined ? DEFAULT_EMPLOYEE_LIMIT : Number(limit);
+    if (!Number.isInteger(limitNum) || limitNum < 1) {
+      throw new BadRequestException('limit 必须是大于 0 的整数');
+    }
     return this.costService.getByEmployee(
       await this.authorizedEnterpriseId(req.user.id, enterpriseId),
       fromDate,
       toDate,
-      limitNum,
+      Math.min(limitNum, MAX_EMPLOYEE_LIMIT),
     );
   }
 
