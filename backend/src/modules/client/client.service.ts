@@ -262,7 +262,10 @@ export class ClientService {
     if (!subscription) {
       throw new NotFoundException(`Subscription ${dto.subscriptionId} not found`);
     }
-    if (subscription.status !== 'ACTIVE') {
+    if (
+      subscription.status !== 'ACTIVE' ||
+      (subscription.endDate !== null && subscription.endDate <= new Date())
+    ) {
       throw new BadRequestException('Subscription is not active');
     }
 
@@ -339,7 +342,11 @@ export class ClientService {
           ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
         ],
         AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
-        subscription: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
+        subscription: {
+          enterpriseId: ctx.enterpriseId,
+          status: 'ACTIVE',
+          OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
+        },
       },
       include: {
         subscription: { include: { employee: { select: { id: true, name: true, avatar: true, version: true } } } },

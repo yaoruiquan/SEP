@@ -40,12 +40,23 @@ import { TaskExecutionModule } from './modules/task-execution/task-execution.mod
 import { AuditModule } from './modules/audit/audit.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['../.env', '.env'],
+      validate: (env) => {
+        if (env.NODE_ENV === 'production') {
+          const secret = env.JWT_SECRET;
+          if (!secret || secret.length < 32 || secret === 'sep-jwt-secret-change-in-production' || secret === 'dev-secret-key') {
+            throw new Error('生产环境必须配置长度至少 32 的随机 JWT_SECRET');
+          }
+          if (!env.CORS_ORIGIN) throw new Error('生产环境必须配置 CORS_ORIGIN');
+        }
+        return env;
+      },
     }),
     PrismaModule,
     RedisModule,
@@ -88,6 +99,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     // 「CRUD 是底座，执行是上层」的读法。
     TaskExecutionModule,
     AuditModule,
+    HealthModule,
   ],
   controllers: [],
   providers: [{ provide: APP_INTERCEPTOR, useClass: AuditInterceptor }],

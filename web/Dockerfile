@@ -26,6 +26,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # API_ORIGIN 在构建时烘入路由清单（next.config.mjs 在 build 时读取）
 ARG API_ORIGIN=http://localhost:3001
 ENV API_ORIGIN=$API_ORIGIN
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:3001
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
 RUN pnpm --filter web run build
 

@@ -10,6 +10,7 @@ import { EnterpriseController } from "./enterprise.controller";
 import { DigitalEmployeeModule } from "../digital-employee/digital-employee.module";
 import { EmployeeStatusGateway } from './employee-status.gateway';
 import { JwtModule } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * 企业上下文是多租户隔离的基础设施，几乎每个业务模块都要用，
@@ -35,7 +36,15 @@ import { JwtModule } from '@nestjs/jwt';
   // GrantService 需要 PackageService 来标注哪些模板有包可下。
   // 反向不成立（DigitalEmployeeModule 不 import 本模块，
   // 它用的 EnterpriseContextService 靠 @Global 拿到），故不成环。
-  imports: [DigitalEmployeeModule, JwtModule.register({ secret: process.env.JWT_SECRET || 'dev-secret-key' })],
+  imports: [
+    DigitalEmployeeModule,
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get('JWT_SECRET') || 'sep-jwt-secret-change-in-production',
+      }),
+    }),
+  ],
   controllers: [EnterpriseController],
   providers: [
     EnterpriseContextService,

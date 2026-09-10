@@ -379,9 +379,13 @@ export class GrantService {
   ) {
     const sub = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
-      select: { id: true, enterpriseId: true, status: true },
+      select: { id: true, enterpriseId: true, status: true, endDate: true },
     });
-    if (!sub || sub.enterpriseId !== enterpriseId) {
+    if (
+      !sub ||
+      sub.enterpriseId !== enterpriseId ||
+      (sub.endDate !== null && sub.endDate <= new Date())
+    ) {
       throw new NotFoundException(`雇佣关系 ${subscriptionId} 不存在`);
     }
     return sub;

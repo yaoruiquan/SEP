@@ -421,6 +421,15 @@ export class SubscriptionService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
+    // 退款金额以实际扣款流水为准，避免 1/6/24 个月订单被按年费退款。
+    // 兼容历史订阅：没有关联流水时回退到当前员工年费。
+    const paidTransaction = sub.walletTransactionId
+      ? await this.prisma.walletTransaction.findUnique({
+          where: { id: sub.walletTransactionId },
+          select: { amount: true },
+        })
+      : null;
+
     // 计算是否在试用期内（7 天）
     const now = new Date();
     const trialEndDate = new Date(sub.startDate);
@@ -432,10 +441,12 @@ export class SubscriptionService {
       let refundAmount = 0;
       let refundTransactionId: string | null = null;
 
-      if (isWithinTrial && employee.annualPriceCNY) {
+      if (isWithinTrial && (paidTransaction?.amount || employee.annualPriceCNY)) {
         // 试用期内全额退**订阅费**。未用完的赠送算力不折现、不退回（见开发计划）：
         // 赠送额度不是企业付过的钱，退它等于凭空发钱。
-        refundAmount = employee.annualPriceCNY.toNumber();
+        refundAmount = paidTransaction
+          ? Math.abs(paidTransaction.amount.toNumber())
+          : employee.annualPriceCNY!.toNumber();
         const refundTransaction = await this.walletService.refund(
           ctx.enterpriseId,
           refundAmount,
@@ -485,7 +496,11 @@ export class SubscriptionService {
         },
       },
     });
-    if (!sub || sub.status !== 'ACTIVE') {
+    if (
+      !sub ||
+      sub.status !== 'ACTIVE' ||
+      (sub.endDate !== null && sub.endDate <= new Date())
+    ) {
       throw new ForbiddenException('Active subscription required to start a conversation');
     }
   }

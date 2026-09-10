@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
 import { resolveRedisOptions } from '../../redis/redis-connection';
@@ -90,12 +90,18 @@ export class TaskQueueService implements OnModuleInit, OnModuleDestroy {
         );
         return;
       } catch (error) {
+        if (this.config.get('NODE_ENV') === 'production') {
+          throw new ServiceUnavailableException('任务队列暂不可用，请稍后重试');
+        }
         this.logger.warn(`Enqueue failed, running in process: ${(error as Error).message}`);
       }
     }
 
+    if (this.config.get('NODE_ENV') === 'production') {
+      throw new ServiceUnavailableException('任务队列暂不可用，请稍后重试');
+    }
+
     // 开发机没起 Redis 时的退路：进程内跑，不阻塞请求。
-    // 生产不会走到这里 —— 那边 Redis 是 compose 里的必需服务。
     void this.runner
       .advance(taskRunId)
       .catch((error: Error) =>

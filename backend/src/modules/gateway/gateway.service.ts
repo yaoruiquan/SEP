@@ -31,7 +31,12 @@ export class GatewayService {
 
     // 1. 检查订阅状态
     const subscription = await this.prisma.subscription.findFirst({
-      where: { id: subscriptionId, enterpriseId, status: 'ACTIVE' },
+      where: {
+        id: subscriptionId,
+        enterpriseId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
+      },
     });
     if (!subscription) {
       throw new ForbiddenException('订阅不存在、已停用或不属于该企业');

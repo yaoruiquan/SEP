@@ -770,6 +770,13 @@ export const SubscriptionCreateDtoSchema = z.object({
 
 export type SubscriptionCreateDto = z.infer<typeof SubscriptionCreateDtoSchema>;
 
+export const WalletAdjustDtoSchema = z.object({
+  enterpriseId: z.string().min(1),
+  amount: z.number().finite().refine((value) => value !== 0, '调整金额不能为 0'),
+  reason: z.string().trim().min(1).max(500),
+});
+export type WalletAdjustDto = z.infer<typeof WalletAdjustDtoSchema>;
+
 /**
  * 修改雇佣关系。收敛后没有 departmentId ——
  * 部门差异化由 EmployeeGrant / KnowledgeGrant 的 departmentId 表达，

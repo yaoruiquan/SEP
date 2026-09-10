@@ -14,11 +14,13 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { WalletService } from './wallet.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { WalletTransactionType } from '@prisma/client';
+import { WalletTransactionType, UserRole } from '@prisma/client';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { PaymentService } from '../payment/payment.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
-import { ComputeReserveDtoSchema, type ComputeReserveDto } from 'shared';
+import { ComputeReserveDtoSchema, WalletAdjustDtoSchema, type ComputeReserveDto, type WalletAdjustDto } from 'shared';
 
 @ApiTags('wallet')
 @ApiBearerAuth()
@@ -165,13 +167,14 @@ export class WalletController {
   }
 
   @Post('adjust')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '管理员手动调整余额（仅平台运营）' })
   @ApiResponse({ status: 201, description: '调整成功' })
   async adjust(
     @Request() req,
-    @Body() dto: { enterpriseId: string; amount: number; reason: string },
+    @Body(new ZodValidationPipe(WalletAdjustDtoSchema)) dto: WalletAdjustDto,
   ) {
-    // TODO: 检查是否为平台管理员（req.user.role === 'ADMIN'）
     return this.walletService.adjust(
       dto.enterpriseId,
       dto.amount,

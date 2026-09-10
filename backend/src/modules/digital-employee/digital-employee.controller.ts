@@ -58,6 +58,7 @@ export class DigitalEmployeeController {
   }
 
   @Get()
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '获取数字员工列表' })
   @ApiQuery({ name: 'status', required: false, description: 'DRAFT | APPROVED | ARCHIVED' })
   @ApiResponse({ status: 200, description: '数字员工列表' })
@@ -66,6 +67,7 @@ export class DigitalEmployeeController {
   }
 
   @Get(':id')
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '获取数字员工详情' })
   @ApiParam({ name: 'id', description: '数字员工 ID' })
   @ApiResponse({ status: 200, description: '数字员工详情' })

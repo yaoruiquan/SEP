@@ -29,6 +29,8 @@ x-backend-environment: &backend-environment
   API_BASE_URL: https://longdaoSEP.cn/api
   WEB_BASE_URL: https://longdaoSEP.cn
   FRONTEND_URL: https://longdaoSEP.cn
+  CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+  NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:?NEXT_PUBLIC_WS_URL is required}
   ALIPAY_SANDBOX_MODE: "false"
   TZ: Asia/Shanghai
 
@@ -82,6 +84,7 @@ services:
       dockerfile: web/Dockerfile
       args:
         API_ORIGIN: http://sep-blue-backend:3001
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
     image: sep-blue-web:${DEPLOY_TAG:-local}
     container_name: sep-blue-web
     depends_on:
@@ -103,6 +106,7 @@ services:
       dockerfile: web/Dockerfile
       args:
         API_ORIGIN: http://sep-green-backend:3001
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
     image: sep-green-web:${DEPLOY_TAG:-local}
     container_name: sep-green-web
     depends_on:

@@ -12,6 +12,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { AnnouncementService, CreateAnnouncementDto, UpdateAnnouncementDto } from './announcement.service';
 
 @ApiTags('Announcements')
@@ -33,7 +36,8 @@ export class AnnouncementController {
    * 创建公告（运营端 - 需要管理员权限）
    */
   @Post('admin/announcements')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '创建公告（运营端）' })
   @ApiResponse({ status: 201, description: '公告创建成功' })
@@ -50,7 +54,8 @@ export class AnnouncementController {
    * 获取公告列表（运营端）
    */
   @Get('admin/announcements')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取公告列表（运营端）' })
   @ApiResponse({ status: 200, description: '返回公告列表（包含未发布的）' })
@@ -68,7 +73,8 @@ export class AnnouncementController {
    * 获取单个公告详情（运营端）
    */
   @Get('admin/announcements/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取公告详情（运营端）' })
   @ApiResponse({ status: 200, description: '返回公告详情' })
@@ -80,7 +86,8 @@ export class AnnouncementController {
    * 更新公告（运营端）
    */
   @Patch('admin/announcements/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '更新公告（运营端）' })
   @ApiResponse({ status: 200, description: '公告更新成功' })
@@ -97,7 +104,8 @@ export class AnnouncementController {
    * 删除公告（运营端）
    */
   @Delete('admin/announcements/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '删除公告（运营端）' })
   @ApiResponse({ status: 200, description: '公告删除成功' })
@@ -109,7 +117,8 @@ export class AnnouncementController {
    * 发布/取消发布公告（运营端）
    */
   @Patch('admin/announcements/:id/publish')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: '发布/取消发布公告（运营端）' })
   @ApiResponse({ status: 200, description: '操作成功' })
