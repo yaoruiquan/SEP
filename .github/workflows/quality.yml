@@ -1,0 +1,59 @@
+name: Quality Gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, typecheck, test & build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        working-directory: backend
+        run: pnpm db:generate
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: pnpm typecheck
+
+      - name: Backend lint
+        working-directory: backend
+        run: pnpm exec eslint "src/**/*.ts"
+
+      - name: Backend unit tests
+        working-directory: backend
+        run: pnpm test
+
+      - name: Web typecheck
+        working-directory: web
+        run: pnpm exec tsc --noEmit
+
+      - name: Web unit tests
+        working-directory: web
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm build

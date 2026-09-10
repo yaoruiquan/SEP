@@ -97,7 +97,7 @@ cd /opt/sep/app/deploy/production
 
 # 使用保护脚本：迁移前会检查共享数据库和 Redis，只操作 SEP 容器
 chmod +x ./sep-deploy.sh
-./sep-deploy.sh deploy
+DEPLOY_SHA="$(git rev-parse HEAD)" ./sep-deploy.sh deploy
 
 # 查看日志
 ./sep-deploy.sh logs
@@ -133,7 +133,8 @@ curl -I https://你的域名
 cd /opt/sep/app
 git pull
 cd deploy/production
-./sep-deploy.sh deploy
+# 脚本不会在发布过程中再次 pull；可由 CI 传入完整 SHA 做一致性校验。
+DEPLOY_SHA="$(git rev-parse HEAD)" ./sep-deploy.sh deploy
 
 # 查看日志
 ./sep-deploy.sh logs sep-backend
@@ -142,6 +143,27 @@ cd deploy/production
 # 停止 SEP 应用（不会停止共享 PostgreSQL、Redis 或 Caddy）
 docker stop sep-backend sep-web 2>/dev/null || true
 ```
+
+## 蓝绿发布与回滚
+
+CI 应在服务器 checkout 后把待发布的完整 commit SHA 传给脚本：
+
+```bash
+DEPLOY_SHA="$GITHUB_SHA" \
+SEP_POST_DEPLOY_CHECKS=6 \
+SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
+./sep-deploy.sh deploy-bluegreen
+```
+
+脚本会用该 SHA 生成默认镜像标签（短 SHA），并拒绝部署到不同 checkout。候选色会同时启动后端和前端，readiness 通过后 Caddy 的 Web 与 `/ws/*` upstream 一起切换；旧色会在发布后观察期和排空时间内保持运行。观察失败时脚本会自动切回旧色并停止候选色，Caddy reload 或配置校验失败也会恢复切换前的备份。
+
+观察通过后才会停止旧色。手动回滚使用：
+
+```bash
+./sep-deploy.sh rollback-bluegreen
+```
+
+`deploy/production/test-sep-deploy.sh` 是 mock-only 回归测试，不连接 Docker daemon，不执行真实发布。
 
 ## 故障恢复
 

@@ -1,5 +1,9 @@
-# The deployment script replaces the upstream target in the production Caddyfile.
-# Keep this snippet as the reference for the expected route shape:
+# The deployment script replaces both upstream targets in the production Caddyfile.
+# Web and WebSocket traffic must switch to the same color as one release unit:
+# @sep_ws path /ws/*
+# reverse_proxy @sep_ws sep-blue-backend:3001 {
+#     header_up X-Real-IP {remote_host}
+# }
 # reverse_proxy sep-blue-web:3000 {
 #     flush_interval -1
 # }

@@ -9,7 +9,15 @@ your-sep-domain.com {
 
     # TLS 由 Caddy 自动向 Let's Encrypt 申请（域名 DNS 必须已指向本服务器）
 
-    # 所有请求走 Next.js；/api/* 由 Next.js 内部 rewrite 转发到 sep-backend
+    # WebSocket 直接转发后端；JWT 在连接首条 auth 消息中传递，不经过 Next.js。
+    @sep_ws path /ws/*
+    reverse_proxy @sep_ws sep-backend:3001 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # 所有其余请求走 Next.js；/api/* 由 Next.js 内部 rewrite 转发到 sep-backend
     reverse_proxy sep-web:3000 {
         flush_interval -1
         header_up X-Real-IP {remote_host}

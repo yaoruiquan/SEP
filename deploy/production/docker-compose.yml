@@ -19,7 +19,7 @@ services:
       context: ../..
       dockerfile: backend/Dockerfile
       target: migrator
-    image: sep-migrator:latest
+    image: sep-migrator:${DEPLOY_TAG:-local}
     container_name: sep-migrate
     restart: "no"
     environment:
@@ -35,7 +35,7 @@ services:
     build:
       context: ../..          # SEP 项目根目录
       dockerfile: backend/Dockerfile
-    image: sep-backend:latest
+    image: sep-backend:${DEPLOY_TAG:-local}
     container_name: sep-backend
     restart: unless-stopped
     environment:
@@ -136,7 +136,7 @@ services:
       args:
         - API_ORIGIN=http://sep-backend:3001
         - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
-    image: sep-web:latest
+    image: sep-web:${DEPLOY_TAG:-local}
     container_name: sep-web
     restart: unless-stopped
     environment:
