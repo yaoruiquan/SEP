@@ -5,7 +5,7 @@ import { Server, WebSocket } from 'ws';
 import { EnterpriseService } from './enterprise.service';
 import { ConfigService } from '@nestjs/config';
 
-interface Client extends WebSocket { userId?: string }
+interface Client extends WebSocket { userId?: string; authTimer?: NodeJS.Timeout }
 
 @WebSocketGateway({ path: '/ws/employee-status' })
 export class EmployeeStatusGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
@@ -26,17 +26,26 @@ export class EmployeeStatusGateway implements OnGatewayConnection, OnGatewayDisc
       if (allowed.length > 0 && (!origin || !allowed.includes(origin))) {
         return client.close(1008, 'Origin not allowed');
       }
-      const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token');
-      const userId = token ? this.jwt.verify<{ sub?: string }>(token).sub : undefined;
-      if (!userId) return client.close(1008, 'Invalid token');
-      client.userId = userId;
-      const set = this.clients.get(userId) ?? new Set<Client>();
-      set.add(client); this.clients.set(userId, set);
-      await this.sendStatuses(client, userId);
+      client.authTimer = setTimeout(() => client.close(1008, 'Authentication timeout'), 5000);
+      client.on('message', async (raw) => {
+        if (client.userId) return;
+        try {
+          const message = JSON.parse(raw.toString()) as { type?: string; token?: string };
+          if (message.type !== 'auth' || !message.token) return client.close(1008, 'Authentication required');
+          const userId = this.jwt.verify<{ sub?: string }>(message.token).sub;
+          if (!userId) return client.close(1008, 'Invalid token');
+          clearTimeout(client.authTimer);
+          client.userId = userId;
+          const set = this.clients.get(userId) ?? new Set<Client>();
+          set.add(client); this.clients.set(userId, set);
+          await this.sendStatuses(client, userId);
+        } catch { client.close(1008, 'Invalid token'); }
+      });
     } catch { client.close(1008, 'Invalid token'); }
   }
 
   handleDisconnect(client: Client) {
+    clearTimeout(client.authTimer);
     if (!client.userId) return;
     const set = this.clients.get(client.userId);
     set?.delete(client);

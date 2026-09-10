@@ -15,13 +15,14 @@ import { ConfigService } from '@nestjs/config';
 
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: string;
+  authTimer?: NodeJS.Timeout;
 }
 
 /**
  * WebSocket 网关 - 实时推送通知
  *
  * 使用原生 WebSocket (ws)，与前端 use-websocket.ts 兼容
- * 连接 URL: ws://localhost:3001/ws/notifications?token=<JWT>
+ * 令牌通过 `sep-auth.<JWT>` 握手子协议传递，不进入 URL。
  */
 @WebSocketGateway({ path: '/ws/notifications' })
 export class NotificationsGateway
@@ -51,43 +52,21 @@ export class NotificationsGateway
         client.close(1008, 'Origin not allowed');
         return;
       }
-      // 从查询参数中提取 token
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      const token = url.searchParams.get('token');
-
-      if (!token) {
-        this.logger.warn('Connection rejected: missing token');
-        client.close(1008, 'Missing token');
-        return;
-      }
-
-      // 验证 JWT
-      const payload = this.jwtService.verify(token);
-      const userId = payload.sub;
-
-      if (!userId) {
-        this.logger.warn('Connection rejected: invalid token');
-        client.close(1008, 'Invalid token');
-        return;
-      }
-
-      // 绑定用户 ID 到 WebSocket
-      client.userId = userId;
-
-      // 注册客户端
-      if (!this.clients.has(userId)) {
-        this.clients.set(userId, new Set());
-      }
-      this.clients.get(userId)!.add(client);
-
-      this.logger.log(`Client connected: userId=${userId}, total=${this.clients.get(userId)!.size}`);
-
-      // 发送欢迎消息 + 未读数
-      const unreadCount = await this.notificationsService.countUnread(userId);
-      this.sendToClient(client, {
-        type: 'connected',
-        data: { unreadCount },
-        timestamp: Date.now(),
+      client.authTimer = setTimeout(() => client.close(1008, 'Authentication timeout'), 5000);
+      client.on('message', async (raw) => {
+        if (client.userId) return;
+        try {
+          const message = JSON.parse(raw.toString()) as { type?: string; token?: string };
+          if (message.type !== 'auth' || !message.token) return client.close(1008, 'Authentication required');
+          const userId = this.jwtService.verify<{ sub?: string }>(message.token).sub;
+          if (!userId) return client.close(1008, 'Invalid token');
+          clearTimeout(client.authTimer);
+          client.userId = userId;
+          const clients = this.clients.get(userId) ?? new Set<AuthenticatedWebSocket>();
+          clients.add(client); this.clients.set(userId, clients);
+          const unreadCount = await this.notificationsService.countUnread(userId);
+          this.sendToClient(client, { type: 'connected', data: { unreadCount }, timestamp: Date.now() });
+        } catch { client.close(1008, 'Invalid token'); }
       });
     } catch (error) {
       this.logger.error('Connection error:', error);
@@ -96,6 +75,7 @@ export class NotificationsGateway
   }
 
   handleDisconnect(client: AuthenticatedWebSocket) {
+    clearTimeout(client.authTimer);
     const userId = client.userId;
     if (userId) {
       const userClients = this.clients.get(userId);

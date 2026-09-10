@@ -72,9 +72,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     }
 
     try {
-      // WebSocket URL 添加 token 作为查询参数
-      const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
-      const ws = new WebSocket(wsUrl);
+      // 浏览器 WebSocket 不支持自定义 Authorization header，连接建立后立即发送一次认证消息，避免令牌出现在 URL/代理日志中。
+      const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -82,6 +81,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         setIsConnected(true);
         setReconnectCount(0);
         startHeartbeat();
+        ws.send(JSON.stringify({ type: 'auth', token }));
         onConnect?.();
       };
 
