@@ -21,6 +21,9 @@ export interface FulfillSubscriptionParams {
   /** 额度来源，写进 SubscriptionCredit.sourceType 便于对账。 */
   sourceType: 'subscription' | 'order';
   sourceId?: string | null;
+  /** 实际成交金额快照；市场订单和直接订阅都必须显式传入。 */
+  purchaseAmountCNY?: number;
+  purchasePeriodMonths?: number;
   /**
    * 赠送金额（元）。**由调用方显式传入**：市场订单要用下单时的快照，
    * 直接订阅要用当前员工配置，两者不能在这里替对方猜。
@@ -108,6 +111,12 @@ export class SubscriptionFulfillmentService {
               name: params.displayName,
             }),
             ...(params.config !== undefined && { config: params.config }),
+            ...(params.purchaseAmountCNY !== undefined && {
+              purchaseAmountCNY: params.purchaseAmountCNY,
+            }),
+            ...(params.purchasePeriodMonths !== undefined && {
+              purchasePeriodMonths: params.purchasePeriodMonths,
+            }),
           },
         })
       : await tx.subscription.create({
@@ -120,6 +129,8 @@ export class SubscriptionFulfillmentService {
             templateVersion: employee.version,
             name: params.displayName ?? employee.name,
             config: params.config,
+            purchaseAmountCNY: params.purchaseAmountCNY,
+            purchasePeriodMonths: params.purchasePeriodMonths,
           },
         });
 

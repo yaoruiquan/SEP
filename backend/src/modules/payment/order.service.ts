@@ -406,6 +406,10 @@ export class OrderService {
         endDate,
         sourceType: "order",
         sourceId: order.id,
+        purchaseAmountCNY: new Decimal(item.unitPrice ?? item.employee?.annualPriceCNY ?? 0)
+          .mul(new Decimal(item.periodMonths).div(12))
+          .toNumber(),
+        purchasePeriodMonths: item.periodMonths,
         grantedCNY: item.includedComputeCNY.toNumber(),
       });
     }

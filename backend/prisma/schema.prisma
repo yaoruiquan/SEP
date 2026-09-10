@@ -965,6 +965,10 @@ model Subscription {
   /// 新增：钱包支付记录
   walletTransactionId String? @unique // 关联扣款记录
 
+  /// 购买时快照：退款必须以实际成交金额和周期为准，不能回读当前员工价格。
+  purchaseAmountCNY  Decimal? @db.Decimal(12, 2)
+  purchasePeriodMonths Int?
+
   /// 新增：终止信息
   terminatedAt        DateTime?
   terminatedBy        String? // 操作人 userId

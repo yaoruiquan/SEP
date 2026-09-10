@@ -143,6 +143,8 @@ export class SubscriptionService {
         displayName: isRenewal ? undefined : employee.name,
         endDate: null,
         sourceType: 'subscription',
+        purchaseAmountCNY: amount,
+        purchasePeriodMonths: 12,
         grantedCNY,
         config: dto.config as Prisma.InputJsonValue | undefined,
       });
@@ -421,8 +423,8 @@ export class SubscriptionService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
-    // 退款金额以实际扣款流水为准，避免 1/6/24 个月订单被按年费退款。
-    // 兼容历史订阅：没有关联流水时回退到当前员工年费。
+    // 退款金额优先使用订阅成交快照，避免 1/6/24 个月订单被按年费退款。
+    // 兼容直接订阅历史数据：再回退到钱包扣款流水和当前年费。
     const paidTransaction = sub.walletTransactionId
       ? await this.prisma.walletTransaction.findUnique({
           where: { id: sub.walletTransactionId },
@@ -441,12 +443,17 @@ export class SubscriptionService {
       let refundAmount = 0;
       let refundTransactionId: string | null = null;
 
-      if (isWithinTrial && (paidTransaction?.amount || employee.annualPriceCNY)) {
+      if (
+        isWithinTrial &&
+        (sub.purchaseAmountCNY || paidTransaction?.amount || employee.annualPriceCNY)
+      ) {
         // 试用期内全额退**订阅费**。未用完的赠送算力不折现、不退回（见开发计划）：
         // 赠送额度不是企业付过的钱，退它等于凭空发钱。
-        refundAmount = paidTransaction
-          ? Math.abs(paidTransaction.amount.toNumber())
-          : employee.annualPriceCNY!.toNumber();
+        refundAmount = sub.purchaseAmountCNY
+          ? sub.purchaseAmountCNY.toNumber()
+          : paidTransaction
+            ? Math.abs(paidTransaction.amount.toNumber())
+            : employee.annualPriceCNY!.toNumber();
         const refundTransaction = await this.walletService.refund(
           ctx.enterpriseId,
           refundAmount,
