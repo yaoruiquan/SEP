@@ -60,6 +60,7 @@ describe("ComputeCreditService —— 赠送额度", () => {
         .mockResolvedValue({ allowed: true, enterpriseFundsAllowed: true }),
       planCharge: jest.fn(),
       commitCharge: jest.fn(),
+      getMemberWalletBalance: jest.fn().mockResolvedValue(new Decimal(0)),
     };
     svc = new ComputeCreditService(
       prisma,
@@ -216,6 +217,24 @@ describe("ComputeCreditService —— 赠送额度", () => {
       expect(result.walletBalanceCNY).toBe(50);
     });
 
+    it("企业公共钱包为空但成员有充值余额时仍放行", async () => {
+      prisma.subscriptionCredit.findUnique.mockResolvedValue(null);
+      walletBalance = new Decimal(0);
+      allowance.getMemberWalletBalance.mockResolvedValue(new Decimal(300));
+
+      const result = await svc.checkBalanceBeforeConversation(
+        "ent-1",
+        "sub-1",
+        "user-1",
+      );
+
+      expect(result.allowed).toBe(true);
+      expect(result.enterpriseFundsAllowed).toBe(true);
+      expect(result.memberWalletBalanceCNY).toBe(300);
+      expect(result.totalAvailableCNY).toBe(300);
+      expect(personalWallet.getBalance).not.toHaveBeenCalled();
+    });
+
     it("❗两者都为 0 时拦下，并给出可操作的提示", async () => {
       prisma.subscriptionCredit.findUnique.mockResolvedValue(null);
       walletBalance = new Decimal(0);
@@ -251,7 +270,7 @@ describe("ComputeCreditService —— 赠送额度", () => {
       expect(result.totalAvailableCNY).toBe(20);
     });
 
-    it("企业资金放行时不查个人余额 —— 它只在改道时才有意义", async () => {
+    it("成员充值余额耗尽时不自动使用企业公共钱包", async () => {
       walletBalance = new Decimal(20);
 
       const result = await svc.checkBalanceBeforeConversation(
@@ -260,8 +279,10 @@ describe("ComputeCreditService —— 赠送额度", () => {
         "user-1",
       );
 
-      expect(result.enterpriseFundsAllowed).toBe(true);
-      expect(personalWallet.getBalance).not.toHaveBeenCalled();
+      expect(result.enterpriseFundsAllowed).toBe(false);
+      expect(result.allowed).toBe(false);
+      expect(result.enterpriseFundsBlockedBy).toBe("BALANCE");
+      expect(personalWallet.getBalance).toHaveBeenCalledWith("user-1");
       expect(result.personalBalanceCNY).toBe(0);
     });
 

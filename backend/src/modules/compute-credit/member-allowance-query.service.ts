@@ -10,6 +10,7 @@ import {
 import { loadWindowStates } from "./member-allowance-batch";
 import {
   loadTopUps,
+  loadAllTopUps,
   resolveWindow,
   unlimitedPlaceholder,
 } from "./member-allowance-window";
@@ -22,7 +23,7 @@ import type {
 } from "./member-allowance.types";
 
 /**
- * 算力分配的读侧：列表、单条视图、追加额度与变更留痕。
+ * 算力分配的读侧：列表、单条视图、成员充值记录与变更留痕。
  *
  * 与写侧（MemberAllowanceService）分开是因为两者的性能约束相反 ——
  * 闸门每轮对话都跑一次、只关心一个人、必须最省查询；列表一天开几次、
@@ -100,6 +101,8 @@ export class MemberAllowanceQueryService {
     topUps: readonly TopUpRow[],
   ): MemberAllowanceView {
     const topUpRemaining = sumTopUpRemaining(topUps);
+    const topUpAmount = topUps.reduce((sum, row) => sum.add(row.amountCNY), new Decimal(0));
+    const topUpConsumed = topUps.reduce((sum, row) => sum.add(row.consumedCNY), new Decimal(0));
     const availability = computeAvailability({
       limitCNY: state.limitCNY,
       carriedInCNY: state.carriedInCNY,
@@ -110,6 +113,10 @@ export class MemberAllowanceQueryService {
     // 「上限 + 结转」才是本周期实际能花的常规额度，百分比必须对着它算，
     // 否则开了结转的人会看到 140% 这种没法解释的数字。
     const effectiveLimit = state.limitCNY?.add(state.carriedInCNY) ?? null;
+    const dailyLimit = allowance?.dailyLimitCNY ?? (allowance?.period === "DAY" ? allowance.limitCNY : null);
+    const monthlyLimit = allowance?.monthlyLimitCNY ?? (allowance?.period === "MONTH" ? allowance.limitCNY : null);
+    const dailyUsed = state.dailyUsedCNY ?? (allowance?.period === "DAY" ? state.usedCNY : new Decimal(0));
+    const monthlyUsed = state.monthlyUsedCNY ?? (allowance?.period === "MONTH" ? state.usedCNY : new Decimal(0));
 
     return {
       userId: member.userId,
@@ -138,6 +145,16 @@ export class MemberAllowanceQueryService {
           : null,
       periodStart: state.periodStart.toISOString(),
       resetAt: state.periodEnd.toISOString(),
+      dailyLimitCNY: dailyLimit?.toFixed(2) ?? null,
+      dailyUsedCNY: dailyUsed.toFixed(4),
+      dailyRemainingCNY: dailyLimit ? Decimal.max(0, dailyLimit.sub(dailyUsed)).toFixed(4) : null,
+      monthlyLimitCNY: monthlyLimit?.toFixed(2) ?? null,
+      monthlyUsedCNY: monthlyUsed.toFixed(4),
+      monthlyRemainingCNY: monthlyLimit ? Decimal.max(0, monthlyLimit.sub(monthlyUsed)).toFixed(4) : null,
+      dailyBypassUntil: allowance?.dailyBypassUntil?.toISOString() ?? null,
+      dailyBypassActive: Boolean(allowance?.dailyBypassUntil && allowance.dailyBypassUntil > new Date()),
+      topUpAmountCNY: topUpAmount.toFixed(2),
+      topUpConsumedCNY: topUpConsumed.toFixed(2),
     };
   }
 
@@ -157,7 +174,7 @@ export class MemberAllowanceQueryService {
       this.prisma.memberComputeAllowance.findUnique({
         where: { enterpriseId_userId: { enterpriseId, userId } },
       }),
-      loadTopUps(this.prisma, enterpriseId, userId),
+      loadAllTopUps(this.prisma, enterpriseId, userId),
     ]);
     if (!member) throw new NotFoundException("该成员不属于当前企业");
 
@@ -185,7 +202,7 @@ export class MemberAllowanceQueryService {
 
   // ── 留痕查询 ───────────────────────────────────────────────────────────────
 
-  /** 追加额度记录。不传 userId 时返回全企业最近 50 条。 */
+  /** 成员企业充值记录。不传 userId 时返回全企业最近 50 条。 */
   async listTopUps(
     enterpriseId: string,
     userId?: string,

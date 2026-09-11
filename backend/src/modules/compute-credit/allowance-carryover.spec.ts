@@ -109,7 +109,7 @@ describe("allowance-carryover", () => {
       expect(a.enterpriseFundsAllowed).toBe(true);
     });
 
-    it("常规用尽但有追加额度时仍可动用企业资金", () => {
+    it("常规用尽时充值余额不绕过月度额度上限", () => {
       const a = computeAvailability({
         limitCNY: d(500),
         carriedInCNY: d(0),
@@ -117,8 +117,8 @@ describe("allowance-carryover", () => {
         topUpRemainingCNY: d(120),
       });
       expect(a.regularRemainingCNY!.isZero()).toBe(true);
-      expect(a.totalRemainingCNY!.toFixed(2)).toBe("120.00");
-      expect(a.enterpriseFundsAllowed).toBe(true);
+      expect(a.totalRemainingCNY!.toFixed(2)).toBe("0.00");
+      expect(a.enterpriseFundsAllowed).toBe(false);
     });
 
     it("刚好花到上限就关闸 —— 上限是「最多花这么多」", () => {

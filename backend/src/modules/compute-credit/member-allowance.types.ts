@@ -7,6 +7,9 @@ export interface AllowanceRow {
   enterpriseId: string;
   userId: string;
   limitCNY: Decimal | null;
+  dailyLimitCNY?: Decimal | null;
+  monthlyLimitCNY?: Decimal | null;
+  dailyBypassUntil?: Date | null;
   period: AllowancePeriod;
   carryOver: boolean;
   enabled: boolean;
@@ -22,6 +25,11 @@ export interface WindowState {
   limitCNY: Decimal | null;
   carriedInCNY: Decimal;
   usedCNY: Decimal;
+  dailyUsedCNY?: Decimal;
+  monthlyUsedCNY?: Decimal;
+  dailyLimitCNY?: Decimal | null;
+  monthlyLimitCNY?: Decimal | null;
+  dailyBypassUntil?: Date | null;
 }
 
 /** 一位碳基员工的算力分配情况。金额一律元，Decimal 序列化为字符串。 */
@@ -39,13 +47,13 @@ export interface MemberAllowanceView {
   enabled: boolean;
   /** 上一周期结转进来的金额（元）。未开启结转或不限额时为 "0.00" */
   carriedInCNY: string;
-  /** 本周期已消耗的**企业资金**（赠送 + 企业钱包 + 欠费，不含个人自付） */
+  /** 本周期已消耗的**企业资金**（赠送 + 成员充值余额 + 企业钱包 + 欠费，不含个人自付） */
   usedCNY: string;
   /** 常规额度（上限 + 结转）还剩多少。不限额时为 null */
   remainingCNY: string | null;
-  /** 未用完的一次性追加额度合计（跨周期存活） */
+  /** 成员企业算力钱包余额（跨周期保留） */
   topUpRemainingCNY: string;
-  /** 常规 + 追加，本周期还能花的企业资金合计。不限额时为 null */
+  /** 本周期常规额度还能花多少企业资金。不限额时为 null */
   totalRemainingCNY: string | null;
   /** 已用占「上限 + 结转」的百分比（0–100）。不限额时为 null */
   usedPct: number | null;
@@ -53,6 +61,16 @@ export interface MemberAllowanceView {
   periodStart: string;
   /** 本周期结束、额度重置的时刻 */
   resetAt: string;
+  dailyLimitCNY?: string | null;
+  dailyUsedCNY?: string;
+  dailyRemainingCNY?: string | null;
+  monthlyLimitCNY?: string | null;
+  monthlyUsedCNY?: string;
+  monthlyRemainingCNY?: string | null;
+  dailyBypassUntil?: string | null;
+  dailyBypassActive?: boolean;
+  topUpAmountCNY?: string;
+  topUpConsumedCNY?: string;
 }
 
 /**
@@ -75,6 +93,11 @@ export interface AllowanceCheckResult {
   /** 常规 + 追加还剩多少企业资金 */
   remainingCNY?: string;
   personalBalanceCNY?: string;
+  dailyLimitCNY?: string;
+  dailyRemainingCNY?: string;
+  monthlyLimitCNY?: string;
+  monthlyRemainingCNY?: string;
+  dailyBypassActive?: boolean;
 }
 
 /**
@@ -108,6 +131,11 @@ export interface AllowanceChargePlan {
   carriedInCNY: Decimal;
   /** 未用完的追加额度批次，按发放先后排列（含 version 供乐观锁） */
   topUps: readonly TopUpRow[];
+  dailyLimitCNY?: Decimal | null;
+  dailyRemainingCNY?: Decimal | null;
+  monthlyLimitCNY?: Decimal | null;
+  monthlyRemainingCNY?: Decimal | null;
+  dailyBypassActive?: boolean;
 }
 
 /** 追加额度记录（管理端「额度变更记录」用）。 */

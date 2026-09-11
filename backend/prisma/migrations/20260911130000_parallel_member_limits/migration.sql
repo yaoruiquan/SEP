@@ -1,0 +1,4 @@
+ALTER TABLE "member_compute_allowances"
+  ADD COLUMN IF NOT EXISTS "dailyLimitCNY" DECIMAL(14,6),
+  ADD COLUMN IF NOT EXISTS "monthlyLimitCNY" DECIMAL(14,6),
+  ADD COLUMN IF NOT EXISTS "dailyBypassUntil" TIMESTAMP(3);

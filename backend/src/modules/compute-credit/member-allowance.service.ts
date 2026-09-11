@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
+import { WalletService } from "../wallet/wallet.service";
 import type { MemberAllowanceSetDto, MemberAllowanceTopUpDto } from "shared";
 import {
   currentPeriodLabel,
@@ -56,6 +57,7 @@ export class MemberAllowanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly personalWallet: PersonalWalletService,
+    private readonly wallet: WalletService,
     private readonly query: MemberAllowanceQueryService,
   ) {}
   // ── 闸门：对话前判定 ───────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ export class MemberAllowanceService {
     const allowance = await this.prisma.memberComputeAllowance.findUnique({
       where: { enterpriseId_userId: { enterpriseId, userId } },
     });
-    if (!allowance || !allowance.enabled || !allowance.limitCNY) {
+    if (!allowance || !allowance.enabled || !hasAnyLimit(allowance)) {
       return { enterpriseFundsAllowed: true, allowed: true };
     }
 
@@ -90,6 +92,7 @@ export class MemberAllowanceService {
       resolveWindow(this.prisma, allowance, new Date(), true),
       loadTopUps(this.prisma, enterpriseId, userId),
     ]);
+    const parallel = resolveParallelLimits(allowance, state);
     const topUpRemaining = sumTopUpRemaining(topUps);
     const availability = computeAvailability({
       limitCNY: state.limitCNY,
@@ -97,15 +100,26 @@ export class MemberAllowanceService {
       usedCNY: state.usedCNY,
       topUpRemainingCNY: topUpRemaining,
     });
+    const parallelConfigured = Boolean(allowance.dailyLimitCNY || allowance.monthlyLimitCNY);
+    const enterpriseRemaining = minDefined(
+      parallelConfigured ? null : availability.totalRemainingCNY,
+      parallel.dailyBypassActive ? null : parallel.dailyRemainingCNY,
+      parallel.monthlyRemainingCNY,
+    );
 
     const facts = {
       windowId: state.windowId ?? undefined,
       limitCNY: state.limitCNY?.toFixed(2),
       usedCNY: state.usedCNY.toFixed(4),
-      remainingCNY: availability.totalRemainingCNY?.toFixed(4),
+      remainingCNY: enterpriseRemaining?.toFixed(4),
+      dailyLimitCNY: parallel.dailyLimitCNY?.toFixed(2),
+      dailyRemainingCNY: parallel.dailyRemainingCNY?.toFixed(4),
+      monthlyLimitCNY: parallel.monthlyLimitCNY?.toFixed(2),
+      monthlyRemainingCNY: parallel.monthlyRemainingCNY?.toFixed(4),
+      dailyBypassActive: parallel.dailyBypassActive,
     };
 
-    if (availability.enterpriseFundsAllowed) {
+    if (enterpriseRemaining === null || enterpriseRemaining.greaterThan(0)) {
       return { enterpriseFundsAllowed: true, allowed: true, ...facts };
     }
 
@@ -172,7 +186,7 @@ export class MemberAllowanceService {
         },
       },
     });
-    if (!allowance || !allowance.enabled || !allowance.limitCNY) {
+    if (!allowance || !allowance.enabled || !hasAnyLimit(allowance)) {
       return UNLIMITED_PLAN;
     }
 
@@ -180,6 +194,7 @@ export class MemberAllowanceService {
       resolveWindow(tx, allowance, new Date(), true),
       loadTopUps(tx, params.enterpriseId, params.userId),
     ]);
+    const parallel = resolveParallelLimits(allowance, state);
     const availability = computeAvailability({
       limitCNY: state.limitCNY,
       carriedInCNY: state.carriedInCNY,
@@ -187,13 +202,24 @@ export class MemberAllowanceService {
       topUpRemainingCNY: sumTopUpRemaining(topUps),
     });
 
+    const parallelConfigured = Boolean(allowance.dailyLimitCNY || allowance.monthlyLimitCNY);
+    const enterpriseCapCNY = minDefined(
+      parallelConfigured ? null : availability.totalRemainingCNY,
+      parallel.dailyBypassActive ? null : parallel.dailyRemainingCNY,
+      parallel.monthlyRemainingCNY,
+    );
     return {
       windowId: state.windowId,
-      enterpriseCapCNY: availability.totalRemainingCNY ?? null,
+      enterpriseCapCNY,
       regularRemainingCNY: availability.regularRemainingCNY ?? new Decimal(0),
       limitCNY: state.limitCNY,
       carriedInCNY: state.carriedInCNY,
       topUps,
+      dailyLimitCNY: parallel.dailyLimitCNY,
+      dailyRemainingCNY: parallel.dailyRemainingCNY,
+      monthlyLimitCNY: parallel.monthlyLimitCNY,
+      monthlyRemainingCNY: parallel.monthlyRemainingCNY,
+      dailyBypassActive: parallel.dailyBypassActive,
     };
   }
 
@@ -220,10 +246,8 @@ export class MemberAllowanceService {
       return { fromTopUpCNY: new Decimal(0) };
     }
 
-    const { allocations, allocatedCNY } = allocateTopUps(
-      plan.topUps,
-      fromTopUp,
-    );
+    // 新语义下充值批次已在扣费前被消费；只有调用方明确传入批次时才回写。
+    const { allocations, allocatedCNY } = allocateTopUps(plan.topUps, fromTopUp);
     for (const allocation of allocations) {
       const updated = await tx.memberAllowanceTopUp.updateMany({
         where: { id: allocation.id, version: allocation.version },
@@ -232,12 +256,8 @@ export class MemberAllowanceService {
           version: { increment: 1 },
         },
       });
-      if (updated.count === 0) {
-        // 并发消耗同一批追加额度。整笔重试即可 —— 幂等键保证账单不会重复入账。
-        throw new ConflictException("追加额度更新冲突，请重试");
-      }
+      if (updated.count === 0) throw new ConflictException("成员算力余额更新冲突，请重试");
     }
-
     return { fromTopUpCNY: allocatedCNY };
   }
 
@@ -275,30 +295,59 @@ export class MemberAllowanceService {
       ? (await resolveWindow(this.prisma, before, new Date(), false)).usedCNY
       : null;
 
-    if (dto.limitCNY !== null && !Number.isFinite(dto.limitCNY)) {
+    const hasNewLimits = Object.prototype.hasOwnProperty.call(dto, "dailyLimitCNY") ||
+      Object.prototype.hasOwnProperty.call(dto, "monthlyLimitCNY");
+    const dailyLimitCNY = hasNewLimits
+      ? normalizeLimit(dto.dailyLimitCNY)
+      : before?.dailyLimitCNY ?? null;
+    const monthlyLimitCNY = hasNewLimits
+      ? normalizeLimit(dto.monthlyLimitCNY)
+      : before?.monthlyLimitCNY ?? null;
+    if (dto.limitCNY !== undefined && dto.limitCNY !== null && !Number.isFinite(dto.limitCNY)) {
       throw new BadRequestException("额度必须大于 0；不限额请清空额度");
     }
 
     const period = dto.period ?? before?.period ?? "MONTH";
     const carryOver = dto.carryOver ?? before?.carryOver ?? true;
+    const bypassUntil = dto.dailyBypassUntil === undefined
+      ? before?.dailyBypassUntil ?? null
+      : parseBypass(dto.dailyBypassUntil);
+    const targetLimit = hasNewLimits
+      ? monthlyLimitCNY
+      : dto.limitCNY === undefined
+        ? before?.limitCNY ?? null
+        : normalizeLimit(dto.limitCNY);
 
     await this.prisma.$transaction(async (tx) => {
-      if (dto.limitCNY === null) {
+      if ((!hasNewLimits && dto.limitCNY === null) ||
+        (hasNewLimits && dailyLimitCNY === null && monthlyLimitCNY === null)) {
         await tx.memberComputeAllowance.deleteMany({
           where: { enterpriseId, userId },
         });
       } else {
-        const limit = new Decimal(dto.limitCNY);
+        // 新模型的旧字段只保留 monthly 作为兼容快照；daily-only 不能被旧逻辑误读成月度上限。
+        const limit = targetLimit;
         const saved = await tx.memberComputeAllowance.upsert({
           where: { enterpriseId_userId: { enterpriseId, userId } },
           create: {
             enterpriseId,
             userId,
             limitCNY: limit,
+            dailyLimitCNY,
+            monthlyLimitCNY,
+            dailyBypassUntil: bypassUntil,
             period,
             carryOver,
           },
-          update: { limitCNY: limit, period, carryOver, enabled: true },
+          update: {
+            limitCNY: limit,
+            dailyLimitCNY,
+            monthlyLimitCNY,
+            dailyBypassUntil: bypassUntil,
+            period,
+            carryOver,
+            enabled: true,
+          },
         });
 
         // 当前窗口的上限快照要跟着改：它是下一周期算结转时的「上一周期上限」。
@@ -314,9 +363,12 @@ export class MemberAllowanceService {
 
       const changed =
         !before ||
-        !decimalEquals(before.limitCNY, dto.limitCNY) ||
+        !decimalEquals(before?.limitCNY, targetLimit) ||
+        (hasNewLimits && !decimalEquals(before.dailyLimitCNY, dailyLimitCNY?.toNumber() ?? null)) ||
+        (hasNewLimits && !decimalEquals(before.monthlyLimitCNY, monthlyLimitCNY?.toNumber() ?? null)) ||
         before.period !== period ||
-        before.carryOver !== carryOver;
+        before.carryOver !== carryOver ||
+        (before?.dailyBypassUntil?.toISOString() ?? null) !== (bypassUntil?.toISOString() ?? null);
       if (!changed && !dto.note) return;
 
       await tx.memberAllowanceChange.create({
@@ -325,11 +377,11 @@ export class MemberAllowanceService {
           enterpriseId,
           userId,
           fromLimitCNY: before?.limitCNY ?? null,
-          toLimitCNY: dto.limitCNY === null ? null : new Decimal(dto.limitCNY),
+          toLimitCNY: hasNewLimits ? monthlyLimitCNY : targetLimit,
           fromPeriod: before?.period ?? null,
-          toPeriod: dto.limitCNY === null ? null : period,
+          toPeriod: dailyLimitCNY || monthlyLimitCNY ? period : null,
           fromCarryOver: before?.carryOver ?? null,
-          toCarryOver: dto.limitCNY === null ? null : carryOver,
+          toCarryOver: dailyLimitCNY || monthlyLimitCNY ? carryOver : null,
           usedAtChangeCNY: usedAtChange,
           changedById: actorId ?? null,
           note: dto.note ?? null,
@@ -353,43 +405,147 @@ export class MemberAllowanceService {
     dto: MemberAllowanceTopUpDto,
     actorId?: string | null,
   ): Promise<MemberAllowanceView> {
-    const [member, allowance] = await Promise.all([
-      this.prisma.enterpriseMember.findFirst({
-        where: { enterpriseId, userId },
-        select: { id: true },
-      }),
-      this.prisma.memberComputeAllowance.findUnique({
-        where: { enterpriseId_userId: { enterpriseId, userId } },
-      }),
-    ]);
+    const member = await this.prisma.enterpriseMember.findFirst({
+      where: { enterpriseId, userId },
+      select: { id: true },
+    });
     if (!member) throw new NotFoundException("该成员不属于当前企业");
 
-    // 不限额的成员追加额度是死数据：他本来就没有闸门，追加的钱永远不会被消耗
-    if (!allowance || !allowance.enabled || !allowance.limitCNY) {
-      throw new BadRequestException(
-        "该成员当前不限额，追加额度不会生效；请先为他设置周期上限",
-      );
+    if (dto.amountCNY <= 0 || !Number.isFinite(dto.amountCNY)) {
+      throw new BadRequestException("充值金额必须大于 0");
     }
 
-    await this.prisma.memberAllowanceTopUp.create({
-      data: {
+    // 真实充值：企业钱包扣款与成员余额入账必须在同一事务内完成。
+    await this.prisma.$transaction(async (tx) => {
+      await this.wallet.consumeForMemberTopUp(
+        tx,
         enterpriseId,
-        userId,
-        amountCNY: new Decimal(dto.amountCNY),
-        note: dto.note ?? null,
-        grantedById: actorId ?? null,
-      },
+        new Decimal(dto.amountCNY),
+        {
+          relatedId: userId,
+          relatedType: "member_compute_top_up",
+          createdBy: actorId,
+          description: `给成员 ${userId} 充值企业算力 ¥${dto.amountCNY}`,
+        },
+      );
+      await tx.memberAllowanceTopUp.create({
+        data: {
+          enterpriseId,
+          userId,
+          amountCNY: new Decimal(dto.amountCNY),
+          note: dto.note ?? null,
+          grantedById: actorId ?? null,
+        },
+      });
     });
 
     return this.query.getOne(enterpriseId, userId);
+  }
+
+  /** 查询成员企业充值余额；充值余额跨周期保留，不计入月度额度本身。 */
+  async getMemberWalletBalance(
+    enterpriseId: string,
+    userId: string,
+  ): Promise<Decimal> {
+    const topUps = await loadTopUps(this.prisma, enterpriseId, userId);
+    return sumTopUpRemaining(topUps);
+  }
+
+  /** 从成员企业算力钱包扣最多 amount，按充值批次 FIFO。 */
+  async consumeMemberWalletUpTo(
+    tx: Prisma.TransactionClient,
+    enterpriseId: string,
+    userId: string,
+    amount: Decimal,
+  ): Promise<{ paid: Decimal }> {
+    if (amount.lessThanOrEqualTo(0)) return { paid: new Decimal(0) };
+    const rows = await loadTopUps(tx, enterpriseId, userId);
+    const { allocations, allocatedCNY } = allocateTopUps(rows, amount);
+    for (const allocation of allocations) {
+      const updated = await tx.memberAllowanceTopUp.updateMany({
+        where: { id: allocation.id, version: allocation.version },
+        data: {
+          consumedCNY: { increment: allocation.consumeCNY },
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) {
+        throw new ConflictException("成员算力余额更新冲突，请重试");
+      }
+    }
+    return { paid: allocatedCNY };
   }
 }
 
 function decimalEquals(
   left: Decimal | null | undefined,
-  right: number | null | undefined,
+  right: Decimal | number | null | undefined,
 ): boolean {
   if (left == null && right == null) return true;
   if (left == null || right == null) return false;
-  return left.equals(new Decimal(right));
+  return left.equals(right instanceof Decimal ? right : new Decimal(right));
+}
+
+function normalizeLimit(value: number | null | undefined): Decimal | null {
+  if (value == null) return null;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new BadRequestException("额度必须大于 0；不限额请清空额度");
+  }
+  return new Decimal(value);
+}
+
+function parseBypass(value: string | null | undefined): Date | null {
+  if (value == null) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException("临时放开时间无效");
+  return date;
+}
+
+function limitForAudit(
+  dto: { limitCNY?: number | null },
+  daily: Decimal | null,
+  monthly: Decimal | null,
+): Decimal | null {
+  if (dto.limitCNY !== undefined) return dto.limitCNY == null ? null : new Decimal(dto.limitCNY);
+  return monthly ?? daily;
+}
+
+function hasAnyLimit(allowance: {
+  limitCNY?: Decimal | null;
+  dailyLimitCNY?: Decimal | null;
+  monthlyLimitCNY?: Decimal | null;
+}): boolean {
+  return Boolean(
+    (allowance.dailyLimitCNY && allowance.dailyLimitCNY.greaterThan(0)) ||
+      (allowance.monthlyLimitCNY && allowance.monthlyLimitCNY.greaterThan(0)) ||
+      (allowance.limitCNY && allowance.limitCNY.greaterThan(0)),
+  );
+}
+
+function minDefined(...values: Array<Decimal | null | undefined>): Decimal | null {
+  const defined = values.filter((value): value is Decimal => value != null);
+  if (defined.length === 0) return null;
+  return defined.reduce((min, value) => Decimal.min(min, value));
+}
+
+function resolveParallelLimits(
+  allowance: any,
+  state: { usedCNY: Decimal; carriedInCNY: Decimal; dailyUsedCNY?: Decimal; monthlyUsedCNY?: Decimal },
+) {
+  const now = new Date();
+  const dailyLimit = allowance.dailyLimitCNY ?? (allowance.period === "DAY" ? allowance.limitCNY : null);
+  const monthlyLimit = allowance.monthlyLimitCNY ?? (allowance.period === "MONTH" ? allowance.limitCNY : null);
+  const dailyUsed = state.dailyUsedCNY ?? new Decimal(0);
+  const monthlyUsed = state.monthlyUsedCNY ?? new Decimal(0);
+  const dailyRemaining = dailyLimit ? Decimal.max(0, dailyLimit.sub(dailyUsed)) : null;
+  const monthlyRemaining = monthlyLimit
+    ? Decimal.max(0, monthlyLimit.add(state.carriedInCNY).sub(monthlyUsed))
+    : null;
+  return {
+    dailyLimitCNY: dailyLimit,
+    dailyRemainingCNY: dailyRemaining,
+    monthlyLimitCNY: monthlyLimit,
+    monthlyRemainingCNY: monthlyRemaining,
+    dailyBypassActive: Boolean(allowance.dailyBypassUntil && allowance.dailyBypassUntil > now),
+  };
 }

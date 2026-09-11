@@ -379,4 +379,25 @@ describe('WalletService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('consumeForMemberTopUp', () => {
+    const meta = { relatedId: 'user-1', description: '成员充值' };
+
+    it('从算力专款足额扣款，同时减少钱包余额与算力余额', async () => {
+      (prisma.enterpriseWallet.findUnique as jest.Mock).mockResolvedValue({ ...mockWallet, balance: new Decimal(100), computeReservedCNY: new Decimal(60) });
+      (prisma.enterpriseWallet.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.walletTransaction.create as jest.Mock).mockResolvedValue(mockTransaction);
+      await expect(service.consumeForMemberTopUp(prisma as never, 'ent-1', new Decimal(50), meta)).resolves.toEqual({ transactionId: 'tx-1' });
+      const data = (prisma.enterpriseWallet.updateMany as jest.Mock).mock.calls[0][0].data;
+      expect(new Decimal(data.balance).toNumber()).toBe(50);
+      expect(new Decimal(data.computeReservedCNY).toNumber()).toBe(10);
+    });
+
+    it('算力余额不足时失败且不写入扣款', async () => {
+      (prisma.enterpriseWallet.findUnique as jest.Mock).mockResolvedValue({ ...mockWallet, balance: new Decimal(100), computeReservedCNY: new Decimal(40) });
+      await expect(service.consumeForMemberTopUp(prisma as never, 'ent-1', new Decimal(50), meta)).rejects.toThrow(/算力余额不足/);
+      expect(prisma.enterpriseWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+  });
 });

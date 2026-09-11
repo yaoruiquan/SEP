@@ -216,13 +216,12 @@ export class ComputeCreditController {
 
   @Post("allowances/:userId/top-up")
   @ApiOperation({
-    summary: "给某位碳基员工追加一次性额度（仅企业管理员）",
+    summary: "给某位碳基员工充值企业算力余额（仅企业管理员）",
     description:
-      "与调高上限不同：追加额度**跨周期存活**，且排在常规周期额度之后消耗。" +
-      "用途是「他这个月要多干点活」，不是「他以后每期都能花更多」。",
+      "充值立即扣企业钱包并进入成员企业算力余额；月度额度仍独立限制每周期消费。",
   })
   @ApiResponse({ status: 201, description: "返回该成员追加后的额度视图" })
-  @ApiResponse({ status: 400, description: "该成员当前不限额，追加不会生效" })
+  @ApiResponse({ status: 400, description: "企业钱包余额不足或充值金额非法" })
   @ApiResponse({ status: 403, description: "仅企业管理员可追加" })
   async topUpAllowance(
     @Request() req,
@@ -242,12 +241,12 @@ export class ComputeCreditController {
 
   @Get("allowance-top-ups")
   @ApiOperation({
-    summary: "追加额度记录（最近 50 条）",
-    description: "传 userId 只看某位成员的。",
+    summary: "成员企业充值记录（最近 50 条）",
+    description: "传 userId 只看某位成员的充值记录。",
   })
   @ApiResponse({
     status: 200,
-    description: "返回追加金额、已消耗、剩余与批准人",
+    description: "返回充值金额、已消耗、剩余与操作人",
   })
   async listAllowanceTopUps(@Request() req, @Query("userId") userId?: string) {
     const ctx = await this.enterpriseContext.resolve(req.user.id);

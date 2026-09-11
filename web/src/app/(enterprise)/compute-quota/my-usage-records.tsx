@@ -96,7 +96,9 @@ export function MyUsageRecords() {
               {data.records.map((r) => {
                 // 赠送 + 钱包 = 公司付。成员分不清也不需要分清这两笔的来源
                 const byCompany =
-                  Number(r.creditPaidCNY) + Number(r.walletPaidCNY);
+                  Number(r.creditPaidCNY) +
+                  Number(r.memberWalletPaidCNY ?? 0) +
+                  Number(r.walletPaidCNY);
                 const bySelf = Number(r.personalPaidCNY);
                 return (
                   <tr

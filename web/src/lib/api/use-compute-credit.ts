@@ -117,7 +117,7 @@ export interface MemberAllowanceItem {
   usedCNY: string;
   /** 常规额度（上限 + 结转）还剩多少。不限额时为 null */
   remainingCNY: string | null;
-  /** 未用完的一次性追加额度合计（跨周期存活，排在常规额度之后消耗） */
+  /** 未用完的成员企业充值余额（跨周期存活） */
   topUpRemainingCNY: string;
   /** 常规 + 追加，本周期还能花的企业资金合计。不限额时为 null */
   totalRemainingCNY: string | null;
@@ -126,9 +126,19 @@ export interface MemberAllowanceItem {
   periodStart: string;
   /** 本周期结束、额度重置的时刻 */
   resetAt: string;
+  dailyLimitCNY?: string | null;
+  dailyUsedCNY?: string;
+  dailyRemainingCNY?: string | null;
+  monthlyLimitCNY?: string | null;
+  monthlyUsedCNY?: string;
+  monthlyRemainingCNY?: string | null;
+  dailyBypassUntil?: string | null;
+  dailyBypassActive?: boolean;
+  topUpAmountCNY?: string;
+  topUpConsumedCNY?: string;
 }
 
-/** 一笔追加额度。 */
+/** 一笔成员企业充值记录。 */
 export interface AllowanceTopUpItem {
   id: string;
   userId: string;
@@ -175,6 +185,8 @@ export interface UsageRecordItem {
   costCNY: string;
   /** 由赠送余额承担的部分（元） */
   creditPaidCNY: string;
+  /** 由成员企业算力钱包承担的部分（元） */
+  memberWalletPaidCNY?: string;
   /** 由企业钱包承担的部分（元） */
   walletPaidCNY: string;
   /**
@@ -379,10 +391,13 @@ export function useMyAllowance() {
 export interface SetAllowanceVars {
   userId: string;
   /** null = 取消限额（不限额） */
-  limitCNY: number | null;
+  limitCNY?: number | null;
   period?: AllowancePeriod;
   carryOver?: boolean;
   note?: string;
+  dailyLimitCNY?: number | null;
+  monthlyLimitCNY?: number | null;
+  dailyBypassUntil?: string | null;
 }
 
 /**
@@ -407,9 +422,8 @@ export function useSetMemberAllowance() {
 }
 
 /**
- * 追加一次性额度。与「调高上限」是两回事：追加额度跨周期存活，
- * 且排在常规额度之后消耗 —— 用途是「他这个月要多干点活」，
- * 不是「他以后每期都能花更多」。
+ * 给成员充值企业算力余额。与「调高上限」是两回事：充值余额跨周期保留，
+ * 企业钱包在充值时立即扣款，月度上限仍独立生效。
  */
 export function useTopUpMemberAllowance() {
   const qc = useQueryClient();
@@ -429,13 +443,16 @@ export function useTopUpMemberAllowance() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: computeCreditKeys.allowances() });
       qc.invalidateQueries({ queryKey: computeCreditKeys.myAllowance() });
+      // 成员充值会立即从企业公共钱包扣款；顶部算力余额和钱包流水也必须同步刷新。
+      qc.invalidateQueries({ queryKey: computeCreditKeys.overview() });
+      qc.invalidateQueries({ queryKey: ['wallet'] });
       qc.invalidateQueries({ queryKey: [...computeCreditKeys.all, 'allowance-top-ups'] });
     },
   });
 }
 
 /**
- * 追加额度记录（最近 50 条）。传 userId 只看某位成员。
+ * 成员企业充值记录（最近 50 条）。传 userId 只看某位成员。
  *
  * `enabled` 不是可选的性能优化：这两个 hook 会挂在**每一行成员**的弹窗里，
  * 不关掉就是开一次页面打 N 次请求。

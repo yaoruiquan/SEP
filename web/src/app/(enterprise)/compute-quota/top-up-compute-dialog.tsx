@@ -21,7 +21,7 @@ import {
   type MemberAllowanceItem,
 } from '@/lib/api/use-compute-credit';
 
-/** 常用追加金额。 */
+/** 常用成员企业算力充值金额。 */
 const PRESETS = [50, 100, 300];
 
 interface Props {
@@ -30,18 +30,12 @@ interface Props {
 }
 
 /**
- * 给一位碳基员工追加一次性额度。
+ * 给一位碳基员工充值企业算力余额。
  *
- * 与「改额度」是两个功能，因为差别是可观测的：
- *   · 调高上限 → 他**以后每个周期**都能花更多
- *   · 追加额度 → 只是这一笔钱，跨周期存活，用完就没了
+ * 与「改额度」是两个功能：改额度控制每周期企业最多承担多少，充值余额是
+ * 已从企业钱包扣出的预付款，跨周期保留。
  *
- * 消耗顺序上追加额度排在常规额度**之后**（方案 §5.4 Q1）：
- * 否则「先花掉追加的、再花常规的」会让常规额度看起来永远没动过，
- * 「本周期已用」这个数字就再也解释不了他的消费。
- *
- * 不限额的成员追加额度是死数据 —— 他本来就没有闸门，追加的钱永远不会被消耗，
- * 所以这里直接不让提交，而不是让后端报 400 之后再猜原因。
+ * 充值余额在赠送额度之后扣减，并受月度额度闸门限制。
  */
 export function TopUpComputeDialog({ member, trigger }: Props) {
   const [open, setOpen] = useState(false);
@@ -51,12 +45,11 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
   // 只在弹窗打开时才拉记录 —— 每行成员都挂着一个这个组件
   const { data: history } = useAllowanceTopUps(member.userId, open);
 
-  const unlimited = member.limitCNY === null;
   const amount = Number(value);
   const invalid = !Number.isFinite(amount) || amount <= 0;
 
   const submit = () => {
-    if (invalid || unlimited) return;
+    if (invalid) return;
     mutation.mutate(
       {
         userId: member.userId,
@@ -66,15 +59,15 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
       {
         onSuccess: (result) => {
           toast.success(
-            `已给 ${member.name} 追加 ${formatCny(amount)}`,
-            `未用完的追加额度合计 ${formatCny(result.topUpRemainingCNY)}`,
+            `已给 ${member.name} 充值 ${formatCny(amount)}`,
+            `企业充值余额 ${formatCny(result.topUpRemainingCNY)}`,
           );
           setValue('');
           setNote('');
           setOpen(false);
         },
         onError: (error) => {
-          toast.error('追加失败', error instanceof Error ? error.message : undefined);
+          toast.error('充值失败', error instanceof Error ? error.message : undefined);
         },
       },
     );
@@ -97,26 +90,21 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>给 {member.name} 追加额度</DialogTitle>
+            <DialogTitle>给 {member.name} 充值算力</DialogTitle>
             <DialogDescription>
-              一次性额度，不改他的周期上限。跨周期存活，排在常规额度之后消耗 ——
-              「他这个月要多干点活」用这个，「他以后每期都能花更多」用改额度。
+              这笔钱会立即从企业算力余额扣除，存入 {member.name} 的企业充值余额，跨周期保留。
+              企业算力余额不足时不会自动使用普通企业钱包，请先在上方充值算力。
+              月度额度仍然独立生效：例如月度上限 ¥50，充值 ¥300 时每月最多消费 ¥50。
             </DialogDescription>
           </DialogHeader>
 
-          {unlimited ? (
-            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700">
-              {member.name} 当前不限额，追加额度不会生效 ——
-              没有闸门，这笔钱永远不会被消耗。请先给他设一个周期上限。
-            </p>
-          ) : (
-            <div className="space-y-3">
+          <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-fg-muted">
                 <span>
                   {member.periodLabel}上限 {formatCny(member.limitCNY)}
                 </span>
                 <span>
-                  未用完的追加额度 {formatCny(member.topUpRemainingCNY)}
+                  企业充值余额 {formatCny(member.topUpRemainingCNY)}
                 </span>
               </div>
 
@@ -125,10 +113,10 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
                 inputMode="decimal"
                 min={0.01}
                 step={0.01}
-                placeholder="追加金额（元）"
+                placeholder="充值金额（元）"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                aria-label="追加额度金额（元）"
+                aria-label="充值金额（元）"
               />
 
               <div className="flex flex-wrap gap-1.5">
@@ -163,7 +151,7 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
 
               {mine.length > 0 && (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                  <p className="mb-2 text-xs font-medium text-foreground">最近的追加</p>
+                  <p className="mb-2 text-xs font-medium text-foreground">最近的充值</p>
                   <ul className="space-y-1.5">
                     {mine.map((t) => (
                       <li
@@ -187,15 +175,13 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
                   </ul>
                 </div>
               )}
-            </div>
-          )}
+          </div>
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              {unlimited ? '知道了' : '取消'}
+              取消
             </Button>
-            {!unlimited && (
-              <Button
+            <Button
                 variant="primary"
                 disabled={invalid || mutation.isPending}
                 onClick={submit}
@@ -205,9 +191,8 @@ export function TopUpComputeDialog({ member, trigger }: Props) {
                 ) : (
                   <PlusCircle className="h-4 w-4" />
                 )}
-                追加额度
+                充值算力
               </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

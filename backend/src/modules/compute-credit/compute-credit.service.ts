@@ -178,6 +178,7 @@ export class ComputeCreditService {
         enterpriseFundsAllowed: false,
         creditRemainingCNY: 0,
         walletBalanceCNY: 0,
+        memberWalletBalanceCNY: 0,
         totalAvailableCNY: 0,
         personalBalanceCNY: Number(allowance.personalBalanceCNY ?? 0),
         enterpriseFundsBlockedBy: "ALLOWANCE",
@@ -185,21 +186,28 @@ export class ComputeCreditService {
       };
     }
 
-    const [credit, wallet] = await Promise.all([
+    const [credit, wallet, memberWallet] = await Promise.all([
       subscriptionId
         ? this.prisma.subscriptionCredit.findUnique({
             where: { subscriptionId },
           })
         : Promise.resolve(null),
       this.wallet.ensureWalletExists(enterpriseId),
+      userId && this.memberAllowance.getMemberWalletBalance
+        ? this.memberAllowance.getMemberWalletBalance(enterpriseId, userId)
+        : Promise.resolve(new Decimal(0)),
     ]);
 
     const creditRemaining =
       credit && credit.status === "ACTIVE"
         ? Decimal.max(0, credit.grantedCNY.sub(credit.usedCNY))
         : new Decimal(0);
-    const walletBalance = Decimal.max(0, wallet.balance);
-    const total = creditRemaining.add(walletBalance);
+    const memberScoped = Boolean(userId && this.memberAllowance.getMemberWalletBalance);
+    const walletBalance = memberScoped ? new Decimal(0) : Decimal.max(0, wallet.balance);
+    // 成员充值余额是专属企业资金来源，但仍受本周期额度闸门约束；
+    // 普通成员不自动使用企业公共钱包，避免专款耗尽后越权消费公共余额。
+    const memberWalletBalance = Decimal.max(0, memberWallet);
+    const total = creditRemaining.add(walletBalance).add(memberWalletBalance);
 
     if (total.lessThanOrEqualTo(0)) {
       // 企业资金见底 —— 与额度用尽同样是改道，不是拦停。扣费链走到个人钱包那一腿
@@ -214,11 +222,12 @@ export class ComputeCreditService {
           enterpriseFundsAllowed: false,
           creditRemainingCNY: 0,
           walletBalanceCNY: 0,
+          memberWalletBalanceCNY: 0,
           totalAvailableCNY: 0,
           personalBalanceCNY: personalBalance.toNumber(),
           enterpriseFundsBlockedBy: "BALANCE",
           reason:
-            "该硅基员工的赠送算力余额与企业钱包余额均已用尽，" +
+            "该硅基员工的赠送算力余额、成员企业充值余额与企业钱包余额均已用尽，" +
             `本次对话将由你的个人余额支付（当前 ¥${personalBalance.toFixed(2)}）。`,
         };
       }
@@ -228,11 +237,12 @@ export class ComputeCreditService {
         enterpriseFundsAllowed: false,
         creditRemainingCNY: 0,
         walletBalanceCNY: 0,
+        memberWalletBalanceCNY: 0,
         totalAvailableCNY: 0,
         personalBalanceCNY: 0,
         enterpriseFundsBlockedBy: "BALANCE",
         reason:
-          "该硅基员工的赠送算力余额与企业钱包余额均已用尽，" +
+          "该硅基员工的赠送算力余额、成员企业充值余额与企业钱包余额均已用尽，" +
           "请为企业钱包充值后继续对话；也可为个人余额充值后自费使用。",
       };
     }
@@ -242,6 +252,7 @@ export class ComputeCreditService {
       enterpriseFundsAllowed: true,
       creditRemainingCNY: creditRemaining.toNumber(),
       walletBalanceCNY: walletBalance.toNumber(),
+      memberWalletBalanceCNY: memberWalletBalance.toNumber(),
       totalAvailableCNY: total.toNumber(),
       personalBalanceCNY: 0,
     };
@@ -252,9 +263,9 @@ export class ComputeCreditService {
   /**
    * 为一次模型调用扣费并落一条用量账单。
    *
-   * 扣费顺序：赠送余额 → 企业钱包 → 个人钱包 → 欠费，四步在**同一个事务**里，
+   * 扣费顺序：赠送余额 → 成员企业充值余额 → 企业钱包 → 个人钱包 → 欠费，五步在**同一个事务**里，
    * 否则赠送余额扣了而钱包扣失败会让账本对不上。
-   * 恒等式：`creditPaid + walletPaid + personalPaid + unpaid == cost`。
+   * 恒等式：`creditPaid + memberWalletPaid + walletPaid + personalPaid + unpaid == cost`。
    *
    * 前两腿的总额受成员额度闸门约束。闸门在**事务内**重算（`planCharge`），不复用
    * 对话前 `check` 的结论 —— 那之间隔着一整次模型调用，同一个人的并发对话早把
@@ -300,6 +311,7 @@ export class ComputeCreditService {
               usageRecordId: existing.id,
               costCNY: existing.costCNY,
               creditPaidCNY: existing.creditPaidCNY,
+              memberWalletPaidCNY: existing.memberWalletPaidCNY,
               walletPaidCNY: existing.walletPaidCNY,
               personalPaidCNY: existing.personalPaidCNY,
               unpaidCNY: existing.unpaidCNY,
@@ -331,19 +343,38 @@ export class ComputeCreditService {
           enterpriseBudget,
         );
 
+        // 赠送额度之后，优先扣管理员预充值给该成员的企业算力余额。
+        const memberWalletResult = params.userId && this.memberAllowance.consumeMemberWalletUpTo
+          ? await this.memberAllowance.consumeMemberWalletUpTo(
+              tx,
+              params.enterpriseId,
+              params.userId,
+              enterpriseBudget.sub(creditPaid),
+            )
+          : { paid: new Decimal(0) };
+
         // 4. 差额扣企业钱包（仍在限额内）；钱包不够时扣到 0，余额永不为负
-        const walletResult = await this.wallet.consumeComputeUpTo(
-          tx,
-          params.enterpriseId,
-          enterpriseBudget.sub(creditPaid),
-          { relatedId: params.sessionId, description },
-        );
+        const walletResult =
+          params.userId && this.memberAllowance.consumeMemberWalletUpTo
+            ? { transactionId: null, paid: new Decimal(0), unpaid: new Decimal(0) }
+            : await this.wallet.consumeComputeUpTo(
+                tx,
+                params.enterpriseId,
+                enterpriseBudget.sub(creditPaid).sub(memberWalletResult.paid),
+                { relatedId: params.sessionId, description },
+              );
 
         // 5. 企业出完之后还差的部分由成员自费兜底。
         //    注意 `walletResult.unpaid` **不能**当作本次欠费：它是相对**限额**的差额，
         //    额度用尽时限额为 0、这一步压根没调用钱包，真正的差额要对着 cost 重算。
         const afterEnterprise = money(
-          Decimal.max(0, costCNY.sub(creditPaid).sub(walletResult.paid)),
+          Decimal.max(
+            0,
+            costCNY
+              .sub(creditPaid)
+              .sub(memberWalletResult.paid)
+              .sub(walletResult.paid),
+          ),
         );
         const personalResult = params.userId
           ? await this.personalWallet.consumeUpTo(
@@ -366,10 +397,15 @@ export class ComputeCreditService {
         //    不该拿公司给的追加额度去抵。
         const { fromTopUpCNY } = await this.memberAllowance.commitCharge(
           tx,
-          plan,
+          // 成员企业钱包充值批次已在上面实际扣减，不能再次作为旧版
+          // 「追加额度」回写，否则会双扣余额。
+          { ...plan, topUps: [] },
           Decimal.min(
             enterpriseBudget,
-            creditPaid.add(walletResult.paid).add(unpaid),
+            creditPaid
+              .add(memberWalletResult.paid)
+              .add(walletResult.paid)
+              .add(unpaid),
           ),
         );
         if (fromTopUpCNY.greaterThan(0)) {
@@ -397,6 +433,7 @@ export class ComputeCreditService {
             fallbackPricing: cost.isFallback,
             costCNY,
             creditPaidCNY: creditPaid,
+            memberWalletPaidCNY: memberWalletResult.paid,
             walletPaidCNY: walletResult.paid,
             personalPaidCNY: personalResult.paid,
             unpaidCNY: unpaid,
@@ -414,6 +451,7 @@ export class ComputeCreditService {
             usageRecordId: record.id,
             costCNY,
             creditPaidCNY: creditPaid,
+            memberWalletPaidCNY: memberWalletResult.paid,
             walletPaidCNY: walletResult.paid,
             personalPaidCNY: personalResult.paid,
             unpaidCNY: unpaid,
@@ -433,6 +471,7 @@ export class ComputeCreditService {
             // 这里宁可高估：高估只会多跑一次复核（复核会否掉），
             // 低估则会漏掉一次「刚好越线」的通知。
             enterpriseUsedDeltaCNY: creditPaid
+              .add(memberWalletResult.paid)
               .add(walletResult.paid)
               .add(unpaid),
             walletPaidCNY: walletResult.paid,
@@ -694,6 +733,7 @@ export class ComputeCreditService {
         outputTokens: r.outputTokens,
         costCNY: r.costCNY.toFixed(4),
         creditPaidCNY: r.creditPaidCNY.toFixed(4),
+        memberWalletPaidCNY: r.memberWalletPaidCNY.toFixed(4),
         walletPaidCNY: r.walletPaidCNY.toFixed(4),
         personalPaidCNY: r.personalPaidCNY.toFixed(4),
         unpaidCNY: r.unpaidCNY.toFixed(4),

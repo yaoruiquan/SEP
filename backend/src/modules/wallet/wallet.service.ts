@@ -486,7 +486,12 @@ export class WalletService {
     client: Prisma.TransactionClient,
     enterpriseId: string,
     amount: Decimal,
-    meta: { relatedId?: string | null; description: string },
+    meta: {
+      relatedId?: string | null;
+      relatedType?: string;
+      createdBy?: string | null;
+      description: string;
+    },
   ): Promise<{
     transactionId: string | null;
     paid: Decimal;
@@ -538,13 +543,57 @@ export class WalletService {
         amount: paid.neg(),
         balanceBefore,
         balanceAfter,
-        relatedType: "compute",
+        relatedType: meta.relatedType ?? "compute",
         relatedId: meta.relatedId ?? null,
+        createdBy: meta.createdBy ?? null,
         description: meta.description,
       },
     });
 
     return { transactionId: transaction.id, paid, unpaid };
+  }
+
+  /** 足额扣除企业算力专款，用于给成员充值；不能自动绕到普通企业余额。 */
+  async consumeForMemberTopUp(
+    client: Prisma.TransactionClient,
+    enterpriseId: string,
+    amount: Decimal,
+    meta: { relatedId?: string | null; relatedType?: string; createdBy?: string | null; description: string },
+  ): Promise<{ transactionId: string }> {
+    if (amount.lessThanOrEqualTo(0)) throw new BadRequestException("充值金额必须大于 0");
+    const wallet = await client.enterpriseWallet.findUnique({ where: { enterpriseId } });
+    if (!wallet) throw new NotFoundException(`企业钱包不存在: ${enterpriseId}`);
+    if (wallet.computeReservedCNY.lessThan(amount)) {
+      throw new BadRequestException(
+        `企业算力余额不足。当前可用 ¥${wallet.computeReservedCNY.toFixed(2)}，需要 ¥${amount.toFixed(2)}；请先给企业钱包充值并划入算力余额`,
+      );
+    }
+    const balanceAfter = wallet.balance.sub(amount);
+    const computeReservedAfter = wallet.computeReservedCNY.sub(amount);
+    const updated = await client.enterpriseWallet.updateMany({
+      where: { enterpriseId, version: wallet.version },
+      data: {
+        balance: balanceAfter,
+        computeReservedCNY: computeReservedAfter,
+        totalConsume: { increment: amount },
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) throw new ConflictException("余额更新冲突，请重试");
+    const transaction = await client.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: WalletTransactionType.CONSUME,
+        amount: amount.neg(),
+        balanceBefore: wallet.balance,
+        balanceAfter,
+        relatedType: meta.relatedType ?? "member_compute_top_up",
+        relatedId: meta.relatedId ?? null,
+        createdBy: meta.createdBy ?? null,
+        description: meta.description,
+      },
+    });
+    return { transactionId: transaction.id };
   }
 
   // ── 算力专款（钱包内的用途标签，不是第二本账）────────────────────────────

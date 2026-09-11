@@ -5,14 +5,6 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -26,15 +18,8 @@ import {
   formatCny,
   formatCnyPrecise,
   useSetMemberAllowance,
-  type AllowancePeriod,
   type MemberAllowanceItem,
 } from '@/lib/api/use-compute-credit';
-import {
-  CURRENT_PERIOD_LABELS,
-  PERIOD_LABELS,
-  PERIOD_OPTIONS,
-  PERIOD_UNITS,
-} from './allowance-period-labels';
 
 /** 常用额度，省得每次手敲。 */
 const PRESETS = [50, 200, 500, 1000];
@@ -57,36 +42,34 @@ interface Props {
  */
 export function AllocateComputeDialog({ member, trigger }: Props) {
   const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(member.limitCNY ?? '');
-  const [period, setPeriod] = useState<AllowancePeriod>(member.period);
-  const [carryOver, setCarryOver] = useState(member.carryOver);
+  const [dailyValue, setDailyValue] = useState(member.dailyLimitCNY ?? '');
+  const [monthlyValue, setMonthlyValue] = useState(member.monthlyLimitCNY ?? member.limitCNY ?? '');
   const [note, setNote] = useState('');
   const mutation = useSetMemberAllowance();
 
-  const amount = Number(value);
-  const cleared = value.trim() === '';
-  const invalid = !cleared && (!Number.isFinite(amount) || amount <= 0);
+  const dailyAmount = Number(dailyValue);
+  const monthlyAmount = Number(monthlyValue);
+  const dailySet = dailyValue.trim() !== '';
+  const monthlySet = monthlyValue.trim() !== '';
+  const cleared = !dailySet && !monthlySet;
+  const invalid = (dailySet && (!Number.isFinite(dailyAmount) || dailyAmount <= 0)) ||
+    (monthlySet && (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0));
 
   /** 打开时重置成这位成员当前的真实配置，而不是上一次谁的残留。 */
   const reset = () => {
-    setValue(member.limitCNY ?? '');
-    setPeriod(member.period);
-    setCarryOver(member.carryOver);
+    setDailyValue(member.dailyLimitCNY ?? '');
+    setMonthlyValue(member.monthlyLimitCNY ?? member.limitCNY ?? '');
     setNote('');
   };
-
-  const unit = PERIOD_UNITS[period];
-  const scope = CURRENT_PERIOD_LABELS[period];
-  const periodChanged = !cleared && period !== member.period;
 
   const submit = () => {
     if (invalid) return;
     mutation.mutate(
       {
         userId: member.userId,
-        limitCNY: cleared ? null : Math.round(amount * 100) / 100,
-        period,
-        carryOver,
+        limitCNY: cleared ? null : !dailySet && monthlySet ? Math.round(monthlyAmount * 100) / 100 : undefined,
+        dailyLimitCNY: dailySet ? Math.round(dailyAmount * 100) / 100 : null,
+        monthlyLimitCNY: monthlySet ? Math.round(monthlyAmount * 100) / 100 : null,
         note: note.trim() || undefined,
       },
       {
@@ -94,8 +77,8 @@ export function AllocateComputeDialog({ member, trigger }: Props) {
           toast.success(
             cleared
               ? `${member.name} 已改为不限额`
-              : `${member.name} ${result.periodLabel}额度 ${formatCny(result.limitCNY)}`,
-            cleared ? undefined : `已用 ${formatCnyPrecise(result.usedCNY)}`,
+              : `${member.name} 限额已更新`,
+            cleared ? undefined : '每日与每月限额已分别保存',
           );
           setOpen(false);
         },
@@ -122,47 +105,87 @@ export function AllocateComputeDialog({ member, trigger }: Props) {
           <DialogHeader>
             <DialogTitle>给 {member.name} 分配算力</DialogTitle>
             <DialogDescription>
-              设定他每个周期最多能花掉多少算力。这只是上限 ——
-              不会从企业算力余额里预先划走钱，也不限定他用在哪位硅基员工上。
+              设置并行的每日、每月消费上限。限额只控制消费速度，不会扣除企业充值余额。
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-fg-muted">
               <span>
-                {member.periodLabel}已用 {formatCnyPrecise(member.usedCNY)}
+                本月已用 {formatCnyPrecise(member.monthlyUsedCNY ?? member.usedCNY)}
               </span>
               <span>
-                当前额度：
-                {member.limitCNY ? formatCny(member.limitCNY) : '不限额'}
+                企业充值余额 {formatCny(member.topUpRemainingCNY)}
               </span>
             </div>
 
-            <Input
-              type="number"
-              inputMode="decimal"
-              min={0.01}
-              step={0.01}
-              placeholder="留空 = 不限额"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              aria-label="每周期算力额度（元）"
-            />
+            <div className="space-y-1">
+              <Label htmlFor="daily-limit" className="text-xs">每日限额（元）</Label>
+              <Input
+                id="daily-limit"
+                type="number"
+                inputMode="decimal"
+                min={0.01}
+                step={0.01}
+                placeholder="留空 = 不限额"
+                value={dailyValue}
+                onChange={(e) => setDailyValue(e.target.value)}
+                aria-label="每日限额（元）"
+              />
+            </div>
 
+            <div className="space-y-1">
+              <Label htmlFor="monthly-limit" className="text-xs">每月限额（元）</Label>
+              <Input
+                id="monthly-limit"
+                type="number"
+                inputMode="decimal"
+                min={0.01}
+                step={0.01}
+                placeholder="留空 = 不限额"
+                value={monthlyValue}
+                onChange={(e) => setMonthlyValue(e.target.value)}
+                aria-label="每月限额（元）"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-xs text-fg-muted">每月常用额度</p>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setMonthlyValue(String(p))}
+                    className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-fg-muted transition-colors hover:bg-muted/70"
+                  >
+                    ¥{p}/月
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-fg-muted">每日常用额度</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[10, 20, 50, 100].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setDailyValue(String(p))}
+                    className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-fg-muted transition-colors hover:bg-muted/70"
+                  >
+                    ¥{p}/日
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setValue(String(p))}
-                  className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-fg-muted transition-colors hover:bg-muted/70"
-                >
-                  ¥{p}/{unit}
-                </button>
-              ))}
               <button
                 type="button"
-                onClick={() => setValue('')}
+                onClick={() => {
+                  setDailyValue('');
+                  setMonthlyValue('');
+                }}
                 className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-fg-muted transition-colors hover:bg-muted/70"
               >
                 不限额
@@ -171,51 +194,7 @@ export function AllocateComputeDialog({ member, trigger }: Props) {
 
             {invalid && <p className="text-xs text-red-500">请输入大于 0 的金额</p>}
 
-            {/* 周期与结转对「不限额」没有意义，清空金额时整块隐藏，
-                免得有人以为自己设置了什么。 */}
-            {!cleared && (
-              <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="allowance-period" className="text-xs">
-                    重置周期
-                  </Label>
-                  <Select
-                    value={period}
-                    onValueChange={(v) => setPeriod(v as AllowancePeriod)}
-                  >
-                    <SelectTrigger id="allowance-period" className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PERIOD_OPTIONS.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {PERIOD_LABELS[p]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-fg-muted">
-                    额度在每个周期开始时重置。改周期立即生效，不按已过天数折算。
-                  </p>
-                </div>
-
-                <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-3">
-                  <div className="min-w-0">
-                    <Label htmlFor="allowance-carryover" className="text-xs">
-                      未用完的额度结转到下一周期
-                    </Label>
-                    <p className="mt-0.5 text-xs text-fg-muted">
-                      最多结转 1 个周期 —— 攒半年再一次性花掉，等于额度没起作用。
-                    </p>
-                  </div>
-                  <Switch
-                    id="allowance-carryover"
-                    checked={carryOver}
-                    onCheckedChange={setCarryOver}
-                  />
-                </div>
-              </div>
-            )}
+            {!cleared && <p className="text-xs text-fg-muted">每日和每月同时启用时，系统按剩余额度更低的一项执行。</p>}
 
             {!cleared && (
               <div className="space-y-1.5">
@@ -235,12 +214,22 @@ export function AllocateComputeDialog({ member, trigger }: Props) {
               </div>
             )}
 
-            {periodChanged && (
-              <p className="text-xs text-amber-600">
-                周期从「{member.periodLabel}」改成「{PERIOD_LABELS[period]}」后，
-                {scope}已用的 {formatCnyPrecise(member.usedCNY)} 会按新周期的窗口重新统计 ——
-                窗口变了，已用金额也会跟着变。
-              </p>
+            {member.dailyLimitCNY && Number(member.dailyRemainingCNY) <= 0 && !member.dailyBypassActive && (
+              <Button type="button" size="sm" variant="glass" onClick={() => {
+                const end = new Date();
+                end.setHours(23, 59, 59, 999);
+                mutation.mutate({ userId: member.userId, dailyBypassUntil: end.toISOString() });
+              }}>
+                今日临时放开每日限额
+              </Button>
+            )}
+            {member.dailyBypassActive && (
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-emerald-600">今日每日限额已临时放开，月度限额仍然有效。</p>
+                <Button type="button" size="sm" variant="ghost" onClick={() => mutation.mutate({ userId: member.userId, dailyBypassUntil: null })}>
+                  取消临时放开
+                </Button>
+              </div>
             )}
 
             {/*
@@ -248,22 +237,14 @@ export function AllocateComputeDialog({ member, trigger }: Props) {
               是错的 —— 扣费链上个人钱包排在企业资金之后，他自己有余额就照样对话，
               只是这些消费由他自付。把改道说成停用，会让管理员以为自己按了个开关。
             */}
-            {!cleared && Number(member.usedCNY) > amount && amount > 0 && (
-              <p className="text-xs text-amber-600">
-                他{scope}已花 {formatCnyPrecise(member.usedCNY)}，超过这个额度 ——
-                保存后公司{scope}不再为他付费。对话不会中断：接下来的消费改由他的
-                个人余额支付，个人余额也用尽才真的用不了。额度将于{' '}
-                {member.limitCNY === null || period !== member.period
-                  ? `下一个${PERIOD_UNITS[period]}周期开始时`
-                  : new Date(member.resetAt).toLocaleDateString('zh-CN')}{' '}
-                重置。
-              </p>
+            {monthlySet && Number(member.monthlyUsedCNY ?? member.usedCNY) > monthlyAmount && (
+              <p className="text-xs text-amber-600">新的每月限额低于本月已用金额，超过这个额度后本月企业资金将停止承担。</p>
             )}
 
             {!cleared && Number(member.topUpRemainingCNY) > 0 && (
               <p className="text-xs text-fg-muted">
-                他还有未用完的追加额度 {formatCny(member.topUpRemainingCNY)} ——
-                跨周期存活，排在常规额度之后消耗，改上限不会动它。
+                他还有企业充值余额 {formatCny(member.topUpRemainingCNY)} ——
+                跨周期保留，受本周期额度上限约束，改上限不会清空余额。
               </p>
             )}
           </div>

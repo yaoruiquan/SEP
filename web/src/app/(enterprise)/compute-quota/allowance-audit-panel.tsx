@@ -83,7 +83,7 @@ export function AllowanceAuditPanel() {
             {(
               [
                 ['changes', '额度变更'],
-                ['topUps', '追加额度'],
+                ['topUps', '充值记录'],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -107,7 +107,7 @@ export function AllowanceAuditPanel() {
             </div>
           ) : empty ? (
             <p className="py-10 text-center text-sm text-fg-muted">
-              {tab === 'changes' ? '还没有额度变更记录' : '还没有追加过额度'}
+              {tab === 'changes' ? '还没有额度变更记录' : '还没有充值记录'}
             </p>
           ) : tab === 'changes' ? (
             <ul>
@@ -143,7 +143,7 @@ export function AllowanceAuditPanel() {
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                     <span className="font-medium text-foreground">{row.userName}</span>
                     <span className="text-sky-600 tabular-nums">
-                      追加 {formatCny(row.amountCNY)}
+                      充值 {formatCny(row.amountCNY)}
                     </span>
                     <span className="text-fg-muted">
                       已消耗 {formatCnyPrecise(row.consumedCNY)} · 剩{' '}

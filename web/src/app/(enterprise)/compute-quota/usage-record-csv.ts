@@ -16,7 +16,8 @@ export const CSV_HEADER = [
   '输入tokens',
   '输出tokens',
   '赠送扣减(元)',
-  '钱包扣减(元)',
+  '成员企业充值余额扣减(元)',
+  '企业公共钱包扣减(元)',
   '成员自付(元)',
   '欠费(元)',
   '合计成本(元)',
@@ -60,6 +61,7 @@ export function toCsvRow(r: UsageRecordItem): string {
     csvCell(r.inputTokens),
     csvCell(r.outputTokens),
     csvCell(csvAmount(r.creditPaidCNY)),
+    csvCell(csvAmount(r.memberWalletPaidCNY)),
     csvCell(csvAmount(r.walletPaidCNY)),
     // 成员自付要与企业支出分列，财务对账时「公司花了多少」不能把员工自掏的钱算进来
     csvCell(csvAmount(r.personalPaidCNY)),

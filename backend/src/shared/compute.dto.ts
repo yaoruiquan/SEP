@@ -37,7 +37,12 @@ export const AllowancePeriodSchema = z.enum([
 export type AllowancePeriodDto = z.infer<typeof AllowancePeriodSchema>;
 
 export const MemberAllowanceSetDtoSchema = z.object({
-  limitCNY: z.number().positive().max(1_000_000).multipleOf(0.01).nullable(),
+  /** 旧版单周期字段，保留兼容；新页面使用 dailyLimitCNY/monthlyLimitCNY。 */
+  limitCNY: z.number().positive().max(1_000_000).multipleOf(0.01).nullable().optional(),
+  dailyLimitCNY: z.number().positive().max(1_000_000).multipleOf(0.01).nullable().optional(),
+  monthlyLimitCNY: z.number().positive().max(1_000_000).multipleOf(0.01).nullable().optional(),
+  /** ISO 时间；设为当天结束时间表示临时放开今日每日限额。 */
+  dailyBypassUntil: z.string().datetime().nullable().optional(),
   /// 结算周期。不传 = 沿用现有设置（新建时默认自然月）。
   period: AllowancePeriodSchema.optional(),
   /// 未用完是否结转到下一周期（上限固定 1 个周期，即最多攒到 2 倍）。
@@ -49,10 +54,10 @@ export const MemberAllowanceSetDtoSchema = z.object({
 export type MemberAllowanceSetDto = z.infer<typeof MemberAllowanceSetDtoSchema>;
 
 /**
- * 给某成员追加一次性额度。
+ * 给某成员充值企业算力余额。
  *
- * 与「调高上限」不同：追加额度**跨周期存活**，扣减排在常规周期额度之后。
- * 用途是「他这个月要多干点活」，不是「他以后每期都能花更多」。
+ * 与「调高上限」不同：充值余额**跨周期存活**，企业钱包在充值时立即扣款，
+ * 月度额度仍独立限制每周期消费。
  */
 export const MemberAllowanceTopUpDtoSchema = z.object({
   amountCNY: z.number().positive().max(1_000_000).multipleOf(0.01),

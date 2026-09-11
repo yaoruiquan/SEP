@@ -46,12 +46,17 @@ function remainingBarColor(remainingPct: number): string {
 
 /** 公司额度那一栏。不限额与限额是两种完全不同的读法，分开渲染。 */
 function AllowanceBlock({ allowance }: { allowance: MemberAllowanceItem }) {
-  const unlimited = allowance.limitCNY === null;
-  const pct = allowance.usedPct;
-  const leftPct = pct === null ? null : Math.max(0, Math.min(100, 100 - pct));
-  const capped = pct !== null && pct >= 100;
+  const unlimited = allowance.limitCNY === null && !allowance.dailyLimitCNY && !allowance.monthlyLimitCNY;
+  const monthlyLimit = allowance.monthlyLimitCNY ?? (allowance.monthlyLimitCNY === null && allowance.limitCNY !== null ? allowance.limitCNY : null);
+  const monthlyRemaining = allowance.monthlyRemainingCNY ?? (monthlyLimit ? allowance.remainingCNY : null);
+  const monthlyPct = monthlyLimit && Number(monthlyLimit) > 0 ? Math.max(0, Math.min(100, (Number(monthlyRemaining) / Number(monthlyLimit)) * 100)) : null;
+  const dailyPct = allowance.dailyLimitCNY && Number(allowance.dailyLimitCNY) > 0 ? Math.max(0, Math.min(100, Number(allowance.dailyRemainingCNY) / Number(allowance.dailyLimitCNY) * 100)) : null;
+  const leftPct = monthlyPct;
+  const capped = (monthlyPct !== null && monthlyPct <= 0) || (dailyPct !== null && dailyPct <= 0 && !allowance.dailyBypassActive);
   const carriedIn = Number(allowance.carriedInCNY) > 0;
-  const topUp = Number(allowance.topUpRemainingCNY) > 0;
+  const topUpAmount = Number(allowance.topUpAmountCNY ?? allowance.topUpRemainingCNY);
+  const topUpRemaining = Number(allowance.topUpRemainingCNY);
+  const topUpPct = topUpAmount > 0 ? Math.max(0, Math.min(100, (topUpRemaining / topUpAmount) * 100)) : 0;
 
   return (
     <div className="min-w-0 flex-1">
@@ -65,6 +70,14 @@ function AllowanceBlock({ allowance }: { allowance: MemberAllowanceItem }) {
         )}
       </div>
 
+      <div className="mb-2 border-l-2 border-sky-400 bg-sky-50/60 px-2.5 py-2 text-xs text-sky-700">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium">企业充值余额</span>
+          <span className="tabular-nums">剩余 {formatCnyPrecise(allowance.topUpRemainingCNY)} / 已充值 {formatCny(allowance.topUpAmountCNY ?? allowance.topUpRemainingCNY)}</span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sky-100"><div className="h-full rounded-full bg-sky-500" style={{ width: `${topUpPct}%` }} /></div>
+        <p className="mt-1 text-sky-600/80">跨周期保留，充值时已从企业钱包扣款</p>
+      </div>
       {unlimited ? (
         <p className="text-sm text-gtext-secondary">
           <InfinityIcon className="mr-1 inline h-3.5 w-3.5" />
@@ -76,8 +89,7 @@ function AllowanceBlock({ allowance }: { allowance: MemberAllowanceItem }) {
           {/* §5.5 #2 的验收句式：「本月 ¥0 / ¥50，下次重置 X 月 X 日」 */}
           <p className="text-sm text-gtext-primary">
             <span className="tabular-nums">
-              {allowance.periodLabel}已用 {formatCnyPrecise(allowance.usedCNY)} /{' '}
-              {formatCny(allowance.limitCNY)}
+              本月已用 {formatCnyPrecise(allowance.monthlyUsedCNY ?? allowance.usedCNY)} / {formatCny(monthlyLimit ?? allowance.limitCNY)}
             </span>
             {carriedIn && (
               <span className="text-emerald-600">
@@ -96,17 +108,12 @@ function AllowanceBlock({ allowance }: { allowance: MemberAllowanceItem }) {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gtext-muted">
             <span className="tabular-nums">
-              剩余 {formatCnyPrecise(allowance.remainingCNY)}
+              剩余 {formatCnyPrecise(allowance.monthlyRemainingCNY ?? allowance.remainingCNY)}
             </span>
             <span>{shortDate(allowance.resetAt)}重置</span>
             {allowance.carryOver && <span>未用完可结转</span>}
-            {/* 追加额度跨周期存活、排在常规额度之后消耗，不并进上面的进度条 */}
-            {topUp && (
-              <span className="text-sky-600">
-                追加额度剩 {formatCny(allowance.topUpRemainingCNY)}
-              </span>
-            )}
           </div>
+          {allowance.dailyLimitCNY && <div className="mt-1 text-xs text-gtext-muted">今日已用 {formatCnyPrecise(allowance.dailyUsedCNY)} / {formatCny(allowance.dailyLimitCNY)} · 剩余 {formatCnyPrecise(allowance.dailyRemainingCNY)}{allowance.dailyBypassActive ? ' · 今日已临时放开' : ''}</div>}
         </>
       )}
     </div>
@@ -218,7 +225,7 @@ export function MyComputePanel() {
           {blocked ? (
             <>
               公司额度与个人余额都已用尽，现在发消息会被拦下。
-              {shortDate(my.resetAt)}额度重置；想提前恢复，可联系企业管理员调高额度或追加一次性额度，
+              {shortDate(my.resetAt)}额度重置；想提前恢复，可联系企业管理员调高额度或给企业充值，
               也可给个人余额充值后自费使用。
             </>
           ) : capped ? (
@@ -228,7 +235,7 @@ export function MyComputePanel() {
             </>
           ) : (
             <>
-              先花公司给的额度；用完后由个人余额继续支付，对话不中断。
+              先花赠送额度，再花成员企业充值余额；日/月限额任一触顶后由个人余额继续支付，对话不中断。
               自费的部分不计入上面的「已用」—— 自己掏钱不会让公司额度掉得更快。
             </>
           )}

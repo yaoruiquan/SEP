@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot } from 'lucide-react';
 import { qk } from '@/lib/query-keys';
+import { computeCreditKeys } from '@/lib/api/use-compute-credit';
+import { personalWalletKeys } from '@/lib/api/use-personal-wallet';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { MessageBubble } from './message-bubble';
 import { InputBar } from './input-bar';
@@ -149,6 +151,10 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         await Promise.all([
           qc.invalidateQueries({ queryKey: qk.conversation(conversationId) }),
           qc.invalidateQueries({ queryKey: qk.conversations }),
+          // 本轮扣费在后端与消息落库同一轮完成；不失效这些缓存时，
+          // 额度页会继续显示扣费前余额，直到用户手动刷新页面。
+          qc.invalidateQueries({ queryKey: computeCreditKeys.all }),
+          qc.invalidateQueries({ queryKey: personalWalletKeys.all }),
         ]);
 
         // 期间用户又发了新消息，后一轮的状态不能被这一轮的收尾清掉

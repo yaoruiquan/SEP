@@ -12,6 +12,7 @@ import type { AllowanceRow, WindowState } from "./member-allowance.types";
 const USED_SUM_SELECT = {
   creditPaidCNY: true,
   walletPaidCNY: true,
+  memberWalletPaidCNY: true,
   unpaidCNY: true,
 } as const;
 
@@ -52,6 +53,17 @@ export async function loadWindowStates(
   }
 
   const states = new Map<string, WindowState>();
+  const hasParallelLimits = [...params.allowanceByUser.values()].some(
+    (allowance) => Boolean(allowance.dailyLimitCNY || allowance.monthlyLimitCNY),
+  );
+  const day = resolvePeriodWindow("DAY", params.at);
+  const month = resolvePeriodWindow("MONTH", params.at);
+  const [dailyUsedByUser, monthlyUsedByUser] = hasParallelLimits
+    ? await Promise.all([
+        sumByUser(client, params.enterpriseId, params.userIds, day),
+        sumByUser(client, params.enterpriseId, params.userIds, month),
+      ])
+    : [new Map<string, Decimal>(), new Map<string, Decimal>()];
 
   await Promise.all(
     [...byPeriod].map(async ([period, userIds]) => {
@@ -100,6 +112,8 @@ export async function loadWindowStates(
             limitCNY: null,
             carriedInCNY: new Decimal(0),
             usedCNY: used,
+            dailyUsedCNY: dailyUsedByUser.get(userId) ?? new Decimal(0),
+            monthlyUsedCNY: monthlyUsedByUser.get(userId) ?? new Decimal(0),
           });
           continue;
         }
@@ -125,6 +139,8 @@ export async function loadWindowStates(
           limitCNY,
           carriedInCNY,
           usedCNY: used,
+          dailyUsedCNY: dailyUsedByUser.get(userId) ?? new Decimal(0),
+          monthlyUsedCNY: monthlyUsedByUser.get(userId) ?? new Decimal(0),
         });
       }
     }),
@@ -177,6 +193,7 @@ async function sumByUser(
         new Decimal(0)
           .add(r._sum.creditPaidCNY ?? 0)
           .add(r._sum.walletPaidCNY ?? 0)
+          .add(r._sum.memberWalletPaidCNY ?? 0)
           .add(r._sum.unpaidCNY ?? 0),
       ]),
   );

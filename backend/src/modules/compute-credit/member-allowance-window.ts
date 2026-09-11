@@ -15,7 +15,7 @@ import type { AllowanceRow, WindowState } from "./member-allowance.types";
 export type AllowanceClient = Prisma.TransactionClient | PrismaService;
 
 /**
- * 「已用」的口径：**企业资金**三项之和。
+ * 「已用」的口径：**企业资金**四项之和。
  *
  * 不是 `costCNY`。`costCNY` 含成员自掏腰包的那部分（personalPaidCNY），
  * 把它算进额度会得出「你越自费、公司额度掉得越快」的荒谬结论。
@@ -24,6 +24,7 @@ export type AllowanceClient = Prisma.TransactionClient | PrismaService;
 export const USED_SUM_SELECT = {
   creditPaidCNY: true,
   walletPaidCNY: true,
+  memberWalletPaidCNY: true,
   unpaidCNY: true,
 } as const;
 
@@ -62,13 +63,53 @@ export async function resolveWindow(
 ): Promise<WindowState> {
   const window = resolvePeriodWindow(allowance.period, at);
   const limitCNY = allowance.enabled ? allowance.limitCNY : null;
-
-  const used = await sumEnterpriseUsed(client, {
-    enterpriseId: allowance.enterpriseId,
-    userId: allowance.userId,
-    from: window.start,
-    to: window.end,
-  });
+  const hasParallelLimits = Boolean(
+    allowance.dailyLimitCNY || allowance.monthlyLimitCNY,
+  );
+  let used: Decimal;
+  let dailyUsedCNY: Decimal;
+  let monthlyUsedCNY: Decimal;
+  if (hasParallelLimits) {
+    const day = resolvePeriodWindow("DAY", at);
+    const month = resolvePeriodWindow("MONTH", at);
+    [used, dailyUsedCNY, monthlyUsedCNY] = await Promise.all([
+      sumEnterpriseUsed(client, {
+        enterpriseId: allowance.enterpriseId,
+        userId: allowance.userId,
+        from: window.start,
+        to: window.end,
+      }),
+      sumEnterpriseUsed(client, {
+        enterpriseId: allowance.enterpriseId,
+        userId: allowance.userId,
+        from: day.start,
+        to: day.end,
+      }),
+      sumEnterpriseUsed(client, {
+        enterpriseId: allowance.enterpriseId,
+        userId: allowance.userId,
+        from: month.start,
+        to: month.end,
+      }),
+    ]);
+  } else {
+    // 兼容旧的单周期额度：只执行原本的一次聚合，避免改变结转查询的调用顺序。
+    used = await sumEnterpriseUsed(client, {
+      enterpriseId: allowance.enterpriseId,
+      userId: allowance.userId,
+      from: window.start,
+      to: window.end,
+    });
+    dailyUsedCNY = allowance.period === "DAY" ? used : new Decimal(0);
+    monthlyUsedCNY = allowance.period === "MONTH" ? used : new Decimal(0);
+  }
+  const parallel = {
+    dailyUsedCNY,
+    monthlyUsedCNY,
+    dailyLimitCNY: allowance.enabled ? allowance.dailyLimitCNY ?? null : null,
+    monthlyLimitCNY: allowance.enabled ? allowance.monthlyLimitCNY ?? null : null,
+    dailyBypassUntil: allowance.dailyBypassUntil ?? null,
+  };
 
   // 不限额的成员不建窗口行：没有额度就没有结转，建了也只是垃圾数据
   if (!limitCNY || limitCNY.lessThanOrEqualTo(0)) {
@@ -79,6 +120,7 @@ export async function resolveWindow(
       limitCNY: null,
       carriedInCNY: new Decimal(0),
       usedCNY: used,
+      ...parallel,
     };
   }
 
@@ -98,6 +140,7 @@ export async function resolveWindow(
       limitCNY,
       carriedInCNY: existing.carriedInCNY,
       usedCNY: used,
+      ...parallel,
     };
   }
 
@@ -111,6 +154,7 @@ export async function resolveWindow(
       limitCNY,
       carriedInCNY: carriedIn,
       usedCNY: used,
+      ...parallel,
     };
   }
 
@@ -147,6 +191,7 @@ export async function resolveWindow(
         limitCNY,
         carriedInCNY: raced.carriedInCNY,
         usedCNY: used,
+        ...parallel,
       };
     }
     throw error;
@@ -159,6 +204,7 @@ export async function resolveWindow(
     limitCNY,
     carriedInCNY: carriedIn,
     usedCNY: used,
+    ...parallel,
   };
 }
 
@@ -214,22 +260,33 @@ export async function loadTopUps(
   enterpriseId: string,
   userId: string,
 ): Promise<TopUpRow[]> {
-  const rows = await client.memberAllowanceTopUp.findMany({
+  const rows = await loadAllTopUps(client, enterpriseId, userId);
+  return rows.filter((r) => r.amountCNY.greaterThan(r.consumedCNY));
+}
+
+/** 查询完整充值历史，供余额详情展示累计充值金额。 */
+export async function loadAllTopUps(
+  client: AllowanceClient,
+  enterpriseId: string,
+  userId: string,
+): Promise<TopUpRow[]> {
+  return client.memberAllowanceTopUp.findMany({
     where: { enterpriseId, userId },
     orderBy: { createdAt: "asc" },
     select: { id: true, amountCNY: true, consumedCNY: true, version: true },
   });
-  return rows.filter((r) => r.amountCNY.greaterThan(r.consumedCNY));
 }
 
 export function sumUsed(sum: {
   creditPaidCNY: Decimal | null;
   walletPaidCNY: Decimal | null;
+  memberWalletPaidCNY: Decimal | null;
   unpaidCNY: Decimal | null;
 }): Decimal {
   return new Decimal(0)
     .add(sum.creditPaidCNY ?? 0)
     .add(sum.walletPaidCNY ?? 0)
+    .add(sum.memberWalletPaidCNY ?? 0)
     .add(sum.unpaidCNY ?? 0);
 }
 

@@ -3,6 +3,8 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatWindow } from './chat-window';
 import { useAuthStore } from '@/lib/auth-store';
+import { computeCreditKeys } from '@/lib/api/use-compute-credit';
+import { personalWalletKeys } from '@/lib/api/use-personal-wallet';
 import type { Message, MessageAttachment } from '@/lib/types';
 
 /**
@@ -168,8 +170,9 @@ function message(over: Partial<Message> = {}): Message {
   };
 }
 
-function renderWindow() {
+function renderWindow(onClient?: (client: QueryClient) => void) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  onClient?.(qc);
   return render(
     <QueryClientProvider client={qc}>
       <ChatWindow conversationId="c1" />
@@ -396,6 +399,23 @@ describe('ChatWindow', () => {
   });
 
   describe('发送（handleSend）', () => {
+    it('对话扣费完成后立即失效算力和个人钱包缓存', async () => {
+      sendResolvesWith('a-1');
+      let client: QueryClient | undefined;
+      renderWindow((qc) => {
+        client = qc;
+        qc.setQueryData(computeCreditKeys.overview(), { computeReservedCNY: '100.00' });
+        qc.setQueryData(personalWalletKeys.view(), { balanceCNY: '20.00' });
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-default'));
+      });
+
+      expect(client?.getQueryState(computeCreditKeys.overview())?.isInvalidated).toBe(true);
+      expect(client?.getQueryState(personalWalletKeys.view())?.isInvalidated).toBe(true);
+    });
+
     it('未指定员工时按会话默认员工发送', () => {
       renderWindow();
       fireEvent.click(screen.getByTestId('send-default'));

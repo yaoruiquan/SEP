@@ -56,6 +56,7 @@ function toComputeLog(record: UsageRecordWithRelations): ConsumptionLog {
       tokenCount: record.inputTokens + record.outputTokens,
       modelName: record.modelId,
       creditPaidCNY: record.creditPaidCNY.toString(),
+      memberWalletPaidCNY: record.memberWalletPaidCNY.toString(),
       walletPaidCNY: record.walletPaidCNY.toString(),
       personalPaidCNY: record.personalPaidCNY.toString(),
       unpaidCNY: record.unpaidCNY.toString(),

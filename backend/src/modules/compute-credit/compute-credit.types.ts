@@ -33,6 +33,8 @@ export interface ChargeUsageResult {
   usageRecordId: string;
   costCNY: Decimal;
   creditPaidCNY: Decimal;
+  /** 由企业预充值给该成员的企业算力钱包承担的部分 */
+  memberWalletPaidCNY: Decimal;
   walletPaidCNY: Decimal;
   /**
    * 成员个人钱包出的钱（分配额度用尽或企业没钱时的兜底，排扣费链最后一位）。
@@ -54,13 +56,15 @@ export interface ChargeUsageResult {
  */
 export interface BalanceCheckResult {
   allowed: boolean;
-  /** 能否动用企业资金（赠送额度 + 企业钱包）；false 时本次对话由个人余额支付 */
+  /** 能否动用企业资金（赠送额度 + 成员充值余额 + 企业钱包）；false 时本次对话由个人余额支付 */
   enterpriseFundsAllowed: boolean;
   /** 该订阅剩余赠送余额（元） */
   creditRemainingCNY: number;
   /** 企业钱包可用余额（元） */
   walletBalanceCNY: number;
-  /** 两者之和 —— 用户视角的「公司还能为我付多少」 */
+  /** 当前成员的企业充值余额（元），跨周期保留 */
+  memberWalletBalanceCNY: number;
+  /** 三者之和 —— 用户视角的「公司还能为我付多少」 */
   totalAvailableCNY: number;
   /** 成员个人钱包余额（元）。改道自费时前端要显示它 */
   personalBalanceCNY: number;

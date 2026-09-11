@@ -95,12 +95,14 @@ describe('toCsvRow', () => {
       record({
         costCNY: '10.0000',
         creditPaidCNY: '0.0000',
-        walletPaidCNY: '0.3000',
+        memberWalletPaidCNY: '0.3000',
+        walletPaidCNY: '0.0000',
         personalPaidCNY: '9.7000',
       }),
     );
     const cells = row.split(',').map((c) => c.slice(1, -1));
-    expect(cells[CSV_HEADER.indexOf('钱包扣减(元)')]).toBe('0.3000');
+    expect(cells[CSV_HEADER.indexOf('成员企业充值余额扣减(元)')]).toBe('0.3000');
+    expect(cells[CSV_HEADER.indexOf('企业公共钱包扣减(元)')]).toBe('0.0000');
     expect(cells[CSV_HEADER.indexOf('成员自付(元)')]).toBe('9.7000');
   });
 

@@ -54,14 +54,14 @@ export interface AvailabilityInput {
   carriedInCNY: Decimal;
   /** 本周期已用的企业资金 */
   usedCNY: Decimal;
-  /** 尚未用完的一次性追加额度合计 */
+  /** 成员企业算力钱包余额（不参与月度额度上限） */
   topUpRemainingCNY: Decimal;
 }
 
 export interface Availability {
   /** 常规周期额度还剩多少（含结转）。不限额时为 null。 */
   regularRemainingCNY: Decimal | null;
-  /** 常规 + 追加，合计还能花多少企业资金。不限额时为 null。 */
+  /** 常规额度还能花多少企业资金。不限额时为 null。 */
   totalRemainingCNY: Decimal | null;
   /** 企业资金是否还能动 */
   enterpriseFundsAllowed: boolean;
@@ -87,7 +87,8 @@ export function computeAvailability(input: AvailabilityInput): Availability {
     0,
     input.limitCNY.add(input.carriedInCNY).sub(input.usedCNY),
   );
-  const total = regular.add(Decimal.max(0, input.topUpRemainingCNY));
+  // 成员预充值余额是资金，不是额度；月度上限仍独立生效。
+  const total = regular;
 
   return {
     regularRemainingCNY: money(regular),

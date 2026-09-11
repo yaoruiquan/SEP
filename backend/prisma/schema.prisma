@@ -1382,7 +1382,7 @@ model SubscriptionCredit {
 /// `backend/src/modules/compute-credit/allowance-period.ts` 纯函数统一计算 ——
 /// 不要在别处用 `new Date(y, m, 1)` 自行推导，那读的是服务器时区。
 ///
-/// 没有 TOTAL（永不重置）：它等价于「不限额」或「一次性追加额度」，
+/// 没有 TOTAL（永不重置）：它等价于「不限额」，成员充值余额另行记录，
 /// 多一个语义重叠的选项只会让人选错。
 enum AllowancePeriod {
   DAY
@@ -1407,6 +1407,13 @@ model MemberComputeAllowance {
 
   /// 每个周期的消费上限（元）。null = 不限额。
   limitCNY Decimal? @db.Decimal(14, 6)
+
+  /// 新版并行限额：每日限额与每月限额可以同时启用。
+  dailyLimitCNY   Decimal? @db.Decimal(14, 6)
+  monthlyLimitCNY Decimal? @db.Decimal(14, 6)
+
+  /// 管理员临时放开每日限额的截止时间。只绕过每日限额，不绕过月度限额。
+  dailyBypassUntil DateTime?
 
   /// 结算周期。
   period AllowancePeriod @default(MONTH)
@@ -1468,11 +1475,10 @@ model MemberAllowanceWindow {
   @@map("member_allowance_windows")
 }
 
-/// 一次性追加额度（取代草案里的 `mode: ONE_TIME`）。
+/// 成员企业算力钱包充值批次。
 ///
-/// 语义是**追加不是替代**：批 ¥200 是因为「他这个月要多干点活」。
-/// 所以扣减顺序是「先常规周期额度，后追加额度」—— 追加额度就能活到下个周期，
-/// 管理员不必每期重批。这个顺序可观测（追加额度跨周期存活，常规额度不），所以必须定。
+/// 管理员充值时企业钱包先扣款，再给成员增加这笔余额。它独立于月度额度；
+/// 月度额度只限制本周期最多能消费多少，未用余额跨周期保留。
 ///
 /// 不设有效期：上限机制已封住无限累积，再加有效期就要按批次 FIFO 记账，
 /// 同一个目的两套机制，多的那套是纯负债。
@@ -1480,19 +1486,19 @@ model MemberAllowanceTopUp {
   id String @id @default(cuid())
 
   /// 不挂 allowanceId：额度被清成「不限额」时会删 allowance 行，
-  /// 而追加额度的历史必须留下（它是管理员的批准记录）。
+  /// 而成员充值记录必须留下（它是管理员的操作记录）。
   enterpriseId String
   enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
   userId       String
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// 追加金额（元），必须 > 0
+  /// 充值金额（元），必须 > 0
   amountCNY Decimal @db.Decimal(14, 6)
 
-  /// 已被消耗的部分。amountCNY - consumedCNY = 这笔还剩多少。
+  /// 已被消耗的部分。amountCNY - consumedCNY = 这笔余额还剩多少。
   consumedCNY Decimal @default(0) @db.Decimal(14, 6)
 
-  /// 乐观锁：并发扣同一笔追加额度时靠它避免双花
+  /// 乐观锁：并发扣同一笔充值余额时靠它避免双花
   version Int @default(0)
 
   note        String?
@@ -1691,13 +1697,15 @@ model ComputeUsageRecord {
   creditPaidCNY Decimal @default(0) @db.Decimal(14, 6)
   /// 由企业钱包承担的部分
   walletPaidCNY Decimal @default(0) @db.Decimal(14, 6)
+  /// 由企业预充值给当前成员的算力钱包承担的部分
+  memberWalletPaidCNY Decimal @default(0) @db.Decimal(14, 6)
   /// 由成员个人钱包承担的部分（企业资金用尽后的兜底）。
   /// 分配额度的「本周期已用」**不含**这部分 —— 否则自掏钱反而更快撞上公司给的上限。
   personalPaidCNY Decimal @default(0) @db.Decimal(14, 6)
   /// 欠费：赠送余额与钱包都不够时的差额。
   /// 余额永不为负是硬约束，所以这里如实记录差额而不是让扣款失败 ——
   /// 扣款失败会连"这次消费发生过"一起丢掉，对账时无从解释。
-  /// 恒等式：creditPaidCNY + walletPaidCNY + personalPaidCNY + unpaidCNY == costCNY
+  /// 恒等式：creditPaidCNY + memberWalletPaidCNY + walletPaidCNY + personalPaidCNY + unpaidCNY == costCNY
   unpaidCNY     Decimal @default(0) @db.Decimal(14, 6)
 
   /// 业务幂等键：`${sessionId}:${messageId}`。重试命中唯一约束即视为已计费。

@@ -141,6 +141,7 @@ describe("MemberAllowanceQueryService", () => {
       expect(_sum).toEqual({
         creditPaidCNY: true,
         walletPaidCNY: true,
+        memberWalletPaidCNY: true,
         unpaidCNY: true,
       });
       expect(_sum).not.toHaveProperty("costCNY");
@@ -260,7 +261,7 @@ describe("MemberAllowanceQueryService", () => {
       expect(view.remainingCNY).toBe("0.0000");
     });
 
-    it("追加额度算进「总剩余」，但不影响常规剩余与百分比", () => {
+    it("充值余额独立展示，不影响常规剩余与百分比", () => {
       const view = service.buildView(
         who,
         allowanceRow("user-1", 100) as any,
@@ -269,7 +270,7 @@ describe("MemberAllowanceQueryService", () => {
       );
       expect(view.remainingCNY).toBe("0.0000");
       expect(view.topUpRemainingCNY).toBe("40.00");
-      expect(view.totalRemainingCNY).toBe("40.0000");
+      expect(view.totalRemainingCNY).toBe("0.0000");
       expect(view.usedPct).toBe(100);
     });
 

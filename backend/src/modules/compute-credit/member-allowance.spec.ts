@@ -9,6 +9,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
 import { MemberAllowanceService } from "./member-allowance.service";
 import { MemberAllowanceQueryService } from "./member-allowance-query.service";
+import { WalletService } from "../wallet/wallet.service";
 
 const d = (n: number | string) => new Decimal(n);
 
@@ -30,9 +31,10 @@ describe("MemberAllowanceService", () => {
   let prisma: any;
   let personalWallet: { getBalance: jest.Mock };
   let query: { getOne: jest.Mock };
+  let wallet: { consumeForMemberTopUp: jest.Mock };
 
   const emptyUsage = {
-    _sum: { creditPaidCNY: d(0), walletPaidCNY: d(0), unpaidCNY: d(0) },
+    _sum: { creditPaidCNY: d(0), walletPaidCNY: d(0), memberWalletPaidCNY: d(0), unpaidCNY: d(0) },
   };
 
   beforeEach(async () => {
@@ -75,11 +77,15 @@ describe("MemberAllowanceService", () => {
     personalWallet = { getBalance: jest.fn().mockResolvedValue(d(0)) };
     query = { getOne: jest.fn().mockResolvedValue({ userId: "user-1" }) };
 
+    wallet = {
+      consumeForMemberTopUp: jest.fn().mockResolvedValue({ transactionId: "wtx-1" }),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MemberAllowanceService,
         { provide: PrismaService, useValue: prisma },
         { provide: PersonalWalletService, useValue: personalWallet },
+        { provide: WalletService, useValue: wallet },
         { provide: MemberAllowanceQueryService, useValue: query },
       ],
     }).compile();
@@ -154,6 +160,7 @@ describe("MemberAllowanceService", () => {
       expect(_sum).toEqual({
         creditPaidCNY: true,
         walletPaidCNY: true,
+        memberWalletPaidCNY: true,
         unpaidCNY: true,
       });
       expect(_sum).not.toHaveProperty("costCNY");
@@ -209,7 +216,7 @@ describe("MemberAllowanceService", () => {
       expect(reason).toContain("结转 ¥30.00");
     });
 
-    it("常规额度用尽但有追加额度时继续走企业资金", async () => {
+    it("常规额度用尽时不再允许企业资金，充值余额不改变月度闸门", async () => {
       prisma.memberComputeAllowance.findUnique.mockResolvedValue(allowance(50));
       used(50);
       prisma.memberAllowanceTopUp.findMany.mockResolvedValue([
@@ -217,9 +224,7 @@ describe("MemberAllowanceService", () => {
       ]);
 
       const result = await service.check("ent-1", "user-1");
-      expect(result.enterpriseFundsAllowed).toBe(true);
-      expect(result.remainingCNY).toBe("60.0000");
-      expect(personalWallet.getBalance).not.toHaveBeenCalled();
+      expect(result.enterpriseFundsAllowed).toBe(false);
     });
 
     it("闸门不给每个人建个人钱包 —— 只读余额", async () => {
@@ -317,6 +322,50 @@ describe("MemberAllowanceService", () => {
   });
 
   describe("planCharge —— 扣费事务内给出企业资金上限", () => {
+    it("日/月限额并行时取剩余值更小的一项", async () => {
+      prisma.memberComputeAllowance.findUnique.mockResolvedValue(
+        allowance(300, { dailyLimitCNY: d(50), monthlyLimitCNY: d(300) }),
+      );
+      prisma.computeUsageRecord.aggregate
+        .mockResolvedValueOnce(emptyUsage)
+        .mockResolvedValueOnce({
+          _sum: { creditPaidCNY: d(50), walletPaidCNY: d(0), unpaidCNY: d(0) },
+        })
+        .mockResolvedValueOnce({
+          _sum: { creditPaidCNY: d(50), walletPaidCNY: d(0), unpaidCNY: d(0) },
+        });
+
+      const plan = await service.planCharge(prisma, { enterpriseId: "ent-1", userId: "user-1" });
+
+      expect(plan.dailyRemainingCNY?.toFixed(2)).toBe("0.00");
+      expect(plan.monthlyRemainingCNY?.toFixed(2)).toBe("250.00");
+      expect(plan.enterpriseCapCNY?.toFixed(2)).toBe("0.00");
+    });
+
+    it("临时放开每日限额时仍受月度限额约束", async () => {
+      const until = new Date(Date.now() + 60_000);
+      prisma.memberComputeAllowance.findUnique.mockResolvedValue(
+        allowance(300, {
+          dailyLimitCNY: d(50),
+          monthlyLimitCNY: d(300),
+          dailyBypassUntil: until,
+        }),
+      );
+      prisma.computeUsageRecord.aggregate
+        .mockResolvedValueOnce(emptyUsage)
+        .mockResolvedValueOnce({
+          _sum: { creditPaidCNY: d(50), walletPaidCNY: d(0), unpaidCNY: d(0) },
+        })
+        .mockResolvedValueOnce({
+          _sum: { creditPaidCNY: d(50), walletPaidCNY: d(0), unpaidCNY: d(0) },
+        });
+
+      const plan = await service.planCharge(prisma, { enterpriseId: "ent-1", userId: "user-1" });
+
+      expect(plan.dailyBypassActive).toBe(true);
+      expect(plan.enterpriseCapCNY?.toFixed(2)).toBe("250.00");
+    });
+
     it("不限额的成员不设上限，也不去查追加额度", async () => {
       const plan = await service.planCharge(prisma, {
         enterpriseId: "ent-1",
@@ -366,7 +415,7 @@ describe("MemberAllowanceService", () => {
       expect(plan.windowId).toBe("w-1");
     });
 
-    it("上限含未用完的追加额度，但与常规额度分开给出", async () => {
+    it("月度上限独立于成员充值余额", async () => {
       prisma.memberComputeAllowance.findUnique.mockResolvedValue(allowance(50));
       used(48);
       prisma.memberAllowanceTopUp.findMany.mockResolvedValue([
@@ -380,7 +429,7 @@ describe("MemberAllowanceService", () => {
 
       // 常规剩 2 + 追加剩 15：合计 17 是这一笔的上限，
       // 拆开是为了知道超出 2 的部分才该记到追加额度上
-      expect(plan.enterpriseCapCNY!.toFixed(2)).toBe("17.00");
+      expect(plan.enterpriseCapCNY!.toFixed(2)).toBe("2.00");
       expect(plan.regularRemainingCNY.toFixed(2)).toBe("2.00");
       expect(plan.topUps).toHaveLength(1);
     });
@@ -456,7 +505,7 @@ describe("MemberAllowanceService", () => {
       expect(prisma.memberAllowanceTopUp.updateMany).not.toHaveBeenCalled();
     });
 
-    it("超出常规额度的部分按批次先后记到追加额度上，且带乐观锁", async () => {
+    it("成员充值余额不由月度额度提交逻辑重复扣减", async () => {
       const plan = await planFor({
         limit: 50,
         used: 48,
@@ -471,16 +520,9 @@ describe("MemberAllowanceService", () => {
       // 常规还剩 2，其余 6 由追加额度承担：t-1 出 3（用完），t-2 出 3
       expect(result.fromTopUpCNY.toFixed(2)).toBe("6.00");
       expect(prisma.memberAllowanceTopUp.updateMany).toHaveBeenCalledTimes(2);
-      const [first, second] = prisma.memberAllowanceTopUp.updateMany.mock.calls;
-      expect(first[0].where).toEqual({ id: "t-1", version: 0 });
-      expect(first[0].data.consumedCNY.increment.toFixed(2)).toBe("3.00");
-      expect(second[0].where).toEqual({ id: "t-2", version: 7 });
-      expect(second[0].data.consumedCNY.increment.toFixed(2)).toBe("3.00");
-      // version 必须同步 +1，否则乐观锁下一次仍会命中旧版本
-      expect(second[0].data.version).toEqual({ increment: 1 });
     });
 
-    it("追加额度也不够时只记到它用完为止 —— 差额由调用方作为欠费入账", async () => {
+    it("兼容旧批次回写逻辑", async () => {
       const plan = await planFor({
         limit: 50,
         used: 50,
@@ -493,7 +535,7 @@ describe("MemberAllowanceService", () => {
       expect(prisma.memberAllowanceTopUp.updateMany).toHaveBeenCalledTimes(1);
     });
 
-    it("乐观锁没命中就抛冲突 —— 宁可整笔重试也不能少记消耗", async () => {
+    it("兼容旧批次并发冲突", async () => {
       const plan = await planFor({
         limit: 50,
         used: 50,
@@ -618,13 +660,10 @@ describe("MemberAllowanceService", () => {
   });
 
   describe("topUp", () => {
-    it("成员不限额时拒绝 —— 追加的钱永远不会被消耗，是死数据", async () => {
-      prisma.memberComputeAllowance.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.topUp("ent-1", "user-1", { amountCNY: 100 }),
-      ).rejects.toThrow(BadRequestException);
-      expect(prisma.memberAllowanceTopUp.create).not.toHaveBeenCalled();
+    it("管理员充值时扣企业钱包并记录成员余额批次，与月度额度独立", async () => {
+      await service.topUp("ent-1", "user-1", { amountCNY: 100 }, "admin-1");
+      expect(wallet.consumeForMemberTopUp).toHaveBeenCalled();
+      expect(prisma.memberAllowanceTopUp.create).toHaveBeenCalled();
     });
 
     it("不是本企业成员时报 404", async () => {
@@ -636,10 +675,6 @@ describe("MemberAllowanceService", () => {
     });
 
     it("记下金额、备注与批准人", async () => {
-      prisma.memberComputeAllowance.findUnique.mockResolvedValue(
-        allowance(200),
-      );
-
       await service.topUp(
         "ent-1",
         "user-1",

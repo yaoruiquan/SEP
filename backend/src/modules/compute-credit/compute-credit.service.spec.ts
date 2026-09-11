@@ -268,11 +268,24 @@ describe("ComputeCreditService.chargeUsage", () => {
     ).toBe(result.costCNY.toNumber());
   });
 
+  it("成员专属充值余额用尽后不自动扣企业公共钱包", async () => {
+    allowance.consumeMemberWalletUpTo = jest.fn().mockResolvedValue({ paid: new Decimal(0) });
+    allowanceCap = new Decimal(10);
+    walletBalance = new Decimal(100);
+
+    const result = await charge();
+
+    expect(result.walletPaidCNY.toNumber()).toBe(0);
+    expect(wallet.consumeComputeUpTo).not.toHaveBeenCalled();
+    expect(result.unpaidCNY.toNumber()).toBeGreaterThan(0);
+  });
+
   it("❗流式重试命中幂等键时不重复扣费", async () => {
     prisma.computeUsageRecord.findUnique.mockResolvedValue({
       id: "usage-existing",
       costCNY: new Decimal(10),
       creditPaidCNY: new Decimal(10),
+      memberWalletPaidCNY: new Decimal(0),
       walletPaidCNY: new Decimal(0),
       personalPaidCNY: new Decimal(0),
       unpaidCNY: new Decimal(0),
