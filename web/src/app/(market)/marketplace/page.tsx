@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Users, SlidersHorizontal } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
@@ -31,21 +32,29 @@ import { PaymentModal } from "@/components/ui/payment-modal";
 import {
   FilterPanel,
   INITIAL_FILTERS,
-  PRICE_MAX,
   type FilterState,
 } from "./_components/filter-panel";
 
 const CATEGORY_KEYS = EMPLOYEE_CATEGORIES.map((category) => category.value);
 
-type SortMode = "" | "hot" | "new";
+type SortMode = "" | "hot" | "new" | "price";
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: "", label: "推荐排序" },
+  { value: "hot", label: "使用最多" },
+  { value: "new", label: "最新上架" },
+  { value: "price", label: "价格从低到高" },
+];
 
 export default function MarketplacePage() {
+  const router = useRouter();
   const { token, hydrated, roleInEnterprise } = useAuthStore();
   const loggedIn = hydrated && Boolean(token);
   const isAdmin = roleInEnterprise === "ENTERPRISE_ADMIN";
 
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [sort, setSort] = useState<SortMode>("");
+  const [urlReady, setUrlReady] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
@@ -56,6 +65,30 @@ export default function MarketplacePage() {
   );
   // 「我的申请」弹窗
   const [myRequestsOpen, setMyRequestsOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const capTypes = params.getAll("capTypes");
+    setFilters({
+      search: params.get("q") ?? "",
+      category: params.get("category") ?? "",
+      capTypes,
+    });
+    const nextSort = params.get("sort") as SortMode;
+    if (SORT_OPTIONS.some((option) => option.value === nextSort)) setSort(nextSort);
+    setUrlReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!urlReady) return;
+    const params = new URLSearchParams();
+    if (filters.search) params.set("q", filters.search);
+    if (filters.category) params.set("category", filters.category);
+    filters.capTypes.forEach((type) => params.append("capTypes", type));
+    if (sort) params.set("sort", sort);
+    const query = params.toString();
+    router.replace(query ? `/marketplace?${query}` : "/marketplace", { scroll: false });
+  }, [filters, sort, urlReady, router]);
 
   // 我的申请（用于角标显示待审批数）
   const { data: myRequests = [] } = useMySubscriptionRequests({
@@ -133,12 +166,9 @@ export default function MarketplacePage() {
         );
         if (!filters.capTypes.some((t) => types.has(t))) return false;
       }
-      if (filters.maxPrice < PRICE_MAX && (emp.price ?? 0) > filters.maxPrice) {
-        return false;
-      }
       return true;
     });
-  }, [employees, filters.capTypes, filters.maxPrice]);
+  }, [employees, filters.capTypes]);
 
   const counts = useMemo(() => {
     const out: Record<string, number> = {};
@@ -155,7 +185,8 @@ export default function MarketplacePage() {
     if (sort === "hot") {
       return [...list].sort(
         (a, b) =>
-          (b._count?.subscriptions ?? 0) - (a._count?.subscriptions ?? 0),
+          ((b._count?.subscriptions ?? 0) * 100 + (b.stats?.totalExecutions ?? 0)) -
+          ((a._count?.subscriptions ?? 0) * 100 + (a.stats?.totalExecutions ?? 0)),
       );
     }
     if (sort === "new") {
@@ -163,6 +194,11 @@ export default function MarketplacePage() {
         (a, b) =>
           new Date(b.publishedAt ?? 0).getTime() -
           new Date(a.publishedAt ?? 0).getTime(),
+      );
+    }
+    if (sort === "price") {
+      return [...list].sort(
+        (a, b) => Number(a.annualPriceCNY ?? a.price ?? 0) - Number(b.annualPriceCNY ?? b.price ?? 0),
       );
     }
     return list;
@@ -286,9 +322,18 @@ export default function MarketplacePage() {
       </header>
 
       {/* ── tabs ─────────────────────────────────────────────────────── */}
-      <div className="flex items-end justify-between gap-4 border-b border-glassline">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-glassline">
         <CategoryTabs active={activeTab} onChange={handleTab} />
         <div className="mb-2 flex shrink-0 items-center gap-2">
+          <label className="sr-only" htmlFor="market-sort">排序</label>
+          <select
+            id="market-sort"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortMode)}
+            className="rounded-glass-md border border-glassline bg-glass-2 px-3 py-1.5 text-[12px] text-gtext-secondary outline-none transition-colors focus:border-glassline-brand"
+          >
+            {SORT_OPTIONS.map((option) => <option key={option.value || "recommended"} value={option.value}>{option.label}</option>)}
+          </select>
           {loggedIn && !isAdmin && (
             <button
               onClick={() => setMyRequestsOpen(true)}
@@ -365,7 +410,6 @@ export default function MarketplacePage() {
                         search: "",
                         category: "",
                         capTypes: [],
-                        maxPrice: PRICE_MAX,
                       })
                     }
                   >
@@ -376,11 +420,14 @@ export default function MarketplacePage() {
             />
           ) : (
             <>
-              <p className="mb-4 text-[12px] text-gtext-muted">
-                共 {visible.length} 位员工
-                {sort === "hot" && " · 按热门排序"}
-                {sort === "new" && " · 按上架时间排序"}
-              </p>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] font-medium text-gtext-secondary">找到 {visible.length} 位员工</p>
+                <div className="flex flex-wrap gap-1.5 text-[11px] text-gtext-muted">
+                  {filters.category && <span className="rounded-full border border-glassline bg-glass-2 px-2 py-1">{EMPLOYEE_CATEGORIES.find((c) => c.value === filters.category)?.label}</span>}
+                  {filters.capTypes.map((type) => <span key={type} className="rounded-full border border-glassline bg-glass-2 px-2 py-1">{type === "AGENT" ? "AI 对话" : type === "RPA" ? "RPA 自动化" : type === "SKILL" ? "技能脚本" : "AI 应用"}</span>)}
+                  {(filters.category || filters.capTypes.length) && <button className="px-1.5 py-1 text-gbrand-text hover:underline" onClick={() => patchFilters({ category: "", capTypes: [] })}>清除筛选</button>}
+                </div>
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((emp) => (
                   <EmployeeCard

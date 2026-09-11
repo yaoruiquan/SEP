@@ -388,6 +388,21 @@ describe('DigitalEmployeeService', () => {
       expect(arg.where.OR).toBeUndefined();
     });
 
+    it('列表为最近 7 天上架员工标记 NEW，并按使用信号标记 HOT', async () => {
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([
+        {
+          id: 'emp-new',
+          publishedAt: new Date(),
+          _count: { subscriptions: 2 },
+        },
+      ]);
+      const result = await service.findPublicList();
+
+      expect(result[0]).toEqual(
+        expect.objectContaining({ isNew: true, isHot: true }),
+      );
+    });
+
     it('详情按 id + PUBLISHED 双条件查', async () => {
       prismaMock.digitalEmployee.findFirst.mockResolvedValue({ id: 'emp-1' });
 

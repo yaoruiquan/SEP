@@ -348,6 +348,8 @@ export interface MarketEmployee {
   includedComputeCNY: number;
   version: string;
   publishedAt: string | null;
+  isNew?: boolean;
+  isHot?: boolean;
   bindings: {
     id: string;
     order: number;

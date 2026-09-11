@@ -116,10 +116,21 @@ export class DigitalEmployeeService {
     const records = await this.trackRecord.forEmployees(
       employees.map((e) => e.id),
     );
-    return employees.map((e) => ({
-      ...e,
-      stats: records.get(e.id) ?? { totalExecutions: 0, successRate: null },
-    }));
+    const now = Date.now();
+    const newCutoff = now - 7 * 24 * 60 * 60 * 1000;
+
+    return employees.map((e) => {
+      const stats = records.get(e.id) ?? { totalExecutions: 0, successRate: null };
+      const subscriptions = e._count?.subscriptions ?? 0;
+      // 热门是可解释的使用信号：企业订阅和实际执行都计入，避免只看单一指标。
+      const hotScore = subscriptions * 100 + stats.totalExecutions;
+      return {
+        ...e,
+        stats,
+        isNew: Boolean(e.publishedAt && e.publishedAt.getTime() >= newCutoff),
+        isHot: hotScore >= 20 && (subscriptions >= 2 || stats.totalExecutions >= 20),
+      };
+    });
   }
 
   /** 公开员工详情。同样只返回白名单字段，且非 APPROVED 一律 404。 */
@@ -132,7 +143,18 @@ export class DigitalEmployeeService {
       // 未上架的员工对访客应表现为「不存在」，不泄漏其存在性
       throw new NotFoundException(`员工 ${id} 不存在`);
     }
-    return { ...employee, stats: await this.trackRecord.forEmployee(id) };
+    const stats = await this.trackRecord.forEmployee(id);
+    const subscriptions = employee._count?.subscriptions ?? 0;
+    const hotScore = subscriptions * 100 + stats.totalExecutions;
+    return {
+      ...employee,
+      stats,
+      isNew: Boolean(
+        employee.publishedAt &&
+          employee.publishedAt.getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000,
+      ),
+      isHot: hotScore >= 20 && (subscriptions >= 2 || stats.totalExecutions >= 20),
+    };
   }
 
   /**

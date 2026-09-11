@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Zap, ShoppingCart } from 'lucide-react';
+import { Zap, ShoppingCart, Flame, Sparkles, Building2 } from 'lucide-react';
 import { cn, CAPABILITY_TYPE_META } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { PulsingDot } from '@/components/ui/pulsing-dot';
@@ -69,9 +69,13 @@ export function EmployeeCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[15px] font-semibold text-gtext-primary">
-            {emp.name}
-          </h3>
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="truncate text-[16px] font-semibold text-gtext-primary">{emp.name}</h3>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {emp.isNew && <span className="inline-flex items-center gap-1 rounded-md bg-emerald-400/15 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-300"><Sparkles className="h-3 w-3" />NEW</span>}
+              {emp.isHot && <span className="inline-flex items-center gap-1 rounded-md bg-orange-400/15 px-2 py-1 text-[10px] font-bold tracking-wide text-orange-300"><Flame className="h-3 w-3" />HOT</span>}
+            </div>
+          </div>
           <p className="mt-0.5 truncate text-[13px] text-gtext-secondary">
             {emp.position}
             {emp.industry ? ` · ${emp.industry}` : ''}
@@ -120,7 +124,7 @@ export function EmployeeCard({
       <div className="h-px w-full bg-glassline" />
 
       {/* ── price + subscribe ───────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-end justify-between gap-3">
         <div>
           {emp.annualPriceCNY && Number(emp.annualPriceCNY) > 0 ? (
             <span className="text-[15px] font-semibold text-gtext-primary">
@@ -130,9 +134,10 @@ export function EmployeeCard({
           ) : (
             <span className="text-[13px] font-medium text-emerald-400">免费</span>
           )}
-          <p className="text-[11px] text-gtext-muted">
-            {emp._count?.subscriptions ?? 0} 家企业在用
-          </p>
+          <div className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-gtext-secondary">
+            <Building2 className="h-4 w-4 text-gbrand" />
+            <span><strong className="text-[16px] text-gtext-primary">{emp._count?.subscriptions ?? 0}</strong> 家企业在用</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

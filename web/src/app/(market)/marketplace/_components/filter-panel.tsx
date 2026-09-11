@@ -1,26 +1,20 @@
 'use client';
 
-import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
-/** 价格滑块拉到最右端 = 不限价，而不是「上限正好 2000」。 */
-export const PRICE_MAX = 2000;
-
 export interface FilterState {
   search: string;
   category: string;
   capTypes: string[];
-  maxPrice: number;
 }
 
 export const INITIAL_FILTERS: FilterState = {
   search: '',
   category: '',
   capTypes: [],
-  maxPrice: PRICE_MAX,
 };
 
 interface FilterPanelProps {
@@ -54,32 +48,13 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
 
   const dirty =
     Boolean(filters.category) ||
-    filters.capTypes.length > 0 ||
-    filters.maxPrice < PRICE_MAX;
+    filters.capTypes.length > 0;
 
   return (
     <aside
       aria-label="筛选"
       className="sticky top-[76px] flex h-fit w-60 shrink-0 flex-col gap-5 rounded-glass-2xl border border-glassline bg-glass-1 p-4 backdrop-blur-glass-md"
     >
-      {/* search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gtext-muted" />
-        <input
-          type="search"
-          value={filters.search}
-          onChange={(e) => onChange({ search: e.target.value })}
-          placeholder="搜索员工…"
-          aria-label="搜索员工"
-          className={cn(
-            'w-full rounded-glass-lg border border-glassline bg-glass-2 py-2 pl-8 pr-3',
-            'text-[13px] text-gtext-primary placeholder:text-gtext-muted',
-            'transition-colors duration-200',
-            'focus:border-glassline-brand focus:outline-none focus:ring-2 focus:ring-gbrand/40',
-          )}
-        />
-      </div>
-
       {/* ── 业务职能 ────────────────────────────────────────────── */}
       <div>
         <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
@@ -154,46 +129,10 @@ export function FilterPanel({ filters, onChange, counts, total }: FilterPanelPro
         </ul>
       </div>
 
-      <div className="h-px bg-glassline" />
-
-      {/* ── 价格区间 ────────────────────────────────────────────── */}
-      <div>
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-gtext-muted">
-          价格上限
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: '免费', value: 0 },
-            { label: '¥100以下', value: 100 },
-            { label: '¥100-500', value: 500 },
-            { label: '不限', value: PRICE_MAX },
-          ].map((opt) => {
-            const active = filters.maxPrice === opt.value;
-            return (
-              <button
-                key={opt.value}
-                onClick={() => onChange({ maxPrice: opt.value })}
-                aria-pressed={active}
-                className={cn(
-                  'rounded-glass-md px-3 py-2 text-[12px] transition-all duration-150',
-                  active
-                    ? 'border border-glassline-brand bg-gbrand/15 font-medium text-gbrand-text shadow-glass-sm'
-                    : 'border border-glassline bg-glass-2 text-gtext-secondary hover:bg-glass-3 hover:text-gtext-primary',
-                )}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* ── clear ───────────────────────────────────────────────── */}
       {dirty && (
         <button
-          onClick={() =>
-            onChange({ category: '', capTypes: [], maxPrice: PRICE_MAX })
-          }
+          onClick={() => onChange({ category: '', capTypes: [] })}
           className="self-start text-[12px] text-gtext-muted underline underline-offset-2 transition-colors hover:text-gtext-secondary"
         >
           清除筛选
