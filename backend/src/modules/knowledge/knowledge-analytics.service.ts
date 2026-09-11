@@ -24,6 +24,8 @@ export interface AnalyticsResponse {
   neverHitDocuments: { id: string; originalName: string }[];
   /** Embedding 服务当前是否可用（B3：可用性可见性） */
   embeddingAvailable: boolean;
+  embeddingModel: string;
+  embeddingDimension: number;
   recentLogs: {
     id: string;
     query: string;
@@ -139,6 +141,8 @@ export class KnowledgeAnalyticsService {
       zeroHitQueries,
       neverHitDocuments,
       embeddingAvailable: await this.embedding.isAvailable(),
+      embeddingModel: this.embedding.getModel(),
+      embeddingDimension: this.embedding.getDimension(),
       recentLogs,
     };
   }

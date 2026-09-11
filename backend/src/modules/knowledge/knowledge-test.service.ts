@@ -28,6 +28,7 @@ export interface TestSearchResponse {
 
 export interface DocumentStatusSummary {
   total: number;
+  vectorized: number;
   pending: number;
   processing: number;
   ready: number;
@@ -156,8 +157,11 @@ export class KnowledgeTestService {
       { pending: 0, processing: 0, ready: 0, failed: 0 },
     );
 
+    const vectorized = documents.filter((doc) => doc.embeddingModel !== null).length;
+
     return {
       total: documents.length,
+      vectorized,
       ...counts,
       documents,
     };

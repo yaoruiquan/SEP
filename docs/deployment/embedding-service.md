@@ -89,6 +89,29 @@ SELECT indexname FROM pg_indexes
 
 ## 6. 故障排查
 
+### 当前本地开发环境
+
+如果 `curl http://127.0.0.1:11434/api/tags` 返回 connection refused，说明 Ollama 没有运行，
+不是知识库文本解析问题。启动 Ollama 后加载模型：
+
+```bash
+ollama serve
+ollama pull bge-m3:latest
+ollama list
+```
+
+另开终端验证维度：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11434/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"bge-m3:latest","input":"测试知识库向量化"}' \
+  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s).data?.[0]?.embedding; console.log('embedding dimensions:', v?.length); process.exit(v?.length===1024?0:1)})"
+```
+
+验证通过后重启 backend。已有文档需要在知识库页面执行“重建索引”，或对失败文档点击“重试”；
+仅显示 READY 不代表已有向量，文档状态中的“仅词法检索（未生成向量）”表示当时 Embedding 不可用。
+
 ### `ECONNREFUSED`
 
 - 检查 Ollama：`curl http://127.0.0.1:11434/api/tags`。

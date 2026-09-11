@@ -66,6 +66,21 @@ export default function KnowledgeAnalyticsPage({ params }: AnalyticsPageProps) {
         </div>
       </div>
 
+      <Card className={`mb-6 border p-4 ${data.embeddingAvailable ? 'border-success/30 bg-success/5' : 'border-danger/30 bg-danger/5'}`}>
+        <div className="flex items-start gap-3">
+          <AlertCircle className={`mt-0.5 h-4 w-4 flex-shrink-0 ${data.embeddingAvailable ? 'text-success' : 'text-danger'}`} />
+          <div className="text-sm">
+            <p className="font-medium text-gtext-primary">
+              Embedding：{data.embeddingAvailable ? '可用' : '不可用，当前检索会降级为词法检索'}
+            </p>
+            <p className="mt-1 text-xs text-gtext-muted">
+              当前模型 {data.embeddingModel} · 向量维度 {data.embeddingDimension}
+              {!data.embeddingAvailable && '。请启动 Ollama 并确认已加载该模型后，重新处理失败文档或执行重建索引。'}
+            </p>
+          </div>
+        </div>
+      </Card>
+
       {/* KPI 卡片 */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard label="总搜索次数" value={data.totalSearches} />

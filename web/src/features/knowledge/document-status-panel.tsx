@@ -121,11 +121,11 @@ export function DocumentStatusPanel({ knowledgeBaseId }: DocumentStatusPanelProp
           <div className="h-2 w-full overflow-hidden rounded-full bg-glassbg border border-glassline">
             <div
               className="h-full bg-primary transition-all duration-500"
-              style={{ width: `${(data.ready / data.total) * 100}%` }}
+              style={{ width: `${data.total > 0 ? (data.vectorized / data.total) * 100 : 0}%` }}
             />
           </div>
           <p className="text-xs text-gtext-muted text-right">
-            {data.ready} / {data.total} 文档已向量化
+            {data.vectorized} / {data.total} 文档已向量化
           </p>
         </div>
       )}
@@ -182,7 +182,7 @@ function DocumentStatusRow({
           {doc.status === 'READY' && doc.processedAt && (
             <p className="mt-0.5 text-xs text-gtext-muted">
               完成于 {new Date(doc.processedAt).toLocaleString('zh-CN')}
-              {doc.embeddingModel && ` · ${doc.embeddingModel}`}
+              {doc.embeddingModel ? ` · ${doc.embeddingModel}` : ' · 仅词法检索（未生成向量）'}
             </p>
           )}
         </div>

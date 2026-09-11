@@ -35,6 +35,7 @@ export interface DocumentStatusItem {
 
 export interface DocumentStatusSummary {
   total: number;
+  vectorized: number;
   pending: number;
   processing: number;
   ready: number;
@@ -54,6 +55,9 @@ export interface AnalyticsData {
   zeroHitRate: number;
   zeroHitQueries: string[];
   neverHitDocuments: { id: string; originalName: string }[];
+  embeddingAvailable: boolean;
+  embeddingModel: string;
+  embeddingDimension: number;
   recentLogs: {
     id: string;
     query: string;

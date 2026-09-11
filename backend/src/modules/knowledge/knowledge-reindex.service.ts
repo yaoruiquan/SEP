@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
@@ -39,7 +39,9 @@ export class KnowledgeReindexService {
     }
 
     if (!(await this.embedding.isAvailable())) {
-      throw new Error('Embedding service is unavailable');
+      throw new ServiceUnavailableException(
+        `Embedding 服务不可用：请确认 ${this.embedding.getModel()} 已启动且返回 ${this.embedding.getDimension()} 维向量`,
+      );
     }
 
     const chunks = await this.prisma.textChunk.findMany({
