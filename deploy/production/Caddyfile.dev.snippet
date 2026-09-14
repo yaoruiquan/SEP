@@ -1,0 +1,45 @@
+# SEP shared client integration environment
+sep-dev.longdaoSEP.cn {
+    tls {$LONGDAO_ACME_EMAIL} {
+        protocols tls1.2 tls1.3
+    }
+
+    @sep_dev_ws path /ws/*
+    reverse_proxy @sep_dev_ws sep-dev-backend:3001
+
+    reverse_proxy sep-dev-web:3000 {
+        flush_interval -1
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    encode {
+        zstd
+        gzip 6
+        minimum_length 256
+        match {
+            header Content-Type text/html*
+            header Content-Type text/css*
+            header Content-Type text/plain*
+            header Content-Type application/json*
+            header Content-Type application/javascript*
+            header Content-Type image/svg+xml*
+        }
+    }
+
+    request_body {
+        max_size 100MB
+    }
+
+    log {
+        output file /var/log/caddy/sep-dev.log {
+            roll_size 50mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+        level INFO
+    }
+}

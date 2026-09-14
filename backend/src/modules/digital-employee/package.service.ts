@@ -307,6 +307,7 @@ export class PackageService {
           enterpriseId: p.enterpriseId,
           employeeId: employeeId,
           status: 'ACTIVE',
+          OR: [{ endDate: null }, { endDate: { gt: now } }],
         },
       },
       select: { id: true },

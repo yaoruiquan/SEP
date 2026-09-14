@@ -57,4 +57,6 @@ export const qk = {
   taskRun: (id: string) => ['task-runs', id] as const,
   taskRunEvents: (id: string) => ['task-runs', id, 'events'] as const,
   taskTemplates: ['task-runs', 'templates'] as const,
+  clientTaskMirrors: ['client-task-mirrors'] as const,
+  clientTaskMirror: (id: string) => ['client-task-mirrors', id] as const,
 };

@@ -1204,6 +1204,7 @@ export class SkillVersionService {
         enterpriseId,
         employeeId,
         status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
         grants: { some: this.activeGrantWhere(memberId, departmentId) },
       },
       select: { id: true, employeeId: true, enterpriseId: true },
@@ -1223,6 +1224,7 @@ export class SkillVersionService {
         id: subscriptionId,
         enterpriseId,
         status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
         grants: { some: this.activeGrantWhere(memberId, departmentId) },
       },
       select: { id: true, employeeId: true, enterpriseId: true },
@@ -1233,7 +1235,12 @@ export class SkillVersionService {
 
   private async getActiveSubscriptionById(enterpriseId: string, subscriptionId: string) {
     const subscription = await this.prisma.subscription.findFirst({
-      where: { id: subscriptionId, enterpriseId, status: 'ACTIVE' },
+      where: {
+        id: subscriptionId,
+        enterpriseId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
+      },
       select: { id: true, employeeId: true, enterpriseId: true },
     });
     if (!subscription) throw new NotFoundException('有效订阅不存在');

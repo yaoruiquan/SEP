@@ -41,6 +41,8 @@ import { canUsePlanSnapshot, planToSnapshot } from '@/features/task/task-executi
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { useAuthStore } from '@/lib/auth-store';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ClientTaskMonitor } from '@/features/task/components/client-task-monitor';
 import { nav } from '@/locales/zh-CN';
 import type { TaskExecutionSnapshot } from '@/features/task/task-execution';
 import type { TaskCandidateEmployee, TaskPlan, TaskPlanStep } from '@/features/task/task-orchestration';
@@ -97,6 +99,7 @@ export default function TasksPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('workspace');
 
   const layoutTimer = useRef<number | undefined>(undefined);
 
@@ -478,7 +481,9 @@ export default function TasksPage() {
         />
       </div>
 
-      <main className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-glassline px-4 py-2 sm:px-6"><TabsList><TabsTrigger value="workspace">我的工作安排</TabsTrigger><TabsTrigger value="monitoring">客户端监控</TabsTrigger></TabsList></div>
+        <TabsContent value="workspace" className="flex min-h-0 flex-1 flex-col">
         {!activeRunId ? (
           <TaskObjectiveComposer
             objective={objective}
@@ -542,7 +547,9 @@ export default function TasksPage() {
             onAddStep={addEmployeeStep}
           />
         )}
-      </main>
+        </TabsContent>
+        <TabsContent value="monitoring" className="flex min-h-0 flex-1 flex-col"><ClientTaskMonitor /></TabsContent>
+      </Tabs>
 
       <TaskHistoryDrawer
         open={historyOpen}

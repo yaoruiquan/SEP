@@ -19,7 +19,7 @@ describe('KnowledgeService', () => {
 
   beforeEach(async () => {
     prisma = {
-      subscription: { findUnique: jest.fn() },
+      subscription: { findUnique: jest.fn(), findFirst: jest.fn() },
       knowledgeGrant: { findMany: jest.fn().mockResolvedValue([]) },
       knowledgeBase: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
     };
@@ -39,26 +39,20 @@ describe('KnowledgeService', () => {
 
   describe('listGrantsBySubscription —— 按雇佣关系反查可读知识库', () => {
     it('本企业的雇佣关系：返回该关系上的知识库授权', async () => {
-      prisma.subscription.findUnique.mockResolvedValue({
-        enterpriseId: 'ent-a',
-      });
+      prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
       const rows = [
         { id: 'g1', knowledgeBase: { id: 'kb1', name: '产品手册' } },
       ];
       prisma.knowledgeGrant.findMany.mockResolvedValue(rows);
 
-      await expect(service.listGrantsBySubscription('u1', 'sub-1')).resolves.toBe(
-        rows,
-      );
+      await expect(service.listGrantsBySubscription('u1', 'sub-1')).resolves.toEqual({ grants: rows });
       expect(prisma.knowledgeGrant.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { subscriptionId: 'sub-1' } }),
       );
     });
 
     it('别家企业的雇佣关系：抛 Forbidden，不能返空数组糊过去', async () => {
-      prisma.subscription.findUnique.mockResolvedValue({
-        enterpriseId: 'ent-b',
-      });
+      prisma.subscription.findFirst.mockResolvedValue(null);
 
       await expect(
         service.listGrantsBySubscription('u1', 'sub-other'),
@@ -68,7 +62,7 @@ describe('KnowledgeService', () => {
     });
 
     it('雇佣关系不存在：同样抛 Forbidden，不泄漏 id 是否存在', async () => {
-      prisma.subscription.findUnique.mockResolvedValue(null);
+      prisma.subscription.findFirst.mockResolvedValue(null);
 
       await expect(
         service.listGrantsBySubscription('u1', 'sub-ghost'),

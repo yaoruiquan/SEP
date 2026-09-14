@@ -52,8 +52,23 @@ export class KnowledgeSearchService {
 
     // 1. 安全边界：获取授权 + 企业隔离
     const context = await this.enterpriseContext.resolve(userId);
+    const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
-      where: { id: subscriptionId, enterpriseId: context.enterpriseId },
+      where: {
+        id: subscriptionId,
+        enterpriseId: context.enterpriseId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+        grants: {
+          some: {
+            OR: [
+              ...(context.memberId ? [{ memberId: context.memberId }] : []),
+              ...(context.departmentId ? [{ departmentId: context.departmentId }] : []),
+            ],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+          },
+        },
+      },
     });
 
     if (!subscription) {

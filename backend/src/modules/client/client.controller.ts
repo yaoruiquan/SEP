@@ -6,6 +6,8 @@ import {
   HttpCode,
   HttpStatus,
   Request,
+  Param,
+  Patch,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -107,4 +109,41 @@ export class ClientController {
   async listSubscriptions(@Request() req: ExpressRequest & { user: { id: string } }) {
     return this.clientService.listSubscriptions(req.user.id);
   }
+
+  @Get('subscriptions/:subscriptionId/runtime')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取订阅锁定版本的客户端运行时清单' })
+  @ApiResponse({ status: 200, description: '员工配置与已审核技能正文' })
+  @ApiResponse({ status: 403, description: '无有效订阅或员工授权' })
+  async getRuntime(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('subscriptionId') subscriptionId: string,
+  ) {
+    return this.clientService.getRuntime(req.user.id, subscriptionId);
+  }
+
+  @Post('tasks')
+  @UseGuards(JwtAuthGuard)
+  async createTaskMirror(@Request() req: any, @Body() body: any) { return this.clientService.createTaskMirror(req.user.id, body); }
+
+  @Patch('tasks/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async updateTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.updateTaskMirror(req.user.id, id, body); }
+
+  @Post('tasks/:id/heartbeat')
+  @UseGuards(JwtAuthGuard)
+  async heartbeatTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.heartbeatTaskMirror(req.user.id, id, body); }
+
+  @Post('tasks/:id/events')
+  @UseGuards(JwtAuthGuard)
+  async eventTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.eventTaskMirror(req.user.id, id, body); }
+
+  @Get('tasks')
+  @UseGuards(JwtAuthGuard)
+  async listTaskMirrors(@Request() req: any) { return this.clientService.listTaskMirrors(req.user.id); }
+
+  @Get('tasks/:id')
+  @UseGuards(JwtAuthGuard)
+  async getTaskMirror(@Request() req: any, @Param('id') id: string) { return this.clientService.getTaskMirror(req.user.id, id); }
 }

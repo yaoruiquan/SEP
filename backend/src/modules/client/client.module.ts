@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ClientController } from './client.controller';
 import { ClientService } from './client.service';
 import { SettingModule } from '../setting/setting.module';
+import { PrismaModule } from '../../prisma/prisma.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { SettingModule } from '../setting/setting.module';
       }),
     }),
     SettingModule,
+    PrismaModule,
   ],
   controllers: [ClientController],
   providers: [ClientService],

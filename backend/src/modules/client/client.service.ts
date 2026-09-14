@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -372,6 +373,98 @@ export class ClientService {
         upgradeAvailable: sub.employee.version !== sub.templateVersion,
       }];
     });
+  }
+
+  async getRuntime(userId: string, subscriptionId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const now = new Date();
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        id: subscriptionId,
+        enterpriseId: ctx.enterpriseId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+        grants: {
+          some: {
+            OR: [
+              { memberId: ctx.memberId },
+              ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
+            ],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+          },
+        },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            avatar: true,
+            systemPrompt: true,
+            modelId: true,
+            maxSteps: true,
+            version: true,
+            bindings: {
+              where: { capability: { type: 'SKILL' } },
+              orderBy: { priority: 'asc' },
+              select: {
+                capability: { select: { id: true, name: true, description: true } },
+                defaultSkillVersion: { select: { id: true, version: true, status: true, content: true } },
+              },
+            },
+          },
+        },
+        skillVersionSelections: {
+          select: { capabilityId: true, version: { select: { id: true, version: true, status: true, content: true } } },
+        },
+      },
+    });
+    if (!subscription) throw new NotFoundException('Runtime unavailable');
+
+    const enabledModels = await this.prisma.platformModel.findMany({
+      where: { enabled: true }, select: { modelId: true }, orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+    });
+    const modelConfig = await this.prisma.enterpriseModelConfig.findUnique({
+      where: { enterpriseId: ctx.enterpriseId }, select: { allowedChatModels: true },
+    });
+    const models = enabledModels.map((m) => m.modelId);
+    const allowedModels = modelConfig?.allowedChatModels?.length
+      ? models.filter((id) => modelConfig.allowedChatModels.includes(id)) : models;
+    const selected = new Map(subscription.skillVersionSelections.map((s) => [s.capabilityId, s.version]));
+    const skills = subscription.employee.bindings.flatMap((binding) => {
+      const version = selected.get(binding.capability.id) ?? binding.defaultSkillVersion;
+      if (!version || !['PLATFORM_APPROVED', 'ENTERPRISE_APPROVED'].includes(version.status)) return [];
+      return [{ capabilityId: binding.capability.id, name: binding.capability.name, description: binding.capability.description, versionId: version.id, version: version.version, content: version.content }];
+    });
+    return {
+      manifestVersion: 1,
+      subscriptionId: subscription.id,
+      templateVersion: subscription.templateVersion,
+      employee: { id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps },
+      runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills },
+    };
+  }
+
+  async createTaskMirror(userId: string, body: any) {
+    if (!body?.clientTaskId || !body?.clientRunId || !body?.subscriptionId || !body?.title) throw new BadRequestException('Invalid task mirror');
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const sub = await this.prisma.subscription.findFirst({ where: { id: body.subscriptionId, enterpriseId: ctx.enterpriseId, status: 'ACTIVE', OR: [{ endDate: null }, { endDate: { gt: new Date() } }], grants: { some: { OR: [{ memberId: ctx.memberId }, ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : [])] } } }, select: { id: true } });
+    if (!sub) throw new ForbiddenException('Subscription unavailable');
+    return this.prisma.clientTaskMirror.upsert({ where: { userId_clientTaskId: { userId, clientTaskId: body.clientTaskId } }, create: { userId, enterpriseId: ctx.enterpriseId, subscriptionId: sub.id, clientTaskId: body.clientTaskId, clientRunId: body.clientRunId, title: String(body.title).slice(0, 200), taskType: body.taskType ?? 'conversation', modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null }, update: { clientRunId: body.clientRunId, title: String(body.title).slice(0, 200), modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null } });
+  }
+
+  private async ownedMirror(userId: string, id: string) { const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, userId } }); if (!row) throw new NotFoundException('Task not found'); return row; }
+  async updateTaskMirror(userId: string, id: string, body: any) { const row = await this.ownedMirror(userId, id); const status = String(body?.status ?? row.status).toUpperCase(); const data: any = { status, progress: Math.max(0, Math.min(100, Number(body?.progress ?? row.progress) || 0)), currentStep: body?.currentStep ?? null, activity: body?.activity ?? null, errorSummary: body?.errorSummary ?? null }; if (status === 'RUNNING' && !row.startedAt) data.startedAt = new Date(); if (['COMPLETED','FAILED','CANCELLED'].includes(status)) data.completedAt = new Date(); return this.prisma.clientTaskMirror.update({ where: { id }, data }); }
+  async heartbeatTaskMirror(userId: string, id: string, body: any) { await this.ownedMirror(userId, id); return this.prisma.clientTaskMirror.update({ where: { id }, data: { lastHeartbeatAt: new Date(), progress: body?.progress == null ? undefined : Math.max(0, Math.min(100, Number(body.progress) || 0)), activity: body?.activity ?? undefined } }); }
+  async eventTaskMirror(userId: string, id: string, body: any) { const row = await this.ownedMirror(userId, id); const seq = Number(body?.sequence); if (!Number.isInteger(seq) || seq <= row.lastSequence) return row; await this.prisma.clientTaskMirrorEvent.create({ data: { mirrorId: row.id, clientRunId: row.clientRunId, sequence: seq, type: String(body.type ?? 'INFO'), stepKey: body.stepKey ?? null, message: body.message ? String(body.message).slice(0, 1000) : null, progress: body.progress == null ? null : Number(body.progress), occurredAt: body.occurredAt ? new Date(body.occurredAt) : null } }); return this.prisma.clientTaskMirror.update({ where: { id: row.id }, data: { lastSequence: seq, progress: body.progress == null ? undefined : Number(body.progress), lastHeartbeatAt: new Date() } }); }
+  async listTaskMirrors(userId: string) { const ctx = await this.enterpriseContext.resolve(userId); return this.prisma.clientTaskMirror.findMany({ where: { enterpriseId: ctx.enterpriseId }, orderBy: { updatedAt: 'desc' }, take: 100 }); }
+  async getTaskMirror(userId: string, id: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, enterpriseId: ctx.enterpriseId } });
+    if (!row) throw new NotFoundException('Task not found');
+    const events = await this.prisma.clientTaskMirrorEvent.findMany({ where: { mirrorId: row.id }, orderBy: { sequence: 'asc' } });
+    return { ...row, events };
   }
 
   /** @deprecated Use listSubscriptions during client migration. */

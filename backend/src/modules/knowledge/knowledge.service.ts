@@ -156,24 +156,40 @@ export class KnowledgeService {
    * 这个按雇佣关系看「能读哪些库」，雇佣关系的授权面板需要后者。
    */
   async listGrantsBySubscription(userId: string, subscriptionId: string) {
-    const { enterpriseId } = await this.enterpriseCtx.resolve(userId);
+    const context = await this.enterpriseCtx.resolve(userId);
+    const now = new Date();
 
     // 越权访问别家企业的雇佣关系直接挡掉，不能靠 where 过滤后返空数组糊过去
-    const subscription = await this.prisma.subscription.findUnique({
-      where: { id: subscriptionId },
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        id: subscriptionId,
+        enterpriseId: context.enterpriseId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+        grants: {
+          some: {
+            OR: [
+              ...(context.memberId ? [{ memberId: context.memberId }] : []),
+              ...(context.departmentId ? [{ departmentId: context.departmentId }] : []),
+            ],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+          },
+        },
+      },
       select: { enterpriseId: true },
     });
-    if (!subscription || subscription.enterpriseId !== enterpriseId) {
+    if (!subscription) {
       throw new ForbiddenException('Invalid subscription');
     }
 
-    return this.prisma.knowledgeGrant.findMany({
+    const grants = await this.prisma.knowledgeGrant.findMany({
       where: { subscriptionId },
       include: {
         knowledgeBase: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    return { grants };
   }
 
   async createGrant(

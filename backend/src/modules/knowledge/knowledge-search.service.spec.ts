@@ -50,9 +50,9 @@ describe('KnowledgeSearchService authorization and logging', () => {
       .rejects.toThrow(ForbiddenException);
 
     expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
-    expect(prisma.subscription.findFirst).toHaveBeenCalledWith({
-      where: { id: 'sub-b', enterpriseId: 'ent-a' },
-    });
+    expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'sub-b', enterpriseId: 'ent-a', status: 'ACTIVE' }),
+    }));
   });
 
   it('filters grants by enterprise and records a real search result', async () => {
