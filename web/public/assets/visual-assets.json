@@ -1,0 +1,67 @@
+{
+  "version": "2026-09-15",
+  "employees": {
+    "carbonDefaults": {
+      "description": "碳基员工默认头像。仅在成员未上传头像时使用，按稳定 ID 分配。",
+      "items": [
+        { "id": "carbon-01", "src": "/assets/carbon-defaults/carbon-01.webp", "alt": "碳基员工默认头像 01" },
+        { "id": "carbon-02", "src": "/assets/carbon-defaults/carbon-02.webp", "alt": "碳基员工默认头像 02" },
+        { "id": "carbon-03", "src": "/assets/carbon-defaults/carbon-03.webp", "alt": "碳基员工默认头像 03" },
+        { "id": "carbon-04", "src": "/assets/carbon-defaults/carbon-04.webp", "alt": "碳基员工默认头像 04" },
+        { "id": "carbon-05", "src": "/assets/carbon-defaults/carbon-05.webp", "alt": "碳基员工默认头像 05" },
+        { "id": "carbon-06", "src": "/assets/carbon-defaults/carbon-06.webp", "alt": "碳基员工默认头像 06" },
+        { "id": "carbon-07", "src": "/assets/carbon-defaults/carbon-07.webp", "alt": "碳基员工默认头像 07" },
+        { "id": "carbon-08", "src": "/assets/carbon-defaults/carbon-08.webp", "alt": "碳基员工默认头像 08" },
+        { "id": "carbon-09", "src": "/assets/carbon-defaults/carbon-09.webp", "alt": "碳基员工默认头像 09" },
+        { "id": "carbon-10", "src": "/assets/carbon-defaults/carbon-10.webp", "alt": "碳基员工默认头像 10" },
+        { "id": "carbon-11", "src": "/assets/carbon-defaults/carbon-11.webp", "alt": "碳基员工默认头像 11" },
+        { "id": "carbon-12", "src": "/assets/carbon-defaults/carbon-12.webp", "alt": "碳基员工默认头像 12" },
+        { "id": "carbon-13", "src": "/assets/carbon-defaults/carbon-13.webp", "alt": "碳基员工默认头像 13" },
+        { "id": "carbon-14", "src": "/assets/carbon-defaults/carbon-14.webp", "alt": "碳基员工默认头像 14" },
+        { "id": "carbon-15", "src": "/assets/carbon-defaults/carbon-15.webp", "alt": "碳基员工默认头像 15" },
+        { "id": "carbon-16", "src": "/assets/carbon-defaults/carbon-16.webp", "alt": "碳基员工默认头像 16" },
+        { "id": "carbon-17", "src": "/assets/carbon-defaults/carbon-17.webp", "alt": "碳基员工默认头像 17" },
+        { "id": "carbon-18", "src": "/assets/carbon-defaults/carbon-18.webp", "alt": "碳基员工默认头像 18" },
+        { "id": "carbon-19", "src": "/assets/carbon-defaults/carbon-19.webp", "alt": "碳基员工默认头像 19" },
+        { "id": "carbon-20", "src": "/assets/carbon-defaults/carbon-20.webp", "alt": "碳基员工默认头像 20" },
+        { "id": "carbon-21", "src": "/assets/carbon-defaults/carbon-21.webp", "alt": "碳基员工默认头像 21" },
+        { "id": "carbon-22", "src": "/assets/carbon-defaults/carbon-22.webp", "alt": "碳基员工默认头像 22" },
+        { "id": "carbon-23", "src": "/assets/carbon-defaults/carbon-23.webp", "alt": "碳基员工默认头像 23" },
+        { "id": "carbon-24", "src": "/assets/carbon-defaults/carbon-24.webp", "alt": "碳基员工默认头像 24" }
+      ]
+    }
+  },
+  "capabilities": {
+    "categories": [
+      { "id": "technology", "src": "/assets/capabilities/categories/category-technology.webp", "alt": "技术类技能视觉" },
+      { "id": "product-design", "src": "/assets/capabilities/categories/category-product-design.webp", "alt": "产品设计类技能视觉" },
+      { "id": "marketing-growth", "src": "/assets/capabilities/categories/category-marketing-growth.webp", "alt": "营销增长类技能视觉" },
+      { "id": "ecommerce", "src": "/assets/capabilities/categories/category-ecommerce.webp", "alt": "电商类技能视觉" },
+      { "id": "sales-customer", "src": "/assets/capabilities/categories/category-sales-customer.webp", "alt": "销售客户类技能视觉" },
+      { "id": "operations-org", "src": "/assets/capabilities/categories/category-operations-org.webp", "alt": "运营组织类技能视觉" },
+      { "id": "finance-legal", "src": "/assets/capabilities/categories/category-finance-legal.webp", "alt": "财务法务类技能视觉" }
+    ],
+    "types": [
+      { "id": "agent", "src": "/assets/capabilities/types/type-agent.webp", "alt": "Agent 能力类型图标" },
+      { "id": "rpa", "src": "/assets/capabilities/types/type-rpa.webp", "alt": "RPA 能力类型图标" },
+      { "id": "skill", "src": "/assets/capabilities/types/type-skill.webp", "alt": "Skill 能力类型图标" },
+      { "id": "ai-app", "src": "/assets/capabilities/types/type-ai-app.webp", "alt": "AI 应用能力类型图标" }
+    ],
+    "featured": [
+      { "id": "code-review", "src": "/assets/capabilities/featured/featured-code-review.webp", "alt": "代码审查技能场景" },
+      { "id": "meeting-notes", "src": "/assets/capabilities/featured/featured-meeting-notes.webp", "alt": "会议纪要技能场景" },
+      { "id": "content-strategy", "src": "/assets/capabilities/featured/featured-content-strategy.webp", "alt": "内容策略技能场景" },
+      { "id": "ecommerce-ads", "src": "/assets/capabilities/featured/featured-ecommerce-ads.webp", "alt": "电商投放技能场景" },
+      { "id": "knowledge-rag", "src": "/assets/capabilities/featured/featured-knowledge-rag.webp", "alt": "企业知识检索技能场景" },
+      { "id": "workflow-rpa", "src": "/assets/capabilities/featured/featured-workflow-rpa.webp", "alt": "流程自动化技能场景" },
+      { "id": "data-analysis", "src": "/assets/capabilities/featured/featured-data-analysis.webp", "alt": "数据分析技能场景" },
+      { "id": "customer-support", "src": "/assets/capabilities/featured/featured-customer-support.webp", "alt": "客户支持技能场景" }
+    ]
+  },
+  "marketing": {
+    "hero": {
+      "desktop": { "src": "/assets/marketing/hero/desktop.webp", "alt": "碳基团队与硅基员工在企业工作场景中协作" },
+      "mobile": { "src": "/assets/marketing/hero/mobile.webp", "alt": "碳基成员与硅基员工协作的移动端场景" }
+    }
+  }
+}
