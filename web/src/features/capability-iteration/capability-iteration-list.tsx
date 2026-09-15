@@ -305,6 +305,7 @@ function GroupedList({
               <Avatar
                 name={group.name}
                 src={group.avatar}
+              portrait
                 className="h-9 w-9 shrink-0 shadow-glass-sm ring-1 ring-white/15"
               />
               <div className="min-w-0 flex-1">

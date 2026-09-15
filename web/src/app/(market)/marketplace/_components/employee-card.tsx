@@ -60,6 +60,7 @@ export function EmployeeCard({
           <Avatar
             name={emp.name}
             src={emp.avatar}
+            portrait
             className="h-[72px] w-[72px] shadow-glass-sm"
           />
           {/* online dot */}

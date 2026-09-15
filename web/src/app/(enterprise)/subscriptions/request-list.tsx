@@ -49,6 +49,7 @@ export function RequestList({
             <Avatar
               name={req.employee.name}
               src={req.employee.avatar}
+              portrait
               className="h-14 w-14 shrink-0"
             />
             <div className="min-w-0 flex-1">

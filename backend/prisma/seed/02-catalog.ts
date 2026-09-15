@@ -6,6 +6,7 @@ import { CapabilityType, EmployeeCategory, EmployeeStatus, Prisma, PrismaClient 
 import * as fs from 'fs';
 import * as path from 'path';
 import matter from 'gray-matter';
+import { siliconAvatarUrl } from './employee-avatar-map';
 
 const AGENCY_AGENTS_ROOT = path.join(process.env.HOME || '', '.agency-agents');
 
@@ -81,7 +82,7 @@ export async function seedCatalog(prisma: PrismaClient, contributorId: string): 
     const result = await prisma.$transaction(async (tx) => {
       const skillIds = await Promise.all(employee.skills.map((sourcePath) => ensureSkillCapability(tx, parsedSkills.get(sourcePath)!, contributorId)));
       if (skillIds.length === 0) throw new Error('员工没有可绑定技能: ' + employee.name);
-      const values = { description: employee.description, industry: '电商', position: employee.position, functionalCategory: employee.category, avatar: null, systemPrompt: employee.systemPrompt, modelId: 'gpt-4o', maxSteps: 10, version: '1.0.0', annualPriceCNY: employee.monthlyPrice * 12, includedComputeCNY: employee.monthlyPrice * 12 * 0.2 };
+      const values = { description: employee.description, industry: '电商', position: employee.position, functionalCategory: employee.category, avatar: siliconAvatarUrl(employee.name), systemPrompt: employee.systemPrompt, modelId: 'gpt-4o', maxSteps: 10, version: '1.0.0', annualPriceCNY: employee.monthlyPrice * 12, includedComputeCNY: employee.monthlyPrice * 12 * 0.2 };
       const existing = await tx.digitalEmployee.findFirst({ where: { name: employee.name }, select: { id: true } });
       const bindings = skillIds.map((capabilityId, index) => ({ capabilityId, priority: 100 - index, enabled: true }));
       const draft = existing

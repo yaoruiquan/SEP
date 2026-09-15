@@ -252,6 +252,7 @@ export default function EmployeeDetailPage() {
           <Avatar
             name={activeName}
             src={subscription.employee.avatar}
+              portrait
             className="h-24 w-24 shrink-0 text-3xl ring-4 ring-gbrand/20"
           />
           <div className="min-w-0 flex-1">

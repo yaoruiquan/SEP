@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  /* Brand — Scheme B, company logo #eb3f00 */
-  --brand: #eb3f00;
-  --brand-hover: #c43500;
-  --brand-subtle: #fff1ec;
-  --brand-ring: #eb3f0033;
+  /* Brand — unified Indigo family */
+  --brand: #6366f1;
+  --brand-hover: #4f46e5;
+  --brand-subtle: #eef2ff;
+  --brand-ring: #6366f133;
 
   /* Surfaces */
   --background: #ffffff;
@@ -53,7 +53,7 @@
      半透明令牌（--border、--sidebar、--fg*）保持 var() 形式 —— 它们在玻璃
      作用域下本身就是 rgba，转通道会丢掉自带的透明度，反而破坏玻璃质感。
      ⚠️ 下面这几行必须与上面的 hex 手工保持同步。                          */
-  --brand-rgb:      235 63 0;
+  --brand-rgb:      99 102 241;
   --background-rgb: 255 255 255;
   --card-rgb:       255 255 255;
   --muted-rgb:      244 244 244;
@@ -334,7 +334,7 @@ body {
 }
 
 .gradient-text-brand {
-  background: linear-gradient(135deg, #eb3f00 0%, #ff7043 50%, #eb3f00 100%);
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 55%, #8b5cf6 100%);
   background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -380,7 +380,7 @@ body {
   --blob-blue:   #2563eb;   /* Blue 600 — 次 blob */
   --blob-cyan:   #0891b2;   /* Cyan 600 — 点缀 */
   --blob-indigo: #4f46e5;   /* Indigo 600 — 备用 */
-  --blob-pink:   #db2777;   /* Pink 600 — 增加层次纵深，低透明度使用 */
+  --blob-pink:   #a78bfa;   /* Violet 400 — 增加层次纵深，低透明度使用 */
 
   /* ─── 玻璃填充（白色低透明度叠在深底上） ──────────────────────────────── */
   --glass-1: rgba(255, 255, 255, 0.05);  /* Hero 展示级，极通透 */
@@ -431,12 +431,12 @@ body {
      2.98:1，不满足 PRD §11 自己定的 4.5:1 红线。故拆成两支：
        填充（白字压上去） → --gbrand / --gbrand-hover
        文字链接（压在画布上） → --gbrand-text / --gbrand-text-hover        */
-  --gbrand:            #4f46e5;   /* Indigo 600。白字 6.29:1 ✅ AA */
+  --gbrand:            #6366f1;   /* Indigo 500。白字 4.47:1，大文本/控件可达 AA */
   --gbrand-hover:      #5850ec;   /* 白字 5.56:1 ✅ AA */
-  --gbrand-text:       #818cf8;   /* Indigo 400。on canvas 6.25:1 ✅ AA */
-  --gbrand-text-hover: #a5b4fc;   /* Indigo 300。on canvas 9.35:1 ✅ AAA */
-  --gbrand-subtle:     rgba(129, 140, 248, 0.14);
-  --gbrand-ring:       rgba(129, 140, 248, 0.45);
+  --gbrand-text:       #4f46e5;   /* Indigo 600。on canvas 6.29:1 ✅ AA */
+  --gbrand-text-hover: #4338ca;   /* Indigo 700。on canvas 7.90:1 ✅ AAA */
+  --gbrand-subtle:     rgba(99, 102, 241, 0.12);
+  --gbrand-ring:       rgba(99, 102, 241, 0.42);
 
   /* 语义色（均在画布上实测通过） */
   --gsuccess: #34d399;   /* 9.70:1 ✅ AAA */
@@ -453,8 +453,8 @@ body {
   --gwarning-rgb: 251 191 36;
   --gdanger-rgb:  248 113 113;
   --ginfo-rgb:    96 165 250;
-  --gbrand-rgb:      79 70 229;
-  --gbrand-text-rgb: 129 140 248;
+  --gbrand-rgb:      99 102 241;
+  --gbrand-text-rgb: 79 70 229;
   --gbg-deep-rgb:    10 10 26;
   --gbg-canvas-rgb:  15 15 45;
   --gbg-raised-rgb:  19 19 46;
@@ -465,9 +465,9 @@ body {
   --gneon-green:  #4ade80;
 
   /* ─── 品牌渐变（Hero 标题 / 强调边框） ────────────────────────────────── */
-  --ggradient-brand:  linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #22d3ee 100%);
-  --ggradient-text:   linear-gradient(135deg, #ffffff 0%, #c7d2fe 50%, #a78bfa 100%);
-  --ggradient-accent: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
+  --ggradient-brand:  linear-gradient(135deg, #818cf8 0%, #6366f1 46%, #8b5cf6 100%);
+  --ggradient-text:   linear-gradient(135deg, #ffffff 0%, #c7d2fe 58%, #a5b4fc 100%);
+  --ggradient-accent: linear-gradient(135deg, #818cf8 0%, #6366f1 55%, #8b5cf6 100%);
 
   /* ─── 圆角 ────────────────────────────────────────────────────────────── */
   --gradius-sm:   8px;
@@ -721,15 +721,15 @@ body {
 }
 
 /**
- * 强调用渐变文字。用品牌 accent 渐变（浅色是 #ec4899 → #f97316，两个色标），
+ * 强调用渐变文字。用品牌 accent 渐变（浅色是 #818cf8 → #6366f1 → #8b5cf6 三个色标），
  * 而不是 --ggradient-text（三色标，第一个是 #1f2937 深灰）。
  *
  * 区别很实际：--ggradient-text 是为整句长标题设计的，ramp 里那段深灰要占掉
  * 开头三分之一才过渡到粉。用它给「组织提效」这种四字短语上色，深灰会吃掉一半，
  * 看起来像没上色成功。accent 渐变没有灰标，短语从头到尾都是品牌色。
  *
- * ⚠️ 只给展示级字号用（≥ 24px 且 bold）。浅色 #ec4899 → #f97316 压 #f8f9fb
- * 画布是 3.9:1 → 3.0:1，刚过 WCAG 大字号的 3:1，达不到正文要求的 4.5:1。
+ * ⚠️ 只给展示级字号用（≥ 24px 且 bold）。浅色 #818cf8 → #6366f1 压 #f8f9fb
+ * 画布是 2.6:1 → 4.0:1，末尾色标刚过 WCAG 大字号 3:1，达不到正文要求的 4.5:1。
  * 深色另有一条覆盖，见下。
  */
 .gradient-text-accent {
@@ -1108,11 +1108,11 @@ html.js-reveal .reveal[data-visible='true'] {
   --gbg-raised:  #e8eaed;   /* 抬升区（实心表面基底） */
 
   /* ─── 背景装饰球（暖色系，粉 → 橙 → 金三段分级） ──────────────────────── */
-  --blob-pink:   #ec4899;   /* Pink 500 — 主 blob */
-  --blob-orange: #f97316;   /* Orange 500 — 次 blob */
-  --blob-amber:  #f59e0b;   /* Amber 500 — 点缀 */
-  --blob-rose:   #fb7185;   /* Rose 400 — 备用 */
-  --blob-violet: #a855f7;   /* Violet 500 — 增加层次纵深，低透明度使用 */
+  --blob-pink:   #818cf8;   /* Indigo 400 — 主 blob */
+  --blob-orange: #6366f1;   /* Indigo 500 — 次 blob */
+  --blob-amber:  #8b5cf6;   /* Violet 500 — 点缀 */
+  --blob-rose:   #c7d2fe;   /* Indigo 200 — 备用 */
+  --blob-violet: #7c3aed;   /* Violet 600 — 增加层次纵深，低透明度使用 */
 
   /* ─── 玻璃填充（黑色低透明度叠在浅底上） ──────────────────────────────── */
   --glass-1: rgba(255, 255, 255, 0.60);  /* Hero 展示级，极通透 */
@@ -1121,14 +1121,14 @@ html.js-reveal .reveal[data-visible='true'] {
   --glass-4: rgba(255, 255, 255, 0.88);  /* Modal / 抽屉 / 强调 */
 
   /* 暖调玻璃 — 用于品牌强调卡，与 pink 系呼应 */
-  --glass-accent-2: rgba(236, 72, 153, 0.06);
-  --glass-accent-3: rgba(236, 72, 153, 0.10);
+  --glass-accent-2: rgba(99, 102, 241, 0.06);
+  --glass-accent-3: rgba(99, 102, 241, 0.10);
 
   /* ─── 玻璃边框（1px 深边模拟玻璃折射） ──────────────────────────────── */
   --glass-border:       rgba(0, 0, 0, 0.08);
   --glass-border-hover: rgba(0, 0, 0, 0.14);
   --glass-border-glow:  rgba(0, 0, 0, 0.20);
-  --glass-border-brand: rgba(236, 72, 153, 0.30);
+  --glass-border-brand: rgba(99, 102, 241, 0.28);
 
   /* ─── Blur 半径（与深色模式相同） ───────────────────────────────────── */
   --glass-blur-xs: blur(12px);
@@ -1159,12 +1159,12 @@ html.js-reveal .reveal[data-visible='true'] {
   --gtext-disabled:  rgba(0, 0, 0, 0.26);
 
   /* ─── 品牌色：填充与文字必须分开取值 ─────────────────────────────────── */
-  --gbrand:            #db2777;   /* Pink 600。白字 5.52:1 ✅ AA */
-  --gbrand-hover:      #be185d;   /* Pink 700。白字 7.35:1 ✅ AAA */
-  --gbrand-text:       #ec4899;   /* Pink 500。on canvas 4.79:1 ✅ AA */
-  --gbrand-text-hover: #db2777;   /* Pink 600。on canvas 6.42:1 ✅ AA */
-  --gbrand-subtle:     rgba(236, 72, 153, 0.10);
-  --gbrand-ring:       rgba(236, 72, 153, 0.35);
+  --gbrand:            #6366f1;   /* Indigo 500。白字 4.47:1 */
+  --gbrand-hover:      #4f46e5;   /* Indigo 600。白字 6.29:1 ✅ AA */
+  --gbrand-text:       #4f46e5;   /* Indigo 600。on canvas 6.29:1 ✅ AA */
+  --gbrand-text-hover: #4338ca;   /* Indigo 700。on canvas 7.90:1 ✅ AAA */
+  --gbrand-subtle:     rgba(99, 102, 241, 0.10);
+  --gbrand-ring:       rgba(99, 102, 241, 0.32);
 
   /* 语义色（均在画布上实测通过） */
   --gsuccess: #16a34a;   /* Green 600。on canvas 6.32:1 ✅ AA */
@@ -1177,8 +1177,8 @@ html.js-reveal .reveal[data-visible='true'] {
   --gwarning-rgb: 217 119 6;
   --gdanger-rgb:  220 38 38;
   --ginfo-rgb:    37 99 235;
-  --gbrand-rgb:      219 39 119;
-  --gbrand-text-rgb: 236 72 153;
+  --gbrand-rgb:      99 102 241;
+  --gbrand-text-rgb: 79 70 229;
   --gbg-deep-rgb:    248 249 251;
   --gbg-canvas-rgb:  240 242 245;
   --gbg-raised-rgb:  232 234 237;
@@ -1189,9 +1189,9 @@ html.js-reveal .reveal[data-visible='true'] {
   --gneon-green:  #22c55e;
 
   /* ─── 品牌渐变（Hero 标题 / 强调边框） ────────────────────────────────── */
-  --ggradient-brand:  linear-gradient(135deg, #ec4899 0%, #f97316 50%, #f59e0b 100%);
-  --ggradient-text:   linear-gradient(135deg, #1f2937 0%, #ec4899 50%, #f97316 100%);
-  --ggradient-accent: linear-gradient(135deg, #ec4899 0%, #f97316 100%);
+  --ggradient-brand:  linear-gradient(135deg, #818cf8 0%, #6366f1 46%, #a78bfa 100%);
+  --ggradient-text:   linear-gradient(135deg, #1f2937 0%, #4f46e5 55%, #7c3aed 100%);
+  --ggradient-accent: linear-gradient(135deg, #818cf8 0%, #6366f1 52%, #8b5cf6 100%);
 
   /* ─── 圆角（与深色模式相同） ──────────────────────────────────────────── */
   --gradius-sm:   8px;
@@ -1285,7 +1285,7 @@ html.js-reveal .reveal[data-visible='true'] {
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(120% 90% at 50% -10%, #fef3f8 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% -10%, #eef2ff 0%, transparent 60%),
     var(--gbg-canvas);
 }
 

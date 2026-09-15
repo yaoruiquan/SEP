@@ -78,6 +78,7 @@ export function EmployeeBadge({
       <Avatar
         name={name}
         src={avatar}
+              portrait
         className={cn('relative ring-2 ring-offset-0', dims.box, RING[tone])}
       />
       <span

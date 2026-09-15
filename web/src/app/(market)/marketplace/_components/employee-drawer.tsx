@@ -136,6 +136,7 @@ function DrawerContent({
           <Avatar
             name={emp.name}
             src={emp.avatar}
+            portrait
             className="h-20 w-20 shadow-glass-md"
           />
           <div className="min-w-0">

@@ -69,6 +69,7 @@ export function EmployeeSwitcher({
               <Avatar
                 name={emp.name}
                 src={emp.avatar ?? undefined}
+              portrait
                 className={cn(
                   'h-7 w-7 text-xs transition-opacity',
                   !isActive && 'opacity-70 group-hover:opacity-100',

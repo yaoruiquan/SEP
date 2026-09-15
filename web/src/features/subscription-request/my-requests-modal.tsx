@@ -90,6 +90,7 @@ export function MyRequestsModal({
                       <Avatar
                         name={req.employee.name}
                         src={req.employee.avatar ?? null}
+              portrait
                         className="h-10 w-10 shrink-0"
                       />
                       <div className="min-w-0 flex-1">

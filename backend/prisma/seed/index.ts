@@ -21,6 +21,7 @@ import { seedDashboardAnalytics } from './07-dashboard-analytics';
 import { seedShuyiAccounts, SHUYI_PEOPLE } from './08-shuyi-accounts';
 import { seedShuyiBusiness } from './09-shuyi-business';
 import { seedToolExecutions } from './10-tool-executions';
+import { backfillEmployeeAvatars } from './employee-avatars';
 
 const prisma = new PrismaClient();
 
@@ -55,6 +56,11 @@ async function main() {
   if (catalog.unmappedHistoricalEmployees.length > 0) {
     console.warn(`⚠️  未回填业务职能的历史员工：${catalog.unmappedHistoricalEmployees.join('、')}`);
   }
+
+  const avatars = await backfillEmployeeAvatars(prisma);
+  console.log(
+    `🖼️  员工头像：检查 ${avatars.scanned} 位，回填本地素材 ${avatars.updated} 位`,
+  );
 
   const usage = await seedDemoUsage(prisma);
   console.log(

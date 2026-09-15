@@ -3,21 +3,20 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const cardVariants = cva(
-  'rounded shadow-sm',
+  'rounded-glass-lg',
   {
     variants: {
       variant: {
-        // 实心 —— 表格 / 长列表容器专用。PRD Phase 4 明确要求运营端表格与
-        // 审核列表保持实心背景（backdrop-filter 在滚动容器内每帧重算，必掉帧）。
-        // 在 .theme-glass 作用域内，bg-card 经令牌桥自动指向深色实心表面。
-        solid: 'border border-border bg-card',
-        glass: 'glass-card', // 用 globals.css 里已有的 .glass-card 工具类
+        // 实心 —— 默认材质。表格、列表、统计区一律用它：backdrop-filter 在
+        // 滚动容器里每帧重算，长列表必掉帧，而且内容会跟着背景 blob 一起晃，
+        // 观感发脏。在 .theme-glass / .theme-glass-light 作用域内，bg-card 经
+        // 令牌桥自动解析成当前主题的实心表面。
+        solid: 'border border-border bg-card shadow-glass-sm',
+        // 玻璃 —— 场景化材质，只在深色模式强调区、营销位、Hero 上显式启用。
+        glass: 'glass-card',
       },
     },
-    // Phase 4 起默认玻璃：22 个调用页全部已包进 .theme-glass 外壳
-    // （(enterprise) / (platform) 两个路由组）。作用域外仅剩 /preview
-    // 一个浅色组件测试页，已显式 variant="solid"。
-    defaultVariants: { variant: 'glass' },
+    defaultVariants: { variant: 'solid' },
   },
 );
 

@@ -39,6 +39,7 @@ function EmployeeCard({ employee }: { employee: MarketEmployee }) {
           <Avatar
             name={employee.name}
             src={employee.avatar}
+              portrait
             className="h-12 w-12 shrink-0 rounded-glass-md shadow-glass-sm"
           />
           <div className="min-w-0 flex-1">

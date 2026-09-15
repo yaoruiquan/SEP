@@ -73,6 +73,7 @@ export function TeamReadinessBar({
             key={member.id}
             name={member.name}
             src={member.avatar}
+              portrait
             className={cn(
               'ring-2 ring-gbg-canvas',
               compact ? 'h-8 w-8 text-[10px]' : 'h-10 w-10 text-xs',

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PulsingDot } from "@/components/ui/pulsing-dot";
+import { Avatar } from "@/components/ui/avatar";
 import { cn, CAPABILITY_TYPE_META } from "@/lib/utils";
 import { useAuthStore } from "@/lib/auth-store";
 import { useMarketEmployee } from "@/features/employee/use-employees";
@@ -203,12 +204,12 @@ export default function EmployeeDetailPage() {
           style={{ background: grad }}
         />
         <div className="relative flex flex-col items-start gap-6 sm:flex-row sm:items-center">
-          <div
-            className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-3xl font-bold text-white shadow-glass-lg"
-            style={{ background: grad }}
-          >
-            {emp.name.slice(0, 2)}
-          </div>
+          <Avatar
+            name={emp.name}
+            src={emp.avatar}
+            portrait
+            className="h-24 w-24 shrink-0 shadow-glass-lg ring-1 ring-glassline"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-2xl font-bold text-gtext-primary">

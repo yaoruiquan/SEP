@@ -16,6 +16,7 @@ import * as path from 'path';
 import matter from 'gray-matter';
 import { EMPLOYEES } from './employees-config';
 import { getSkillNameCN } from './skill-name-cn-map';
+import { siliconAvatarUrl } from './employee-avatar-map';
 
 const prisma = new PrismaClient();
 
@@ -142,7 +143,9 @@ async function main() {
           description: employeeConfig.bio,
           industry: '通用', // 通用行业
           position: employeeConfig.title,
-          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(employeeConfig.name)}&background=random`,
+          avatar:
+            siliconAvatarUrl(employeeConfig.name) ??
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(employeeConfig.name)}&background=random`,
           systemPrompt: `你是${employeeConfig.name}，一位${employeeConfig.title}。${employeeConfig.bio}`,
           status: 'APPROVED',
           annualPriceCNY: employeeConfig.monthlyPrice * 12, // 月价转年价
