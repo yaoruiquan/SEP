@@ -41,8 +41,7 @@ export class LocalStorageDriver implements StorageDriver {
     // UPLOAD_URL_SECRET 即可（此时旧链接会立即失效，符合预期）。
     this.signingSecret =
       this.config.get<string>('UPLOAD_URL_SECRET') ||
-      this.config.get<string>('JWT_SECRET') ||
-      'sep-upload-secret-change-in-production';
+      this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   async put(input: PutObjectInput): Promise<StoredObject> {

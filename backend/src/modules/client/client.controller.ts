@@ -27,6 +27,14 @@ import {
   ClientRefreshDtoSchema,
   ClientTokenDto,
   ClientTokenDtoSchema,
+  CreateClientTaskMirrorDto,
+  CreateClientTaskMirrorDtoSchema,
+  UpdateClientTaskMirrorStatusDto,
+  UpdateClientTaskMirrorStatusDtoSchema,
+  ClientTaskHeartbeatDto,
+  ClientTaskHeartbeatDtoSchema,
+  ClientTaskEventDto,
+  ClientTaskEventDtoSchema,
 } from 'shared';
 
 @ApiTags('Client')
@@ -125,25 +133,37 @@ export class ClientController {
 
   @Post('tasks')
   @UseGuards(JwtAuthGuard)
-  async createTaskMirror(@Request() req: any, @Body() body: any) { return this.clientService.createTaskMirror(req.user.id, body); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '创建客户端任务云端镜像' })
+  async createTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Body(new ZodValidationPipe(CreateClientTaskMirrorDtoSchema)) body: CreateClientTaskMirrorDto) { return this.clientService.createTaskMirror(req.user.id, body); }
 
   @Patch('tasks/:id/status')
   @UseGuards(JwtAuthGuard)
-  async updateTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.updateTaskMirror(req.user.id, id, body); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '更新客户端任务状态' })
+  async updateTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(UpdateClientTaskMirrorStatusDtoSchema)) body: UpdateClientTaskMirrorStatusDto) { return this.clientService.updateTaskMirror(req.user.id, id, body); }
 
   @Post('tasks/:id/heartbeat')
   @UseGuards(JwtAuthGuard)
-  async heartbeatTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.heartbeatTaskMirror(req.user.id, id, body); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '上报客户端任务心跳' })
+  async heartbeatTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(ClientTaskHeartbeatDtoSchema)) body: ClientTaskHeartbeatDto) { return this.clientService.heartbeatTaskMirror(req.user.id, id, body); }
 
   @Post('tasks/:id/events')
   @UseGuards(JwtAuthGuard)
-  async eventTaskMirror(@Request() req: any, @Param('id') id: string, @Body() body: any) { return this.clientService.eventTaskMirror(req.user.id, id, body); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '上报客户端任务事件' })
+  async eventTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(ClientTaskEventDtoSchema)) body: ClientTaskEventDto) { return this.clientService.eventTaskMirror(req.user.id, id, body); }
 
   @Get('tasks')
   @UseGuards(JwtAuthGuard)
-  async listTaskMirrors(@Request() req: any) { return this.clientService.listTaskMirrors(req.user.id); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询企业客户端任务镜像' })
+  async listTaskMirrors(@Request() req: ExpressRequest & { user: { id: string } }) { return this.clientService.listTaskMirrors(req.user.id); }
 
   @Get('tasks/:id')
   @UseGuards(JwtAuthGuard)
-  async getTaskMirror(@Request() req: any, @Param('id') id: string) { return this.clientService.getTaskMirror(req.user.id, id); }
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询客户端任务镜像详情' })
+  async getTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string) { return this.clientService.getTaskMirror(req.user.id, id); }
 }

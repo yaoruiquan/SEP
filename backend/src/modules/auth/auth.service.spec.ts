@@ -53,7 +53,7 @@ describe('AuthService.createEnterprise', () => {
         payload.type === 'refresh' ? 'refresh-jwt' : 'access-jwt',
       ),
     };
-    config = { get: jest.fn().mockReturnValue(undefined) };
+    config = { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') };
     invitations = { findUsableByToken: jest.fn() };
     defaultDepartments = {
       createDefaultDepartments: jest.fn().mockResolvedValue(undefined),

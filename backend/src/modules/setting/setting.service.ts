@@ -29,7 +29,7 @@ export class SettingService {
     private readonly config: ConfigService,
   ) {
     this.masterKey =
-      this.config.get<string>('JWT_SECRET') || 'sep-jwt-secret-change-in-production';
+      this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   /**

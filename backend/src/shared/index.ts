@@ -1,5 +1,6 @@
 import { z } from "zod";
 export * from './task.dto';
+export * from './client-task.dto';
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）

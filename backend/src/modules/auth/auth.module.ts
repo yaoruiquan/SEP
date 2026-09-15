@@ -13,7 +13,7 @@ import { DefaultDepartmentsService } from '../enterprise/default-departments.ser
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET') || 'sep-jwt-secret-change-in-production',
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: '7d' },
       }),
     }),

@@ -39,7 +39,7 @@ export class AuthService {
   // ──────────────── helpers ────────────────
 
   private get jwtSecret(): string {
-    return this.config.get('JWT_SECRET') || 'sep-jwt-secret-change-in-production';
+    return this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   private signAccess(user: { id: string; email: string; role: string }): string {

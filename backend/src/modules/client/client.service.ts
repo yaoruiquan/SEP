@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -11,7 +12,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import * as bcrypt from 'bcrypt';
-import { ClientLoginDto, ClientRefreshDto, ClientTokenDto, SETTING_KEYS } from 'shared';
+import {
+  ClientLoginDto,
+  ClientRefreshDto,
+  ClientTokenDto,
+  SETTING_KEYS,
+  CreateClientTaskMirrorDto,
+  UpdateClientTaskMirrorStatusDto,
+  ClientTaskHeartbeatDto,
+  ClientTaskEventDto,
+} from 'shared';
 
 const CLIENT_REFRESH_EXPIRES = '30d';
 const CLIENT_ACCESS_EXPIRES_IN = 60 * 60;
@@ -81,7 +91,7 @@ export class ClientService {
   ) {}
 
   private get jwtSecret(): string {
-    return this.config.get('JWT_SECRET') || 'sep-jwt-secret-change-in-production';
+    return this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   /**
@@ -446,22 +456,69 @@ export class ClientService {
     };
   }
 
-  async createTaskMirror(userId: string, body: any) {
-    if (!body?.clientTaskId || !body?.clientRunId || !body?.subscriptionId || !body?.title) throw new BadRequestException('Invalid task mirror');
+  async createTaskMirror(userId: string, body: CreateClientTaskMirrorDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     const sub = await this.prisma.subscription.findFirst({ where: { id: body.subscriptionId, enterpriseId: ctx.enterpriseId, status: 'ACTIVE', OR: [{ endDate: null }, { endDate: { gt: new Date() } }], grants: { some: { OR: [{ memberId: ctx.memberId }, ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : [])] } } }, select: { id: true } });
     if (!sub) throw new ForbiddenException('Subscription unavailable');
-    return this.prisma.clientTaskMirror.upsert({ where: { userId_clientTaskId: { userId, clientTaskId: body.clientTaskId } }, create: { userId, enterpriseId: ctx.enterpriseId, subscriptionId: sub.id, clientTaskId: body.clientTaskId, clientRunId: body.clientRunId, title: String(body.title).slice(0, 200), taskType: body.taskType ?? 'conversation', modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null }, update: { clientRunId: body.clientRunId, title: String(body.title).slice(0, 200), modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null } });
+    return this.prisma.clientTaskMirror.upsert({
+      where: { userId_clientTaskId: { userId, clientTaskId: body.clientTaskId } },
+      create: { userId, enterpriseId: ctx.enterpriseId, subscriptionId: sub.id, clientTaskId: body.clientTaskId, clientRunId: body.clientRunId, title: body.title, taskType: body.taskType ?? 'conversation', modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null },
+      update: { clientRunId: body.clientRunId, title: body.title, taskType: body.taskType ?? undefined, modelId: body.modelId ?? undefined, clientVersion: body.clientVersion ?? undefined },
+    });
   }
 
-  private async ownedMirror(userId: string, id: string) { const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, userId } }); if (!row) throw new NotFoundException('Task not found'); return row; }
-  async updateTaskMirror(userId: string, id: string, body: any) { const row = await this.ownedMirror(userId, id); const status = String(body?.status ?? row.status).toUpperCase(); const data: any = { status, progress: Math.max(0, Math.min(100, Number(body?.progress ?? row.progress) || 0)), currentStep: body?.currentStep ?? null, activity: body?.activity ?? null, errorSummary: body?.errorSummary ?? null }; if (status === 'RUNNING' && !row.startedAt) data.startedAt = new Date(); if (['COMPLETED','FAILED','CANCELLED'].includes(status)) data.completedAt = new Date(); return this.prisma.clientTaskMirror.update({ where: { id }, data }); }
-  async heartbeatTaskMirror(userId: string, id: string, body: any) { await this.ownedMirror(userId, id); return this.prisma.clientTaskMirror.update({ where: { id }, data: { lastHeartbeatAt: new Date(), progress: body?.progress == null ? undefined : Math.max(0, Math.min(100, Number(body.progress) || 0)), activity: body?.activity ?? undefined } }); }
-  async eventTaskMirror(userId: string, id: string, body: any) { const row = await this.ownedMirror(userId, id); const seq = Number(body?.sequence); if (!Number.isInteger(seq) || seq <= row.lastSequence) return row; await this.prisma.clientTaskMirrorEvent.create({ data: { mirrorId: row.id, clientRunId: row.clientRunId, sequence: seq, type: String(body.type ?? 'INFO'), stepKey: body.stepKey ?? null, message: body.message ? String(body.message).slice(0, 1000) : null, progress: body.progress == null ? null : Number(body.progress), occurredAt: body.occurredAt ? new Date(body.occurredAt) : null } }); return this.prisma.clientTaskMirror.update({ where: { id: row.id }, data: { lastSequence: seq, progress: body.progress == null ? undefined : Number(body.progress), lastHeartbeatAt: new Date() } }); }
-  async listTaskMirrors(userId: string) { const ctx = await this.enterpriseContext.resolve(userId); return this.prisma.clientTaskMirror.findMany({ where: { enterpriseId: ctx.enterpriseId }, orderBy: { updatedAt: 'desc' }, take: 100 }); }
+  private async accessibleMirror(userId: string, id: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, enterpriseId: ctx.enterpriseId, ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { userId }) } });
+    if (!row) throw new NotFoundException('Task not found');
+    return { ctx, row };
+  }
+  private async ownedMirror(userId: string, id: string) {
+    const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, userId } });
+    if (!row) throw new NotFoundException('Task not found');
+    return row;
+  }
+  async updateTaskMirror(userId: string, id: string, body: UpdateClientTaskMirrorStatusDto) {
+    const row = await this.ownedMirror(userId, id);
+    const now = new Date();
+    const data: Record<string, unknown> = { status: body.status };
+    if (body.progress !== undefined) data.progress = body.progress;
+    if (body.currentStep !== undefined) data.currentStep = body.currentStep;
+    if (body.activity !== undefined) data.activity = body.activity;
+    if (body.errorSummary !== undefined) data.errorSummary = body.errorSummary;
+    if (body.startedAt !== undefined) data.startedAt = body.startedAt ? new Date(body.startedAt) : null;
+    else if (body.status === 'RUNNING' && !row.startedAt) data.startedAt = now;
+    if (body.completedAt !== undefined) data.completedAt = body.completedAt ? new Date(body.completedAt) : null;
+    else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(body.status)) data.completedAt = now;
+    return this.prisma.clientTaskMirror.update({ where: { id }, data });
+  }
+  async heartbeatTaskMirror(userId: string, id: string, body: ClientTaskHeartbeatDto) {
+    await this.ownedMirror(userId, id);
+    return this.prisma.clientTaskMirror.update({ where: { id }, data: { lastHeartbeatAt: new Date(), progress: body.progress, currentStep: body.currentStep, activity: body.activity, clientVersion: body.clientVersion } });
+  }
+  async eventTaskMirror(userId: string, id: string, body: ClientTaskEventDto) {
+    const row = await this.ownedMirror(userId, id);
+    if (body.sequence <= row.lastSequence) return { ...row, duplicate: true };
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const latest = await tx.clientTaskMirror.findUnique({ where: { id } });
+        if (!latest || body.sequence <= latest.lastSequence) return { ...latest, duplicate: true };
+        await tx.clientTaskMirrorEvent.create({ data: { mirrorId: id, clientRunId: latest.clientRunId, sequence: body.sequence, type: body.type, stepKey: body.stepKey, message: body.message, progress: body.progress, occurredAt: body.occurredAt ? new Date(body.occurredAt) : null } });
+        await tx.clientTaskMirror.updateMany({
+          where: { id, lastSequence: { lt: body.sequence } },
+          data: { lastSequence: body.sequence, progress: body.progress, lastHeartbeatAt: new Date() },
+        });
+        return tx.clientTaskMirror.findUnique({ where: { id } });
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') return this.prisma.clientTaskMirror.findUnique({ where: { id } });
+      throw error;
+    }
+  }
+  async listTaskMirrors(userId: string) { const ctx = await this.enterpriseContext.resolve(userId); return this.prisma.clientTaskMirror.findMany({ where: { enterpriseId: ctx.enterpriseId, ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { userId }) }, orderBy: { updatedAt: 'desc' }, take: 100 }); }
   async getTaskMirror(userId: string, id: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
-    const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, enterpriseId: ctx.enterpriseId } });
+    const row = await this.prisma.clientTaskMirror.findFirst({ where: { id, enterpriseId: ctx.enterpriseId, ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { userId }) } });
     if (!row) throw new NotFoundException('Task not found');
     const events = await this.prisma.clientTaskMirrorEvent.findMany({ where: { mirrorId: row.id }, orderBy: { sequence: 'asc' } });
     return { ...row, events };

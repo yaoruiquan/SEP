@@ -1,0 +1,10 @@
+[Unit]
+Description=SEP host cache and log maintenance
+After=docker.service systemd-journald.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sep/app/deploy/production/maintenance-sep.sh
+User=root
+Group=root

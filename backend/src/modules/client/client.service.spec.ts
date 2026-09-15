@@ -27,7 +27,7 @@ describe('ClientService', () => {
         ClientService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
-        { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
         { provide: SettingService, useValue: { getEffectiveValue: jest.fn() } },
         {
           provide: EnterpriseContextService,

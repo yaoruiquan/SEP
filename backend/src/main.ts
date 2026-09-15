@@ -11,6 +11,14 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const isProduction = process.env.NODE_ENV === 'production';
+  const corsOrigins = (process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (isProduction && corsOrigins.length === 0) {
+    throw new Error('生产环境必须配置至少一个 CORS_ORIGIN');
+  }
   app.use(requestContextMiddleware, basicRateLimitMiddleware);
   app.use(express.json({ limit: process.env.REQUEST_JSON_LIMIT || '2mb' }));
   app.use(express.urlencoded({ limit: process.env.REQUEST_URLENCODED_LIMIT || '2mb', extended: true }));
@@ -29,7 +37,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000', 'http://localhost:4173'],
+    origin: corsOrigins.length > 0 ? corsOrigins : ['http://localhost:3000', 'http://localhost:4173'],
     credentials: true,
   });
 

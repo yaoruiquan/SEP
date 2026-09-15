@@ -26,7 +26,7 @@ export class ClientInstanceGuard implements CanActivate {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
 
     const token = auth.slice(7);
-    const secret = this.config.get('JWT_SECRET') || 'sep-jwt-secret-change-in-production';
+    const secret = this.config.getOrThrow<string>('JWT_SECRET');
 
     let payload: any;
     try {

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SEP host maintenance weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=sep-maintenance.service
+
+[Install]
+WantedBy=timers.target

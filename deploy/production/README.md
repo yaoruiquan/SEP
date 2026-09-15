@@ -144,6 +144,48 @@ DEPLOY_SHA="$(git rev-parse HEAD)" ./sep-deploy.sh deploy
 docker stop sep-backend sep-web 2>/dev/null || true
 ```
 
+## 自动资源维护
+
+生产机使用 `maintenance-sep.sh` 定期清理可重建的 Docker BuildKit 缓存、已退出容器和 systemd journal。脚本带文件锁，支持磁盘阈值告警，并且不会执行 `docker system prune -a`、不会删除镜像卷，也不会触碰 PostgreSQL、Redis、Ollama、上传文件和员工包数据。
+
+在服务器首次安装（路径按实际 checkout 调整）：
+
+```bash
+cd /opt/sep/app/deploy/production
+chmod +x maintenance-sep.sh
+install -m 0644 sep-maintenance.service /etc/systemd/system/sep-maintenance.service
+install -m 0644 sep-maintenance.timer /etc/systemd/system/sep-maintenance.timer
+install -m 0644 sep-maintenance.logrotate /etc/logrotate.d/sep-maintenance
+systemctl daemon-reload
+systemctl enable --now sep-maintenance.timer
+systemctl list-timers sep-maintenance.timer
+```
+
+默认每周日凌晨运行，保留 7 天构建缓存和 14 天 journal；维护日志每周轮转并保留 8 份。磁盘达到 75% 会记录告警，达到 85% 会额外回收全部可回收 BuildKit 缓存；清理后仍超过 85% 会以失败退出，交给人工处理。可通过 systemd override 调整：
+
+```bash
+systemctl edit sep-maintenance.service
+```
+
+```ini
+[Service]
+Environment=SEP_MAINTENANCE_WARN_PERCENT=75
+Environment=SEP_MAINTENANCE_CRITICAL_PERCENT=85
+Environment=SEP_BUILD_CACHE_AGE=168h
+Environment=SEP_JOURNAL_RETENTION=14d
+Environment=SEP_JOURNAL_MAX_SIZE=500M
+```
+
+手动执行和查看日志：
+
+```bash
+systemctl start sep-maintenance.service
+journalctl -u sep-maintenance.service --since "1 hour ago" --no-pager
+tail -100 /var/log/sep-maintenance.log
+```
+
+脚本只回收可重建缓存；旧发布镜像和备份不会自动删除，避免失去回滚版本或恢复点。定期仍需人工检查 `docker system df` 和备份保留策略。
+
 ## 蓝绿发布与回滚
 
 CI 应在服务器 checkout 后把待发布的完整 commit SHA 传给脚本：
