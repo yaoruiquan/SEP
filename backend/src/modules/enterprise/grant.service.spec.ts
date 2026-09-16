@@ -78,6 +78,14 @@ describe("GrantService", () => {
   });
 
   describe("myEmployees —— 两条授权路径合并", () => {
+    it("部门授权与直接授权使用相同的能力字段选择", async () => {
+      await service.myEmployees("u1");
+      const [direct, department] = prisma.employeeGrant.findMany.mock.calls.map(([query]: any[]) => query.include.subscription.include.employee);
+      expect(department).toEqual(direct);
+      expect(department.select.bindings).toBeDefined();
+      expect(department.select.functionalCategory).toBe(true);
+      expect(department.select.systemPrompt).toBeUndefined();
+    });
     it("直接授权与部门授权都返回", async () => {
       prisma.employeeGrant.findMany
         .mockResolvedValueOnce([grantRow("i-direct")]) // 直接

@@ -1,6 +1,18 @@
 {
-  "version": "2026-09-15",
+  "version": "2026-09-16",
+  "usageGuide": "README.md",
   "employees": {
+    "silicon": {
+      "description": "硅基员工身份图。按稳定岗位 slug 绑定，同一人物跨页面复用，不作 Hero 背景。",
+      "directory": "/assets/employees/silicon/",
+      "identityCount": 64,
+      "mapping": "backend/prisma/seed/employee-avatar-map.ts",
+      "variants": {
+        "canonical": { "suffix": ".webp", "width": 512, "height": 512, "purpose": "完整人物构图，详情身份展示" },
+        "portrait": { "suffix": "-face.webp", "width": 256, "height": 256, "purpose": "方形员工卡片、聊天和任务头像" },
+        "thumbnail": { "suffix": "-full.webp", "width": 128, "height": 128, "purpose": "完整构图缩略图，不是高清图" }
+      }
+    },
     "carbonDefaults": {
       "description": "碳基员工默认头像。仅在成员未上传头像时使用，按稳定 ID 分配。",
       "items": [
@@ -59,6 +71,7 @@
     ]
   },
   "marketing": {
+    "usage": "仅用于营销首页，禁止作为企业工作台或员工目录通用横幅。",
     "hero": {
       "desktop": { "src": "/assets/marketing/hero/desktop.webp", "alt": "碳基团队与硅基员工在企业工作场景中协作" },
       "mobile": { "src": "/assets/marketing/hero/mobile.webp", "alt": "碳基成员与硅基员工协作的移动端场景" }

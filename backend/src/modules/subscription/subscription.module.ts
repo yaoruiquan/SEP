@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
+import { SubscriptionEmployeeService } from './subscription-employee.service';
 import { WalletModule } from '../wallet/wallet.module';
 import { SubscriptionFulfillmentModule } from '../subscription-fulfillment/subscription-fulfillment.module';
 import { ComputeCreditModule } from '../compute-credit/compute-credit.module';
@@ -9,7 +10,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   imports: [WalletModule, SubscriptionFulfillmentModule, ComputeCreditModule, NotificationsModule],
   controllers: [SubscriptionController],
-  providers: [SubscriptionService],
+  providers: [SubscriptionService, SubscriptionEmployeeService],
   exports: [SubscriptionService],
 })
 export class SubscriptionModule {}
