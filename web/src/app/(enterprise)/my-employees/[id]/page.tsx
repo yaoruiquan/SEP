@@ -228,6 +228,7 @@ export default function EmployeeDetailPage() {
           <Avatar
             name={activeName}
             src={subscription.employee.avatar}
+            asset={subscription.employee.avatarAsset}
             portrait
             fullBody
             focalPoint="50% 35%"

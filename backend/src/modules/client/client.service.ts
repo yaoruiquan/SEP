@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
+import type { EmployeeAvatarAsset } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -71,6 +73,7 @@ export interface ClientEmploymentListItem {
     id: string;
     name: string;
     avatar: string | null;
+    avatarAsset?: EmployeeAvatarAsset | null;
   };
   department: {
     id: string;
@@ -378,7 +381,7 @@ export class ClientService {
       return [{
         id: sub.id, subscriptionId: sub.id, employeeId: sub.employeeId,
         name: sub.name ?? sub.employee.name, status: sub.status,
-        templateVersion: sub.templateVersion, template: sub.employee,
+        templateVersion: sub.templateVersion, template: withEmployeeAvatar(sub.employee),
         department: null, allowedModels,
         upgradeAvailable: sub.employee.version !== sub.templateVersion,
       }];
@@ -451,7 +454,7 @@ export class ClientService {
       manifestVersion: 1,
       subscriptionId: subscription.id,
       templateVersion: subscription.templateVersion,
-      employee: { id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps },
+      employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
       runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills },
     };
   }

@@ -3,11 +3,13 @@
 import { AtSign } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import type { EmployeeAvatarAsset } from '@/lib/types';
 
 export interface SwitchableEmployee {
   id: string;
   name: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
   position?: string;
 }
 
@@ -69,6 +71,7 @@ export function EmployeeSwitcher({
               <Avatar
                 name={emp.name}
                 src={emp.avatar ?? undefined}
+                asset={emp.avatarAsset}
               portrait
                 className={cn(
                   'h-7 w-7 text-xs transition-opacity',

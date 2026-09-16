@@ -1,10 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import type { EmployeeAvatarAsset } from '@/lib/types';
 
 export interface EmployeeDetail {
   id: string;
   name: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
   status: 'online' | 'offline' | 'busy';
   description: string | null;
   industry: string[];
@@ -59,6 +61,9 @@ export function useEmployeeDetail(subscriptionId: string) {
     },
     enabled: !!subscriptionId,
     staleTime: 30_000, // 30s 缓存
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
   });
 }
 
@@ -109,6 +114,7 @@ function normalizeEmployeeDetail(raw: any): EmployeeDetail {
     id: raw.id,
     name: raw.name,
     avatar: raw.avatar || null,
+    avatarAsset: raw.avatarAsset ?? null,
     status: raw.metadata?.status || 'offline',
     description: raw.description || null,
     industry: Array.isArray(raw.industry) ? raw.industry :

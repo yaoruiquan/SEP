@@ -23,6 +23,7 @@ x-backend-environment: &backend-environment
   API_BASE_URL: https://sep-dev.longdaoSEP.cn/api
   WEB_BASE_URL: https://sep-dev.longdaoSEP.cn
   FRONTEND_URL: https://sep-dev.longdaoSEP.cn
+  ASSET_BASE_URL: ${ASSET_BASE_URL:-https://sep-dev.longdaoSEP.cn}
   CORS_ORIGIN: https://sep-dev.longdaoSEP.cn
   NEXT_PUBLIC_WS_URL: wss://sep-dev.longdaoSEP.cn
   ALIPAY_SANDBOX_MODE: "true"

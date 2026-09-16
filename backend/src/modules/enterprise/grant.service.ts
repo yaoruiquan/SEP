@@ -10,6 +10,7 @@ import { EnterpriseContextService } from "./enterprise-context.service";
 import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
 import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 const employeeSummarySelect = {
   id: true, name: true, avatar: true, description: true, position: true, functionalCategory: true,
@@ -258,7 +259,7 @@ export class GrantService {
         subscriptionId: sub.id,
         name: sub.name ?? sub.employee.name,
         templateVersion: sub.templateVersion,
-        employee: sub.employee,
+        employee: withEmployeeAvatar(sub.employee),
         department: null,
         grantSource: "DIRECT",
         expiresAt: g.expiresAt?.toISOString() ?? null,
@@ -273,7 +274,7 @@ export class GrantService {
           subscriptionId: sub.id,
           name: sub.name ?? sub.employee.name,
           templateVersion: sub.templateVersion,
-          employee: sub.employee,
+          employee: withEmployeeAvatar(sub.employee),
           department: null,
           grantSource: "DEPARTMENT",
           expiresAt: g.expiresAt?.toISOString() ?? null,

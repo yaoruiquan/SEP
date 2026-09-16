@@ -41,6 +41,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HealthModule } from './health/health.module';
+import { employeeAssetBaseUrl } from './common/employee-avatar';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { HealthModule } from './health/health.module';
       isGlobal: true,
       envFilePath: ['../.env', '.env'],
       validate: (env) => {
+        employeeAssetBaseUrl(env);
         if (env.NODE_ENV === 'production') {
           const secret = env.JWT_SECRET;
           if (!secret || secret.length < 32 || secret === 'sep-jwt-secret-change-in-production' || secret === 'dev-secret-key') {

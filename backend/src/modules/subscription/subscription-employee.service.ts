@@ -6,6 +6,7 @@ import {
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 @Injectable()
 export class SubscriptionEmployeeService {
@@ -77,7 +78,7 @@ export class SubscriptionEmployeeService {
       },
     });
     if (!employee) throw new NotFoundException('员工不存在');
-    return employee;
+    return withEmployeeAvatar(employee);
   }
 
   async stats(id: string, userId: string, days: number) {

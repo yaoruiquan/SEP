@@ -210,13 +210,13 @@ export default function NewEmployeePage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="avatar">头像 URL</Label>
+            <Label htmlFor="avatar">头像地址</Label>
             <Input
               id="avatar"
-              type="url"
+              type="text"
               value={formData.avatar}
               onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
-              placeholder="https://example.com/avatar.png"
+              placeholder="/assets/employees/silicon/frontend-engineer.webp"
             />
           </div>
 

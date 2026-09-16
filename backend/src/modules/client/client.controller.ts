@@ -110,6 +110,7 @@ export class ClientController {
     summary: '获取可用实例列表',
     description:
       '返回当前成员有直接或部门授权的 ACTIVE 订阅。' +
+      'template.avatar 为完整主图 URL；template.avatarAsset 提供统一人物 ID、素材版本、portraitUrl 和 faceUrl。' +
       'instances 路径仅为迁移兼容，客户端应使用 subscriptions。',
   })
   @ApiResponse({ status: 200, description: '实例列表' })
@@ -122,7 +123,7 @@ export class ClientController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取订阅锁定版本的客户端运行时清单' })
-  @ApiResponse({ status: 200, description: '员工配置与已审核技能正文' })
+  @ApiResponse({ status: 200, description: '员工配置与已审核技能正文；employee.avatarAsset 与订阅清单同源，图片版本独立于 templateVersion' })
   @ApiResponse({ status: 403, description: '无有效订阅或员工授权' })
   async getRuntime(
     @Request() req: ExpressRequest & { user: { id: string } },

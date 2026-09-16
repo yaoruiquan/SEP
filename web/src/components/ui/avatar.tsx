@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import type { EmployeeAvatarAsset } from '@/lib/types';
 
 /**
  * 半身图默认焦点偏上，保证圆形裁切时头部完整、不被肩部顶出画框。
@@ -13,9 +14,10 @@ const DEFAULT_FOCAL = '50% 22%';
  * 硅基员工素材按用途派生两个变体：
  *   <slug>.webp       512px 完整半身（大尺寸展示，保留服装和姿态）
  *   <slug>-face.webp  256px 头部特写（42-96px 的圆形头像，脸不会被缩没）
- * 这里按文件名约定切换，调用方不用关心 CDN 路径细节。
+ * 仅为尚未接入 avatarAsset 的旧接口保留命名约定；新接口以平台元数据为准。
  */
 function toFaceVariant(src: string): string {
+  if (!/^\/assets\/employees\/silicon\/[^/]+\.webp(\?.*)?$/i.test(src)) return src;
   if (!/\.webp(\?.*)?$/i.test(src)) return src;
   if (/-face\.webp(\?.*)?$/i.test(src)) return src;
   return src.replace(/\.webp(\?.*)?$/i, '-face.webp$1');
@@ -24,6 +26,7 @@ function toFaceVariant(src: string): string {
 interface AvatarProps {
   name?: string | null;
   src?: string | null;
+  asset?: EmployeeAvatarAsset | null;
   className?: string;
   /**
    * 硅基员工半身照传 true：默认切头部特写变体，适合圆形/圆角头像。
@@ -48,14 +51,15 @@ interface AvatarProps {
 export function Avatar({
   name,
   src,
+  asset,
   className,
   portrait = false,
   fullBody = false,
   focalPoint,
 }: AvatarProps) {
   const initial = (name?.trim()?.[0] ?? '?').toUpperCase();
-  const raw = src?.trim() ?? '';
-  const faceUrl = raw && portrait && !fullBody ? toFaceVariant(raw) : '';
+  const raw = asset?.portraitUrl ?? src?.trim() ?? '';
+  const faceUrl = raw && portrait && !fullBody ? (asset?.faceUrl ?? toFaceVariant(raw)) : '';
   const [failed, setFailed] = useState(false);
   const [faceFailed, setFaceFailed] = useState(false);
 
@@ -63,7 +67,7 @@ export function Avatar({
   useEffect(() => {
     setFailed(false);
     setFaceFailed(false);
-  }, [raw]);
+  }, [raw, faceUrl, asset?.version]);
 
   // 优先特写；特写缺失时退回母版半身图；母版也失败才落到首字母占位
   const url = faceUrl && !faceFailed ? faceUrl : raw;
@@ -77,7 +81,7 @@ export function Avatar({
         loading="lazy"
         decoding="async"
         onError={() => {
-          if (url === faceUrl && raw) setFaceFailed(true);
+          if (url === faceUrl && raw && faceUrl !== raw) setFaceFailed(true);
           else setFailed(true);
         }}
         style={{ objectPosition: focalPoint ?? (portrait ? DEFAULT_FOCAL : '50% 50%') }}

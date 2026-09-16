@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import type { EmployeeAvatarAsset } from '@/lib/types';
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export interface GrantableSubscription {
     id: string;
     name: string;
     avatar: string | null;
+    avatarAsset?: EmployeeAvatarAsset | null;
   };
 }
 

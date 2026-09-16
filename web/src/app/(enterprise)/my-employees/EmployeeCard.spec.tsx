@@ -16,6 +16,14 @@ const renderCard = (patch: Partial<MyEmployee> = {}) =>
   render(<EmployeeCard employee={{ ...base, ...patch }} />);
 
 describe('EmployeeCard', () => {
+  it('uses the platform-provided face URL even when its name does not follow the legacy convention', () => {
+    renderCard({ employee: { ...base.employee, avatarAsset: {
+      id: 'portrait-1', version: 'v2',
+      portraitUrl: 'https://images.example.com/full.webp?v=2',
+      faceUrl: 'https://images.example.com/crop.webp?v=2',
+    } } });
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'https://images.example.com/crop.webp?v=2');
+  });
   it('使用同一人物的头肩变体，并保留完整人物 URL 为数据来源', () => {
     renderCard({
       employee: {

@@ -6,6 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ModelService } from '../model/model.service';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
@@ -107,11 +108,11 @@ export class ConversationService {
     });
 
     this.logger.log(`Session created: ${session.id} by user ${userId}`);
-    return session;
+    return { ...session, employee: session.employee ? withEmployeeAvatar(session.employee) : session.employee };
   }
 
   async findAll(userId: string, source: ConversationSource = 'CHAT') {
-    return this.prisma.conversationSession.findMany({
+    const sessions = await this.prisma.conversationSession.findMany({
       where: { userId, source },
       orderBy: { updatedAt: 'desc' },
       select: {
@@ -128,6 +129,10 @@ export class ConversationService {
         _count: { select: { messages: true } },
       },
     });
+    return sessions.map((session) => ({
+      ...session,
+      employee: session.employee ? withEmployeeAvatar(session.employee) : session.employee,
+    }));
   }
 
   async findOne(sessionId: string, userId: string) {
@@ -156,6 +161,7 @@ export class ConversationService {
 
     return {
       ...session,
+      employee: session.employee ? withEmployeeAvatar(session.employee) : session.employee,
       messages: await this.withFreshAttachmentUrls(session.messages),
     };
   }

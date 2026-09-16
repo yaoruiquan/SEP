@@ -9,6 +9,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { SubscriptionService } from './subscription.service';
 import { SubscriptionFulfillmentService } from '../subscription-fulfillment/subscription-fulfillment.service';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 const ACME = {
   enterpriseId: 'ent-acme',
@@ -118,6 +119,7 @@ describe('SubscriptionService', () => {
         id: 'sub-acme',
         enterpriseId: 'ent-acme',
         employeeId: 'emp-1',
+        employee: { id: 'emp-1', avatar: null },
       });
 
       const sub = await svc.findOne('sub-acme', 'user-acme-boss');
@@ -347,6 +349,18 @@ describe('SubscriptionService', () => {
 
   // ── 收敛后从实例层移回订阅的行为 ────────────────────────────────────────
 
+  it('keeps avatar identity consistent between subscription list and detail independently of the locked template version', async () => {
+    const employee = { id: 'emp-1', name: 'Engineer', avatar: '/assets/employees/silicon/frontend-engineer.webp', version: '2.0.0' };
+    const row = { id: 'sub-1', enterpriseId: 'ent-acme', employee, templateVersion: '1.0.0' };
+    prisma.subscription.findMany.mockResolvedValue([row]);
+    prisma.subscription.findUnique.mockResolvedValue(row);
+    const [listed] = await svc.findAll('u1');
+    const detail = await svc.findOne('sub-1', 'u1');
+    expect(listed.employee.avatarAsset).toEqual(withEmployeeAvatar(employee).avatarAsset);
+    expect((detail as any).employee.avatarAsset).toEqual(listed.employee.avatarAsset);
+    expect(listed.templateVersion).toBe('1.0.0');
+  });
+
   describe('findAll 的升级提示', () => {
     const row = (templateVersion: string, latest: string, name: string | null = null) => ({
       id: 'sub-1',
@@ -399,6 +413,7 @@ describe('SubscriptionService', () => {
 
   describe('changeStatus', () => {
     const active = {
+      employee: { id: 'emp-1', avatar: null },
       id: 'sub-1',
       enterpriseId: 'ent-acme',
       employeeId: 'emp-1',
@@ -470,6 +485,7 @@ describe('SubscriptionService', () => {
 
   describe('upgrade', () => {
     const sub = {
+      employee: { id: 'emp-1', avatar: null },
       id: 'sub-1',
       enterpriseId: 'ent-acme',
       employeeId: 'emp-1',
@@ -525,6 +541,7 @@ describe('SubscriptionService', () => {
 
   describe('update', () => {
     const sub = {
+      employee: { id: 'emp-1', avatar: null },
       id: 'sub-1',
       enterpriseId: 'ent-acme',
       employeeId: 'emp-1',
@@ -631,6 +648,7 @@ describe('SubscriptionService', () => {
 
   describe('终止订阅时的赠送余额', () => {
     const activeSub = {
+      employee: { id: 'emp-1', avatar: null },
       id: 'sub-1',
       enterpriseId: 'ent-acme',
       employeeId: 'emp-1',

@@ -88,6 +88,7 @@ export function NewSessionDialog({
                       <Avatar
                         name={emp.name}
                         src={emp.avatar}
+                        asset={emp.avatarAsset}
               portrait
                         className="h-9 w-9 shrink-0 text-sm"
                       />

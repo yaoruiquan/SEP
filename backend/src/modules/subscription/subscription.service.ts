@@ -10,6 +10,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 import {
   SubscriptionCreateDto,
   SubscriptionUpdateDto,
@@ -167,7 +168,7 @@ export class SubscriptionService {
       return result.subscriptionId;
     });
 
-    return this.prisma.subscription.findUniqueOrThrow({
+    const subscription = await this.prisma.subscription.findUniqueOrThrow({
       where: { id: subscriptionId },
       include: {
         employee: {
@@ -178,6 +179,7 @@ export class SubscriptionService {
         },
       },
     });
+    return { ...subscription, employee: withEmployeeAvatar(subscription.employee) };
   }
 
   /**
@@ -221,7 +223,7 @@ export class SubscriptionService {
     return rows.map((r) => ({
       ...r,
       employee: {
-        ...r.employee,
+        ...withEmployeeAvatar(r.employee),
         annualPriceCNY: r.employee.annualPriceCNY?.toNumber() ?? null,
       },
       // 未自定义称呼时回落到模板名，前端不必各自兜底
@@ -259,17 +261,18 @@ export class SubscriptionService {
       // 用 404 而非 403：不向越权者确认该资源是否存在
       throw new NotFoundException(`Subscription ${id} not found`);
     }
-    return sub;
+    return { ...sub, employee: sub.employee ? withEmployeeAvatar(sub.employee) : sub.employee };
   }
 
   /** 更新订阅上的企业侧配置 */
   async updateConfig(id: string, userId: string, config: Record<string, any>) {
     const sub = await this.findOne(id, userId);
-    return this.prisma.subscription.update({
+    const updated = await this.prisma.subscription.update({
       where: { id: sub.id },
       data: { config: config as any },
       include: { employee: { select: { id: true, name: true, avatar: true, position: true } } },
     });
+    return { ...updated, employee: withEmployeeAvatar(updated.employee) };
   }
 
   /**

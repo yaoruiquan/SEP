@@ -42,6 +42,14 @@ function freshClient() {
 }
 
 describe('useSubscribedEmployees', () => {
+  it('preserves avatar metadata when flattening subscriptions for chat', async () => {
+    const avatarAsset = { id: 'silicon:test', version: 'v1', portraitUrl: 'https://images.example.com/full.webp', faceUrl: 'https://images.example.com/face.webp' };
+    const raw = subscription('emp-1', 'Engineer');
+    mockGet.mockResolvedValue([{ ...raw, employee: { ...raw.employee, avatarAsset } }]);
+    const { result } = renderHook(() => useSubscribedEmployees(), { wrapper: wrapper(freshClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.[0].avatarAsset).toEqual(avatarAsset);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

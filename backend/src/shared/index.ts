@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { EmployeeAvatarAsset } from './employee-avatar';
+export type { EmployeeAvatarAsset } from './employee-avatar';
 export * from './task.dto';
 export * from './client-task.dto';
 
@@ -703,13 +705,25 @@ export const CnyAmountSchema = z
   });
 
 // Digital Employee
+export const EmployeeAvatarUrlSchema = z.union([
+  z.string().url().refine((value) => {
+    try {
+      const url = new URL(value);
+      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }, '头像必须使用 HTTP(S) 地址'),
+  z.string().regex(/^\/assets\/employees\/silicon\/[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/, '请选择硅基员工素材路径'),
+]);
+
 export const DigitalEmployeeCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(10).max(2000),
   industry: z.string(),
   position: z.string(),
   functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).default("OPERATIONS_ORG"),
-  avatar: z.string().url().optional(),
+  avatar: EmployeeAvatarUrlSchema.optional(),
   systemPrompt: z.string().min(10),
   modelId: z.string().default(DEFAULT_MODEL_ID),
   maxSteps: z.number().min(1).max(20).default(10),
@@ -735,7 +749,7 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   industry: z.string().optional(),
   position: z.string().optional(),
   functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).optional(),
-  avatar: z.string().url().optional(),
+  avatar: EmployeeAvatarUrlSchema.optional(),
   systemPrompt: z.string().min(10).optional(),
   modelId: z.string().optional(),
   maxSteps: z.number().min(1).max(20).optional(),
@@ -989,7 +1003,7 @@ export interface MyEmployeeView {
   name: string;
   templateVersion: string;
   /** 员工模板。收敛前此字段名为 template。 */
-  employee: { id: string; name: string; avatar: string | null; functionalCategory?: string };
+  employee: { id: string; name: string; avatar: string | null; avatarAsset?: EmployeeAvatarAsset | null; functionalCategory?: string };
   /**
    * 授权来源部门。收敛后语义变了 —— 从前是「实例归属哪个部门」，
    * 现在是「这条授权发给哪个部门」，DIRECT 授权时为 null。

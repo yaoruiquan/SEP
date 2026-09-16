@@ -18,6 +18,10 @@ export function useSubscriptions(opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: qk.subscriptions,
     queryFn: () => api.get<Subscription[]>('/subscriptions'),
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
     enabled: opts?.enabled ?? true,
   });
 }
@@ -29,6 +33,9 @@ export function useSubscription(id: string) {
     queryFn: () => api.get<Subscription>(`/subscriptions/${id}`),
     enabled: Boolean(id),
     staleTime: 30_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
   });
 }
 
