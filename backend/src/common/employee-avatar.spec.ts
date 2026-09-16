@@ -54,6 +54,14 @@ describe('employee avatars', () => {
     expect(() => employeeAssetBaseUrl({ NODE_ENV: 'production', CORS_ORIGIN: 'https://web.example.com' })).toThrow('ASSET_BASE_URL');
   });
 
+  it('keeps local avatars local when payment callbacks use a production frontend URL', () => {
+    process.env = { NODE_ENV: 'development', FRONTEND_URL: 'https://longdaosep.cn' };
+    const result = withEmployeeAvatar({ id: 'e1', avatar: path });
+    expect(new URL(result.avatarAsset.faceUrl).origin).toBe('http://localhost:3000');
+    expect(new URL(result.avatarAsset.portraitUrl).origin).toBe('http://localhost:3000');
+    expect(employeeAssetBaseUrl({ ...process.env, ASSET_BASE_URL: 'http://192.168.1.8:3000' })).toBe('http://192.168.1.8:3000');
+  });
+
   it.each(['ftp://images.example.com', 'https://images.example.com/path', 'https://u:p@images.example.com', 'https://images.example.com?v=1'])('rejects invalid asset origins: %s', (ASSET_BASE_URL) => {
     expect(() => employeeAssetBaseUrl({ ASSET_BASE_URL })).toThrow('ASSET_BASE_URL');
   });

@@ -7,8 +7,10 @@ const assets: Record<string, AssetRecord> = registry;
 
 /** Static assets are served by the web origin, not the Nest API origin. */
 export function employeeAssetBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const value = env.ASSET_BASE_URL?.trim() || env.FRONTEND_URL?.trim() ||
-    (env.NODE_ENV !== 'production' ? 'http://localhost:3000' : '');
+  // Local .env can contain a production FRONTEND_URL for payment callbacks.
+  // Only an explicit asset origin should override local development assets.
+  const value = env.ASSET_BASE_URL?.trim() ||
+    (env.NODE_ENV === 'production' ? env.FRONTEND_URL?.trim() : 'http://localhost:3000');
   try {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
