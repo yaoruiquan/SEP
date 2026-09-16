@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -12,6 +13,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -29,7 +32,15 @@ import {
   SkillVersionScopeSchema,
   SkillVersionStatusSchema,
   UpdateSkillVersionDtoSchema,
+  SubmitPersonalSkillVersionDtoSchema,
+  SkillSubmissionKeySchema,
+  PersonalSkillReviewQuerySchema,
+  type SubmitPersonalSkillVersionDto,
+  type PersonalSkillReviewQuery,
+  type ReviewSkillVersionDto,
 } from 'shared';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { PersonalSkillSubmissionService } from './personal-skill-submission.service';
 import {
   SkillVersionUsageSummaryDtoSchema,
   SkillVersionExecutionListDtoSchema,
@@ -46,7 +57,59 @@ type AuthRequest = { user: { id: string; role: UserRole } };
 @UseGuards(JwtAuthGuard)
 @Controller('enterprise')
 export class EnterpriseSkillVersionController {
-  constructor(private readonly service: SkillVersionService) {}
+  constructor(
+    private readonly service: SkillVersionService,
+    private readonly submissions: PersonalSkillSubmissionService,
+  ) {}
+
+  @Post('skill-versions')
+  @ApiOperation({ summary: '保存完整个人 SKILL.md 并原子提交企业审核' })
+  @ApiHeader({ name: 'Idempotency-Key', required: true, description: '每次保存生成独立键；重试复用原键，16-128 位字母数字或 _ -' })
+  @ApiBody({ schema: { type: 'object', required: ['capabilityId', 'parentVersionId', 'content'], properties: {
+    capabilityId: { type: 'string' }, parentVersionId: { type: 'string' },
+    content: { type: 'string', maxLength: 500000, description: '保留 frontmatter、换行的完整 Markdown' },
+    changeSummary: { type: 'string', maxLength: 2000 },
+  } } })
+  @ApiResponse({ status: 201, description: '个人版本及 submittedAt；首次为 PENDING_ENTERPRISE_REVIEW，重试返回同一版本当前审核状态' })
+  @ApiResponse({ status: 400, description: '请求参数或幂等键无效，来源能力不匹配' })
+  @ApiResponse({ status: 404, description: '技能未授权或来源版本不可访问' })
+  @ApiResponse({ status: 409, description: '相同幂等键对应不同内容' })
+  submitPersonalVersion(
+    @Request() req: AuthRequest,
+    @Headers('idempotency-key') rawKey: string,
+    @Body(new ZodValidationPipe(SubmitPersonalSkillVersionDtoSchema)) dto: SubmitPersonalSkillVersionDto,
+  ) {
+    const key = new ZodValidationPipe(SkillSubmissionKeySchema).transform(rawKey);
+    return this.submissions.submit(req.user.id, key, dto);
+  }
+
+  @Get('skill-version-reviews')
+  @ApiOperation({ summary: '企业管理员分页查询个人版本审核队列和结果' })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] })
+  @ApiQuery({ name: 'capabilityId', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'items、total、page、limit；仅本企业个人送审版本' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可审核' })
+  listPersonalReviews(
+    @Request() req: AuthRequest,
+    @Query(new ZodValidationPipe(PersonalSkillReviewQuerySchema)) query: PersonalSkillReviewQuery,
+  ) { return this.submissions.reviews(req.user.id, query); }
+
+  @Post('skill-versions/:id/review')
+  @ApiOperation({ summary: '企业管理员审核个人送审版本，正文保持不变' })
+  @ApiBody({ schema: { type: 'object', required: ['decision'], properties: {
+    decision: { type: 'string', enum: ['APPROVE', 'REJECT'] }, comment: { type: 'string', maxLength: 2000 },
+  } } })
+  @ApiResponse({ status: 201, description: 'ENTERPRISE_APPROVED 或 ENTERPRISE_REJECTED；通过后仅本人可选用，不自动替换企业版本' })
+  @ApiResponse({ status: 400, description: '驳回必须填写 comment' })
+  @ApiResponse({ status: 403, description: '仅企业管理员可审核' })
+  @ApiResponse({ status: 404, description: '个人送审版本不存在或跨企业' })
+  @ApiResponse({ status: 409, description: '已审核，不能重复处理' })
+  reviewPersonalVersion(
+    @Request() req: AuthRequest, @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReviewSkillVersionDtoSchema)) dto: ReviewSkillVersionDto,
+  ) { return this.submissions.review(req.user.id, id, dto); }
 
   @Get('employees/:employeeId/skills')
   @ApiOperation({ summary: '获取已授权员工的技能及当前版本' })
@@ -82,11 +145,18 @@ export class EnterpriseSkillVersionController {
   @Get('skill-versions')
   @ApiOperation({ summary: '获取当前企业创建的技能版本' })
   @ApiQuery({ name: 'status', required: false, enum: SkillVersionStatus })
+  @ApiQuery({ name: 'capabilityId', required: false, description: '提供时返回该能力的已发布版本与本人全部个人版本；不传保持原企业列表契约' })
+  @ApiResponse({ status: 200, description: '版本列表，含 submittedAt、enterpriseReviewedAt、rejectionReason' })
   listEnterpriseVersions(
     @Request() req: AuthRequest,
     @Query('status') rawStatus?: string,
+    @Query('capabilityId') capabilityId?: string,
   ) {
-    const status = rawStatus ? SkillVersionStatusSchema.parse(rawStatus) : undefined;
+    const status = rawStatus ? new ZodValidationPipe(SkillVersionStatusSchema).transform(rawStatus) : undefined;
+    if (capabilityId !== undefined) {
+      const query = new ZodValidationPipe(PersonalSkillReviewQuerySchema).transform({ capabilityId });
+      return this.submissions.list(req.user.id, query.capabilityId, status);
+    }
     return this.service.listEnterpriseVersions(req.user.id, status);
   }
 

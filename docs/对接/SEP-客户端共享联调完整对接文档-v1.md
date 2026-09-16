@@ -8,6 +8,8 @@
 
 本文是客户端接入 SEP 的当前联调基线。接口、字段和状态以当前后端代码为准；旧文档中出现的 `instanceId`、`client-instance` token、`/gateway/chat` 和云端任务执行语义均属于历史版本，不能直接复制。
 
+2026-09-16 补充：组织架构、企业员工统计、个人 Skill 保存送审及审核查询见 [客户端补充接口](SEP-客户端补充接口-2026-09-16.md)。该文档同时更新个人技能状态使用规则和联调数据验收记录；本文下方的空订阅描述为 9 月 11 日历史状态。
+
 ## 1. 联调结论
 
 SEP 与客户端是控制面和执行面的分工：
@@ -385,7 +387,7 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-只有 `currentVersion` 且状态为 `PLATFORM_APPROVED`、`APPROVED` 或 `PUBLISHED` 的版本可以进入本地运行时。
+公共 `currentVersion` 的实际发布状态为 `PLATFORM_APPROVED`（平台版）或 `ENTERPRISE_APPROVED`（企业版）。`APPROVED`、`PUBLISHED` 不是 SkillVersion 状态。2026-09-16 新增本人个人审核版的本地选择规则见补充接口文档；待审核、驳回版本不可进入本地运行时。
 
 ### 6.4 预览技能正文
 

@@ -99,6 +99,58 @@ describe('SkillVersionService', () => {
     );
   });
 
+  it('returns personal submission Markdown byte-for-byte, including frontmatter and CRLF', async () => {
+    const content = '---\r\nname: client-skill\r\n---\r\n\r\n# Content\r\n';
+    prisma.skillVersion.findUnique.mockResolvedValue({
+      ...platformVersion, scope: 'PERSONAL', ownerId: 'user-1',
+      enterpriseId: memberContext.enterpriseId, status: 'ENTERPRISE_REJECTED', content,
+    });
+    prisma.subscription.findFirst.mockResolvedValue({ id: 'subscription-1' });
+    const result = await service.previewEnterpriseVersion('user-1', 'personal-version');
+    expect(result.content).toBe(content);
+    expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [{ endDate: null }, { endDate: { gt: expect.any(Date) } }] }),
+    }));
+  });
+
+  it.each([
+    { ownerId: 'other-user', enterpriseId: memberContext.enterpriseId },
+    { ownerId: 'user-1', enterpriseId: 'other-enterprise' },
+  ])('hides personal content outside ownership and tenant boundaries: %j', async (ownership) => {
+    prisma.skillVersion.findUnique.mockResolvedValue({
+      ...platformVersion, ...ownership, scope: 'PERSONAL', status: 'PENDING_ENTERPRISE_REVIEW',
+      submittedAt: new Date(),
+    });
+    await expect(service.previewEnterpriseVersion('user-1', 'personal-version')).rejects.toThrow(NotFoundException);
+    expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('lets an administrator read a submitted review without an employee grant', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    const pending = { ...platformVersion, scope: 'PERSONAL', ownerId: 'other-user',
+      enterpriseId: memberContext.enterpriseId, status: 'PENDING_ENTERPRISE_REVIEW', submittedAt: new Date() };
+    prisma.skillVersion.findUnique.mockResolvedValue(pending);
+    await expect(service.previewEnterpriseVersion('admin', 'personal-version')).resolves.toEqual(pending);
+    expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('includes own pending submissions without selecting them as the current published version', async () => {
+    prisma.subscription.findFirst.mockResolvedValue({ id: 'sub-1' });
+    Object.assign(prisma.employeeCapabilityBinding, { findMany: jest.fn().mockResolvedValue([
+      { capability: platformVersion.capability, defaultSkillVersion: platformVersion },
+    ]) });
+    Object.assign(prisma.subscriptionSkillVersion, { findMany: jest.fn().mockResolvedValue([]) });
+    const pending = { ...platformVersion, id: 'pending', scope: 'PERSONAL', status: 'PENDING_ENTERPRISE_REVIEW' };
+    prisma.skillVersion.findMany.mockResolvedValue([pending, platformVersion]);
+    const result = await service.listEmployeeSkills('user-1', 'employee-1');
+    expect(result.skills[0].currentVersion.id).toBe(platformVersion.id);
+    expect(result.skills[0].versions).toContain(pending);
+    expect(result.skills[0].latestPublishedVersion.id).toBe(platformVersion.id);
+    expect(prisma.skillVersion.findMany.mock.calls[0][0].where.OR).toContainEqual({
+      scope: 'PERSONAL', enterpriseId: memberContext.enterpriseId, ownerId: 'user-1',
+    });
+  });
+
   it('hides another enterprise private version', async () => {
     prisma.skillVersion.findUnique.mockResolvedValue({
       ...platformVersion,

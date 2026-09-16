@@ -11,6 +11,8 @@ import { DigitalEmployeeModule } from "../digital-employee/digital-employee.modu
 import { EmployeeStatusGateway } from './employee-status.gateway';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { OrganizationService } from './organization.service';
+import { OrganizationController } from './organization.controller';
 
 /**
  * 企业上下文是多租户隔离的基础设施，几乎每个业务模块都要用，
@@ -45,7 +47,7 @@ import { ConfigService } from '@nestjs/config';
       }),
     }),
   ],
-  controllers: [EnterpriseController],
+  controllers: [EnterpriseController, OrganizationController],
   providers: [
     EnterpriseContextService,
     EnterpriseService,
@@ -55,6 +57,7 @@ import { ConfigService } from '@nestjs/config';
     GrantService,
     EmployeeUsageService,
     EmployeeStatusGateway,
+    OrganizationService,
   ],
   exports: [
     EnterpriseContextService,

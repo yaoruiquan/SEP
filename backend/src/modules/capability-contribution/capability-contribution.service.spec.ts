@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CapabilityContributionService } from './capability-contribution.service';
 import { CapabilityValidatorService } from './capability-validator.service';
 
@@ -147,6 +147,59 @@ describe('CapabilityContributionService', () => {
 
     expect(prisma.capability.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'cap-1', OR: [{ contributorId: 'admin-1' }, { enterpriseId: 'enterprise-1' }] },
+    }));
+  });
+
+  it.each(['MEMBER', 'ENTERPRISE_ADMIN'])('excludes personal version metadata from %s contribution details', async (role) => {
+    enterpriseContext.resolveOrNull.mockResolvedValue({ enterpriseId: 'enterprise-1', role });
+
+    await service.getOne('user-1', 'cap-1');
+
+    expect(prisma.capability.findFirst.mock.calls[0][0].select.skillVersions.where)
+      .toEqual({ scope: { not: 'PERSONAL' } });
+  });
+
+  it.each(['preview', 'edit', 'submit'] as const)('denies the capability author %s access to another member personal submission', async (action) => {
+    // The author owns the capability, but not a member's rejected personal submission.
+    const privateVersion = {
+      id: 'personal-1', scope: 'PERSONAL', status: 'ENTERPRISE_REJECTED',
+      enterpriseId: 'other-enterprise', ownerId: 'other-member',
+      content: '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告',
+      changeSummary: 'Private modification',
+    };
+    prisma.skillVersion.findFirst.mockImplementation(async ({ where }) =>
+      where.scope?.not === privateVersion.scope ? null : privateVersion);
+
+    const request = action === 'preview'
+      ? service.getVersionForAuthor('user-1', privateVersion.id)
+      : action === 'edit'
+        ? service.updateVersion('user-1', privateVersion.id, { content: 'Replacement body' })
+        : service.submitVersion('user-1', privateVersion.id);
+
+    await expect(request).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a personal submission as an explicit contribution parent', async () => {
+    prisma.skillVersion.findFirst.mockImplementation(async ({ where }) =>
+      where.scope?.not === 'PERSONAL' ? null : { id: 'personal-1' });
+    prisma.skillVersion.findMany.mockResolvedValue([]);
+
+    await expect(service.createSkillVersion('user-1', 'cap-1', {
+      parentVersionId: 'personal-1', content: 'A new contribution body', changeSummary: 'New version',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+    expect(skillPackage.read).not.toHaveBeenCalled();
+  });
+
+  it.each(['PLATFORM', 'ENTERPRISE'])('preserves author preview access to %s contribution versions', async (scope) => {
+    const version = { id: 'version-2', scope, status: 'DRAFT', content: 'Author draft' };
+    prisma.skillVersion.findFirst.mockResolvedValue(version);
+
+    await expect(service.getVersionForAuthor('user-1', version.id)).resolves.toEqual(version);
+    expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: version.id, scope: { not: 'PERSONAL' }, capability: { contributorId: 'user-1' } },
     }));
   });
 

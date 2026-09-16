@@ -43,6 +43,11 @@ const VERSION_SUMMARY_SELECT = {
   version: true,
   changeSummary: true,
   status: true,
+  ownerId: true,
+  submittedAt: true,
+  enterpriseReviewedAt: true,
+  platformReviewedAt: true,
+  rejectionReason: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -92,6 +97,7 @@ export class SkillVersionService {
               enterpriseId: ctx.enterpriseId,
               status: 'ENTERPRISE_APPROVED',
             },
+            { scope: 'PERSONAL', enterpriseId: ctx.enterpriseId, ownerId: userId },
           ],
         },
         select: VERSION_SUMMARY_SELECT,
@@ -123,7 +129,7 @@ export class SkillVersionService {
         const candidates = versionsByCapability.get(binding.capability.id) ?? [];
         const currentVersion =
           selectedByCapability.get(binding.capability.id) ??
-          binding.defaultSkillVersion ??
+          (binding.defaultSkillVersion?.status === 'PLATFORM_APPROVED' ? binding.defaultSkillVersion : null) ??
           candidates.find((version) => version.scope === 'PLATFORM') ??
           null;
         const latestPlatformVersion = candidates.find(
@@ -134,6 +140,7 @@ export class SkillVersionService {
           capability: binding.capability,
           currentVersion,
           versions: candidates,
+          latestPublishedVersion: latestPlatformVersion ?? null,
           upgradeAvailable:
             Boolean(currentVersion && latestPlatformVersion) &&
             currentVersion?.id !== latestPlatformVersion?.id,
@@ -157,6 +164,18 @@ export class SkillVersionService {
       throw new NotFoundException('技能版本不存在');
     }
     if (version.scope === 'ENTERPRISE' && version.enterpriseId !== ctx.enterpriseId) {
+      throw new NotFoundException('技能版本不存在');
+    }
+
+    if (version.scope === 'PERSONAL') {
+      if (version.enterpriseId !== ctx.enterpriseId ||
+          (version.ownerId !== userId && !(ctx.role === 'ENTERPRISE_ADMIN' && version.submittedAt))) {
+        throw new NotFoundException('技能版本不存在');
+      }
+      // Administrators can inspect their review queue without a personal employee grant.
+      if (ctx.role === 'ENTERPRISE_ADMIN' && version.submittedAt) return version;
+    }
+    if (version.scope === 'ENTERPRISE' && version.status !== 'ENTERPRISE_APPROVED' && ctx.role !== 'ENTERPRISE_ADMIN') {
       throw new NotFoundException('技能版本不存在');
     }
 
@@ -855,6 +874,7 @@ export class SkillVersionService {
         capabilityId,
         scope: 'PERSONAL',
         enterpriseId: ctx.enterpriseId,
+        status: 'PERSONAL_ACTIVE',
       },
       select: {
         id: true,
@@ -1258,6 +1278,7 @@ export class SkillVersionService {
         enterpriseId,
         status: 'ACTIVE',
         employee: { bindings: { some: { capabilityId } } },
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
         grants: { some: this.activeGrantWhere(memberId, departmentId) },
       },
       select: { id: true },

@@ -24,6 +24,25 @@ export const UpdateSkillVersionDtoSchema = z.object({
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
+export const SubmitPersonalSkillVersionDtoSchema = UpdateSkillVersionDtoSchema.extend({
+  capabilityId: z.string().min(1).max(128),
+  parentVersionId: z.string().min(1).max(128),
+}).strict();
+
+export const SkillSubmissionKeySchema = z.string().min(16).max(128)
+  .regex(/^[A-Za-z0-9_-]+$/, 'Idempotency-Key 仅支持字母、数字、下划线和连字符');
+
+export const PersonalSkillReviewQuerySchema = z.object({
+  status: z.enum(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])
+    .default('PENDING_ENTERPRISE_REVIEW'),
+  capabilityId: z.string().min(1).max(128).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export type SubmitPersonalSkillVersionDto = z.infer<typeof SubmitPersonalSkillVersionDtoSchema>;
+export type PersonalSkillReviewQuery = z.infer<typeof PersonalSkillReviewQuerySchema>;
+
 export const ReviewSkillVersionDtoSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),
   comment: z.string().trim().max(2000).optional(),

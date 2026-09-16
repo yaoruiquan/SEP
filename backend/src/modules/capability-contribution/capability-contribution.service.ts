@@ -127,6 +127,7 @@ export class CapabilityContributionService {
         inputSchema: true,
         outputSchema: true,
         skillVersions: {
+          where: { scope: { not: 'PERSONAL' } },
           select: {
             ...AUTHOR_VERSION_SELECT,
             rejectionReason: true,
@@ -613,7 +614,7 @@ export class CapabilityContributionService {
   ) {
     if (parentVersionId) {
       const explicit = await this.prisma.skillVersion.findFirst({
-        where: { id: parentVersionId, capabilityId },
+        where: { id: parentVersionId, capabilityId, scope: { not: 'PERSONAL' } },
         select: { id: true },
       });
       if (!explicit) throw new BadRequestException('父版本与能力不匹配');
@@ -636,7 +637,7 @@ export class CapabilityContributionService {
   /** 作者查看自己某个版本的正文。企业侧那个 preview 要求订阅授权，贡献场景永远拿不到。 */
   async getVersionForAuthor(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, capability: { contributorId: userId } },
+      where: { id: versionId, scope: { not: 'PERSONAL' }, capability: { contributorId: userId } },
       select: {
         ...AUTHOR_VERSION_SELECT,
         content: true,
@@ -697,7 +698,7 @@ export class CapabilityContributionService {
   /** 作者名下、且处于可编辑状态（草稿或被驳回）的版本。 */
   private async getEditableVersion(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, capability: { contributorId: userId } },
+      where: { id: versionId, scope: { not: 'PERSONAL' }, capability: { contributorId: userId } },
     });
     if (!version) throw new NotFoundException('版本不存在或无权访问');
     const editable: SkillVersionStatus[] = ['DRAFT', 'ENTERPRISE_REJECTED', 'PLATFORM_REJECTED'];
