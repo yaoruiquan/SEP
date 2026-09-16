@@ -142,6 +142,7 @@ function EmploymentTableRow({
           <Avatar
             name={sub.employee.name}
             src={sub.employee.avatar}
+            asset={sub.employee.avatarAsset}
               portrait
             className="h-9 w-9 shrink-0 text-xs"
           />

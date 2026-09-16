@@ -1,4 +1,6 @@
 // Mirror of backend response shapes (kept minimal, only what the UI reads).
+import type { EmployeeAvatarAsset } from '../../../backend/src/shared/employee-avatar';
+export type { EmployeeAvatarAsset } from '../../../backend/src/shared/employee-avatar';
 
 export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
 export type EmployeeStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
@@ -207,6 +209,7 @@ export interface DigitalEmployee {
   position: string;
   functionalCategory: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
   systemPrompt?: string;
   modelId?: string;
   maxSteps?: number;
@@ -241,7 +244,7 @@ export interface Subscription {
   updatedAt: string;
   employee: Pick<
     DigitalEmployee,
-    'id' | 'name' | 'description' | 'avatar' | 'industry' | 'position' | 'functionalCategory' | 'status' | 'version'
+    'id' | 'name' | 'description' | 'avatar' | 'avatarAsset' | 'industry' | 'position' | 'functionalCategory' | 'status' | 'version'
   > & { annualPriceCNY: number | null };
 
   // ── 订阅赠送算力余额（人民币，Decimal 序列化为字符串）─────────────────────
@@ -272,7 +275,7 @@ export interface ConversationSession {
   taskStepId?: string | null;
   createdAt: string;
   updatedAt: string;
-  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'modelId'>;
+  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'avatarAsset' | 'modelId'>;
   _count?: { messages?: number };
 }
 
@@ -469,6 +472,7 @@ export interface MyEmployee {
     id: string;
     name: string;
     avatar: string | null;
+    avatarAsset?: EmployeeAvatarAsset | null;
     description?: string | null;
     position?: string | null;
     functionalCategory?: import('./employee-categories').EmployeeCategory;

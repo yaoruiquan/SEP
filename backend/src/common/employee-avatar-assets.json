@@ -1,0 +1,386 @@
+{
+  "/assets/employees/silicon/a11y-tester.webp": {
+    "id": "silicon:a11y-tester",
+    "version": "5d8946064d022bb2",
+    "portraitPath": "/assets/employees/silicon/a11y-tester.webp",
+    "facePath": "/assets/employees/silicon/a11y-tester-face.webp"
+  },
+  "/assets/employees/silicon/a11y-visual.webp": {
+    "id": "silicon:a11y-visual",
+    "version": "807e9183a289f9f4",
+    "portraitPath": "/assets/employees/silicon/a11y-visual.webp",
+    "facePath": "/assets/employees/silicon/a11y-visual-face.webp"
+  },
+  "/assets/employees/silicon/after-sales-specialist.webp": {
+    "id": "silicon:after-sales-specialist",
+    "version": "873f8a34b3a29f5f",
+    "portraitPath": "/assets/employees/silicon/after-sales-specialist.webp",
+    "facePath": "/assets/employees/silicon/after-sales-specialist-face.webp"
+  },
+  "/assets/employees/silicon/ai-prompt-engineer.webp": {
+    "id": "silicon:ai-prompt-engineer",
+    "version": "0069cd256500013d",
+    "portraitPath": "/assets/employees/silicon/ai-prompt-engineer.webp",
+    "facePath": "/assets/employees/silicon/ai-prompt-engineer-face.webp"
+  },
+  "/assets/employees/silicon/ap-specialist.webp": {
+    "id": "silicon:ap-specialist",
+    "version": "aa3132c1d944a1f2",
+    "portraitPath": "/assets/employees/silicon/ap-specialist.webp",
+    "facePath": "/assets/employees/silicon/ap-specialist-face.webp"
+  },
+  "/assets/employees/silicon/api-designer.webp": {
+    "id": "silicon:api-designer",
+    "version": "11f64460eb7bd5ce",
+    "portraitPath": "/assets/employees/silicon/api-designer.webp",
+    "facePath": "/assets/employees/silicon/api-designer-face.webp"
+  },
+  "/assets/employees/silicon/backend-engineer.webp": {
+    "id": "silicon:backend-engineer",
+    "version": "ef47968863ffe809",
+    "portraitPath": "/assets/employees/silicon/backend-engineer.webp",
+    "facePath": "/assets/employees/silicon/backend-engineer-face.webp"
+  },
+  "/assets/employees/silicon/brand-guardian.webp": {
+    "id": "silicon:brand-guardian",
+    "version": "d4c3f3699e1a56e2",
+    "portraitPath": "/assets/employees/silicon/brand-guardian.webp",
+    "facePath": "/assets/employees/silicon/brand-guardian-face.webp"
+  },
+  "/assets/employees/silicon/change-consultant.webp": {
+    "id": "silicon:change-consultant",
+    "version": "a688f6ca0ff3444c",
+    "portraitPath": "/assets/employees/silicon/change-consultant.webp",
+    "facePath": "/assets/employees/silicon/change-consultant-face.webp"
+  },
+  "/assets/employees/silicon/cn-ecom-operator.webp": {
+    "id": "silicon:cn-ecom-operator",
+    "version": "d678c9b8504193b4",
+    "portraitPath": "/assets/employees/silicon/cn-ecom-operator.webp",
+    "facePath": "/assets/employees/silicon/cn-ecom-operator-face.webp"
+  },
+  "/assets/employees/silicon/code-reviewer.webp": {
+    "id": "silicon:code-reviewer",
+    "version": "0691b095b14bf039",
+    "portraitPath": "/assets/employees/silicon/code-reviewer.webp",
+    "facePath": "/assets/employees/silicon/code-reviewer-face.webp"
+  },
+  "/assets/employees/silicon/cross-border-ecom.webp": {
+    "id": "silicon:cross-border-ecom",
+    "version": "5522ab2847537c29",
+    "portraitPath": "/assets/employees/silicon/cross-border-ecom.webp",
+    "facePath": "/assets/employees/silicon/cross-border-ecom-face.webp"
+  },
+  "/assets/employees/silicon/dataviz-engineer.webp": {
+    "id": "silicon:dataviz-engineer",
+    "version": "432012e6c9405ba9",
+    "portraitPath": "/assets/employees/silicon/dataviz-engineer.webp",
+    "facePath": "/assets/employees/silicon/dataviz-engineer-face.webp"
+  },
+  "/assets/employees/silicon/delight-injector.webp": {
+    "id": "silicon:delight-injector",
+    "version": "b00338cfcca93319",
+    "portraitPath": "/assets/employees/silicon/delight-injector.webp",
+    "facePath": "/assets/employees/silicon/delight-injector-face.webp"
+  },
+  "/assets/employees/silicon/devops-engineer.webp": {
+    "id": "silicon:devops-engineer",
+    "version": "98ec1839b16d1df3",
+    "portraitPath": "/assets/employees/silicon/devops-engineer.webp",
+    "facePath": "/assets/employees/silicon/devops-engineer-face.webp"
+  },
+  "/assets/employees/silicon/doc-generator.webp": {
+    "id": "silicon:doc-generator",
+    "version": "84f682f30558fcfc",
+    "portraitPath": "/assets/employees/silicon/doc-generator.webp",
+    "facePath": "/assets/employees/silicon/doc-generator-face.webp"
+  },
+  "/assets/employees/silicon/douyin-strategist.webp": {
+    "id": "silicon:douyin-strategist",
+    "version": "f12cbae5596d8d81",
+    "portraitPath": "/assets/employees/silicon/douyin-strategist.webp",
+    "facePath": "/assets/employees/silicon/douyin-strategist-face.webp"
+  },
+  "/assets/employees/silicon/ecom-media-buyer.webp": {
+    "id": "silicon:ecom-media-buyer",
+    "version": "568105c7820b93b1",
+    "portraitPath": "/assets/employees/silicon/ecom-media-buyer.webp",
+    "facePath": "/assets/employees/silicon/ecom-media-buyer-face.webp"
+  },
+  "/assets/employees/silicon/enterprise-account.webp": {
+    "id": "silicon:enterprise-account",
+    "version": "43398f9b57fddb23",
+    "portraitPath": "/assets/employees/silicon/enterprise-account.webp",
+    "facePath": "/assets/employees/silicon/enterprise-account-face.webp"
+  },
+  "/assets/employees/silicon/financial-analyst.webp": {
+    "id": "silicon:financial-analyst",
+    "version": "8768d90ee9024f4b",
+    "portraitPath": "/assets/employees/silicon/financial-analyst.webp",
+    "facePath": "/assets/employees/silicon/financial-analyst-face.webp"
+  },
+  "/assets/employees/silicon/frontend-engineer.webp": {
+    "id": "silicon:frontend-engineer",
+    "version": "ee4742843b4cc1bd",
+    "portraitPath": "/assets/employees/silicon/frontend-engineer.webp",
+    "facePath": "/assets/employees/silicon/frontend-engineer-face.webp"
+  },
+  "/assets/employees/silicon/fullstack-architect.webp": {
+    "id": "silicon:fullstack-architect",
+    "version": "bc8d82592db18bdb",
+    "portraitPath": "/assets/employees/silicon/fullstack-architect.webp",
+    "facePath": "/assets/employees/silicon/fullstack-architect-face.webp"
+  },
+  "/assets/employees/silicon/game-engineer.webp": {
+    "id": "silicon:game-engineer",
+    "version": "974317168221b1fe",
+    "portraitPath": "/assets/employees/silicon/game-engineer.webp",
+    "facePath": "/assets/employees/silicon/game-engineer-face.webp"
+  },
+  "/assets/employees/silicon/key-management.webp": {
+    "id": "silicon:key-management",
+    "version": "3f2f05c1bfdce3cb",
+    "portraitPath": "/assets/employees/silicon/key-management.webp",
+    "facePath": "/assets/employees/silicon/key-management-face.webp"
+  },
+  "/assets/employees/silicon/legal-reception.webp": {
+    "id": "silicon:legal-reception",
+    "version": "240565cf9250f3be",
+    "portraitPath": "/assets/employees/silicon/legal-reception.webp",
+    "facePath": "/assets/employees/silicon/legal-reception-face.webp"
+  },
+  "/assets/employees/silicon/livestream-coach.webp": {
+    "id": "silicon:livestream-coach",
+    "version": "b00372cbdd59e11f",
+    "portraitPath": "/assets/employees/silicon/livestream-coach.webp",
+    "facePath": "/assets/employees/silicon/livestream-coach-face.webp"
+  },
+  "/assets/employees/silicon/meeting-notes.webp": {
+    "id": "silicon:meeting-notes",
+    "version": "25d325e389e4af64",
+    "portraitPath": "/assets/employees/silicon/meeting-notes.webp",
+    "facePath": "/assets/employees/silicon/meeting-notes-face.webp"
+  },
+  "/assets/employees/silicon/micro-optimizer.webp": {
+    "id": "silicon:micro-optimizer",
+    "version": "03e98e13a5263fcb",
+    "portraitPath": "/assets/employees/silicon/micro-optimizer.webp",
+    "facePath": "/assets/employees/silicon/micro-optimizer-face.webp"
+  },
+  "/assets/employees/silicon/mobile-engineer.webp": {
+    "id": "silicon:mobile-engineer",
+    "version": "4fa55fcea26258bd",
+    "portraitPath": "/assets/employees/silicon/mobile-engineer.webp",
+    "facePath": "/assets/employees/silicon/mobile-engineer-face.webp"
+  },
+  "/assets/employees/silicon/multichannel-content.webp": {
+    "id": "silicon:multichannel-content",
+    "version": "f9d2513bdd2669fe",
+    "portraitPath": "/assets/employees/silicon/multichannel-content.webp",
+    "facePath": "/assets/employees/silicon/multichannel-content-face.webp"
+  },
+  "/assets/employees/silicon/outbound-sales.webp": {
+    "id": "silicon:outbound-sales",
+    "version": "5de60fefee2d978e",
+    "portraitPath": "/assets/employees/silicon/outbound-sales.webp",
+    "facePath": "/assets/employees/silicon/outbound-sales-face.webp"
+  },
+  "/assets/employees/silicon/perf-benchmark.webp": {
+    "id": "silicon:perf-benchmark",
+    "version": "b053ceae6c061d6a",
+    "portraitPath": "/assets/employees/silicon/perf-benchmark.webp",
+    "facePath": "/assets/employees/silicon/perf-benchmark-face.webp"
+  },
+  "/assets/employees/silicon/podcast-strategist.webp": {
+    "id": "silicon:podcast-strategist",
+    "version": "b592282486db5106",
+    "portraitPath": "/assets/employees/silicon/podcast-strategist.webp",
+    "facePath": "/assets/employees/silicon/podcast-strategist-face.webp"
+  },
+  "/assets/employees/silicon/private-domain-operator.webp": {
+    "id": "silicon:private-domain-operator",
+    "version": "5329395ccf56de76",
+    "portraitPath": "/assets/employees/silicon/private-domain-operator.webp",
+    "facePath": "/assets/employees/silicon/private-domain-operator-face.webp"
+  },
+  "/assets/employees/silicon/product-content-planner.webp": {
+    "id": "silicon:product-content-planner",
+    "version": "4adc95586b28b79f",
+    "portraitPath": "/assets/employees/silicon/product-content-planner.webp",
+    "facePath": "/assets/employees/silicon/product-content-planner-face.webp"
+  },
+  "/assets/employees/silicon/product-manager.webp": {
+    "id": "silicon:product-manager",
+    "version": "6facaa2a11421f41",
+    "portraitPath": "/assets/employees/silicon/product-manager.webp",
+    "facePath": "/assets/employees/silicon/product-manager-face.webp"
+  },
+  "/assets/employees/silicon/product-trend-researcher.webp": {
+    "id": "silicon:product-trend-researcher",
+    "version": "88b6ce59a6f27d5c",
+    "portraitPath": "/assets/employees/silicon/product-trend-researcher.webp",
+    "facePath": "/assets/employees/silicon/product-trend-researcher-face.webp"
+  },
+  "/assets/employees/silicon/project-manager.webp": {
+    "id": "silicon:project-manager",
+    "version": "ce5152b699d7eeea",
+    "portraitPath": "/assets/employees/silicon/project-manager.webp",
+    "facePath": "/assets/employees/silicon/project-manager-face.webp"
+  },
+  "/assets/employees/silicon/qa-automation.webp": {
+    "id": "silicon:qa-automation",
+    "version": "a3dc93dd8394c71b",
+    "portraitPath": "/assets/employees/silicon/qa-automation.webp",
+    "facePath": "/assets/employees/silicon/qa-automation-face.webp"
+  },
+  "/assets/employees/silicon/recruiter.webp": {
+    "id": "silicon:recruiter",
+    "version": "4399189e2b4a7cfa",
+    "portraitPath": "/assets/employees/silicon/recruiter.webp",
+    "facePath": "/assets/employees/silicon/recruiter-face.webp"
+  },
+  "/assets/employees/silicon/reddit-community.webp": {
+    "id": "silicon:reddit-community",
+    "version": "696c26d073b33aad",
+    "portraitPath": "/assets/employees/silicon/reddit-community.webp",
+    "facePath": "/assets/employees/silicon/reddit-community-face.webp"
+  },
+  "/assets/employees/silicon/rust-refactor.webp": {
+    "id": "silicon:rust-refactor",
+    "version": "864afefba6ba2a40",
+    "portraitPath": "/assets/employees/silicon/rust-refactor.webp",
+    "facePath": "/assets/employees/silicon/rust-refactor-face.webp"
+  },
+  "/assets/employees/silicon/sales-coach.webp": {
+    "id": "silicon:sales-coach",
+    "version": "8a96b32be4f01f69",
+    "portraitPath": "/assets/employees/silicon/sales-coach.webp",
+    "facePath": "/assets/employees/silicon/sales-coach-face.webp"
+  },
+  "/assets/employees/silicon/sales-engineer.webp": {
+    "id": "silicon:sales-engineer",
+    "version": "f83900b359fa036e",
+    "portraitPath": "/assets/employees/silicon/sales-engineer.webp",
+    "facePath": "/assets/employees/silicon/sales-engineer-face.webp"
+  },
+  "/assets/employees/silicon/sales-proposal.webp": {
+    "id": "silicon:sales-proposal",
+    "version": "148bed292b8151a3",
+    "portraitPath": "/assets/employees/silicon/sales-proposal.webp",
+    "facePath": "/assets/employees/silicon/sales-proposal-face.webp"
+  },
+  "/assets/employees/silicon/security-architect.webp": {
+    "id": "silicon:security-architect",
+    "version": "85f364e0bdffb541",
+    "portraitPath": "/assets/employees/silicon/security-architect.webp",
+    "facePath": "/assets/employees/silicon/security-architect-face.webp"
+  },
+  "/assets/employees/silicon/seo-expert.webp": {
+    "id": "silicon:seo-expert",
+    "version": "630877161d9b5908",
+    "portraitPath": "/assets/employees/silicon/seo-expert.webp",
+    "facePath": "/assets/employees/silicon/seo-expert-face.webp"
+  },
+  "/assets/employees/silicon/spare-biz-analyst.webp": {
+    "id": "silicon:spare-biz-analyst",
+    "version": "ad89a0a8232d6d97",
+    "portraitPath": "/assets/employees/silicon/spare-biz-analyst.webp",
+    "facePath": "/assets/employees/silicon/spare-biz-analyst-face.webp"
+  },
+  "/assets/employees/silicon/spare-data-scientist.webp": {
+    "id": "silicon:spare-data-scientist",
+    "version": "865cb59a153c28a1",
+    "portraitPath": "/assets/employees/silicon/spare-data-scientist.webp",
+    "facePath": "/assets/employees/silicon/spare-data-scientist-face.webp"
+  },
+  "/assets/employees/silicon/spare-hr-manager.webp": {
+    "id": "silicon:spare-hr-manager",
+    "version": "bf9fbf76c7239c4c",
+    "portraitPath": "/assets/employees/silicon/spare-hr-manager.webp",
+    "facePath": "/assets/employees/silicon/spare-hr-manager-face.webp"
+  },
+  "/assets/employees/silicon/spare-hr-specialist.webp": {
+    "id": "silicon:spare-hr-specialist",
+    "version": "982555c464a50b98",
+    "portraitPath": "/assets/employees/silicon/spare-hr-specialist.webp",
+    "facePath": "/assets/employees/silicon/spare-hr-specialist-face.webp"
+  },
+  "/assets/employees/silicon/spare-legal-counsel.webp": {
+    "id": "silicon:spare-legal-counsel",
+    "version": "41914218329fa8f7",
+    "portraitPath": "/assets/employees/silicon/spare-legal-counsel.webp",
+    "facePath": "/assets/employees/silicon/spare-legal-counsel-face.webp"
+  },
+  "/assets/employees/silicon/spare-ops-manager.webp": {
+    "id": "silicon:spare-ops-manager",
+    "version": "6cb67c360fe8eeee",
+    "portraitPath": "/assets/employees/silicon/spare-ops-manager.webp",
+    "facePath": "/assets/employees/silicon/spare-ops-manager-face.webp"
+  },
+  "/assets/employees/silicon/spare-supply-chain.webp": {
+    "id": "silicon:spare-supply-chain",
+    "version": "c292d993a63d2b5a",
+    "portraitPath": "/assets/employees/silicon/spare-supply-chain.webp",
+    "facePath": "/assets/employees/silicon/spare-supply-chain-face.webp"
+  },
+  "/assets/employees/silicon/spare-training-lead.webp": {
+    "id": "silicon:spare-training-lead",
+    "version": "9235b1c7d935de55",
+    "portraitPath": "/assets/employees/silicon/spare-training-lead.webp",
+    "facePath": "/assets/employees/silicon/spare-training-lead-face.webp"
+  },
+  "/assets/employees/silicon/tax-strategist.webp": {
+    "id": "silicon:tax-strategist",
+    "version": "478cbf72312a2d50",
+    "portraitPath": "/assets/employees/silicon/tax-strategist.webp",
+    "facePath": "/assets/employees/silicon/tax-strategist-face.webp"
+  },
+  "/assets/employees/silicon/threat-intel-analyst.webp": {
+    "id": "silicon:threat-intel-analyst",
+    "version": "08c067e30be5a4c6",
+    "portraitPath": "/assets/employees/silicon/threat-intel-analyst.webp",
+    "facePath": "/assets/employees/silicon/threat-intel-analyst-face.webp"
+  },
+  "/assets/employees/silicon/ui-designer.webp": {
+    "id": "silicon:ui-designer",
+    "version": "10d6b3f37b3a8f58",
+    "portraitPath": "/assets/employees/silicon/ui-designer.webp",
+    "facePath": "/assets/employees/silicon/ui-designer-face.webp"
+  },
+  "/assets/employees/silicon/ui-polish-reviewer.webp": {
+    "id": "silicon:ui-polish-reviewer",
+    "version": "36413668eec21f2e",
+    "portraitPath": "/assets/employees/silicon/ui-polish-reviewer.webp",
+    "facePath": "/assets/employees/silicon/ui-polish-reviewer-face.webp"
+  },
+  "/assets/employees/silicon/user-feedback-analyst.webp": {
+    "id": "silicon:user-feedback-analyst",
+    "version": "d2a7fee34333652c",
+    "portraitPath": "/assets/employees/silicon/user-feedback-analyst.webp",
+    "facePath": "/assets/employees/silicon/user-feedback-analyst-face.webp"
+  },
+  "/assets/employees/silicon/ux-architect.webp": {
+    "id": "silicon:ux-architect",
+    "version": "556fc352762301f7",
+    "portraitPath": "/assets/employees/silicon/ux-architect.webp",
+    "facePath": "/assets/employees/silicon/ux-architect-face.webp"
+  },
+  "/assets/employees/silicon/ux-researcher.webp": {
+    "id": "silicon:ux-researcher",
+    "version": "c73bbe7442c200b2",
+    "portraitPath": "/assets/employees/silicon/ux-researcher.webp",
+    "facePath": "/assets/employees/silicon/ux-researcher-face.webp"
+  },
+  "/assets/employees/silicon/wasm-engineer.webp": {
+    "id": "silicon:wasm-engineer",
+    "version": "191da37d574026d3",
+    "portraitPath": "/assets/employees/silicon/wasm-engineer.webp",
+    "facePath": "/assets/employees/silicon/wasm-engineer-face.webp"
+  },
+  "/assets/employees/silicon/zhihu-strategist.webp": {
+    "id": "silicon:zhihu-strategist",
+    "version": "0fdb82ade90efca0",
+    "portraitPath": "/assets/employees/silicon/zhihu-strategist.webp",
+    "facePath": "/assets/employees/silicon/zhihu-strategist-face.webp"
+  }
+}

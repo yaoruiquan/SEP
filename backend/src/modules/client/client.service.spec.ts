@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SettingService } from '../setting/setting.service';
 import { JwtService } from '@nestjs/jwt';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 describe('ClientService', () => {
   let service: ClientService;
@@ -19,6 +20,7 @@ describe('ClientService', () => {
       employeeGrant: { findMany: jest.fn(), findFirst: jest.fn() },
       platformModel: { findMany: jest.fn() },
       enterpriseModelConfig: { findUnique: jest.fn() },
+      subscription: { findFirst: jest.fn() },
     };
     jwt = { sign: jest.fn().mockReturnValue('access-token'), verify: jest.fn() };
 
@@ -73,5 +75,28 @@ describe('ClientService', () => {
       OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }],
       subscription: { enterpriseId: 'ent-1', status: 'ACTIVE' },
     });
+  });
+
+  it('returns the same versioned avatar in client list and runtime without exposing extra employee fields', async () => {
+    const employee = {
+      id: 'emp-1', name: 'Renamed employee',
+      avatar: '/assets/employees/silicon/frontend-engineer.webp',
+      version: '1.0.0', description: 'Engineer', maxSteps: 10,
+      systemPrompt: 'private instructions', modelId: 'model-1', bindings: [],
+    };
+    const sub = { id: 'sub-1', employeeId: employee.id, name: 'Enterprise alias', templateVersion: '1.0.0', status: 'ACTIVE', employee, skillVersionSelections: [] };
+    prisma.employeeGrant.findMany.mockResolvedValue([{ subscription: sub }]);
+    prisma.subscription.findFirst.mockResolvedValue(sub);
+    prisma.platformModel.findMany.mockResolvedValue([]);
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
+
+    const [listed] = await service.listSubscriptions('user-1');
+    const runtime = await service.getRuntime('user-1', 'sub-1');
+    const expected = withEmployeeAvatar(employee);
+    expect(listed.template.avatarAsset).toEqual(expected.avatarAsset);
+    expect(runtime.employee.avatarAsset).toEqual(expected.avatarAsset);
+    expect(listed.template.avatar).toBe(expected.avatarAsset.portraitUrl);
+    expect(runtime.employee).not.toHaveProperty('systemPrompt');
+    expect(runtime.employee).not.toHaveProperty('bindings');
   });
 });

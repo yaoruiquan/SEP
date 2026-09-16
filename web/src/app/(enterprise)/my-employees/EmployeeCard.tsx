@@ -45,6 +45,7 @@ export const EmployeeCard = memo(function EmployeeCard({
         <Avatar
           name={name}
           src={template.avatar}
+          asset={template.avatarAsset}
           portrait
           className="h-[104px] w-[104px] shrink-0 rounded-lg"
         />

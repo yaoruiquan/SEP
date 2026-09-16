@@ -16,6 +16,7 @@ import type {
   MessageAttachment,
   ToolCallRecord,
   KnowledgeSource,
+  EmployeeAvatarAsset,
 } from '@/lib/types';
 
 interface MessageBubbleProps {
@@ -27,6 +28,7 @@ interface MessageBubbleProps {
   attachments?: MessageAttachment[] | null;
   employeeName?: string | null;
   employeeAvatar?: string | null;
+  employeeAvatarAsset?: EmployeeAvatarAsset | null;
   streaming?: boolean;
   createdAt?: string;
 }
@@ -40,6 +42,7 @@ export function MessageBubble({
   attachments,
   employeeName,
   employeeAvatar,
+  employeeAvatarAsset,
   streaming,
   createdAt,
 }: MessageBubbleProps) {
@@ -85,6 +88,7 @@ export function MessageBubble({
       <Avatar
         name={employeeName ?? 'AI'}
         src={employeeAvatar ?? undefined}
+        asset={employeeAvatarAsset}
         className="mt-0.5 h-9 w-9 shrink-0 text-sm shadow-sm"
       />
       <div className="min-w-0 flex-1 space-y-2">

@@ -1,5 +1,6 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SubscriptionEmployeeService } from './subscription-employee.service';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 describe('SubscriptionEmployeeService', () => {
   let prisma: any;
@@ -36,6 +37,12 @@ describe('SubscriptionEmployeeService', () => {
     service = new SubscriptionEmployeeService(prisma, context);
   });
   afterEach(() => jest.useRealTimers());
+
+  it('returns canonical avatar metadata for the authorized employee detail', async () => {
+    const employee = { id: 'employee-a', name: 'Renamed', avatar: '/assets/employees/silicon/frontend-engineer.webp', bindings: [] };
+    prisma.digitalEmployee.findUnique.mockResolvedValue(employee);
+    expect(await service.detail('sub-a', 'u1')).toEqual(withEmployeeAvatar(employee));
+  });
 
   it('rejects cross-enterprise access before reading employee or billing', async () => {
     prisma.subscription.findFirst.mockResolvedValue(null);

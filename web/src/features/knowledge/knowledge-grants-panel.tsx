@@ -250,6 +250,7 @@ function SubscriptionOption({
         <Avatar
           name={subscription.name}
           src={subscription.employee.avatar ?? undefined}
+          asset={subscription.employee.avatarAsset}
               portrait
           className="h-8 w-8 shrink-0 text-sm"
         />

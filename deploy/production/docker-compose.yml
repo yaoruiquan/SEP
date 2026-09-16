@@ -88,6 +88,7 @@ services:
       - API_BASE_URL=https://longdaoSEP.cn/api
       - WEB_BASE_URL=https://longdaoSEP.cn
       - FRONTEND_URL=https://longdaoSEP.cn
+      - ASSET_BASE_URL=${ASSET_BASE_URL:-https://longdaoSEP.cn}
       - ALIPAY_SANDBOX_MODE=false
 
       # 时区

@@ -10,6 +10,7 @@ import { EnterpriseContextService } from "./enterprise-context.service";
 import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 const ADMIN_CTX = {
   enterpriseId: "ent-a",
@@ -78,6 +79,20 @@ describe("GrantService", () => {
   });
 
   describe("myEmployees —— 两条授权路径合并", () => {
+    it('returns platform avatar metadata for both grant paths', async () => {
+      const direct = grantRow('direct');
+      const department = grantRow('department');
+      direct.subscription.employee.avatar = '/assets/employees/silicon/frontend-engineer.webp';
+      department.subscription.employee.avatar = direct.subscription.employee.avatar;
+      prisma.employeeGrant.findMany.mockResolvedValueOnce([direct]).mockResolvedValueOnce([department]);
+      const rows = await service.myEmployees('u1');
+      const expected = withEmployeeAvatar(direct.subscription.employee);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.employee.avatarAsset).toEqual(expected.avatarAsset);
+        expect(row.employee.avatar).toBe(expected.avatar);
+      }
+    });
     it("部门授权与直接授权使用相同的能力字段选择", async () => {
       await service.myEmployees("u1");
       const [direct, department] = prisma.employeeGrant.findMany.mock.calls.map(([query]: any[]) => query.include.subscription.include.employee);

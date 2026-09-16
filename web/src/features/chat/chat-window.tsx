@@ -64,6 +64,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             id: employee.id,
             name: employee.name,
             avatar: employee.avatar ?? null,
+            avatarAsset: subscribedEmployees.find((s) => s.id === employee.id)?.avatarAsset ?? employee.avatarAsset,
             position: subscribedEmployees.find((s) => s.id === employee.id)?.position,
           },
         ]
@@ -74,6 +75,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
           id: sub.id,
           name: sub.name,
           avatar: sub.avatar,
+          avatarAsset: sub.avatarAsset,
           position: sub.position,
         });
       }
@@ -89,11 +91,12 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   /** 消息的实际作者；handledBy 缺失时（旧数据）归属会话默认员工 */
   const authorOf = (m: Message) =>
     (m.metadata?.handledBy ? employeeById.get(m.metadata.handledBy) : undefined) ??
-    employee;
+    (employee ? employeeById.get(employee.id) : undefined) ?? employee;
 
   /** 本轮流式回复的作者；streamingAuthorId 未设置时归属会话默认员工 */
   const streamingAuthor =
-    (streamingAuthorId ? employeeById.get(streamingAuthorId) : undefined) ?? employee;
+    (streamingAuthorId ? employeeById.get(streamingAuthorId) : undefined) ??
+    (employee ? employeeById.get(employee.id) : undefined) ?? employee;
 
   // clear the optimistic bubble + local stream once the refetched history includes it
   useEffect(() => {
@@ -243,6 +246,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                     attachments={m.attachments}
                     employeeName={author?.name}
                     employeeAvatar={author?.avatar}
+                    employeeAvatarAsset={author?.avatarAsset}
                     createdAt={m.createdAt}
                   />
                 );
@@ -264,6 +268,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                 toolCalls={state.toolCalls}
                 employeeName={streamingAuthor?.name}
                 employeeAvatar={streamingAuthor?.avatar}
+                employeeAvatarAsset={streamingAuthor?.avatarAsset}
                 streaming={state.streaming}
               />
             )}

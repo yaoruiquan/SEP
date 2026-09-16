@@ -225,6 +225,10 @@ export function useMyEmployees(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: qk.myEmployees,
     queryFn: () => api.get<MyEmployee[]>('/enterprise/my-employees'),
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
     enabled: options?.enabled ?? true,
   });
 }
