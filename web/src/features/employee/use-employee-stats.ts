@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 
 export interface EmployeeStatsSummary {
+  callCount?: number;
   total: number;
   successCount: number;
   failedCount: number;
@@ -30,10 +31,21 @@ export interface EmployeeStatsLogEntry {
 }
 
 export interface EmployeeStats {
+  byMember?: Array<{ userId: string | null; name: string; callCount: number; costCNY: number }>;
+  scope?: 'enterprise' | 'personal';
   period: { days: number; startDate: string };
   summary: EmployeeStatsSummary;
   trend: EmployeeStatsTrendPoint[];
   recentLog: EmployeeStatsLogEntry[];
+}
+
+export function useSubscriptionEmployeeStats(subscriptionId: string, days: number) {
+  return useQuery({
+    queryKey: ['subscription-employee-stats', subscriptionId, days],
+    queryFn: () => api.get<EmployeeStats>(`/subscriptions/${subscriptionId}/stats?days=${days}`),
+    enabled: Boolean(subscriptionId),
+    staleTime: 60_000,
+  });
 }
 
 async function fetchEmployeeStats(employeeId: string, days: number): Promise<EmployeeStats> {

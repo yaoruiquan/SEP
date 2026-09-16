@@ -36,21 +36,21 @@ export function NavItem({ href, label, icon: Icon, exact, collapsed }: NavLink) 
         'text-sm font-medium transition-all duration-200',
         collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
         active
-          ? 'bg-[rgba(129,140,248,0.15)] text-gbrand-text'
-          : 'text-gtext-secondary hover:bg-glass-2 hover:text-gtext-primary',
+          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-200'
+          : 'text-gtext-secondary hover:bg-muted hover:text-gtext-primary',
       )}
     >
       {/* 左侧亮条 —— PRD 要求 3px indigo，配 glow 让它在深底上"发光" */}
       {active && !collapsed && (
         <span
           aria-hidden
-          className="absolute inset-y-0 left-0 w-[3px] rounded-r-full bg-gbrand-text shadow-[0_0_10px_rgba(129,140,248,0.75)]"
+            className="absolute inset-y-1 left-0 w-[3px] rounded-r-full bg-indigo-600 dark:bg-indigo-300"
         />
       )}
       <Icon
         className={cn(
           'h-4 w-4 shrink-0 transition-colors',
-          active ? 'text-gbrand-text' : 'text-gtext-muted group-hover:text-gtext-secondary',
+          active ? 'text-indigo-600 dark:text-indigo-300' : 'text-gtext-muted group-hover:text-gtext-secondary',
         )}
       />
       {!collapsed && label}

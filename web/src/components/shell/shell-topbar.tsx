@@ -71,8 +71,8 @@ export function ShellTopbar({
   return (
     <header
       className={cn(
-        'sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3',
-        'border-b border-glassline bg-glass-2 px-6 backdrop-blur-glass-md',
+        'sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3',
+        'border-b border-border bg-card/95 px-4 shadow-sm backdrop-blur-md sm:px-6',
         hamburgerGutter && 'pl-16 lg:pl-6',
       )}
     >

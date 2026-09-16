@@ -4,10 +4,12 @@ import { useState } from 'react';
 import {
   Plus, Pencil, Trash2, ChevronRight, ChevronDown,
   Users, Crown, UserMinus, UserPlus, Building2, Settings2, Check,
+  Network, ShieldCheck, Workflow, Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
@@ -30,6 +32,8 @@ import {
   useSetDepartmentPolicy,
 } from '@/features/enterprise-settings/use-model-config';
 import type { Department, DeptMemberItem } from '@/lib/types';
+import { PageFrame } from '@/components/page/page-frame';
+import { PageHero } from '@/components/page/page-hero';
 
 // ── Modal ────────────────────────────────────────────────────────────────────
 
@@ -53,28 +57,33 @@ function Modal({ title, onClose, children }: {
 // ── 部门树节点 ────────────────────────────────────────────────────────────────
 
 function DeptNode({
-  dept, depth, isAdmin, selectedId, onSelect, onRename, onDelete, onAddChild,
+  dept, depth, isAdmin, selectedId, onSelect, onRename, onDelete, onAddChild, colorIndex = 0, searching = false, sourceDept = dept,
 }: {
   dept: Department; depth: number; isAdmin: boolean; selectedId: string | null;
   onSelect: (id: string) => void; onRename: (d: Department) => void;
   onDelete: (d: Department) => void; onAddChild: (parentId: string) => void;
+  colorIndex?: number; searching?: boolean;
+  sourceDept?: Department;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = dept.children.length > 0;
   const isSelected = selectedId === dept.id;
 
   return (
-    <div>
+    <div className={depth === 0 ? 'mb-2 last:mb-0' : ''}>
       <div
         className={[
-          'group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 transition-colors',
-          isSelected ? 'bg-primary/10' : 'hover:bg-muted',
+          'group flex items-center gap-2 rounded-lg px-2 transition-colors',
+          depth === 0 ? 'min-h-10 bg-blue-50/70 dark:bg-white/5' : 'min-h-7 border-b border-border/40',
+          isSelected ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-muted',
         ].join(' ')}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={() => onSelect(dept.id)}
+        style={{ paddingLeft: `${Math.min(depth, 5) * 24 + 8}px` }}
       >
         <button
           onClick={(e) => { e.stopPropagation(); hasChildren && setExpanded(!expanded); }}
+          aria-label={`${expanded ? '收起' : '展开'}${dept.name}`}
+          aria-expanded={hasChildren ? expanded || searching : undefined}
+          disabled={!hasChildren || searching}
           className="flex h-5 w-5 shrink-0 items-center justify-center text-fg-muted"
         >
           {hasChildren
@@ -82,9 +91,10 @@ function DeptNode({
             : <span className="w-4" />}
         </button>
 
+        <button type="button" onClick={() => onSelect(dept.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-primary">
         <span className={[
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
-          isSelected ? 'bg-primary/20 text-primary' : 'bg-muted text-fg-muted',
+          'flex shrink-0 items-center justify-center rounded-full',
+          depth === 0 ? `h-8 w-8 ${DEPARTMENT_COLORS[colorIndex % DEPARTMENT_COLORS.length]}` : 'h-6 w-6 bg-blue-50 text-slate-400 dark:bg-white/5',
         ].join(' ')}>
           {hasChildren ? (
             <Building2 className="h-3.5 w-3.5" />
@@ -101,17 +111,12 @@ function DeptNode({
           {dept.name}
         </span>
 
-        {typeof dept._count?.members === 'number' && (
-          <span className={[
-            'shrink-0 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
-            isSelected ? 'bg-primary/20 text-primary' : 'bg-muted text-fg-muted',
-          ].join(' ')}>
-            {dept._count.members}
-          </span>
-        )}
+        <span className="shrink-0 text-sm tabular-nums text-fg-muted">{depth === 0 ? '共 ' : ''}{countMembers(sourceDept)} 人</span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-fg-muted" />
+        </button>
 
         {isAdmin && (
-          <div className="hidden shrink-0 items-center group-hover:flex" onClick={(e) => e.stopPropagation()}>
+          <div className="flex shrink-0 items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" onClick={(e) => e.stopPropagation()}>
             <button title="添加子部门" onClick={() => onAddChild(dept.id)}
               className="flex h-7 w-7 items-center justify-center rounded text-fg-muted hover:bg-background hover:text-primary">
               <Plus className="h-3.5 w-3.5" />
@@ -128,14 +133,81 @@ function DeptNode({
         )}
       </div>
 
-      {expanded && dept.children.map((child) => (
+      {(expanded || searching) && dept.children.map((child) => (
         <DeptNode key={child.id} dept={child} depth={depth + 1} isAdmin={isAdmin}
           selectedId={selectedId} onSelect={onSelect} onRename={onRename}
-          onDelete={onDelete} onAddChild={onAddChild} />
+          onDelete={onDelete} onAddChild={onAddChild} colorIndex={colorIndex} searching={searching}
+          sourceDept={sourceDept.children.find((original) => original.id === child.id)} />
       ))}
     </div>
   );
 }
+
+const DEPARTMENT_COLORS = ['bg-blue-100 text-blue-600', 'bg-emerald-100 text-emerald-600', 'bg-amber-100 text-amber-600', 'bg-rose-100 text-rose-600', 'bg-violet-100 text-violet-600'];
+
+function countMembers(dept: Department): number {
+  return (dept.memberCount ?? dept._count?.members ?? 0) + dept.children.reduce((total, child) => total + countMembers(child), 0);
+}
+
+function countDepartments(depts: Department[]): number {
+  return depts.reduce((total, dept) => total + 1 + countDepartments(dept.children), 0);
+}
+
+// ── 组织概览 ──────────────────────────────────────────────────────────────────
+
+function OrganizationOverviewPanel() {
+  return (
+    <section className="relative flex h-full min-h-[520px] flex-col overflow-hidden bg-indigo-50/50 p-6 dark:bg-indigo-950/20 sm:p-7">
+      <div className="relative z-10">
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+          <Network className="h-4 w-4" />
+          组织架构
+        </div>
+        <h2 className="mt-3 max-w-sm text-2xl font-semibold leading-tight text-slate-950 dark:text-white sm:text-[28px]">
+          让团队更高效
+        </h2>
+        <p className="mt-3 max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300">
+          合理的部门设置与清晰的人员关系，帮助企业实现更好的协作与管理。
+        </p>
+      </div>
+
+      <div className="relative z-10 mt-7 space-y-6 border-t border-white/80 py-5 dark:border-white/10">
+        <OverviewFeature icon={<Network className="h-4 w-4" />} title="灵活的组织架构" description="支持多级部门，满足不同业务场景" />
+        <OverviewFeature icon={<Users className="h-4 w-4" />} title="清晰的人员管理" description="查看部门成员与岗位信息" />
+        <OverviewFeature icon={<ShieldCheck className="h-4 w-4" />} title="权限与职责分明" description="保障数据安全与管理规范" />
+        <OverviewFeature icon={<Workflow className="h-4 w-4" />} title="高效的团队协作" description="提升组织运行效率" />
+      </div>
+
+      <div className="relative z-10 mt-auto pt-8 text-sm font-medium leading-6 text-indigo-700/80 dark:text-indigo-300/80">
+        <span className="block text-3xl leading-4 text-indigo-300/80 dark:text-indigo-700">“</span>
+        好的组织架构，是企业持续发展的基石。
+      </div>
+    </section>
+  );
+}
+
+function OverviewFeature({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex gap-3">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <div>
+        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        <p className="mt-1 text-sm leading-5 text-fg-muted">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 
 // ── 成员面板 ──────────────────────────────────────────────────────────────────
 
@@ -511,8 +583,10 @@ export default function DepartmentsPage() {
   const [renaming, setRenaming] = useState<Department | null>(null);
   const [deleting, setDeleting] = useState<Department | null>(null);
   const [draftName, setDraftName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const selectedDept = selectedId ? findDept(depts, selectedId) ?? null : null;
+  const visibleDepts = filterDepartments(depts, searchQuery);
 
   const handleCreate = () => {
     if (!draftName.trim()) return;
@@ -563,84 +637,107 @@ export default function DepartmentsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* 页面 header */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div>
-          <h1 className="text-xl font-bold">部门管理</h1>
-          <p className="mt-0.5 text-sm text-fg-muted">管理企业组织架构与部门成员</p>
-        </div>
+    <PageFrame className="space-y-5">
+      <div className="relative">
+        <PageHero
+          title="部门管理"
+          description="管理企业组织架构与部门成员"
+          actions={(
+            <label className="relative block w-full max-w-[620px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="搜索部门名称..."
+                className="h-10 rounded-lg border-indigo-100 bg-white/90 pl-9 shadow-sm placeholder:text-indigo-300 focus-visible:border-indigo-300"
+                aria-label="搜索部门名称"
+              />
+            </label>
+          )}
+        />
         {isAdmin && (
-          <Button size="sm" onClick={() => { setCreating({}); setDraftName(''); }}>
+          <Button
+            size="sm"
+            onClick={() => { setCreating({}); setDraftName(''); }}
+            className="mt-3 sm:absolute sm:right-8 sm:top-7 sm:mt-0"
+          >
             <Plus className="h-4 w-4" /> 新建顶级部门
           </Button>
         )}
       </div>
 
-      {/* 分栏主体 */}
-      <div className="flex min-h-0 flex-1">
-        {/* 左：部门树 */}
-        <div className="w-72 shrink-0 overflow-y-auto border-r border-border p-3">
-          {depts.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <Building2 className="h-8 w-8 text-fg-muted" />
-              <p className="text-sm text-fg-muted">{isAdmin ? '还没有部门，先创建一个吧。' : '企业还没有部门。'}</p>
-              {isAdmin && (
-                <Button size="sm" onClick={() => { setCreating({}); setDraftName(''); }}>新建部门</Button>
-              )}
-            </div>
-          ) : (
-            depts.map((d) => (
-              <DeptNode
-                key={d.id} dept={d} depth={0} isAdmin={isAdmin}
-                selectedId={selectedId} onSelect={setSelectedId}
-                onRename={(dept) => { setRenaming(dept); setDraftName(dept.name); }}
-                onDelete={(dept) => setDeleting(dept)}
-                onAddChild={(parentId) => { setCreating({ parentId }); setDraftName(''); }}
-              />
-            ))
-          )}
-        </div>
+      {/* 参考布局：左侧组织树 + 右侧组织说明 */}
+      <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1.9fr)_minmax(300px,1fr)]">
+        <section className="flex min-h-[520px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="flex shrink-0 items-center justify-between px-5 pb-0 pt-4 sm:px-6">
+            <h2 className="text-sm font-semibold text-foreground">部门组织</h2>
+            <span className="text-sm text-fg-muted">共 {countDepartments(depts)} 个部门</span>
+          </div>
 
-        {/* 右：标签面板（成员 / 模型策略） */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* 标签栏 — 仅在选中部门时显示 */}
-          {selectedDept && (
-            <div className="flex shrink-0 border-b border-border px-6">
-              {([
-                { key: 'members', label: '成员', icon: <Users className="h-3.5 w-3.5" /> },
-                { key: 'model-policy', label: '模型策略', icon: <Settings2 className="h-3.5 w-3.5" /> },
-              ] as const).map(({ key, label, icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setRightTab(key)}
-                  className={[
-                    'flex items-center gap-1.5 border-b-2 px-1 py-3 text-sm font-medium transition-colors mr-6',
-                    rightTab === key
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-fg-muted hover:text-foreground',
-                  ].join(' ')}
-                >
-                  {icon}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="min-h-0 flex-1">
-            {rightTab === 'members' || !selectedDept ? (
-              <MembersPanel dept={selectedDept} isAdmin={isAdmin} />
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            {depts.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <Building2 className="h-8 w-8 text-fg-muted" />
+                <p className="text-sm text-fg-muted">{isAdmin ? '还没有部门，先创建一个吧。' : '企业还没有部门。'}</p>
+                {isAdmin && (
+                  <Button size="sm" onClick={() => { setCreating({}); setDraftName(''); }}>新建部门</Button>
+                )}
+              </div>
+            ) : visibleDepts.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-14 text-center">
+                <Search className="h-7 w-7 text-fg-muted" />
+                <p className="text-sm font-medium text-foreground">没有找到匹配的部门</p>
+                <button type="button" className="text-xs text-primary hover:underline" onClick={() => setSearchQuery('')}>清除搜索</button>
+              </div>
             ) : (
-              <ModelPolicyPanel
-                dept={selectedDept}
-                isAdmin={isAdmin}
-                enterpriseId={enterpriseId}
-              />
+              visibleDepts.map((d) => (
+                <DeptNode
+                  key={d.id} dept={d} depth={0} isAdmin={isAdmin} colorIndex={depts.findIndex((original) => original.id === d.id)} searching={Boolean(searchQuery.trim())}
+                  sourceDept={depts.find((original) => original.id === d.id)}
+                  selectedId={selectedId} onSelect={setSelectedId}
+                  onRename={(dept) => { setRenaming(dept); setDraftName(dept.name); }}
+                  onDelete={(dept) => setDeleting(dept)}
+                  onAddChild={(parentId) => { setCreating({ parentId }); setDraftName(''); }}
+                />
+              ))
             )}
           </div>
-        </div>
+        </section>
+
+        <section className="min-h-[520px] min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <OrganizationOverviewPanel />
+        </section>
       </div>
+
+      <Dialog open={Boolean(selectedDept)} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
+        <DialogContent aria-describedby={undefined} className="flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-4xl flex-col gap-0 overflow-y-auto p-0">
+          <DialogTitle className="sr-only">{selectedDept?.name}部门详情</DialogTitle>
+          {selectedDept && (
+            <div className="flex min-h-0 flex-col">
+              <div className="flex shrink-0 border-b border-border px-6">
+                {([
+                  { key: 'members', label: '成员', icon: <Users className="h-3.5 w-3.5" /> },
+                  { key: 'model-policy', label: '模型策略', icon: <Settings2 className="h-3.5 w-3.5" /> },
+                ] as const).map(({ key, label, icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setRightTab(key)}
+                    className={[
+                      'mr-6 flex items-center gap-1.5 border-b-2 px-1 py-3 text-sm font-medium transition-colors',
+                      rightTab === key ? 'border-primary text-primary' : 'border-transparent text-fg-muted hover:text-foreground',
+                    ].join(' ')}
+                  >
+                    {icon}{label}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1">
+                {rightTab === 'members' ? <MembersPanel dept={selectedDept} isAdmin={isAdmin} /> : <ModelPolicyPanel dept={selectedDept} isAdmin={isAdmin} enterpriseId={enterpriseId} />}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modals */}
       {creating !== null && (
@@ -681,7 +778,7 @@ export default function DepartmentsPage() {
           </div>
         </Modal>
       )}
-    </div>
+    </PageFrame>
   );
 }
 
@@ -694,4 +791,18 @@ function findDept(depts: Department[], id: string): Department | undefined {
     if (found) return found;
   }
   return undefined;
+}
+
+function filterDepartments(depts: Department[], query: string): Department[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return depts;
+
+  return depts.flatMap((dept) => {
+    if (dept.name.toLowerCase().includes(normalized)) return [dept];
+    const children = filterDepartments(dept.children, normalized);
+    if (children.length > 0) {
+      return [{ ...dept, children }];
+    }
+    return [];
+  });
 }

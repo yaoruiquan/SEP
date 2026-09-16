@@ -380,6 +380,7 @@ export type EnterpriseRole = 'ENTERPRISE_ADMIN' | 'DEPT_MANAGER' | 'MEMBER';
 export interface Department {
   id: string;
   name: string;
+  memberCount?: number;
   sortOrder: number;
   parentId: string | null;
   children: Department[];
@@ -468,6 +469,9 @@ export interface MyEmployee {
     id: string;
     name: string;
     avatar: string | null;
+    description?: string | null;
+    position?: string | null;
+    functionalCategory?: import('./employee-categories').EmployeeCategory;
     bindings?: Array<{
       id: string;
       priority: number;

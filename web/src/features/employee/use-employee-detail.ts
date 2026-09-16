@@ -50,14 +50,14 @@ export interface EmployeeDetail {
 /**
  * 获取员工详情
  */
-export function useEmployeeDetail(employeeId: string) {
+export function useEmployeeDetail(subscriptionId: string) {
   return useQuery<EmployeeDetail>({
-    queryKey: ['employees', employeeId],
+    queryKey: ['subscription-employee-detail', subscriptionId],
     queryFn: async () => {
-      const data = await api.get<any>(`/digital-employees/${employeeId}`);
+      const data = await api.get<any>(`/subscriptions/${subscriptionId}/employee-detail`);
       return normalizeEmployeeDetail(data);
     },
-    enabled: !!employeeId,
+    enabled: !!subscriptionId,
     staleTime: 30_000, // 30s 缓存
   });
 }
@@ -139,13 +139,5 @@ function normalizeEmployeeDetail(raw: any): EmployeeDetail {
       outputSchema: b.capability.outputSchema ?? null,
     })),
 
-    // 统计数据（TODO: 后端补充）
-    stats: {
-      totalTasks: 0,
-      successRate: 0,
-      avgResponseTime: 0,
-      monthCalls: 0,
-      monthSpend: 0,
-    },
   };
 }

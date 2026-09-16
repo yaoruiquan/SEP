@@ -2,6 +2,8 @@
 
 import { CapabilityIterationList } from '@/features/capability-iteration/capability-iteration-list';
 import { nav } from '@/locales/zh-CN';
+import { PageFrame } from '@/components/page/page-frame';
+import { PageHero } from '@/components/page/page-hero';
 
 /**
  * 技能库（会议决策 2）。
@@ -15,10 +17,10 @@ import { nav } from '@/locales/zh-CN';
  */
 export default function CapabilitiesPage() {
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-8">
-      <header>
-        <h1 className="text-xl font-bold text-gtext-primary">{nav.capabilities}</h1>
-        <p className="mt-1 text-xs leading-5 text-gtext-muted">
+    <PageFrame>
+      <PageHero title={nav.capabilities} description="管理企业内部使用的技能版本，让成员在统一标准下持续复用和改进。" />
+      <header className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+        <p className="text-sm leading-6 text-fg-muted">
           企业雇佣的硅基员工带着这些技能。你可以创建自己的副本
           <span className="text-gtext-secondary">立即调整</span>
           ，管理员采纳后成为企业统一版本 —— 全程
@@ -28,6 +30,6 @@ export default function CapabilitiesPage() {
       </header>
 
       <CapabilityIterationList />
-    </div>
+    </PageFrame>
   );
 }

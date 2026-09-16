@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Search, UserPlus, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
 import { useMembers } from '@/features/enterprise/use-enterprise';
@@ -62,16 +63,14 @@ export function AddMembersDialog({ deptId, deptName, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-background shadow-lg">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} className="flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-md flex-col gap-0 overflow-y-auto p-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-2">
             <UserPlus className="h-4 w-4 text-primary" />
-            <h3 className="text-base font-semibold">添加成员</h3>
+            <DialogTitle className="text-base font-semibold tracking-normal">添加成员</DialogTitle>
           </div>
-          <button onClick={onClose} className="text-fg-muted hover:text-foreground">✕</button>
         </div>
 
         <p className="px-5 pt-3 text-sm text-fg-muted">
@@ -172,7 +171,7 @@ export function AddMembersDialog({ deptId, deptName, onClose }: Props) {
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

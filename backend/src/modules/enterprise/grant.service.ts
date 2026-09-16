@@ -11,6 +11,16 @@ import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
 import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 
+const employeeSummarySelect = {
+  id: true, name: true, avatar: true, description: true, position: true, functionalCategory: true,
+  bindings: {
+    select: { id: true, priority: true, capability: { select: {
+      id: true, name: true, type: true, description: true,
+    } } },
+    orderBy: { priority: 'asc' },
+  },
+} as const;
+
 @Injectable()
 export class GrantService {
   constructor(
@@ -208,26 +218,7 @@ export class GrantService {
         subscription: {
           include: {
             employee: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-                bindings: {
-                  select: {
-                    id: true,
-                    priority: true,
-                    capability: {
-                      select: {
-                        id: true,
-                        name: true,
-                        type: true,
-                        description: true,
-                      },
-                    },
-                  },
-                  orderBy: { priority: 'asc' },
-                },
-              },
+              select: employeeSummarySelect,
             },
           },
         },
@@ -250,7 +241,7 @@ export class GrantService {
               subscription: {
                 include: {
                   employee: {
-                    select: { id: true, name: true, avatar: true },
+                    select: employeeSummarySelect,
                   },
                 },
               },

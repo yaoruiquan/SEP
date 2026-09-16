@@ -989,7 +989,7 @@ export interface MyEmployeeView {
   name: string;
   templateVersion: string;
   /** 员工模板。收敛前此字段名为 template。 */
-  employee: { id: string; name: string; avatar: string | null };
+  employee: { id: string; name: string; avatar: string | null; functionalCategory?: string };
   /**
    * 授权来源部门。收敛后语义变了 —— 从前是「实例归属哪个部门」，
    * 现在是「这条授权发给哪个部门」，DIRECT 授权时为 null。

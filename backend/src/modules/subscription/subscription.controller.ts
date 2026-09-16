@@ -1,12 +1,13 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param,
-  Request, UseGuards, HttpCode, HttpStatus,
+  Request, UseGuards, HttpCode, HttpStatus, Query, BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionService } from './subscription.service';
+import { SubscriptionEmployeeService } from './subscription-employee.service';
 import {
   SubscriptionCreateDto,
   SubscriptionUpdateDto,
@@ -21,7 +22,28 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class SubscriptionController {
-  constructor(private subscriptionService: SubscriptionService) {}
+  constructor(private subscriptionService: SubscriptionService, private readonly employeeService: SubscriptionEmployeeService) {}
+
+  @Get(':id/employee-detail')
+  @ApiOperation({ summary: '获取企业授权范围内的员工能力详情' })
+  @ApiResponse({ status: 200, description: '员工公开资料和绑定能力，不含运行凭据' })
+  @ApiResponse({ status: 403, description: '无有效使用授权' })
+  @ApiResponse({ status: 404, description: '雇佣关系不存在' })
+  employeeDetail(@Param('id') id: string, @Request() req: { user: { id: string } }) {
+    return this.employeeService.detail(id, req.user.id);
+  }
+
+  @Get(':id/stats')
+  @ApiOperation({ summary: '订阅使用统计：管理员查看企业，成员仅查看本人' })
+  @ApiResponse({ status: 200, description: '指定时间范围的消费与可归属云端执行记录' })
+  @ApiResponse({ status: 400, description: '时间范围不正确' })
+  @ApiResponse({ status: 403, description: '无有效使用授权' })
+  @ApiResponse({ status: 404, description: '雇佣关系不存在' })
+  employeeStats(@Param('id') id: string, @Request() req: { user: { id: string } }, @Query('days') raw?: string) {
+    const days = Number(raw ?? 7);
+    if (![7, 30].includes(days)) throw new BadRequestException('days 仅支持 7 或 30');
+    return this.employeeService.stats(id, req.user.id, days);
+  }
 
   @Post()
   @ApiOperation({ summary: 'Subscribe to a digital employee' })

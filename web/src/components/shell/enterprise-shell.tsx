@@ -191,9 +191,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
     .filter((g) => g.links.length > 0);
 
   return (
-    // 主题 B 极光（PRD §背景渐变配方）。blobs=2：企业端多为表格/长列表，
+    // 主题 B 极光（PRD §背景渐变配方）。blobs=1：企业端多为表格/长列表，
     // 少一层 80px blur 给内容区留 GPU 预算。
-    <AuroraBackground blobs={2} className="flex h-screen">
+    <AuroraBackground blobs={1} className="flex min-h-dvh h-screen bg-[#f0f2f5] dark:bg-slate-950">
       {/* Mobile menu button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -220,7 +220,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           // 移动端：完全隐藏或显示
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
           // 桌面端：折叠时宽度变窄
-          collapsed ? 'lg:w-16' : 'w-60',
+          collapsed ? 'lg:w-[72px]' : 'w-[248px]',
         )}
       >
         {/* Logo 区域 - 固定 64px 高度，与顶栏对齐 */}
@@ -250,11 +250,11 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           {!collapsed && <StatusDot status={statusDotStatus} size="sm" />}
         </div>
 
-        <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-4">
+        <nav className="flex-1 overflow-y-auto scroll-thin px-4 py-5">
           {groups.map((group, i) => (
             <div key={group.title ?? `g${i}`} className="mb-1">
               {group.title && !collapsed && (
-                <p className="mb-2 px-3 text-xs font-medium uppercase tracking-wider text-gtext-muted">
+                <p className="mb-2 px-3 text-xs font-semibold text-gtext-muted">
                   {group.title}
                 </p>
               )}
@@ -339,12 +339,10 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         >
           <Link
             href="/marketplace"
-            className="group relative hidden shrink-0 items-center gap-1.5 rounded-glass-pill border-2 border-gradient-to-r from-[#6366F1] via-[#A855F7] to-[#EC4899] bg-gradient-to-r from-[#6366F1]/10 via-[#A855F7]/10 to-[#EC4899]/10 px-4 py-2 text-sm font-bold shadow-lg shadow-primary/20 ring-2 ring-primary/20 transition-all hover:scale-105 hover:ring-primary/40 hover:shadow-xl hover:shadow-primary/30 sm:inline-flex"
+            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100 sm:inline-flex dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-200 dark:hover:bg-indigo-400/20"
           >
-            <Store className="h-4 w-4 text-primary" />
-            <span className="bg-gradient-to-r from-[#6366F1] via-[#A855F7] to-[#EC4899] bg-clip-text text-transparent">
-              {nav.marketplace}
-            </span>
+            <Store className="h-4 w-4" />
+            <span>{nav.marketplace}</span>
           </Link>
           <CartButton />
           <NotificationBell />
@@ -352,7 +350,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         {isFullHeight ? (
           <div className="min-h-0 flex-1">{children}</div>
         ) : (
-          <div className="p-6">{children}</div>
+          <div className="px-4 py-5 sm:px-6 lg:px-7">{children}</div>
         )}
       </main>
     </AuroraBackground>
