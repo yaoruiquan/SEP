@@ -306,7 +306,12 @@ model DigitalEmployee {
   position           String // 岗位（运营/客服/数据分析等）
   functionalCategory EmployeeCategory @default(OPERATIONS_ORG)
   avatar             String?
-  avatarStyle        String? // 头像风格（adventurer/avataaars/bottts等，来自 DiceBear）
+  /// follow-default | silicon-3d | cartoon:<dicebear-style> | custom
+  avatarStyle        String?
+  /// 自定义头像的原始地址。切换到其它风格时保留，切回 custom 可恢复。
+  avatarCustomUrl    String?
+  /// 每个头像风格的物化绑定：{ [styleId]: { portraitUrl, faceUrl?, version? } }
+  avatarBindings     Json?
 
   // Agent Configuration
   systemPrompt String @db.Text // Agent 人设
@@ -1963,6 +1968,24 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 
   @@map("system_settings")
+}
+
+// 平台头像风格元数据。内置 DiceBear/硅基风格由代码提供，平台新增风格写入本表。
+model AvatarStyleDefinition {
+  id          String   @id
+  name        String
+  description String   @db.Text
+  category    String
+  source      String   @default("platform")
+  recommended Boolean  @default(false)
+  examples    Json?
+  totalAssets Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, source])
+  @@map("avatar_style_definitions")
 }
 
 // ============================================================================

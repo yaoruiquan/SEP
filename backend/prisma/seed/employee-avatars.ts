@@ -14,11 +14,13 @@ export async function backfillEmployeeAvatars(prisma: PrismaClient) {
   const names = Object.keys(SILICON_AVATAR_SLUG_BY_NAME);
   const employees = await prisma.digitalEmployee.findMany({
     where: { name: { in: names } },
-    select: { id: true, name: true, avatar: true },
+    select: { id: true, name: true, avatar: true, avatarStyle: true },
   });
 
   let updated = 0;
   for (const employee of employees) {
+    // Explicit style choices and their persisted bindings belong to the avatar manager.
+    if (employee.avatarStyle) continue;
     const slug = SILICON_AVATAR_SLUG_BY_NAME[employee.name];
     if (!slug) continue;
     const target = `${SILICON_AVATAR_DIR}/${slug}.webp`;

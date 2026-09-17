@@ -1,3 +1,4 @@
+import { preservedAvatarBindings } from '../../common/avatar-style';
 import {
   Injectable,
   NotFoundException,
@@ -38,6 +39,7 @@ export class DigitalEmployeeService {
       position: dto.position,
       functionalCategory: dto.functionalCategory,
       avatar: dto.avatar,
+      ...(dto.avatar !== undefined ? { avatarStyle: 'custom', avatarCustomUrl: dto.avatar } : {}),
       systemPrompt: dto.systemPrompt,
       modelId: dto.modelId,
       maxSteps: dto.maxSteps,
@@ -170,6 +172,8 @@ export class DigitalEmployeeService {
       position: true,
       functionalCategory: true,
       avatar: true,
+      avatarStyle: true,
+      avatarBindings: true,
       price: true, // DEPRECATED - 保留兼容旧数据
       annualPriceCNY: true,
       includedComputeCNY: true,
@@ -224,12 +228,14 @@ export class DigitalEmployeeService {
   }
 
   async update(id: string, dto: DigitalEmployeeUpdateDto) {
-    await this.findOne(id); // guard: throws NotFoundException if missing
+    const employee = await this.findOne(id); // guard: throws NotFoundException if missing
 
     return this.prisma.digitalEmployee.update({
       where: { id },
       data: {
         ...dto,
+        ...(dto.avatar !== undefined && dto.avatar !== employee.avatar
+          ? { avatarStyle: 'custom', avatarCustomUrl: dto.avatar, avatarBindings: preservedAvatarBindings(employee) } : {}),
         // Auto-stamp publishedAt when status transitions to APPROVED
         ...(dto.status === 'APPROVED' && { publishedAt: new Date() }),
       },

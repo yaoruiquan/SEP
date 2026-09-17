@@ -3,7 +3,9 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType } from '@prisma/client';
-import { DICEBEAR_STYLES, generateAvatarUrl, generateSeedFromName } from '../../shared/dicebear-styles';
+import { DICEBEAR_STYLES, FOLLOW_DEFAULT_STYLE_ID, SILICON_3D_STYLE, canonicalAvatarStyleId, generateAvatarUrl } from '../../shared/dicebear-styles';
+import { DEFAULT_AVATAR_STYLE_ID, employeeEffectiveStyle, resolveAvatarForStyle, preservedAvatarBindings, isAvatarImageUrl } from '../../common/avatar-style';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 import { SettingService } from '../setting/setting.service';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -536,6 +538,7 @@ export class AdminService {
         industry: data.industry || '通用',
         position: data.position || '通用',
         avatar: data.avatar,
+        ...(data.avatar !== undefined ? { avatarStyle: 'custom', avatarCustomUrl: data.avatar } : {}),
         systemPrompt: data.systemPrompt || '你是一位专业的数字员工，随时准备协助用户完成各项任务。',
         modelId: data.modelId || 'gpt-4o',
         maxSteps: data.maxSteps || 10,
@@ -587,7 +590,9 @@ export class AdminService {
         description: data.description,
         industry: data.industry,
         position: data.position,
-        avatar: data.avatar,
+        avatar: data.avatar === withEmployeeAvatar(employee).avatar ? employee.avatar : data.avatar,
+        ...(data.avatar !== undefined && data.avatar !== employee.avatar && data.avatar !== withEmployeeAvatar(employee).avatar
+          ? { avatarStyle: 'custom', avatarCustomUrl: data.avatar, avatarBindings: preservedAvatarBindings(employee) } : {}),
         systemPrompt: data.systemPrompt,
         modelId: data.modelId,
         maxSteps: data.maxSteps,
@@ -1457,98 +1462,122 @@ export class AdminService {
     });
   }
 
-  /**
-   * 获取所有可用的头像风格列表
-   */
+  private async avatarDefinitions(db: Prisma.TransactionClient = this.prisma) {
+    const custom = await db.avatarStyleDefinition.findMany({ where: { active: true }, orderBy: { name: 'asc' } });
+    return [
+      { ...SILICON_3D_STYLE, source: 'platform', examples: [] as string[] },
+      ...DICEBEAR_STYLES.map((style) => ({ ...style, id: `cartoon:${style.id}`, source: 'dicebear', examples: [1, 2, 3].map((n) => generateAvatarUrl(style.id, `preview-${n}`)) })),
+      ...custom.map((style) => ({ ...style, source: 'platform', examples: Array.isArray(style.examples) ? style.examples.filter((item): item is string => typeof item === 'string') : [] })),
+    ];
+  }
+
+  private async avatarDefault(db: Prisma.TransactionClient = this.prisma) {
+    const setting = await db.systemSetting.findUnique({ where: { key: 'DEFAULT_AVATAR_STYLE' } });
+    return canonicalAvatarStyleId(setting?.value || process.env.DEFAULT_AVATAR_STYLE || DEFAULT_AVATAR_STYLE_ID);
+  }
+
+  private async avatarTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new BadRequestException('头像配置正在被其他管理员修改，请刷新后重试');
+      }
+      throw error;
+    }
+  }
+
   async getAvatarStyles() {
-    // 为每个风格生成3个示例头像
-    const stylesWithExamples = DICEBEAR_STYLES.map(style => ({
-      ...style,
-      examples: [
-        generateAvatarUrl(style.id, `example-1-${style.id}`),
-        generateAvatarUrl(style.id, `example-2-${style.id}`),
-        generateAvatarUrl(style.id, `example-3-${style.id}`),
-      ],
-    }));
-
+    const [employees, definitions, defaultStyleId] = await Promise.all([
+      this.prisma.digitalEmployee.findMany({ orderBy: { createdAt: 'asc' } }),
+      this.avatarDefinitions(), this.avatarDefault(),
+    ]);
+    const prepared = employees.map((employee) => ({ ...employee, avatarBindings: preservedAvatarBindings(employee) }));
+    const styles = definitions.map((style) => {
+      const matched = prepared.filter((employee) => !!resolveAvatarForStyle(employee, style.id)).length;
+      const examples = style.examples.length ? style.examples : prepared.flatMap((employee) => {
+        const avatar = resolveAvatarForStyle(employee, style.id);
+        return avatar ? [withEmployeeAvatar({ ...employee, avatar }).avatar!] : [];
+      }).slice(0, 3);
+      return { ...style, examples, coverage: { matched, total: employees.length }, canSetDefault: matched === employees.length };
+    });
+    const followersCount = employees.filter((employee) => !employee.avatarStyle || employee.avatarStyle === FOLLOW_DEFAULT_STYLE_ID).length;
     return {
-      styles: stylesWithExamples,
-      total: stylesWithExamples.length,
-      recommended: stylesWithExamples.filter(s => s.recommended),
+      styles, total: styles.length, defaultStyleId, followersCount, overridesCount: employees.length - followersCount,
+      employees: prepared.map((employee) => ({
+        id: employee.id, name: employee.name, position: employee.position,
+        avatar: withEmployeeAvatar(employee).avatar, avatarAsset: withEmployeeAvatar(employee).avatarAsset,
+        avatarStyle: employee.avatarStyle || FOLLOW_DEFAULT_STYLE_ID,
+        effectiveStyleId: employeeEffectiveStyle(employee.avatarStyle, defaultStyleId),
+        availableStyleIds: [
+          ...(resolveAvatarForStyle(employee, defaultStyleId) ? [FOLLOW_DEFAULT_STYLE_ID] : []),
+          ...styles.filter((style) => !!resolveAvatarForStyle(employee, style.id)).map((style) => style.id),
+          ...(employee.avatarCustomUrl || (employee.avatarStyle === 'custom' && employee.avatar) ? ['custom'] : []),
+        ],
+      })),
     };
   }
 
-  /**
-   * 批量更新所有员工的头像风格
-   */
   async batchUpdateAvatarStyle(styleId: string, operatorId: string) {
-    // 验证风格是否存在
-    const style = DICEBEAR_STYLES.find(s => s.id === styleId);
-    if (!style) {
-      throw new BadRequestException(`头像风格 ${styleId} 不存在`);
-    }
-
-    // 获取所有员工
-    const employees = await this.prisma.digitalEmployee.findMany({
-      select: { id: true, name: true, position: true },
+    const canonical = canonicalAvatarStyleId(styleId);
+    return this.avatarTransaction(async (tx) => {
+      const style = (await this.avatarDefinitions(tx)).find((item) => item.id === canonical);
+      if (!style) throw new BadRequestException('头像风格不存在');
+      const employees = await tx.digitalEmployee.findMany();
+      const prepared = employees.map((employee) => ({ ...employee, avatarBindings: preservedAvatarBindings(employee) }));
+      if (prepared.some((employee) => !resolveAvatarForStyle(employee, canonical))) {
+        throw new BadRequestException('该头像风格素材覆盖不完整，不能设为平台默认');
+      }
+      const followers = prepared.filter((employee) => !employee.avatarStyle || employee.avatarStyle === FOLLOW_DEFAULT_STYLE_ID);
+      await tx.systemSetting.upsert({ where: { key: 'DEFAULT_AVATAR_STYLE' }, create: { key: 'DEFAULT_AVATAR_STYLE', value: canonical, label: '数字员工默认头像风格' }, update: { value: canonical } });
+      for (const employee of followers) {
+        const avatar = resolveAvatarForStyle(employee, canonical)!;
+        const bindings = employee.avatarBindings;
+        bindings[canonical] ??= { portraitUrl: avatar };
+        await tx.digitalEmployee.update({ where: { id: employee.id }, data: { avatar, avatarStyle: FOLLOW_DEFAULT_STYLE_ID, avatarBindings: bindings } });
+      }
+      return { success: true, updated: followers.length, skipped: employees.length - followers.length, style: style.name, styleId: canonical };
     });
-
-    if (employees.length === 0) {
-      return { success: true, updated: 0 };
-    }
-
-    // 批量更新
-    const updatePromises = employees.map(emp => {
-      const seed = generateSeedFromName(emp.position || emp.name);
-      const avatarUrl = generateAvatarUrl(styleId, seed);
-
-      return this.prisma.digitalEmployee.update({
-        where: { id: emp.id },
-        data: { avatar: avatarUrl },
-      });
-    });
-
-    await Promise.all(updatePromises);
-
-    return {
-      success: true,
-      updated: employees.length,
-      style: style.name,
-    };
   }
 
-  /**
-   * 更新单个员工的头像风格
-   */
-  async updateEmployeeAvatarStyle(
-    employeeId: string,
-    styleId: string,
-    operatorId: string,
-  ) {
-    // 验证风格是否存在
-    const style = DICEBEAR_STYLES.find(s => s.id === styleId);
-    if (!style) {
-      throw new BadRequestException(`头像风格 ${styleId} 不存在`);
-    }
-
-    // 验证员工是否存在
-    const employee = await this.prisma.digitalEmployee.findUnique({
-      where: { id: employeeId },
-      select: { id: true, name: true, position: true },
+  async updateEmployeeAvatarStyle(employeeId: string, styleId: string, operatorId: string) {
+    const canonical = canonicalAvatarStyleId(styleId);
+    return this.avatarTransaction(async (tx) => {
+      const employee = await tx.digitalEmployee.findUnique({ where: { id: employeeId } });
+      if (!employee) throw new NotFoundException('员工不存在');
+      const effective = canonical === FOLLOW_DEFAULT_STYLE_ID ? await this.avatarDefault(tx) : canonical;
+      if (effective !== 'custom' && !(await this.avatarDefinitions(tx)).some((style) => style.id === effective)) throw new BadRequestException('头像风格不存在');
+      const bindings = preservedAvatarBindings(employee);
+      const custom = employee.avatarCustomUrl || (employee.avatarStyle === 'custom' ? employee.avatar : null);
+      const avatar = effective === 'custom' ? custom : resolveAvatarForStyle({ ...employee, avatarBindings: bindings }, effective);
+      if (!avatar) throw new BadRequestException('该员工没有可用的头像绑定');
+      if (effective !== 'custom') bindings[effective] ??= { portraitUrl: avatar };
+      return withEmployeeAvatar(await tx.digitalEmployee.update({ where: { id: employeeId }, data: { avatar, avatarStyle: canonical, avatarCustomUrl: custom, avatarBindings: bindings } }));
     });
+  }
 
-    if (!employee) {
-      throw new NotFoundException('员工不存在');
-    }
+  async registerAvatarStyle(input: { id: string; name: string; description: string; category: string; examples?: string[]; recommended?: boolean; totalAssets?: number }) {
+    const id = input.id.trim();
+    if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(id) || [FOLLOW_DEFAULT_STYLE_ID, 'custom', SILICON_3D_STYLE.id].includes(id) || DICEBEAR_STYLES.some((style) => style.id === id)) throw new BadRequestException('风格标识无效或与内置风格冲突');
+    if (input.examples?.some((url) => !isAvatarImageUrl(url))) throw new BadRequestException('素材地址必须为 HTTP(S) 或 /assets/ 路径');
+    if (await this.prisma.avatarStyleDefinition.findUnique({ where: { id } })) throw new BadRequestException('该风格标识已存在');
+    return this.prisma.avatarStyleDefinition.create({ data: { ...input, id, source: 'platform', examples: input.examples || [] } });
+  }
 
-    // 生成新头像 URL
-    const seed = generateSeedFromName(employee.position || employee.name);
-    const avatarUrl = generateAvatarUrl(styleId, seed);
-
-    // 更新
-    return this.prisma.digitalEmployee.update({
-      where: { id: employeeId },
-      data: { avatar: avatarUrl },
+  async bindEmployeeAvatar(employeeId: string, styleId: string, binding: { portraitUrl: string; faceUrl?: string; version?: string }) {
+    if (!isAvatarImageUrl(binding.portraitUrl) || (binding.faceUrl && !isAvatarImageUrl(binding.faceUrl))) throw new BadRequestException('素材地址必须为 HTTP(S) 或 /assets/ 路径');
+    const canonical = canonicalAvatarStyleId(styleId);
+    return this.avatarTransaction(async (tx) => {
+      const style = (await this.avatarDefinitions(tx)).find((item) => item.id === canonical && item.source === 'platform');
+      if (!style) throw new BadRequestException('请选择平台素材风格');
+      const employee = await tx.digitalEmployee.findUnique({ where: { id: employeeId } });
+      if (!employee) throw new NotFoundException('员工不存在');
+      const bindings = preservedAvatarBindings(employee);
+      bindings[canonical] = { portraitUrl: binding.portraitUrl, ...(binding.faceUrl ? { faceUrl: binding.faceUrl } : {}), ...(binding.version ? { version: binding.version } : {}) };
+      const effective = employeeEffectiveStyle(employee.avatarStyle, await this.avatarDefault(tx));
+      return withEmployeeAvatar(await tx.digitalEmployee.update({ where: { id: employeeId }, data: {
+        avatarBindings: bindings, ...(effective === canonical ? { avatar: binding.portraitUrl } : {}),
+      } }));
     });
   }
 }

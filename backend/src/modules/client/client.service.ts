@@ -363,7 +363,7 @@ export class ClientService {
         },
       },
       include: {
-        subscription: { include: { employee: { select: { id: true, name: true, avatar: true, version: true } } } },
+        subscription: { include: { employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, version: true } } } },
       },
     });
     const [models, modelConfig] = await Promise.all([
@@ -413,7 +413,7 @@ export class ClientService {
             id: true,
             name: true,
             description: true,
-            avatar: true,
+            avatar: true, avatarStyle: true, avatarBindings: true,
             systemPrompt: true,
             modelId: true,
             maxSteps: true,
@@ -454,7 +454,7 @@ export class ClientService {
       manifestVersion: 1,
       subscriptionId: subscription.id,
       templateVersion: subscription.templateVersion,
-      employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
+      employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, avatarStyle: subscription.employee.avatarStyle, avatarBindings: subscription.employee.avatarBindings, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
       runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills },
     };
   }

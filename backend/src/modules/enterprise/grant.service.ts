@@ -13,7 +13,7 @@ import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 const employeeSummarySelect = {
-  id: true, name: true, avatar: true, description: true, position: true, functionalCategory: true,
+  id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, description: true, position: true, functionalCategory: true,
   bindings: {
     select: { id: true, priority: true, capability: { select: {
       id: true, name: true, type: true, description: true,

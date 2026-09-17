@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret-cipher';
@@ -81,6 +81,7 @@ export class SettingService {
 
   /** 更新一批配置。敏感值加密存储；空字符串表示「清除，回退 env」。 */
   async updateMany(updates: Record<string, string>): Promise<void> {
+    if ('DEFAULT_AVATAR_STYLE' in updates) throw new BadRequestException('请通过头像风格管理切换默认风格');
     for (const [key, rawValue] of Object.entries(updates)) {
       const field = SETTING_FIELDS.find((f) => f.key === key);
       if (!field) continue; // 忽略未知 key

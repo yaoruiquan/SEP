@@ -23,6 +23,24 @@ describe('employee avatars', () => {
     expect(withEmployeeAvatar(first)).toEqual(first);
   });
 
+  it('publishes future style face and version consistently across consumers', () => {
+    const employee = { id: 'e1', avatar: '/assets/new/person.webp', avatarStyle: 'follow-default',
+      avatarBindings: { professional: { portraitUrl: '/assets/new/person.webp', faceUrl: '/assets/new/person-face.webp', version: 'v2' } } };
+    const resolved = withEmployeeAvatar(employee);
+    const asset = resolved.avatarAsset;
+    expect(withEmployeeAvatar(resolved)).toEqual(resolved);
+    expect(asset).toEqual({ id: 'employee:e1:professional', version: 'v2',
+      portraitUrl: 'https://images.example.com/assets/new/person.webp?v=v2',
+      faceUrl: 'https://images.example.com/assets/new/person-face.webp?v=v2' });
+    expect(withEmployeeAvatar({ ...employee, name: 'Subscription alias' }).avatarAsset).toEqual(asset);
+  });
+
+  it('does not apply inactive bindings to a custom avatar', () => {
+    const employee = { id: 'e1', avatar: 'https://external.example.com/custom.webp', avatarStyle: 'custom',
+      avatarBindings: { professional: { portraitUrl: '/assets/new/person.webp', faceUrl: '/assets/new/face.webp', version: 'v2' } } };
+    expect(withEmployeeAvatar(employee).avatarAsset.faceUrl).toBe(employee.avatar);
+  });
+
   it('does not mutate the database object', () => {
     const employee = Object.freeze({ id: 'e1', avatar: path });
     withEmployeeAvatar(employee);
