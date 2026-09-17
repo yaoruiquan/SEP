@@ -230,9 +230,9 @@ function EmploymentTableRow({
               'tabular-nums',
               sub.giftStatus === 'EXHAUSTED' ? 'text-fg-muted' : undefined,
             )}
-            // 赠送算力是人民币余额，用完后自动扣企业钱包 ——
+            // 赠送算力是人民币余额，是否继续可用取决于企业和成员的余额配置 ——
             // 不说清这一点，「剩余 ¥0.00」会被读成「这个员工不能用了」
-            title="订阅时获得的人民币算力余额。用完后继续对话将从企业钱包余额扣除。"
+            title="订阅时获得的赠送算力余额。余额用完后不会自动穿透企业钱包，是否还能继续使用取决于管理员配置。"
           >
             ¥{Number(sub.giftRemainingCNY ?? 0).toFixed(2)}
             <span className="text-fg-muted"> / ¥{gift.toFixed(2)}</span>

@@ -65,13 +65,13 @@ export function ComputeBalanceStrip() {
       <div className="grid gap-5 md:grid-cols-2">
         <Stat
           icon={<ShieldCheck className="h-4 w-4 text-emerald-600" />}
-          label="算力余额"
+          label="企业算力专款"
           value={formatCny(overview.computeReservedCNY)}
           tone="bg-emerald-100"
           detail={
             hasReserve
               ? '只能用于与硅基员工对话，订阅与员工采购不可挪用'
-              : '还没有充值算力 —— 对话当前直接扣企业钱包，可能被订阅费占用'
+              : '当前没有企业算力专款，请先从企业钱包充值；不会自动从普通钱包扣除'
           }
         >
           <ComputeReserveDialog direction="RESERVE" max={overview.walletSpendableCNY} />

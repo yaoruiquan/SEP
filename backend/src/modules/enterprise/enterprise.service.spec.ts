@@ -184,4 +184,31 @@ describe('EnterpriseService', () => {
       ]);
     });
   });
+
+  describe('getTopMembers', () => {
+    it('只统计最近 30 天并保持消费金额降序', async () => {
+      (prisma.computeTransaction.findMany as jest.Mock).mockResolvedValue([
+        { metadata: { memberId: 'member-a' }, amount: 4.2 },
+        { metadata: { memberId: 'member-b' }, amount: 6.2 },
+        { metadata: { memberId: 'member-c' }, amount: 4.85 },
+      ]);
+      (prisma.enterpriseMember.findMany as jest.Mock).mockResolvedValue([
+        { id: 'member-c', user: { name: '成员 C', avatar: null } },
+        { id: 'member-a', user: { name: '成员 A', avatar: null } },
+        { id: 'member-b', user: { name: '成员 B', avatar: null } },
+      ]);
+
+      const result = await (service as any).getTopMembers('account-1', 'ent-1');
+
+      const query = (prisma.computeTransaction.findMany as jest.Mock).mock
+        .calls[0][0];
+      expect(query.where.createdAt.gte).toBeInstanceOf(Date);
+      expect(Math.round((Date.now() - query.where.createdAt.gte.getTime()) / 86_400_000)).toBe(30);
+      expect(result.map((member: { id: string }) => member.id)).toEqual([
+        'member-b',
+        'member-c',
+        'member-a',
+      ]);
+    });
+  });
 });

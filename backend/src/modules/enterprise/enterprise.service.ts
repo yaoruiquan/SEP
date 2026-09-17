@@ -7,6 +7,7 @@ import { EnterpriseContextService } from "./enterprise-context.service";
  * 同屏卡片用同一时间口径，避免「有史以来 vs 最近 7 天」并排出现。
  */
 const MODEL_DISTRIBUTION_DAYS = 30;
+const TOP_MEMBER_DAYS = 30;
 
 @Injectable()
 export class EnterpriseService {
@@ -410,10 +411,14 @@ export class EnterpriseService {
    * 用户消费排行 Top 3（按 memberId 分组）
    */
   private async getTopMembers(accountId: string, enterpriseId: string) {
+    const since = new Date();
+    since.setDate(since.getDate() - TOP_MEMBER_DAYS);
+
     const transactions = await this.prisma.computeTransaction.findMany({
       where: {
         accountId,
         type: 'CONSUME',
+        createdAt: { gte: since },
         metadata: { path: ['memberId'], not: null },
       },
       select: { metadata: true, amount: true },
@@ -442,15 +447,21 @@ export class EnterpriseService {
       select: { id: true, user: { select: { name: true, avatar: true } } },
     });
 
-    return members.map((m) => {
-      const stats = memberStats.get(m.id)!;
-      return {
-        id: m.id,
-        name: m.user.name || '未命名',
-        avatar: m.user.avatar,
-        calls: stats.calls,
-        cost: Math.round(stats.cost * 10_000) / 10_000,
-      };
-    });
+    const memberById = new Map(members.map((member) => [member.id, member]));
+    return topMemberIds
+      .map((id) => {
+        const member = memberById.get(id);
+        if (!member) return null;
+
+        const stats = memberStats.get(id)!;
+        return {
+          id: member.id,
+          name: member.user.name || '未命名',
+          avatar: member.user.avatar,
+          calls: stats.calls,
+          cost: Math.round(stats.cost * 10_000) / 10_000,
+        };
+      })
+      .filter((member): member is NonNullable<typeof member> => member !== null);
   }
 }

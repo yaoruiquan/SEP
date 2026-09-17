@@ -12,8 +12,8 @@ import { useAuthStore } from '@/lib/auth-store';
  *   · 逐笔账单两种角色都有，但**是两个不同的组件**：管理员那张带筛选栏
  *     （筛选栏要拉员工与成员列表，两个接口对成员都是 403），成员那张只有分页。
  *     挂错一张的后果不是样式问题，是一进页面就失败。
- *   · 「我的算力」（公司给我的额度 + 我的个人余额）两种角色都要有 ——
- *     管理员同样是用的人，个人余额充值入口只在这一块里。
+ *   · 「我的算力」（公司给我的额度 + 我的个人余额）只给普通成员展示。
+ *     管理员页面聚焦企业专款、成员分配和企业消费，避免与个人钱包重复。
  *
  * 子面板全部换成桩件：这里测的是「按角色挂哪些块」，不是各面板自己的取数。
  */
@@ -63,14 +63,14 @@ describe('算力余额页按角色分叉', () => {
     });
   });
 
-  it('管理员：企业四块 + 他自己的算力都在', () => {
+  it('管理员：只展示企业算力管理四块', () => {
     setRole('ENTERPRISE_ADMIN');
     render(<ComputeQuotaPage />);
 
     for (const stub of ADMIN_ONLY) {
       expect(screen.getByText(stub)).toBeInTheDocument();
     }
-    expect(screen.getByText('桩·我的算力')).toBeInTheDocument();
+    expect(screen.queryByText('桩·我的算力')).not.toBeInTheDocument();
     // 管理员那张表已经能筛出任何人，再挂一张「只有我」的重复且矛盾
     expect(screen.queryByText('桩·我的逐笔账单')).not.toBeInTheDocument();
   });
@@ -95,13 +95,14 @@ describe('算力余额页按角色分叉', () => {
     expect(screen.queryByText('桩·成员额度分配')).not.toBeInTheDocument();
   });
 
-  it('两种角色都带 #my-compute 锚点 —— 对话里「额度用尽」弹窗按它跳回来', () => {
-    for (const role of ['ENTERPRISE_ADMIN', 'MEMBER']) {
-      setRole(role);
-      const { container, unmount } = render(<ComputeQuotaPage />);
-      expect(container.querySelector('#my-compute')).not.toBeNull();
-      unmount();
-    }
+  it('普通成员带 #my-compute 锚点 —— 对话里「额度用尽」弹窗按它跳回来', () => {
+    setRole('MEMBER');
+    const { container } = render(<ComputeQuotaPage />);
+    expect(container.querySelector('#my-compute')).not.toBeNull();
+
+    setRole('ENTERPRISE_ADMIN');
+    const admin = render(<ComputeQuotaPage />);
+    expect(admin.container.querySelector('#my-compute')).toBeNull();
   });
 
   it('成员那块逐笔账单带 #my-usage-records 锚点 —— 用量分析页按它跳过来', () => {

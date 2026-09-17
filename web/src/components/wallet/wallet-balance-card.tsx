@@ -2,8 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWalletBalance } from '@/lib/api/wallet';
-import { Wallet, TrendingUp, TrendingDown, RotateCw, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { Wallet, TrendingUp, TrendingDown, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
@@ -17,7 +16,7 @@ export function WalletBalanceCard() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5" />
-            企业钱包
+            钱包总余额
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -59,20 +58,20 @@ export function WalletBalanceCard() {
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Wallet className="h-5 w-5" />
-          企业钱包
+          钱包总余额
         </CardTitle>
         <Button
           onClick={() => router.push('/payment/recharge')}
           size="sm"
           variant="primary"
         >
-          充值
+          充值到企业钱包
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* 余额 */}
         <div>
-          <p className="text-sm text-gray-600 mb-1">当前余额</p>
+          <p className="text-sm text-gray-600 mb-1">可用余额</p>
           <p className="text-3xl font-bold text-gray-900">
             ¥{Number(balance.balance).toFixed(2)}
           </p>
@@ -86,27 +85,22 @@ export function WalletBalanceCard() {
             「算力余额」页显示的是下面这个算力数，不是上面的总余额。
             两个页面的数字不同不是 bug —— 在这里把拆分写明，用户才不会以为对不上账。
           */}
-          {Number(balance.computeReservedCNY) > 0 && (
-            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-6 text-emerald-900">
-              其中{' '}
-              <strong className="tabular-nums">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="border-l-2 border-emerald-500 pl-3">
+              <p className="text-xs text-gray-500">算力专款</p>
+              <p className="mt-1 text-base font-semibold tabular-nums text-gray-900">
                 ¥{Number(balance.computeReservedCNY).toFixed(2)}
-              </strong>{' '}
-              已充值为<strong>算力</strong>，只能用于与硅基员工对话，订阅与员工采购不可挪用；
-              可用于其他支出{' '}
-              <strong className="tabular-nums">
-                ¥{Number(balance.spendableCNY).toFixed(2)}
-              </strong>
-              。
-              <Link
-                href="/compute-quota"
-                className="ml-1 inline-flex items-center gap-1 font-medium underline"
-              >
-                去算力余额页管理
-                <ArrowRight className="h-3 w-3" />
-              </Link>
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">仅用于硅基员工对话</p>
             </div>
-          )}
+            <div className="border-l-2 border-slate-300 pl-3">
+              <p className="text-xs text-gray-500">其他可用余额</p>
+              <p className="mt-1 text-base font-semibold tabular-nums text-gray-900">
+                ¥{Number(balance.spendableCNY).toFixed(2)}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">可用于订阅等企业支出</p>
+            </div>
+          </div>
         </div>
 
         {/* 统计 */}

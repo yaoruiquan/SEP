@@ -26,7 +26,7 @@ export function WalletTransactionList() {
   const handleTypeFilter = (type: string) => {
     setFilters((prev) => ({
       ...prev,
-      type: type === 'all' ? undefined : (type as 'DEPOSIT' | 'CONSUME' | 'REFUND'),
+      type: type === 'all' ? undefined : (type as TransactionFilters['type']),
       page: 1,
     }));
   };
@@ -93,6 +93,8 @@ export function WalletTransactionList() {
               <SelectItem value="DEPOSIT">充值</SelectItem>
               <SelectItem value="CONSUME">消费</SelectItem>
               <SelectItem value="REFUND">退款</SelectItem>
+              <SelectItem value="COMPUTE_RESERVE">划入算力专款</SelectItem>
+              <SelectItem value="COMPUTE_RELEASE">退回企业钱包</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -104,7 +106,7 @@ export function WalletTransactionList() {
           </div>
         ) : (
           <>
-            <div className="space-y-3">
+            <div className="divide-y divide-border/70 border-y border-border/70">
               {data.items.map((tx) => (
                 <TransactionItem key={tx.id} transaction={tx} />
               ))}
@@ -156,8 +158,10 @@ function TransactionItem({ transaction }: { transaction: any }) {
   const label = typeLabel[transaction.type] || transaction.type;
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border hover:bg-gray-50">
-      <Icon className={`h-8 w-8 ${colorClass}`} />
+    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/60 ${colorClass}`}>
+        <Icon className="h-4 w-4" />
+      </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">
           {transaction.description || label}
@@ -179,8 +183,8 @@ function TransactionItem({ transaction }: { transaction: any }) {
         </div>
       </div>
       <div className="text-right">
-        <p className={`text-sm font-semibold ${colorClass}`}>
-          {isPositive ? '+' : ''}¥{Math.abs(Number(transaction.amount)).toFixed(2)}
+        <p className={`text-sm font-semibold tabular-nums ${colorClass}`}>
+          {isPositive ? '+' : '−'}¥{Math.abs(Number(transaction.amount)).toFixed(2)}
         </p>
         <p className="text-xs text-gray-500">
           余额 ¥{Number(transaction.balanceAfter).toFixed(2)}
