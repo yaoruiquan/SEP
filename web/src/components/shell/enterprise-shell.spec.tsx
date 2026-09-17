@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EnterpriseShell } from './enterprise-shell';
 import { useAuthStore } from '@/lib/auth-store';
@@ -23,6 +23,11 @@ vi.mock('@/features/auth/use-auth', () => ({
 vi.mock('@/lib/theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
   useTheme: () => ({ theme: 'light', toggleTheme: vi.fn() }),
+}));
+
+const enterpriseInfo = vi.hoisted(() => ({ logo: null as string | null }));
+vi.mock('@/features/enterprise/use-enterprise', () => ({
+  useEnterpriseInfo: () => ({ data: { name: '示例科技', logo: enterpriseInfo.logo } }),
 }));
 
 const setRole = (roleInEnterprise: string | null) =>
@@ -52,6 +57,7 @@ const renderShell = () => {
 
 describe('EnterpriseShell 导航角色过滤', () => {
   beforeEach(() => {
+    enterpriseInfo.logo = null;
     useAuthStore.setState({
       token: null,
       user: null,
@@ -59,6 +65,24 @@ describe('EnterpriseShell 导航角色过滤', () => {
       roleInEnterprise: null,
       hydrated: false,
     });
+  });
+
+  it('侧边栏使用企业上传的 Logo，加载失败退回企业首字', () => {
+    setRole('MEMBER');
+    enterpriseInfo.logo = '/api/enterprise/logo/images/company.png';
+    renderShell();
+    const logo = screen.getByRole('img', { name: '示例科技' });
+    expect(logo).toHaveAttribute('src', enterpriseInfo.logo);
+    fireEvent.error(logo);
+    expect(screen.queryByRole('img', { name: '示例科技' })).not.toBeInTheDocument();
+    expect(screen.getByText('示')).toBeInTheDocument();
+  });
+
+  it('没有企业 Logo 时不使用平台图片', () => {
+    setRole('MEMBER');
+    const { container } = renderShell();
+    expect(screen.getByText('示')).toBeInTheDocument();
+    expect(container.querySelector('img[src="/logo-light.png"]')).toBeNull();
   });
 
   it('企业管理员能看到「组织」组的部门与碳基员工', () => {
