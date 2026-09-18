@@ -1,5 +1,6 @@
 import { AuthGate } from '@/components/auth-gate';
 import { EnterpriseShell } from '@/components/shell/enterprise-shell';
+import { PageTransition } from '@/components/ui/page-transition';
 
 /**
  * 企业管理台。要求有企业归属，但不限企业内角色 ——
@@ -13,7 +14,9 @@ export default function EnterpriseLayout({
 }) {
   return (
     <AuthGate requireEnterprise>
-      <EnterpriseShell>{children}</EnterpriseShell>
+      <EnterpriseShell>
+        <PageTransition>{children}</PageTransition>
+      </EnterpriseShell>
     </AuthGate>
   );
 }
