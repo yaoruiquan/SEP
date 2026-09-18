@@ -327,7 +327,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         className={cn(
           'flex-1 min-w-0',
           isFullHeight
-            ? 'flex h-screen flex-col overflow-hidden'
+            ? 'flex h-full min-h-0 flex-col overflow-hidden'
             : 'overflow-y-auto scroll-thin',
         )}
       >
