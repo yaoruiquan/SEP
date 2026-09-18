@@ -194,7 +194,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   return (
     // 主题 B 极光（PRD §背景渐变配方）。blobs=1：企业端多为表格/长列表，
     // 少一层 80px blur 给内容区留 GPU 预算。
-    <AuroraBackground blobs={1} className="flex min-h-dvh h-screen bg-[#f0f2f5] dark:bg-slate-950">
+    <AuroraBackground blobs={1} className="flex h-screen min-h-screen bg-[#f0f2f5] dark:bg-slate-950">
       {/* Mobile menu button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -327,7 +327,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         className={cn(
           'flex-1 min-w-0',
           isFullHeight
-            ? 'flex h-full flex-col overflow-hidden'
+            ? 'flex h-screen flex-col overflow-hidden'
             : 'overflow-y-auto scroll-thin',
         )}
       >
