@@ -21,6 +21,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
           duration: 0.3,
           ease: [0.4, 0, 0.2, 1],
         }}
+        className="h-full"
       >
         {children}
       </motion.div>
