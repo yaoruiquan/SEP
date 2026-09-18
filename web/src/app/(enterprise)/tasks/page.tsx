@@ -482,9 +482,14 @@ export default function TasksPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-glassline px-4 py-2 sm:px-6"><TabsList><TabsTrigger value="workspace">我的工作安排</TabsTrigger><TabsTrigger value="monitoring">客户端监控</TabsTrigger></TabsList></div>
-        <TabsContent value="workspace" className="flex min-h-0 flex-1 flex-col">
-        {!activeRunId ? (
+        <div className="shrink-0 border-b border-glassline px-4 py-2 sm:px-6">
+          <TabsList>
+            <TabsTrigger value="workspace">我的工作安排</TabsTrigger>
+            <TabsTrigger value="monitoring">客户端监控</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="workspace" className="m-0 flex min-h-0 flex-1 flex-col">
+          {!activeRunId ? (
           <TaskObjectiveComposer
             objective={objective}
             planning={planner.isPending || createRun.isPending}
@@ -548,7 +553,9 @@ export default function TasksPage() {
           />
         )}
         </TabsContent>
-        <TabsContent value="monitoring" className="flex min-h-0 flex-1 flex-col"><ClientTaskMonitor /></TabsContent>
+        <TabsContent value="monitoring" className="m-0 flex min-h-0 flex-1 flex-col">
+          <ClientTaskMonitor />
+        </TabsContent>
       </Tabs>
 
       <TaskHistoryDrawer
