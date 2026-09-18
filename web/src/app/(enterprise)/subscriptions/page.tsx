@@ -29,6 +29,7 @@ import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { employment } from '@/locales/zh-CN';
 import type { Subscription, SubscriptionRequest } from '@/lib/types';
 import { getExpectedRefund } from '@/features/subscription/release-policy';
+import { SubscriptionStats } from '@/features/subscription/subscription-stats';
 import { EmploymentTable } from './employment-table';
 import { RequestList } from './request-list';
 import { Modal } from './modal';
@@ -191,7 +192,7 @@ export default function SubscriptionsPage() {
   if (isLoading) return <CenteredSpinner label="加载中…" />;
 
   return (
-    <div className="space-y-5 p-6">
+    <div className="space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{employment.section}</h1>
@@ -204,6 +205,8 @@ export default function SubscriptionsPage() {
           </Button>
         </Link>
       </div>
+
+      {subs.length > 0 && <SubscriptionStats subscriptions={subs} />}
 
       {isAdmin && (
         <div className="flex gap-2 border-b border-border">
@@ -238,11 +241,11 @@ export default function SubscriptionsPage() {
             />
           ) : (
             <>
-              <div className="relative max-w-xs">
+              <div className="relative max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
                 <Input
                   placeholder="搜索称呼、模板名或岗位"
-                  className="pl-10"
+                  className="h-10 pl-10 shadow-sm transition-shadow focus:shadow-md"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />

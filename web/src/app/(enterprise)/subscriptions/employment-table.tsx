@@ -69,20 +69,20 @@ export function EmploymentTable({
   busy = false,
 }: EmploymentTableProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-background">
+    <div className="overflow-hidden rounded-lg border border-border bg-background shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs text-fg-muted">
-              <th className="px-4 py-3 text-left font-medium">硅基员工</th>
-              <th className="px-4 py-3 text-left font-medium">授权</th>
+              <th className="px-4 py-3.5 text-left font-medium uppercase tracking-wider">硅基员工</th>
+              <th className="px-4 py-3.5 text-left font-medium uppercase tracking-wider">授权</th>
               {/* 「在用」与「授权」必须挨着：这两个数只有并排看才有意义 ——
                   授权 4 人只 1 人用，说明买了没人用；单看任何一个都得不出结论 */}
-              <th className="px-4 py-3 text-left font-medium">近 30 天在用</th>
-              <th className="px-4 py-3 text-left font-medium">状态</th>
-              <th className="px-4 py-3 text-left font-medium">版本</th>
-              <th className="px-4 py-3 text-right font-medium">赠送算力</th>
-              {isAdmin && <th className="px-4 py-3" />}
+              <th className="px-4 py-3.5 text-left font-medium uppercase tracking-wider">近 30 天在用</th>
+              <th className="px-4 py-3.5 text-left font-medium uppercase tracking-wider">状态</th>
+              <th className="px-4 py-3.5 text-left font-medium uppercase tracking-wider">版本</th>
+              <th className="px-4 py-3.5 text-right font-medium uppercase tracking-wider">赠送算力</th>
+              {isAdmin && <th className="px-4 py-3.5" />}
             </tr>
           </thead>
           <tbody>
@@ -133,30 +133,30 @@ function EmploymentTableRow({
   return (
     <tr
       className={cn(
-        'border-b border-border/40 last:border-b-0 hover:bg-muted/30',
+        'border-b border-border/40 transition-colors last:border-b-0 hover:bg-muted/30',
         dismissed && 'opacity-55',
       )}
     >
-      <td className="px-4 py-3">
+      <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">
           <Avatar
             name={sub.employee.name}
             src={sub.employee.avatar}
             asset={sub.employee.avatarAsset}
               portrait
-            className="h-9 w-9 shrink-0 text-xs"
+            className="h-10 w-10 shrink-0 text-xs shadow-sm"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               {/* 点名字进员工详情：管理员最常做的下一步是「看这位到底被谁用了」 */}
               <Link
                 href={`/my-employees/${sub.id}`}
-                className="truncate font-medium hover:text-primary hover:underline"
+                className="truncate font-medium text-foreground hover:text-primary hover:underline"
               >
                 {sub.name}
               </Link>
               {attention && (
-                <Badge className={cn('shrink-0 text-[11px]', TONE_CLASS[attention.tone])}>
+                <Badge className={cn('shrink-0 text-[11px] shadow-sm', TONE_CLASS[attention.tone])}>
                   {attention.label}
                 </Badge>
               )}
@@ -170,10 +170,10 @@ function EmploymentTableRow({
         </div>
       </td>
 
-      <td className="whitespace-nowrap px-4 py-3">
+      <td className="whitespace-nowrap px-4 py-3.5">
         {usage ? (
           <>
-            <span className={usage.grantedUserCount === 0 ? 'text-danger' : 'tabular-nums'}>
+            <span className={usage.grantedUserCount === 0 ? 'font-medium text-danger' : 'font-medium tabular-nums'}>
               {usage.grantedUserCount === 0 ? '未授权' : `${usage.grantedUserCount} 人`}
             </span>
             {usage.grantedUserCount > 0 && (
@@ -185,12 +185,12 @@ function EmploymentTableRow({
         )}
       </td>
 
-      <td className="whitespace-nowrap px-4 py-3">
+      <td className="whitespace-nowrap px-4 py-3.5">
         {usage ? (
           <>
             <span
               className={cn(
-                'tabular-nums',
+                'font-medium tabular-nums',
                 usage.activeUserCount30d === 0 && usage.grantedUserCount > 0 && 'text-warning',
               )}
               title={
@@ -208,14 +208,14 @@ function EmploymentTableRow({
         )}
       </td>
 
-      <td className="whitespace-nowrap px-4 py-3">
-        <Badge className={SUBSCRIPTION_STATUS_STYLE[sub.status]}>
+      <td className="whitespace-nowrap px-4 py-3.5">
+        <Badge className={cn(SUBSCRIPTION_STATUS_STYLE[sub.status], 'shadow-sm')}>
           {SUBSCRIPTION_STATUS_LABEL[sub.status]}
         </Badge>
       </td>
 
-      <td className="whitespace-nowrap px-4 py-3">
-        <span className="tabular-nums text-fg-muted">v{sub.templateVersion}</span>
+      <td className="whitespace-nowrap px-4 py-3.5">
+        <span className="font-medium tabular-nums text-fg-muted">v{sub.templateVersion}</span>
         {sub.upgradeAvailable && !dismissed && (
           <p className="mt-0.5 text-xs text-warning">可升 v{sub.latestVersion}</p>
         )}
