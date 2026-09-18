@@ -279,7 +279,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           {!collapsed ? (
             <>
               <div className="mb-2 flex items-center gap-2 rounded-glass-sm border border-glassline bg-glass-2 px-2 py-2.5">
-                <Avatar name={user?.name || user?.email || '用户'} />
+                <Avatar name={user?.name || user?.email || '用户'} src={user?.avatar} className="h-8 w-8 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gtext-primary">
                     {user?.name || '用户'}

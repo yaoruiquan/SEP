@@ -1,18 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   LayoutDashboard,
   LogOut,
+  Menu,
   Sparkles,
   Store,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AuroraBackground } from '@/components/ui/aurora-background';
 import { ThemeLogo } from '@/components/ui/theme-logo';
 import { useAuthStore } from '@/lib/auth-store';
@@ -36,16 +39,23 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const logout = useLogout();
   const [collapsed, setCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
 
-  return (
-    <AuroraBackground blobs={2} className="flex h-screen">
-      <aside
-        className={cn(
-          'glass-nav flex shrink-0 flex-col transition-all duration-300',
-          collapsed ? 'w-16' : 'w-60',
-        )}
-      >
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
+  useEffect(() => setSidebarOpen(false), [pathname]);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const media = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (media.matches) setSidebarOpen(false); };
+    closeOnDesktop();
+    media.addEventListener('change', closeOnDesktop);
+    return () => media.removeEventListener('change', closeOnDesktop);
+  }, [sidebarOpen]);
+
+  // 移动端始终展开；与桌面复用内容，但不共享折叠状态。
+  const renderSidebar = (collapsed: boolean, mobile = false) => (
+    <>
+        <div className={cn('flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5', mobile && 'pr-12')}>
           <div className="flex items-center gap-2 overflow-hidden">
             <ThemeLogo priority />
             {!collapsed && (
@@ -54,7 +64,7 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
               </span>
             )}
           </div>
-          <button
+          {!mobile && <button
             type="button"
             onClick={() => setCollapsed((value) => !value)}
             className="shrink-0 rounded p-1 hover:bg-glass-2"
@@ -65,10 +75,12 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
             ) : (
               <ChevronLeft className="h-4 w-4 text-gtext-secondary" />
             )}
-          </button>
+          </button>}
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto scroll-thin px-3 py-4">
+        <nav className="flex-1 space-y-1 overflow-y-auto scroll-thin px-3 py-4" onClick={(event) => {
+          if ((event.target as Element).closest('a')) setSidebarOpen(false);
+        }}>
           <NavItem
             href="/contributions"
             label="能力贡献中心"
@@ -95,7 +107,7 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
           {!collapsed ? (
             <>
               <div className="mb-2 flex items-center gap-2 rounded-glass-sm border border-glassline bg-glass-2 px-2 py-2.5">
-                <Avatar name={user?.name || user?.email || '贡献者'} />
+                <Avatar name={user?.name || user?.email || '贡献者'} src={user?.avatar} className="h-8 w-8 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gtext-primary">
                     {user?.name || '贡献者'}
@@ -107,7 +119,7 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start text-gtext-secondary hover:bg-glass-2 hover:text-gtext-primary"
-                onClick={() => logout.mutate()}
+                onClick={() => { setSidebarOpen(false); logout.mutate(); }}
               >
                 <LogOut className="h-4 w-4" />
                 退出登录
@@ -124,7 +136,30 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
             </button>
           )}
         </div>
+    </>
+  );
+
+  return (
+    <AuroraBackground blobs={2} className="flex h-screen">
+      <aside
+        className={cn(
+          'glass-nav hidden shrink-0 flex-col transition-all duration-300 lg:flex',
+          collapsed ? 'w-16' : 'w-60',
+        )}
+      >
+        {renderSidebar(collapsed)}
       </aside>
+      <Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <DialogTrigger asChild>
+          <button type="button" aria-label="打开导航菜单" className="fixed left-4 top-3 z-40 flex h-10 w-10 items-center justify-center rounded-glass-sm border border-glassline bg-glass-2 text-gtext-primary backdrop-blur-glass-md lg:hidden">
+            <Menu className="h-5 w-5" />
+          </button>
+        </DialogTrigger>
+        {sidebarOpen && <DialogContent glass aria-describedby={undefined} className="left-0 top-0 flex h-dvh w-60 max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 data-[state=open]:animate-none data-[state=closed]:animate-none">
+          <DialogTitle className="sr-only">个人工作台导航</DialogTitle>
+          {renderSidebar(false, true)}
+        </DialogContent>}
+      </Dialog>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <ShellTopbar
@@ -132,6 +167,7 @@ export function ContributorShell({ children }: { children: React.ReactNode }) {
           rootLabel="个人工作台"
           rootHref="/contributions"
           roleLabel="能力贡献者"
+          hamburgerGutter
         >
           <Link
             href="/marketplace"

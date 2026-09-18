@@ -4,6 +4,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
+  /** 头像地址（可能是本地上传的稳定路径或外链）。未设置时为 null。 */
+  avatar: string | null;
   /** 全局角色。ADMIN = 平台运营人员，与企业内角色是两套体系。 */
   role: string;
 }

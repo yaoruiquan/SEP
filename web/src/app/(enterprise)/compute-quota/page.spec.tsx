@@ -46,7 +46,7 @@ const ADMIN_ONLY = [
 const setRole = (roleInEnterprise: string | null) =>
   useAuthStore.setState({
     token: 't',
-    user: { id: 'u1', email: '***@***', name: '测试', role: 'USER' },
+    user: { id: 'u1', email: '***@***', name: '测试', avatar: null, role: 'USER' },
     enterprise: { id: 'e1', name: '示例科技' },
     roleInEnterprise,
     hydrated: true,

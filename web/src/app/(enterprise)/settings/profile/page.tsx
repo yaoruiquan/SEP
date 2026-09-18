@@ -1,17 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Upload } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { CenteredSpinner } from '@/components/ui/feedback';
-import { useMe, useUpdateProfile, useChangePassword } from '@/features/user/use-user';
+import { useMe, useUpdateProfile, useChangePassword, useUploadAvatar } from '@/features/user/use-user';
 import { useLogout, useLeaveEnterprise } from '@/features/auth/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
 import {
@@ -20,9 +20,12 @@ import {
 } from '@/features/notifications/use-notifications';
 import { ApiError } from '@/lib/api-client';
 
+/** 头像上传的本地预检，与后端 MAX_USER_AVATAR_SIZE 保持一致；真正的校验在后端。 */
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp';
+
 const profileSchema = z.object({
   name: z.string().min(1, '姓名不能为空'),
-  avatar: z.string().optional(),
 });
 
 const passwordSchema = z
@@ -41,15 +44,19 @@ export default function SettingsPage() {
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
   const logout = useLogout();
+  const uploadAvatar = useUploadAvatar();
 
   const { data: notifPrefs } = useNotificationPreferences();
   const updatePrefs = useUpdateNotificationPreferences();
 
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSaved, setAvatarSaved] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const profileForm = useForm({
     resolver: zodResolver(profileSchema),
-    values: me ? { name: me.name ?? '', avatar: me.avatar ?? '' } : undefined,
+    values: me ? { name: me.name ?? '' } : undefined,
   });
 
   const passwordForm = useForm({
@@ -59,7 +66,7 @@ export default function SettingsPage() {
 
   const onProfileSubmit = profileForm.handleSubmit((data) => {
     updateProfile.mutate(
-      { name: data.name, avatar: data.avatar || undefined },
+      { name: data.name },
       {
         onSuccess: () => {
           profileForm.reset(data);
@@ -67,6 +74,34 @@ export default function SettingsPage() {
       },
     );
   });
+
+  /**
+   * 头像是一次独立的 multipart 上传，成功后立即生效（不需要再点保存）。
+   * 本地只做类型/大小预检给出即时反馈，服务端仍会按魔数与白名单复检。
+   */
+  async function handleAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // 清空 value：否则连续选择同一个文件不会再触发 change
+    event.target.value = '';
+    if (!file) return;
+    setAvatarError(null);
+    setAvatarSaved(false);
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setAvatarError('请选择 PNG、JPG 或 WebP 图片');
+      return;
+    }
+    if (!file.size || file.size > AVATAR_MAX_BYTES) {
+      setAvatarError('图片不能为空，且不能超过 2 MB');
+      return;
+    }
+    try {
+      await uploadAvatar.mutateAsync(file);
+      setAvatarSaved(true);
+      setTimeout(() => setAvatarSaved(false), 3000);
+    } catch (cause) {
+      setAvatarError(cause instanceof ApiError ? cause.message : '上传失败，请重试');
+    }
+  }
 
   const onPasswordSubmit = passwordForm.handleSubmit((data) => {
     setPwSuccess(false);
@@ -100,13 +135,53 @@ export default function SettingsPage() {
             <div className="flex items-center gap-4">
               <Avatar
                 name={profileForm.watch('name') || me?.email}
-                src={profileForm.watch('avatar') || undefined}
+                src={me?.avatar || undefined}
                 className="h-16 w-16 text-xl"
               />
-              <div className="text-sm text-fg-muted">
-                <p className="font-medium text-foreground">{me?.email}</p>
-                <p className="mt-0.5">头像 URL 可在下方编辑</p>
+              <div className="space-y-2">
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept={AVATAR_ACCEPT}
+                  aria-label="选择头像图片"
+                  className="hidden"
+                  disabled={uploadAvatar.isPending}
+                  onChange={handleAvatarChange}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadAvatar.isPending}
+                    onClick={() => avatarInputRef.current?.click()}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    {uploadAvatar.isPending
+                      ? '正在上传…'
+                      : me?.avatar
+                        ? '更换头像'
+                        : '上传头像'}
+                  </Button>
+                  {avatarSaved && (
+                    <span role="status" className="flex items-center gap-1 text-sm text-success">
+                      <Check className="h-4 w-4" />
+                      头像已更新
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-fg-muted">支持 PNG、JPG、WebP，最大 2 MB</p>
+                {avatarError && (
+                  <p role="alert" className="text-sm text-danger">
+                    {avatarError}
+                  </p>
+                )}
               </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">邮箱</label>
+              <Input value={me?.email ?? ''} disabled readOnly />
             </div>
 
             <div>
@@ -117,13 +192,6 @@ export default function SettingsPage() {
                   {profileForm.formState.errors.name.message}
                 </p>
               )}
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                头像 URL（可选）
-              </label>
-              <Input {...profileForm.register('avatar')} placeholder="https://…" />
             </div>
 
             {updateProfile.error && (

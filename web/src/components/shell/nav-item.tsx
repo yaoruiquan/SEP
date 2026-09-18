@@ -19,8 +19,7 @@ export interface NavLink {
  * 只用语义/玻璃令牌，不写死字面色 —— 两个 shell（企业端 / 运营端）都在
  * `.theme-glass` 作用域内，令牌桥会把颜色解析成深色值。
  *
- * Active 态按 PRD §Active 导航项：indigo 浅底 + 左侧 3px 亮条 + 图标文字转
- * `--gbrand-text`（#818cf8，压在画布上 6.25:1 ✅ AA）。
+ * Active 态使用主题令牌：品牌色浅底、左侧标记与强调文字。
  */
 export function NavItem({ href, label, icon: Icon, exact, collapsed }: NavLink) {
   const pathname = usePathname();
@@ -31,26 +30,27 @@ export function NavItem({ href, label, icon: Icon, exact, collapsed }: NavLink) 
       href={href}
       aria-current={active ? 'page' : undefined}
       title={collapsed ? label : undefined}
+      aria-label={collapsed ? label : undefined}
       className={cn(
         'group relative flex items-center overflow-hidden rounded-glass-sm',
-        'text-sm font-medium transition-all duration-200',
+        'text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gbrand',
         collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
         active
-          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-200'
+          ? 'bg-gbrand/10 text-gbrand-text'
           : 'text-gtext-secondary hover:bg-muted hover:text-gtext-primary',
       )}
     >
-      {/* 左侧亮条 —— PRD 要求 3px indigo，配 glow 让它在深底上"发光" */}
+      {/* 除颜色外，用边缘标记区分当前入口。 */}
       {active && !collapsed && (
         <span
           aria-hidden
-            className="absolute inset-y-1 left-0 w-[3px] rounded-r-full bg-indigo-600 dark:bg-indigo-300"
+          className="absolute inset-y-1 left-0 w-[3px] rounded-r-full bg-gbrand-text"
         />
       )}
       <Icon
         className={cn(
           'h-4 w-4 shrink-0 transition-colors',
-          active ? 'text-indigo-600 dark:text-indigo-300' : 'text-gtext-muted group-hover:text-gtext-secondary',
+          active ? 'text-gbrand-text' : 'text-gtext-muted group-hover:text-gtext-secondary',
         )}
       />
       {!collapsed && label}

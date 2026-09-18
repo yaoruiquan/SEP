@@ -1,248 +1,53 @@
-# AGENTS.md
+# SEP — 项目协作核心规则
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+## 协作与安全
+- 默认中文回复，代码/命令/接口字段保留原文。保留用户已有修改，不擅自删除文件、提交、push 或合并分支。
+- 完成较大模块后先测试并总结，再提醒用户提交 Git；需要同步远程时再提醒推送。
+- 小范围、可回滚修改；不新增未经请求的依赖。重构前写计划，覆盖不足先补回归测试。
+- 不读取/输出无关密钥，不把 `.env` 或私有配置备份写入 Git；数据库破坏性操作必须明确授权。
 
-## What this project is
+## 项目与定位
+- 硅基人才平台：用户订阅 Digital Employees，通过对话调用 agent/rpa/skill/ai-app 能力，统一适配器 `execute()` 接口。
+- pnpm workspace：`backend/` + `web/`；Node >=20，TypeScript。后端 NestJS + Prisma + PostgreSQL/Redis；前端 Next.js App Router + Shadcn/ui/Tailwind。
+- 业务模块：`backend/src/modules/<feature>/`；共享 DTO/Zod/类型：`backend/src/shared/`；Prisma schema/migrations：`backend/prisma/`。
+- 前端三面板：`web/src/app/(market)`、`(enterprise)`、`(platform)`；功能组件按 `features/<feature>` 聚合，全局可复用 UI 放 `components/`。
 
-**硅基人才平台 (Silicon Talent Platform / SEP)** — a platform where users subscribe to
-**Digital Employees (硅基员工)** and use them through a ChatGPT-style chat. Each Digital
-Employee is an agent (Vercel AI SDK) that orchestrates one or more **Silicon Capabilities
-(硅基能力)** — reusable units of type `agent` / `rpa` / `skill` / `ai-app`, each hidden
-behind a single `execute()` interface via the adapter pattern.
+## 后端不可违背的约束
+- controller 仅处理 HTTP/Swagger；业务逻辑放 service；新模块注册到 `app.module.ts`。
+- 共享 DTO 用 `shared` alias 导入；请求先经共享 Zod DTO 校验，不把原始 req.body 直接传给 service。
+- 使用 Nest HTTP exceptions，不抛原始 Error、不吞异常；受保护接口使用 JwtAuthGuard，用户来自 req.user。
+- 每个接口补齐 Swagger ApiTags/ApiOperation/ApiResponse。
+- 数据库操作统一注入 PrismaService；业务代码不得 new PrismaClient。
+- 改 schema 后依次 `pnpm db:migrate` → `pnpm db:generate`；迁移由工具生成，不手写修改历史迁移。
+- Prisma IDs 使用 cuid，表名 @@map 为 snake_case 复数，保留 createdAt/updatedAt；Nest 文件 kebab-case、类 PascalCase、变量 camelCase。
+- 所有模型调用经 sub2api（SUB2API_BASE_URL / SUB2API_API_KEY）；不得从应用代码直接接 OpenAI/DeepSeek 等上游。
 
-Full requirements/architecture live in `docs/architecture/`. See the **Doc caveat** below
-before trusting them.
+## 前端与认证
+- Access token 仅存内存/Zustand，禁止 localStorage；refresh token 为后端设置的 httpOnly cookie。刷新页面通过 GET /auth/refresh 恢复内存 token。
+- 服务端数据统一 TanStack Query query/mutation hooks；Zustand 管 UI 状态。表单复用共享 Zod schema，不复制校验逻辑。
+- SSE 保持与后端流协议兼容；不因纯 UI 修改改动认证或业务契约。
+- 三面板共用设计语言，优先复用现有组件；视觉修改做实际页面/截图验证，不能仅靠编译通过宣称视觉正确。
 
-## 协作约定
-
-- 默认使用中文回复；代码、命令、接口字段和必要的专有名词保留原文。
-- 完成一个较大的功能模块后，先完成测试和变更摘要，再提醒用户提交 Git；需要同步远程仓库时，再提醒用户提交或推送到 GitHub。
-- 未经用户明确要求，不自动执行 `git push`、合并分支或删除用户已有文件。
-
-## Tech stack
-
-### Backend
-
-| Area | Choice | Notes |
-|------|--------|-------|
-| Language | TypeScript `^5.7` | Strict-ish; see `backend/tsconfig.json` |
-| Runtime | Node `>=20` | |
-| Monorepo | pnpm workspace `9.15` | `backend/` + `web/` |
-| Backend | NestJS `^10.4` | `backend/` |
-| ORM / DB | Prisma `^6` + PostgreSQL 16 | schema in `backend/prisma/` |
-| Auth | `@nestjs/jwt` + `passport-jwt`, bcrypt | JWT, 7d expiry; httpOnly cookie for web |
-| Validation | Zod (shared DTOs) + class-validator (Nest pipes) | shared DTOs in `backend/src/shared/` |
-| API docs | `@nestjs/swagger` | served at `/api/docs`; Bearer token for Swagger testing |
-| Agent Runtime | Vercel AI SDK (`ai ^7`, `@ai-sdk/openai-compatible`) | all model calls via sub2api |
-| Cache | Redis 7 | |
-
-### Frontend (`web/`)
-
-| Area | Choice | Notes |
-|------|--------|-------|
-| Framework | Next.js 15 App Router | three route groups: `(market)` `(enterprise)` `(platform)` |
-| UI components | Shadcn/ui + Tailwind CSS | components owned as source code; Radix UI primitives |
-| Server state | TanStack Query v5 | API calls, caching, SSE streaming |
-| Client state | Zustand | UI state (open/close, active session, preferences) |
-| Forms | react-hook-form + zod | reuse Zod schemas from `backend/src/shared/` |
-| Data tables | TanStack Table v8 | admin panel |
-| Chat rendering | react-markdown + highlight.js | message content display |
-| Auth storage | httpOnly cookie | access token in memory; refresh token in cookie |
-| Date/time | date-fns | |
-
-## Commands
-
+## 常用命令与验证
 ```bash
-pnpm install                    # 安装所有 workspace 依赖
-docker-compose up -d            # 启动 PostgreSQL + Redis
-
-pnpm db:generate                # 重新生成 Prisma Client（改 schema 后执行）
-pnpm db:migrate                 # 创建并应用迁移
-pnpm db:studio                  # Prisma Studio
-
-pnpm dev:backend                # 后端 :3001，Swagger 在 /api/docs
-pnpm dev:web                    # 前端（Next.js）
-pnpm build                      # 全量构建
+pnpm install
+# 本地 PostgreSQL + Redis（需要时）
+docker-compose up -d
+pnpm dev:backend
+pnpm dev:web
+pnpm test:backend
+pnpm test:web
+pnpm --dir web exec tsc --noEmit --incremental false
+pnpm build
+pnpm db:migrate
+pnpm db:generate
 ```
+- 先跑改动对应测试，再按影响范围做 typecheck/lint/build/smoke；只改文档/配置时检查语法、diff 和非目标配置不变，无需跑全量业务测试。
+- 后端单测与实现同目录 `*.spec.ts`，mock PrismaService、不连真实 DB；E2E 在 `backend/test/`。
+- 最终报告变更文件、检查结果及未验证项；未经执行的测试不得声称通过。
+- 提交遵守 Conventional Commits（feat/fix/refactor/chore/docs/test/perf），必要时附全局 Lore trailers。
 
-Prisma 命令在 `backend/` 内也可直接运行（读 `backend/.env`）。
-
-## Repo layout & where things go
-
-```
-SEP/
-├── backend/                NestJS API（主要开发目标）
-│   ├── prisma/
-│   │   ├── schema.prisma   数据库 Schema（14 个核心实体）
-│   │   └── migrations/     自动生成，不要手动修改
-│   ├── src/
-│   │   ├── shared/         Zod DTO + 共享 TS 类型（原 contracts 包）
-│   │   ├── prisma/         PrismaService（全局注入）
-│   │   ├── modules/        业务模块，每个功能一个目录
-│   │   └── main.ts
-│   ├── .env                DATABASE_URL（本地 Prisma CLI 用）
-│   └── package.json
-│
-├── web/                    Next.js 前端
-│   └── src/app/
-│       ├── (market)/       市场与用户端路由组
-│       ├── (enterprise)/   企业端路由组
-│       └── (platform)/     平台运营端路由组
-│
-├── docs/                   架构文档（规划期产物，以代码为准）
-├── docker-compose.yml      本地开发：PostgreSQL + Redis
-├── .env                    根环境变量（后端运行时读这个）
-└── pnpm-workspace.yaml     ["backend", "web"]
-```
-
-- **共享类型/DTO 放 `backend/src/shared/`**，用相对路径 import（`import { X } from 'shared'`）
-- **所有 DB 操作通过 `PrismaService`**，不要 `new PrismaClient()`
-- **改 `schema.prisma` 后**：`pnpm db:migrate` → `pnpm db:generate`
-
-## Naming conventions
-
-| Thing | Convention | Example |
-|-------|-----------|---------|
-| NestJS files | `kebab-case.<type>.ts` | `digital-employee.service.ts` |
-| Classes | `PascalCase` | `DigitalEmployeeService` |
-| Variables / functions | `camelCase` | `findByEmployeeId` |
-| Zod schemas | `PascalCase + Schema` suffix | `CapabilityUploadDtoSchema` |
-| Prisma models | `PascalCase` | `DigitalEmployee` |
-| DB table names (`@@map`) | `snake_case` plural | `digital_employees` |
-| Enums (Prisma) | `UPPER_SNAKE` | `CAPABILITY_TYPE` |
-| React components | `PascalCase.tsx` | `ChatWindow.tsx` |
-| Env vars | `UPPER_SNAKE` | `SUB2API_API_KEY` |
-
-## Backend conventions (NestJS)
-
-**Module structure** — one feature = `src/modules/<feature>/`:
-```
-digital-employee.module.ts
-digital-employee.controller.ts   ← HTTP + Swagger only, no logic
-digital-employee.service.ts      ← all business logic
-digital-employee.types.ts        ← local types if needed
-```
-Register every new module in `src/app.module.ts`.
-
-**Error handling** — use NestJS built-in HTTP exceptions; never throw raw `Error`:
-```typescript
-throw new NotFoundException(`Employee ${id} not found`);
-throw new ConflictException('Email already registered');
-throw new UnauthorizedException('Invalid credentials');
-throw new BadRequestException('Capability type mismatch');
-```
-Services throw; controllers let them bubble. Do not catch-and-swallow.
-
-**Request validation** — validate with the Zod DTO from `shared`, then pass the
-typed object to the service. Never pass raw `req.body` to a service.
-
-**Auth** — protect routes with `@UseGuards(JwtAuthGuard)`. Get the current user via
-`@Request() req` → `req.user` (set by `JwtStrategy.validate`).
-
-**Swagger** — every endpoint needs `@ApiTags`, `@ApiOperation`, and a relevant
-`@ApiResponse`. Swagger is the API contract between backend and frontend.
-
-**Prisma conventions**:
-- IDs: `@id @default(cuid())`
-- All models have `createdAt DateTime @default(now())` and `updatedAt DateTime @updatedAt`
-- Table name mapped via `@@map("snake_case_plural")`
-- After editing `schema.prisma`: `pnpm db:migrate` (creates migration) → `pnpm db:generate` (rebuilds client)
-- Never `new PrismaClient()` in app code — inject `PrismaService`
-
-## Imports
-
-All shared DTOs/types live in `backend/src/shared/`. Import via the `baseUrl` alias:
-```typescript
-import { CapabilityUploadDtoSchema } from 'shared';   // ✅  (baseUrl: "./src")
-import { RegisterDto } from 'shared';                  // ✅
-import { something } from '../../../shared/…';         // ❌  use alias
-import { PrismaClient } from '@prisma/client';         // ✅  (but only in PrismaService)
-```
-Within the same module, relative imports are fine. Never `new PrismaClient()` in feature code.
-
-## Testing
-
-- Unit tests co-located: `foo.service.spec.ts` next to `foo.service.ts`
-- E2E tests under `backend/test/`
-- Run: `pnpm test` (unit) · `pnpm test:cov` (coverage) · `pnpm test:e2e`
-- Mock `PrismaService` in unit tests — don't hit the real DB
-
-## Frontend conventions (Next.js / web/)
-
-**Route groups** — three isolated panels, each with its own layout:
-```
-web/src/app/
-├── (market)/        市场与用户端：marketplace, login, profile
-├── (enterprise)/    企业端：employees, subscriptions, skills, settings
-└── (platform)/      平台运营端：capability review, user management, billing
-```
-
-**Auth — httpOnly cookie**
-- Access token stored **in memory** (Zustand store), never in `localStorage`
-- Refresh token in **httpOnly cookie** set by the backend `/auth/login` response
-- Swagger testing still uses `Authorization: Bearer <token>` header — unaffected
-- On page reload, call `GET /auth/refresh` to rehydrate the in-memory token
-
-**Server state with TanStack Query**
-```typescript
-// ✅ All API calls go through query/mutation hooks
-const { data: me } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
-const updateProfile = useMutation({ mutationFn: patchProfile });
-
-// ✅ SSE streaming (conversation) uses useQuery with a custom fetcher
-```
-
-**Zod schema reuse** — import shared schemas from `backend/src/shared/` (or a symlinked
-package). Never re-define validation logic in the frontend:
-```typescript
-import { RegisterDtoSchema } from '@sep/shared';   // shared Zod schema
-const form = useForm({ resolver: zodResolver(RegisterDtoSchema) });
-```
-
-**Component file layout** — co-locate by feature, not by type:
-```
-web/src/
-├── components/          global reusable UI only (Button, Modal, etc.)
-├── features/
-│   ├── chat/            ChatWindow, MessageBubble, InputBar
-│   ├── capability/      CapabilityCard, UploadForm
-│   └── employee/        EmployeeSelector, BindingPanel
-└── lib/                 API client, query hooks, utils
-```
-
-**Streaming (SSE)** — Layer 5 conversation uses `streamText` on the backend via NestJS SSE
-(`@Sse`). The frontend consumes it with `EventSource` or `fetch` + `ReadableStream`.
-
-## Git commits
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-```
-feat(capability): add Coze agent adapter
-fix(auth): handle expired JWT correctly
-chore(db): add ToolExecution index on sessionId
-```
-Types: `feat` `fix` `refactor` `chore` `docs` `test` `perf`
-
-## External services (NOT in this repo, NOT in docker-compose)
-
-- **sub2api** — a self-hosted token relay with an **OpenAI-compatible** endpoint. **All
-  model calls route through it** so compute is metered
-  centrally and users never hold upstream keys. Connect via `SUB2API_BASE_URL` /
-  `SUB2API_API_KEY`. Wire it into the Vercel AI SDK with `createOpenAICompatible`.
-Never connect to DeepSeek / OpenAI / etc. directly from app code — always via sub2api.
-
-## Doc caveat (read before following docs/)
-
-`docs/` was written in the planning phase. Some concepts there — a separate `Gateway`
-process, `ModelRelayClient`, `new-api`, `CapabilityVersion`, `SecretProfile`,
-`provider-execution-worker` — do **not** reflect the current code and may be
-over-engineered for now. Concretely: `ModelRelayClient`/`new-api` = **sub2api**; there is
-**no separate Gateway process** (the backend calls providers directly). When a doc
-conflicts with the code or the user, the code and the user win — confirm before building
-infrastructure a doc describes but the code doesn't have.
-
-## Key docs
-
-- Requirements/architecture: `docs/architecture/硅基人才平台-需求与架构规格书-v2.md`
-- Tech-selection rationale: `docs/architecture/技术选型决策文档.md`
-- Progress reports: `docs/progress/`
+## 按需文档（不要默认全文加载）
+- 本次精简前完整项目说明：`docs/development/agent-reference.md`。仅需命名示例、目录细节或历史约定时查对应章节。
+- 需求与架构：`docs/architecture/硅基人才平台-需求与架构规格书-v2.md`；选型：`docs/architecture/技术选型决策文档.md`；进度：`docs/progress/`。
+- 架构文档是规划期产物，以代码和用户最新要求为准。没有独立 Gateway；ModelRelayClient/new-api 指 sub2api，不照文档擅建过度设计的基础设施。

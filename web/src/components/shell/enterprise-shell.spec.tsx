@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EnterpriseShell } from './enterprise-shell';
+import { PlatformShell } from './platform-shell';
+import { ContributorShell } from './contributor-shell';
 import { useAuthStore } from '@/lib/auth-store';
 // 断言引用文案单一来源，避免文案调整后测试与实现漂移
 import { nav } from '@/locales/zh-CN';
@@ -33,7 +35,7 @@ vi.mock('@/features/enterprise/use-enterprise', () => ({
 const setRole = (roleInEnterprise: string | null) =>
   useAuthStore.setState({
     token: 't',
-    user: { id: 'u1', email: 'a@b.c', name: '测试', role: 'USER' },
+    user: { id: 'u1', email: 'a@b.c', name: '测试', avatar: null, role: 'USER' },
     enterprise: { id: 'e1', name: '示例科技' },
     roleInEnterprise,
     hydrated: true,
@@ -44,13 +46,13 @@ const setRole = (roleInEnterprise: string | null) =>
  * 缺少 QueryClientProvider 会直接抛错 —— 故所有渲染都走这个包装。
  * 主题不走真 Provider（它读 localStorage），改为 mock，见上方。
  */
-const renderShell = () => {
+const renderShell = (Shell = EnterpriseShell) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <EnterpriseShell>内容</EnterpriseShell>
+      <Shell>内容</Shell>
     </QueryClientProvider>,
   );
 };
@@ -65,6 +67,28 @@ describe('EnterpriseShell 导航角色过滤', () => {
       roleInEnterprise: null,
       hydrated: false,
     });
+  });
+
+  it.each([
+    ['企业端', EnterpriseShell],
+    ['平台端', PlatformShell],
+    ['贡献者端', ContributorShell],
+  ])('%s 用户头像及加载失败占位保持固定尺寸，不挤占姓名邮箱', (_name, Shell) => {
+    setRole('ENTERPRISE_ADMIN');
+    useAuthStore.setState((state) => ({
+      user: { ...state.user!, avatar: '/api/users/avatar/images/large-photo.png' },
+    }));
+    renderShell(Shell);
+
+    const avatar = screen.getByRole('img', { name: '测试' });
+    expect(avatar).toHaveAttribute('src', '/api/users/avatar/images/large-photo.png');
+    expect(avatar).toHaveClass('h-8', 'w-8', 'shrink-0', 'rounded-full', 'object-cover');
+    expect(screen.getByText('测试')).toBeVisible();
+    expect(screen.getByText('a@b.c')).toBeVisible();
+
+    fireEvent.error(avatar);
+    expect(screen.queryByRole('img', { name: '测试' })).not.toBeInTheDocument();
+    expect(screen.getByText('测')).toHaveClass('h-8', 'w-8', 'shrink-0', 'rounded-full');
   });
 
   it('侧边栏使用企业上传的 Logo，加载失败退回企业首字', () => {

@@ -24,11 +24,7 @@ import {
   useRejectSubscriptionRequest,
 } from '@/features/subscription-request/use-subscription-requests';
 import { GrantPanel } from '@/features/enterprise/grant-panel';
-import {
-  buildEmploymentRow,
-  summarizeAttention,
-  type AttentionKind,
-} from '@/features/subscription/employment-row';
+import { buildEmploymentRow } from '@/features/subscription/employment-row';
 import { SUBSCRIPTION_STATUS_META } from '@/lib/utils';
 import { employment } from '@/locales/zh-CN';
 import type { Subscription, SubscriptionRequest } from '@/lib/types';
@@ -53,7 +49,6 @@ export default function SubscriptionsPage() {
 
   const [topTab, setTopTab] = useState<TopTab>('employments');
   const [keyword, setKeyword] = useState('');
-  const [attentionFilter, setAttentionFilter] = useState<AttentionKind | null>(null);
 
   const { data: subs = [], isLoading } = useSubscriptions();
   const { data: pendingRequests = [], isLoading: loadingRequests } =
@@ -76,14 +71,9 @@ export default function SubscriptionsPage() {
   const [approvedDays, setApprovedDays] = useState<number | undefined>(undefined);
 
   const allRows = useMemo(() => subs.map(buildEmploymentRow), [subs]);
-  // 汇总条统计的是**全部**雇佣关系，不随筛选变化 ——
-  // 否则点开「1 个没授权」之后汇总变成「1 个」，用户失去回到全景的锚点。
-  const summary = useMemo(() => summarizeAttention(allRows), [allRows]);
-
   const rows = useMemo(() => {
     const query = keyword.trim().toLowerCase();
     return allRows.filter((row) => {
-      if (attentionFilter && !row.attention.includes(attentionFilter)) return false;
       if (!query) return true;
       const sub = row.subscription;
       return (
@@ -92,7 +82,7 @@ export default function SubscriptionsPage() {
         sub.employee.position.toLowerCase().includes(query)
       );
     });
-  }, [allRows, attentionFilter, keyword]);
+  }, [allRows, keyword]);
 
   const busy =
     terminate.isPending || changeStatus.isPending || upgradeSub.isPending;
@@ -248,48 +238,6 @@ export default function SubscriptionsPage() {
             />
           ) : (
             <>
-              {/*
-                「待处理」放在最上面而不是做成筛选下拉：这一页每天打开要回答的
-                就是「有没有需要我处理的」。做成下拉的话，没人点开就等于没有。
-              */}
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <span className="text-sm font-medium">待处理</span>
-                {summary.length === 0 ? (
-                  <span className="text-sm text-fg-muted">
-                    都在正常使用中，没有需要处理的雇佣关系。
-                  </span>
-                ) : (
-                  <>
-                    {summary.map(({ meta, count }) => (
-                      <button
-                        key={meta.kind}
-                        onClick={() =>
-                          setAttentionFilter((current) =>
-                            current === meta.kind ? null : meta.kind,
-                          )
-                        }
-                        className={cn(
-                          'rounded-full border px-3 py-1 text-xs transition-colors',
-                          attentionFilter === meta.kind
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border bg-background text-fg-muted hover:text-foreground',
-                        )}
-                      >
-                        {meta.summary(count)}
-                      </button>
-                    ))}
-                    {attentionFilter && (
-                      <button
-                        onClick={() => setAttentionFilter(null)}
-                        className="text-xs text-fg-muted underline hover:text-foreground"
-                      >
-                        显示全部
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-
               <div className="relative max-w-xs">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
                 <Input
@@ -304,13 +252,12 @@ export default function SubscriptionsPage() {
                 <EmptyState
                   icon={<Search className="h-8 w-8" />}
                   title="没有匹配的雇佣关系"
-                  description="试试清空搜索或取消「待处理」筛选"
+                  description="试试清空搜索"
                   action={
                     <Button
                       size="sm"
                       onClick={() => {
                         setKeyword('');
-                        setAttentionFilter(null);
                       }}
                     >
                       查看全部

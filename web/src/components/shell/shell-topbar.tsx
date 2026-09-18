@@ -72,7 +72,7 @@ export function ShellTopbar({
     <header
       className={cn(
         'sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3',
-        'border-b border-border bg-card/95 px-4 shadow-sm backdrop-blur-md sm:px-6',
+        'border-b border-border bg-card/95 px-4 backdrop-blur-md sm:px-6',
         hamburgerGutter && 'pl-16 lg:pl-6',
       )}
     >
@@ -82,10 +82,10 @@ export function ShellTopbar({
           {trail.map((c, i) => {
             const last = i === trail.length - 1;
             return (
-              <li key={c.href} className="flex min-w-0 items-center gap-1">
+              <li key={c.href} className={cn('min-w-0 items-center gap-1', i < trail.length - 2 ? 'hidden sm:flex' : 'flex', !last && 'max-w-[40%] sm:max-w-none')}>
                 {i > 0 && (
                   <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 text-gtext-disabled"
+                    className={cn('h-3.5 w-3.5 shrink-0 text-gtext-disabled', i === trail.length - 2 && 'hidden sm:block')}
                     aria-hidden
                   />
                 )}
@@ -99,7 +99,7 @@ export function ShellTopbar({
                 ) : (
                   <Link
                     href={c.href}
-                    className="truncate text-gtext-muted transition-colors hover:text-gtext-secondary"
+                    className="truncate rounded text-gtext-secondary transition-colors hover:text-gtext-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gbrand"
                   >
                     {c.label}
                   </Link>

@@ -60,6 +60,13 @@ function formatCost(value: number) {
   return `¥${value.toFixed(2)}`;
 }
 
+function getGreeting(date: Date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return '早上好';
+  if (hour < 18) return '下午好';
+  return '晚上好';
+}
+
 function formatDate(value: string) {
   const parts = value.split('-');
   return parts.length === 3 ? `${parts[1]}/${parts[2]}` : value;
@@ -136,8 +143,8 @@ export default function DashboardPage() {
   const { stats, modelDistribution, tokenTrend, topMembers } = data;
   const displayName = user?.name || user?.email?.split('@')[0] || '朋友';
   return <PageFrame>
-    <PageHero title={`早上好，${displayName}`} description="查看团队使用情况，继续推进今天的工作。" />
-    <StatStrip items={[{ label: '硅基员工', value: stats.totalEmployees, icon: <Users className="h-4 w-4" />, tone: 'brand' }, { label: '本月对话', value: formatCompactNumber(stats.conversations.total), icon: <MessageSquareText className="h-4 w-4" />, tone: 'success' }, { label: '碳基员工', value: stats.totalMembers, icon: <BriefcaseBusiness className="h-4 w-4" />, tone: 'warning' }, { label: '本月算力', value: formatComputeUsage(stats.computeUsage.total), icon: <Gauge className="h-4 w-4" />, tone: 'info' }]} />
+    <PageHero title={`${getGreeting()}，${displayName}`} description="查看团队使用情况，继续推进今天的工作。" />
+    <StatStrip className="gap-4 [&>div]:min-h-[96px] [&>div]:px-5 [&>div]:py-4" items={[{ label: '硅基员工', value: stats.totalEmployees, icon: <Users className="h-4 w-4" />, tone: 'brand' }, { label: '本月对话', value: formatCompactNumber(stats.conversations.total), icon: <MessageSquareText className="h-4 w-4" />, tone: 'success' }, { label: '碳基员工', value: stats.totalMembers, icon: <BriefcaseBusiness className="h-4 w-4" />, tone: 'warning' }, { label: '本月算力', value: formatComputeUsage(stats.computeUsage.total), icon: <Gauge className="h-4 w-4" />, tone: 'info' }]} />
 
     <section className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(280px,0.9fr)]"><SectionCard title="模型使用分析" description="最近 30 天各模型的调用次数与成本" action={<Link href="/usage" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary-hover">查看完整报告 <ArrowUpRight className="h-3.5 w-3.5" /></Link>}><ModelDistributionChart data={modelDistribution} /></SectionCard><SectionCard title="成员使用情况" description="按最近消费金额排序" action={<Link href="/usage" className="text-sm font-medium text-primary hover:text-primary-hover">查看全部</Link>}><MemberUsageList data={topMembers} /></SectionCard></section>
 

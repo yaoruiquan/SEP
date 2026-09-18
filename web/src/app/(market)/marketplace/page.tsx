@@ -293,9 +293,9 @@ export default function MarketplacePage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       {/* ── page header ──────────────────────────────────────────────── */}
-      <header className="space-y-5 pt-4 text-center">
+      <header className="space-y-4 text-center sm:space-y-5 sm:pt-4">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
           <span className="gradient-text-glass inline-block">硅基人才市场</span>
         </h1>
@@ -358,7 +358,7 @@ export default function MarketplacePage() {
       </div>
 
       {/* ── body: filter + grid ──────────────────────────────────────── */}
-      <div className="flex gap-6">
+      <div className="flex flex-col gap-6 lg:flex-row">
         {/* 桌面常驻，移动端按需展开 */}
         <div className={cn("lg:block", mobileFilterOpen ? "block" : "hidden")}>
           <FilterPanel
@@ -425,7 +425,7 @@ export default function MarketplacePage() {
                 <div className="flex flex-wrap gap-1.5 text-[11px] text-gtext-muted">
                   {filters.category && <span className="rounded-full border border-glassline bg-glass-2 px-2 py-1">{EMPLOYEE_CATEGORIES.find((c) => c.value === filters.category)?.label}</span>}
                   {filters.capTypes.map((type) => <span key={type} className="rounded-full border border-glassline bg-glass-2 px-2 py-1">{type === "AGENT" ? "AI 对话" : type === "RPA" ? "RPA 自动化" : type === "SKILL" ? "技能脚本" : "AI 应用"}</span>)}
-                  {(filters.category || filters.capTypes.length) && <button className="px-1.5 py-1 text-gbrand-text hover:underline" onClick={() => patchFilters({ category: "", capTypes: [] })}>清除筛选</button>}
+                  {(filters.category || filters.capTypes.length > 0) && <button className="rounded px-1.5 py-1 text-gbrand-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gbrand" onClick={() => patchFilters({ category: "", capTypes: [] })}>清除筛选</button>}
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
