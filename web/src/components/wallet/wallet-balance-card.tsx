@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWalletBalance } from '@/lib/api/wallet';
-import { Wallet, TrendingUp, TrendingDown, RotateCw, Zap, DollarSign } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -23,10 +23,6 @@ export function WalletBalanceCard() {
         <CardContent>
           <div className="animate-pulse space-y-4">
             <div className="h-10 bg-gray-200 rounded w-40" />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="h-24 bg-gray-100 rounded-lg" />
-              <div className="h-24 bg-gray-100 rounded-lg" />
-            </div>
             <div className="grid grid-cols-3 gap-4">
               <div className="h-16 bg-gray-100 rounded-lg" />
               <div className="h-16 bg-gray-100 rounded-lg" />
@@ -87,34 +83,6 @@ export function WalletBalanceCard() {
               冻结金额: ¥{Number(balance.frozenAmount).toFixed(2)}
             </p>
           )}
-        </div>
-
-        {/*
-          「算力余额」页显示的是下面这个算力数，不是上面的总余额。
-          两个页面的数字不同不是 bug —— 在这里把拆分写明，用户才不会以为对不上账。
-        */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border-l-4 border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 p-4 shadow-sm transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="h-4 w-4 text-emerald-600" />
-              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">算力专款</p>
-            </div>
-            <p className="text-2xl font-bold tabular-nums text-foreground">
-              ¥{Number(balance.computeReservedCNY).toFixed(2)}
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-fg-muted">仅用于硅基员工对话</p>
-          </div>
-
-          <div className="rounded-lg border-l-4 border-slate-400 bg-slate-50/50 dark:bg-slate-950/20 p-4 shadow-sm transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="h-4 w-4 text-slate-600" />
-              <p className="text-xs font-semibold text-slate-700 dark:text-slate-400">其他可用</p>
-            </div>
-            <p className="text-2xl font-bold tabular-nums text-foreground">
-              ¥{Number(balance.spendableCNY).toFixed(2)}
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-fg-muted">可用于订阅等企业支出</p>
-          </div>
         </div>
 
         {/* 统计卡片 */}

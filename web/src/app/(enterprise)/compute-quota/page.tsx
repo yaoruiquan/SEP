@@ -71,7 +71,7 @@ function MemberView() {
 
       <Link
         href="/usage"
-        className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <BarChart3 className="h-4 w-4 text-sky-600" />
@@ -125,7 +125,7 @@ function AdminView() {
       {/* 赠送额度从本页移走了，得告诉用户去哪找 —— 否则会以为功能没了 */}
       <Link
         href="/my-employees"
-        className="flex items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+        className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Bot className="h-4 w-4 text-emerald-600" />

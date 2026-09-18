@@ -28,7 +28,7 @@ export function BreakdownList({
   const rest = rows.length - visible.length;
 
   return (
-    <section className="border border-border/70 bg-card p-5">
+    <section className="rounded-lg border border-border/70 bg-card p-5">
       <div className="mb-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {icon}

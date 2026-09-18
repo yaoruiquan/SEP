@@ -50,7 +50,7 @@ export function ComputeBalanceStrip() {
 
   if (isLoading) {
     return (
-      <section className="flex justify-center border border-border/70 bg-card py-14">
+      <section className="flex justify-center rounded-lg border border-border/70 bg-card py-14">
         <Loader2 className="h-6 w-6 animate-spin text-fg-muted" />
       </section>
     );
@@ -61,7 +61,7 @@ export function ComputeBalanceStrip() {
   const hasReserve = Number(overview.computeReservedCNY) > 0;
 
   return (
-    <section className="border border-border/70 bg-card p-5 md:p-6">
+    <section className="rounded-lg border border-border/70 bg-card p-5 md:p-6">
       <div className="grid gap-5 md:grid-cols-2">
         <Stat
           icon={<ShieldCheck className="h-4 w-4 text-emerald-600" />}
