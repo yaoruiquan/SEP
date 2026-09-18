@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { GitBranch, ListTree, Play, Square, TriangleAlert, UserPlus, Waypoints, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -118,6 +118,14 @@ export function TaskFlowTheater({
   const scrollRef = useRef<HTMLDivElement>(null);
   const liveCardRef = useRef<HTMLDivElement>(null);
 
+  // 切换工作记录后复用同一个时间线节点。若上一个任务曾滚动过，浏览器会保留
+  // scrollTop，导致新任务的第一张卡被目标栏底部遮住；只在任务/视图切换时归零，
+  // 不影响执行过程中用户自己的滚动位置。
+  useLayoutEffect(() => {
+    if (view !== 'timeline') return;
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [snapshot.id, view]);
+
   // 正在跑的那一步滚进视野。演示时最怕的就是「它在动，但动的那块在屏幕外」。
   useEffect(() => {
     if (!runningKey || !liveCardRef.current) return;
@@ -136,7 +144,7 @@ export function TaskFlowTheater({
   );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {/* ── 目标条：目标 + 一句话状态 + 横向进度 + 主行动 ─────────────────── */}
       <header className="shrink-0 border-b border-glassline bg-gbg-deep/35 px-4 py-4 backdrop-blur-glass-sm xl:px-8">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
