@@ -1,22 +1,16 @@
 'use client';
 
-import { lazy, Suspense, use } from 'react';
+import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, BarChart2, Search, FileText, AlertCircle } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useKnowledgeAnalytics } from '@/features/knowledge/use-knowledge-test';
-
-// 懒加载 recharts 组件
-const BarChart = lazy(() => import('recharts').then(m => ({ default: m.BarChart })));
-const Bar = lazy(() => import('recharts').then(m => ({ default: m.Bar })));
-const XAxis = lazy(() => import('recharts').then(m => ({ default: m.XAxis })));
-const YAxis = lazy(() => import('recharts').then(m => ({ default: m.YAxis })));
-const CartesianGrid = lazy(() => import('recharts').then(m => ({ default: m.CartesianGrid })));
-const Tooltip = lazy(() => import('recharts').then(m => ({ default: m.Tooltip })));
-const ResponsiveContainer = lazy(() => import('recharts').then(m => ({ default: m.ResponsiveContainer })));
 
 interface AnalyticsPageProps {
   params: Promise<{ id: string }>;
@@ -96,8 +90,7 @@ export default function KnowledgeAnalyticsPage({ params }: AnalyticsPageProps) {
       {chartData.length > 0 && (
         <Card className="mb-6 p-4">
           <h2 className="mb-4 text-sm font-semibold text-gtext-primary">搜索趋势</h2>
-          <Suspense fallback={<div className="h-[180px] animate-pulse rounded-lg bg-muted" />}>
-            <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
@@ -122,7 +115,6 @@ export default function KnowledgeAnalyticsPage({ params }: AnalyticsPageProps) {
               <Bar dataKey="count" name="搜索次数" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-          </Suspense>
         </Card>
       )}
 

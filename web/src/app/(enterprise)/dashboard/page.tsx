@@ -1,6 +1,5 @@
 'use client';
 
-import { lazy, Suspense } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -13,6 +12,19 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { useDashboard } from '@/features/dashboard/use-dashboard';
 import type { ModelDistribution, TokenTrend, TopMember } from '@/features/dashboard/dashboard-api';
 import { cn } from '@/lib/utils';
@@ -26,19 +38,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/lib/auth-store';
 import { PageFrame } from '@/components/page/page-frame';
 import { PageHero } from '@/components/page/page-hero';
-
-// 懒加载 recharts 组件以减少初始 bundle 大小
-const Area = lazy(() => import('recharts').then(m => ({ default: m.Area })));
-const AreaChart = lazy(() => import('recharts').then(m => ({ default: m.AreaChart })));
-const CartesianGrid = lazy(() => import('recharts').then(m => ({ default: m.CartesianGrid })));
-const Cell = lazy(() => import('recharts').then(m => ({ default: m.Cell })));
-const Legend = lazy(() => import('recharts').then(m => ({ default: m.Legend })));
-const Pie = lazy(() => import('recharts').then(m => ({ default: m.Pie })));
-const PieChart = lazy(() => import('recharts').then(m => ({ default: m.PieChart })));
-const ResponsiveContainer = lazy(() => import('recharts').then(m => ({ default: m.ResponsiveContainer })));
-const Tooltip = lazy(() => import('recharts').then(m => ({ default: m.Tooltip })));
-const XAxis = lazy(() => import('recharts').then(m => ({ default: m.XAxis })));
-const YAxis = lazy(() => import('recharts').then(m => ({ default: m.YAxis })));
 // 移除 GRADIENT_COLORS 导入,使用原来的 MODEL_COLORS
 
 const numberFormatter = new Intl.NumberFormat('zh-CN');
@@ -111,9 +110,8 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
       {/* 左侧: 渐变圆环图 */}
       <div className="relative flex items-center justify-center">
         <div className="h-[240px] w-[240px]">
-          <Suspense fallback={<div className="h-full w-full animate-pulse rounded-full bg-muted" />}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
               <Pie
                 data={chartData}
                 dataKey="requests"
@@ -145,7 +143,6 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
               />
             </PieChart>
           </ResponsiveContainer>
-          </Suspense>
         </div>
 
         {/* 中心文字 */}
@@ -213,7 +210,6 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
 
   return (
     <div className="h-[260px] min-w-0">
-      <Suspense fallback={<div className="h-full w-full animate-pulse rounded-lg bg-muted" />}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 4, bottom: 0 }}>
           <defs>
@@ -281,7 +277,6 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
           />
         </AreaChart>
       </ResponsiveContainer>
-      </Suspense>
     </div>
   );
 }
