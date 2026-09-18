@@ -1,10 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import Link from 'next/link';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
 import {
   ArrowRight, Bot, Building2, Cpu, Receipt, TrendingDown, TrendingUp, Users,
 } from 'lucide-react';
@@ -18,6 +15,15 @@ import {
 import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
 import { BreakdownList } from './breakdown-list';
+
+// 懒加载 recharts 以减少初始 bundle 大小
+const AreaChart = lazy(() => import('recharts').then(m => ({ default: m.AreaChart })));
+const Area = lazy(() => import('recharts').then(m => ({ default: m.Area })));
+const XAxis = lazy(() => import('recharts').then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import('recharts').then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import('recharts').then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import('recharts').then(m => ({ default: m.Tooltip })));
+const ResponsiveContainer = lazy(() => import('recharts').then(m => ({ default: m.ResponsiveContainer })));
 
 const RANGES: Array<{ value: UsageRange; label: string }> = [
   { value: 7, label: '近 7 天' },
@@ -158,24 +164,25 @@ export default function UsagePage() {
                 <TrendingDown className="h-4 w-4 text-sky-600" />
                 每日花费趋势
               </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={trend}>
-                  <defs>
-                    <linearGradient id="usageFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.28} />
-                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(v) => format(new Date(v), 'MM/dd')}
-                  />
-                  <YAxis tick={{ fontSize: 12 }} width={64} />
-                  <Tooltip
-                    formatter={(v) => [formatCnyPrecise(Number(v ?? 0)), '算力花费']}
-                    labelFormatter={(l) =>
+              <Suspense fallback={<div className="h-[220px] animate-pulse rounded bg-muted" />}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={trend}>
+                    <defs>
+                      <linearGradient id="usageFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.28} />
+                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(v) => format(new Date(v), 'MM/dd')}
+                    />
+                    <YAxis tick={{ fontSize: 12 }} width={64} />
+                    <Tooltip
+                      formatter={(v) => [formatCnyPrecise(Number(v ?? 0)), '算力花费']}
+                      labelFormatter={(l) =>
                       format(new Date(String(l)), 'yyyy-MM-dd', { locale: zhCN })
                     }
                   />
@@ -189,6 +196,7 @@ export default function UsagePage() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              </Suspense>
             </section>
           )}
 

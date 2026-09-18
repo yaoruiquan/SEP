@@ -1,15 +1,12 @@
 'use client';
 
+import { lazy, Suspense } from 'react';
 import Link from 'next/link';
 import {
   Building2, Users, Zap, Activity,
   TrendingUp, TrendingDown, ArrowRight,
   AlertTriangle, Inbox, RefreshCw, Plus, UserPlus, Layers,
 } from 'lucide-react';
-import {
-  AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/ui/avatar';
@@ -17,6 +14,17 @@ import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useAdminStats, type AdminStats } from '@/features/admin/use-admin-stats';
 import { CHART_GRID, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE, CHART_TOOLTIP_LABEL_STYLE, CHART_SERIES } from '@/lib/chart-theme';
+
+// 懒加载 recharts 组件
+const AreaChart = lazy(() => import('recharts').then(m => ({ default: m.AreaChart })));
+const Area = lazy(() => import('recharts').then(m => ({ default: m.Area })));
+const BarChart = lazy(() => import('recharts').then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import('recharts').then(m => ({ default: m.Bar })));
+const XAxis = lazy(() => import('recharts').then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import('recharts').then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import('recharts').then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import('recharts').then(m => ({ default: m.Tooltip })));
+const ResponsiveContainer = lazy(() => import('recharts').then(m => ({ default: m.ResponsiveContainer })));
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
@@ -240,6 +248,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             {hasComputeData ? (
+              <Suspense fallback={<div className="h-[200px] animate-pulse rounded-lg bg-muted" />}>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={data.computeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <defs>
@@ -268,6 +277,7 @@ export default function AdminDashboardPage() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              </Suspense>
             ) : (
               <ChartEmpty label="近 30 天暂无算力消费记录" />
             )}
@@ -281,6 +291,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             {hasEnterpriseData ? (
+              <Suspense fallback={<div className="h-[200px] animate-pulse rounded-lg bg-muted" />}>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={data.enterpriseTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
@@ -294,6 +305,7 @@ export default function AdminDashboardPage() {
                   <Bar dataKey="count" fill={CHART_SERIES.primary} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              </Suspense>
             ) : (
               <ChartEmpty label="近 30 天暂无新增企业" />
             )}
