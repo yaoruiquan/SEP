@@ -37,14 +37,14 @@ export default function ComponentPreviewPage() {
           <Card variant="solid" className="p-6 space-y-4">
             <h3 className="text-sm font-medium text-neutral-700 mb-4">基础形态</h3>
             <div className="space-y-3">
-              <Skeleton variant="text" width="80%" />
-              <Skeleton variant="text" width="60%" />
-              <Skeleton variant="rectangular" width="100%" height={100} />
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-4 w-3/5" />
+              <Skeleton className="h-24 w-full" />
               <div className="flex items-center gap-3">
-                <Skeleton variant="circular" width={40} height={40} />
+                <Skeleton className="h-10 w-10 rounded-full" />
                 <div className="flex-1 space-y-2">
-                  <Skeleton variant="text" width="60%" />
-                  <Skeleton variant="text" width="40%" />
+                  <Skeleton className="h-4 w-3/5" />
+                  <Skeleton className="h-3 w-2/5" />
                 </div>
               </div>
             </div>

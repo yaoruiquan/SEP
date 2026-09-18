@@ -8,6 +8,7 @@ import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useIterableCapabilities, type IterableCapability } from './use-capability-iteration';
+import { CapabilityStats } from './capability-stats';
 
 /**
  * 技能库列表。
@@ -72,47 +73,51 @@ export function CapabilityIterationList() {
   const pendingItems = items.filter((item) => item.pendingAdoptionCount > 0);
 
   return (
-    <div className="space-y-4">
-      {summary && <SummaryBar summary={summary} canManage={canManage} />}
+    <div className="space-y-6">
+      {summary && <CapabilityStats summary={summary} />}
 
       {pendingItems.length > 0 && <PendingBoard items={pendingItems} canManage={canManage} />}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gtext-disabled" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-[200px] flex-1 sm:max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-disabled" />
           <Input
             glass
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             placeholder="搜索技能或硅基员工"
-            className="h-8 pl-8 text-xs"
+            className="h-10 pl-10 text-sm shadow-glass-sm transition-shadow focus:shadow-glass-md"
           />
         </div>
-        <Segmented
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: 'all', label: '全部' },
-            { value: 'customized', label: '已调整' },
-            { value: 'pending', label: '有待办' },
-          ]}
-        />
-        <Segmented
-          value={view}
-          onChange={setView}
-          options={[
-            { value: 'grouped', label: '按员工', icon: Users },
-            { value: 'flat', label: '平铺', icon: LayoutList },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'customized', label: '已调整' },
+              { value: 'pending', label: '有待办' },
+            ]}
+          />
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'grouped', label: '按员工', icon: Users },
+              { value: 'flat', label: '平铺', icon: LayoutList },
+            ]}
+          />
+        </div>
       </div>
 
       {visible.length === 0 ? (
-        <p className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-8 text-center text-xs text-gtext-muted">
-          没有符合条件的技能
-        </p>
+        <div className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-12 text-center">
+          <Library className="mx-auto h-8 w-8 text-gtext-disabled" />
+          <p className="mt-3 text-sm font-medium text-gtext-secondary">没有符合条件的技能</p>
+          <p className="mt-1 text-xs text-gtext-muted">尝试调整筛选条件或搜索关键词</p>
+        </div>
       ) : view === 'flat' ? (
-        <div className="overflow-hidden rounded-glass-lg border border-glassline bg-glass-1">
+        <div className="overflow-hidden rounded-glass-lg border border-glassline bg-glass-1 shadow-glass-sm">
           <FlatHeader />
           {visible.map((item) => (
             <CapabilityRow key={item.capability.id} item={item} showEmployees />
@@ -204,22 +209,25 @@ function SummaryBar({
  */
 function PendingBoard({ items, canManage }: { items: IterableCapability[]; canManage: boolean }) {
   return (
-    <div className="rounded-glass-lg border border-glassline-brand bg-gbrand/[0.06] p-3">
-      <div className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-gbrand-text">
-        <Inbox className="h-3.5 w-3.5" />
+    <div className="rounded-glass-lg border border-glassline-brand bg-gbrand/[0.06] p-4 shadow-glass-sm">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gbrand-text">
+        <Inbox className="h-4 w-4" />
         {canManage ? '待你处理' : '我的改动'}
+        <span className="ml-auto rounded-glass-pill bg-gbrand/20 px-2 py-0.5 text-xs font-medium">
+          {items.length} 项
+        </span>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {items.map((item) => (
           <Link
             key={item.capability.id}
             href={`/capabilities/${item.capability.id}?tab=changes`}
-            className="flex items-center justify-between gap-3 rounded-glass-md px-2 py-1.5 text-xs transition-colors hover:bg-glass-2"
+            className="flex items-center justify-between gap-3 rounded-glass-md border border-glassline bg-glass-1 px-3 py-2.5 text-sm shadow-glass-sm transition-all hover:bg-glass-2 hover:shadow-glass-md"
           >
             <span className="min-w-0 truncate font-medium text-gtext-primary">
               {item.capability.name}
             </span>
-            <span className="shrink-0 text-gbrand-text">
+            <span className="shrink-0 text-xs text-gbrand-text">
               {canManage
                 ? `${item.pendingAdoptionCount} 位成员调整过 · 去采纳`
                 : '我的副本已生效 · 等待企业采纳'}
@@ -237,7 +245,7 @@ function FlatHeader() {
     <div
       className={cn(
         ROW_GRID_FLAT,
-        'border-b border-glassline bg-glass-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-gtext-muted',
+        'border-b border-glassline bg-glass-2 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gtext-muted',
       )}
     >
       <span>技能</span>
@@ -294,34 +302,34 @@ function GroupedList({
         return (
           <div
             key={employeeId}
-            className="overflow-hidden rounded-glass-lg border border-glassline bg-glass-1"
+            className="overflow-hidden rounded-glass-lg border border-glassline bg-glass-1 shadow-glass-sm transition-shadow hover:shadow-glass-md"
           >
             <button
               type="button"
               onClick={() => onToggle(employeeId)}
               aria-expanded={!isCollapsed}
-              className="flex w-full items-center gap-3 bg-glass-2 px-3 py-2.5 text-left transition-colors hover:bg-glass-3"
+              className="flex w-full items-center gap-3 bg-glass-2 px-4 py-3 text-left transition-colors hover:bg-glass-3"
             >
               <Avatar
                 name={group.name}
                 src={group.avatar}
-              portrait
-                className="h-9 w-9 shrink-0 shadow-glass-sm ring-1 ring-white/15"
+                portrait
+                className="h-10 w-10 shrink-0 shadow-glass-sm ring-1 ring-white/15"
               />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold text-gtext-primary">
+                <p className="truncate text-sm font-semibold text-gtext-primary">
                   {group.name}
                 </p>
                 {group.subtitle && (
-                  <p className="mt-0.5 truncate text-[11px] text-gtext-muted">{group.subtitle}</p>
+                  <p className="mt-0.5 truncate text-xs text-gtext-muted">{group.subtitle}</p>
                 )}
               </div>
-              <span className="shrink-0 text-[11px] text-gtext-muted">
+              <span className="shrink-0 text-xs text-gtext-muted">
                 {group.items.length} 个技能
                 {rounds > 0 && ` · ${rounds} 次调用`}
               </span>
               {pending > 0 && (
-                <span className="shrink-0 rounded-glass-pill bg-gbrand/15 px-1.5 py-0.5 text-[10px] font-medium text-gbrand-text">
+                <span className="shrink-0 rounded-glass-pill bg-gbrand/15 px-2 py-0.5 text-xs font-medium text-gbrand-text">
                   {pending} 条待采纳
                 </span>
               )}
@@ -335,10 +343,10 @@ function GroupedList({
             {!isCollapsed && (
               // 左侧留出与头像同宽的一列，并画一条竖线 ——
               // 技能视觉上「属于」上面那个人，而不是一个平级列表
-              <div className="relative pl-[30px]">
+              <div className="relative pl-[34px]">
                 <span
                   aria-hidden
-                  className="absolute bottom-2 left-[18px] top-0 w-px bg-glassline"
+                  className="absolute bottom-2 left-[20px] top-0 w-px bg-glassline"
                 />
                 {group.items.map((item) => (
                   <CapabilityRow key={item.capability.id} item={item} />
@@ -369,10 +377,10 @@ function CapabilityRow({
       href={`/capabilities/${item.capability.id}`}
       className={cn(
         showEmployees ? ROW_GRID_FLAT : ROW_GRID,
-        'border-t border-glassline px-3 py-2 transition-colors first:border-t-0 hover:bg-glass-2',
+        'border-t border-glassline px-4 py-3 transition-all first:border-t-0 hover:bg-glass-2 hover:shadow-glass-sm',
       )}
     >
-      <span className="truncate text-[13px] font-medium text-gtext-primary">
+      <span className="truncate text-sm font-medium text-gtext-primary">
         {item.capability.name}
       </span>
 
@@ -390,7 +398,7 @@ function CapabilityRow({
       </span>
 
       {/* 没人用时留空而不是写「暂无使用」——重复 18 遍的灰字比空白更吵 */}
-      <span className="truncate text-right text-[11px] text-gtext-muted">
+      <span className="truncate text-right text-xs text-gtext-muted">
         {item.usage.distinctUserCount > 0 ? (
           <>
             <span className="font-semibold tabular-nums text-gtext-secondary">
@@ -401,14 +409,14 @@ function CapabilityRow({
         ) : null}
       </span>
 
-      <span className="truncate text-right text-[11px]">
+      <span className="truncate text-right text-xs">
         {item.pendingAdoptionCount > 0 ? (
           <span className="font-medium text-gbrand-text">{item.pendingAdoptionCount} 条待采纳</span>
         ) : null}
       </span>
 
       {showEmployees && (
-        <span className="truncate text-right text-[11px] text-gtext-muted">
+        <span className="truncate text-right text-xs text-gtext-muted">
           {item.employees.map((employee) => employee.employeeName).join('、')}
         </span>
       )}
@@ -447,7 +455,7 @@ function ScopeTag({
   return (
     <span
       className={cn(
-        'truncate rounded-glass-pill border px-2 py-0.5 text-[10px] font-medium',
+        'truncate rounded-glass-pill border px-2.5 py-1 text-[11px] font-medium shadow-glass-sm',
         tone === 'personal' && 'border-gsuccess/40 bg-gsuccess/10 text-gsuccess',
         tone === 'enterprise' && 'border-glassline-brand bg-gbrand/10 text-gbrand-text',
         tone === 'platform' && 'border-glassline bg-glass-2 text-gtext-secondary',
@@ -468,7 +476,7 @@ function Segmented<T extends string>({
   options: Array<{ value: T; label: string; icon?: React.ElementType }>;
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-glass-md border border-glassline bg-glass-2 p-0.5">
+    <div className="flex items-center gap-1 rounded-glass-md border border-glassline bg-glass-2 p-1 shadow-glass-sm">
       {options.map(({ value: optionValue, label, icon: Icon }) => (
         <button
           key={optionValue}
@@ -476,13 +484,13 @@ function Segmented<T extends string>({
           onClick={() => onChange(optionValue)}
           aria-pressed={value === optionValue}
           className={cn(
-            'inline-flex h-7 items-center gap-1 rounded-glass-pill px-2.5 text-[11px] transition-all',
+            'inline-flex h-8 items-center gap-1.5 rounded-glass-pill px-3 text-xs font-medium transition-all',
             value === optionValue
-              ? 'bg-gbg-raised text-gtext-primary shadow-glass-sm'
-              : 'text-gtext-muted hover:text-gtext-secondary',
+              ? 'bg-gbg-raised text-gtext-primary shadow-glass-md'
+              : 'text-gtext-muted hover:bg-glass-3 hover:text-gtext-secondary',
           )}
         >
-          {Icon && <Icon className="h-3 w-3" />}
+          {Icon && <Icon className="h-3.5 w-3.5" />}
           {label}
         </button>
       ))}
@@ -492,12 +500,21 @@ function Segmented<T extends string>({
 
 function ListSkeleton() {
   return (
-    <div className="space-y-3">
-      <div className="h-10 animate-pulse rounded-glass-lg border border-glassline bg-glass-1" />
+    <div className="space-y-4">
+      {/* Stats skeleton */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-24 animate-pulse rounded-glass-lg border border-glassline bg-glass-1"
+          />
+        ))}
+      </div>
+      {/* Group skeletons */}
       {[0, 1].map((i) => (
         <div
           key={i}
-          className="h-32 animate-pulse rounded-glass-lg border border-glassline bg-glass-1"
+          className="h-40 animate-pulse rounded-glass-lg border border-glassline bg-glass-1"
         />
       ))}
     </div>

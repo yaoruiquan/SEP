@@ -1,0 +1,22 @@
+{
+  "scope": "employee-compact",
+  "review": "manual screenshot review; visual-verdict skill unavailable",
+  "iteration": 1,
+  "status": "pass",
+  "evidence": ["output/playwright/employees-compact-desktop.png", "output/playwright/employees-compact-mobile.png", "output/playwright/employees-compact-dark.png"],
+  "checks": {
+    "desktopViewport": 1440,
+    "desktopColumns": 3,
+    "cardWidth": 368,
+    "firstRowCardHeight": 470,
+    "avatarSize": [104, 104],
+    "mobileOverflow": false,
+    "categoryFilter": "pass",
+    "skillSearch": "pass",
+    "responsiveColumns": { "1366": 3, "1920": 3, "768": 2, "390": 1 },
+    "buttonWidth": 104,
+    "darkMode": "pass",
+    "assetFilesVerified": 237
+  },
+  "limitations": ["Browser used fixture data with real local assets.", "Dedicated employee header generation blocked by unavailable relay credentials; compact text header used instead of unrelated assets."]
+}

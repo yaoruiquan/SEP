@@ -1,0 +1,8 @@
+{
+  "iteration": 0,
+  "method": "manual visual review (visual-verdict skill unavailable locally)",
+  "evidence": ["outputs/ui-review/home-desktop.png", "outputs/ui-review/home-mobile.png", "outputs/ui-review/market-desktop.png", "outputs/ui-review/market-mobile.png"],
+  "verdict": "needs_changes",
+  "issues": ["市场筛选摘要有多余的 0", "移动首屏发现区占比偏高", "代码显示平台/贡献者固定侧栏缺乏移动布局"],
+  "limitations": ["真实后台登录失败，尚未取得后台截图"]
+}
