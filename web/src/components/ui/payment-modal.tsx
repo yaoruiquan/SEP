@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { X, Wallet, Loader2, CheckCircle2, ArrowRight, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Z_CLASS } from '@/lib/z-index';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -106,13 +107,13 @@ export function PaymentModal({
     <>
       {/* backdrop */}
       <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        className={cn('fixed inset-0 bg-black/60 backdrop-blur-sm', Z_CLASS.dialog)}
         onClick={succeeded ? undefined : onClose}
         aria-hidden="true"
       />
 
       {/* modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className={cn('fixed inset-0 flex items-center justify-center p-4', Z_CLASS.dialog)}>
         <div
           className={cn(
             'glass-card relative w-full max-w-md space-y-5 p-6',

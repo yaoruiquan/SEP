@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { Z_CLASS } from '@/lib/z-index';
 
 /**
  * 页面切换顶部进度条
@@ -48,7 +49,8 @@ export function TopLoadingBar() {
   return (
     <div
       className={cn(
-        'fixed top-0 left-0 z-[9999] h-0.5 bg-primary transition-all duration-200 ease-out',
+        'fixed top-0 left-0 h-0.5 bg-primary transition-all duration-200 ease-out',
+        Z_CLASS.loading,
         progress === 100 && 'opacity-0'
       )}
       style={{ width: `${progress}%` }}
@@ -150,7 +152,7 @@ export function FullPageLoading({
   message?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+    <div className={cn('fixed inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm', Z_CLASS.loading)}>
       <LoadingSpinner size="lg" />
       <p className="mt-4 text-sm text-neutral-600">{message}</p>
     </div>

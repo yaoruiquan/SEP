@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { DigitalEmployee, MarketEmployee } from '@/lib/types';
+import { Z_CLASS } from '@/lib/z-index';
 
 interface SubscriptionRequestModalProps {
   open: boolean;
@@ -50,7 +51,7 @@ export function SubscriptionRequestModal({
       {/* backdrop */}
       <div
         aria-hidden="true"
-        className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm"
+        className={cn('fixed inset-0 bg-black/50 backdrop-blur-sm', Z_CLASS.dialog)}
         onClick={handleClose}
       />
 
@@ -60,7 +61,8 @@ export function SubscriptionRequestModal({
         aria-modal="true"
         aria-label="申请使用"
         className={cn(
-          'fixed left-1/2 top-1/2 z-[70] w-full max-w-[480px] -translate-x-1/2 -translate-y-1/2',
+          'fixed left-1/2 top-1/2 w-full max-w-[480px] -translate-x-1/2 -translate-y-1/2',
+          Z_CLASS.dialog,
           'rounded-glass-2xl border border-glassline bg-glass-1 shadow-glass-xl backdrop-blur-glass-xl',
           'p-6',
         )}

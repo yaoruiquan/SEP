@@ -11,6 +11,13 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useKnowledgeAnalytics } from '@/features/knowledge/use-knowledge-test';
+import {
+  CHART_GRID,
+  CHART_AXIS_TICK,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  useChartSeries,
+} from '@/lib/chart-theme';
 
 interface AnalyticsPageProps {
   params: Promise<{ id: string }>;
@@ -20,6 +27,8 @@ export default function KnowledgeAnalyticsPage({ params }: AnalyticsPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const { data, isLoading } = useKnowledgeAnalytics(id, 30);
+  // 数据系列色按主题取；必须在任何 early return 前调用（Rules of Hooks）
+  const series = useChartSeries();
 
   if (isLoading) {
     return <CenteredSpinner label="加载分析数据..." />;
@@ -92,27 +101,23 @@ export default function KnowledgeAnalyticsPage({ params }: AnalyticsPageProps) {
           <h2 className="mb-4 text-sm font-semibold text-gtext-primary">搜索趋势</h2>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 11, fill: 'var(--color-gtext-muted)' }}
+                tick={{ ...CHART_AXIS_TICK, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: 'var(--color-gtext-muted)' }}
+                tick={{ ...CHART_AXIS_TICK, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
               />
               <Tooltip
-                contentStyle={{
-                  background: 'var(--color-glassbg)',
-                  border: '1px solid var(--color-glassline)',
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                labelStyle={CHART_TOOLTIP_LABEL_STYLE}
               />
-              <Bar dataKey="count" name="搜索次数" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="搜索次数" fill={series.primary} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>

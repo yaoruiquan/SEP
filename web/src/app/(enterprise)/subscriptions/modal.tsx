@@ -1,5 +1,7 @@
 'use client';
 
+import { Z_CLASS } from '@/lib/z-index';
+
 /**
  * 页面内小弹窗。
  *
@@ -17,7 +19,7 @@ export function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className={`fixed inset-0 flex items-center justify-center p-4 ${Z_CLASS.dialog}`}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-background shadow-lg">
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">

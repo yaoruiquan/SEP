@@ -192,7 +192,7 @@ export default function SubscriptionsPage() {
   if (isLoading) return <SubscriptionsSkeleton />;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{employment.section}</h1>
@@ -518,7 +518,7 @@ function TabButton({
 
 function SubscriptionsSkeleton() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Header skeleton */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">

@@ -161,7 +161,7 @@ export default function MembersPage() {
   if (isLoading) return <MembersSkeleton />;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{member.list}</h1>
@@ -480,7 +480,7 @@ export default function MembersPage() {
 
 function MembersSkeleton() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Header skeleton */}
       <div className="flex items-center justify-between">
         <div className="space-y-2">
