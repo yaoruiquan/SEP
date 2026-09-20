@@ -365,6 +365,7 @@ function DashboardSkeleton() {
 export default function DashboardPage() {
   const { data, isLoading, isError } = useDashboard();
   const user = useAuthStore((state) => state.user);
+  const roleInEnterprise = useAuthStore((state) => state.roleInEnterprise);
 
   if (isLoading) return <DashboardSkeleton />;
 
@@ -378,6 +379,7 @@ export default function DashboardPage() {
     );
 
   const { stats, modelDistribution, tokenTrend, topMembers } = data;
+  const isAdmin = data.scope === 'enterprise' || (data.scope == null && roleInEnterprise === 'ENTERPRISE_ADMIN');
   const displayName = user?.name || user?.email?.split('@')[0] || '朋友';
 
   // 计算趋势百分比
@@ -392,17 +394,21 @@ export default function DashboardPage() {
     <PageFrame>
       <PageHero
         title={`${getGreeting()}，${displayName}`}
-        description="查看团队使用情况，继续推进今天的工作。"
+        description={
+          isAdmin
+            ? '查看企业整体使用情况，继续推进今天的工作。'
+            : '查看我的使用情况，继续推进今天的工作。'
+        }
       />
 
       {/* 统计卡片升级 - 使用新的 StatCard 组件 */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="硅基员工"
+          label={isAdmin ? '硅基员工' : '我的可用硅基员工'}
           value={stats.totalEmployees}
           icon={Users}
           description={`${stats.activeEmployees} 个活跃`}
-          trend="+3 本周"
+          trend={isAdmin ? '+3 本周' : undefined}
           trendUp={true}
         />
         <StatCard
@@ -414,10 +420,10 @@ export default function DashboardPage() {
           trendUp={stats.conversations.trend > 0}
         />
         <StatCard
-          label="碳基员工"
-          value={stats.totalMembers}
+          label={isAdmin ? '碳基员工' : '我的活跃员工'}
+          value={isAdmin ? stats.totalMembers : stats.activeEmployees}
           icon={BriefcaseBusiness}
-          description={`${stats.totalDepartments} 个部门`}
+          description={isAdmin ? `${stats.totalDepartments} 个部门` : '近 7 天使用过的员工'}
         />
         <StatCard
           label="本月算力"
@@ -436,8 +442,10 @@ export default function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>模型使用分析</CardTitle>
-                <CardDescription>最近 30 天各模型的调用次数与成本</CardDescription>
+                <CardTitle>{isAdmin ? '模型使用分析' : '我的模型使用分析'}</CardTitle>
+                <CardDescription>
+                  {isAdmin ? '最近 30 天各模型的调用次数与成本' : '最近 30 天我的模型调用次数与成本'}
+                </CardDescription>
               </div>
               <Link
                 href="/usage"
@@ -453,8 +461,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* 成员使用情况 */}
-        <Card className="hover:shadow-md transition-shadow">
+        {/* 成员使用情况仅对企业管理员开放，普通成员不能看到企业其他人的消费排行。 */}
+        {isAdmin && <Card className="hover:shadow-md transition-shadow">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -472,7 +480,7 @@ export default function DashboardPage() {
           <CardContent>
             <MemberUsageList data={topMembers} />
           </CardContent>
-        </Card>
+        </Card>}
       </section>
 
       {/* Token 使用趋势 */}
@@ -481,8 +489,10 @@ export default function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Token 使用趋势</CardTitle>
-                <CardDescription>最近 7 天 Input / Output 用量</CardDescription>
+                <CardTitle>{isAdmin ? 'Token 使用趋势' : '我的 Token 使用趋势'}</CardTitle>
+                <CardDescription>
+                  {isAdmin ? '最近 7 天 Input / Output 用量' : '最近 7 天我的 Input / Output 用量'}
+                </CardDescription>
               </div>
               <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
                 <Cpu className="h-4 w-4" />

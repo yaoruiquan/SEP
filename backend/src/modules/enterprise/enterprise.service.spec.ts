@@ -69,6 +69,7 @@ describe('EnterpriseService', () => {
       const result = await service.getDashboardStats('user-1');
 
       expect(result).toEqual({
+        scope: 'enterprise',
         employeeCount: 0,
         memberCount: 0,
         monthlySpend: 0,
@@ -125,6 +126,43 @@ describe('EnterpriseService', () => {
         topEmployees: [],
         recentActivities: [],
       });
+    });
+
+    it('普通成员只看自己的用量，不返回企业成员排行', async () => {
+      jest.spyOn(ctx, 'resolve').mockResolvedValue({
+        enterpriseId: 'ent-1',
+        memberId: 'member-1',
+        role: 'MEMBER',
+        departmentId: null,
+      });
+      jest.spyOn(prisma.computeAccount, 'findUnique').mockResolvedValue({
+        id: 'acc-1',
+        enterpriseId: 'ent-1',
+        balance: 100,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      jest.spyOn(prisma.subscription, 'count').mockResolvedValue(1);
+      jest.spyOn(prisma.enterpriseMember, 'count').mockResolvedValue(10);
+      jest.spyOn(prisma.computeTransaction, 'count').mockResolvedValue(2);
+      jest.spyOn(prisma.computeTransaction, 'findMany').mockResolvedValue([]);
+      (prisma.computeUsageRecord.groupBy as jest.Mock).mockResolvedValue([]);
+      jest.spyOn(prisma.subscription, 'findMany').mockResolvedValue([]);
+      jest.spyOn(prisma.enterpriseMember, 'findMany').mockResolvedValue([]);
+
+      const result = await service.getDashboardStats('user-1');
+
+      expect(result.scope).toBe('member');
+      expect(result.memberCount).toBe(0);
+      expect(result.topMembers).toEqual([]);
+      expect((prisma.computeTransaction.count as jest.Mock).mock.calls[0][0].where).toEqual(
+        expect.objectContaining({
+          AND: [{ metadata: { path: ['memberId'], equals: 'member-1' } }],
+        }),
+      );
+      expect((prisma.computeUsageRecord.groupBy as jest.Mock).mock.calls[0][0].where).toEqual(
+        expect.objectContaining({ userId: 'user-1' }),
+      );
     });
 
     it('模型分布来自统一账本，按 enterpriseId + 30 天窗口在库内聚合', async () => {

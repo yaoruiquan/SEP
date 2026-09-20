@@ -128,6 +128,10 @@ export class EnterpriseService {
   async getDashboardStats(userId: string) {
     const context = await this.ctx.resolve(userId);
     const { enterpriseId } = context;
+    const isAdmin = context.role === "ENTERPRISE_ADMIN";
+    const memberTransactionScope = isAdmin
+      ? {}
+      : { AND: [{ metadata: { path: ["memberId"], equals: context.memberId } }] };
 
     // 获取企业的计算账户
     const account = await this.prisma.computeAccount.findUnique({
@@ -138,6 +142,7 @@ export class EnterpriseService {
     if (!account) {
       // 企业还没有计算账户，返回空数据
       return {
+        scope: isAdmin ? "enterprise" : "member",
         employeeCount: 0,
         memberCount: 0,
         monthlySpend: 0,
@@ -155,12 +160,25 @@ export class EnterpriseService {
     const [employeeCount, memberCount, callCount] = await Promise.all([
       // 雇佣关系数（收敛后订阅即雇佣关系）
       this.prisma.subscription.count({
-        where: { enterpriseId, status: "ACTIVE" },
+        where: isAdmin
+          ? { enterpriseId, status: "ACTIVE" }
+          : {
+              enterpriseId,
+              status: "ACTIVE",
+              grants: {
+                some: {
+                  OR: [
+                    { memberId: context.memberId },
+                    ...(context.departmentId ? [{ departmentId: context.departmentId }] : []),
+                  ],
+                },
+              },
+            },
       }),
-      // 成员数
-      this.prisma.enterpriseMember.count({
-        where: { enterpriseId },
-      }),
+      // 成员数是企业管理信息，普通成员不返回企业真实人数。
+      isAdmin
+        ? this.prisma.enterpriseMember.count({ where: { enterpriseId } })
+        : Promise.resolve(0),
       // 本月调用次数（从 ComputeTransaction metadata 统计）
       this.prisma.computeTransaction.count({
         where: {
@@ -169,6 +187,7 @@ export class EnterpriseService {
           createdAt: {
             gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
           },
+          ...memberTransactionScope,
         },
       }),
     ]);
@@ -181,6 +200,7 @@ export class EnterpriseService {
         createdAt: {
           gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
         },
+        ...memberTransactionScope,
       },
       select: { amount: true },
     });
@@ -197,6 +217,7 @@ export class EnterpriseService {
         accountId: account.id,
         type: "CONSUME",
         createdAt: { gte: thirtyDaysAgo },
+        ...memberTransactionScope,
       },
       select: { amount: true, createdAt: true },
       orderBy: { createdAt: "asc" },
@@ -222,6 +243,7 @@ export class EnterpriseService {
         // 必须与 gateway 写入的 key 一致（收敛前是 instanceId）——
         // 过滤条件和下面的读取用不同 key 会让 Top5 永远为空
         metadata: { path: ["subscriptionId"], not: null },
+        ...memberTransactionScope,
       },
       select: { metadata: true },
     });
@@ -260,6 +282,7 @@ export class EnterpriseService {
       where: {
         accountId: account.id,
         type: "CONSUME",
+        ...memberTransactionScope,
       },
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -299,6 +322,7 @@ export class EnterpriseService {
     );
 
     return {
+      scope: isAdmin ? "enterprise" : "member",
       employeeCount,
       memberCount,
       monthlySpend: Math.round(monthlySpend * 100) / 100,
@@ -306,9 +330,17 @@ export class EnterpriseService {
       spendTrend,
       topEmployees: topEmployeesResult,
       recentActivities: activities,
-      modelDistribution: await this.getModelDistribution(enterpriseId),
-      tokenTrend: await this.getTokenTrend(account.id),
-      topMembers: await this.getTopMembers(account.id, enterpriseId),
+      modelDistribution: await this.getModelDistribution(
+        enterpriseId,
+        isAdmin ? undefined : userId,
+      ),
+      tokenTrend: await this.getTokenTrend(
+        account.id,
+        isAdmin ? undefined : context.memberId,
+      ),
+      topMembers: isAdmin
+        ? await this.getTopMembers(account.id, enterpriseId)
+        : [],
     };
   }
 
@@ -333,14 +365,18 @@ export class EnterpriseService {
    * ComputeTransaction 仍然不能用于此处：它同时承载历史金额消费与配额 token
    * 扣减，amount / metadata 口径混杂。
    */
-  private async getModelDistribution(enterpriseId: string) {
+  private async getModelDistribution(enterpriseId: string, userId?: string) {
     const since = new Date();
     since.setDate(since.getDate() - MODEL_DISTRIBUTION_DAYS);
 
     // 聚合下推给数据库：groupBy 而非 findMany + JS reduce。
     const rows = await this.prisma.computeUsageRecord.groupBy({
       by: ['modelId'],
-      where: { enterpriseId, createdAt: { gte: since } },
+      where: {
+        enterpriseId,
+        createdAt: { gte: since },
+        ...(userId ? { userId } : {}),
+      },
       _count: { _all: true },
       _sum: { inputTokens: true, outputTokens: true, costCNY: true },
     });
@@ -359,7 +395,7 @@ export class EnterpriseService {
   /**
    * Token 使用趋势（最近 7 天，按天聚合）
    */
-  private async getTokenTrend(accountId: string) {
+  private async getTokenTrend(accountId: string, memberId?: string) {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -368,7 +404,14 @@ export class EnterpriseService {
         accountId,
         type: 'CONSUME',
         createdAt: { gte: sevenDaysAgo },
-        metadata: { path: ['inputTokens'], not: null },
+        ...(memberId
+          ? {
+              AND: [
+                { metadata: { path: ['inputTokens'], not: null } },
+                { metadata: { path: ['memberId'], equals: memberId } },
+              ],
+            }
+          : { metadata: { path: ['inputTokens'], not: null } }),
       },
       select: { metadata: true, createdAt: true },
       orderBy: { createdAt: 'asc' },

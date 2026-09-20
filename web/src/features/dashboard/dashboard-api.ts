@@ -52,7 +52,10 @@ export interface TopMember {
   cost: number;
 }
 
+export type DashboardScope = 'enterprise' | 'member';
+
 export interface DashboardData {
+  scope: DashboardScope;
   stats: DashboardStats;
   usageTrend: UsageTrend[];
   topEmployees: TopEmployee[];
@@ -65,6 +68,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
   const [dashboard, analytics] = await Promise.all([
     api.get<DashboardData>('/dashboard'),
     api.get<{
+      scope?: DashboardScope;
       modelDistribution?: ModelDistribution[];
       tokenTrend?: TokenTrend[];
       topMembers?: TopMember[];
@@ -73,6 +77,9 @@ export async function fetchDashboardData(): Promise<DashboardData> {
 
   return {
     ...dashboard,
+    // 后端两个接口都按 JWT 解析真实范围；优先使用 /dashboard 的作用域，
+    // analytics 作为兼容旧后端的回退。
+    scope: dashboard.scope ?? analytics.scope ?? 'enterprise',
     modelDistribution: analytics.modelDistribution ?? [],
     tokenTrend: analytics.tokenTrend ?? [],
     topMembers: analytics.topMembers ?? [],

@@ -1,99 +1,97 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { subDays, format, startOfDay } from 'date-fns';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly enterpriseContext: EnterpriseContextService,
+  ) {}
 
   async getEnterpriseStats(userId: string) {
-    // 获取用户所属企业
-    const enterpriseMember = await this.prisma.enterpriseMember.findFirst({
-      where: { userId },
-      include: { enterprise: true },
-    });
-
-    if (!enterpriseMember) {
-      throw new Error('用户不属于任何企业');
-    }
-
-    const enterpriseId = enterpriseMember.enterprise.id;
+    const context = await this.enterpriseContext.resolve(userId);
+    const isAdmin = context.role === 'ENTERPRISE_ADMIN';
+    const { enterpriseId } = context;
     const now = new Date();
     const thirtyDaysAgo = subDays(now, 30);
     const sevenDaysAgo = subDays(now, 7);
+    const firstDayThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-    // 1. 统计企业成员数
-    const totalMembers = await this.prisma.enterpriseMember.count({
-      where: { enterpriseId },
+    // 成员只能看到被直接授予或按部门授予的硅基员工；管理员仍看企业全部订阅。
+    const visibleSubscriptionWhere = isAdmin
+      ? { enterpriseId, status: 'ACTIVE' as const }
+      : {
+          enterpriseId,
+          status: 'ACTIVE' as const,
+          grants: {
+            some: {
+              OR: [
+                { memberId: context.memberId },
+                ...(context.departmentId
+                  ? [{ departmentId: context.departmentId }]
+                  : []),
+              ],
+            },
+          },
+        };
+    const visibleSubscriptions = await this.prisma.subscription.findMany({
+      where: visibleSubscriptionWhere,
+      select: { employeeId: true },
     });
+    const visibleEmployeeIds = visibleSubscriptions.map((item) => item.employeeId);
+    const employeeFilter = isAdmin ? undefined : { in: visibleEmployeeIds };
+    const memberUserFilter = isAdmin
+      ? { memberships: { some: { enterpriseId } } }
+      : { id: userId };
+    const memberTransactionFilter = isAdmin
+      ? {}
+      : { metadata: { path: ['memberId'], equals: context.memberId } };
 
-    // 2. 统计企业已订阅的硅基员工数（总数和活跃数）
-    const totalEmployees = await this.prisma.subscription.count({
-      where: { enterpriseId, status: 'ACTIVE' },
-    });
+    const totalMembers = isAdmin
+      ? await this.prisma.enterpriseMember.count({ where: { enterpriseId } })
+      : 0;
+    const totalDepartments = isAdmin
+      ? await this.prisma.department.count({ where: { enterpriseId } })
+      : 0;
+    const totalEmployees = visibleSubscriptions.length;
 
-    // 活跃员工：近7天有对话的员工
     const activeEmployeesData = await this.prisma.conversationSession.findMany({
       where: {
         createdAt: { gte: sevenDaysAgo },
-        user: {
-          memberships: {
-            some: { enterpriseId },
-          },
-        },
+        ...(employeeFilter ? { employeeId: employeeFilter } : {}),
+        user: memberUserFilter,
       },
       distinct: ['employeeId'],
       select: { employeeId: true },
     });
     const activeEmployees = activeEmployeesData.length;
 
-    // 3. 统计部门数
-    const totalDepartments = await this.prisma.department.count({
-      where: { enterpriseId },
-    });
-
-    // 4. 统计本月对话数和上月对话数（用于计算趋势）
-    const firstDayThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-
     const conversationsThisMonth = await this.prisma.conversationSession.count({
       where: {
         createdAt: { gte: firstDayThisMonth },
-        user: {
-          memberships: {
-            some: { enterpriseId },
-          },
-        },
+        ...(employeeFilter ? { employeeId: employeeFilter } : {}),
+        user: memberUserFilter,
       },
     });
-
     const conversationsLastMonth = await this.prisma.conversationSession.count({
       where: {
         createdAt: { gte: firstDayLastMonth, lt: firstDayThisMonth },
-        user: {
-          memberships: {
-            some: { enterpriseId },
-          },
-        },
+        ...(employeeFilter ? { employeeId: employeeFilter } : {}),
+        user: memberUserFilter,
       },
     });
-
     const conversationsTrend =
       conversationsLastMonth > 0
-        ? Math.round(
-            ((conversationsThisMonth - conversationsLastMonth) /
-              conversationsLastMonth) *
-              100,
-          )
+        ? Math.round(((conversationsThisMonth - conversationsLastMonth) / conversationsLastMonth) * 100)
         : 0;
 
-    // 5. 获取企业钱包余额
-    const wallet = await this.prisma.enterpriseWallet.findUnique({
-      where: { enterpriseId },
-    });
+    const wallet = isAdmin
+      ? await this.prisma.enterpriseWallet.findUnique({ where: { enterpriseId } })
+      : null;
     const balance = wallet?.balance || 0;
-
-    // 6. 统计本月算力消耗和上月消耗（用于计算趋势）
     const computeAccount = await this.prisma.computeAccount.findUnique({
       where: { enterpriseId },
     });
@@ -103,156 +101,100 @@ export class DashboardService {
         accountId: computeAccount?.id || '',
         type: 'CONSUME',
         createdAt: { gte: firstDayThisMonth },
+        ...memberTransactionFilter,
       },
       _sum: { amount: true },
     });
-
     const computeLastMonth = await this.prisma.computeTransaction.aggregate({
       where: {
         accountId: computeAccount?.id || '',
         type: 'CONSUME',
         createdAt: { gte: firstDayLastMonth, lt: firstDayThisMonth },
+        ...memberTransactionFilter,
       },
       _sum: { amount: true },
     });
-
-    const computeThisMonthTotal = Math.abs(
-      Number(computeThisMonth._sum.amount || 0),
-    );
-    const computeLastMonthTotal = Math.abs(
-      Number(computeLastMonth._sum.amount || 0),
-    );
-
+    const computeThisMonthTotal = Math.abs(Number(computeThisMonth._sum.amount || 0));
+    const computeLastMonthTotal = Math.abs(Number(computeLastMonth._sum.amount || 0));
     const computeTrend =
       computeLastMonthTotal > 0
-        ? Math.round(
-            ((computeThisMonthTotal - computeLastMonthTotal) /
-              computeLastMonthTotal) *
-              100,
-          )
+        ? Math.round(((computeThisMonthTotal - computeLastMonthTotal) / computeLastMonthTotal) * 100)
         : 0;
 
-    // 7. 近30天对话趋势（按天聚合）
-    const sessionTrend = await this.prisma.$queryRaw<
-      Array<{ date: string; count: bigint }>
-    >`
-      SELECT
-        DATE(cs."createdAt") as date,
-        COUNT(*)::bigint as count
-      FROM conversation_sessions cs
-      INNER JOIN users u ON cs."userId" = u.id
-      INNER JOIN enterprise_members em ON u.id = em."userId"
-      WHERE em."enterpriseId" = ${enterpriseId}
-        AND cs."createdAt" >= ${thirtyDaysAgo}
-      GROUP BY DATE(cs."createdAt")
-      ORDER BY date ASC
-    `;
-
-    // 8. 近30天算力消耗趋势（按天聚合）
-    const computeTrendRaw = await this.prisma.$queryRaw<
-      Array<{ date: string; amount: bigint }>
-    >`
-      SELECT
-        DATE(ct."createdAt") as date,
-        SUM(ABS(ct.amount))::bigint as amount
-      FROM compute_transactions ct
-      WHERE ct."accountId" = ${computeAccount?.id || ''}
-        AND ct."createdAt" >= ${thirtyDaysAgo}
-        AND ct.type = 'CONSUME'
-      GROUP BY DATE(ct."createdAt")
-      ORDER BY date ASC
-    `;
-
-    // 构造完整的30天数据
-    const trendMap = new Map<
-      string,
-      { date: string; conversations: number; compute: number }
-    >();
+    const sessionTrendRows = await this.prisma.conversationSession.findMany({
+      where: {
+        createdAt: { gte: thirtyDaysAgo },
+        ...(employeeFilter ? { employeeId: employeeFilter } : {}),
+        user: memberUserFilter,
+      },
+      select: { createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const computeTrendRows = await this.prisma.computeTransaction.findMany({
+      where: {
+        accountId: computeAccount?.id || '',
+        createdAt: { gte: thirtyDaysAgo },
+        type: 'CONSUME',
+        ...memberTransactionFilter,
+      },
+      select: { createdAt: true, amount: true, metadata: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const trendMap = new Map<string, { date: string; conversations: number; compute: number }>();
     for (let i = 29; i >= 0; i--) {
       const date = format(startOfDay(subDays(now, i)), 'yyyy-MM-dd');
       trendMap.set(date, { date, conversations: 0, compute: 0 });
     }
-
-    sessionTrend.forEach((row) => {
-      const dateStr = format(new Date(row.date), 'yyyy-MM-dd');
-      const existing = trendMap.get(dateStr);
-      if (existing) {
-        existing.conversations = Number(row.count);
-      }
+    sessionTrendRows.forEach((row) => {
+      const item = trendMap.get(format(new Date(row.createdAt), 'yyyy-MM-dd'));
+      if (item) item.conversations += 1;
+    });
+    computeTrendRows.forEach((row) => {
+      const item = trendMap.get(format(new Date(row.createdAt), 'yyyy-MM-dd'));
+      if (item) item.compute += Math.abs(Number(row.amount || 0));
     });
 
-    computeTrendRaw.forEach((row) => {
-      const dateStr = format(new Date(row.date), 'yyyy-MM-dd');
-      const existing = trendMap.get(dateStr);
-      if (existing) {
-        existing.compute = Number(row.amount);
-      }
+    const topEmployeeSessions = await this.prisma.conversationSession.findMany({
+      where: {
+        createdAt: { gte: thirtyDaysAgo },
+        ...(employeeFilter ? { employeeId: employeeFilter } : {}),
+        user: memberUserFilter,
+      },
+      select: { employeeId: true, employee: { select: { name: true } } },
     });
-
-    const usageTrend = Array.from(trendMap.values());
-
-    // 9. 员工使用排行（前5名）
-    // 9. 员工使用排行（前5名）
-    const topEmployeesRaw = await this.prisma.$queryRaw<
-      Array<{ id: string; name: string; sessions: bigint }>
-    >`
-      SELECT
-        de.id,
-        de.name,
-        COUNT(cs.id)::bigint as sessions
-      FROM digital_employees de
-      INNER JOIN conversation_sessions cs ON de.id = cs."employeeId"
-      INNER JOIN users u ON cs."userId" = u.id
-      INNER JOIN enterprise_members em ON u.id = em."userId"
-      WHERE em."enterpriseId" = ${enterpriseId}
-        AND cs."createdAt" >= ${thirtyDaysAgo}
-      GROUP BY de.id, de.name
-      ORDER BY sessions DESC
-      LIMIT 5
-    `;
-
-    // 获取每个员工的算力消耗
-    const topEmployees = await Promise.all(
-      topEmployeesRaw.map(async (emp) => {
-        const computeUsed = await this.prisma.computeTransaction.aggregate({
-          where: {
-            accountId: computeAccount?.id || '',
-            type: 'CONSUME',
-            metadata: {
-              path: ['employeeId'],
-              equals: emp.id,
-            },
-            createdAt: { gte: thirtyDaysAgo },
-          },
-          _sum: { amount: true },
-        });
-
-        return {
-          id: emp.id,
-          name: emp.name,
-          conversations: Number(emp.sessions),
-          compute: Math.abs(Number(computeUsed._sum.amount || 0)),
-        };
-      }),
-    );
+    const employeeStats = new Map<string, { name: string; conversations: number; compute: number }>();
+    topEmployeeSessions.forEach((row) => {
+      const current = employeeStats.get(row.employeeId) ?? {
+        name: row.employee.name,
+        conversations: 0,
+        compute: 0,
+      };
+      current.conversations += 1;
+      employeeStats.set(row.employeeId, current);
+    });
+    computeTrendRows.forEach((row: any) => {
+      const employeeId = row.metadata?.employeeId;
+      const current = employeeId ? employeeStats.get(employeeId) : undefined;
+      if (current) current.compute += Math.abs(Number(row.amount || 0));
+    });
+    const topEmployees = Array.from(employeeStats.entries())
+      .sort((a, b) => b[1].conversations - a[1].conversations)
+      .slice(0, 5)
+      .map(([id, value]) => ({ id, name: value.name, conversations: value.conversations, compute: value.compute }));
 
     return {
+      scope: isAdmin ? 'enterprise' : 'member',
       stats: {
         totalEmployees,
         activeEmployees,
         totalDepartments,
         totalMembers,
-        conversations: {
-          total: conversationsThisMonth,
-          trend: conversationsTrend,
-        },
-        computeUsage: {
-          total: computeThisMonthTotal,
-          trend: computeTrend,
-        },
+        conversations: { total: conversationsThisMonth, trend: conversationsTrend },
+        computeUsage: { total: computeThisMonthTotal, trend: computeTrend },
+        // 普通成员不应获得企业钱包余额。
         balance: Number(balance),
       },
-      usageTrend,
+      usageTrend: Array.from(trendMap.values()),
       topEmployees,
     };
   }
