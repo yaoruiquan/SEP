@@ -9,7 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
@@ -28,6 +28,12 @@ export class GatewayController {
   @UseGuards(ClientEmploymentGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '模型网关（OpenAI 兼容）' })
+  @ApiResponse({ status: 200, description: 'Chat Completion JSON 或 SSE 流' })
+  @ApiResponse({ status: 400, description: '请求字段或模型白名单校验失败，返回 OpenAI 兼容 error' })
+  @ApiResponse({ status: 401, description: '雇佣令牌无效或过期' })
+  @ApiResponse({ status: 403, description: '无订阅授权或余额不足' })
+  @ApiResponse({ status: 429, description: '上游限流' })
+  @ApiResponse({ status: 502, description: '上游不可用' })
   async chatCompletions(
     @Body(new ZodValidationPipe(ChatCompletionRequestSchema)) dto: ChatCompletionRequest,
     @ClientEmployment() claims: ClientEmploymentClaims,
@@ -42,24 +48,8 @@ export class GatewayController {
       throw new BadRequestException(`模型 "${dto.model}" 不在白名单中`);
     }
 
-    // 3. 获取 sub2api 配置
-    const { baseUrl, apiKey } = await this.gatewayService.getSub2ApiConfig();
-
-    // 4. 转发到 sub2api
-    const url = `${baseUrl}/chat/completions`;
-    const upstreamRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(dto),
-    });
-
-    if (!upstreamRes.ok) {
-      const text = await upstreamRes.text();
-      throw new BadRequestException(`sub2api 错误(${upstreamRes.status}): ${text}`);
-    }
+    // 3. 由 service 转发；上游错误在发送 SSE 响应头之前返回 JSON。
+    const upstreamRes = await this.gatewayService.forwardChatCompletion(dto);
 
     // 5. 流式 or 非流式
     if (dto.stream) {
@@ -103,7 +93,7 @@ export class GatewayController {
             }
           }
         }
-      } catch (error) {
+      } catch {
         // 流中断，直接断开客户端连接
         res.end();
       }

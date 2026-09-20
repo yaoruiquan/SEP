@@ -1472,19 +1472,48 @@ export type ClientRefreshDto = z.infer<typeof ClientRefreshDtoSchema>;
 // Gateway Layer Types (OpenAI-compatible chat completion)
 // ============================================================================
 
+const ChatCompletionToolCallSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('function'),
+  function: z.object({
+    name: z.string().min(1),
+    arguments: z.string(),
+  }),
+});
+
+const ChatCompletionMessageSchema = z.object({
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
+  // 工具调用轮的 assistant 可以没有文本；其他消息仍要求文本内容。
+  content: z.string().nullable().optional(),
+  name: z.string().optional(),
+  tool_calls: z.array(ChatCompletionToolCallSchema).optional(),
+  tool_call_id: z.string().min(1).optional(),
+  // 推理模型的工具回传可能要求原样保留此字段，不能在 Zod parse 时剥离。
+  reasoning_content: z.string().nullable().optional(),
+}).superRefine((message, ctx) => {
+  if (message.content == null && !(message.role === 'assistant' && message.tool_calls?.length)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: '此消息必须提供文本 content' });
+  }
+  if (message.role === 'tool' && !message.tool_call_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tool_call_id'], message: '工具结果必须提供 tool_call_id' });
+  }
+});
+
 export const ChatCompletionRequestSchema = z.object({
   model: z.string().min(1),
-  messages: z.array(
-    z.object({
-      role: z.enum(['system', 'user', 'assistant', 'tool']),
-      content: z.string(),
-      name: z.string().optional(),
-    }),
-  ),
+  messages: z.array(ChatCompletionMessageSchema),
   temperature: z.number().min(0).max(2).optional(),
   max_tokens: z.number().int().positive().optional(),
   stream: z.boolean().optional(),
   tools: z.array(z.any()).optional(),
+  tool_choice: z.union([
+    z.enum(['none', 'auto', 'required']),
+    z.object({ type: z.literal('function'), function: z.object({ name: z.string().min(1) }) }),
+  ]).optional(),
+  parallel_tool_calls: z.boolean().optional(),
+  stream_options: z.object({ include_usage: z.boolean().optional() }).optional(),
+  thinking: z.object({ type: z.enum(['enabled', 'disabled']) }).optional(),
+  reasoning_effort: z.string().min(1).optional(),
 });
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
 

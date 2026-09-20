@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, ForbiddenException, Logger, BadRequestException, BadGatewayException, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
@@ -106,6 +106,42 @@ export class GatewayService {
     }
 
     return { baseUrl, apiKey, defaultModel };
+  }
+
+  /** 转发已校验的 OpenAI 兼容请求，并保留上游错误状态与字段定位信息。 */
+  async forwardChatCompletion(dto: ChatCompletionRequest): Promise<Response> {
+    const { baseUrl, apiKey } = await this.getSub2ApiConfig();
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(dto),
+      });
+    } catch {
+      throw new BadGatewayException({
+        error: { message: '无法连接 sub2api', type: 'api_error', code: 'UPSTREAM_UNAVAILABLE', param: null },
+      });
+    }
+
+    if (!response.ok) {
+      // 不把 HTML 代理错误页或整个上游响应直接暴露给客户端。
+      const body = await response.json().catch(() => null);
+      const error = body?.error;
+      throw new HttpException({
+        error: {
+          message: typeof error?.message === 'string' && error.message
+            ? error.message : `sub2api 请求失败（HTTP ${response.status}）`,
+          type: typeof error?.type === 'string' ? error.type : response.status >= 500 ? 'api_error' : 'invalid_request_error',
+          code: typeof error?.code === 'string' ? error.code : 'UPSTREAM_ERROR',
+          param: typeof error?.param === 'string' ? error.param : null,
+        },
+      }, response.status);
+    }
+    return response;
   }
 
   /**
