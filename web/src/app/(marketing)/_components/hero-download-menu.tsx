@@ -65,7 +65,6 @@ export function HeroDownloadMenu() {
           setOpen(false);
         }
       }}
-      onFocus={() => setOpen(true)}
       onBlur={(event) => {
         if (!containerRef.current?.contains(event.relatedTarget as Node)) setOpen(false);
       }}
@@ -74,8 +73,12 @@ export function HeroDownloadMenu() {
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => {
-          window.setTimeout(() => setOpen((value) => !value), 0);
+        onClick={() => setOpen((value) => canHoverRef.current ? true : !value)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setOpen(true);
+          }
         }}
         className="group inline-flex min-h-12 items-center gap-2 rounded-glass-pill border border-gbrand/30 bg-glass-2 px-5 py-3 text-sm font-semibold text-gtext-primary backdrop-blur-glass-sm transition-all hover:border-gbrand/60 hover:bg-gbrand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gbrand-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gbg-canvas"
       >
@@ -85,10 +88,11 @@ export function HeroDownloadMenu() {
       </button>
 
       {open && (
+        <div className="absolute left-0 top-full w-[min(25rem,calc(100vw-3rem))] pt-3">
         <div
           role="menu"
           aria-label="选择客户端版本"
-          className="absolute left-0 top-full mt-3 w-[min(25rem,calc(100vw-3rem))] overflow-hidden rounded-glass-xl border border-glassline bg-gbg-raised p-2 text-left shadow-glass-xl backdrop-blur-glass-md"
+          className="overflow-hidden rounded-glass-xl border border-glassline bg-gbg-raised p-2 text-left shadow-glass-xl backdrop-blur-glass-md"
         >
           <div className="px-3 pb-2 pt-2">
             <p className="text-sm font-semibold text-gtext-primary">选择客户端版本</p>
@@ -131,6 +135,7 @@ export function HeroDownloadMenu() {
               );
             })}
           </div>
+        </div>
         </div>
       )}
     </div>
