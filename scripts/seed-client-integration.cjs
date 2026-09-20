@@ -16,14 +16,14 @@ const LEGACY_CREDIT_ID = 'sep-client-dev-20260916-legacy-credit';
 const apply = process.argv.includes('--apply');
 const profiles = [
   {
-    key: 'requirements', name: '客户端联调需求分析员', position: '需求分析',
+    key: 'requirements', name: '客户端联调需求分析员', position: '需求分析', avatar: '/assets/employees/silicon/product-manager.webp',
     category: 'PRODUCT_DESIGN',
     description: '澄清业务目标、拆解需求、识别依赖并编写可验证的验收标准。',
     skillName: 'client-requirements-analysis',
     body: '# 需求分析\n\n## 职责\n梳理用户目标、范围、约束和未决问题。\n\n## 工作步骤\n1. 阅读用户提供的背景与材料，不虚构缺失事实。\n2. 将需求拆解为可执行任务，明确输入、输出和依赖。\n3. 为每个任务编写验收标准。\n4. 将测试设计任务交给测试验收员。\n\n## 输出\n提供需求摘要、任务清单、验收标准和待确认问题。\n',
   },
   {
-    key: 'testing', name: '客户端联调测试验收员', position: '测试验收',
+    key: 'testing', name: '客户端联调测试验收员', position: '测试验收', avatar: '/assets/employees/silicon/qa-automation.webp',
     category: 'TECH',
     description: '根据需求和验收标准设计测试用例、检查边界条件并整理缺陷证据。',
     skillName: 'client-test-validation',
@@ -107,8 +107,8 @@ async function main(db) {
       if (version.content !== p.content || version.capabilityId !== p.capabilityId || version.status !== 'PLATFORM_APPROVED') {
         throw new Error('Existing integration skill differs; refusing to overwrite a published version');
       }
-      await tx.digitalEmployee.upsert({ where: { id: p.employeeId }, update: {}, create: {
-        id: p.employeeId, name: p.name, description: p.description, position: p.position,
+      await tx.digitalEmployee.upsert({ where: { id: p.employeeId }, update: { avatar: p.avatar }, create: {
+        id: p.employeeId, name: p.name, description: p.description, position: p.position, avatar: p.avatar,
         industry: '通用', functionalCategory: p.category, systemPrompt: p.description,
         modelId: MODEL, status: 'APPROVED', publishedAt: new Date(), version: '1.0.0',
         annualPriceCNY: 0, includedComputeCNY: 25,

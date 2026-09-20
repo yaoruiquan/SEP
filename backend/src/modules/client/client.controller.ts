@@ -82,16 +82,16 @@ export class ClientController {
   @Post('auth/token')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '获取实例令牌',
+    summary: '获取订阅 employment token',
     description:
       '用 refreshToken + subscriptionId 换取短期 client-employment JWT。' +
       '有效期由系统配置 CLIENT_TOKEN_TTL_MINUTES 控制（默认 15 分钟）。' +
       '员工包执行时用此令牌作为身份凭据。',
   })
-  @ApiResponse({ status: 200, description: '实例令牌签发成功' })
+  @ApiResponse({ status: 200, description: '订阅 employment token 签发成功' })
   @ApiResponse({ status: 400, description: '参数校验失败或实例不可用' })
   @ApiResponse({ status: 401, description: 'refresh token 无效或设备已被吊销' })
-  @ApiResponse({ status: 404, description: '实例不存在' })
+  @ApiResponse({ status: 404, description: '订阅不存在或当前不可用' })
   async refreshInstanceToken(
     @Body(new ZodValidationPipe(ClientTokenDtoSchema)) dto: ClientTokenDto,
   ) {
@@ -125,6 +125,7 @@ export class ClientController {
   @ApiOperation({ summary: '获取订阅锁定版本的客户端运行时清单' })
   @ApiResponse({ status: 200, description: '员工配置与已审核技能正文；employee.avatarAsset 与订阅清单同源，图片版本独立于 templateVersion' })
   @ApiResponse({ status: 403, description: '无有效订阅或员工授权' })
+  @ApiResponse({ status: 404, description: '订阅不存在或当前不可用' })
   async getRuntime(
     @Request() req: ExpressRequest & { user: { id: string } },
     @Param('subscriptionId') subscriptionId: string,

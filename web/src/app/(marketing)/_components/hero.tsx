@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { HeroDownloadMenu } from "./hero-download-menu";
 
 /**
  * Hero 里的工作台示意图（CSS + 内联 JSX，不用截图）。
@@ -165,7 +166,7 @@ export function Hero() {
         改成内容驱动高度 + 34rem 兜底（短屏 / 横屏手机不至于压塌），
         这样 TrustBar 会在首屏底部露出一条边，用户知道下面还有东西。
       */
-      className="relative min-h-[34rem] overflow-hidden pt-28 pb-14 sm:pt-32 sm:pb-16"
+      className="relative z-20 min-h-[34rem] pt-28 pb-14 sm:pt-32 sm:pb-16"
     >
       {/* Aurora 背景 blobs */}
       <div className="aurora-layer" aria-hidden>
@@ -208,7 +209,7 @@ export function Hero() {
                    会折成「让公司从个体提 / 效」把「效」挤成孤字一行
               60px 时 8 字约 465px，从 lg(1024) 到 7xl(1280) 都能单行放下。
             */}
-            <h1 className="animate-fade-up-d1 mb-3 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em] text-gtext-primary">
+            <h1 className="animate-fade-up-d1 mb-8 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em] text-gtext-primary">
               {/*
                 渐变只落在「组织提效」四个字上。
 
@@ -226,18 +227,6 @@ export function Hero() {
               <span className="gradient-text-accent">组织提效</span>
             </h1>
 
-            <p className="animate-fade-up-d2 mb-4 text-lg font-medium text-gbrand-text">
-              让硅基员工加入你的团队
-            </p>
-
-            <p className="animate-fade-up-d3 mb-10 max-w-lg text-base leading-relaxed text-gtext-secondary sm:text-lg">
-              为碳基团队订阅一位真正能上岗的硅基员工。
-              <br />
-              从人才市场选择岗位，完成订阅、授权与配置，
-              <br />
-              再用自然语言把重复工作交给 TA。
-            </p>
-
             {/*
               原来这里还有一个「查看任务演示」按钮，href="#demo" 指向右侧的
               mockup 容器 —— 而那个容器是 `hidden lg:block`：
@@ -246,7 +235,7 @@ export function Hero() {
               两种尺寸下都是空按钮，删掉。真要放演示入口，得先有一个真的
               录屏或可交互 demo 页可跳。
             */}
-            <div className="animate-fade-up-d3 flex flex-wrap items-center gap-4">
+            <div className="animate-fade-up-d3 flex flex-wrap items-start gap-3">
               <Link
                 href="/marketplace"
                 className="group inline-flex items-center gap-2 rounded-glass-pill bg-gbrand px-6 py-3 text-sm font-semibold text-white shadow-glass-md transition-all hover:bg-gbrand-hover hover:shadow-glass-lg"
@@ -257,6 +246,7 @@ export function Hero() {
                   aria-hidden
                 />
               </Link>
+              <HeroDownloadMenu />
             </div>
 
             {/*
