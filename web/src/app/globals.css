@@ -3,25 +3,34 @@
 @tailwind utilities;
 
 :root {
-  /* Brand — unified Indigo family */
-  --brand: #6366f1;
-  --brand-hover: #4f46e5;
-  --brand-subtle: #eef2ff;
-  --brand-ring: #6366f133;
+  /* Brand — Indigo（主色，更深沉去模板感）。只给唯一主 CTA / 链接 / 选中。 */
+  --brand: #4f46e5;          /* indigo-600：白字 6.29:1 ✅ AA；作文字 on white 亦 6.29:1 ✅ */
+  --brand-hover: #4338ca;    /* indigo-700 */
+  --brand-subtle: #eef2ff;   /* indigo-50：选中态/标签浅底 */
+  --brand-text: #4338ca;     /* indigo-700：浅底上的青→靛链接文字（AA）；暗色作用域桥到亮靛 */
+  --brand-ring: #4f46e533;
 
-  /* Surfaces */
+  /* Secondary — Teal（第二强调色）。只给数据强调：关键指标、图表序列、活跃标记。
+     不承担状态语义（成功/警告/危险仍是绿/琥珀/红）。 */
+  --secondary: #0d9488;          /* teal-600：on white 3.75:1（大字/图形达 3:1）*/
+  --secondary-hover: #0f766e;    /* teal-700：on white 5.47:1 ✅ AA，小字用这档 */
+  --secondary-subtle: #f0fdfa;   /* teal-50：数据卡浅底 */
+  --secondary-text: #0f766e;     /* teal-700：浅底上的青文字（AA）；暗色作用域桥到亮青 */
+  --secondary-ring: #0d948833;
+
+  /* Surfaces — Slate（冷静统一的中性，承担全部分层） */
   --background: #ffffff;
-  --sidebar: #f7f7f6;
+  --sidebar: #f8fafc;        /* slate-50 */
   --card: #ffffff;
-  --muted: #f4f4f4;
-  --border: #e5e5e3;
+  --muted: #f1f5f9;          /* slate-100 */
+  --border: #e2e8f0;         /* slate-200 */
 
-  /* Text */
-  --fg: #171717;
-  --fg-muted: #6b6b6b;
-  --fg-subtle: #9a9a9a;
+  /* Text — Slate */
+  --fg: #0f172a;             /* slate-900 */
+  --fg-muted: #64748b;       /* slate-500 */
+  --fg-subtle: #94a3b8;      /* slate-400：仅大字/装饰，小字对比不足 */
 
-  /* Status */
+  /* Status — 交通灯直觉，与 teal 强调严格区分 */
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
@@ -49,14 +58,15 @@
      `rgb(var(--x-rgb) / <alpha-value>)`，因此这里补上通道副本。
 
      只给「两套主题下都是不透明色」的令牌加通道副本：
-       brand / background / card / muted / success / warning / danger / info
+       brand / secondary / background / card / muted / success / warning / danger / info
      半透明令牌（--border、--sidebar、--fg*）保持 var() 形式 —— 它们在玻璃
      作用域下本身就是 rgba，转通道会丢掉自带的透明度，反而破坏玻璃质感。
      ⚠️ 下面这几行必须与上面的 hex 手工保持同步。                          */
-  --brand-rgb:      99 102 241;
+  --brand-rgb:      79 70 229;   /* #4f46e5 */
+  --secondary-rgb:  13 148 136;  /* #0d9488 */
   --background-rgb: 255 255 255;
   --card-rgb:       255 255 255;
-  --muted-rgb:      244 244 244;
+  --muted-rgb:      241 245 249; /* #f1f5f9 slate-100 */
   --success-rgb:    22 163 74;
   --warning-rgb:    217 119 6;
   --danger-rgb:     220 38 38;
@@ -433,10 +443,22 @@ body {
        文字链接（压在画布上） → --gbrand-text / --gbrand-text-hover        */
   --gbrand:            #6366f1;   /* Indigo 500。白字 4.47:1，大文本/控件可达 AA */
   --gbrand-hover:      #5850ec;   /* 白字 5.56:1 ✅ AA */
-  --gbrand-text:       #4f46e5;   /* Indigo 600。on canvas 6.29:1 ✅ AA */
-  --gbrand-text-hover: #4338ca;   /* Indigo 700。on canvas 7.90:1 ✅ AAA */
+  --gbrand-text:       #818cf8;   /* Indigo 400。on canvas #0f0f2d 6.25:1 ✅ AA（暗底链接要更亮，非更暗）*/
+  --gbrand-text-hover: #a5b4fc;   /* Indigo 300。on canvas 9.35:1 ✅ AAA */
   --gbrand-subtle:     rgba(99, 102, 241, 0.12);
   --gbrand-ring:       rgba(99, 102, 241, 0.42);
+
+  /* ─── 第二强调色 teal：同样填充/文字分档 ────────────────────────────────
+     暗底上「白字压青」和「青色文字压画布」是两个对比度问题，必须分开：
+       填充（白字压上去） → --gsecondary / --gsecondary-hover
+       文字链接（压在画布上） → --gsecondary-text / --gsecondary-text-hover
+     ⚠️ teal-500 #14b8a6 白字仅 2.49:1，不可作填充——与 indigo-400 同坑。   */
+  --gsecondary:            #0f766e;   /* Teal 700。白字 5.47:1 ✅ AA */
+  --gsecondary-hover:      #115e59;   /* Teal 800。白字 7.59:1 ✅ AAA */
+  --gsecondary-text:       #2dd4bf;   /* Teal 400。on canvas 10.0:1 ✅ AAA */
+  --gsecondary-text-hover: #5eead4;   /* Teal 300。on canvas 12.6:1 ✅ AAA */
+  --gsecondary-subtle:     rgba(20, 184, 166, 0.14);
+  --gsecondary-ring:       rgba(45, 212, 191, 0.42);
 
   /* 语义色（均在画布上实测通过） */
   --gsuccess: #34d399;   /* 9.70:1 ✅ AAA */
@@ -454,7 +476,9 @@ body {
   --gdanger-rgb:  248 113 113;
   --ginfo-rgb:    96 165 250;
   --gbrand-rgb:      99 102 241;
-  --gbrand-text-rgb: 79 70 229;
+  --gbrand-text-rgb: 129 140 248;   /* #818cf8 indigo-400 */
+  --gsecondary-rgb:      15 118 110;  /* #0f766e */
+  --gsecondary-text-rgb: 45 212 191;  /* #2dd4bf */
   --gbg-deep-rgb:    10 10 26;
   --gbg-canvas-rgb:  15 15 45;
   --gbg-raised-rgb:  19 19 46;
@@ -504,7 +528,16 @@ body {
   --brand:         var(--gbrand);
   --brand-hover:   var(--gbrand-hover);
   --brand-subtle:  var(--gbrand-subtle);
+  --brand-text:    var(--gbrand-text);
   --brand-ring:    var(--gbrand-ring);
+
+  /* teal 第二强调色同样桥接：DEFAULT 走填充值（白字压上去合规），
+     数据数字/图表要更亮时直接用 text-gsecondary-text（glass 令牌）。 */
+  --secondary:         var(--gsecondary);
+  --secondary-hover:   var(--gsecondary-hover);
+  --secondary-subtle:  var(--gsecondary-subtle);
+  --secondary-text:    var(--gsecondary-text);
+  --secondary-ring:    var(--gsecondary-ring);
 
   --success:       var(--gsuccess);
   --warning:       var(--gwarning);
@@ -519,6 +552,7 @@ body {
      半透明白叠在深底上会越叠越灰，而且行/芯片这类小面积填充本来就该走
      实心表面（PRD §11 性能预算）。真正要玻璃质感的地方用 .glass-card。 */
   --brand-rgb:      var(--gbrand-rgb);
+  --secondary-rgb:  var(--gsecondary-rgb);
   --background-rgb: var(--gbg-canvas-rgb);
   --card-rgb:       26 33 55;    /* ≈ --surface-solid-raised */
   --muted-rgb:      30 30 58;    /* 比画布亮一档的行底色 */
@@ -1166,6 +1200,14 @@ html.js-reveal .reveal[data-visible='true'] {
   --gbrand-subtle:     rgba(99, 102, 241, 0.10);
   --gbrand-ring:       rgba(99, 102, 241, 0.32);
 
+  /* teal 第二强调色 —— 浅色玻璃画布 #f0f2f5 上，文字链接要更暗（与深色作用域相反） */
+  --gsecondary:            #0f766e;   /* Teal 700。白字 5.47:1 ✅ AA */
+  --gsecondary-hover:      #115e59;   /* Teal 800。白字 7.58:1 ✅ AAA */
+  --gsecondary-text:       #115e59;   /* Teal 800。on canvas 6.76:1 ✅ AA */
+  --gsecondary-text-hover: #134e4a;   /* Teal 900。on canvas 8.45:1 ✅ AAA */
+  --gsecondary-subtle:     rgba(20, 184, 166, 0.10);
+  --gsecondary-ring:       rgba(13, 148, 136, 0.32);
+
   /* 语义色（均在画布上实测通过） */
   --gsuccess: #16a34a;   /* Green 600。on canvas 6.32:1 ✅ AA */
   --gwarning: #d97706;   /* Amber 600。on canvas 7.18:1 ✅ AAA */
@@ -1179,6 +1221,8 @@ html.js-reveal .reveal[data-visible='true'] {
   --ginfo-rgb:    37 99 235;
   --gbrand-rgb:      99 102 241;
   --gbrand-text-rgb: 79 70 229;
+  --gsecondary-rgb:      15 118 110;  /* #0f766e */
+  --gsecondary-text-rgb: 17 94 89;    /* #115e59 */
   --gbg-deep-rgb:    248 249 251;
   --gbg-canvas-rgb:  240 242 245;
   --gbg-raised-rgb:  232 234 237;
@@ -1222,7 +1266,16 @@ html.js-reveal .reveal[data-visible='true'] {
   --brand:         var(--gbrand);
   --brand-hover:   var(--gbrand-hover);
   --brand-subtle:  var(--gbrand-subtle);
+  --brand-text:    var(--gbrand-text);
   --brand-ring:    var(--gbrand-ring);
+
+  /* teal 第二强调色同样桥接：DEFAULT 走填充值（白字压上去合规），
+     数据数字/图表要更亮时直接用 text-gsecondary-text（glass 令牌）。 */
+  --secondary:         var(--gsecondary);
+  --secondary-hover:   var(--gsecondary-hover);
+  --secondary-subtle:  var(--gsecondary-subtle);
+  --secondary-text:    var(--gsecondary-text);
+  --secondary-ring:    var(--gsecondary-ring);
 
   --success:       var(--gsuccess);
   --warning:       var(--gwarning);
@@ -1234,6 +1287,7 @@ html.js-reveal .reveal[data-visible='true'] {
 
   /* 通道副本同步覆盖 */
   --brand-rgb:      var(--gbrand-rgb);
+  --secondary-rgb:  var(--gsecondary-rgb);
   --background-rgb: var(--gbg-canvas-rgb);
   --card-rgb:       250 251 252;    /* ≈ --surface-solid-raised */
   --muted-rgb:      245 246 247;    /* 比画布深一档的行底色 */

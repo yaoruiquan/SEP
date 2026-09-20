@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EmptyState, CenteredSpinner } from '@/components/ui/feedback';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useKnowledgeBase } from '@/features/knowledge/use-knowledge-bases';
@@ -15,6 +16,7 @@ import { DocumentUploader } from '@/features/knowledge/document-uploader';
 import { useTextChunks, useDeleteTextChunk } from '@/features/knowledge/use-text-chunks';
 import { TextChunkEditor } from '@/features/knowledge/text-chunk-editor';
 import { KnowledgeTestDialog } from '@/features/knowledge/knowledge-test-dialog';
+import { KnowledgeDialog } from '@/features/knowledge/knowledge-dialog';
 import { DocumentStatusPanel } from '@/features/knowledge/document-status-panel';
 import { KnowledgeGrantsPanel } from '@/features/knowledge/knowledge-grants-panel';
 
@@ -31,6 +33,8 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
   const [chunkEditorOpen, setChunkEditorOpen] = useState(false);
   const [editingChunk, setEditingChunk] = useState<any>(null);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const { data: kb, isLoading, error } = useKnowledgeBase(id);
   const { data: documents = [], isLoading: documentsLoading } = useDocuments(id);
@@ -39,13 +43,25 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
   const deleteChunkMutation = useDeleteTextChunk(id);
 
   const handleDeleteDocument = async (documentId: string) => {
-    if (confirm('确定要删除这个文档吗？')) {
+    const ok = await confirm({
+      title: '删除文档',
+      description: '确定要删除这个文档吗？此操作不可撤销。',
+      confirmText: '删除',
+      variant: 'danger',
+    });
+    if (ok) {
       await deleteMutation.mutateAsync(documentId);
     }
   };
 
   const handleDeleteChunk = async (chunkId: string) => {
-    if (confirm('确定要删除这个文本片段吗？')) {
+    const ok = await confirm({
+      title: '删除文本片段',
+      description: '确定要删除这个文本片段吗？此操作不可撤销。',
+      confirmText: '删除',
+      variant: 'danger',
+    });
+    if (ok) {
       await deleteChunkMutation.mutateAsync(chunkId);
     }
   };
@@ -123,7 +139,10 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
               <FlaskConical className="mr-2 h-4 w-4" />
               测试检索
             </Button>
-            <Button>
+            <Button
+              variant="outline"
+              onClick={() => setEditDialogOpen(true)}
+            >
               <Edit className="mr-2 h-4 w-4" />
               编辑
             </Button>
@@ -432,6 +451,16 @@ export default function KnowledgeDetailPage({ params }: KnowledgeDetailPageProps
         knowledgeBaseId={id}
         onClose={() => setTestDialogOpen(false)}
       />
+
+      {/* 编辑知识库对话框 */}
+      <KnowledgeDialog
+        open={editDialogOpen}
+        knowledgeBase={kb}
+        onClose={() => setEditDialogOpen(false)}
+      />
+
+      {/* 删除确认对话框 */}
+      {confirmDialog}
     </div>
   );
 }

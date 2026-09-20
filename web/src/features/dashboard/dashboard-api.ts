@@ -7,11 +7,13 @@ export interface DashboardStats {
   totalMembers: number;
   conversations: {
     total: number;
-    trend: number;
+    /** 环比百分比；上月基数为 0 时后端返回 null（无环比基准）。 */
+    trend: number | null;
   };
   computeUsage: {
     total: number;
-    trend: number;
+    /** 环比百分比；上月基数为 0 时后端返回 null（无环比基准）。 */
+    trend: number | null;
   };
   balance: number;
 }

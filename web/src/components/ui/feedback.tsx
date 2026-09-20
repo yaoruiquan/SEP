@@ -23,7 +23,7 @@ export function Skeleton({
           <div
             key={i}
             className={cn(
-              'h-4 animate-pulse rounded bg-neutral-200',
+              'h-4 animate-pulse rounded bg-muted',
               i === lines - 1 ? 'w-3/4' : 'w-full',
               className
             )}
@@ -44,7 +44,7 @@ export function Skeleton({
   return (
     <div
       className={cn(
-        'animate-pulse bg-neutral-200',
+        'animate-pulse bg-muted',
         variantClasses[variant],
         className
       )}
@@ -58,7 +58,7 @@ export function Skeleton({
  */
 export function SkeletonCard() {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-4 shadow-card">
+    <div className="rounded-lg border border-border bg-card p-4 shadow-card">
       <div className="flex items-center gap-3">
         <Skeleton variant="circular" className="h-12 w-12" />
         <div className="flex-1 space-y-2">
@@ -83,7 +83,7 @@ export function Spinner({ className }: { className?: string }) {
 
 export function CenteredSpinner({ label }: { label?: string }) {
   return (
-    <div className="flex h-full min-h-[200px] w-full flex-col items-center justify-center gap-2 text-neutral-500">
+    <div className="flex h-full min-h-[200px] w-full flex-col items-center justify-center gap-2 text-fg-muted">
       <Loader2 className="h-6 w-6 animate-spin text-primary" />
       {label && <p className="text-sm">{label}</p>}
     </div>
@@ -109,11 +109,11 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
-      {icon && <div className="text-neutral-400">{icon}</div>}
+      {icon && <div className="text-fg-subtle">{icon}</div>}
       <div>
-        <p className="font-medium text-neutral-900 text-lg">{title}</p>
+        <p className="font-medium text-foreground text-lg">{title}</p>
         {description && (
-          <p className="mt-1.5 text-sm text-neutral-600 max-w-md">{description}</p>
+          <p className="mt-1.5 text-sm text-fg-muted max-w-md">{description}</p>
         )}
       </div>
       {action && (

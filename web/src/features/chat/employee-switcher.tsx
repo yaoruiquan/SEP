@@ -64,7 +64,7 @@ export function EmployeeSwitcher({
                 'group flex shrink-0 items-center gap-1.5 rounded-full border py-1 transition-all',
                 'disabled:cursor-not-allowed disabled:opacity-50',
                 isActive
-                  ? 'border-primary/40 bg-primary-subtle pl-1 pr-2.5 shadow-sm ring-2 ring-brand-ring'
+                  ? 'border-primary/40 bg-primary-subtle pl-1 pr-2.5 shadow-sm ring-2 ring-primary-ring'
                   : 'border-transparent px-1 hover:border-border hover:bg-muted',
               )}
             >

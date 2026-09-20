@@ -7,6 +7,7 @@ import { Steps, Step } from '@/components/ui/steps';
 import { StatusDot } from '@/components/ui/status-dot';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -288,7 +289,7 @@ export default function ComponentPreviewPage() {
         variant="danger"
         onConfirm={async () => {
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          alert('已删除');
+          toast.success('已删除');
         }}
       />
     </div>

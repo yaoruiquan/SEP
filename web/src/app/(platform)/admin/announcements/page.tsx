@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -85,6 +86,7 @@ export default function AnnouncementsPage() {
   const [page, setPage] = useState(1);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const { data, isLoading } = useAnnouncements(page, 20);
   const createMutation = useCreateAnnouncement();
@@ -153,7 +155,13 @@ export default function AnnouncementsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这条公告吗？')) return;
+    const ok = await confirm({
+      title: '删除公告',
+      description: '确定要删除这条公告吗？此操作不可撤销。',
+      confirmText: '删除',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteMutation.mutateAsync(id);
     } catch (error) {
@@ -474,6 +482,8 @@ export default function AnnouncementsPage() {
           )}
         </CardContent>
       </Card>
+
+      {confirmDialog}
     </div>
   );
 }

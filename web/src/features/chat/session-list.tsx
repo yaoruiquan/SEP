@@ -98,7 +98,7 @@ function SessionRow({
             if (e.key === 'Enter') commit();
             if (e.key === 'Escape') setEditing(false);
           }}
-          className="w-full rounded-lg border border-primary/50 bg-white px-3 py-2 text-sm outline-none ring-2 ring-brand-ring"
+          className="w-full rounded-lg border border-primary/50 bg-white px-3 py-2 text-sm outline-none ring-2 ring-primary-ring"
         />
       </li>
     );

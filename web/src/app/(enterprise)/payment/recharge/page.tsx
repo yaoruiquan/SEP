@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { toast } from '@/components/ui/toast';
 import { useCreateRechargeOrder } from '@/lib/api/wallet';
 import { useRouter } from 'next/navigation';
 import { Wallet, ArrowLeft } from 'lucide-react';
@@ -33,7 +34,7 @@ export default function RechargePage() {
 
   const handleSubmit = async () => {
     if (amount <= 0) {
-      alert('请输入有效的充值金额');
+      toast.error('请输入有效的充值金额');
       return;
     }
 
@@ -42,7 +43,7 @@ export default function RechargePage() {
       // 跳转到支付宝支付页面
       window.location.href = result.payUrl;
     } catch (error) {
-      alert(error instanceof Error ? error.message : '创建订单失败');
+      toast.error(error instanceof Error ? error.message : '创建订单失败');
     }
   };
 

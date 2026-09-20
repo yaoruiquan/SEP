@@ -171,7 +171,7 @@ export function InputBar({
 
         <FilePreview items={attachments.items} onRemove={attachments.remove} />
 
-        <div className="flex items-end gap-1 rounded-2xl border border-border bg-white px-2 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-brand-ring">
+        <div className="flex items-end gap-1 rounded-2xl border border-border bg-white px-2 py-2 shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary-ring">
           <FileUploadButton
             onFiles={attachments.addFiles}
             disabled={disabled || streaming}

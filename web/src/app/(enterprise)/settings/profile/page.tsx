@@ -9,15 +9,10 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMe, useUpdateProfile, useChangePassword, useUploadAvatar } from '@/features/user/use-user';
 import { useLogout, useLeaveEnterprise } from '@/features/auth/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
-import {
-  useNotificationPreferences,
-  useUpdateNotificationPreferences,
-} from '@/features/notifications/use-notifications';
 import { ApiError } from '@/lib/api-client';
 
 /** 头像上传的本地预检，与后端 MAX_USER_AVATAR_SIZE 保持一致；真正的校验在后端。 */
@@ -45,9 +40,6 @@ export default function SettingsPage() {
   const changePassword = useChangePassword();
   const logout = useLogout();
   const uploadAvatar = useUploadAvatar();
-
-  const { data: notifPrefs } = useNotificationPreferences();
-  const updatePrefs = useUpdateNotificationPreferences();
 
   const [pwSuccess, setPwSuccess] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -266,41 +258,6 @@ export default function SettingsPage() {
               修改密码
             </Button>
           </form>
-        </CardContent>
-      </Card>
-
-      {/* 通知偏好 */}
-      <Card id="notifications">
-        <CardHeader>
-          <CardTitle>通知偏好</CardTitle>
-          <CardDescription>选择你希望接收哪些类型的通知</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(
-            [
-              { key: 'systemEnabled', label: '系统通知', desc: '平台公告、维护通知等' },
-              { key: 'usageAlertEnabled', label: '用量预警', desc: 'Token 额度和预算超限提醒' },
-              { key: 'securityEnabled', label: '安全通知', desc: 'API 密钥创建/吊销、登录异常等' },
-              { key: 'approvalEnabled', label: '审批通知', desc: '员工申请和审批结果' },
-              {
-                key: 'emailEnabled',
-                label: '邮件通知',
-                desc: '将重要通知同时发送到邮箱（暂未开放）',
-              },
-            ] as const
-          ).map(({ key, label, desc }) => (
-            <div key={key} className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">{label}</p>
-                <p className="text-xs text-fg-muted">{desc}</p>
-              </div>
-              <Switch
-                checked={notifPrefs?.[key] ?? true}
-                disabled={updatePrefs.isPending || key === 'emailEnabled'}
-                onCheckedChange={(checked) => updatePrefs.mutate({ [key]: checked })}
-              />
-            </div>
-          ))}
         </CardContent>
       </Card>
 
