@@ -28,7 +28,6 @@ export function ThemeLogo({
         alt=""
         width={width}
         height={height}
-        unoptimized
         className="theme-logo-light absolute inset-0 h-full w-full object-contain"
         priority={priority}
       />
@@ -37,7 +36,6 @@ export function ThemeLogo({
         alt=""
         width={width}
         height={height}
-        unoptimized
         className="theme-logo-dark absolute inset-0 hidden h-full w-full object-contain"
         priority={priority}
       />

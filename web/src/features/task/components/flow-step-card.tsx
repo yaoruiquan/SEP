@@ -238,7 +238,7 @@ export function FlowStepCard({
             )}
 
             {hasOutput ? (
-              <div className="markdown-body max-h-64 overflow-y-auto rounded-glass-md border border-glassline-brand bg-gbg-deep/40 px-3 py-2.5 text-xs leading-5 scroll-thin">
+              <div className="markdown-body max-h-64 overflow-y-auto overflow-x-auto rounded-glass-md border border-glassline-brand bg-gbg-deep/40 px-3 py-2.5 text-xs leading-5 scroll-thin">
                 <Markdown content={shownOutput} />
                 <span className="ml-0.5 inline-block h-3.5 w-[3px] animate-pulse bg-gbrand align-middle" />
               </div>
@@ -256,7 +256,7 @@ export function FlowStepCard({
           <div className="px-3.5 pb-3">
             <div
               className={cn(
-                'markdown-body overflow-y-auto rounded-glass-md border border-glassline bg-gbg-deep/25 px-3 py-2.5 text-xs leading-5 scroll-thin',
+                'markdown-body overflow-x-auto overflow-y-auto rounded-glass-md border border-glassline bg-gbg-deep/25 px-3 py-2.5 text-xs leading-5 scroll-thin',
                 expanded ? 'max-h-[32rem]' : 'max-h-24',
               )}
             >

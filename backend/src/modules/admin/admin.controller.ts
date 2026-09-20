@@ -421,7 +421,7 @@ export class AdminController {
   }
 
   @Patch('employees/batch-update-avatar-style')
-  @ApiOperation({ summary: '批量更新所有员工的头像风格' })
+  @ApiOperation({ summary: '设置平台默认头像风格并更新跟随默认的员工' })
   @ApiResponse({ status: 200, description: '更新成功，返回更新数量' })
   @ApiResponse({ status: 400, description: '头像风格不存在' })
   batchUpdateAvatarStyle(
@@ -444,6 +444,42 @@ export class AdminController {
     @Request() req: any,
   ) {
     return this.adminService.updateEmployeeAvatarStyle(employeeId, dto.styleId, req.user.id);
+  }
+
+  @Post('employees/avatar-styles')
+  @ApiOperation({ summary: '注册平台头像风格元数据' })
+  @ApiResponse({ status: 201, description: '风格已注册' })
+  @ApiResponse({ status: 400, description: '无效或重复的风格标识' })
+  registerAvatarStyle(
+    @Body(new ZodValidationPipe(z.object({
+      id: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,63}$/),
+      name: z.string().min(1).max(100),
+      description: z.string().min(1).max(1000),
+      category: z.string().min(1).max(50),
+
+      examples: z.array(z.string().min(1)).optional(),
+      recommended: z.boolean().optional(),
+      totalAssets: z.number().int().nonnegative().optional(),
+    }))) dto: { id: string; name: string; description: string; category: string; examples?: string[]; recommended?: boolean; totalAssets?: number },
+  ) {
+    return this.adminService.registerAvatarStyle(dto);
+  }
+
+  @Post('employees/:id/avatar-bindings')
+  @ApiOperation({ summary: '保存员工指定头像风格绑定' })
+  @ApiResponse({ status: 201, description: '绑定已保存' })
+  @ApiResponse({ status: 400, description: '无效素材或风格' })
+  @ApiResponse({ status: 404, description: '员工不存在' })
+  bindEmployeeAvatar(
+    @Param('id') employeeId: string,
+    @Body(new ZodValidationPipe(z.object({
+      styleId: z.string().min(1),
+      portraitUrl: z.string().min(1),
+      faceUrl: z.string().min(1).optional(),
+      version: z.string().max(100).optional(),
+    }))) dto: { styleId: string; portraitUrl: string; faceUrl?: string; version?: string },
+  ) {
+    return this.adminService.bindEmployeeAvatar(employeeId, dto.styleId, dto);
   }
 
   @Get('capabilities')

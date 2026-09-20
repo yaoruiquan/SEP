@@ -22,6 +22,7 @@ import {
 } from '@/features/enterprise/use-enterprise';
 import { InvitationPanel } from '@/features/enterprise/invitation-panel';
 import { flattenDepts } from '@/features/enterprise/flatten-depts';
+import { MemberStats } from '@/features/enterprise/member-stats';
 import type { EnterpriseMember, OffboardResult } from '@/lib/types';
 
 function Modal({
@@ -157,14 +158,14 @@ export default function MembersPage() {
     });
   };
 
-  if (isLoading) return <CenteredSpinner label="加载中…" />;
+  if (isLoading) return <MembersSkeleton />;
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{member.list}</h1>
-          <p className="mt-1 text-sm text-fg-muted">共 {members.length} 名成员</p>
+          <p className="mt-1 text-sm text-fg-muted">企业成员管理</p>
         </div>
         {isAdmin && tab === 'members' && (
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -172,6 +173,8 @@ export default function MembersPage() {
           </Button>
         )}
       </div>
+
+      {members.length > 0 && <MemberStats members={members} />}
 
       {isAdmin && (
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'members' | 'invitations')}>
@@ -189,81 +192,83 @@ export default function MembersPage() {
       ) : members.length === 0 ? (
         <EmptyState icon={<Users className="h-8 w-8" />} title="还没有成员" />
       ) : (
-        <div className="rounded-lg border border-border bg-background overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-fg-muted">成员</th>
-                <th className="px-4 py-3 text-left font-medium text-fg-muted">角色</th>
-                <th className="px-4 py-3 text-left font-medium text-fg-muted">部门</th>
-                <th className="px-4 py-3 text-left font-medium text-fg-muted">职位</th>
-                {isAdmin && <th className="px-4 py-3" />}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {members.map((m) => (
-                <tr key={m.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <Avatar
-                        name={m.user.name || m.user.email}
-                        src={m.user.avatar}
-                        className="h-8 w-8 shrink-0 text-xs"
-                      />
-                      <div>
-                        <p className="font-medium">{m.user.name || '—'}</p>
-                        <p className="text-xs text-fg-muted">{m.user.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge className={
-                      m.role === 'ENTERPRISE_ADMIN'
-                        ? 'bg-primary/10 text-primary'
-                        : 'bg-muted text-fg-muted'
-                    }>
-                      {ROLE_LABEL[m.role] ?? m.role}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-fg-muted">
-                    {m.department
-                      ? m.department.parent
-                        ? `${m.department.parent.name} > ${m.department.name}`
-                        : m.department.name
-                      : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-fg-muted">{m.position ?? '—'}</td>
-                  {isAdmin && (
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          title="编辑"
-                          onClick={() => {
-                            setEditing(m);
-                            setEditForm({
-                              role: (m.role === 'ENTERPRISE_ADMIN' ? 'ENTERPRISE_ADMIN' : 'MEMBER'),
-                              departmentId: m.department?.id ?? null,
-                              position: m.position,
-                            });
-                          }}
-                          className="rounded p-1.5 text-fg-muted hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          title="移出企业"
-                          onClick={() => setRemoving(m)}
-                          className="rounded p-1.5 text-fg-muted hover:bg-danger/10 hover:text-danger"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border bg-background shadow-sm overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-muted/40">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">成员</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">角色</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">部门</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">职位</th>
+                  {isAdmin && <th className="px-4 py-3" />}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {members.map((m) => (
+                  <tr key={m.id} className="transition-colors hover:bg-muted/30">
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <Avatar
+                          name={m.user.name || m.user.email}
+                          src={m.user.avatar}
+                          className="h-9 w-9 shrink-0 text-xs shadow-sm"
+                        />
+                        <div>
+                          <p className="font-medium text-foreground">{m.user.name || '—'}</p>
+                          <p className="text-xs text-fg-muted">{m.user.email}</p>
+                        </div>
                       </div>
                     </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <td className="px-4 py-3.5">
+                      <Badge className={
+                        m.role === 'ENTERPRISE_ADMIN'
+                          ? 'bg-primary/10 text-primary shadow-sm'
+                          : 'bg-muted text-fg-muted'
+                      }>
+                        {ROLE_LABEL[m.role] ?? m.role}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3.5 text-sm text-fg-muted">
+                      {m.department
+                        ? m.department.parent
+                          ? `${m.department.parent.name} > ${m.department.name}`
+                          : m.department.name
+                        : '—'}
+                    </td>
+                    <td className="px-4 py-3.5 text-sm text-fg-muted">{m.position ?? '—'}</td>
+                    {isAdmin && (
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            title="编辑"
+                            onClick={() => {
+                              setEditing(m);
+                              setEditForm({
+                                role: (m.role === 'ENTERPRISE_ADMIN' ? 'ENTERPRISE_ADMIN' : 'MEMBER'),
+                                departmentId: m.department?.id ?? null,
+                                position: m.position,
+                              });
+                            }}
+                            className="rounded p-2 text-fg-muted transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            title="移出企业"
+                            onClick={() => setRemoving(m)}
+                            className="rounded p-2 text-fg-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -469,6 +474,56 @@ export default function MembersPage() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+function MembersSkeleton() {
+  return (
+    <div className="space-y-6 p-6">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <div className="h-8 w-32 animate-pulse rounded-md bg-muted" />
+          <div className="h-4 w-40 animate-pulse rounded-md bg-muted" />
+        </div>
+        <div className="h-9 w-24 animate-pulse rounded-md bg-muted" />
+      </div>
+
+      {/* Stats skeleton */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-32 animate-pulse rounded-lg border border-border bg-muted/30"
+          />
+        ))}
+      </div>
+
+      {/* Table skeleton */}
+      <div className="rounded-lg border border-border bg-background shadow-sm overflow-hidden">
+        <div className="border-b border-border bg-muted/40 px-4 py-3">
+          <div className="flex gap-4">
+            <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <div className="divide-y divide-border">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="px-4 py-3.5 flex items-center gap-4">
+              <div className="h-9 w-9 animate-pulse rounded-full bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+              </div>
+              <div className="h-6 w-20 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-16 animate-pulse rounded bg-muted" />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

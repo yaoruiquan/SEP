@@ -1,4 +1,5 @@
 import { api } from '@/lib/api-client';
+import type { EmployeeAvatarAsset } from '@/lib/types';
 
 export interface EnterpriseListItem {
   id: string;
@@ -112,6 +113,38 @@ export interface OperationResponse {
 }
 
 // Employee Management Types
+export interface ManagedAvatarStyle {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  recommended: boolean;
+  source: string;
+  examples: string[];
+  coverage: { matched: number; total: number };
+  canSetDefault: boolean;
+}
+
+export interface EmployeeAvatarSetting {
+  id: string;
+  name: string;
+  position: string;
+  avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
+  avatarStyle: string;
+  effectiveStyleId: string;
+  availableStyleIds: string[];
+}
+
+export interface AvatarStylesResponse {
+  styles: ManagedAvatarStyle[];
+  total: number;
+  defaultStyleId: string;
+  followersCount: number;
+  overridesCount: number;
+  employees: EmployeeAvatarSetting[];
+}
+
 export interface EmployeeListItem {
   id: string;
   name: string;
@@ -119,6 +152,8 @@ export interface EmployeeListItem {
   industry: string;
   position: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
+  avatarStyle?: string | null;
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   version: string;
   annualPriceCNY: number | null;
@@ -153,6 +188,8 @@ export interface EmployeeDetail {
   industry: string;
   position: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
+  avatarStyle?: string | null;
   systemPrompt: string;
   modelId: string;
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
@@ -542,31 +579,15 @@ export const adminApi = {
   /**
    * 获取所有可用的头像风格列表
    */
-  getAvatarStyles: () => {
-    return api.get<{
-      styles: Array<{
-        id: string;
-        name: string;
-        description: string;
-        category: string;
-        recommended: boolean;
-        examples: string[];
-      }>;
-      total: number;
-      recommended: Array<{
-        id: string;
-        name: string;
-        description: string;
-        category: string;
-        recommended: boolean;
-        examples: string[];
-      }>;
-    }>('/admin/employees/avatar-styles');
-  },
+  getAvatarStyles: () => api.get<AvatarStylesResponse>('/admin/employees/avatar-styles'),
 
-  /**
-   * 批量更新所有员工的头像风格
-   */
+  registerAvatarStyle: (input: { id: string; name: string; description: string; category: string }) =>
+    api.post<ManagedAvatarStyle>('/admin/employees/avatar-styles', input),
+
+  bindEmployeeAvatar: (employeeId: string, input: { styleId: string; portraitUrl: string; faceUrl?: string; version?: string }) =>
+    api.post(`/admin/employees/${employeeId}/avatar-bindings`, input),
+
+  /** 更新平台默认风格，仅影响跟随默认的员工。 */
   batchUpdateAvatarStyle: (styleId: string) => {
     return api.patch<{
       success: boolean;

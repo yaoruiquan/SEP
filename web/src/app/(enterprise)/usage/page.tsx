@@ -122,7 +122,7 @@ export default function UsagePage() {
       ) : (
         <>
           {/* 汇总条：这个区间一共花了多少、比上期多还是少 */}
-          <section className="flex flex-wrap items-end justify-between gap-4 border border-border/70 bg-card p-5">
+          <section className="flex flex-wrap items-end justify-between gap-4 rounded-lg border border-border/70 bg-card p-5">
             <div>
               {/* 同一个数字，管理员看到的是全公司、成员看到的是自己 —— 标签必须说清 */}
               <p className="text-xs font-medium text-fg-muted">
@@ -153,7 +153,7 @@ export default function UsagePage() {
           </section>
 
           {trend.length > 0 && (
-            <section className="border border-border/70 bg-card p-5">
+            <section className="rounded-lg border border-border/70 bg-card p-5">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
                 <TrendingDown className="h-4 w-4 text-sky-600" />
                 每日花费趋势
@@ -176,19 +176,19 @@ export default function UsagePage() {
                   <Tooltip
                     formatter={(v) => [formatCnyPrecise(Number(v ?? 0)), '算力花费']}
                     labelFormatter={(l) =>
-                      format(new Date(String(l)), 'yyyy-MM-dd', { locale: zhCN })
-                    }
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="costCNY"
-                    stroke="#0ea5e9"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#usageFill)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+                    format(new Date(String(l)), 'yyyy-MM-dd', { locale: zhCN })
+                  }
+                />
+                <Area
+                  type="monotone"
+                  dataKey="costCNY"
+                  stroke="#0ea5e9"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#usageFill)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
             </section>
           )}
 
@@ -247,7 +247,7 @@ export default function UsagePage() {
             ? '/compute-quota#usage-records'
             : '/compute-quota#my-usage-records'
         }
-        className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Receipt className="h-4 w-4 text-fg-muted" />

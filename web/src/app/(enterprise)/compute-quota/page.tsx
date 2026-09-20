@@ -7,8 +7,6 @@ import {
   Bot,
   Receipt,
   TrendingDown,
-  Wallet,
-  Zap,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/auth-store';
 import { MyComputePanel } from '@/features/compute/my-compute-panel';
@@ -18,19 +16,15 @@ import { MemberAllowancePanel } from './member-allowance-panel';
 import { MyUsageRecords } from './my-usage-records';
 import { UsageRecordTable } from './usage-record-table';
 
-/** 页头。两种角色进的是同一个概念的两个面，标题一致、副标题分开写。 */
-function PageHeader({ eyebrow, subtitle }: { eyebrow: string; subtitle: string }) {
+/** 页头。标题只承担页面定位，副标题说明当前角色能做什么。 */
+function PageHeader({ subtitle }: { subtitle: string }) {
   return (
     /*
       页头到第一个板块的间距：pb-4 + space-y-6 共 40px。
       原来是 pb-7 + space-y-8（60px），标题和内容像分了两屏。
     */
     <section className="border-b border-border/70 pb-4">
-      <div className="inline-flex items-center gap-2 text-xs font-medium text-primary">
-        <Zap className="h-3.5 w-3.5" />
-        {eyebrow}
-      </div>
-      <h1 className="mt-2 text-2xl font-semibold text-foreground">算力余额</h1>
+      <h1 className="text-2xl font-semibold text-foreground">算力余额</h1>
       <p className="mt-1 max-w-3xl text-sm leading-6 text-fg-muted">{subtitle}</p>
     </section>
   );
@@ -53,7 +47,6 @@ function MemberView() {
   return (
     <div className="space-y-6 pb-10">
       <PageHeader
-        eyebrow="我的算力"
         subtitle="公司给我的额度、我的个人余额、每一笔花在哪，以及额度用尽后会发生什么"
       />
 
@@ -78,7 +71,7 @@ function MemberView() {
 
       <Link
         href="/usage"
-        className="flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <BarChart3 className="h-4 w-4 text-sky-600" />
@@ -107,8 +100,7 @@ function AdminView() {
   return (
     <div className="space-y-6 pb-10">
       <PageHeader
-        eyebrow="企业算力中心"
-        subtitle="算力余额、给碳基员工的分配额度与消费明细"
+        subtitle="管理企业算力专款、成员余额与消费明细"
       />
 
       <ComputeBalanceStrip />
@@ -130,29 +122,10 @@ function AdminView() {
         <UsageRecordTable />
       </section>
 
-      {/*
-        管理员也是「用的人」：他自己也有额度、也有个人余额，充值入口只在这块里。
-        放在企业信息之后 —— 上面几块讲的是公司的钱，这一块讲的是他自己的钱，
-        混排会让人分不清「本周期已用」是谁的。锚点与成员视角同名，
-        对话弹窗的 `#my-compute` 两种角色都能落地。
-      */}
-      <section id="my-compute" className="scroll-mt-8">
-        <div className="mb-3">
-          <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-            <Wallet className="h-4 w-4 text-emerald-600" />
-            我自己的算力
-          </div>
-          <p className="mt-1 text-sm text-fg-muted">
-            你作为使用者的额度与个人余额，与上面的企业算力池是两笔钱。
-          </p>
-        </div>
-        <MyComputePanel />
-      </section>
-
       {/* 赠送额度从本页移走了，得告诉用户去哪找 —— 否则会以为功能没了 */}
       <Link
         href="/my-employees"
-        className="flex items-center justify-between gap-3 border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
+        className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 transition-colors hover:bg-muted/40"
       >
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Bot className="h-4 w-4 text-emerald-600" />

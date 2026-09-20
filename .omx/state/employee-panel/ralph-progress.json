@@ -1,0 +1,10 @@
+{
+  "scope": "employee-panel",
+  "review": "manual screenshot review; visual-verdict skill unavailable",
+  "iteration": 3,
+  "status": "pass",
+  "evidence": ["output/playwright/employees-desktop.png", "output/playwright/employee-detail-desktop.png", "output/playwright/employee-detail-mobile.png"],
+  "findings": ["Desktop and 390px pages have no horizontal overflow; portraits load.", "Mobile header fits portrait and identity side by side.", "Capability badges have readable light-mode contrast.", "Injected 503 shows failure instead of empty state; retry recovers."],
+  "validation": { "backendTests": 77, "frontendTests": 13, "typecheck": "pass", "backendLint": "pass", "productionBuild": "pass", "visualData": "mock API fixtures" },
+  "limitations": ["Execution statistics include only cloud sessions attributable to this subscription; not all client executions.", "Authenticated live-data browser verification was not performed."]
+}

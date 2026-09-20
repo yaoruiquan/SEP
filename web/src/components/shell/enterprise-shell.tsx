@@ -30,7 +30,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { StatusDot } from '@/components/ui/status-dot';
 import { AuroraBackground } from '@/components/ui/aurora-background';
-import { ThemeLogo } from '@/components/ui/theme-logo';
+import { useEnterpriseInfo } from '@/features/enterprise/use-enterprise';
 import { nav } from '@/locales/zh-CN';
 import { cn } from '@/lib/utils';
 import { NavItem, type NavLink } from './nav-item';
@@ -169,6 +169,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   const { user, enterprise, roleInEnterprise } = useAuthStore();
   const pathname = usePathname();
   const logout = useLogout();
+  const { data: enterpriseInfo } = useEnterpriseInfo();
 
   const isFullHeight = FULL_HEIGHT_ROUTES.some(
     (r) => pathname === r || pathname?.startsWith(`${r}/`),
@@ -193,7 +194,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
   return (
     // 主题 B 极光（PRD §背景渐变配方）。blobs=1：企业端多为表格/长列表，
     // 少一层 80px blur 给内容区留 GPU 预算。
-    <AuroraBackground blobs={1} className="flex min-h-dvh h-screen bg-[#f0f2f5] dark:bg-slate-950">
+    <AuroraBackground blobs={1} className="flex h-screen min-h-screen bg-[#f0f2f5] dark:bg-slate-950">
       {/* Mobile menu button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -226,7 +227,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         {/* Logo 区域 - 固定 64px 高度，与顶栏对齐 */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-glassline px-5">
           <div className="flex items-center gap-2 overflow-hidden">
-            <ThemeLogo priority />
+            <Avatar name={enterpriseInfo?.name ?? enterprise?.name} src={enterpriseInfo?.logo} className="h-8 w-8 shrink-0 rounded-md object-contain" />
             {/* 显示企业名而非平台名；数据尚未加载时保持留白，避免伪装成平台 Logo 文案 */}
             {!collapsed && enterprise?.name && (
               <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gtext-primary">
@@ -278,7 +279,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           {!collapsed ? (
             <>
               <div className="mb-2 flex items-center gap-2 rounded-glass-sm border border-glassline bg-glass-2 px-2 py-2.5">
-                <Avatar name={user?.name || user?.email || '用户'} />
+                <Avatar name={user?.name || user?.email || '用户'} src={user?.avatar} className="h-8 w-8 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gtext-primary">
                     {user?.name || '用户'}
@@ -326,7 +327,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
         className={cn(
           'flex-1 min-w-0',
           isFullHeight
-            ? 'flex h-full flex-col overflow-hidden'
+            ? 'flex h-full min-h-0 flex-col overflow-hidden'
             : 'overflow-y-auto scroll-thin',
         )}
       >

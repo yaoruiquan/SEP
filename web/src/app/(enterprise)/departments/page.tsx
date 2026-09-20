@@ -638,12 +638,12 @@ export default function DepartmentsPage() {
 
   return (
     <PageFrame className="space-y-5">
-      <div className="relative">
-        <PageHero
-          title="部门管理"
-          description="管理企业组织架构与部门成员"
-          actions={(
-            <label className="relative block w-full max-w-[620px]">
+      <PageHero
+        title="部门管理"
+        description="管理企业组织架构与部门成员"
+        actions={(
+          <>
+            <label className="relative block min-w-0 w-full sm:w-[min(360px,32vw)]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
               <Input
                 value={searchQuery}
@@ -653,18 +653,18 @@ export default function DepartmentsPage() {
                 aria-label="搜索部门名称"
               />
             </label>
-          )}
-        />
-        {isAdmin && (
-          <Button
-            size="sm"
-            onClick={() => { setCreating({}); setDraftName(''); }}
-            className="mt-3 sm:absolute sm:right-8 sm:top-7 sm:mt-0"
-          >
-            <Plus className="h-4 w-4" /> 新建顶级部门
-          </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                onClick={() => { setCreating({}); setDraftName(''); }}
+                className="shrink-0"
+              >
+                <Plus className="h-4 w-4" /> 新建顶级部门
+              </Button>
+            )}
+          </>
         )}
-      </div>
+      />
 
       {/* 参考布局：左侧组织树 + 右侧组织说明 */}
       <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1.9fr)_minmax(300px,1fr)]">

@@ -1,0 +1,322 @@
+[
+  {
+    "slug": "fullstack-architect",
+    "name": "全栈架构师",
+    "file": "fullstack-architect.png"
+  },
+  {
+    "slug": "frontend-engineer",
+    "name": "前端工程师",
+    "file": "frontend-engineer.png"
+  },
+  {
+    "slug": "backend-engineer",
+    "name": "后端工程师",
+    "file": "backend-engineer.png"
+  },
+  {
+    "slug": "mobile-engineer",
+    "name": "移动端开发",
+    "file": "mobile-engineer.png"
+  },
+  {
+    "slug": "devops-engineer",
+    "name": "DevOps 工程师",
+    "file": "devops-engineer.png"
+  },
+  {
+    "slug": "dataviz-engineer",
+    "name": "数据可视化工程师",
+    "file": "dataviz-engineer.png"
+  },
+  {
+    "slug": "rust-refactor",
+    "name": "Rust 重构专家",
+    "file": "rust-refactor.png"
+  },
+  {
+    "slug": "wasm-engineer",
+    "name": "WebAssembly 工程师",
+    "file": "wasm-engineer.png"
+  },
+  {
+    "slug": "code-reviewer",
+    "name": "代码审查专家",
+    "file": "code-reviewer.png"
+  },
+  {
+    "slug": "micro-optimizer",
+    "name": "微调优化专家",
+    "file": "micro-optimizer.png"
+  },
+  {
+    "slug": "api-designer",
+    "name": "API 设计师",
+    "file": "api-designer.png"
+  },
+  {
+    "slug": "qa-automation",
+    "name": "测试自动化工程师",
+    "file": "qa-automation.png"
+  },
+  {
+    "slug": "perf-benchmark",
+    "name": "性能基准测试专家",
+    "file": "perf-benchmark.png"
+  },
+  {
+    "slug": "a11y-tester",
+    "name": "无障碍测试专家",
+    "file": "a11y-tester.png"
+  },
+  {
+    "slug": "game-engineer",
+    "name": "游戏开发工程师",
+    "file": "game-engineer.png"
+  },
+  {
+    "slug": "ux-architect",
+    "name": "UX 架构师",
+    "file": "ux-architect.png"
+  },
+  {
+    "slug": "ui-designer",
+    "name": "UI 设计师",
+    "file": "ui-designer.png"
+  },
+  {
+    "slug": "ux-researcher",
+    "name": "UX 研究员",
+    "file": "ux-researcher.png"
+  },
+  {
+    "slug": "brand-guardian",
+    "name": "品牌守护者",
+    "file": "brand-guardian.png"
+  },
+  {
+    "slug": "ai-prompt-engineer",
+    "name": "AI 图片提示词工程师",
+    "file": "ai-prompt-engineer.png"
+  },
+  {
+    "slug": "ui-polish-reviewer",
+    "name": "UI 完成度审查员",
+    "file": "ui-polish-reviewer.png"
+  },
+  {
+    "slug": "delight-injector",
+    "name": "趣味注入专家",
+    "file": "delight-injector.png"
+  },
+  {
+    "slug": "a11y-visual",
+    "name": "无障碍视觉专家",
+    "file": "a11y-visual.png"
+  },
+  {
+    "slug": "product-manager",
+    "name": "产品经理",
+    "file": "product-manager.png"
+  },
+  {
+    "slug": "user-feedback-analyst",
+    "name": "用户反馈分析师",
+    "file": "user-feedback-analyst.png"
+  },
+  {
+    "slug": "product-trend-researcher",
+    "name": "产品趋势研究员",
+    "file": "product-trend-researcher.png"
+  },
+  {
+    "slug": "project-manager",
+    "name": "项目经理",
+    "file": "project-manager.png"
+  },
+  {
+    "slug": "meeting-notes",
+    "name": "会议纪要专家",
+    "file": "meeting-notes.png"
+  },
+  {
+    "slug": "douyin-strategist",
+    "name": "抖音运营策略师",
+    "file": "douyin-strategist.png"
+  },
+  {
+    "slug": "zhihu-strategist",
+    "name": "知乎运营策略师",
+    "file": "zhihu-strategist.png"
+  },
+  {
+    "slug": "cross-border-ecom",
+    "name": "跨境电商运营",
+    "file": "cross-border-ecom.png"
+  },
+  {
+    "slug": "reddit-community",
+    "name": "Reddit 社区运营",
+    "file": "reddit-community.png"
+  },
+  {
+    "slug": "seo-expert",
+    "name": "SEO 优化专家",
+    "file": "seo-expert.png"
+  },
+  {
+    "slug": "podcast-strategist",
+    "name": "播客运营策略师",
+    "file": "podcast-strategist.png"
+  },
+  {
+    "slug": "multichannel-content",
+    "name": "多平台内容分发",
+    "file": "multichannel-content.png"
+  },
+  {
+    "slug": "sales-coach",
+    "name": "销售教练",
+    "file": "sales-coach.png"
+  },
+  {
+    "slug": "sales-proposal",
+    "name": "销售提案专家",
+    "file": "sales-proposal.png"
+  },
+  {
+    "slug": "enterprise-account",
+    "name": "大客户销售",
+    "file": "enterprise-account.png"
+  },
+  {
+    "slug": "outbound-sales",
+    "name": "外呼销售策略师",
+    "file": "outbound-sales.png"
+  },
+  {
+    "slug": "sales-engineer",
+    "name": "销售工程师",
+    "file": "sales-engineer.png"
+  },
+  {
+    "slug": "security-architect",
+    "name": "安全架构师",
+    "file": "security-architect.png"
+  },
+  {
+    "slug": "key-management",
+    "name": "密钥管理专家",
+    "file": "key-management.png"
+  },
+  {
+    "slug": "threat-intel-analyst",
+    "name": "威胁情报分析师",
+    "file": "threat-intel-analyst.png"
+  },
+  {
+    "slug": "financial-analyst",
+    "name": "财务分析师",
+    "file": "financial-analyst.png"
+  },
+  {
+    "slug": "tax-strategist",
+    "name": "税务策略师",
+    "file": "tax-strategist.png"
+  },
+  {
+    "slug": "recruiter",
+    "name": "招聘专家",
+    "file": "recruiter.png"
+  },
+  {
+    "slug": "legal-reception",
+    "name": "法务客户接待",
+    "file": "legal-reception.png"
+  },
+  {
+    "slug": "change-consultant",
+    "name": "变革管理顾问",
+    "file": "change-consultant.png"
+  },
+  {
+    "slug": "doc-generator",
+    "name": "文档生成专家",
+    "file": "doc-generator.png"
+  },
+  {
+    "slug": "ap-specialist",
+    "name": "应付账款专员",
+    "file": "ap-specialist.png"
+  },
+  {
+    "slug": "spare-supply-chain",
+    "name": "供应链分析师",
+    "file": "spare-supply-chain.png"
+  },
+  {
+    "slug": "cn-ecom-operator",
+    "name": "国内电商运营专家",
+    "file": "cn-ecom-operator.png"
+  },
+  {
+    "slug": "livestream-coach",
+    "name": "直播电商增长教练",
+    "file": "livestream-coach.png"
+  },
+  {
+    "slug": "private-domain-operator",
+    "name": "私域复购运营师",
+    "file": "private-domain-operator.png"
+  },
+  {
+    "slug": "ecom-media-buyer",
+    "name": "电商投放优化师",
+    "file": "ecom-media-buyer.png"
+  },
+  {
+    "slug": "product-content-planner",
+    "name": "商品内容与详情页策划",
+    "file": "product-content-planner.png"
+  },
+  {
+    "slug": "after-sales-specialist",
+    "name": "电商售后与退货专员",
+    "file": "after-sales-specialist.png"
+  },
+  {
+    "slug": "spare-data-scientist",
+    "name": "数据科学家",
+    "file": "spare-data-scientist.png"
+  },
+  {
+    "slug": "spare-legal-counsel",
+    "name": "法务顾问",
+    "file": "spare-legal-counsel.png"
+  },
+  {
+    "slug": "spare-hr-manager",
+    "name": "人力资源经理",
+    "file": "spare-hr-manager.png"
+  },
+  {
+    "slug": "spare-ops-manager",
+    "name": "运营经理",
+    "file": "spare-ops-manager.png"
+  },
+  {
+    "slug": "spare-hr-specialist",
+    "name": "人事专员",
+    "file": "spare-hr-specialist.png"
+  },
+  {
+    "slug": "spare-training-lead",
+    "name": "培训发展负责人",
+    "file": "spare-training-lead.png"
+  },
+  {
+    "slug": "spare-biz-analyst",
+    "name": "商业分析师",
+    "file": "spare-biz-analyst.png"
+  }
+]

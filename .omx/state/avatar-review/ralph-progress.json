@@ -1,0 +1,7 @@
+{
+  "phase": "after-fix",
+  "visual_verdict": {
+    "status": "pass",
+    "evidence": "固定侧栏用户 Avatar 为 h-8 w-8 shrink-0；回归测试验证图片与首字母 fallback 均保持 32px 且姓名/邮箱可见。实际浏览器视觉验证不可用：本机浏览器连接缺少 Codex auth token。"
+  }
+}

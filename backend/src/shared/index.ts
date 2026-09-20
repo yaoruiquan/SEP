@@ -97,6 +97,7 @@ export const SETTING_KEYS = {
   SYSTEM_MAINTENANCE_NOTICE: "SYSTEM_MAINTENANCE_NOTICE",
   CONTRIBUTION_ENTERPRISE_REWARD_CNY: "CONTRIBUTION_ENTERPRISE_REWARD_CNY",
   CONTRIBUTION_PLATFORM_REWARD_CNY: "CONTRIBUTION_PLATFORM_REWARD_CNY",
+  DEFAULT_AVATAR_STYLE: "DEFAULT_AVATAR_STYLE",
   // 支付宝配置
   ALIPAY_APP_ID: "alipay.appId",
   ALIPAY_PRIVATE_KEY: "alipay.privateKey",
@@ -515,6 +516,8 @@ export interface AuthResponse {
     id: string;
     email: string;
     name: string | null;
+    /** 头像地址（本地上传的稳定路径或外链）。未设置时为 null。 */
+    avatar: string | null;
     /** 全局角色。ADMIN = 平台运营人员，与企业内角色是两套体系。 */
     role: string;
   };

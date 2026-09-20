@@ -1,100 +1,59 @@
+/**
+ * Skeleton Component - Loading placeholder with animation
+ */
+
 import { cn } from '@/lib/utils';
 
-interface SkeletonProps {
-  className?: string;
-  variant?: 'text' | 'circular' | 'rectangular';
-  width?: string | number;
-  height?: string | number;
-  animation?: 'pulse' | 'wave' | 'none';
-}
-
-export function Skeleton({
+function Skeleton({
   className,
-  variant = 'rectangular',
-  width,
-  height,
-  animation = 'wave',
-}: SkeletonProps) {
-  const variantClasses = {
-    text: 'h-4',
-    circular: 'rounded-full',
-    rectangular: 'rounded-md',
-  };
-
-  const animationClasses = {
-    pulse: 'animate-pulse',
-    wave: 'animate-skeleton',
-    none: '',
-  };
-
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        'bg-gradient-to-r from-neutral-200 via-neutral-100 to-neutral-200 bg-[length:200%_100%]',
-        variantClasses[variant],
-        animationClasses[animation],
-        className
-      )}
-      style={{
-        width: typeof width === 'number' ? `${width}px` : width,
-        height: typeof height === 'number' ? `${height}px` : height,
-      }}
+      className={cn('animate-pulse rounded-md bg-gray-200', className)}
+      {...props}
     />
   );
 }
 
-// 预设骨架屏组件
-export function CardSkeleton() {
+/**
+ * TableSkeleton - Pre-built skeleton for table loading states
+ */
+function TableSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-6 w-6" variant="circular" />
-      </div>
-      <div className="flex justify-center">
-        <Skeleton className="h-20 w-20" variant="circular" />
-      </div>
-      <div className="space-y-2">
-        <Skeleton className="h-4 w-32 mx-auto" />
-        <Skeleton className="h-3 w-24 mx-auto" />
-      </div>
-      <div className="space-y-2 pt-2 border-t border-neutral-100">
-        <div className="flex justify-between">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-12" />
-        </div>
-        <div className="flex justify-between">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-12" />
-        </div>
-      </div>
-      <div className="flex gap-2 pt-2">
-        <Skeleton className="h-9 flex-1" />
-        <Skeleton className="h-9 flex-1" />
-      </div>
-    </div>
-  );
-}
-
-export function TableSkeleton({ rows = 5 }: { rows?: number }) {
-  return (
-    <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-      {/* 表头 */}
-      <div className="bg-neutral-50 h-11 border-b border-neutral-200 px-4 flex items-center gap-4">
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-3 w-32" />
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3 w-16" />
-      </div>
-      {/* 表格行 */}
+    <div className="space-y-3">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-14 border-b border-neutral-100 px-4 flex items-center gap-4">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-16" />
+        <div key={i} className="flex items-center gap-4">
+          <Skeleton className="h-12 w-12 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+          <Skeleton className="h-10 w-24" />
         </div>
       ))}
     </div>
   );
 }
+
+/**
+ * CardSkeleton - Pre-built skeleton for card loading states
+ */
+function CardSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-lg border border-gray-200 p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+          <Skeleton className="h-8 w-16" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export { Skeleton, TableSkeleton, CardSkeleton };

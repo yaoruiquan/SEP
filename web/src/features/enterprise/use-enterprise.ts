@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, uploadForm } from '@/lib/api-client';
+import { useAuthStore } from '@/lib/auth-store';
 import { qk } from '@/lib/query-keys';
 import type {
   Department,
@@ -251,9 +252,29 @@ export interface EnterpriseInfo {
 }
 
 export function useEnterpriseInfo() {
+  const enterpriseId = useAuthStore((s) => s.enterprise?.id);
   return useQuery({
-    queryKey: ['enterprise', 'info'],
+    queryKey: ['enterprise', 'info', enterpriseId],
     queryFn: () => api.get<EnterpriseInfo>('/enterprise/info'),
+    enabled: !!enterpriseId,
+  });
+}
+
+export function useUploadEnterpriseLogo() {
+  const qc = useQueryClient();
+  const enterpriseId = useAuthStore((s) => s.enterprise?.id);
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return uploadForm<{ logo: string }>('/enterprise/logo', form);
+    },
+    onSuccess: ({ logo }) => {
+      qc.setQueryData<EnterpriseInfo>(['enterprise', 'info', enterpriseId], (current) =>
+        current ? { ...current, logo } : current,
+      );
+      void qc.invalidateQueries({ queryKey: ['enterprise', 'info', enterpriseId] });
+    },
   });
 }
 

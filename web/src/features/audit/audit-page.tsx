@@ -60,7 +60,7 @@ export default function AuditPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-6">
+    <div className="w-full space-y-5 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">安全与审计</h1>

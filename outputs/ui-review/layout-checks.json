@@ -1,0 +1,292 @@
+[
+  {
+    "name": "after-public-home-light-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "让公司从个体提效到组织提效"
+  },
+  {
+    "name": "after-public-home-light-390",
+    "fixture": false,
+    "url": "http://localhost:3000/",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "让公司从个体提效到组织提效"
+  },
+  {
+    "name": "after-public-marketplace-light-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/marketplace",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "硅基人才市场"
+  },
+  {
+    "name": "after-public-marketplace-light-390",
+    "fixture": false,
+    "url": "http://localhost:3000/marketplace",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "硅基人才市场",
+    "filterScroll": 390
+  },
+  {
+    "name": "after-public-login-light-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/login",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-public-login-light-390",
+    "fixture": false,
+    "url": "http://localhost:3000/login",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-public-home-dark-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "让公司从个体提效到组织提效"
+  },
+  {
+    "name": "after-public-home-dark-390",
+    "fixture": false,
+    "url": "http://localhost:3000/",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "让公司从个体提效到组织提效"
+  },
+  {
+    "name": "after-public-marketplace-dark-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/marketplace",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "硅基人才市场"
+  },
+  {
+    "name": "after-public-marketplace-dark-390",
+    "fixture": false,
+    "url": "http://localhost:3000/marketplace",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "硅基人才市场",
+    "filterScroll": 390
+  },
+  {
+    "name": "after-public-login-dark-1440",
+    "fixture": false,
+    "url": "http://localhost:3000/login",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-public-login-dark-390",
+    "fixture": false,
+    "url": "http://localhost:3000/login",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-dashboard-light-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-dashboard-light-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-my-employees-light-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-my-employees-light-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-departments-light-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-departments-light-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-dashboard-dark-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-dashboard-dark-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-my-employees-dark-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-my-employees-dark-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-departments-dark-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-enterprise-departments-dark-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-platform-admin-light-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-platform-admin-light-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-platform-admin-dark-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-platform-admin-dark-390",
+    "fixture": true,
+    "url": "http://localhost:3000/no-enterprise",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": "订阅硅基员工调度硅基能力"
+  },
+  {
+    "name": "after-contributor-contributions-light-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/contributions",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": null
+  },
+  {
+    "name": "after-contributor-contributions-light-390",
+    "fixture": true,
+    "url": "http://localhost:3000/contributions",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": null
+  },
+  {
+    "name": "after-contributor-contributions-dark-1440",
+    "fixture": true,
+    "url": "http://localhost:3000/contributions",
+    "errors": [],
+    "width": 1440,
+    "scroll": 1440,
+    "heading": null
+  },
+  {
+    "name": "after-contributor-contributions-dark-390",
+    "fixture": true,
+    "url": "http://localhost:3000/contributions",
+    "errors": [],
+    "width": 390,
+    "scroll": 390,
+    "heading": null
+  }
+]

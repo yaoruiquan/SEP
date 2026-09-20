@@ -1,14 +1,33 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  PayloadTooLargeException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { extname } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto, ChangePasswordDto, UserProfileResponse } from 'shared';
 import * as bcrypt from 'bcrypt';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { StorageService } from '../upload/storage/storage.service';
+import { validateUploadedFile } from '../upload/file-validator';
+
+export const MAX_USER_AVATAR_SIZE = 2 * 1024 * 1024;
+const AVATAR_PATH = '/api/users/avatars/';
+const AVATAR_FILENAME =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(png|jpg|jpeg|webp)$/;
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     private prisma: PrismaService,
     private enterpriseContext: EnterpriseContextService,
+    private storage: StorageService,
   ) {}
 
   async getProfile(userId: string): Promise<UserProfileResponse> {
@@ -59,6 +78,58 @@ export class UserService {
       where: { id: userId },
       data: { password: hashed },
     });
+  }
+
+  /**
+   * 上传个人头像。存到 StorageService（本地磁盘或 OSS），
+   * 但 DB 里只落带稳定路径的地址（`/api/users/avatars/{uuid}.{ext}`），
+   * 走公开 GET 读取，不依赖会过期的签名 URL —— 与 enterprise-logo 同一模式。
+   */
+  async uploadAvatar(
+    userId: string,
+    file?: Express.Multer.File,
+  ): Promise<{ avatar: string }> {
+    if (!file?.buffer?.length) throw new BadRequestException('请选择头像图片');
+    if (file.buffer.length > MAX_USER_AVATAR_SIZE || file.size > MAX_USER_AVATAR_SIZE) {
+      throw new PayloadTooLargeException('头像不能超过 2MB');
+    }
+    const extension = extname(file.originalname).toLowerCase();
+    if (!['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) {
+      throw new BadRequestException('头像仅支持 PNG、JPEG、WebP 图片');
+    }
+    const validated = validateUploadedFile({ ...file, size: file.buffer.length });
+    const filename = `${randomUUID()}.${validated.ext}`;
+    const key = `user-avatars/${filename}`;
+    const avatar = `${AVATAR_PATH}${filename}`;
+    await this.storage.put({
+      key,
+      buffer: file.buffer,
+      mime: validated.mime,
+      filename,
+    });
+    try {
+      await this.prisma.user.update({ where: { id: userId }, data: { avatar } });
+    } catch (error) {
+      await this.storage
+        .delete(key)
+        .catch(() => this.logger.warn('头像保存失败后的文件清理失败'));
+      throw error;
+    }
+    return { avatar };
+  }
+
+  /** 回传已发布的头像字节；仅允许本服务写入的 uuid 文件名。 */
+  async readAvatar(filename: string): Promise<{ buffer: Buffer; mime: string }> {
+    if (!AVATAR_FILENAME.test(filename)) throw new NotFoundException('头像不存在');
+    const buffer = await this.storage.get(`user-avatars/${filename}`);
+    const extension = extname(filename);
+    const mime =
+      extension === '.png'
+        ? 'image/png'
+        : extension === '.webp'
+          ? 'image/webp'
+          : 'image/jpeg';
+    return { buffer, mime };
   }
 
   /**

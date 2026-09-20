@@ -54,7 +54,7 @@ function renderDialog(value: ComputeBlockedInfo | null = info()) {
 function asMember() {
   useAuthStore.setState({
     token: 't',
-    user: { id: 'u1', email: 'a@b.c', name: '测试', role: 'USER' },
+    user: { id: 'u1', email: 'a@b.c', name: '测试', avatar: null, role: 'USER' },
     enterprise: { id: 'ent1', name: '示例科技' },
     roleInEnterprise: 'MEMBER',
     hydrated: true,

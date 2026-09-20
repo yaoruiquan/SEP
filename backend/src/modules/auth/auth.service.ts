@@ -145,7 +145,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       enterprise: { id: enterprise.id, name: enterprise.name },
       roleInEnterprise: member.role,
     };
@@ -232,7 +232,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       enterprise: { id: enterprise.id, name: enterprise.name },
       roleInEnterprise: member.role,
     };
@@ -260,7 +260,7 @@ export class AuthService {
   ): Promise<AuthResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, role: true },
+      select: { id: true, email: true, name: true, avatar: true, role: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
 
@@ -303,7 +303,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       enterprise: { id: enterprise.id, name: enterprise.name },
       roleInEnterprise: member.role,
     };
@@ -323,7 +323,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       ...membership,
     };
   }
@@ -380,7 +380,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       ...membership,
     };
   }

@@ -9,6 +9,28 @@ export interface AvatarStyle {
   description: string;
   category: 'human' | 'robot' | 'abstract' | 'pixel';
   recommended: boolean;
+  source?: 'dicebear' | 'platform';
+  styleId?: string;
+}
+
+export const SILICON_3D_STYLE: AvatarStyle = {
+  id: 'silicon-3d',
+  name: '硅基 3D 人物',
+  description: '平台统一维护的半身人物，Web 与客户端共享同一人物身份',
+  category: 'human',
+  recommended: true,
+  source: 'platform',
+};
+
+export const FOLLOW_DEFAULT_STYLE_ID = 'follow-default';
+
+export function canonicalAvatarStyleId(styleId: string): string {
+  if (styleId === SILICON_3D_STYLE.id || styleId === FOLLOW_DEFAULT_STYLE_ID || styleId === 'custom') return styleId;
+  return DICEBEAR_STYLES.some((style) => style.id === styleId) ? `cartoon:${styleId}` : styleId;
+}
+
+export function dicebearStyleId(styleId: string): string {
+  return styleId.startsWith('cartoon:') ? styleId.slice('cartoon:'.length) : styleId;
 }
 
 export const DICEBEAR_STYLES: AvatarStyle[] = [
@@ -221,7 +243,7 @@ export const DICEBEAR_STYLES: AvatarStyle[] = [
  * 生成 DiceBear 头像 URL
  */
 export function generateAvatarUrl(styleId: string, seed: string): string {
-  return `https://api.dicebear.com/9.x/${styleId}/svg?seed=${encodeURIComponent(seed)}`;
+  return `https://api.dicebear.com/9.x/${dicebearStyleId(styleId)}/svg?seed=${encodeURIComponent(seed)}`;
 }
 
 /**

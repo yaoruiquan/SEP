@@ -41,7 +41,7 @@ export interface TransactionListResponse {
 }
 
 export interface TransactionFilters {
-  type?: 'DEPOSIT' | 'CONSUME' | 'REFUND';
+  type?: WalletTransaction['type'];
   page?: number;
   limit?: number;
 }

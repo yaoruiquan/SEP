@@ -1,0 +1,17 @@
+{
+  "scope": "departments-layout",
+  "method": "manual screenshot comparison; visual-verdict skill unavailable",
+  "reference": "user supplied department management layout",
+  "screenshot": ".playwright-cli/departments-desktop.png",
+  "mobileScreenshot": ".playwright-cli/departments-mobile-final.png",
+  "verdict": "passed with existing artwork; browser checks use fixture data",
+  "observations": [
+    "65/35 column proportions match reference",
+    "Five branches fit at 1703x924 after row spacing refinement",
+    "390x844 screenshot has no horizontal overflow after sidebar transition",
+    "Search, detail dialog, model policy tab and closing verified with browser fixtures",
+    "Original tree member totals remain stable while filtering",
+    "Nested add-members dialog opens and closes without closing department detail",
+    "Final Next.js production build passed; backend health returned ok"
+  ]
+}

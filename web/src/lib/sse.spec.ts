@@ -32,7 +32,7 @@ describe('streamTaskExecution', () => {
     tryRefresh.mockImplementation(async () => {
       authAccessor.setAuth({
         token: 'fresh-token',
-        user: { id: 'u1', email: 'u1@example.com', name: null, role: 'USER' },
+        user: { id: 'u1', email: 'u1@example.com', name: null, avatar: null, role: 'USER' },
         enterprise: null,
         roleInEnterprise: null,
       });

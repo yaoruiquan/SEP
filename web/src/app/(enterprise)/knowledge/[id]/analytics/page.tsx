@@ -3,20 +3,14 @@
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, BarChart2, Search, FileText, AlertCircle } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useKnowledgeAnalytics } from '@/features/knowledge/use-knowledge-test';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
 
 interface AnalyticsPageProps {
   params: Promise<{ id: string }>;

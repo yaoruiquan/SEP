@@ -141,7 +141,7 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
-                <Avatar name={employee.name} className="h-16 w-16" />
+                <Avatar name={employee.name} src={employee.avatar} asset={employee.avatarAsset} portrait className="h-16 w-16" />
                 <div>
                   <h2 className="text-xl font-semibold">{employee.name}</h2>
                   <p className="text-sm text-fg-muted">

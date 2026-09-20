@@ -78,7 +78,7 @@ export function AllowanceAuditPanel() {
       </button>
 
       {open && (
-        <div className="mt-3 border border-border/70 bg-card">
+        <div className="mt-3 rounded-lg border border-border/70 bg-card overflow-hidden">
           <div className="flex gap-1 border-b border-border/70 px-2 py-2">
             {(
               [

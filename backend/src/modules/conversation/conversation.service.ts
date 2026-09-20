@@ -103,7 +103,7 @@ export class ConversationService {
         modelId: true,
         createdAt: true,
         updatedAt: true,
-        employee: { select: { id: true, name: true, avatar: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true } },
       },
     });
 
@@ -125,7 +125,7 @@ export class ConversationService {
         modelId: true,
         createdAt: true,
         updatedAt: true,
-        employee: { select: { id: true, name: true, avatar: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true } },
         _count: { select: { messages: true } },
       },
     });
@@ -139,7 +139,7 @@ export class ConversationService {
     const session = await this.prisma.conversationSession.findUnique({
       where: { id: sessionId },
       include: {
-        employee: { select: { id: true, name: true, avatar: true, modelId: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, modelId: true } },
         messages: {
           orderBy: { createdAt: 'asc' },
           select: {

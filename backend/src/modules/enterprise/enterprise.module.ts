@@ -13,6 +13,9 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { OrganizationService } from './organization.service';
 import { OrganizationController } from './organization.controller';
+import { EnterpriseLogoController } from './enterprise-logo.controller';
+import { EnterpriseLogoService } from './enterprise-logo.service';
+import { UploadModule } from '../upload/upload.module';
 
 /**
  * 企业上下文是多租户隔离的基础设施，几乎每个业务模块都要用，
@@ -40,6 +43,7 @@ import { OrganizationController } from './organization.controller';
   // 它用的 EnterpriseContextService 靠 @Global 拿到），故不成环。
   imports: [
     DigitalEmployeeModule,
+    UploadModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -47,10 +51,11 @@ import { OrganizationController } from './organization.controller';
       }),
     }),
   ],
-  controllers: [EnterpriseController, OrganizationController],
+  controllers: [EnterpriseController, OrganizationController, EnterpriseLogoController],
   providers: [
     EnterpriseContextService,
     EnterpriseService,
+    EnterpriseLogoService,
     DepartmentService,
     MemberService,
     InvitationService,

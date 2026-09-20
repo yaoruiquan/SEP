@@ -17,11 +17,12 @@ import {
 } from "@/features/model/use-models";
 
 // 厂商配置（图标路径和颜色）
+// 优先使用 SVG 格式以减少文件大小
 const VENDOR_CONFIG: Record<string, { logo: string; name: string }> = {
-  OpenAI: { logo: "/vendors/openai.png", name: "OpenAI" },
-  Anthropic: { logo: "/vendors/anthropic.png", name: "Anthropic" },
-  Google: { logo: "/vendors/google.png", name: "Google" },
-  Meta: { logo: "/vendors/meta.png", name: "Meta" },
+  OpenAI: { logo: "/vendors/openai.svg", name: "OpenAI" },
+  Anthropic: { logo: "/vendors/anthropic.svg", name: "Anthropic" },
+  Google: { logo: "/vendors/google.svg", name: "Google" },
+  Meta: { logo: "/vendors/meta.svg", name: "Meta" },
   Minimax: { logo: "/vendors/minimax.png", name: "Minimax" },
   Zhipu: { logo: "/vendors/zhipu.png", name: "智谱AI" },
   DeepSeek: { logo: "/vendors/deepseek.png", name: "DeepSeek" },
