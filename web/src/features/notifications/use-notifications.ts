@@ -23,14 +23,6 @@ export interface NotificationsResponse {
   total: number;
 }
 
-export interface NotificationPreference {
-  systemEnabled: boolean;
-  usageAlertEnabled: boolean;
-  securityEnabled: boolean;
-  approvalEnabled: boolean;
-  emailEnabled: boolean;
-}
-
 /**
  * 获取通知列表（支持分类和未读过滤）
  */
@@ -118,31 +110,6 @@ export function useClearRead() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-    },
-  });
-}
-
-/**
- * 获取通知偏好设置
- */
-export function useNotificationPreferences() {
-  return useQuery<NotificationPreference>({
-    queryKey: ['notifications', 'preferences'],
-    queryFn: () => api.get<NotificationPreference>('/notifications/preferences'),
-    staleTime: 60_000,
-  });
-}
-
-/**
- * 更新通知偏好设置
- */
-export function useUpdateNotificationPreferences() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (dto: Partial<NotificationPreference>) =>
-      api.put<NotificationPreference>('/notifications/preferences', dto),
-    onSuccess: (data) => {
-      queryClient.setQueryData(['notifications', 'preferences'], data);
     },
   });
 }

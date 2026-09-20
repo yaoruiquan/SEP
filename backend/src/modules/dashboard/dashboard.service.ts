@@ -83,10 +83,11 @@ export class DashboardService {
         user: memberUserFilter,
       },
     });
+    // 上月基数为 0 时无环比基准，返回 null 让前端显示 "—" 而不是误导性的 0%/-100%。
     const conversationsTrend =
       conversationsLastMonth > 0
         ? Math.round(((conversationsThisMonth - conversationsLastMonth) / conversationsLastMonth) * 100)
-        : 0;
+        : null;
 
     const wallet = isAdmin
       ? await this.prisma.enterpriseWallet.findUnique({ where: { enterpriseId } })
@@ -119,7 +120,7 @@ export class DashboardService {
     const computeTrend =
       computeLastMonthTotal > 0
         ? Math.round(((computeThisMonthTotal - computeLastMonthTotal) / computeLastMonthTotal) * 100)
-        : 0;
+        : null;
 
     const sessionTrendRows = await this.prisma.conversationSession.findMany({
       where: {

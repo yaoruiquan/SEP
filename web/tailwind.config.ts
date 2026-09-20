@@ -46,17 +46,41 @@ const config: Config = {
           DEFAULT: 'rgb(var(--brand-rgb) / <alpha-value>)',
           hover: 'var(--brand-hover)',
           subtle: 'var(--brand-subtle)',
+          // text-primary-text：暗底自动桥到亮靛、浅底用深靛，两主题都 AA
+          text: 'var(--brand-text)',
+          ring: 'var(--brand-ring)',
           foreground: '#ffffff',
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          200: '#BFDBFE',
-          300: '#93C5FD',
-          400: '#60A5FA',
-          500: '#3B82F6',
-          600: '#2563EB',
-          700: '#1D4ED8',
-          800: '#1E40AF',
-          900: '#1E3A8A',
+          // 真实 Indigo 色阶（此前误用 Tailwind 默认 blue，致 primary-600 偏色）
+          50: '#EEF2FF',
+          100: '#E0E7FF',
+          200: '#C7D2FE',
+          300: '#A5B4FC',
+          400: '#818CF8',
+          500: '#6366F1',
+          600: '#4F46E5',
+          700: '#4338CA',
+          800: '#3730A3',
+          900: '#312E81',
+        },
+        // 第二强调色 Teal —— 只做数据强调（指标/图表/高亮），不承担状态语义
+        secondary: {
+          DEFAULT: 'rgb(var(--secondary-rgb) / <alpha-value>)',
+          hover: 'var(--secondary-hover)',
+          subtle: 'var(--secondary-subtle)',
+          // text-secondary-text：暗底自动桥到亮青、浅底用深青，两主题都 AA
+          text: 'var(--secondary-text)',
+          ring: 'var(--secondary-ring)',
+          foreground: '#ffffff',
+          50: '#F0FDFA',
+          100: '#CCFBF1',
+          200: '#99F6E4',
+          300: '#5EEAD4',
+          400: '#2DD4BF',
+          500: '#14B8A6',
+          600: '#0D9488',
+          700: '#0F766E',
+          800: '#115E59',
+          900: '#134E4A',
         },
         // 完整的中性色阶
         neutral: {
@@ -87,13 +111,6 @@ const config: Config = {
           700: '#A16207',
         },
         danger: {
-          DEFAULT: 'rgb(var(--danger-rgb) / <alpha-value>)',
-          50: '#FEF2F2',
-          500: '#EF4444',
-          600: '#DC2626',
-          700: '#B91C1C',
-        },
-        error: {
           DEFAULT: 'rgb(var(--danger-rgb) / <alpha-value>)',
           50: '#FEF2F2',
           500: '#EF4444',
@@ -183,6 +200,18 @@ const config: Config = {
           subtle: 'var(--gbrand-subtle)',
           ring: 'var(--gbrand-ring)',
         },
+        // 深底 teal 第二强调色 —— 同样填充/文字分档：
+        //   bg-gsecondary       白字压上去 5.47:1 ✅ AA
+        //   text-gsecondary-text  压在画布上 10.0:1 ✅ AAA
+        // 反过来用（bg-gsecondary-text + 白字）只有 2.49:1，不合规。
+        gsecondary: {
+          DEFAULT: 'rgb(var(--gsecondary-rgb) / <alpha-value>)',
+          hover: 'var(--gsecondary-hover)',
+          text: 'rgb(var(--gsecondary-text-rgb) / <alpha-value>)',
+          'text-hover': 'var(--gsecondary-text-hover)',
+          subtle: 'var(--gsecondary-subtle)',
+          ring: 'var(--gsecondary-ring)',
+        },
         // 深底语义色（rgb 通道形式，支持 bg-gsuccess/20 这类 alpha 修饰）
         gsuccess: 'rgb(var(--gsuccess-rgb) / <alpha-value>)',
         gwarning: 'rgb(var(--gwarning-rgb) / <alpha-value>)',
@@ -240,19 +269,6 @@ const config: Config = {
       fontFamily: {
         sans: ['Inter', 'PingFang SC', 'Microsoft YaHei', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'SF Mono', 'Menlo', 'monospace'],
-      },
-      // 状态色
-      status: {
-        online: '#22C55E',
-        busy: '#EAB308',
-        offline: '#94A3B8',
-      },
-      // 能力类型色
-      capability: {
-        agent: '#3B82F6',
-        skill: '#22C55E',
-        rpa: '#F97316',
-        aiapp: '#A855F7',
       },
       // 自定义动画
       animation: {
