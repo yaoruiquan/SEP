@@ -28,6 +28,7 @@ import type { ModelDistribution, TokenTrend, TopMember } from '@/features/dashbo
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { StatCard } from '@/components/ui/stat-card';
+import { StatCard3D } from '@/components/ui/stat-card-3d';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
@@ -396,15 +397,15 @@ export default function DashboardPage() {
         }
       />
 
-      {/* 统计卡片升级 - 使用新的 StatCard 组件 */}
+      {/* 统计卡片升级 - 使用 3D Card 组件 */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+        <StatCard3D
           label={isAdmin ? '硅基员工' : '我的可用硅基员工'}
           value={stats.totalEmployees}
           icon={Users}
           description={`${stats.activeEmployees} 个活跃`}
         />
-        <StatCard
+        <StatCard3D
           label="本月对话"
           value={formatCompactNumber(stats.conversations.total)}
           icon={MessageSquareText}
@@ -412,13 +413,13 @@ export default function DashboardPage() {
           trend={conversationsTrend}
           trendUp={(stats.conversations.trend ?? 0) > 0}
         />
-        <StatCard
+        <StatCard3D
           label={isAdmin ? '碳基员工' : '我的活跃员工'}
           value={isAdmin ? stats.totalMembers : stats.activeEmployees}
           icon={BriefcaseBusiness}
           description={isAdmin ? `${stats.totalDepartments} 个部门` : '近 7 天使用过的员工'}
         />
-        <StatCard
+        <StatCard3D
           label="本月算力"
           value={formatComputeUsage(stats.computeUsage.total)}
           icon={Gauge}

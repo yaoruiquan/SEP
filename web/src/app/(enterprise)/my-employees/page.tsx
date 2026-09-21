@@ -10,7 +10,8 @@ import { useMyEmployees } from '@/features/enterprise/use-enterprise';
 import { MyEmployeeListSkeleton } from '@/features/employee/employee-skeleton';
 import { EMPLOYEE_CATEGORIES } from '@/lib/employee-categories';
 import { summarizeEmployees } from '@/features/employee/usage-summary';
-import { EmployeeCard } from './EmployeeCard';
+import { EmployeeCard3D } from './EmployeeCard3D';
+import { Spotlight } from '@/components/aceternity/spotlight';
 import { PageFrame } from '@/components/page/page-frame';
 import { PageHero } from '@/components/page/page-hero';
 import styles from './employee-list.module.css';
@@ -80,7 +81,13 @@ export default function MyEmployeesPage() {
   const summary = useMemo(() => summarizeEmployees(mine), [mine]);
 
   return (
-    <PageFrame className="space-y-5">
+    <PageFrame className="relative space-y-5">
+      {/* Spotlight 背景效果 */}
+      <Spotlight
+        className="-top-40 left-0 md:-top-20 md:left-60"
+        fill="rgb(var(--color-brand-text))"
+      />
+
       <PageHero
         title="硅基员工"
         description="你的专业 AI 同事，随时接手下一项工作。"
@@ -233,7 +240,7 @@ export default function MyEmployeesPage() {
             <div className={styles.container}>
               <div className={styles.grid}>
                 {filteredEmployees.map((emp) => (
-                  <EmployeeCard key={emp.subscriptionId} employee={emp} />
+                  <EmployeeCard3D key={emp.subscriptionId} employee={emp} />
                 ))}
               </div>
             </div>
