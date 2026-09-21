@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, History, Plus, Workflow } from 'lucide-react';
+import { FolderOpen, History, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { TaskObjectiveComposer } from '@/features/task/task-objective-composer';
@@ -433,56 +433,57 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-gbg-canvas">
-      <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-glassline bg-gbg-deep/45 px-4 backdrop-blur-glass-sm sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-glass-md border border-glassline-brand bg-gbrand/10 text-gbrand-text">
-            <Workflow className="h-4 w-4" />
-          </span>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-gbg-canvas">
+      {/* 页头与能力贡献中心（同为全高路由）对齐：eyebrow 定位、标题与描述同基线、
+          动作右对齐。原先的 64px 工具条把标题压到 15px，和其他页面的页头不成比例。 */}
+      <header className="shrink-0 border-b border-glassline bg-gbg-deep/45 px-5 py-4 backdrop-blur-glass-sm xl:px-7">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <h1 className="truncate text-[15px] font-semibold text-gtext-primary">{nav.tasks}</h1>
-            <p className="mt-0.5 truncate text-[11px] text-gtext-muted">描述目标，我来安排员工完成并交付</p>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-xl font-semibold tracking-normal text-gtext-primary">{nav.tasks}</h1>
+              <p className="truncate text-sm text-gtext-muted">描述目标，我来安排员工完成并交付</p>
+            </div>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button size="sm" variant="glass" onClick={() => setHistoryOpen(true)}>
-            <History className="h-4 w-4" />
-            <span className="hidden sm:inline">工作记录</span>
-            {runs.length > 0 && (
-              <span className="grid h-4 min-w-4 place-items-center rounded-glass-pill bg-gbrand px-1 text-[9px] text-white">
-                {runs.length}
-              </span>
-            )}
-          </Button>
-          <Button size="sm" variant="glass" onClick={() => setTemplateOpen(true)}>
-            <FolderOpen className="h-4 w-4" />
-            <span className="hidden sm:inline">模板</span>
-          </Button>
-          {plan && !started && (
-            <Button size="sm" variant="glass" onClick={saveAsTemplate} loading={createTemplate.isPending}>
-              存为模板
+          <div className="flex flex-wrap items-center gap-2 xl:shrink-0">
+            <Button size="sm" variant="glass" onClick={() => setHistoryOpen(true)}>
+              <History className="h-4 w-4" />
+              <span className="hidden sm:inline">工作记录</span>
+              {runs.length > 0 && (
+                <span className="grid h-4 min-w-4 place-items-center rounded-glass-pill bg-gbrand px-1 text-[9px] text-white">
+                  {runs.length}
+                </span>
+              )}
             </Button>
-          )}
-          <Button size="sm" variant="glass-primary" onClick={createNewTask} disabled={!activeRunId}>
-            <Plus className="h-4 w-4" />
-            新建
-          </Button>
+            <Button size="sm" variant="glass" onClick={() => setTemplateOpen(true)}>
+              <FolderOpen className="h-4 w-4" />
+              <span className="hidden sm:inline">模板</span>
+            </Button>
+            {plan && !started && (
+              <Button size="sm" variant="glass" onClick={saveAsTemplate} loading={createTemplate.isPending}>
+                存为模板
+              </Button>
+            )}
+            <Button size="sm" variant="glass-primary" onClick={createNewTask} disabled={!activeRunId}>
+              <Plus className="h-4 w-4" />
+              新建
+            </Button>
+          </div>
         </div>
       </header>
 
       {/* 会议要求：顶部突出显示当前可用的硅基员工数量，数字要明显。
-          有任务在手时收成紧凑态，把竖向空间让给时间线。 */}
-      <div className="shrink-0 border-b border-glassline bg-gbg-deep/25 px-4 py-2.5 sm:px-6">
+          有任务在手时收成紧凑态，把竖向空间让给时间线。
+          从通栏副条改成内容区卡片，与能力贡献中心顶部的汇总条同款。 */}
+      <div className="shrink-0 px-5 pt-4 xl:px-7">
         <TeamReadinessBar
           enterpriseName={enterprise?.name}
           members={teamMembers}
           compact={Boolean(activeRunId)}
-          className="mx-auto max-w-4xl"
         />
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-glassline px-4 py-2 sm:px-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col px-5 xl:px-7">
+        <div className="shrink-0 py-3">
           <TabsList>
             <TabsTrigger value="workspace">我的工作安排</TabsTrigger>
             <TabsTrigger value="monitoring">客户端监控</TabsTrigger>

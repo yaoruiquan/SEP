@@ -222,7 +222,8 @@ export class EmbeddingService implements OnModuleInit {
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({ model: this.model, input: ['健康检查'] }),
-          signal: AbortSignal.timeout(Math.min(this.timeoutMs, 5000)),
+          // Ollama may need ~20s to cold-load the 1.2GB bge-m3 model on the shared CPU host.
+          signal: AbortSignal.timeout(Math.min(this.timeoutMs, 30000)),
         });
         if (!response.ok) return false;
         const data = await response.json() as { data?: Array<{ embedding?: number[] }> };
