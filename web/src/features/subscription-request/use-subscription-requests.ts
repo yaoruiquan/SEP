@@ -62,7 +62,7 @@ export function useCancelSubscriptionRequest() {
 }
 
 /**
- * 查询待审批申请（管理员）
+ * 查询待审批申请（管理员 - 企业内部审批流）
  */
 export function usePendingSubscriptionRequests() {
   return useQuery({

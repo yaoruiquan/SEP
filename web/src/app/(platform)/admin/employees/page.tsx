@@ -24,6 +24,7 @@ import { adminApi } from '@/features/admin/admin-api';
 import { toast } from '@/components/ui/toast';
 import { employeeStatusMeta } from '@/lib/status-meta';
 import { Plus, Pencil, Trash2, Archive, Upload, Users, Palette } from 'lucide-react';
+import { common } from '@/locales/zh-CN';
 
 function StatusBadge({ status }: { status: string }) {
   const meta = employeeStatusMeta(status);
@@ -132,7 +133,7 @@ export default function AdminEmployeesPage() {
         <TabsList>
           <TabsTrigger value="approved">已发布</TabsTrigger>
           <TabsTrigger value="draft">草稿</TabsTrigger>
-          <TabsTrigger value="pending">待审核</TabsTrigger>
+          <TabsTrigger value="pending">{common.status.pendingReview}</TabsTrigger>
         </TabsList>
 
         <TabsContent value={tab} className="mt-4">
@@ -141,7 +142,7 @@ export default function AdminEmployeesPage() {
               <CardTitle>
                 {tab === 'approved' && '已发布员工'}
                 {tab === 'draft' && '草稿员工'}
-                {tab === 'pending' && '待审核员工'}
+                {tab === 'pending' && `${common.status.pendingReview}员工`}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">

@@ -39,6 +39,7 @@ import {
 } from '@/features/admin/use-admin';
 import { useUnifiedCapabilityReviewQueue } from '@/features/contribution/use-contribution-admin';
 import { CAPABILITY_TYPE_META, cn } from '@/lib/utils';
+import { common } from '@/locales/zh-CN';
 
 /**
  * 能力管理 —— 目录与审核合成一页。
@@ -61,12 +62,12 @@ type StatusFilter = 'ALL' | 'APPROVED' | 'PENDING' | 'REJECTED';
 const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
   { key: 'ALL', label: '全部' },
   { key: 'APPROVED', label: '已发布' },
-  { key: 'PENDING', label: '待审核' },
+  { key: 'PENDING', label: common.status.pendingReview },
   { key: 'REJECTED', label: '已拒绝' },
 ];
 
 const STATUS_META: Record<string, { label: string; tone: string }> = {
-  PENDING: { label: '待审核', tone: 'border border-glassline bg-glass-2 text-gwarning' },
+  PENDING: { label: common.status.pendingReview, tone: 'border border-glassline bg-glass-2 text-gwarning' },
   APPROVED: { label: '已发布', tone: 'border border-glassline bg-glass-2 text-gsuccess' },
   REJECTED: { label: '已拒绝', tone: 'border border-glassline bg-glass-2 text-gdanger' },
 };

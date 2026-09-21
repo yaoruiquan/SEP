@@ -12,9 +12,10 @@ import {
   useCancelSubscriptionRequest,
 } from './use-subscription-requests';
 import { Z_CLASS } from '@/lib/z-index';
+import { common } from '@/locales/zh-CN';
 
 const STATUS_META: Record<SubscriptionRequest['status'], { label: string; tone: string }> = {
-  PENDING: { label: '待审批', tone: 'bg-warning/10 text-warning' },
+  PENDING: { label: common.status.pendingApproval, tone: 'bg-warning/10 text-warning' },
   APPROVED: { label: '已通过', tone: 'bg-success/10 text-success' },
   REJECTED: { label: '已拒绝', tone: 'bg-danger/10 text-danger' },
   CANCELED: { label: '已取消', tone: 'bg-muted text-fg-muted' },
@@ -22,7 +23,7 @@ const STATUS_META: Record<SubscriptionRequest['status'], { label: string; tone: 
 
 /**
  * 普通成员的「我的申请」弹窗：查看自己发起的员工使用申请与审批状态，
- * 待审批的可以撤回。挂在人才市场页，因为申请就是从那里发起的。
+ * 待审批（企业内部审批流）的可以撤回。挂在人才市场页，因为申请就是从那里发起的。
  */
 export function MyRequestsModal({
   open,
@@ -175,7 +176,7 @@ export function MyRequestsModal({
         {/* footer */}
         <div className="flex shrink-0 justify-between gap-3 border-t border-glassline px-6 py-3.5">
           <p className="text-[12px] text-gtext-muted">
-            {pendingCount > 0 ? `${pendingCount} 条待审批` : '暂无待审批'}
+            {pendingCount > 0 ? `${pendingCount} 条${common.status.pendingApproval}` : `暂无${common.status.pendingApproval}`}
           </p>
           <Button variant="glass" size="sm" onClick={onClose}>
             关闭

@@ -148,6 +148,78 @@ export const nav = {
   personalSettings: '个人设置',
 } as const;
 
+/** 通用术语 */
+export const common = {
+  actions: {
+    submit: '提交',
+    cancel: '取消',
+    confirm: '确定',
+    save: '保存',
+    delete: '删除',
+    edit: '编辑',
+    search: '搜索',
+    filter: '筛选',
+    reset: '重置',
+    create: '新建',
+    update: '更新',
+    close: '关闭',
+    back: '返回',
+    next: '下一步',
+    prev: '上一步',
+  },
+  status: {
+    /** 运营端：平台审核内容（能力/员工/技能审核队列） */
+    pendingReview: '待审核',
+    /** 企业端：企业内部审批流（成员申请、订阅申请） */
+    pendingApproval: '待审批',
+    active: '进行中',
+    completed: '已完成',
+    failed: '失败',
+    loading: '加载中',
+    success: '成功',
+    error: '错误',
+  },
+  empty: {
+    noData: '暂无数据',
+    noResult: '没有匹配的结果',
+    tryOtherKeywords: '试试放宽筛选条件或换个关键词',
+    notYet: (entity: string) => `尚未${entity}`,
+  },
+  feedback: {
+    saveSuccess: '保存成功',
+    saveFailed: '保存失败',
+    deleteSuccess: '删除成功',
+    deleteFailed: '删除失败',
+    updateSuccess: '更新成功',
+    updateFailed: '更新失败',
+    createSuccess: '创建成功',
+    createFailed: '创建失败',
+    operationSuccess: '操作成功',
+    operationFailed: '操作失败',
+    deleteConfirm: '确定删除吗？此操作不可撤销。',
+    loading: '处理中...',
+  },
+  search: {
+    placeholder: '搜索...',
+    noResult: '未找到匹配项',
+  },
+} as const;
+
+/** 表格通用列名 */
+export const table = {
+  columns: {
+    name: '名称',
+    status: '状态',
+    type: '类型',
+    description: '描述',
+    createdAt: '创建时间',
+    updatedAt: '更新时间',
+    actions: '操作',
+    creator: '创建人',
+    owner: '所有者',
+  },
+} as const;
+
 export const zhCN = {
   employee,
   employment,
@@ -157,6 +229,8 @@ export const zhCN = {
   subscriptionStatus,
   messages,
   nav,
+  common,
+  table,
 } as const;
 
 export default zhCN;

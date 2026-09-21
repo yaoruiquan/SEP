@@ -14,9 +14,10 @@ import {
   type CapabilityGroup,
 } from '@/features/skill-version/group-admin-versions';
 import { useAdminSkillVersions } from '@/features/skill-version/use-skill-version';
+import { common } from '@/locales/zh-CN';
 
 /**
- * 三个页签对应三个问题，标签就照着问题写：
+ * 三个页签对应三个问题,标签就照着问题写：
  *   - 待审核：有人投稿了，等我批
  *   - 企业改动：各家企业自己改成了什么样，我要不要收回平台（**没有投稿也在这里**）
  *   - 全部：翻档案
@@ -25,7 +26,7 @@ import { useAdminSkillVersions } from '@/features/skill-version/use-skill-versio
  * `scope=PLATFORM` 的副本落到第一个页签。实测这一栏 11 行里 0 行是提交过来的。
  */
 const TABS = [
-  { key: 'PENDING', label: '待审核', filter: { status: 'PENDING_PLATFORM_REVIEW' } as const },
+  { key: 'PENDING', label: common.status.pendingReview, filter: { status: 'PENDING_PLATFORM_REVIEW' } as const },
   { key: 'ENTERPRISE', label: '企业改动', filter: { scope: 'ENTERPRISE' } as const },
   { key: 'ALL', label: '全部', filter: undefined },
 ] as const;

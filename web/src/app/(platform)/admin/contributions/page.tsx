@@ -10,9 +10,10 @@ import { toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import type { ContributionCapability } from '@/lib/types';
 import { usePlatformContribution, usePlatformContributionQueue, usePlatformContributionReview, type PlatformQueueStatus } from '@/features/contribution/use-contribution-admin';
+import { common } from '@/locales/zh-CN';
 
 const tabs: Array<{ value: PlatformQueueStatus; label: string }> = [
-  { value: 'PENDING_REVIEW', label: '待审核' },
+  { value: 'PENDING_REVIEW', label: common.status.pendingReview },
   { value: 'APPROVED', label: '已收录' },
   { value: 'REJECTED', label: '已驳回' },
 ];

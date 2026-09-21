@@ -14,6 +14,7 @@ import { useMe, useUpdateProfile, useChangePassword, useUploadAvatar } from '@/f
 import { useLogout, useLeaveEnterprise } from '@/features/auth/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
+import { common } from '@/locales/zh-CN';
 
 /** 头像上传的本地预检，与后端 MAX_USER_AVATAR_SIZE 保持一致；真正的校验在后端。 */
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
@@ -319,7 +320,7 @@ function LeaveEnterpriseCard() {
         <div className="rounded-lg border border-glassline bg-glass-2 px-3 py-2.5 text-xs leading-relaxed text-fg-muted">
           <p className="font-medium text-foreground">会发生什么</p>
           <p className="mt-1">
-            立即回收：你被授权的硅基员工席位、你的部门归属、你提交的待审批申请。
+            立即回收：你被授权的硅基员工席位、你的部门归属、你提交的${common.status.pendingApproval}申请。
           </p>
           <p className="mt-0.5">
             保留在企业：技能配置、知识库、工作与审批记录 ——

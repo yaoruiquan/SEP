@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useAdminStats, type AdminStats } from '@/features/admin/use-admin-stats';
 import { CHART_GRID, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE, CHART_TOOLTIP_LABEL_STYLE, useChartSeries } from '@/lib/chart-theme';
+import { common } from '@/locales/zh-CN';
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
     {
       label: '已上架员工',
       value: kpi.totalEmployees,
-      sub: kpi.pendingEmployees > 0 ? `待审核 ${kpi.pendingEmployees} 位` : '无待审核',
+      sub: kpi.pendingEmployees > 0 ? `${common.status.pendingReview} ${kpi.pendingEmployees} 位` : `无${common.status.pendingReview}`,
       trend: kpi.employeeTrendPct,
       trendLabel: '较上月',
       icon: Users,

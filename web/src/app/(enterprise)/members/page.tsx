@@ -19,7 +19,7 @@ import {
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
-import { member } from '@/locales/zh-CN';
+import { member, common } from '@/locales/zh-CN';
 import {
   useMembers,
   useDepartments,
@@ -423,7 +423,7 @@ export default function MembersPage() {
               <div>
                 <p className="font-medium text-foreground">会立即回收</p>
                 <p className="mt-0.5 text-fg-muted">
-                  其个人的硅基员工席位、待审批的申请；若其为部门负责人，该部门将暂时空缺。
+                  其个人的硅基员工席位、${common.status.pendingApproval}的申请；若其为部门负责人，该部门将暂时空缺。
                 </p>
               </div>
               <div>
@@ -458,7 +458,7 @@ export default function MembersPage() {
               {offboarded.reclaimedGrants > 0 &&
                 `，回收 ${offboarded.reclaimedGrants} 个硅基员工席位`}
               {offboarded.canceledRequests > 0 &&
-                `，取消 ${offboarded.canceledRequests} 条待审批申请`}
+                `，取消 ${offboarded.canceledRequests} 条${common.status.pendingApproval}申请`}
               。
             </p>
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3">
