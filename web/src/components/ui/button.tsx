@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
-import { LoadingSpinner } from './loading';
+import { Spinner } from './feedback';
 
 /**
  * 导出以便给 <Link> 之类的非 button 元素套同样的样式。
@@ -61,7 +61,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       aria-busy={loading}
       {...props}
     >
-      {loading && <LoadingSpinner size="sm" />}
+      {loading && <Spinner size="sm" />}
       {loading && loadingText ? loadingText : children}
     </button>
   ),

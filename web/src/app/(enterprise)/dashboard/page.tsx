@@ -29,7 +29,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { StatCard } from '@/components/ui/stat-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
 import { PageFrame } from '@/components/page/page-frame';
 import { PageHero } from '@/components/page/page-hero';

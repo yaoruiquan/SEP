@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@/components/ui/feedback';
 
 const PieChart = lazy(() =>
   import('recharts').then((mod) => ({ default: mod.PieChart }))

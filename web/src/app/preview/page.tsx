@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Skeleton, CardSkeleton, TableSkeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonCard, SkeletonTable } from '@/components/ui/feedback';
 import { Drawer } from '@/components/ui/drawer';
 import { Steps, Step } from '@/components/ui/steps';
 import { StatusDot } from '@/components/ui/status-dot';
@@ -52,13 +52,13 @@ export default function ComponentPreviewPage() {
           </Card>
 
           <Card variant="solid" className="p-6">
-            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：CardSkeleton</h3>
-            <CardSkeleton />
+            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：SkeletonCard</h3>
+            <SkeletonCard />
           </Card>
 
           <Card variant="solid" className="p-6 lg:col-span-2">
-            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：TableSkeleton</h3>
-            <TableSkeleton rows={5} />
+            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：SkeletonTable</h3>
+            <SkeletonTable rows={5} />
           </Card>
         </div>
       </section>
