@@ -28,7 +28,7 @@ export function SessionList({
   onDelete,
 }: SessionListProps) {
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-sidebar">
+    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-sidebar md:w-72 w-full">
       <div className="p-3">
         <button
           type="button"
@@ -84,7 +84,11 @@ function SessionRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(session.title ?? '');
 
-  const title = session.title || session.employee?.name || '新会话';
+  // P2.3: 会话标题策略 = 员工名 · 首句截断（若无自定义标题）
+  const defaultTitle = session.employee?.name
+    ? `${session.employee.name}的对话`
+    : '新会话';
+  const title = session.title || defaultTitle;
 
   if (editing) {
     return (

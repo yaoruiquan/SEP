@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Download, Shield } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { EmptyState, ErrorState, CenteredSpinner } from '@/components/ui/feedback';
 import { api } from '@/lib/api-client';
 import { authAccessor } from '@/lib/auth-store';
 
@@ -80,7 +81,19 @@ export default function AuditPage() {
         </CardHeader>
         <CardContent>
           {query.isLoading ? (
-            <p>加载中...</p>
+            <CenteredSpinner label="加载审计日志..." />
+          ) : query.isError ? (
+            <ErrorState
+              title="加载失败"
+              message="无法获取审计日志，请稍后重试"
+              onRetry={() => query.refetch()}
+            />
+          ) : !query.data?.items.length ? (
+            <EmptyState
+              icon={<Shield className="h-12 w-12" />}
+              title="暂无审计记录"
+              description="本企业尚无操作记录，或记录已超过 90 天保留期"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -94,7 +107,7 @@ export default function AuditPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(query.data?.items ?? []).map((item) => (
+                  {query.data.items.map((item) => (
                     <tr key={item.id} className="border-b border-glassline">
                       <td className="p-2">{new Date(item.createdAt).toLocaleString('zh-CN')}</td>
                       <td className="p-2">{item.actor?.name || item.actor?.email || item.actorId}</td>

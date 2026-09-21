@@ -128,7 +128,7 @@ export function ModelSwitcher({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border border-border bg-background shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-border bg-background shadow-lg">
           <div className="max-h-96 overflow-y-auto">
             {isLoading && (
               <div className="px-3 py-2 text-xs text-fg-muted">加载模型...</div>

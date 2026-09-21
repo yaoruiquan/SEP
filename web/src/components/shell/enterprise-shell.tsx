@@ -146,7 +146,17 @@ const CRUMBS: CrumbMap = {
   payment: '支付',
   result: '支付结果',
   settings: '设置',
-  models: '模型配置',
+  // settings 子路由
+  profile: '个人资料',
+  security: '安全策略',
+  notifications: '通知设置',
+  billing: '账单与套餐',
+  organization: '企业信息',
+  roles: '角色权限',
+  'api-keys': 'API 密钥',
+  integrations: '集成与 Webhook',
+  models: '模型偏好',
+  // 其他非导航路由
   chat: '对话',
   contributions: nav.contributions,
   capabilities: nav.capabilities,
@@ -261,9 +271,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
               )}
               <div className="space-y-0.5">
                 {group.links.map((link) => (
-                  <div key={link.href} onClick={() => setSidebarOpen(false)}>
+                  <Link key={link.href} href={link.href} onClick={() => setSidebarOpen(false)}>
                     <NavItem {...link} collapsed={collapsed} />
-                  </div>
+                  </Link>
                 ))}
               </div>
               {/* 分组分割线 */}
@@ -287,9 +297,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
                   <p className="truncate text-xs text-gtext-muted">{user?.email}</p>
                 </div>
               </div>
-              <div onClick={() => setSidebarOpen(false)}>
+              <Link href="/settings" onClick={() => setSidebarOpen(false)}>
                 <NavItem href="/settings" label={nav.personalSettings} icon={Settings} />
-              </div>
+              </Link>
               <Button
                 variant="ghost"
                 size="sm"
