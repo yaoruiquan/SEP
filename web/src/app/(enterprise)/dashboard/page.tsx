@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatCard3D } from '@/components/ui/stat-card-3d';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { BackgroundGradient } from '@/components/aceternity/background-gradient';
 import { Skeleton } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
 import { PageFrame } from '@/components/page/page-frame';
@@ -431,72 +432,78 @@ export default function DashboardPage() {
 
       {/* 主要内容区 */}
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.9fr)]">
-        {/* 模型使用分析 */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{isAdmin ? '模型使用分析' : '我的模型使用分析'}</CardTitle>
-                <CardDescription>
-                  {isAdmin ? '最近 30 天各模型的调用次数与成本' : '最近 30 天我的模型调用次数与成本'}
-                </CardDescription>
+        {/* 模型使用分析 - 添加 Background Gradient */}
+        <BackgroundGradient className="rounded-glass-lg p-0.5">
+          <Card className="glass-card border-none hover:shadow-md transition-shadow">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-gtext-primary">{isAdmin ? '模型使用分析' : '我的模型使用分析'}</CardTitle>
+                  <CardDescription>
+                    {isAdmin ? '最近 30 天各模型的调用次数与成本' : '最近 30 天我的模型调用次数与成本'}
+                  </CardDescription>
+                </div>
+                <Link
+                  href="/usage"
+                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80"
+                >
+                  查看完整报告
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
               </div>
-              <Link
-                href="/usage"
-                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80"
-              >
-                查看完整报告
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ModelDistributionChart data={modelDistribution} />
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              <ModelDistributionChart data={modelDistribution} />
+            </CardContent>
+          </Card>
+        </BackgroundGradient>
 
         {/* 成员使用情况仅对企业管理员开放，普通成员不能看到企业其他人的消费排行。 */}
-        {isAdmin && <Card className="hover:shadow-md transition-shadow">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>成员使用情况</CardTitle>
-                <CardDescription>按最近消费金额排序</CardDescription>
+        {isAdmin && <BackgroundGradient className="rounded-glass-lg p-0.5">
+          <Card className="glass-card border-none hover:shadow-md transition-shadow">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-gtext-primary">成员使用情况</CardTitle>
+                  <CardDescription>按最近消费金额排序</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm">
+                  <Link href="/usage" className="flex items-center gap-1">
+                    查看全部
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
               </div>
-              <Button variant="ghost" size="sm">
-                <Link href="/usage" className="flex items-center gap-1">
-                  查看全部
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <MemberUsageList data={topMembers} />
-          </CardContent>
-        </Card>}
+            </CardHeader>
+            <CardContent>
+              <MemberUsageList data={topMembers} />
+            </CardContent>
+          </Card>
+        </BackgroundGradient>}
       </section>
 
-      {/* Token 使用趋势 */}
+      {/* Token 使用趋势 - 添加 Background Gradient */}
       {tokenTrend.length > 0 && (
-        <Card className="hover:shadow-md transition-shadow">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{isAdmin ? 'Token 使用趋势' : '我的 Token 使用趋势'}</CardTitle>
-                <CardDescription>
-                  {isAdmin ? '最近 7 天 Input / Output 用量' : '最近 7 天我的 Input / Output 用量'}
-                </CardDescription>
+        <BackgroundGradient className="rounded-glass-lg p-0.5">
+          <Card className="glass-card border-none hover:shadow-md transition-shadow">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-gtext-primary">{isAdmin ? 'Token 使用趋势' : '我的 Token 使用趋势'}</CardTitle>
+                  <CardDescription>
+                    {isAdmin ? '最近 7 天 Input / Output 用量' : '最近 7 天我的 Input / Output 用量'}
+                  </CardDescription>
+                </div>
+                <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+                  <Cpu className="h-4 w-4" />
+                </div>
               </div>
-              <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-                <Cpu className="h-4 w-4" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <TokenTrendChart data={tokenTrend} />
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              <TokenTrendChart data={tokenTrend} />
+            </CardContent>
+          </Card>
+        </BackgroundGradient>
       )}
     </PageFrame>
   );

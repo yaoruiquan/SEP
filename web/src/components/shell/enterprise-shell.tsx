@@ -41,6 +41,7 @@ import { NotificationBell } from '@/components/notification-bell';
 import { CartButton } from '@/components/cart-button';
 import Link from 'next/link';
 import { useEmployeeStatus } from '@/lib/websocket';
+import { FloatingDock } from '@/components/aceternity/floating-dock';
 
 /** 单条导航项，可单独标记仅管理员可见 */
 type GuardedNavLink = NavLink & { adminOnly?: boolean };
@@ -196,10 +197,19 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
       ? 'online'
       : ('offline' as const);
 
-  // 先过滤整组，再过滤组内单项；两级都为空的组不渲染标题
+  // 先过滤整组，再过滤组内单项;两级都为空的组不渲染标题
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin)
     .map((g) => ({ ...g, links: g.links.filter((l) => !l.adminOnly || isAdmin) }))
     .filter((g) => g.links.length > 0);
+
+  // FloatingDock 移动端导航项（精简版，只显示最常用的）
+  const dockItems = [
+    { title: '工作台', icon: <LayoutDashboard />, href: '/dashboard' },
+    { title: '我的员工', icon: <MonitorPlay />, href: '/my-employees' },
+    { title: '对话', icon: <MessageSquare />, href: '/chat' },
+    { title: '任务', icon: <ListTodo />, href: '/tasks' },
+    { title: '市场', icon: <Store />, href: '/marketplace' },
+  ];
 
   return (
     // 主题 B 极光（PRD §背景渐变配方）。blobs=1：企业端多为表格/长列表，
@@ -364,6 +374,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           <div className="px-4 py-5 sm:px-6 lg:px-7">{children}</div>
         )}
       </main>
+
+      {/* FloatingDock - 仅移动端显示 */}
+      <FloatingDock items={dockItems} mobileClassName="pb-safe" />
     </AuroraBackground>
   );
 }
