@@ -36,8 +36,11 @@ export function useConfirmDialog() {
   const [state, setState] = useState<ConfirmState>({ open: false, options: { title: '', description: '' } });
   // 用 ref 持有 resolve，避免闭包拿到过期 state；同一时刻只会有一个待决确认。
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
+    const activeElement = document.activeElement;
+    triggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
     // 若已有未决确认（理论上不会发生），先以 false 收尾，避免 Promise 永久挂起。
     resolveRef.current?.(false);
     return new Promise<boolean>((resolve) => {
@@ -62,6 +65,15 @@ export function useConfirmDialog() {
 
   const handleConfirm = useCallback(() => settle(true), [settle]);
 
+  const handleCloseAutoFocus = useCallback((event: Event) => {
+    const trigger = triggerRef.current;
+    triggerRef.current = null;
+    if (!trigger?.isConnected) return;
+
+    event.preventDefault();
+    trigger.focus();
+  }, []);
+
   const dialog = (
     <ConfirmDialog
       open={state.open}
@@ -72,6 +84,7 @@ export function useConfirmDialog() {
       cancelText={state.options.cancelText}
       variant={state.options.variant}
       onConfirm={handleConfirm}
+      onCloseAutoFocus={handleCloseAutoFocus}
     />
   );
 

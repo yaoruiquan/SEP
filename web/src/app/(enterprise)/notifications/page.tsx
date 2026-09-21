@@ -141,14 +141,6 @@ export default function NotificationsPage() {
             <Trash2 className="h-4 w-4" />
             清空已读
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => (window.location.href = '/settings/profile#notifications')}
-          >
-            <Settings2 className="h-4 w-4" />
-            偏好设置
-          </Button>
         </div>
       </div>
 

@@ -20,6 +20,7 @@ interface ConfirmDialogProps {
   variant?: 'default' | 'danger';
   loading?: boolean;
   onConfirm: () => void | Promise<void>;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function ConfirmDialog({
@@ -32,6 +33,7 @@ export function ConfirmDialog({
   variant = 'default',
   loading = false,
   onConfirm,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   const handleConfirm = async () => {
     await onConfirm();
@@ -40,7 +42,7 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px]" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             {variant === 'danger' && (

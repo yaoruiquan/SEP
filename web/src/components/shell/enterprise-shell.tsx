@@ -271,9 +271,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
               )}
               <div className="space-y-0.5">
                 {group.links.map((link) => (
-                  <Link key={link.href} href={link.href} onClick={() => setSidebarOpen(false)}>
+                  <div key={link.href} onClick={() => setSidebarOpen(false)}>
                     <NavItem {...link} collapsed={collapsed} />
-                  </Link>
+                  </div>
                 ))}
               </div>
               {/* 分组分割线 */}
@@ -297,9 +297,9 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
                   <p className="truncate text-xs text-gtext-muted">{user?.email}</p>
                 </div>
               </div>
-              <Link href="/settings" onClick={() => setSidebarOpen(false)}>
+              <div onClick={() => setSidebarOpen(false)}>
                 <NavItem href="/settings" label={nav.personalSettings} icon={Settings} />
-              </Link>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"

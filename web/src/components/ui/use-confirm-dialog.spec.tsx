@@ -69,6 +69,18 @@ describe('useConfirmDialog', () => {
     expect(await readResolution()).toBe('resolved:false');
   });
 
+  it('returns focus to the trigger after the dialog closes', async () => {
+    render(<Harness options={{ title: '删除公告', description: '确定要删除吗？' }} />);
+
+    const trigger = screen.getByRole('button', { name: 'trigger' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByText('确定要删除吗？'));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    await vi.waitFor(() => expect(trigger).toHaveFocus());
+  });
+
   it('renders the custom confirm text and title', async () => {
     render(
       <Harness
