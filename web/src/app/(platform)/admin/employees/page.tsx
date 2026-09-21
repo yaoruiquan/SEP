@@ -21,22 +21,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/features/admin/admin-api';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
+import { employeeStatusMeta } from '@/lib/status-meta';
 import { Plus, Pencil, Trash2, Archive, Upload, Users, Palette } from 'lucide-react';
-
-type EmployeeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT' | 'ARCHIVED';
-
-const STATUS_META: Record<string, { label: string; tone: string }> = {
-  DRAFT: { label: '草稿', tone: 'bg-muted text-fg-muted' },
-  PENDING: { label: '待审核', tone: 'bg-warning/10 text-warning' },
-  APPROVED: { label: '已发布', tone: 'bg-success/10 text-success' },
-  REJECTED: { label: '已拒绝', tone: 'bg-danger/10 text-danger' },
-  ARCHIVED: { label: '已归档', tone: 'bg-muted text-fg-subtle' },
-};
+import { common } from '@/locales/zh-CN';
 
 function StatusBadge({ status }: { status: string }) {
-  const meta = STATUS_META[status];
-  return <Badge className={meta?.tone ?? ''}>{meta?.label ?? status}</Badge>;
+  const meta = employeeStatusMeta(status);
+  return <Badge className={meta.tone}>{meta.label}</Badge>;
 }
 
 export default function AdminEmployeesPage() {
@@ -141,7 +133,7 @@ export default function AdminEmployeesPage() {
         <TabsList>
           <TabsTrigger value="approved">已发布</TabsTrigger>
           <TabsTrigger value="draft">草稿</TabsTrigger>
-          <TabsTrigger value="pending">待审核</TabsTrigger>
+          <TabsTrigger value="pending">{common.status.pendingReview}</TabsTrigger>
         </TabsList>
 
         <TabsContent value={tab} className="mt-4">
@@ -150,7 +142,7 @@ export default function AdminEmployeesPage() {
               <CardTitle>
                 {tab === 'approved' && '已发布员工'}
                 {tab === 'draft' && '草稿员工'}
-                {tab === 'pending' && '待审核员工'}
+                {tab === 'pending' && `${common.status.pendingReview}员工`}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">

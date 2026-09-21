@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import type { SubscriptionRequest } from '@/lib/types';
+import { common } from '@/locales/zh-CN';
 
 interface RequestListProps {
   requests: readonly SubscriptionRequest[];
@@ -35,7 +36,7 @@ export function RequestList({
     return (
       <EmptyState
         icon={<Store className="h-8 w-8" />}
-        title="暂无待审批申请"
+        title={`暂无${common.status.pendingApproval}申请`}
         description="当有成员申请使用硅基员工时，会显示在这里"
       />
     );
@@ -72,7 +73,7 @@ export function RequestList({
                   >
                     {req.kind === 'GRANT' ? '仅授权（免费）' : '新雇佣（付费）'}
                   </Badge>
-                  <Badge className="bg-warning/10 text-warning">待审批</Badge>
+                  <Badge className="bg-warning/10 text-warning">{common.status.pendingApproval}</Badge>
                 </div>
               </div>
               {req.reason && (

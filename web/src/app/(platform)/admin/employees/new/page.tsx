@@ -23,7 +23,7 @@ import {
 } from '@/features/admin/use-admin';
 import { useEnabledModels } from '@/features/admin/use-models';
 import { parseGiftInput } from '@/features/admin/employee-gift';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -352,7 +352,7 @@ export default function NewEmployeePage() {
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                         {cap.description}
                       </p>
-                      <Badge className="mt-2 bg-secondary text-secondary-foreground">
+                      <Badge variant="secondary" className="mt-2">
                         {cap.type}
                       </Badge>
                     </div>

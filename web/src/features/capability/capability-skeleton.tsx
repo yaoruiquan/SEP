@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@/components/ui/feedback';
 
 export function CapabilityCardSkeleton() {
   return (

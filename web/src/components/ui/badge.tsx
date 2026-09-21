@@ -7,8 +7,11 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        // default 不设任何样式，让 className 完全控制（保持现有调用点行为）
-        default: '',
+        // default：中性 pill，主题安全（暗色玻璃作用域自动取深色）。
+        // 调用点若自带 bg-*/text-* 会被 twMerge 覆盖（后者优先），行为兼容旧版。
+        default: 'bg-muted text-foreground border border-border',
+        // 数据强调：teal tint + 主题感知文字（text-secondary-text 两主题都 AA）
+        secondary: 'bg-secondary/10 text-secondary-text border border-secondary/20',
         // glass 语义变体 —— PRD: 半透明 + 同色边框
         glass: 'bg-glass-2 text-gtext-primary border border-glassline backdrop-blur-glass-xs',
         'glass-success': 'bg-gsuccess/20 text-gsuccess border border-gsuccess/40 backdrop-blur-glass-xs',

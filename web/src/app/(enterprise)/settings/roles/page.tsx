@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CenteredSpinner } from '@/components/ui/feedback';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import {
   useCustomRoles,
   useCreateCustomRole,
@@ -69,6 +70,7 @@ export default function RolesPage() {
   const createRole = useCreateCustomRole();
   const deleteRole = useDeleteCustomRole();
   const [open, setOpen] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createRoleSchema),
@@ -125,8 +127,14 @@ export default function RolesPage() {
                   variant="ghost"
                   size="sm"
                   className="text-danger hover:text-danger"
-                  onClick={() => {
-                    if (confirm(`确认删除角色「${role.name}」？已绑定该角色的成员将回退到内置权限。`)) {
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: '删除角色',
+                      description: `确认删除角色「${role.name}」？已绑定该角色的成员将回退到内置权限。`,
+                      confirmText: '删除',
+                      variant: 'danger',
+                    });
+                    if (ok) {
                       deleteRole.mutate(role.id);
                     }
                   }}
@@ -234,6 +242,8 @@ export default function RolesPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {confirmDialog}
     </div>
   );
 }

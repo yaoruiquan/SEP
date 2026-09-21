@@ -20,6 +20,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { CenteredSpinner } from '@/components/ui/feedback';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import {
   useApiKeys,
   useCreateApiKey,
@@ -52,6 +53,7 @@ export default function ApiKeysPage() {
   const [open, setOpen] = useState(false);
   const [newKey, setNewKey] = useState<CreateApiKeyResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createKeySchema),
@@ -127,8 +129,14 @@ export default function ApiKeysPage() {
                   variant="ghost"
                   size="sm"
                   className="text-danger hover:text-danger"
-                  onClick={() => {
-                    if (confirm(`确认吊销密钥「${key.name}」？此操作不可撤销。`)) {
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: '吊销密钥',
+                      description: `确认吊销密钥「${key.name}」？此操作不可撤销。`,
+                      confirmText: '吊销',
+                      variant: 'danger',
+                    });
+                    if (ok) {
                       revokeKey.mutate(key.id);
                     }
                   }}
@@ -284,6 +292,8 @@ export default function ApiKeysPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {confirmDialog}
     </div>
   );
 }

@@ -8,10 +8,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/ui/table';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
-import { member } from '@/locales/zh-CN';
+import { member, common } from '@/locales/zh-CN';
 import {
   useMembers,
   useDepartments,
@@ -161,7 +169,7 @@ export default function MembersPage() {
   if (isLoading) return <MembersSkeleton />;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{member.list}</h1>
@@ -194,20 +202,20 @@ export default function MembersPage() {
       ) : (
         <div className="space-y-4">
           <div className="rounded-lg border border-border bg-background shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-muted/40">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">成员</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">角色</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">部门</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-muted">职位</th>
-                  {isAdmin && <th className="px-4 py-3" />}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>成员</TableHead>
+                  <TableHead>角色</TableHead>
+                  <TableHead>部门</TableHead>
+                  <TableHead>职位</TableHead>
+                  {isAdmin && <TableHead className="w-[100px]" />}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {members.map((m) => (
-                  <tr key={m.id} className="transition-colors hover:bg-muted/30">
-                    <td className="px-4 py-3.5">
+                  <TableRow key={m.id}>
+                    <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar
                           name={m.user.name || m.user.email}
@@ -219,8 +227,8 @@ export default function MembersPage() {
                           <p className="text-xs text-fg-muted">{m.user.email}</p>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <Badge className={
                         m.role === 'ENTERPRISE_ADMIN'
                           ? 'bg-primary/10 text-primary shadow-sm'
@@ -228,17 +236,17 @@ export default function MembersPage() {
                       }>
                         {ROLE_LABEL[m.role] ?? m.role}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3.5 text-sm text-fg-muted">
+                    </TableCell>
+                    <TableCell className="text-sm text-fg-muted">
                       {m.department
                         ? m.department.parent
                           ? `${m.department.parent.name} > ${m.department.name}`
                           : m.department.name
                         : '—'}
-                    </td>
-                    <td className="px-4 py-3.5 text-sm text-fg-muted">{m.position ?? '—'}</td>
+                    </TableCell>
+                    <TableCell className="text-sm text-fg-muted">{m.position ?? '—'}</TableCell>
                     {isAdmin && (
-                      <td className="px-4 py-3.5">
+                      <TableCell>
                         <div className="flex items-center justify-end gap-1">
                           <button
                             title="编辑"
@@ -262,12 +270,12 @@ export default function MembersPage() {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                      </td>
+                      </TableCell>
                     )}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}
@@ -415,7 +423,7 @@ export default function MembersPage() {
               <div>
                 <p className="font-medium text-foreground">会立即回收</p>
                 <p className="mt-0.5 text-fg-muted">
-                  其个人的硅基员工席位、待审批的申请；若其为部门负责人，该部门将暂时空缺。
+                  其个人的硅基员工席位、${common.status.pendingApproval}的申请；若其为部门负责人，该部门将暂时空缺。
                 </p>
               </div>
               <div>
@@ -450,7 +458,7 @@ export default function MembersPage() {
               {offboarded.reclaimedGrants > 0 &&
                 `，回收 ${offboarded.reclaimedGrants} 个硅基员工席位`}
               {offboarded.canceledRequests > 0 &&
-                `，取消 ${offboarded.canceledRequests} 条待审批申请`}
+                `，取消 ${offboarded.canceledRequests} 条${common.status.pendingApproval}申请`}
               。
             </p>
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3">
@@ -480,7 +488,7 @@ export default function MembersPage() {
 
 function MembersSkeleton() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Header skeleton */}
       <div className="flex items-center justify-between">
         <div className="space-y-2">

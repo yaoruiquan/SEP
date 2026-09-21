@@ -15,7 +15,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useCreateKnowledgeBase, useUpdateKnowledgeBase } from './use-knowledge-bases';
-import type { KnowledgeBase } from '@/lib/types';
 
 const knowledgeBaseSchema = z.object({
   name: z.string().min(1, '知识库名称不能为空').max(100, '名称最多 100 个字符'),
@@ -24,9 +23,16 @@ const knowledgeBaseSchema = z.object({
 
 type KnowledgeBaseFormData = z.infer<typeof knowledgeBaseSchema>;
 
+/** 编辑弹窗只读取名称/描述，结构子集同时兼容列表页与详情页的知识库类型。 */
+interface EditableKnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 interface KnowledgeDialogProps {
   open: boolean;
-  knowledgeBase?: KnowledgeBase | null;
+  knowledgeBase?: EditableKnowledgeBase | null;
   onClose: () => void;
 }
 

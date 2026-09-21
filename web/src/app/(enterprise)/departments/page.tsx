@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
@@ -213,6 +214,7 @@ function OverviewFeature({
 
 function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boolean }) {
   const [showAdd, setShowAdd] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { data, isLoading } = useDeptMembers(dept?.id ?? '', undefined);
   const removeMember = useRemoveDeptMember(dept?.id ?? '');
   const setLeader = useSetDeptLeader(dept?.id ?? '');
@@ -238,8 +240,14 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
     );
   }
 
-  const handleRemove = (m: DeptMemberItem) => {
-    if (!confirm(`确定将「${m.user.name ?? m.user.email}」移出部门？`)) return;
+  const handleRemove = async (m: DeptMemberItem) => {
+    const ok = await confirm({
+      title: '移出部门',
+      description: `确定将「${m.user.name ?? m.user.email}」移出部门？`,
+      confirmText: '移出',
+      variant: 'danger',
+    });
+    if (!ok) return;
     removeMember.mutate(m.id, {
       onSuccess: () => toast.success('已移出部门'),
       onError: (e) => toast.error(e instanceof ApiError ? e.message : '操作失败'),
@@ -311,6 +319,7 @@ function MembersPanel({ dept, isAdmin }: { dept: Department | null; isAdmin: boo
       </div>
 
       {showAdd && <AddMembersDialog deptId={dept.id} deptName={dept.name} onClose={() => setShowAdd(false)} />}
+      {confirmDialog}
     </div>
   );
 }

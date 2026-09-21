@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useFocusReturn, useEscapeKey } from '@/lib/accessibility';
 import { useGlassScope } from '@/lib/glass-scope';
 import { usePrefersReducedMotion } from '@/lib/responsive';
+import { Z_CLASS } from '@/lib/z-index';
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -26,7 +27,8 @@ const DialogOverlay = React.forwardRef<
     <DialogPrimitive.Overlay
       ref={ref}
       className={cn(
-        'fixed inset-0 z-50',
+        'fixed inset-0',
+        Z_CLASS.dialog,
         glass
           ? [glassScope, 'bg-gbg-deep/80 backdrop-blur-glass-md']
           : 'bg-neutral-900/60 backdrop-blur-sm',
@@ -72,7 +74,8 @@ const DialogContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 p-6',
+          'fixed left-[50%] top-[50%] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 p-6',
+          Z_CLASS.dialog,
           glass
             ? // .glass-elevated 自带 border / radius / shadow，别再叠 Tailwind 的
               // shadow-modal 和 sm:rounded-lg，否则要靠源码顺序才能赢，太脆。

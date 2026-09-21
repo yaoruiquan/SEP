@@ -8,8 +8,6 @@ import {
   Cpu,
   Gauge,
   MessageSquareText,
-  TrendingDown,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import {
@@ -27,23 +25,25 @@ import {
 } from 'recharts';
 import { useDashboard } from '@/features/dashboard/use-dashboard';
 import type { ModelDistribution, TokenTrend, TopMember } from '@/features/dashboard/dashboard-api';
-import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { StatCard } from '@/components/ui/stat-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@/components/ui/feedback';
 import { useAuthStore } from '@/lib/auth-store';
 import { PageFrame } from '@/components/page/page-frame';
 import { PageHero } from '@/components/page/page-hero';
-// 移除 GRADIENT_COLORS 导入,使用原来的 MODEL_COLORS
+import {
+  CHART_GRID,
+  CHART_AXIS_TICK,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_LEGEND_STYLE,
+  useChartPalette,
+  useChartSeries,
+} from '@/lib/chart-theme';
 
 const numberFormatter = new Intl.NumberFormat('zh-CN');
-
-// 使用原来的配色方案 (蓝紫色系,更专业)
-const MODEL_COLORS = ['#6366f1', '#2563eb', '#14b8a6', '#f59e0b', '#818cf8', '#94a3b8'];
 
 const MODEL_LABELS: Record<string, string> = {
   'gemini-3.5-flash-high': 'Gemini 3.5 Flash High',
@@ -88,19 +88,42 @@ function formatModelName(model: string) {
 }
 
 function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
+  const palette = useChartPalette();
   const totalRequests = data.reduce((sum, item) => sum + item.requests, 0);
   const totalCost = data.reduce((sum, item) => sum + item.cost, 0);
   const chartData = data.slice(0, 6).map((item, index) => ({
     ...item,
     displayName: formatModelName(item.model),
-    color: MODEL_COLORS[index % MODEL_COLORS.length],
+    color: palette[index % palette.length],
     percentage: totalRequests > 0 ? ((item.requests / totalRequests) * 100).toFixed(1) : '0',
   }));
 
   if (!chartData.length) {
     return (
-      <div className="flex h-[300px] items-center justify-center text-sm text-gray-500">
+      <div className="flex h-[300px] items-center justify-center text-sm text-fg-muted">
         暂无模型调用数据
+      </div>
+    );
+  }
+
+  // 单模型时退化为文本行：单段甜甜圈会画出一个带白色分割缝的整环，看起来像坏图。
+  if (chartData.length === 1) {
+    const only = chartData[0];
+    return (
+      <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center">
+        <div
+          className="flex h-16 w-16 items-center justify-center rounded-2xl"
+          style={{ backgroundColor: `${only.color}1a` }}
+        >
+          <Cpu className="h-8 w-8" style={{ color: only.color }} />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-foreground">{only.displayName}</p>
+          <p className="mt-1 text-2xl font-bold text-foreground">
+            {numberFormatter.format(only.requests)} 次
+          </p>
+          <p className="mt-1 text-xs text-fg-muted">总成本 {formatCost(only.cost)}</p>
+        </div>
       </div>
     );
   }
@@ -121,7 +144,7 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
                 innerRadius={70}
                 outerRadius={100}
                 paddingAngle={2}
-                stroke="white"
+                stroke="var(--card)"
                 strokeWidth={2}
               >
                 {chartData.map((entry) => (
@@ -133,13 +156,7 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
                   `${numberFormatter.format(Number(value))} 次`,
                   '请求',
                 ]}
-                contentStyle={{
-                  borderRadius: 12,
-                  border: '1px solid var(--border)',
-                  background: 'var(--card)',
-                  color: 'var(--foreground)',
-                  boxShadow: 'var(--shadow-md)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -147,11 +164,11 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
 
         {/* 中心文字 */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-4xl font-bold text-gray-900">
+          <span className="text-4xl font-bold text-foreground">
             {formatCompactNumber(totalRequests)}
           </span>
-          <span className="mt-1 text-sm text-gray-500">总请求</span>
-          <span className="mt-2 text-xs text-gray-400">
+          <span className="mt-1 text-sm text-fg-muted">总请求</span>
+          <span className="mt-2 text-xs text-fg-subtle">
             总成本 {formatCost(totalCost)}
           </span>
         </div>
@@ -167,22 +184,22 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
                   className="h-3 w-3 rounded-full"
                   style={{ backgroundColor: model.color }}
                 />
-                <span className="text-sm font-medium text-gray-900">
+                <span className="text-sm font-medium text-foreground">
                   {model.displayName}
                 </span>
               </div>
-              <span className="text-sm font-semibold text-brand-600">
+              <span className="text-sm font-semibold text-primary">
                 {formatCost(model.cost)}
               </span>
             </div>
 
             {/* 请求次数进度条 - 使用自定义颜色 */}
             <div className="space-y-1">
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-fg-muted">
                 <span>{numberFormatter.format(model.requests)} 次请求</span>
                 <span>{model.percentage}%</span>
               </div>
-              <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200">
+              <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full transition-all duration-300"
                   style={{
@@ -200,10 +217,11 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
 }
 
 function TokenTrendChart({ data }: { data: TokenTrend[] }) {
+  const series = useChartSeries();
   const chartData = data.map((item) => ({ ...item, label: formatDate(item.date) }));
   if (!chartData.length)
     return (
-      <div className="flex h-[300px] items-center justify-center text-sm text-gray-500">
+      <div className="flex h-[300px] items-center justify-center text-sm text-fg-muted">
         暂无 Token 使用数据
       </div>
     );
@@ -214,24 +232,24 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
         <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 4, bottom: 0 }}>
           <defs>
             <linearGradient id="inputTokens" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
+              <stop offset="5%" stopColor={series.blue} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={series.blue} stopOpacity={0.02} />
             </linearGradient>
             <linearGradient id="outputTokens" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} />
-              <stop offset="95%" stopColor="#14b8a6" stopOpacity={0.02} />
+              <stop offset="5%" stopColor={series.teal} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={series.teal} stopOpacity={0.02} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+            tick={{ ...CHART_AXIS_TICK, fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             minTickGap={20}
           />
           <YAxis
-            tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+            tick={{ ...CHART_AXIS_TICK, fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             tickMargin={8}
@@ -244,35 +262,30 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
               name === 'input' ? 'Input' : 'Output',
             ]}
             labelFormatter={(label) => `日期 ${label}`}
-            contentStyle={{
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              background: 'var(--card)',
-              color: 'var(--foreground)',
-              boxShadow: 'var(--shadow-md)',
-            }}
+            contentStyle={CHART_TOOLTIP_STYLE}
+            labelStyle={CHART_TOOLTIP_LABEL_STYLE}
           />
           <Legend
             iconType="circle"
-            wrapperStyle={{ fontSize: 12, color: 'var(--fg-muted)' }}
+            wrapperStyle={CHART_LEGEND_STYLE}
             formatter={(value) => (value === 'input' ? 'Input' : 'Output')}
           />
           <Area
             type="monotone"
             dataKey="input"
-            stroke="#3b82f6"
+            stroke={series.blue}
             strokeWidth={2.5}
             fill="url(#inputTokens)"
-            dot={{ r: 3, fill: '#fff', strokeWidth: 2 }}
+            dot={{ r: 3, fill: 'var(--card)', strokeWidth: 2 }}
             activeDot={{ r: 5 }}
           />
           <Area
             type="monotone"
             dataKey="output"
-            stroke="#14b8a6"
+            stroke={series.teal}
             strokeWidth={2.5}
             fill="url(#outputTokens)"
-            dot={{ r: 3, fill: '#fff', strokeWidth: 2 }}
+            dot={{ r: 3, fill: 'var(--card)', strokeWidth: 2 }}
             activeDot={{ r: 5 }}
           />
         </AreaChart>
@@ -284,29 +297,27 @@ function TokenTrendChart({ data }: { data: TokenTrend[] }) {
 function MemberUsageList({ data }: { data: TopMember[] }) {
   if (!data.length)
     return (
-      <div className="flex min-h-[180px] items-center justify-center text-sm text-gray-500">
+      <div className="flex min-h-[180px] items-center justify-center text-sm text-fg-muted">
         暂无成员消费数据
       </div>
     );
 
   return (
     <div className="space-y-3">
-      {data.slice(0, 5).map((member, index) => {
-        // 模拟周同比数据 (实际应从后端获取)
-        const mockTrend = index === 0 ? -12 : index === 1 ? 8 : index === 2 ? -5 : 0;
+      {data.slice(0, 5).map((member) => {
         const avgCallsPerWeek = Math.round(member.calls / 4);
 
         return (
           <div
             key={member.id}
-            className="flex items-center justify-between rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50"
+            className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
           >
             <div className="flex items-center gap-3">
               <Avatar name={member.name} src={member.avatar} className="h-10 w-10" />
 
               <div>
-                <div className="font-medium text-gray-900">{member.name}</div>
-                <div className="mt-0.5 flex items-center gap-2 text-sm text-gray-500">
+                <div className="font-medium text-foreground">{member.name}</div>
+                <div className="mt-0.5 flex items-center gap-2 text-sm text-fg-muted">
                   <span>{member.calls} 次调用</span>
                   <span>·</span>
                   <span>{avgCallsPerWeek} 次/周</span>
@@ -315,27 +326,9 @@ function MemberUsageList({ data }: { data: TopMember[] }) {
             </div>
 
             <div className="text-right">
-              <div className="text-lg font-semibold text-brand-600">
+              <div className="text-lg font-semibold text-primary">
                 {formatCost(member.cost)}
               </div>
-              {mockTrend !== 0 && (
-                <div className="mt-0.5 flex items-center justify-end gap-1 text-xs">
-                  <span className="text-gray-500">较上周</span>
-                  <span
-                    className={cn(
-                      'flex items-center font-medium',
-                      mockTrend > 0 ? 'text-error' : 'text-success'
-                    )}
-                  >
-                    {mockTrend > 0 ? (
-                      <TrendingUp className="h-3 w-3" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3" />
-                    )}
-                    {Math.abs(mockTrend)}%
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         );
@@ -347,7 +340,7 @@ function MemberUsageList({ data }: { data: TopMember[] }) {
 function DashboardSkeleton() {
   return (
     <PageFrame>
-      <div className="h-32 animate-pulse rounded-2xl bg-gray-200" />
+      <div className="h-32 animate-pulse rounded-2xl bg-muted" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[0, 1, 2, 3].map((item) => (
           <Skeleton key={item} className="h-32" />
@@ -372,7 +365,7 @@ export default function DashboardPage() {
   if (isError || !data)
     return (
       <PageFrame>
-        <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-gray-200 bg-white text-sm text-gray-500">
+        <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-border bg-card text-sm text-fg-muted">
           工作台数据加载失败，请稍后重试
         </div>
       </PageFrame>
@@ -382,13 +375,15 @@ export default function DashboardPage() {
   const isAdmin = data.scope === 'enterprise' || (data.scope == null && roleInEnterprise === 'ENTERPRISE_ADMIN');
   const displayName = user?.name || user?.email?.split('@')[0] || '朋友';
 
-  // 计算趋势百分比
-  const conversationsTrend = stats.conversations.trend
-    ? `${stats.conversations.trend > 0 ? '+' : ''}${stats.conversations.trend}%`
-    : undefined;
-  const computeTrend = stats.computeUsage.trend
-    ? `${stats.computeUsage.trend > 0 ? '+' : ''}${stats.computeUsage.trend}%`
-    : undefined;
+  // 计算趋势百分比。trend 为 null 表示上月基数为 0、无环比基准，显示 "—"。
+  const conversationsTrend =
+    stats.conversations.trend === null
+      ? '—'
+      : `${stats.conversations.trend > 0 ? '+' : ''}${stats.conversations.trend}%`;
+  const computeTrend =
+    stats.computeUsage.trend === null
+      ? '—'
+      : `${stats.computeUsage.trend > 0 ? '+' : ''}${stats.computeUsage.trend}%`;
 
   return (
     <PageFrame>
@@ -408,8 +403,6 @@ export default function DashboardPage() {
           value={stats.totalEmployees}
           icon={Users}
           description={`${stats.activeEmployees} 个活跃`}
-          trend={isAdmin ? '+3 本周' : undefined}
-          trendUp={true}
         />
         <StatCard
           label="本月对话"
@@ -417,7 +410,7 @@ export default function DashboardPage() {
           icon={MessageSquareText}
           description="较上月"
           trend={conversationsTrend}
-          trendUp={stats.conversations.trend > 0}
+          trendUp={(stats.conversations.trend ?? 0) > 0}
         />
         <StatCard
           label={isAdmin ? '碳基员工' : '我的活跃员工'}
@@ -431,7 +424,7 @@ export default function DashboardPage() {
           icon={Gauge}
           description="较上月"
           trend={computeTrend}
-          trendUp={stats.computeUsage.trend > 0}
+          trendUp={(stats.computeUsage.trend ?? 0) > 0}
         />
       </div>
 
@@ -449,7 +442,7 @@ export default function DashboardPage() {
               </div>
               <Link
                 href="/usage"
-                className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80"
               >
                 查看完整报告
                 <ArrowUpRight className="h-3.5 w-3.5" />

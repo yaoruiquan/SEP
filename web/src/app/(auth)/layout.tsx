@@ -1,6 +1,7 @@
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { ThemeLogo } from '@/components/ui/theme-logo';
 import { AuroraBackground } from '@/components/ui/aurora-background';
+import { PageTransition } from '@/components/ui/page-transition';
 
 export default function AuthLayout({
   children,
@@ -37,7 +38,8 @@ export default function AuthLayout({
       {/* Form panel - 玻璃态卡片 */}
       <div className="flex w-full items-center justify-center px-6 lg:w-1/2">
         <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card/80 p-8 shadow-glass backdrop-blur-xl">
-          {children}
+          {/* 左侧品牌栏跨 login/register/join 保持不变，只有右侧表单随路由切换淡入 */}
+          <PageTransition className="">{children}</PageTransition>
         </div>
       </div>
     </AuroraBackground>

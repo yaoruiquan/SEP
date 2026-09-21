@@ -16,7 +16,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useAdminStats, type AdminStats } from '@/features/admin/use-admin-stats';
-import { CHART_GRID, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE, CHART_TOOLTIP_LABEL_STYLE, CHART_SERIES } from '@/lib/chart-theme';
+import { CHART_GRID, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE, CHART_TOOLTIP_LABEL_STYLE, useChartSeries } from '@/lib/chart-theme';
+import { common } from '@/locales/zh-CN';
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function buildKpi(kpi: AdminStats['kpi']): KpiItem[] {
     {
       label: '已上架员工',
       value: kpi.totalEmployees,
-      sub: kpi.pendingEmployees > 0 ? `待审核 ${kpi.pendingEmployees} 位` : '无待审核',
+      sub: kpi.pendingEmployees > 0 ? `${common.status.pendingReview} ${kpi.pendingEmployees} 位` : `无${common.status.pendingReview}`,
       trend: kpi.employeeTrendPct,
       trendLabel: '较上月',
       icon: Users,
@@ -152,6 +153,8 @@ function ChartEmpty({ label }: { label: string }) {
 
 export default function AdminDashboardPage() {
   const { data, isLoading, isFetching, error, refetch } = useAdminStats();
+  // 数据系列色按主题取（深底要提亮的色相，var() 做不到）；必须在任何 early return 前调用
+  const series = useChartSeries();
 
   if (isLoading) {
     return (
@@ -244,8 +247,8 @@ export default function AdminDashboardPage() {
                 <AreaChart data={data.computeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={CHART_SERIES.purple} stopOpacity={0.25} />
-                      <stop offset="95%" stopColor={CHART_SERIES.purple} stopOpacity={0} />
+                      <stop offset="5%" stopColor={series.purple} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={series.purple} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
@@ -262,7 +265,7 @@ export default function AdminDashboardPage() {
                   <Area
                     type="monotone"
                     dataKey="costCNY"
-                    stroke={CHART_SERIES.purple}
+                    stroke={series.purple}
                     strokeWidth={2}
                     fill="url(#gradTokens)"
                   />
@@ -291,7 +294,7 @@ export default function AdminDashboardPage() {
                     contentStyle={CHART_TOOLTIP_STYLE}
                     labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                   />
-                  <Bar dataKey="count" fill={CHART_SERIES.primary} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={series.primary} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

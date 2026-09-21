@@ -12,6 +12,7 @@ import {
   useMarkOnboardingCompleted,
 } from '@/features/enterprise/use-enterprise';
 import { employee as employeeCopy, member as memberCopy } from '@/locales/zh-CN';
+import { Z_CLASS } from '@/lib/z-index';
 
 interface Props {
   onClose: () => void;
@@ -112,7 +113,7 @@ export function OnboardingModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className={`fixed inset-0 flex items-center justify-center p-4 ${Z_CLASS.dialog}`}>
       {/* 背景遮罩 */}
       <div className="absolute inset-0 bg-black/40" />
 

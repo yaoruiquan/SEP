@@ -12,16 +12,9 @@ import { Avatar } from '@/components/ui/avatar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { api } from '@/lib/api-client';
+import { employeeStatusMeta } from '@/lib/status-meta';
 import { useEmployeeBindings, useRemoveBinding } from '@/features/admin/use-admin';
 import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
-
-const STATUS_META: Record<string, { label: string; tone: string }> = {
-  DRAFT: { label: '草稿', tone: 'bg-muted text-fg-muted' },
-  PENDING: { label: '待审核', tone: 'bg-warning/10 text-warning' },
-  APPROVED: { label: '已发布', tone: 'bg-success/10 text-success' },
-  REJECTED: { label: '已拒绝', tone: 'bg-danger/10 text-danger' },
-  ARCHIVED: { label: '已归档', tone: 'bg-muted text-fg-subtle' },
-};
 
 export default function EmployeeDetailPage({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
   const params = use(paramsPromise);
@@ -122,6 +115,7 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
   }
 
   const isPending = employee.status === 'PENDING';
+  const statusMeta = employeeStatusMeta(employee.status);
 
   return (
     <div className="p-6 space-y-6">
@@ -159,8 +153,8 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
                 <div>
                   <label className="text-sm font-medium text-fg-muted">状态</label>
                   <div className="mt-1">
-                    <Badge className={STATUS_META[employee.status]?.tone}>
-                      {STATUS_META[employee.status]?.label}
+                    <Badge className={statusMeta.tone}>
+                      {statusMeta.label}
                     </Badge>
                   </div>
                 </div>
@@ -235,7 +229,7 @@ export default function EmployeeDetailPage({ params: paramsPromise }: { params: 
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>能力绑定详情</CardTitle>
               <div className="flex items-center gap-2">
-                <Badge className="bg-secondary text-secondary-foreground">{bindings?.length || 0} 个</Badge>
+                <Badge variant="secondary">{bindings?.length || 0} 个</Badge>
                 <Link href={`/admin/employees/${params.id}/bindings`}>
                   <Button variant="secondary" size="sm">
                     高级管理

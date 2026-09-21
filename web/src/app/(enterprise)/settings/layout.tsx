@@ -34,8 +34,8 @@ export default function SettingsLayout({
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-56 shrink-0 border-r border-border bg-sidebar px-3 py-6">
+      {/* Sidebar - drawer on mobile, fixed sidebar on desktop */}
+      <aside className="hidden md:block md:w-56 shrink-0 border-r border-border bg-sidebar px-3 py-6">
         <p className="mb-4 px-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
           设置
         </p>

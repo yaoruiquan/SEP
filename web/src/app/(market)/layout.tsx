@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { MarketHeader } from '@/components/shell/market-header';
 import { AuroraBackground } from '@/components/ui/aurora-background';
+import { PageTransition } from '@/components/ui/page-transition';
 
 export const metadata: Metadata = {
   title: '硅基人才市场 — 硅基人才平台',
@@ -21,7 +22,9 @@ export default function MarketLayout({
   return (
     <AuroraBackground className="min-h-dvh">
       <MarketHeader />
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        <PageTransition className="">{children}</PageTransition>
+      </main>
     </AuroraBackground>
   );
 }

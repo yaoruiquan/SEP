@@ -17,6 +17,14 @@ import {
 } from '@/lib/api/use-compute-credit';
 import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
+import {
+  CHART_GRID,
+  CHART_AXIS_TICK,
+  CHART_AXIS_LINE,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  useChartSeries,
+} from '@/lib/chart-theme';
 import { BreakdownList } from './breakdown-list';
 
 const RANGES: Array<{ value: UsageRange; label: string }> = [
@@ -98,11 +106,12 @@ export default function UsagePage() {
   const { data, isLoading } = useUsageBreakdown(range);
   const roleInEnterprise = useAuthStore((s) => s.roleInEnterprise);
   const isAdmin = roleInEnterprise === 'ENTERPRISE_ADMIN';
+  const series = useChartSeries();
 
   const trend = data?.trend ?? [];
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <section className="border-b border-border/70 pb-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -162,33 +171,37 @@ export default function UsagePage() {
                 <AreaChart data={trend}>
                   <defs>
                     <linearGradient id="usageFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.28} />
-                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                      <stop offset="5%" stopColor={series.cyan} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={series.cyan} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 12 }}
+                    tick={CHART_AXIS_TICK}
+                    stroke={CHART_AXIS_LINE}
                     tickFormatter={(v) => format(new Date(v), 'MM/dd')}
                   />
-                  <YAxis tick={{ fontSize: 12 }} width={64} />
+                  <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_LINE} width={64} />
                   <Tooltip
                     formatter={(v) => [formatCnyPrecise(Number(v ?? 0)), '算力花费']}
                     labelFormatter={(l) =>
-                    format(new Date(String(l)), 'yyyy-MM-dd', { locale: zhCN })
-                  }
-                />
-                <Area
-                  type="monotone"
-                  dataKey="costCNY"
-                  stroke="#0ea5e9"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#usageFill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+                      format(new Date(String(l)), 'yyyy-MM-dd', { locale: zhCN })
+                    }
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                    cursor={{ stroke: CHART_AXIS_LINE }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="costCNY"
+                    stroke={series.cyan}
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#usageFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </section>
           )}
 

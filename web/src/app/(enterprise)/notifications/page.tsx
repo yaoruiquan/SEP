@@ -107,7 +107,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Page header */}
       <div className="flex items-start justify-between">
         <div>

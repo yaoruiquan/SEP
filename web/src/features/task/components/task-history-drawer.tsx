@@ -56,7 +56,7 @@ export function TaskHistoryDrawer({
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-40 flex bg-gbg-deep/55 backdrop-blur-glass-xs" onClick={() => onOpenChange(false)} role="presentation">
+    <div className="absolute inset-0 z-40 flex bg-gbg-deep/55 backdrop-blur-glass-xs" onClick={() => onOpenChange(false)} role="presentation" aria-hidden="true">
       <aside
         className="flex h-full w-[min(22rem,100vw)] flex-col border-r border-glassline bg-gbg-raised shadow-glass-xl"
         onClick={(event) => event.stopPropagation()}

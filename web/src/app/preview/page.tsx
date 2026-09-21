@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Skeleton, CardSkeleton, TableSkeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonCard, SkeletonTable } from '@/components/ui/feedback';
 import { Drawer } from '@/components/ui/drawer';
 import { Steps, Step } from '@/components/ui/steps';
 import { StatusDot } from '@/components/ui/status-dot';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -51,13 +52,13 @@ export default function ComponentPreviewPage() {
           </Card>
 
           <Card variant="solid" className="p-6">
-            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：CardSkeleton</h3>
-            <CardSkeleton />
+            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：SkeletonCard</h3>
+            <SkeletonCard />
           </Card>
 
           <Card variant="solid" className="p-6 lg:col-span-2">
-            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：TableSkeleton</h3>
-            <TableSkeleton rows={5} />
+            <h3 className="text-sm font-medium text-neutral-700 mb-4">预设：SkeletonTable</h3>
+            <SkeletonTable rows={5} />
           </Card>
         </div>
       </section>
@@ -288,7 +289,7 @@ export default function ComponentPreviewPage() {
         variant="danger"
         onConfirm={async () => {
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          alert('已删除');
+          toast.success('已删除');
         }}
       />
     </div>

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useFocusTrap, useEscapeKey, useFocusReturn } from '@/lib/accessibility';
 import { usePrefersReducedMotion, useIsMobile } from '@/lib/responsive';
+import { Z_CLASS } from '@/lib/z-index';
 
 interface DrawerProps {
   open: boolean;
@@ -65,7 +66,7 @@ export function Drawer({
 
   const drawer = (
     <div
-      className="fixed inset-0 z-50 flex"
+      className={cn('fixed inset-0 flex', Z_CLASS.drawer)}
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? 'drawer-title' : undefined}
@@ -86,7 +87,8 @@ export function Drawer({
       <div
         ref={drawerRef}
         className={cn(
-          'fixed top-0 bottom-0 bg-white shadow-modal flex flex-col z-50',
+          'fixed top-0 bottom-0 bg-white shadow-modal flex flex-col',
+          Z_CLASS.drawer,
           drawerWidth,
           position === 'right' ? 'right-0' : 'left-0',
           !prefersReducedMotion &&

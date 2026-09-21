@@ -231,7 +231,12 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             />
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+          <div
+            className="mx-auto max-w-3xl space-y-5 px-4 py-6"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
             {persisted
               .filter((m) => m.role !== 'TOOL')
               .map((m) => {

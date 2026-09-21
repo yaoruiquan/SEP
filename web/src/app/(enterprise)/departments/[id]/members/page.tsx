@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { useConfirmDialog } from '@/components/ui/use-confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
@@ -151,6 +152,7 @@ export default function DeptMembersPage() {
 
   const [search, setSearch] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const { data: depts = [] } = useDepartments();
   const dept = findDept(depts, deptId);
@@ -168,8 +170,14 @@ export default function DeptMembersPage() {
   // We can check this via leaderId but we need memberId — use isAdmin for now as canManage flag
   const canManage = isAdmin;
 
-  const handleRemove = (member: DeptMemberItem) => {
-    if (!confirm(`确定将 ${member.user.name ?? member.user.email} 移出部门？`)) return;
+  const handleRemove = async (member: DeptMemberItem) => {
+    const ok = await confirm({
+      title: '移出部门',
+      description: `确定将 ${member.user.name ?? member.user.email} 移出部门？`,
+      confirmText: '移出',
+      variant: 'danger',
+    });
+    if (!ok) return;
     removeMember.mutate(member.id, {
       onSuccess: () => toast.success('已移出部门'),
       onError: (e) => toast.error(e instanceof ApiError ? e.message : '操作失败'),
@@ -314,6 +322,8 @@ export default function DeptMembersPage() {
           onClose={() => setShowAddDialog(false)}
         />
       )}
+
+      {confirmDialog}
     </div>
   );
 }

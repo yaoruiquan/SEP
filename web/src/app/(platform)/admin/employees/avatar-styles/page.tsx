@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Search } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { AvatarLibraryForms } from '@/features/admin/avatar-library-forms';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';

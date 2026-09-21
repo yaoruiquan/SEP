@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { Button } from './button';
 
 interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -23,7 +23,7 @@ export function Skeleton({
           <div
             key={i}
             className={cn(
-              'h-4 animate-pulse rounded bg-neutral-200',
+              'h-4 animate-pulse rounded bg-muted',
               i === lines - 1 ? 'w-3/4' : 'w-full',
               className
             )}
@@ -44,7 +44,7 @@ export function Skeleton({
   return (
     <div
       className={cn(
-        'animate-pulse bg-neutral-200',
+        'animate-pulse bg-muted',
         variantClasses[variant],
         className
       )}
@@ -58,7 +58,7 @@ export function Skeleton({
  */
 export function SkeletonCard() {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-4 shadow-card">
+    <div className="rounded-lg border border-border bg-card p-4 shadow-card">
       <div className="flex items-center gap-3">
         <Skeleton variant="circular" className="h-12 w-12" />
         <div className="flex-1 space-y-2">
@@ -77,13 +77,38 @@ export function SkeletonCard() {
   );
 }
 
-export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cn('h-4 w-4 animate-spin', className)} />;
+/**
+ * 表格骨架屏预设
+ */
+export function SkeletonTable({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <Skeleton variant="circular" className="h-10 w-10" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+          <Skeleton className="h-8 w-20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Spinner({ className, size }: { className?: string; size?: 'sm' | 'md' | 'lg' }) {
+  const sizeClasses = {
+    sm: 'h-4 w-4',
+    md: 'h-6 w-6',
+    lg: 'h-8 w-8',
+  };
+  return <Loader2 className={cn('animate-spin', sizeClasses[size || 'md'], className)} />;
 }
 
 export function CenteredSpinner({ label }: { label?: string }) {
   return (
-    <div className="flex h-full min-h-[200px] w-full flex-col items-center justify-center gap-2 text-neutral-500">
+    <div className="flex h-full min-h-[200px] w-full flex-col items-center justify-center gap-2 text-fg-muted">
       <Loader2 className="h-6 w-6 animate-spin text-primary" />
       {label && <p className="text-sm">{label}</p>}
     </div>
@@ -109,11 +134,11 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
-      {icon && <div className="text-neutral-400">{icon}</div>}
+      {icon && <div className="text-fg-subtle">{icon}</div>}
       <div>
-        <p className="font-medium text-neutral-900 text-lg">{title}</p>
+        <p className="font-medium text-foreground text-lg">{title}</p>
         {description && (
-          <p className="mt-1.5 text-sm text-neutral-600 max-w-md">{description}</p>
+          <p className="mt-1.5 text-sm text-fg-muted max-w-md">{description}</p>
         )}
       </div>
       {action && (
@@ -126,6 +151,35 @@ export function EmptyState({
             action
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+export function ErrorState({
+  title = '加载失败',
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/10">
+        <AlertCircle className="h-6 w-6 text-danger" />
+      </div>
+      <div>
+        <p className="font-medium text-foreground text-lg">{title}</p>
+        {message && (
+          <p className="mt-1.5 text-sm text-fg-muted max-w-md">{message}</p>
+        )}
+      </div>
+      {onRetry && (
+        <Button variant="outline" onClick={onRetry}>
+          重试
+        </Button>
       )}
     </div>
   );
