@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import UsagePage from './page';
 import { useAuthStore } from '@/lib/auth-store';
 import type { BreakdownRow, UsageBreakdown } from '@/lib/api/use-compute-credit';
+import { ThemeProvider } from '@/lib/theme-provider';
 
 /**
  * 用量分析对两种角色是**两份口径**：管理员看全公司，成员只看自己。
@@ -69,7 +70,11 @@ describe('用量分析按角色显示维度', () => {
 
   it('管理员：四个维度都在', () => {
     setRole('ENTERPRISE_ADMIN');
-    render(<UsagePage />);
+    render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
 
     for (const title of ['按模型', '按部门', '按碳基员工', '按硅基员工']) {
       expect(screen.getByText(title)).toBeInTheDocument();
@@ -78,7 +83,11 @@ describe('用量分析按角色显示维度', () => {
 
   it('❗普通成员：没有「按部门 / 按碳基员工」，自己的两个维度照给', () => {
     setRole('MEMBER');
-    render(<UsagePage />);
+    render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
 
     expect(screen.queryByText('按部门')).not.toBeInTheDocument();
     expect(screen.queryByText('按碳基员工')).not.toBeInTheDocument();
@@ -88,32 +97,52 @@ describe('用量分析按角色显示维度', () => {
 
   it('DEPT_MANAGER 按普通成员对待', () => {
     setRole('DEPT_MANAGER');
-    render(<UsagePage />);
+    render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
 
     expect(screen.queryByText('按部门')).not.toBeInTheDocument();
   });
 
   it('汇总数字说清是谁的钱 —— 成员那栏写「我」', () => {
     setRole('MEMBER');
-    const { unmount } = render(<UsagePage />);
+    const { unmount } = render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
     expect(screen.getByText(/^我近 30 天算力花费$/)).toBeInTheDocument();
     unmount();
 
     setRole('ENTERPRISE_ADMIN');
-    render(<UsagePage />);
+    render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
     expect(screen.getByText(/^近 30 天算力花费$/)).toBeInTheDocument();
   });
 
   it('底部入口分角色：管理员去全公司的逐笔账单，成员去自己那张', () => {
     setRole('ENTERPRISE_ADMIN');
-    const { unmount } = render(<UsagePage />);
+    const { unmount } = render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
     expect(
       screen.getByRole('link', { name: /^查看逐笔算力消费明细/ }),
     ).toHaveAttribute('href', '/compute-quota#usage-records');
     unmount();
 
     setRole('MEMBER');
-    render(<UsagePage />);
+    render(
+      <ThemeProvider>
+        <UsagePage />
+      </ThemeProvider>
+    );
     /*
       锚点必须是 `#my-usage-records` 而不是管理员那个 `#usage-records`：
       成员视角根本不挂载管理员那张表（它的筛选栏要拉员工与成员列表，两个

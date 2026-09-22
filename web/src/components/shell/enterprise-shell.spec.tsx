@@ -27,6 +27,12 @@ vi.mock('@/lib/theme-provider', () => ({
   useTheme: () => ({ theme: 'light', toggleTheme: vi.fn() }),
 }));
 
+// Shell 只验证导航和头像展示；实时员工状态由独立 WebSocket 链路负责，
+// 测试环境不启动后端网关，避免自动重连让用例超时。
+vi.mock('@/lib/websocket', () => ({
+  useEmployeeStatus: () => ({}),
+}));
+
 const enterpriseInfo = vi.hoisted(() => ({ logo: null as string | null }));
 vi.mock('@/features/enterprise/use-enterprise', () => ({
   useEnterpriseInfo: () => ({ data: { name: '示例科技', logo: enterpriseInfo.logo } }),

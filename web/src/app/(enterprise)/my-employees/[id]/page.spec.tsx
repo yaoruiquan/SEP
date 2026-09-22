@@ -1,6 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import EmployeeDetailPage from './page';
+import { ThemeProvider } from '@/lib/theme-provider';
+
+interface EmployeeDetail {
+  capabilities: Array<{
+    id: string;
+    name: string;
+    type: string;
+    description: string | null;
+    status: string;
+    order: number;
+    inputSchema: Record<string, unknown> | null;
+    outputSchema: Record<string, unknown> | null;
+  }>;
+}
 
 const mocks = vi.hoisted(() => ({
   role: 'ENTERPRISE_ADMIN',
@@ -39,7 +53,7 @@ vi.mock('@/features/enterprise/use-enterprise', () => ({
   useSubscriptionGrants: mocks.grants,
 }));
 vi.mock('@/features/employee/use-employee-detail', () => ({
-  useEmployeeDetail: mocks.detail,
+  useEmployeeDetail: (subscriptionId: string) => mocks.detail(subscriptionId),
 }));
 vi.mock('@/features/employee/use-employee-stats', () => ({
   useSubscriptionEmployeeStats: mocks.stats,
@@ -56,11 +70,17 @@ vi.mock('@/features/skill-version/SkillVersionPreviewDialog', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = 'ENTERPRISE_ADMIN';
-  mocks.detail.mockReturnValue({
+  mocks.detail.mockImplementation(() => ({
     data: { capabilities: [] },
+    isLoading: false,
+    isError: false,
     refetch: mocks.retry,
-  });
-  mocks.grants.mockReturnValue({ data: [] });
+  } as any));
+  mocks.grants.mockReturnValue({
+    data: [],
+    isLoading: false,
+    isError: false,
+  } as any);
   mocks.stats.mockReturnValue({
     data: {
       scope: 'enterprise',
@@ -76,12 +96,18 @@ beforeEach(() => {
       recentLog: [],
       byMember: [],
     },
-  });
+    isLoading: false,
+    isError: false,
+  } as any);
 });
 
 describe('EmployeeDetailPage', () => {
   it('使用订阅 ID 读取能力和统计，时间范围统一切换', () => {
-    render(<EmployeeDetailPage />);
+    render(
+      <ThemeProvider>
+        <EmployeeDetailPage />
+      </ThemeProvider>
+    );
     expect(mocks.detail).toHaveBeenCalledWith('sub-1');
     expect(mocks.stats).toHaveBeenCalledWith('sub-1', 7);
     expect(screen.getByText('本企业使用情况')).toBeTruthy();
@@ -92,17 +118,31 @@ describe('EmployeeDetailPage', () => {
     expect(mocks.stats).toHaveBeenLastCalledWith('sub-1', 30);
   });
   it('能力接口失败显示重试，不假装没有能力', () => {
-    mocks.detail.mockReturnValue({ isError: true, refetch: mocks.retry });
-    render(<EmployeeDetailPage />);
-    fireEvent.click(screen.getByRole('button', { name: '能力' }));
+    mocks.detail.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Failed to load'),
+      refetch: mocks.retry
+    } as any);
+    render(
+      <ThemeProvider>
+        <EmployeeDetailPage />
+      </ThemeProvider>
+    );
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '能力' }));
     expect(screen.getByRole('alert')).toHaveTextContent('能力加载失败');
     expect(screen.queryByText('暂未绑定能力')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
     expect(mocks.retry).toHaveBeenCalledOnce();
   });
   it('真实空能力显示空态，配置入口打开配置页', () => {
-    render(<EmployeeDetailPage />);
-    fireEvent.click(screen.getByRole('button', { name: '能力' }));
+    render(
+      <ThemeProvider>
+        <EmployeeDetailPage />
+      </ThemeProvider>
+    );
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '能力' }));
     expect(screen.getByText('暂未绑定能力')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '编辑配置' }));
     expect(screen.getByDisplayValue('员工小林')).toBeTruthy();
@@ -112,15 +152,28 @@ describe('EmployeeDetailPage', () => {
   });
   it('普通成员只显示个人范围，不查询企业授权名单', () => {
     mocks.role = 'MEMBER';
-    render(<EmployeeDetailPage />);
+    render(
+      <ThemeProvider>
+        <EmployeeDetailPage />
+      </ThemeProvider>
+    );
     expect(screen.getByText('我的使用情况')).toBeTruthy();
     expect(mocks.grants).toHaveBeenCalledWith('');
     expect(screen.queryByText('授权范围')).toBeNull();
     expect(screen.queryByRole('button', { name: '编辑配置' })).toBeNull();
   });
   it('统计失败不展示零记录或零消费', () => {
-    mocks.stats.mockReturnValue({ isError: true, refetch: mocks.retry });
-    render(<EmployeeDetailPage />);
+    mocks.stats.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: mocks.retry
+    } as any);
+    render(
+      <ThemeProvider>
+        <EmployeeDetailPage />
+      </ThemeProvider>
+    );
     expect(screen.getByRole('alert')).toHaveTextContent('运行数据加载失败');
     expect(screen.queryByText('暂无执行记录')).toBeNull();
     expect(screen.queryByText('¥0.0000')).toBeNull();

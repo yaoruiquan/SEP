@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import DashboardPage from './page';
 import { useAuthStore } from '@/lib/auth-store';
+import { ThemeProvider } from '@/lib/theme-provider';
 
 const mockDashboard = vi.hoisted(() => ({ data: null as any }));
 
@@ -45,7 +47,11 @@ describe('工作台按角色显示数据范围', () => {
 
   it('企业管理员显示成员使用情况', () => {
     setRole('ENTERPRISE_ADMIN');
-    render(<DashboardPage />);
+    render(
+      <ThemeProvider>
+        <DashboardPage />
+      </ThemeProvider>
+    );
     expect(screen.getByText('成员使用情况')).toBeInTheDocument();
     expect(screen.getByText('碳基员工')).toBeInTheDocument();
   });
@@ -53,7 +59,11 @@ describe('工作台按角色显示数据范围', () => {
   it('普通成员不显示企业成员排行，并使用个人口径文案', () => {
     mockDashboard.data = { ...dashboardData, scope: 'member' as const, topMembers: [] };
     setRole('MEMBER');
-    render(<DashboardPage />);
+    render(
+      <ThemeProvider>
+        <DashboardPage />
+      </ThemeProvider>
+    );
     expect(screen.queryByText('成员使用情况')).not.toBeInTheDocument();
     expect(screen.getByText('我的模型使用分析')).toBeInTheDocument();
     expect(screen.getByText('我的 Token 使用趋势')).toBeInTheDocument();

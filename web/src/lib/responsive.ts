@@ -4,7 +4,7 @@
  * 响应式布局工具和 Hooks
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 /**
  * Tailwind 断点定义
@@ -28,21 +28,34 @@ export type Breakpoint = keyof typeof breakpoints;
  * const isDesktop = useMediaQuery('(min-width: 1024px)');
  * ```
  */
+function subscribeToMediaQuery(query: string, onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {};
+  }
+
+  const media = window.matchMedia(query);
+  media.addEventListener('change', onChange);
+  return () => media.removeEventListener('change', onChange);
+}
+
+function getMediaQuerySnapshot(query: string): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+
+  return window.matchMedia(query).matches;
+}
+
+/**
+ * SSR 安全的媒体查询 Hook。服务端和客户端 hydration 首轮统一返回 false，
+ * 挂载后由 useSyncExternalStore 同步浏览器实际媒体查询结果。
+ */
 export function useMediaQuery(query: string): boolean {
-  const getMatches = () => window.matchMedia(query).matches;
-  const [matches, setMatches] = useState(getMatches);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-
-    // 监听变化
-    const listener = (e: MediaQueryListEvent) => setMatches(e.matches);
-    media.addEventListener('change', listener);
-
-    return () => media.removeEventListener('change', listener);
-  }, [query]);
-
-  return matches;
+  return useSyncExternalStore(
+    (onChange) => subscribeToMediaQuery(query, onChange),
+    () => getMediaQuerySnapshot(query),
+    () => false,
+  );
 }
 
 /**

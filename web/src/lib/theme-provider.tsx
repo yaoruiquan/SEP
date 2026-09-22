@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 
 type Theme = 'light' | 'dark';
 
@@ -11,22 +11,34 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'light';
-    const stored = localStorage.getItem('theme') as Theme | null;
-    return (stored === 'light' || stored === 'dark') ? stored : 'light';
-  });
-  const [mounted, setMounted] = useState(false);
+const themeListeners = new Set<() => void>();
 
-  // 挂载标记不需要在 effect 里设置，直接用 useEffect 的存在即表示已挂载
-  if (typeof window !== 'undefined' && !mounted) {
-    setMounted(true);
-  }
+function getStoredTheme(): Theme {
+  if (typeof window === 'undefined') return 'light';
+  return localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+}
+
+function subscribeToTheme(onChange: () => void): () => void {
+  themeListeners.add(onChange);
+  window.addEventListener('storage', onChange);
+
+  return () => {
+    themeListeners.delete(onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+function setStoredTheme(theme: Theme) {
+  localStorage.setItem('theme', theme);
+  themeListeners.forEach((listener) => listener());
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  // useSyncExternalStore 的 server snapshot 固定为 light，避免读取 localStorage
+  // 导致 AuroraBackground 等依赖主题的组件发生 hydration mismatch。
+  const theme = useSyncExternalStore(subscribeToTheme, getStoredTheme, () => 'light' as Theme);
 
   useEffect(() => {
-    if (!mounted) return;
-
     const root = document.documentElement;
 
     // dark 主题使用 theme-glass 类，light 主题移除该类
@@ -36,23 +48,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.remove('theme-glass');
     }
 
-    localStorage.setItem('theme', theme);
-
     // 动态更新 favicon
     const favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (favicon) {
       favicon.href = theme === 'dark' ? '/favicon-dark.ico' : '/favicon-light.png';
     }
-  }, [theme, mounted]);
+  }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setStoredTheme(theme === 'dark' ? 'light' : 'dark');
   };
-
-  // 避免服务端渲染时闪烁
-  if (!mounted) {
-    return <>{children}</>;
-  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
