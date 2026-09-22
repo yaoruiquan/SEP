@@ -3,8 +3,6 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  Inject,
-  forwardRef,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ConfigService } from "@nestjs/config";
@@ -23,9 +21,7 @@ export class PaymentService {
     private configService: ConfigService,
     private orderService: OrderService,
     private alipayProvider: AlipayProvider,
-    @Inject(forwardRef(() => ComputeService))
     private computeService: ComputeService,
-    @Inject(forwardRef(() => WalletService))
     private walletService: WalletService,
     // 个人钱包没有反向依赖（它只 import PrismaModule），这条边是单向的，
     // 不需要 forwardRef —— 加了反而会掩盖将来真的成环
