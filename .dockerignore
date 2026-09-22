@@ -1,0 +1,36 @@
+# Git / local metadata
+.git
+.github
+.omx
+
+# Dependencies and package-manager caches
+node_modules
+.pnpm-store
+
+# Build and test outputs
+.next
+out
+dist
+build
+coverage
+.nyc_output
+
+# Local/generated project artifacts that are not runtime assets
+outputs
+tmp
+.cache
+temp
+playwright-report
+test-results
+
+# Runtime data; production uses Docker volumes for these paths
+backend/uploads
+backend/storage
+
+# Local environment and editor files
+.env
+.env.*
+.vscode
+.idea
+.DS_Store
+*.log

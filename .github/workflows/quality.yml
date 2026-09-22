@@ -43,10 +43,16 @@ jobs:
         working-directory: backend
         run: pnpm exec eslint "src/**/*.ts"
 
+      - name: Backend DI smoke test
+        working-directory: backend
+        # AppModule 依赖图单独运行，避免与大量单测共享 Nest 运行时状态。
+        run: pnpm test -- --runInBand --runTestsByPath src/app.module.di.spec.ts
+
       - name: Backend unit tests
         working-directory: backend
-        # app.module.di.spec.ts 在 GitHub Actions 并行 worker 下会偶发 worker 崩溃，串行执行保持门禁稳定
-        run: pnpm test -- --runInBand
+        # DI 图探针单独执行；全量单测不重复装配 AppModule，避免 GitHub Actions
+        # 中测试顺序导致 Nest DI 递归栈溢出。
+        run: pnpm test -- --runInBand --testPathIgnorePatterns='app\.module\.di\.spec\.ts'
 
       - name: Web typecheck
         working-directory: web
