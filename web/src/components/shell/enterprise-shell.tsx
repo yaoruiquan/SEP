@@ -258,7 +258,7 @@ export function EnterpriseShell({ children }: { children: React.ReactNode }) {
           {/* 桌面端折叠按钮 */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="hidden shrink-0 rounded hover:bg-glass-2 p-1 lg:block"
+            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded hover:bg-glass-2 lg:flex"
             aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
           >
             {collapsed ? (

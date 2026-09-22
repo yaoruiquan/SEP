@@ -295,6 +295,9 @@ export default function SettingsPage() {
  */
 function LeaveEnterpriseCard() {
   const { enterprise, roleInEnterprise } = useAuthStore();
+  // Hook 必须在所有渲染分支中按相同顺序执行。
+  // 认证状态恢复时 enterprise 可能先为空，不能在 return null 前跳过这些 Hook，
+  // 否则企业信息随后加载完成会触发“Rendered more hooks than during the previous render”。
   const leave = useLeaveEnterprise();
   const [confirming, setConfirming] = useState(false);
 

@@ -97,7 +97,6 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
     ...item,
     displayName: formatModelName(item.model),
     color: palette[index % palette.length],
-    percentage: totalRequests > 0 ? ((item.requests / totalRequests) * 100).toFixed(1) : '0',
   }));
 
   if (!chartData.length) {
@@ -131,7 +130,7 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
   }
 
   return (
-    <div className="grid items-center gap-6 lg:grid-cols-2">
+    <div className="grid items-center gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       {/* 左侧: 渐变圆环图 */}
       <div className="relative flex items-center justify-center">
         <div className="h-[240px] w-[240px]">
@@ -176,43 +175,38 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
         </div>
       </div>
 
-      {/* 右侧: 优化后的列表 */}
-      <div className="space-y-4">
-        {chartData.map((model) => (
-          <div key={model.model} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+      {/* 右侧: 模型明细列表 */}
+      <div className="min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_96px_100px] items-center gap-6 border-b border-border px-4 pb-4 text-sm font-semibold text-fg-muted">
+          <span>模型</span>
+          <span className="text-right">请求</span>
+          <span className="text-right">成本</span>
+        </div>
+        <div>
+          {chartData.map((model) => (
+            <div
+              key={model.model}
+              className="grid grid-cols-[minmax(0,1fr)_96px_100px] items-center gap-6 border-b border-border px-4 py-4 last:border-b-0"
+            >
+              <div className="flex min-w-0 items-start gap-2 overflow-visible">
                 <div
-                  className="h-3 w-3 rounded-full"
+                  className="h-4 w-4 shrink-0 rounded-full"
                   style={{ backgroundColor: model.color }}
                 />
-                <span className="text-sm font-medium text-foreground">
+                <span className="min-w-0 flex-1 whitespace-normal break-words text-base font-medium leading-5 text-foreground"
+                  title={model.displayName}>
                   {model.displayName}
                 </span>
               </div>
-              <span className="text-sm font-semibold text-primary">
+              <span className="whitespace-nowrap text-right text-base tabular-nums text-fg-muted">
+                {numberFormatter.format(model.requests)}
+              </span>
+              <span className="whitespace-nowrap text-right text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                 {formatCost(model.cost)}
               </span>
             </div>
-
-            {/* 请求次数进度条 - 使用自定义颜色 */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-fg-muted">
-                <span>{numberFormatter.format(model.requests)} 次请求</span>
-                <span>{model.percentage}%</span>
-              </div>
-              <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full transition-all duration-300"
-                  style={{
-                    width: `${model.percentage}%`,
-                    backgroundColor: model.color,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -399,7 +393,7 @@ export default function DashboardPage() {
       />
 
       {/* 统计卡片升级 - 使用 3D Card 组件 */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard3D
           label={isAdmin ? '硅基员工' : '我的可用硅基员工'}
           value={stats.totalEmployees}
@@ -431,7 +425,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 主要内容区 */}
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.9fr)]">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.9fr)]">
         {/* 模型使用分析 - 添加 Background Gradient */}
         <BackgroundGradient className="rounded-glass-lg p-0.5">
           <Card className="glass-card border-none hover:shadow-md transition-shadow">

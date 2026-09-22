@@ -14,8 +14,8 @@
  * 暗色下瞎、柱状图两个主题都瞎。结论：chrome 一律走 var()，不要写死单主题 hex。
  *
  * 唯一的例外是**数据系列色**：一个色相没法靠 var() 在深底上自动「提亮」——浅色用的
- * indigo-600 压在 #0f0f2d 上只有 2.9:1，深底必须换成更亮的 400 阶。这是分类色，
- * 故用 useChartSeries() 按主题返回两套色板，而不是 var()。
+ * Terracotta-700 压在 #0f0f2d 上对比度不足，深底必须换成更亮的 Terracotta-400 阶。
+ * 这是分类色，故用 useChartSeries() 按主题返回两套色板，而不是 var()。
  */
 
 import { useTheme } from '@/lib/theme-provider';
@@ -67,7 +67,7 @@ export const CHART_LEGEND_STYLE: React.CSSProperties = {
 // 每个值都已在对应画布上验过 ≥3:1（图形元素 WCAG 1.4.11 阈值），文字级用途另取更深的。
 
 const LIGHT_SERIES = {
-  primary: '#4f46e5', // indigo-600
+  primary: '#C4612F', // Terracotta-600
   blue: '#2563eb', //   blue-600
   teal: '#0d9488', //   teal-600
   purple: '#9333ea', // purple-600
@@ -78,7 +78,7 @@ const LIGHT_SERIES = {
 } as const;
 
 const DARK_SERIES = {
-  primary: '#818cf8', // indigo-400
+  primary: '#E07B47', // Terracotta-400
   blue: '#60a5fa', //   blue-400
   teal: '#2dd4bf', //   teal-400
   purple: '#c084fc', // purple-400
