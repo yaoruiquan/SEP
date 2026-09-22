@@ -205,7 +205,7 @@ export default function EmployeeDetailPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6">
+    <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6 -mx-4 sm:-mx-6 lg:-mx-7">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           onClick={() => router.push('/my-employees')}
