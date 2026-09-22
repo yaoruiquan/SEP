@@ -60,14 +60,18 @@ export function Avatar({
   const initial = (name?.trim()?.[0] ?? '?').toUpperCase();
   const raw = asset?.portraitUrl ?? src?.trim() ?? '';
   const faceUrl = raw && portrait && !fullBody ? (asset?.faceUrl ?? toFaceVariant(raw)) : '';
+
+  const imageKey = `${raw}|${faceUrl}|${asset?.version}`;
   const [failed, setFailed] = useState(false);
   const [faceFailed, setFaceFailed] = useState(false);
+  const [lastKey, setLastKey] = useState(imageKey);
 
   // src 变了就重新给一次机会，否则换人后仍停在上一张的首字母占位
-  useEffect(() => {
+  if (imageKey !== lastKey) {
+    setLastKey(imageKey);
     setFailed(false);
     setFaceFailed(false);
-  }, [raw, faceUrl, asset?.version]);
+  }
 
   // 优先特写；特写缺失时退回母版半身图；母版也失败才落到首字母占位
   const url = faceUrl && !faceFailed ? faceUrl : raw;

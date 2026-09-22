@@ -49,7 +49,7 @@ const DialogContent = React.forwardRef<
     glass?: boolean;
   }
 >(({ className, children, onEscapeKeyDown, glass, ...props }, ref) => {
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [isOpen, setIsOpen] = React.useState(true);
   const prefersReducedMotion = usePrefersReducedMotion();
   const glassScope = useGlassScope();
 
@@ -62,11 +62,6 @@ const DialogContent = React.forwardRef<
       onEscapeKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
     }
   }, isOpen);
-
-  React.useEffect(() => {
-    setIsOpen(true);
-    return () => setIsOpen(false);
-  }, []);
 
   return (
     <DialogPortal>

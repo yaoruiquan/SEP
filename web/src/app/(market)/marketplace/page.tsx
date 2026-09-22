@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Users, SlidersHorizontal } from "lucide-react";
 import { toast } from "@/components/ui/toast";
@@ -52,9 +52,26 @@ export default function MarketplacePage() {
   const loggedIn = hydrated && Boolean(token);
   const isAdmin = roleInEnterprise === "ENTERPRISE_ADMIN";
 
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
-  const [sort, setSort] = useState<SortMode>("");
-  const [urlReady, setUrlReady] = useState(false);
+  // Initialize filters from URL params - use lazy initialization
+  const [filters, setFilters] = useState<FilterState>(() => {
+    if (typeof window === 'undefined') return INITIAL_FILTERS;
+    const params = new URLSearchParams(window.location.search);
+    const capTypes = params.getAll("capTypes");
+    return {
+      search: params.get("q") ?? "",
+      category: params.get("category") ?? "",
+      capTypes,
+    };
+  });
+
+  // Initialize sort from URL params - use lazy initialization
+  const [sort, setSort] = useState<SortMode>(() => {
+    if (typeof window === 'undefined') return "";
+    const params = new URLSearchParams(window.location.search);
+    const nextSort = params.get("sort") as SortMode;
+    return SORT_OPTIONS.some((option) => option.value === nextSort) ? nextSort : "";
+  });
+
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [payingEmp, setPayingEmp] = useState<MarketEmployee | null>(null);
@@ -66,21 +83,14 @@ export default function MarketplacePage() {
   // 「我的申请」弹窗
   const [myRequestsOpen, setMyRequestsOpen] = useState(false);
 
+  // Track if component is mounted to prevent initial URL update
+  const isMountedRef = useRef(false);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const capTypes = params.getAll("capTypes");
-    setFilters({
-      search: params.get("q") ?? "",
-      category: params.get("category") ?? "",
-      capTypes,
-    });
-    const nextSort = params.get("sort") as SortMode;
-    if (SORT_OPTIONS.some((option) => option.value === nextSort)) setSort(nextSort);
-    setUrlReady(true);
+    isMountedRef.current = true;
   }, []);
 
   useEffect(() => {
-    if (!urlReady) return;
+    if (!isMountedRef.current) return;
     const params = new URLSearchParams();
     if (filters.search) params.set("q", filters.search);
     if (filters.category) params.set("category", filters.category);
@@ -88,7 +98,7 @@ export default function MarketplacePage() {
     if (sort) params.set("sort", sort);
     const query = params.toString();
     router.replace(query ? `/marketplace?${query}` : "/marketplace", { scroll: false });
-  }, [filters, sort, urlReady, router]);
+  }, [filters, sort, router]);
 
   // 我的申请（用于角标显示待审批数）
   const { data: myRequests = [] } = useMySubscriptionRequests({

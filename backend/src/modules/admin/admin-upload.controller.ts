@@ -121,7 +121,7 @@ export class AdminUploadController {
     // 5. 返回文件
     res.download(filePath, `${capability.name}.zip`, (err) => {
       if (err) {
-        console.error('下载失败:', err);
+        // console.error('下载失败:', err);
       }
     });
   }

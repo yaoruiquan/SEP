@@ -12,17 +12,17 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'light';
+    const stored = localStorage.getItem('theme') as Theme | null;
+    return (stored === 'light' || stored === 'dark') ? stored : 'light';
+  });
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    // 从 localStorage 读取保存的主题，默认 light
-    const stored = localStorage.getItem('theme') as Theme | null;
-    if (stored === 'light' || stored === 'dark') {
-      setTheme(stored);
-    }
+  // 挂载标记不需要在 effect 里设置，直接用 useEffect 的存在即表示已挂载
+  if (typeof window !== 'undefined' && !mounted) {
     setMounted(true);
-  }, []);
+  }
 
   useEffect(() => {
     if (!mounted) return;

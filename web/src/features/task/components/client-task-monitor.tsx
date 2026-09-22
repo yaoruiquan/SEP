@@ -4,7 +4,110 @@ import { Activity, ChevronDown, ChevronRight, Monitor } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useClientTaskMirror, useClientTaskMirrors, type ClientTaskMirror } from '../use-client-task-mirrors';
-const labels:Record<string,string>={QUEUED:'排队中',RUNNING:'执行中',WAITING_APPROVAL:'等待审批',PAUSED:'已暂停',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消',UNKNOWN:'离线/未知'};
-const variant=(s:string)=>s==='COMPLETED'?'glass-success':s==='FAILED'||s==='CANCELLED'?'glass-danger':s==='UNKNOWN'?'glass-warning':'glass-info';
-function Row({task,open,toggle}:{task:ClientTaskMirror;open:boolean;toggle:()=>void}){const detail=useClientTaskMirror(task.id,open);const stale=task.lastHeartbeatAt&&!['COMPLETED','FAILED','CANCELLED'].includes(task.status)&&Date.now()-new Date(task.lastHeartbeatAt).getTime()>60000;const status=task.status;return <><button type="button" onClick={toggle} className="grid w-full grid-cols-[1fr_110px_70px_1fr_70px] gap-3 border-b border-glassline px-4 py-3 text-left hover:bg-gbg-deep/40"><span className="min-w-0"><span className="block truncate text-sm text-gtext-primary">{task.title}</span><span className="text-[11px] text-gtext-muted">{task.taskType} · {task.clientVersion??'版本未知'}</span>{stale&&<span className="ml-2 text-[11px] text-gtext-muted" title="最近 60 秒未收到心跳，不代表任务状态改变">心跳延迟</span>}</span><Badge variant={variant(status)}>{labels[status]??'离线/未知'}</Badge><span className="text-xs text-gtext-secondary">{Math.round(task.progress??0)}%</span><span className="truncate text-xs text-gtext-muted">{task.activity??task.currentStep??'暂无活动'}</span><span className="flex items-center gap-1 text-xs text-gtext-muted">{open?<ChevronDown className="h-3.5 w-3.5"/>:<ChevronRight className="h-3.5 w-3.5"/>}详情</span></button>{open&&<div className="border-b border-glassline bg-gbg-deep/25 px-10 py-3 text-xs text-gtext-muted">{detail.isLoading?'正在读取事件…':detail.isError?'事件读取失败，请稍后重试。':detail.data?.events?.length?detail.data.events.map(e=><div key={e.id} className="flex gap-3 py-1"><span>#{e.sequence}</span><span>{e.type}</span><span className="truncate">{e.message??e.stepKey??'状态更新'}</span></div>):'暂无事件记录'}{task.errorSummary&&<p className="mt-2 text-gdanger">{task.errorSummary}</p>}</div>}</>}
-export function ClientTaskMonitor(){const q=useClientTaskMirrors();const [selected,setSelected]=useState<string>();if(q.isLoading)return <CenteredSpinner label="正在读取客户端任务…"/>;if(q.isError)return <div className="p-8 text-sm text-gdanger">客户端任务监控暂时不可用，请稍后重试。</div>;return <section className="min-h-0 flex-1 overflow-auto p-4 sm:p-6"><div className="mx-auto max-w-6xl overflow-hidden rounded-glass-md border border-glassline bg-gbg-deep/30"><div className="flex items-center justify-between border-b border-glassline px-4 py-3"><h2 className="flex items-center gap-2 text-sm font-semibold text-gtext-primary"><Monitor className="h-4 w-4 text-gbrand-text"/>客户端任务监控</h2><span className="flex items-center gap-1 text-xs text-gtext-muted"><Activity className="h-3.5 w-3.5"/>每 15 秒刷新</span></div>{q.data?.length?q.data.map(t=><Row key={t.id} task={t} open={selected===t.id} toggle={()=>setSelected(id=>id===t.id?undefined:t.id)}/>):<div className="p-10 text-center text-sm text-gtext-muted">暂无客户端任务</div>}</div></section>}
+
+const labels: Record<string, string> = {
+  QUEUED: '排队中',
+  RUNNING: '执行中',
+  WAITING_APPROVAL: '等待审批',
+  PAUSED: '已暂停',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+  CANCELLED: '已取消',
+  UNKNOWN: '离线/未知',
+};
+
+const variant = (s: string) =>
+  s === 'COMPLETED'
+    ? 'glass-success'
+    : s === 'FAILED' || s === 'CANCELLED'
+    ? 'glass-danger'
+    : s === 'UNKNOWN'
+    ? 'glass-warning'
+    : 'glass-info';
+
+function Row({ task, open, toggle }: { task: ClientTaskMirror; open: boolean; toggle: () => void }) {
+  const detail = useClientTaskMirror(task.id, open);
+  const [now] = useState(() => Date.now());
+  const stale =
+    task.lastHeartbeatAt &&
+    !['COMPLETED', 'FAILED', 'CANCELLED'].includes(task.status) &&
+    now - new Date(task.lastHeartbeatAt).getTime() > 60000;
+  const status = task.status;
+  
+  return (
+    <>
+      <button
+        type="button"
+        onClick={toggle}
+        className="grid w-full grid-cols-[1fr_110px_70px_1fr_70px] gap-3 border-b border-glassline px-4 py-3 text-left hover:bg-gbg-deep/40"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm text-gtext-primary">{task.title}</span>
+          <span className="text-[11px] text-gtext-muted">
+            {task.taskType} · {task.clientVersion ?? '版本未知'}
+          </span>
+          {stale && (
+            <span className="ml-2 text-[11px] text-gtext-muted" title="最近 60 秒未收到心跳，不代表任务状态改变">
+              心跳延迟
+            </span>
+          )}
+        </span>
+        <Badge variant={variant(status)}>{labels[status] ?? '离线/未知'}</Badge>
+        <span className="text-xs text-gtext-secondary">{Math.round(task.progress ?? 0)}%</span>
+        <span className="truncate text-xs text-gtext-muted">{task.activity ?? task.currentStep ?? '暂无活动'}</span>
+        <span className="flex items-center gap-1 text-xs text-gtext-muted">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          详情
+        </span>
+      </button>
+      {open && (
+        <div className="border-b border-glassline bg-gbg-deep/25 px-10 py-3 text-xs text-gtext-muted">
+          {detail.isLoading
+            ? '正在读取事件…'
+            : detail.isError
+            ? '事件读取失败，请稍后重试。'
+            : detail.data?.events?.length
+            ? detail.data.events.map((e) => (
+                <div key={e.id} className="flex gap-3 py-1">
+                  <span>#{e.sequence}</span>
+                  <span>{e.type}</span>
+                  <span className="truncate">{e.message ?? e.stepKey ?? '状态更新'}</span>
+                </div>
+              ))
+            : '暂无事件记录'}
+          {task.errorSummary && <p className="mt-2 text-gdanger">{task.errorSummary}</p>}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ClientTaskMonitor() {
+  const q = useClientTaskMirrors();
+  const [selected, setSelected] = useState<string>();
+  
+  if (q.isLoading) return <CenteredSpinner label="正在读取客户端任务…" />;
+  if (q.isError) return <div className="p-8 text-sm text-gdanger">客户端任务监控暂时不可用，请稍后重试。</div>;
+  
+  return (
+    <section className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl overflow-hidden rounded-glass-md border border-glassline bg-gbg-deep/30">
+        <div className="flex items-center justify-between border-b border-glassline px-4 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-gtext-primary">
+            <Monitor className="h-4 w-4 text-gbrand-text" />
+            客户端任务监控
+          </h2>
+          <span className="flex items-center gap-1 text-xs text-gtext-muted">
+            <Activity className="h-3.5 w-3.5" />
+            每 15 秒刷新
+          </span>
+        </div>
+        {q.data?.length ? (
+          q.data.map((t) => <Row key={t.id} task={t} open={selected === t.id} toggle={() => setSelected((id) => (id === t.id ? undefined : t.id))} />)
+        ) : (
+          <div className="p-10 text-center text-sm text-gtext-muted">暂无客户端任务</div>
+        )}
+      </div>
+    </section>
+  );
+}

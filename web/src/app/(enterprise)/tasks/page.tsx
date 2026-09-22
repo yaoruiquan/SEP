@@ -94,7 +94,6 @@ export default function TasksPage() {
   const [objective, setObjective] = useState('');
   const [plan, setPlan] = useState<TaskPlan | null>(null);
   const [layout, setLayout] = useState<GraphLayoutPayload | null>(null);
-  const [view, setView] = useState<FlowView>('timeline');
   const [expandedStepKey, setExpandedStepKey] = useState<string>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
@@ -122,10 +121,12 @@ export default function TasksPage() {
     [availableEmployees],
   );
 
-  useEffect(() => {
+  // Initialize view from localStorage - use lazy initialization
+  const [view, setView] = useState<FlowView>(() => {
+    if (typeof window === 'undefined') return 'timeline';
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    if (stored === 'timeline' || stored === 'graph') setView(stored);
-  }, []);
+    return (stored === 'timeline' || stored === 'graph') ? stored : 'timeline';
+  });
 
   const changeView = (next: FlowView) => {
     setView(next);
@@ -133,12 +134,14 @@ export default function TasksPage() {
   };
 
   // 选中某条运行 → 拉计划详情 → 载入为当前可编辑计划
-  useEffect(() => {
-    if (!activeRunId || !loadedRun.data || loadedRun.data.id !== activeRunId) return;
+  const [lastLoadedRunId, setLastLoadedRunId] = useState<string>();
+
+  if (activeRunId && loadedRun.data && loadedRun.data.id === activeRunId && lastLoadedRunId !== activeRunId) {
     setPlan(toPlan(loadedRun.data));
     setLayout(loadedRun.data.layout);
     setObjective(loadedRun.data.objective);
-  }, [activeRunId, loadedRun.data]);
+    setLastLoadedRunId(activeRunId);
+  }
 
   /**
    * 舞台上渲染的那份数据。

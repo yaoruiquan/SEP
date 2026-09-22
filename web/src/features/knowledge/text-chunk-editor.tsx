@@ -60,7 +60,12 @@ export function TextChunkEditor({
   });
 
   // 当对话框打开或编辑的片段变化时，重置表单
-  useEffect(() => {
+  const [lastOpen, setLastOpen] = useState(open);
+  const [lastTextChunk, setLastTextChunk] = useState(textChunk);
+
+  if (open !== lastOpen || textChunk !== lastTextChunk) {
+    setLastOpen(open);
+    setLastTextChunk(textChunk);
     if (open) {
       if (textChunk) {
         reset({
@@ -73,7 +78,7 @@ export function TextChunkEditor({
         setTags([]);
       }
     }
-  }, [open, textChunk, reset]);
+  }
 
   const onSubmit = async (data: TextChunkFormData) => {
     try {

@@ -26,11 +26,13 @@ export function NewSessionDialog({
   onPick,
 }: NewSessionDialogProps) {
   const { data: subs = [], isLoading } = useSubscriptions();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(presetEmployeeId ?? null);
+  const [lastOpen, setLastOpen] = useState(open);
 
-  useEffect(() => {
+  if (open !== lastOpen) {
+    setLastOpen(open);
     if (open) setSelected(presetEmployeeId ?? null);
-  }, [open, presetEmployeeId]);
+  }
 
   if (!open) return null;
 

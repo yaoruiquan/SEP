@@ -102,11 +102,6 @@ export function useChartPalette(): string[] {
  * 用法：`const S = useChartSeries(); <Area stroke={S.primary} …/>`
  */
 export function useChartSeries(): ChartSeries {
-  let theme: 'light' | 'dark' = 'light';
-  try {
-    theme = useTheme().theme;
-  } catch {
-    theme = 'light';
-  }
+  const { theme } = useTheme();
   return theme === 'dark' ? DARK_SERIES : LIGHT_SERIES;
 }

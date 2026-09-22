@@ -30,9 +30,11 @@ function subscription(employeeId: string, name: string) {
 }
 
 function wrapper(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
+  const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
+  Wrapper.displayName = 'QueryClientWrapper';
+  return Wrapper;
 }
 
 function freshClient() {

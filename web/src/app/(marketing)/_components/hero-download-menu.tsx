@@ -24,13 +24,11 @@ function artifactDescription(artifact: ClientArtifact) {
 
 export function HeroDownloadMenu() {
   const [open, setOpen] = useState(false);
-  const [platform, setPlatform] = useState<ClientPlatform>('macos-arm64');
+  const [platform, setPlatform] = useState<ClientPlatform>(() => detectPlatform());
   const containerRef = useRef<HTMLDivElement>(null);
   const canHoverRef = useRef(false);
 
   useEffect(() => {
-    setPlatform(detectPlatform());
-
     const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
     const updateHoverCapability = () => {
       canHoverRef.current = mediaQuery.matches && navigator.maxTouchPoints === 0;

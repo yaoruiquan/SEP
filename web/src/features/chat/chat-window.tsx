@@ -98,13 +98,6 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     (streamingAuthorId ? employeeById.get(streamingAuthorId) : undefined) ??
     (employee ? employeeById.get(employee.id) : undefined) ?? employee;
 
-  // clear the optimistic bubble + local stream once the refetched history includes it
-  useEffect(() => {
-    if (!state.streaming && pendingUser) {
-      setPendingUser(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persisted.length]);
 
   /**
    * 本轮回复的权威副本是否已经在历史里。

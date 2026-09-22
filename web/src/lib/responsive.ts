@@ -29,13 +29,11 @@ export type Breakpoint = keyof typeof breakpoints;
  * ```
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const getMatches = () => window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(getMatches);
 
   useEffect(() => {
     const media = window.matchMedia(query);
-
-    // 初始值
-    setMatches(media.matches);
 
     // 监听变化
     const listener = (e: MediaQueryListEvent) => setMatches(e.matches);
@@ -224,14 +222,9 @@ export function responsiveClass(classes: Partial<Record<Breakpoint | 'base', str
  * 触摸设备检测 Hook
  */
 export function useIsTouchDevice(): boolean {
-  const [isTouch, setIsTouch] = useState(false);
-
-  useEffect(() => {
-    setIsTouch(
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0
-    );
-  }, []);
+  const [isTouch, setIsTouch] = useState(() =>
+    typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
+  );
 
   return isTouch;
 }
@@ -262,11 +255,11 @@ export function useNetworkStatus() {
     if ('connection' in navigator) {
       const connection = (navigator as any).connection;
       if (connection) {
-        setStatus((s) => ({ ...s, effectiveType: connection.effectiveType || 'unknown' }));
-
         const handleChange = () => {
           setStatus((s) => ({ ...s, effectiveType: connection.effectiveType || 'unknown' }));
         };
+        // 初始化网络类型
+        handleChange();
         connection.addEventListener('change', handleChange);
 
         return () => {

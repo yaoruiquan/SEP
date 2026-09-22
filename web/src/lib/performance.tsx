@@ -326,7 +326,7 @@ export function useThrottle<T extends (...args: any[]) => any>(
   callback: T,
   delay: number
 ): T {
-  const lastRun = useRef(Date.now());
+  const lastRun = useRef(0);
 
   return ((...args) => {
     const now = Date.now();

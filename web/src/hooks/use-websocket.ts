@@ -59,6 +59,16 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     heartbeatTimerRef.current = setInterval(sendHeartbeat, heartbeatInterval);
   }, [sendHeartbeat, heartbeatInterval, clearTimers]);
 
+  const disconnect = useCallback(() => {
+    shouldReconnectRef.current = false;
+    clearTimers();
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsConnected(false);
+  }, [clearTimers]);
+
   const connect = useCallback(() => {
     // URL 为空或未登录不连接
     if (!url || !token) {
@@ -119,7 +129,6 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
           console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms... (${attempt}/${maxReconnectAttempts})`);
           reconnectTimerRef.current = setTimeout(() => {
             setReconnectCount((prev) => prev + 1);
-            connect();
           }, delay);
         } else if (!shouldReconnectRef.current) {
           // 主动断开，不输出任何内容
@@ -144,15 +153,23 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     clearTimers,
   ]);
 
-  const disconnect = useCallback(() => {
-    shouldReconnectRef.current = false;
-    clearTimers();
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  // 连接和清理
+  useEffect(() => {
+    shouldReconnectRef.current = true;
+    connect();
+
+    return () => {
+      shouldReconnectRef.current = false;
+      disconnect();
+    };
+  }, [connect, disconnect]);
+
+  // 重连效果：reconnectCount 变化时触发重连
+  useEffect(() => {
+    if (reconnectCount > 0) {
+      connect();
     }
-    setIsConnected(false);
-  }, [clearTimers]);
+  }, [reconnectCount, connect]);
 
   const send = useCallback((message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

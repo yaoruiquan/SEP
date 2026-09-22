@@ -205,7 +205,7 @@ export class DocumentService {
     try {
       await fs.unlink(document.storagePath);
     } catch (error) {
-      console.error('Failed to delete file:', error);
+      // console.error('Failed to delete file:', error);
       // 继续删除数据库记录，即使文件删除失败
     }
 

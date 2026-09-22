@@ -21,18 +21,15 @@ export default function BasicSettings() {
     error: modelsError,
   } = useUpstreamModels();
 
-  // 本地编辑态：key -> 输入值
-  const [edits, setEdits] = useState<Record<string, string>>({});
-
-  // settings 加载后，用非敏感项的现值初始化输入框（敏感项留空=不改）
-  useEffect(() => {
-    if (!settings) return;
+  // 本地编辑态：key -> 输入值，用 settings 初始化（非敏感项用现值，敏感项留空）
+  const [edits, setEdits] = useState<Record<string, string>>(() => {
+    if (!settings) return {};
     const init: Record<string, string> = {};
     for (const s of settings) {
       init[s.key] = s.secret ? '' : (s.value ?? '');
     }
-    setEdits(init);
-  }, [settings]);
+    return init;
+  });
 
   if (isLoading) return <CenteredSpinner label="加载设置…" />;
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { use, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
@@ -20,16 +20,24 @@ export default function BindingsManagePage({ params: paramsPromise }: { params: 
   const { data: bindings, isLoading } = useEmployeeBindings(params.id);
   const updateBindingMutation = useUpdateBinding();
 
-  const [items, setItems] = useState<any[]>([]);
+  const sortedBindings = useMemo(() => {
+    return bindings ? [...bindings].sort((a, b) => b.priority - a.priority) : [];
+  }, [bindings]);
+
+  const [items, setItems] = useState<any[]>(() => sortedBindings);
   const [isSaving, setIsSaving] = useState(false);
   const [editingConfig, setEditingConfig] = useState<{ bindingId: string; config: string } | null>(null);
 
-  // 初始化排序项
-  useEffect(() => {
-    if (bindings) {
-      setItems([...bindings].sort((a, b) => b.priority - a.priority));
-    }
-  }, [bindings]);
+  // Update items when bindings change (but preserve user's drag-drop changes)
+  const hasUserChanges = useMemo(() => {
+    if (items.length !== sortedBindings.length) return true;
+    return items.some((item, idx) => item.id !== sortedBindings[idx]?.id);
+  }, [items, sortedBindings]);
+
+  // Sync items only if no user changes
+  if (!hasUserChanges && items !== sortedBindings) {
+    setItems(sortedBindings);
+  }
 
   // 拖拽传感器
   const sensors = useSensors(

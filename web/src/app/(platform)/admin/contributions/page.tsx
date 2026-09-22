@@ -21,26 +21,32 @@ const tabs: Array<{ value: PlatformQueueStatus; label: string }> = [
 export default function AdminContributionsPage() {
   const [status, setStatus] = useState<PlatformQueueStatus>('PENDING_REVIEW');
   const queue = usePlatformContributionQueue(status);
-  const [requestedId, setRequestedId] = useState('');
-  const [selectedId, setSelectedId] = useState('');
+  const [requestedId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('selected') ?? '';
+  });
   const [search, setSearch] = useState('');
-  const items = queue.data?.items ?? [];
+  const items = useMemo(() => queue.data?.items ?? [], [queue.data?.items]);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((item) => !query || item.name.toLowerCase().includes(query) || item.description.toLowerCase().includes(query) || item.enterprise?.name.toLowerCase().includes(query));
   }, [items, search]);
 
-  useEffect(() => {
-    setRequestedId(new URLSearchParams(window.location.search).get('selected') ?? '');
-  }, []);
-
-  useEffect(() => {
+  // Compute selectedId based on requestedId and filtered list
+  const selectedId = useMemo(() => {
     if (requestedId && filtered.some((item) => item.id === requestedId)) {
-      setSelectedId(requestedId);
-    } else if (!filtered.some((item) => item.id === selectedId)) {
-      setSelectedId(filtered[0]?.id ?? '');
+      return requestedId;
     }
-  }, [filtered, requestedId, selectedId]);
+    return filtered[0]?.id ?? '';
+  }, [filtered, requestedId]);
+
+  const setSelectedId = (id: string) => {
+    // Find the element in the list and scroll to it if needed
+    const element = document.querySelector(`[data-contribution-id="${id}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  };
 
   return <div className="flex h-[calc(100vh-64px)] min-h-[680px] flex-col overflow-hidden">
     <header className="shrink-0 border-b border-glassline px-6 py-5">
@@ -66,7 +72,7 @@ export default function AdminContributionsPage() {
 }
 
 function QueueItem({ item, active, onClick }: { item: ContributionCapability & { platformSubmittedAt: string | null }; active: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={cn('mb-1 w-full rounded-md border p-3 text-left transition-colors', active ? 'border-glassline-brand bg-glass-accent-2' : 'border-transparent hover:border-glassline hover:bg-glass-2')}>
+  return <button type="button" onClick={onClick} data-contribution-id={item.id} className={cn('mb-1 w-full rounded-md border p-3 text-left transition-colors', active ? 'border-glassline-brand bg-glass-accent-2' : 'border-transparent hover:border-glassline hover:bg-glass-2')}>
     <div className="flex items-start gap-3"><span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-md border', item.type === 'AGENT' ? 'border-ginfo/35 bg-ginfo/15 text-ginfo' : 'border-gbrand-ring bg-gbrand/15 text-gbrand-text')}>{item.type === 'AGENT' ? <Bot className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-gtext-primary">{item.name}</span><Badge variant="glass-warning">待审</Badge></span><span className="mt-1 line-clamp-2 text-xs leading-5 text-gtext-muted">{item.description}</span><span className="mt-2 flex items-center gap-2 text-xs text-gtext-muted"><span>{item.enterprise?.name || '个人投稿'}</span><span>·</span><span>{item.type}</span></span></span></div>
   </button>;
 }

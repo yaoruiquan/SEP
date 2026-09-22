@@ -35,10 +35,12 @@ export function RejectReasonDialog({
   onConfirm: (reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
+  const [lastOpen, setLastOpen] = useState(open);
 
-  useEffect(() => {
+  if (open !== lastOpen) {
+    setLastOpen(open);
     if (open) setReason('');
-  }, [open]);
+  }
 
   const trimmed = reason.trim();
   const tooShort = trimmed.length > 0 && trimmed.length < MIN_LENGTH;

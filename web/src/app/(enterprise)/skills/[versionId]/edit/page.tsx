@@ -28,11 +28,13 @@ export default function SkillVersionEditPage() {
   const [summary, setSummary] = useState('');
   const [preview, setPreview] = useState(false);
 
-  useEffect(() => {
-    if (!query.data) return;
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  if (query.data && !isInitialized) {
     setContent(query.data.content);
     setSummary(query.data.changeSummary ?? '');
-  }, [query.data]);
+    setIsInitialized(true);
+  }
 
   if (query.isLoading) return <CenteredSpinner label="加载技能版本..." />;
   if (!query.data) return <div className="p-6 text-sm text-gdanger">无法打开技能版本。</div>;

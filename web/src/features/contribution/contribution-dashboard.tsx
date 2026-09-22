@@ -32,13 +32,12 @@ export function ContributionDashboard() {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
-  const [view, setView] = useState<ViewMode>('list');
-  const [createOpen, setCreateOpen] = useState(false);
-
-  useEffect(() => {
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') return 'list';
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    if (stored === 'list' || stored === 'board') setView(stored);
-  }, []);
+    return stored === 'list' || stored === 'board' ? stored : 'list';
+  });
+  const [createOpen, setCreateOpen] = useState(false);
 
   const setViewMode = (next: ViewMode) => {
     setView(next);
@@ -66,9 +65,11 @@ export function ContributionDashboard() {
     [entries, query, stageFilter, typeFilter],
   );
 
-  useEffect(() => {
-    if (selectedId && !visible.some((entry) => entry.item.id === selectedId)) setSelectedId(null);
-  }, [visible, selectedId]);
+  // Clear selection when filtered out
+  const validSelection = selectedId && visible.some((entry) => entry.item.id === selectedId);
+  if (selectedId && !validSelection) {
+    setSelectedId(null);
+  }
 
   if (overview.isLoading || contributions.isLoading) return <DashboardLoading />;
   if (overview.isError || contributions.isError || !overview.data) {

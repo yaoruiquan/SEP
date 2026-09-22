@@ -34,11 +34,10 @@ export function VersionEditDialog({
   const [dirty, setDirty] = useState(false);
 
   // 正文到了再灌进编辑器，但不要覆盖用户已经改过的内容
-  useEffect(() => {
-    if (!query.data || dirty) return;
+  if (query.data && !dirty && content !== query.data.content) {
     setContent(query.data.content);
     setChangeSummary(query.data.changeSummary ?? '');
-  }, [query.data, dirty]);
+  }
 
   const close = () => {
     setContent('');

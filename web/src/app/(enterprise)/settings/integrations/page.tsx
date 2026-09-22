@@ -22,14 +22,14 @@ export default function IntegrationsPage() {
   const [showSecret, setShowSecret] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Hydrate local state when setting loads
-  useEffect(() => {
-    if (setting) {
-      setWebhookUrl(setting.webhookUrl ?? '');
-      // Secret is write-only — never pre-fill from server
-      setWebhookSecret('');
-    }
-  }, [setting]);
+  // Hydrate local state when setting loads - initialize from server data
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  if (setting && !isInitialized) {
+    setWebhookUrl(setting.webhookUrl ?? '');
+    setWebhookSecret('');
+    setIsInitialized(true);
+  }
 
   function handleSaveWebhook() {
     const dto: { webhookUrl?: string; webhookSecret?: string } = {};

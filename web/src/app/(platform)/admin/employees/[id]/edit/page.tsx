@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,44 +86,50 @@ export default function EditEmployeePage() {
   ];
 
   useEffect(() => {
+    let mounted = true;
+
+    const loadEmployee = async () => {
+      try {
+        setIsLoading(true);
+        const data = await adminApi.getEmployeeDetail(employeeId);
+        if (!mounted) return;
+
+        setEmployee(data);
+        setFormData({
+          name: data.name,
+          description: data.description,
+          industry: data.industry,
+          position: data.position,
+          avatar: data.avatar || '',
+          systemPrompt: data.systemPrompt,
+          modelId: data.modelId,
+          annualPriceCNY: data.annualPriceCNY ? Number(data.annualPriceCNY) : 0,
+        });
+        // null 要还原成空串，不能落成 '0' —— 那会把「未配置」改写成「不赠送」
+        setIncludedComputeInput(
+          formatGiftInput(
+            data.includedComputeCNY === null ? null : Number(data.includedComputeCNY),
+          ),
+        );
+
+        // Initialize selectedCapabilities from bindings
+        if (bindings) {
+          setSelectedCapabilities(bindings.map((b: any) => b.capability.id));
+        }
+      } catch (error: any) {
+        if (!mounted) return;
+        toast.error(error.message || '加载员工信息失败');
+        router.push('/admin/employees');
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
     loadEmployee();
-  }, [employeeId]);
-
-  useEffect(() => {
-    if (bindings) {
-      const ids = bindings.map((b: any) => b.capability.id);
-      setSelectedCapabilities(ids);
-    }
-  }, [bindings]);
-
-  const loadEmployee = async () => {
-    try {
-      setIsLoading(true);
-      const data = await adminApi.getEmployeeDetail(employeeId);
-      setEmployee(data);
-      setFormData({
-        name: data.name,
-        description: data.description,
-        industry: data.industry,
-        position: data.position,
-        avatar: data.avatar || '',
-        systemPrompt: data.systemPrompt,
-        modelId: data.modelId,
-        annualPriceCNY: data.annualPriceCNY ? Number(data.annualPriceCNY) : 0,
-      });
-      // null 要还原成空串，不能落成 '0' —— 那会把「未配置」改写成「不赠送」
-      setIncludedComputeInput(
-        formatGiftInput(
-          data.includedComputeCNY === null ? null : Number(data.includedComputeCNY),
-        ),
-      );
-    } catch (error: any) {
-      toast.error(error.message || '加载员工信息失败');
-      router.push('/admin/employees');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    return () => { mounted = false; };
+  }, [employeeId, router, bindings]);
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) {

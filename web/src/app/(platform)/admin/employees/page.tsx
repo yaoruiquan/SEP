@@ -308,7 +308,7 @@ export default function AdminEmployeesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除员工 "{deleteDialog.employeeName}" 吗？此操作不可撤销。
+              确定要删除员工 &ldquo;{deleteDialog.employeeName}&rdquo; 吗？此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
