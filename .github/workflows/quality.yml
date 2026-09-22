@@ -45,7 +45,8 @@ jobs:
 
       - name: Backend unit tests
         working-directory: backend
-        run: pnpm test
+        # app.module.di.spec.ts 在 GitHub Actions 并行 worker 下会偶发 worker 崩溃，串行执行保持门禁稳定
+        run: pnpm test -- --runInBand
 
       - name: Web typecheck
         working-directory: web

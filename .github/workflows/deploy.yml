@@ -50,7 +50,8 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key:      ${{ secrets.SERVER_SSH_KEY }}
           port:     ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 15m
+          # 首次构建蓝绿候选镜像和迁移镜像可能超过 15 分钟
+          command_timeout: 30m
           script: |
             set -e
             cd /opt/sep/app
