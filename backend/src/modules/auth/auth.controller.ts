@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import {
@@ -26,6 +27,7 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @Throttle({ auth: { ttl: 60000, limit: 5 } }) // 每分钟最多 5 次注册尝试
   @ApiOperation({
     summary: '企业自助注册（同时创建公司与首个企业管理员）',
     description:
@@ -58,6 +60,7 @@ export class AuthController {
   }
 
   @Post('register-by-invitation')
+  @Throttle({ auth: { ttl: 60000, limit: 5 } }) // 每分钟最多 5 次受邀注册
   @ApiOperation({
     summary: '受邀注册（加入已存在的企业，不创建新公司）',
     description:
@@ -159,6 +162,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } }) // 每分钟最多 10 次登录尝试
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '登录（返回企业归属与企业内角色）' })
   @ApiResponse({ status: 200, description: 'Login successful; refresh token set in httpOnly cookie' })
