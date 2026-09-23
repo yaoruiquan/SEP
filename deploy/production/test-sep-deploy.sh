@@ -50,6 +50,9 @@ if [[ "${1:-}" == exec ]]; then
       fi
       ;;
     node)
+      if [[ "${MOCK_EXPECT_READINESS:-0}" == 1 && "${1:-}" == *"127.0.0.1:3001"* ]]; then
+        [[ "$*" == *"127.0.0.1:3001/api/health/ready"* ]]
+      fi
       exit 0
       ;;
   esac
@@ -97,6 +100,7 @@ grep -Fq 'reverse_proxy sep-green-web:3000' "$SEP_CADDYFILE"
 
 export SEP_POST_DEPLOY_CHECKS=1
 export SEP_POST_DEPLOY_INTERVAL_SECONDS=0
+export MOCK_EXPECT_READINESS=1
 check_service_readiness blue
 observe_candidate blue
 

@@ -62,6 +62,24 @@ describe('CsrfGuard', () => {
       expect(guard.canActivate(context)).toBe(true);
     });
 
+    it('配置域名含大写字母时应匹配浏览器规范化的小写 Origin', () => {
+      process.env.CORS_ORIGIN = 'https://longdaoSEP.cn';
+      guard = new CsrfGuard(reflector);
+      const context = createMockContext('POST', '/api/auth/login', {
+        origin: 'https://longdaosep.cn',
+      });
+      expect(guard.canActivate(context)).toBe(true);
+    });
+
+    it('配置中的默认端口应与浏览器 Origin 匹配', () => {
+      process.env.CORS_ORIGIN = 'https://EXAMPLE.com:443/';
+      guard = new CsrfGuard(reflector);
+      const context = createMockContext('POST', '/api/users', {
+        origin: 'https://example.com',
+      });
+      expect(guard.canActivate(context)).toBe(true);
+    });
+
     it('来自允许源的 Referer 应该通过', () => {
       const context = createMockContext('POST', '/api/users', {
         referer: 'https://app.example.com/dashboard',
@@ -72,6 +90,20 @@ describe('CsrfGuard', () => {
     it('来自未授权源应该抛出 ForbiddenException', () => {
       const context = createMockContext('POST', '/api/users', {
         origin: 'https://evil.com',
+      });
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
+
+    it('相似但不同的域名不能通过', () => {
+      const context = createMockContext('POST', '/api/users', {
+        origin: 'https://example.com.evil.com',
+      });
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
+
+    it('无效 Origin 应拒绝而不是返回服务器错误', () => {
+      const context = createMockContext('POST', '/api/users', {
+        origin: 'not-a-url',
       });
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });

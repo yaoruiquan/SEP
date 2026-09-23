@@ -33,7 +33,9 @@ export class CsrfGuard implements CanActivate {
       origins.push('http://localhost:3000', 'http://localhost:4173');
     }
 
-    this.allowedOrigins = new Set(origins);
+    this.allowedOrigins = new Set(
+      origins.map((origin) => new URL(origin).origin)
+    );
   }
 
   canActivate(context: ExecutionContext): boolean {
@@ -61,9 +63,13 @@ export class CsrfGuard implements CanActivate {
       return true; // 开发环境放行
     }
 
-    // 提取域名（去掉路径）
-    const originUrl = new URL(origin);
-    const originHost = `${originUrl.protocol}//${originUrl.host}`;
+    // URL.origin 规范化主机名大小写、默认端口，并去掉 Referer 路径。
+    let originHost: string;
+    try {
+      originHost = new URL(origin).origin;
+    } catch {
+      throw new ForbiddenException('Invalid Origin or Referer header');
+    }
 
     if (!this.allowedOrigins.has(originHost)) {
       throw new ForbiddenException(
