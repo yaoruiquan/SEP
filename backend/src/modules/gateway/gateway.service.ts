@@ -120,10 +120,14 @@ export class GatewayService {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(dto),
+        signal: AbortSignal.timeout(30000),
       });
-    } catch {
+    } catch (error) {
+      const message = error?.name === 'TimeoutError' || error?.name === 'AbortError'
+        ? 'sub2api 请求超时（30s）'
+        : '无法连接 sub2api';
       throw new BadGatewayException({
-        error: { message: '无法连接 sub2api', type: 'api_error', code: 'UPSTREAM_UNAVAILABLE', param: null },
+        error: { message, type: 'api_error', code: 'UPSTREAM_UNAVAILABLE', param: null },
       });
     }
 

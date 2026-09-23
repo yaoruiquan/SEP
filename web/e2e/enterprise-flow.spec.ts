@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
  * - Redis 服务正常运行
  */
 
-test.describe('企业端核心流程', () => {
+test.describe.serial('企业端核心流程', () => {
   const testEmail = `e2e-test-${Date.now()}@example.com`;
   const testPassword = 'Test123456!';
   const enterpriseName = `E2E测试企业${Date.now()}`;

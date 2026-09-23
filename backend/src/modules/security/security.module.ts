@@ -4,23 +4,28 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { SensitiveDataFilter } from './filters/sensitive-data.filter';
 import { CsrfGuard } from './guards/csrf.guard';
 
+// E2E 测试环境下放宽限流（通过 E2E_TEST=1 环境变量识别）
+const isE2ETesting = process.env.E2E_TEST === '1';
+const authLimit = isE2ETesting ? 1000 : 10;
+const defaultLimit = isE2ETesting ? 10000 : 100;
+
 @Module({
   imports: [
     ThrottlerModule.forRoot([
       {
         name: 'default',
         ttl: 60000, // 60 秒
-        limit: 100, // 默认限流：每分钟 100 次请求
+        limit: defaultLimit,
       },
       {
         name: 'auth',
         ttl: 60000, // 60 秒
-        limit: 10, // 认证端点：每分钟 10 次（由 @Throttle 装饰器覆盖）
+        limit: authLimit,
       },
       {
         name: 'chat',
         ttl: 60000, // 60 秒
-        limit: 60, // 对话端点：每分钟 60 次
+        limit: 60,
       },
     ]),
   ],
