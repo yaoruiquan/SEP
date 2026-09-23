@@ -39,6 +39,7 @@ import { TaskModule } from './modules/task/task.module';
 import { TaskExecutionModule } from './modules/task-execution/task-execution.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SecurityModule } from './modules/security/security.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HealthModule } from './health/health.module';
@@ -63,6 +64,8 @@ import { employeeAssetBaseUrl } from './common/employee-avatar';
     }),
     // 安全模块（全局限流、日志脱敏、异常处理）
     SecurityModule,
+    // 监控告警模块（指标收集、健康检查、告警）
+    MonitoringModule,
     PrismaModule,
     RedisModule,
     AuthModule,

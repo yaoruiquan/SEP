@@ -1,3 +1,7 @@
 # 路径相对本文件所在目录 —— 不要写成 web/xxx，那等于找 web/web/xxx
 tsconfig.tsbuildinfo
 coverage/
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/

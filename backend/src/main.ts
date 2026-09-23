@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
 import express from 'express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
 import { basicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
@@ -19,6 +20,28 @@ async function bootstrap() {
   if (isProduction && corsOrigins.length === 0) {
     throw new Error('生产环境必须配置至少一个 CORS_ORIGIN');
   }
+
+  // Helmet 安全头（生产环境启用）
+  if (isProduction) {
+    app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", 'data:', 'https:'],
+          },
+        },
+        hsts: {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        },
+      })
+    );
+  }
+
   app.use(requestContextMiddleware, basicRateLimitMiddleware);
   app.use(express.json({ limit: process.env.REQUEST_JSON_LIMIT || '2mb' }));
   app.use(express.urlencoded({ limit: process.env.REQUEST_URLENCODED_LIMIT || '2mb', extended: true }));
