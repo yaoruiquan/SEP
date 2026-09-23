@@ -1,13 +1,20 @@
 import { BadGatewayException, HttpException } from '@nestjs/common';
 import { GatewayService } from './gateway.service';
 
+const enterpriseClaims = {
+  sub: 'user-1',
+  enterpriseId: 'enterprise-1',
+  subscriptionId: 'subscription-1',
+  memberId: 'member-1',
+};
+
 describe('GatewayService.forwardChatCompletion', () => {
   const dto = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
   let service: GatewayService;
   let fetchMock: jest.SpyInstance;
 
   beforeEach(() => {
-    service = new GatewayService({} as never, {} as never, {} as never);
+    service = new GatewayService({} as never, {} as never, {} as never, {} as never);
     jest.spyOn(service, 'getSub2ApiConfig').mockResolvedValue({
       baseUrl: 'https://relay.test/v1/', apiKey: 'test-key', defaultModel: 'test-model',
     });
@@ -51,5 +58,100 @@ describe('GatewayService.forwardChatCompletion', () => {
   it('maps transport failures to 502 without exposing internal connection details', async () => {
     fetchMock.mockRejectedValue(new Error('secret internal connection detail'));
     await expect(service.forwardChatCompletion(dto)).rejects.toBeInstanceOf(BadGatewayException);
+  });
+});
+
+describe('GatewayService.compute credit integration', () => {
+  const enabledModel = { modelId: 'test-model' };
+  const modelConfig = { allowedChatModels: ['test-model'] };
+  const balanceAllowed = {
+    allowed: true,
+    enterpriseFundsAllowed: true,
+    creditRemainingCNY: 0,
+    walletBalanceCNY: 9699,
+    memberWalletBalanceCNY: 0,
+    totalAvailableCNY: 9699,
+    personalBalanceCNY: 0,
+  };
+  let prisma: Record<string, any>;
+  let creditService: { checkBalanceBeforeConversation: jest.Mock; chargeUsage: jest.Mock };
+  let service: GatewayService;
+
+  beforeEach(() => {
+    prisma = {
+      subscription: { findFirst: jest.fn().mockResolvedValue({ id: 'subscription-1', employeeId: 'employee-1' }) },
+      employeeGrant: { findFirst: jest.fn().mockResolvedValue({ id: 'grant-1' }) },
+      platformModel: { findMany: jest.fn().mockResolvedValue([enabledModel]) },
+      enterpriseModelConfig: { findUnique: jest.fn().mockResolvedValue(modelConfig) },
+    };
+    creditService = {
+      checkBalanceBeforeConversation: jest.fn().mockResolvedValue(balanceAllowed),
+      chargeUsage: jest.fn().mockResolvedValue({
+        alreadyCharged: false,
+        usageRecordId: 'usage-1',
+        unpaidCNY: 0,
+      }),
+    };
+    service = new GatewayService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      creditService as never,
+    );
+  });
+
+  it('uses the unified credit balance instead of the legacy ComputeAccount', async () => {
+    const result = await service.validateAndAuthorize(enterpriseClaims);
+
+    expect(result).toEqual({
+      enterpriseId: 'enterprise-1',
+      subscriptionId: 'subscription-1',
+      memberId: 'member-1',
+      employeeId: 'employee-1',
+      allowedModels: ['test-model'],
+    });
+    expect(creditService.checkBalanceBeforeConversation).toHaveBeenCalledWith(
+      'enterprise-1',
+      'subscription-1',
+      'user-1',
+    );
+    expect(prisma.computeAccount).toBeUndefined();
+  });
+
+  it('rejects the request when the unified credit service disallows the conversation', async () => {
+    creditService.checkBalanceBeforeConversation.mockResolvedValue({
+      ...balanceAllowed,
+      allowed: false,
+      reason: '企业和个人算力余额均不足',
+    });
+
+    await expect(service.validateAndAuthorize(enterpriseClaims)).rejects.toThrow('企业和个人算力余额均不足');
+  });
+
+  it('charges usage through ComputeCreditService and preserves the idempotency anchors', async () => {
+    await service.recordTransaction({
+      enterpriseId: 'enterprise-1',
+      subscriptionId: 'subscription-1',
+      memberId: 'member-1',
+      employeeId: 'employee-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      modelId: 'test-model',
+      usage: { prompt_tokens: 12, completion_tokens: 8 } as never,
+    });
+
+    expect(creditService.chargeUsage).toHaveBeenCalledWith({
+      enterpriseId: 'enterprise-1',
+      subscriptionId: 'subscription-1',
+      employeeId: 'employee-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      modelId: 'test-model',
+      inputTokens: 12,
+      outputTokens: 8,
+    });
+    expect(prisma.computeAccount).toBeUndefined();
   });
 });

@@ -7,8 +7,12 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Headers,
+  Req,
 } from '@nestjs/common';
 import { Response } from 'express';
+import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
@@ -37,10 +41,12 @@ export class GatewayController {
   async chatCompletions(
     @Body(new ZodValidationPipe(ChatCompletionRequestSchema)) dto: ChatCompletionRequest,
     @ClientEmployment() claims: ClientEmploymentClaims,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Req() req: Request & { requestId?: string },
     @Res() res: Response,
   ) {
     // 1. 验证 + 授权
-    const { enterpriseId, subscriptionId, memberId, allowedModels } =
+    const { enterpriseId, subscriptionId, memberId, employeeId, allowedModels } =
       await this.gatewayService.validateAndAuthorize(claims);
 
     // 2. 检查模型白名单
@@ -50,6 +56,14 @@ export class GatewayController {
 
     // 3. 由 service 转发；上游错误在发送 SSE 响应头之前返回 JSON。
     const upstreamRes = await this.gatewayService.forwardChatCompletion(dto);
+    const requestId = req.requestId || getHeaderValue(headers, 'x-request-id') || randomUUID();
+    const sessionId =
+      getHeaderValue(headers, 'x-sep-session-id') ||
+      getHeaderValue(headers, 'x-session-id') ||
+      `gateway:${claims.sub}:${claims.subscriptionId}`;
+    const messageId =
+      getHeaderValue(headers, 'x-sep-message-id') ||
+      requestId;
 
     // 5. 流式 or 非流式
     if (dto.stream) {
@@ -107,6 +121,10 @@ export class GatewayController {
             enterpriseId,
             subscriptionId,
             memberId,
+            employeeId,
+            userId: claims.sub,
+            sessionId,
+            messageId,
             modelId: dto.model,
             usage,
           }),
@@ -126,6 +144,10 @@ export class GatewayController {
             enterpriseId,
             subscriptionId,
             memberId,
+            employeeId,
+            userId: claims.sub,
+            sessionId,
+            messageId,
             modelId: dto.model,
             usage,
           }),
@@ -133,4 +155,13 @@ export class GatewayController {
       }
     }
   }
+}
+
+function getHeaderValue(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0]?.slice(0, 200) || undefined;
+  return value?.slice(0, 200) || undefined;
 }

@@ -19,9 +19,9 @@ describe('Gateway tool-call HTTP round trip', () => {
   let fetchMock: jest.SpyInstance;
 
   beforeAll(async () => {
-    service = new GatewayService({} as never, {} as never, {} as never);
+    service = new GatewayService({} as never, {} as never, {} as never, {} as never);
     jest.spyOn(service, 'validateAndAuthorize').mockResolvedValue({
-      enterpriseId: 'enterprise-1', subscriptionId: 'subscription-1', memberId: 'member-1',
+      enterpriseId: 'enterprise-1', subscriptionId: 'subscription-1', memberId: 'member-1', employeeId: 'employee-1',
       allowedModels: ['deepseek-v4.1-flash'],
     });
     jest.spyOn(service, 'getSub2ApiConfig').mockResolvedValue({

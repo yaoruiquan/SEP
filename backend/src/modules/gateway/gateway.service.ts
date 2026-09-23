@@ -2,10 +2,9 @@ import { Injectable, ForbiddenException, Logger, BadRequestException, BadGateway
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
-import { DEFAULT_MODEL_ID, SETTING_KEYS, calculateModelCost } from 'shared';
+import { DEFAULT_MODEL_ID, SETTING_KEYS } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
-
-const DEFAULT_USD_RATE = 7.2;
+import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 
 @Injectable()
 export class GatewayService {
@@ -15,18 +14,25 @@ export class GatewayService {
     private prisma: PrismaService,
     private config: ConfigService,
     private settingService: SettingService,
+    private computeCreditService: ComputeCreditService,
   ) {}
 
   /**
    * 验证订阅令牌 + 检查授权和余额
-   * @returns { enterpriseId, subscriptionId, memberId, modelWhitelist }
+   * @returns { enterpriseId, subscriptionId, memberId, employeeId, modelWhitelist }
    */
   async validateAndAuthorize(claims: {
     sub: string;
     enterpriseId: string;
     subscriptionId: string;
     memberId: string;
-  }): Promise<{ enterpriseId: string; subscriptionId: string; memberId: string; allowedModels: string[] }> {
+  }): Promise<{
+    enterpriseId: string;
+    subscriptionId: string;
+    memberId: string;
+    employeeId: string;
+    allowedModels: string[];
+  }> {
     const { enterpriseId, subscriptionId, memberId } = claims;
 
     // 1. 检查订阅状态
@@ -37,6 +43,7 @@ export class GatewayService {
         status: 'ACTIVE',
         OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
       },
+      select: { employeeId: true },
     });
     if (!subscription) {
       throw new ForbiddenException('订阅不存在、已停用或不属于该企业');
@@ -64,13 +71,15 @@ export class GatewayService {
       throw new ForbiddenException('无该订阅的使用授权或授权已过期');
     }
 
-    // 3. 检查企业余额（允许小额透支）
-    const computeAccount = await this.prisma.computeAccount.findUnique({
-      where: { enterpriseId },
-      select: { balance: true },
-    });
-    if (!computeAccount || computeAccount.balance <= 0) {
-      throw new ForbiddenException('企业算力余额不足，请联系管理员充值');
+    // 3. 使用统一算力账本检查余额。不要读取已废弃的 ComputeAccount，
+    // 否则 Web 展示的钱包余额与客户端网关会继续使用两套账本。
+    const balance = await this.computeCreditService.checkBalanceBeforeConversation(
+      enterpriseId,
+      subscriptionId,
+      claims.sub,
+    );
+    if (!balance.allowed) {
+      throw new ForbiddenException(balance.reason || '企业算力余额不足，请联系管理员充值');
     }
 
     // 4. 获取模型白名单（从 PlatformModel）
@@ -82,7 +91,7 @@ export class GatewayService {
     const allowedModels = modelConfig?.allowedChatModels?.length
       ? enabledModels.filter((id) => modelConfig.allowedChatModels.includes(id)) : enabledModels;
 
-    return { enterpriseId, subscriptionId, memberId, allowedModels };
+    return { enterpriseId, subscriptionId, memberId, employeeId: subscription.employeeId, allowedModels };
   }
 
   /**
@@ -148,68 +157,39 @@ export class GatewayService {
     return response;
   }
 
-  /**
-   * 记账（后台异步，失败只记日志）
-   */
+  /** 记账到统一算力账本，并由 ComputeUsageRecord 的幂等键防止重复扣费。 */
   async recordTransaction(params: {
     enterpriseId: string;
     subscriptionId: string;
     memberId: string;
+    employeeId: string;
+    userId?: string;
+    sessionId: string;
+    messageId: string;
     modelId: string;
     usage: ChatCompletionUsage;
   }): Promise<void> {
     try {
-      const rateStr = await this.settingService.getEffectiveValue(SETTING_KEYS.USD_TO_CNY_RATE);
-      const usdRate = rateStr ? parseFloat(rateStr) : DEFAULT_USD_RATE;
-
-      const cost = calculateModelCost(
-        params.modelId,
-        params.usage.prompt_tokens,
-        params.usage.completion_tokens,
-        usdRate,
-      );
-
-      // 获取企业的算力账户
-      const computeAccount = await this.prisma.computeAccount.findUnique({
-        where: { enterpriseId: params.enterpriseId },
+      const result = await this.computeCreditService.chargeUsage({
+        enterpriseId: params.enterpriseId,
+        subscriptionId: params.subscriptionId,
+        employeeId: params.employeeId,
+        userId: params.userId,
+        sessionId: params.sessionId,
+        messageId: params.messageId,
+        modelId: params.modelId,
+        inputTokens: params.usage.prompt_tokens,
+        outputTokens: params.usage.completion_tokens,
       });
 
-      if (!computeAccount) {
-        this.logger.error(`企业 ${params.enterpriseId} 没有算力账户，无法记账`);
-        return;
-      }
-
-      await this.prisma.$transaction([
-        // 写入交易记录
-        this.prisma.computeTransaction.create({
-          data: {
-            accountId: computeAccount.id,
-            amount: -cost,
-            type: 'CONSUME',
-            description: `模型调用：${params.modelId}`,
-            metadata: {
-              subscriptionId: params.subscriptionId,
-              memberId: params.memberId,
-              enterpriseId: params.enterpriseId,
-              model: params.modelId,
-              inputTokens: params.usage?.prompt_tokens || 0,
-              outputTokens: params.usage?.completion_tokens || 0,
-              cacheCreationTokens: (params.usage as any)?.prompt_tokens_details?.cached_tokens || 0,
-              cacheReadTokens: (params.usage as any)?.prompt_tokens_details?.cached_tokens_read || 0,
-            },
-          },
-        }),
-        // 扣减余额
-        this.prisma.computeAccount.update({
-          where: { id: computeAccount.id },
-          data: { balance: { decrement: cost } },
-        }),
-      ]);
-
-      this.logger.log(`记账成功：subscriptionId=${params.subscriptionId}, cost=${cost.toFixed(4)} CNY`);
+      this.logger.log(
+        `统一账本记账成功：subscriptionId=${params.subscriptionId}, ` +
+        `usageRecordId=${result.usageRecordId}, alreadyCharged=${result.alreadyCharged}`,
+      );
     } catch (error) {
-      this.logger.error(`记账失败：${error.message}`, error.stack);
-      // 不抛错，允许继续
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`统一账本记账失败：${message}`, stack);
     }
   }
 }
