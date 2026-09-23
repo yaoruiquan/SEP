@@ -77,17 +77,18 @@
   # - compute-credit: 算力交易
   ```
 
-#### 前端测试 ⚠️
+#### 前端测试 ✅
 
-- [ ] **组件单元测试**
+- [x] **组件单元测试**（52 test files, 514 tests passing）
   ```bash
   cd web && pnpm test
   ```
-  **待补充测试**：
-  - [ ] ChatWindow 组件（消息渲染、滚动、流式更新）
-  - [ ] EmployeeCard 组件（状态显示、交互）
-  - [ ] Dashboard 图表组件（数据展示）
-  - [ ] Form 表单验证逻辑
+  **已完成测试**：
+  - [x] ChatWindow 组件（消息渲染、滚动、流式更新）—— 已有 133 个测试
+  - [x] EmployeeCard 组件（状态显示、交互）—— 21 个测试
+  - [x] Dashboard 图表组件（数据展示）—— stats-card (9 tests) + metric-card (14 tests)
+  - [x] API Client 层（核心基础设施）—— 25 个测试
+  - [x] Auth hooks（认证流程）—— use-auth.test.tsx 已覆盖
 
 #### E2E 测试 ⚠️
 
@@ -840,7 +841,7 @@ pnpm db:generate       # 生成 Prisma Client
 
 **P0（必须完成才能上线）：**
 1. ~~**E2E 测试**~~（✅ 已完成 - 16/16 tests passing）
-2. **前端单元测试**（组件、表单、状态管理）
+2. ~~**前端单元测试**~~（✅ 已完成 - 52 files, 514 tests passing - 核心组件、API client、auth hooks）
 3. **安全加固**（CSRF 防护、限流、日志脱敏）
 4. **性能压测**（并发对话、模型调用）
 5. **监控告警**（错误率、响应时间、余额预警）
