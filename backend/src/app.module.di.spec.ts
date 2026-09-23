@@ -15,6 +15,13 @@ import { RedisService } from './redis/redis.service';
  * PrismaService 与 RedisService 仍然要 override —— 它们的构造函数会建客户端。
  */
 describe('AppModule 依赖图', () => {
+  beforeAll(() => {
+    // CI 不加载开发机的 .env；为依赖图探针提供最小的非生产配置，
+    // 避免 AuthModule 的 getOrThrow 在装配阶段因缺少 JWT_SECRET 失败。
+    process.env.NODE_ENV ??= 'test';
+    process.env.JWT_SECRET ??= 'di-smoke-test-secret-that-is-long-enough';
+  });
+
   it('所有模块的依赖都能解析', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)

@@ -350,6 +350,18 @@ stop_color() {
   dc_bg stop "${color}-web" "${color}-backend" 2>/dev/null || true
 }
 
+# 构建失败时 BuildKit 缓存可能占满生产机磁盘，导致下一次发布在
+# pnpm deploy 或 Next.js 类型检查阶段以 ENOSPC 失败。只清理未被容器
+# 使用的构建缓存，不触碰运行中的容器、镜像、数据卷或共享基础设施。
+prune_build_cache() {
+  if [[ "${SEP_PRUNE_BUILDER_CACHE:-true}" != "true" ]]; then
+    info "已跳过 Docker 构建缓存清理（SEP_PRUNE_BUILDER_CACHE != true）"
+    return 0
+  fi
+  info "清理未使用的 Docker 构建缓存..."
+  docker builder prune --all --force
+}
+
 cmd_deploy_bluegreen() {
   check_env
   check_compose_scope
@@ -374,6 +386,7 @@ cmd_deploy_bluegreen() {
 
   info "蓝绿发布：当前=${active}，候选=${candidate}，版本=${DEPLOY_TAG}"
 
+  prune_build_cache
   info "构建候选后端和前端镜像..."
   dc_bg build "${candidate}-backend" "${candidate}-web"
 
