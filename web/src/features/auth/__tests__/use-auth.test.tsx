@@ -78,7 +78,7 @@ describe('useLogin', () => {
   it('should login successfully and set auth state', async () => {
     const mockResponse = {
       token: 'test-token',
-      user: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
+      user: { id: 'user-1', email: 'test@example.com', name: 'Test User', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-1', name: 'Test Enterprise' },
       roleInEnterprise: 'ENTERPRISE_ADMIN' as const,
     };
@@ -131,7 +131,7 @@ describe('useLogin', () => {
   it('should redirect to safe internal path', async () => {
     const mockResponse = {
       token: 'test-token',
-      user: { id: 'user-1', email: 'test@example.com', name: 'Test' },
+      user: { id: 'user-1', email: 'test@example.com', name: 'Test', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-1', name: 'Test Ent' },
       roleInEnterprise: 'ENTERPRISE_ADMIN' as const,
     };
@@ -162,7 +162,7 @@ describe('useRegister', () => {
   it('should register successfully and create enterprise', async () => {
     const mockResponse = {
       token: 'new-token',
-      user: { id: 'user-2', email: 'new@example.com', name: 'New User' },
+      user: { id: 'user-2', email: 'new@example.com', name: 'New User', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-2', name: 'New Enterprise' },
       roleInEnterprise: 'ENTERPRISE_ADMIN' as const,
     };
@@ -224,7 +224,7 @@ describe('useLogout', () => {
     // Set initial auth state
     useAuthStore.getState().setAuth({
       token: 'test-token',
-      user: { id: 'user-1', email: 'test@example.com', name: 'Test' },
+      user: { id: 'user-1', email: 'test@example.com', name: 'Test', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-1', name: 'Test Ent' },
       roleInEnterprise: 'ENTERPRISE_ADMIN',
     });
@@ -334,7 +334,7 @@ describe('useRegisterByInvitation', () => {
   it('should register by invitation successfully', async () => {
     const mockResponse = {
       token: 'new-token',
-      user: { id: 'user-3', email: 'invited@example.com', name: 'Invited User' },
+      user: { id: 'user-3', email: 'invited@example.com', name: 'Invited User', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-1', name: 'Existing Enterprise' },
       roleInEnterprise: 'ENTERPRISE_MEMBER' as const,
     };
@@ -378,7 +378,7 @@ describe('useAcceptInvitation', () => {
     // Set initial auth state (logged in user without enterprise)
     useAuthStore.getState().setAuth({
       token: 'existing-token',
-      user: { id: 'user-4', email: 'existing@example.com', name: 'Existing User' },
+      user: { id: 'user-4', email: 'existing@example.com', name: 'Existing User', avatar: null, role: 'USER' },
       enterprise: null,
       roleInEnterprise: null,
     });
@@ -418,7 +418,7 @@ describe('useCreateEnterprise', () => {
     // User logged in but no enterprise
     useAuthStore.getState().setAuth({
       token: 'user-token',
-      user: { id: 'user-5', email: 'solo@example.com', name: 'Solo User' },
+      user: { id: 'user-5', email: 'solo@example.com', name: 'Solo User', avatar: null, role: 'USER' },
       enterprise: null,
       roleInEnterprise: null,
     });
@@ -427,7 +427,7 @@ describe('useCreateEnterprise', () => {
   it('should create enterprise for user without one', async () => {
     const mockResponse = {
       token: 'user-token',
-      user: { id: 'user-5', email: 'solo@example.com', name: 'Solo User' },
+      user: { id: 'user-5', email: 'solo@example.com', name: 'Solo User', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-new', name: 'My New Enterprise' },
       roleInEnterprise: 'ENTERPRISE_ADMIN' as const,
     };
@@ -460,7 +460,7 @@ describe('useLeaveEnterprise', () => {
     // User in an enterprise
     useAuthStore.getState().setAuth({
       token: 'user-token',
-      user: { id: 'user-6', email: 'member@example.com', name: 'Member' },
+      user: { id: 'user-6', email: 'member@example.com', name: 'Member', avatar: null, role: 'USER' },
       enterprise: { id: 'ent-old', name: 'Old Enterprise' },
       roleInEnterprise: 'ENTERPRISE_MEMBER',
     });

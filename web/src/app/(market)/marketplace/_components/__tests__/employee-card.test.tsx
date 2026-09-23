@@ -8,27 +8,35 @@ const mockEmployee: MarketEmployee = {
   name: '数据分析师小王',
   position: '高级数据分析师',
   industry: '金融科技',
+  functionalCategory: '数据分析',
   description: '擅长数据挖掘和可视化，精通 Python 和 SQL',
   avatar: '/avatars/analyst.png',
-  annualPriceCNY: '50000',
+  price: null,
+  annualPriceCNY: 50000,
+  includedComputeCNY: 0,
   version: '1.2',
+  publishedAt: '2026-01-01T00:00:00.000Z',
   isNew: false,
   isHot: true,
   bindings: [
     {
       id: 'bind-1',
+      order: 0,
       capability: {
         id: 'cap-1',
         name: 'SQL 查询',
         type: 'AGENT',
+        description: 'SQL查询能力',
       },
     },
     {
       id: 'bind-2',
+      order: 1,
       capability: {
         id: 'cap-2',
         name: 'Python 分析',
         type: 'RPA',
+        description: 'Python分析能力',
       },
     },
   ],
@@ -122,7 +130,7 @@ describe('EmployeeCard', () => {
   it('should show free badge when price is 0', () => {
     const onSubscribe = vi.fn();
     const onClick = vi.fn();
-    const freeEmployee = { ...mockEmployee, annualPriceCNY: '0' };
+    const freeEmployee = { ...mockEmployee, annualPriceCNY: 0 };
 
     render(
       <EmployeeCard

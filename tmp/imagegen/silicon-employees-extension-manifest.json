@@ -1,0 +1,142 @@
+[
+  {
+    "slug": "hr-generalist",
+    "name": "HR 专员",
+    "file": "hr-generalist.png"
+  },
+  {
+    "slug": "seo-generalist",
+    "name": "SEO 专员",
+    "file": "seo-generalist.png"
+  },
+  {
+    "slug": "interaction-designer",
+    "name": "交互设计师",
+    "file": "interaction-designer.png"
+  },
+  {
+    "slug": "fullstack-developer",
+    "name": "全栈开发工程师",
+    "file": "fullstack-developer.png"
+  },
+  {
+    "slug": "content-operator",
+    "name": "内容运营",
+    "file": "content-operator.png"
+  },
+  {
+    "slug": "frontend-developer",
+    "name": "前端开发工程师",
+    "file": "frontend-developer.png"
+  },
+  {
+    "slug": "backend-developer",
+    "name": "后端开发工程师",
+    "file": "backend-developer.png"
+  },
+  {
+    "slug": "brand-manager",
+    "name": "品牌经理",
+    "file": "brand-manager.png"
+  },
+  {
+    "slug": "business-development-manager",
+    "name": "商务拓展经理",
+    "file": "business-development-manager.png"
+  },
+  {
+    "slug": "corporate-trainer",
+    "name": "培训师",
+    "file": "corporate-trainer.png"
+  },
+  {
+    "slug": "growth-hacker",
+    "name": "增长黑客",
+    "file": "growth-hacker.png"
+  },
+  {
+    "slug": "key-account-manager",
+    "name": "大客户经理",
+    "file": "key-account-manager.png"
+  },
+  {
+    "slug": "customer-success-manager",
+    "name": "客户成功经理",
+    "file": "customer-success-manager.png"
+  },
+  {
+    "slug": "customer-support-specialist",
+    "name": "客服专员",
+    "file": "customer-support-specialist.png"
+  },
+  {
+    "slug": "technical-support-engineer",
+    "name": "技术支持工程师",
+    "file": "technical-support-engineer.png"
+  },
+  {
+    "slug": "data-analyst",
+    "name": "数据分析师",
+    "file": "data-analyst.png"
+  },
+  {
+    "slug": "data-engineer",
+    "name": "数据工程师",
+    "file": "data-engineer.png"
+  },
+  {
+    "slug": "test-engineer",
+    "name": "测试工程师",
+    "file": "test-engineer.png"
+  },
+  {
+    "slug": "social-media-operator",
+    "name": "社交媒体运营",
+    "file": "social-media-operator.png"
+  },
+  {
+    "slug": "mobile-app-developer",
+    "name": "移动端开发工程师",
+    "file": "mobile-app-developer.png"
+  },
+  {
+    "slug": "system-architect",
+    "name": "系统架构师",
+    "file": "system-architect.png"
+  },
+  {
+    "slug": "administrative-assistant",
+    "name": "行政助理",
+    "file": "administrative-assistant.png"
+  },
+  {
+    "slug": "sales-representative",
+    "name": "销售代表",
+    "file": "sales-representative.png"
+  },
+  {
+    "slug": "sales-support-specialist",
+    "name": "销售支持专员",
+    "file": "sales-support-specialist.png"
+  },
+  {
+    "slug": "spare-compliance-analyst",
+    "name": "合规分析师（备用）",
+    "file": "spare-compliance-analyst.png"
+  },
+  {
+    "slug": "spare-customer-insights",
+    "name": "客户洞察顾问（备用）",
+    "file": "spare-customer-insights.png"
+  },
+  {
+    "slug": "spare-operations-planner",
+    "name": "运营规划师（备用）",
+    "file": "spare-operations-planner.png"
+  },
+  {
+    "slug": "spare-growth-designer",
+    "name": "增长设计师（备用）",
+    "file": "spare-growth-designer.png"
+  }
+]

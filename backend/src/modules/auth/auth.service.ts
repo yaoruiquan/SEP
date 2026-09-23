@@ -21,8 +21,8 @@ import { DefaultDepartmentsService } from '../enterprise/default-departments.ser
 
 const REFRESH_COOKIE = 'refresh_token';
 const ACCESS_EXPIRES = '1h';
-const REFRESH_EXPIRES = '7d';
-const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_EXPIRES = '1d'; // Changed from 7d to 1d for security
+const REFRESH_COOKIE_MAX_AGE_MS = 1 * 24 * 60 * 60 * 1000; // Changed from 7 days to 1 day
 
 @Injectable()
 export class AuthService {

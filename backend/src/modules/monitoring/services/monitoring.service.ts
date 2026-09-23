@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-interface RequestMetrics {
+export interface RequestMetrics {
   total: number;
   success: number;
   error: number;
@@ -8,7 +8,7 @@ interface RequestMetrics {
   serverError: number; // 5xx
 }
 
-interface ResponseTimeMetrics {
+export interface ResponseTimeMetrics {
   p50: number;
   p95: number;
   p99: number;
@@ -16,7 +16,7 @@ interface ResponseTimeMetrics {
   max: number;
 }
 
-interface ErrorRecord {
+export interface ErrorRecord {
   timestamp: Date;
   path: string;
   method: string;

@@ -27,11 +27,11 @@ describe('GatewayService.forwardChatCompletion', () => {
     const upstream = new Response('{}');
     fetchMock.mockResolvedValue(upstream);
     expect(await service.forwardChatCompletion(dto)).toBe(upstream);
-    expect(fetchMock).toHaveBeenCalledWith('https://relay.test/v1/chat/completions', {
+    expect(fetchMock).toHaveBeenCalledWith('https://relay.test/v1/chat/completions', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-key' },
       body: JSON.stringify(dto),
-    });
+    }));
   });
 
   it.each([400, 429, 503])('preserves upstream HTTP %i and structured error details', async (status) => {

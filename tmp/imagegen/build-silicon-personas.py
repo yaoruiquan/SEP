@@ -91,9 +91,9 @@ BGS = {
 }
 WHO = {"m": "Chinese man", "f": "Chinese woman"}
 
-def build():
+def build(profiles=None):
     rows, seen = [], set()
-    for slug, zh, g, age, face, hair, glasses, expr, outfit, bg, turn in P:
+    for slug, zh, g, age, face, hair, glasses, expr, outfit, bg, turn in profiles if profiles is not None else P:
         if slug in seen:
             raise SystemExit("duplicate slug: " + slug)
         seen.add(slug)

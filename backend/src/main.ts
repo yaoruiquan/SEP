@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
 import { basicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
+import { CspMiddleware } from './common/middleware/csp.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
@@ -25,14 +26,7 @@ async function bootstrap() {
   if (isProduction) {
     app.use(
       helmet({
-        contentSecurityPolicy: {
-          directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", 'data:', 'https:'],
-          },
-        },
+        contentSecurityPolicy: false, // Disabled - using custom CSP middleware
         hsts: {
           maxAge: 31536000,
           includeSubDomains: true,
@@ -41,6 +35,10 @@ async function bootstrap() {
       })
     );
   }
+
+  // CSP middleware (applied in all environments for consistency)
+  const cspMiddleware = new CspMiddleware();
+  app.use((req, res, next) => cspMiddleware.use(req, res, next));
 
   app.use(requestContextMiddleware, basicRateLimitMiddleware);
   app.use(express.json({ limit: process.env.REQUEST_JSON_LIMIT || '2mb' }));
