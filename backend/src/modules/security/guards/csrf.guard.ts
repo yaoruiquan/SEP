@@ -52,6 +52,16 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    // 原生客户端不发送浏览器 Origin；模型网关只接受经 ClientEmploymentGuard
+    // 验证的 Bearer 令牌，不依赖 Cookie，因此不需要浏览器 CSRF 来源校验。
+    // 限定到唯一端点，其他受 Cookie 保护的写操作继续严格校验。
+    if (
+      request.path === '/api/gateway/v1/chat/completions' &&
+      /^Bearer \S+$/.test(request.headers.authorization ?? '')
+    ) {
+      return true;
+    }
+
     // 验证来源
     const origin = request.headers.origin || request.headers.referer;
 

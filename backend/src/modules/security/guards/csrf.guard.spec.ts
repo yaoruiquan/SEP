@@ -108,6 +108,25 @@ describe('CsrfGuard', () => {
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
+    it('带 Bearer 凭证的原生客户端模型请求无需 Origin，由客户端鉴权 Guard 验签', () => {
+      const context = createMockContext('POST', '/api/gateway/v1/chat/completions', {
+        authorization: 'Bearer employment-token',
+      });
+      expect(guard.canActivate(context)).toBe(true);
+    });
+
+    it('模型接口无 Bearer 凭证时仍拒绝无 Origin 的请求', () => {
+      const context = createMockContext('POST', '/api/gateway/v1/chat/completions');
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
+
+    it('其他接口带 Bearer 凭证也不能跳过 CSRF 来源校验', () => {
+      const context = createMockContext('POST', '/api/auth/logout', {
+        authorization: 'Bearer employment-token',
+      });
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
+
     it('生产环境缺少 Origin/Referer 应该抛出异常', () => {
       const context = createMockContext('POST', '/api/users');
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
