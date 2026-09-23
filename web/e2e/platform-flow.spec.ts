@@ -6,25 +6,25 @@ import { test, expect } from '@playwright/test';
  * 场景：运营登录 → 创建员工模板 → 配置能力 → 发布
  *
  * 前置条件：
- * - 后端服务运行在 http://localhost:4000
- * - 前端服务运行在 http://localhost:3000
+ * - 后端服务运行在 http://localhost:3001
+ * - 前端服务运行在 http://localhost:3001
  * - 数据库已有平台管理员账号（通过 seed 初始化）
  */
 
 test.describe('运营端核心流程', () => {
-  const adminEmail = 'admin@sep.example.com';
-  const adminPassword = 'admin123456';
-
+  const adminEmail = 'admin@sep.com';
+  const adminPassword = 'admin123';
   test.beforeAll(async () => {
     // 验证后端服务可用
-    const response = await fetch('http://localhost:4000/api/health');
+    const response = await fetch('http://localhost:3001/api/health');
     if (!response.ok) {
       throw new Error('后端服务未运行，请先启动: pnpm dev:backend');
     }
   });
 
   test('1. 运营管理员登录', async ({ page }) => {
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
 
     // 填写登录表单
     await page.fill('input[type="email"]', adminEmail);
@@ -32,24 +32,23 @@ test.describe('运营端核心流程', () => {
 
     // 提交登录
     await page.click('button[type="submit"]');
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
-    // 验证跳转到运营后台
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
-
-    // 验证运营后台核心元素
-    await expect(page.getByText('平台概览')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('link', { name: '工作台' })).toBeVisible({ timeout: 5000 });    // 验证运营后台核心元素
+    await expect(page.getByText('平台管理')).toBeVisible({ timeout: 5000 });
   });
 
   test('2. 创建员工模板', async ({ page }) => {
     // 先登录
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
     await page.fill('input[type="email"]', adminEmail);
     await page.fill('input[type="password"]', adminPassword);
     await page.click('button[type="submit"]');
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
-    // 进入员工管理页
-    await page.goto('/platform/employees');
+    // 进入能力管理页
+    await page.goto('/admin/capabilities');
 
     // 点击"创建员工"按钮
     await page.click('button:has-text("创建员工")');
@@ -80,14 +79,15 @@ test.describe('运营端核心流程', () => {
 
   test('3. 配置员工能力', async ({ page }) => {
     // 先登录
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
     await page.fill('input[type="email"]', adminEmail);
     await page.fill('input[type="password"]', adminPassword);
     await page.click('button[type="submit"]');
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
-    // 进入员工管理页
-    await page.goto('/platform/employees');
+    // 进入能力管理页
+    await page.goto('/admin/capabilities');
     await page.waitForLoadState('networkidle');
 
     // 点击第一个员工进入详情
@@ -95,7 +95,7 @@ test.describe('运营端核心流程', () => {
     await employeeCard.click();
 
     // 等待详情页加载
-    await page.waitForURL(/\/platform\/employees\//, { timeout: 10000 });
+    await page.waitForURL(/\/admin\/employees\//, { timeout: 10000 });
 
     // 切换到"能力配置"标签
     await page.click('button[role="tab"]:has-text("能力")');
@@ -122,14 +122,15 @@ test.describe('运营端核心流程', () => {
 
   test('4. 发布员工模板', async ({ page }) => {
     // 先登录
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
     await page.fill('input[type="email"]', adminEmail);
     await page.fill('input[type="password"]', adminPassword);
     await page.click('button[type="submit"]');
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
-    // 进入员工管理页
-    await page.goto('/platform/employees');
+    // 进入能力管理页
+    await page.goto('/admin/capabilities');
     await page.waitForLoadState('networkidle');
 
     // 点击第一个未发布的员工
@@ -137,7 +138,7 @@ test.describe('运营端核心流程', () => {
     await employeeCard.click();
 
     // 等待详情页加载
-    await page.waitForURL(/\/platform\/employees\//, { timeout: 10000 });
+    await page.waitForURL(/\/admin\/employees\//, { timeout: 10000 });
 
     // 点击"发布"按钮
     const publishButton = page.locator('button:has-text("发布")');
@@ -160,11 +161,12 @@ test.describe('运营端核心流程', () => {
 
   test('5. 查看企业列表', async ({ page }) => {
     // 先登录
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
     await page.fill('input[type="email"]', adminEmail);
     await page.fill('input[type="password"]', adminPassword);
     await page.click('button[type="submit"]');
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
     // 进入企业管理页
     await page.goto('/platform/enterprises');
@@ -179,11 +181,12 @@ test.describe('运营端核心流程', () => {
 
   test('6. 查看平台统计数据', async ({ page }) => {
     // 先登录
-    await page.goto('/platform/login');
+    await page.goto('/login');
+    // TODO: Platform admin role detection needed
     await page.fill('input[type="email"]', adminEmail);
     await page.fill('input[type="password"]', adminPassword);
     await page.click('button[type="submit"]');
-    await page.waitForURL('/platform/dashboard', { timeout: 10000 });
+    await page.waitForURL(/\/admin/, { timeout: 10000 });
 
     // 已在 Dashboard 页面，验证关键统计指标
     await expect(page.getByText('企业总数')).toBeVisible({ timeout: 5000 });
