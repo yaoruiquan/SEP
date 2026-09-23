@@ -11,6 +11,12 @@
     "portraitPath": "/assets/employees/silicon/a11y-visual.webp",
     "facePath": "/assets/employees/silicon/a11y-visual-face.webp"
   },
+  "/assets/employees/silicon/administrative-assistant.webp": {
+    "id": "silicon:administrative-assistant",
+    "version": "a6df4c7dbd790aef",
+    "portraitPath": "/assets/employees/silicon/administrative-assistant.webp",
+    "facePath": "/assets/employees/silicon/administrative-assistant-face.webp"
+  },
   "/assets/employees/silicon/after-sales-specialist.webp": {
     "id": "silicon:after-sales-specialist",
     "version": "873f8a34b3a29f5f",
@@ -35,6 +41,12 @@
     "portraitPath": "/assets/employees/silicon/api-designer.webp",
     "facePath": "/assets/employees/silicon/api-designer-face.webp"
   },
+  "/assets/employees/silicon/backend-developer.webp": {
+    "id": "silicon:backend-developer",
+    "version": "188cff4755d04752",
+    "portraitPath": "/assets/employees/silicon/backend-developer.webp",
+    "facePath": "/assets/employees/silicon/backend-developer-face.webp"
+  },
   "/assets/employees/silicon/backend-engineer.webp": {
     "id": "silicon:backend-engineer",
     "version": "ef47968863ffe809",
@@ -46,6 +58,18 @@
     "version": "d4c3f3699e1a56e2",
     "portraitPath": "/assets/employees/silicon/brand-guardian.webp",
     "facePath": "/assets/employees/silicon/brand-guardian-face.webp"
+  },
+  "/assets/employees/silicon/brand-manager.webp": {
+    "id": "silicon:brand-manager",
+    "version": "59e1345932130e63",
+    "portraitPath": "/assets/employees/silicon/brand-manager.webp",
+    "facePath": "/assets/employees/silicon/brand-manager-face.webp"
+  },
+  "/assets/employees/silicon/business-development-manager.webp": {
+    "id": "silicon:business-development-manager",
+    "version": "a2d07528ad56dab2",
+    "portraitPath": "/assets/employees/silicon/business-development-manager.webp",
+    "facePath": "/assets/employees/silicon/business-development-manager-face.webp"
   },
   "/assets/employees/silicon/change-consultant.webp": {
     "id": "silicon:change-consultant",
@@ -65,11 +89,47 @@
     "portraitPath": "/assets/employees/silicon/code-reviewer.webp",
     "facePath": "/assets/employees/silicon/code-reviewer-face.webp"
   },
+  "/assets/employees/silicon/content-operator.webp": {
+    "id": "silicon:content-operator",
+    "version": "f23119e7ea4c636f",
+    "portraitPath": "/assets/employees/silicon/content-operator.webp",
+    "facePath": "/assets/employees/silicon/content-operator-face.webp"
+  },
+  "/assets/employees/silicon/corporate-trainer.webp": {
+    "id": "silicon:corporate-trainer",
+    "version": "dbf143304ee814c0",
+    "portraitPath": "/assets/employees/silicon/corporate-trainer.webp",
+    "facePath": "/assets/employees/silicon/corporate-trainer-face.webp"
+  },
   "/assets/employees/silicon/cross-border-ecom.webp": {
     "id": "silicon:cross-border-ecom",
     "version": "5522ab2847537c29",
     "portraitPath": "/assets/employees/silicon/cross-border-ecom.webp",
     "facePath": "/assets/employees/silicon/cross-border-ecom-face.webp"
+  },
+  "/assets/employees/silicon/customer-success-manager.webp": {
+    "id": "silicon:customer-success-manager",
+    "version": "0bd11d673df178e6",
+    "portraitPath": "/assets/employees/silicon/customer-success-manager.webp",
+    "facePath": "/assets/employees/silicon/customer-success-manager-face.webp"
+  },
+  "/assets/employees/silicon/customer-support-specialist.webp": {
+    "id": "silicon:customer-support-specialist",
+    "version": "14bfa23405699d6c",
+    "portraitPath": "/assets/employees/silicon/customer-support-specialist.webp",
+    "facePath": "/assets/employees/silicon/customer-support-specialist-face.webp"
+  },
+  "/assets/employees/silicon/data-analyst.webp": {
+    "id": "silicon:data-analyst",
+    "version": "c4bdaaa2aae01c24",
+    "portraitPath": "/assets/employees/silicon/data-analyst.webp",
+    "facePath": "/assets/employees/silicon/data-analyst-face.webp"
+  },
+  "/assets/employees/silicon/data-engineer.webp": {
+    "id": "silicon:data-engineer",
+    "version": "698f24dbc59c9daf",
+    "portraitPath": "/assets/employees/silicon/data-engineer.webp",
+    "facePath": "/assets/employees/silicon/data-engineer-face.webp"
   },
   "/assets/employees/silicon/dataviz-engineer.webp": {
     "id": "silicon:dataviz-engineer",
@@ -119,6 +179,12 @@
     "portraitPath": "/assets/employees/silicon/financial-analyst.webp",
     "facePath": "/assets/employees/silicon/financial-analyst-face.webp"
   },
+  "/assets/employees/silicon/frontend-developer.webp": {
+    "id": "silicon:frontend-developer",
+    "version": "e202716a1e505095",
+    "portraitPath": "/assets/employees/silicon/frontend-developer.webp",
+    "facePath": "/assets/employees/silicon/frontend-developer-face.webp"
+  },
   "/assets/employees/silicon/frontend-engineer.webp": {
     "id": "silicon:frontend-engineer",
     "version": "ee4742843b4cc1bd",
@@ -131,11 +197,41 @@
     "portraitPath": "/assets/employees/silicon/fullstack-architect.webp",
     "facePath": "/assets/employees/silicon/fullstack-architect-face.webp"
   },
+  "/assets/employees/silicon/fullstack-developer.webp": {
+    "id": "silicon:fullstack-developer",
+    "version": "793a73aceb84df69",
+    "portraitPath": "/assets/employees/silicon/fullstack-developer.webp",
+    "facePath": "/assets/employees/silicon/fullstack-developer-face.webp"
+  },
   "/assets/employees/silicon/game-engineer.webp": {
     "id": "silicon:game-engineer",
     "version": "974317168221b1fe",
     "portraitPath": "/assets/employees/silicon/game-engineer.webp",
     "facePath": "/assets/employees/silicon/game-engineer-face.webp"
+  },
+  "/assets/employees/silicon/growth-hacker.webp": {
+    "id": "silicon:growth-hacker",
+    "version": "80954ff842466003",
+    "portraitPath": "/assets/employees/silicon/growth-hacker.webp",
+    "facePath": "/assets/employees/silicon/growth-hacker-face.webp"
+  },
+  "/assets/employees/silicon/hr-generalist.webp": {
+    "id": "silicon:hr-generalist",
+    "version": "9d42991ffcd93913",
+    "portraitPath": "/assets/employees/silicon/hr-generalist.webp",
+    "facePath": "/assets/employees/silicon/hr-generalist-face.webp"
+  },
+  "/assets/employees/silicon/interaction-designer.webp": {
+    "id": "silicon:interaction-designer",
+    "version": "b4fc76bcc45fac16",
+    "portraitPath": "/assets/employees/silicon/interaction-designer.webp",
+    "facePath": "/assets/employees/silicon/interaction-designer-face.webp"
+  },
+  "/assets/employees/silicon/key-account-manager.webp": {
+    "id": "silicon:key-account-manager",
+    "version": "6873844e56c7e448",
+    "portraitPath": "/assets/employees/silicon/key-account-manager.webp",
+    "facePath": "/assets/employees/silicon/key-account-manager-face.webp"
   },
   "/assets/employees/silicon/key-management.webp": {
     "id": "silicon:key-management",
@@ -166,6 +262,12 @@
     "version": "03e98e13a5263fcb",
     "portraitPath": "/assets/employees/silicon/micro-optimizer.webp",
     "facePath": "/assets/employees/silicon/micro-optimizer-face.webp"
+  },
+  "/assets/employees/silicon/mobile-app-developer.webp": {
+    "id": "silicon:mobile-app-developer",
+    "version": "8ca0e46b223f57da",
+    "portraitPath": "/assets/employees/silicon/mobile-app-developer.webp",
+    "facePath": "/assets/employees/silicon/mobile-app-developer-face.webp"
   },
   "/assets/employees/silicon/mobile-engineer.webp": {
     "id": "silicon:mobile-engineer",
@@ -269,6 +371,18 @@
     "portraitPath": "/assets/employees/silicon/sales-proposal.webp",
     "facePath": "/assets/employees/silicon/sales-proposal-face.webp"
   },
+  "/assets/employees/silicon/sales-representative.webp": {
+    "id": "silicon:sales-representative",
+    "version": "3594017104a0936f",
+    "portraitPath": "/assets/employees/silicon/sales-representative.webp",
+    "facePath": "/assets/employees/silicon/sales-representative-face.webp"
+  },
+  "/assets/employees/silicon/sales-support-specialist.webp": {
+    "id": "silicon:sales-support-specialist",
+    "version": "f15c7c0711e418d2",
+    "portraitPath": "/assets/employees/silicon/sales-support-specialist.webp",
+    "facePath": "/assets/employees/silicon/sales-support-specialist-face.webp"
+  },
   "/assets/employees/silicon/security-architect.webp": {
     "id": "silicon:security-architect",
     "version": "85f364e0bdffb541",
@@ -281,17 +395,47 @@
     "portraitPath": "/assets/employees/silicon/seo-expert.webp",
     "facePath": "/assets/employees/silicon/seo-expert-face.webp"
   },
+  "/assets/employees/silicon/seo-generalist.webp": {
+    "id": "silicon:seo-generalist",
+    "version": "972392dbcd375022",
+    "portraitPath": "/assets/employees/silicon/seo-generalist.webp",
+    "facePath": "/assets/employees/silicon/seo-generalist-face.webp"
+  },
+  "/assets/employees/silicon/social-media-operator.webp": {
+    "id": "silicon:social-media-operator",
+    "version": "824e63413e3bd170",
+    "portraitPath": "/assets/employees/silicon/social-media-operator.webp",
+    "facePath": "/assets/employees/silicon/social-media-operator-face.webp"
+  },
   "/assets/employees/silicon/spare-biz-analyst.webp": {
     "id": "silicon:spare-biz-analyst",
     "version": "ad89a0a8232d6d97",
     "portraitPath": "/assets/employees/silicon/spare-biz-analyst.webp",
     "facePath": "/assets/employees/silicon/spare-biz-analyst-face.webp"
   },
+  "/assets/employees/silicon/spare-compliance-analyst.webp": {
+    "id": "silicon:spare-compliance-analyst",
+    "version": "a03e740f3bc88533",
+    "portraitPath": "/assets/employees/silicon/spare-compliance-analyst.webp",
+    "facePath": "/assets/employees/silicon/spare-compliance-analyst-face.webp"
+  },
+  "/assets/employees/silicon/spare-customer-insights.webp": {
+    "id": "silicon:spare-customer-insights",
+    "version": "d4fd5b77e22cfa4a",
+    "portraitPath": "/assets/employees/silicon/spare-customer-insights.webp",
+    "facePath": "/assets/employees/silicon/spare-customer-insights-face.webp"
+  },
   "/assets/employees/silicon/spare-data-scientist.webp": {
     "id": "silicon:spare-data-scientist",
     "version": "865cb59a153c28a1",
     "portraitPath": "/assets/employees/silicon/spare-data-scientist.webp",
     "facePath": "/assets/employees/silicon/spare-data-scientist-face.webp"
+  },
+  "/assets/employees/silicon/spare-growth-designer.webp": {
+    "id": "silicon:spare-growth-designer",
+    "version": "500563d3b690e221",
+    "portraitPath": "/assets/employees/silicon/spare-growth-designer.webp",
+    "facePath": "/assets/employees/silicon/spare-growth-designer-face.webp"
   },
   "/assets/employees/silicon/spare-hr-manager.webp": {
     "id": "silicon:spare-hr-manager",
@@ -311,6 +455,12 @@
     "portraitPath": "/assets/employees/silicon/spare-legal-counsel.webp",
     "facePath": "/assets/employees/silicon/spare-legal-counsel-face.webp"
   },
+  "/assets/employees/silicon/spare-operations-planner.webp": {
+    "id": "silicon:spare-operations-planner",
+    "version": "7ad6a30278c9162a",
+    "portraitPath": "/assets/employees/silicon/spare-operations-planner.webp",
+    "facePath": "/assets/employees/silicon/spare-operations-planner-face.webp"
+  },
   "/assets/employees/silicon/spare-ops-manager.webp": {
     "id": "silicon:spare-ops-manager",
     "version": "6cb67c360fe8eeee",
@@ -329,11 +479,29 @@
     "portraitPath": "/assets/employees/silicon/spare-training-lead.webp",
     "facePath": "/assets/employees/silicon/spare-training-lead-face.webp"
   },
+  "/assets/employees/silicon/system-architect.webp": {
+    "id": "silicon:system-architect",
+    "version": "88a522f305ee079d",
+    "portraitPath": "/assets/employees/silicon/system-architect.webp",
+    "facePath": "/assets/employees/silicon/system-architect-face.webp"
+  },
   "/assets/employees/silicon/tax-strategist.webp": {
     "id": "silicon:tax-strategist",
     "version": "478cbf72312a2d50",
     "portraitPath": "/assets/employees/silicon/tax-strategist.webp",
     "facePath": "/assets/employees/silicon/tax-strategist-face.webp"
+  },
+  "/assets/employees/silicon/technical-support-engineer.webp": {
+    "id": "silicon:technical-support-engineer",
+    "version": "d02231947d32d83b",
+    "portraitPath": "/assets/employees/silicon/technical-support-engineer.webp",
+    "facePath": "/assets/employees/silicon/technical-support-engineer-face.webp"
+  },
+  "/assets/employees/silicon/test-engineer.webp": {
+    "id": "silicon:test-engineer",
+    "version": "1e58cb83867a0cf6",
+    "portraitPath": "/assets/employees/silicon/test-engineer.webp",
+    "facePath": "/assets/employees/silicon/test-engineer-face.webp"
   },
   "/assets/employees/silicon/threat-intel-analyst.webp": {
     "id": "silicon:threat-intel-analyst",

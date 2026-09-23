@@ -1,7 +1,8 @@
 /**
  * 硅基员工 -> 本地头像素材的稳定映射。
  *
- * 由 tmp/imagegen/build-silicon-personas.py 生成，勿手工改动单条映射；
+ * 由 tmp/imagegen/build-silicon-personas.py 和
+ * tmp/imagegen/build-silicon-personas-extension.py 的人设清单维护；
  * 新增员工请在生成脚本里补一行，再重新导出本文件。
  *
  * 素材路径：web/public/assets/employees/silicon/<slug>.webp（512/256 两档）
@@ -75,6 +76,30 @@ export const SILICON_AVATAR_SLUG_BY_NAME: Record<string, string> = {
   '人事专员': 'spare-hr-specialist',
   '培训发展负责人': 'spare-training-lead',
   '商业分析师': 'spare-biz-analyst',
+  'HR 专员': 'hr-generalist',
+  'SEO 专员': 'seo-generalist',
+  '交互设计师': 'interaction-designer',
+  '全栈开发工程师': 'fullstack-developer',
+  '内容运营': 'content-operator',
+  '前端开发工程师': 'frontend-developer',
+  '后端开发工程师': 'backend-developer',
+  '品牌经理': 'brand-manager',
+  '商务拓展经理': 'business-development-manager',
+  '培训师': 'corporate-trainer',
+  '增长黑客': 'growth-hacker',
+  '大客户经理': 'key-account-manager',
+  '客户成功经理': 'customer-success-manager',
+  '客服专员': 'customer-support-specialist',
+  '技术支持工程师': 'technical-support-engineer',
+  '数据分析师': 'data-analyst',
+  '数据工程师': 'data-engineer',
+  '测试工程师': 'test-engineer',
+  '社交媒体运营': 'social-media-operator',
+  '移动端开发工程师': 'mobile-app-developer',
+  '系统架构师': 'system-architect',
+  '行政助理': 'administrative-assistant',
+  '销售代表': 'sales-representative',
+  '销售支持专员': 'sales-support-specialist',
 };
 
 /** 备用素材（新增岗位/演示账号），按顺序取用 */
@@ -87,6 +112,10 @@ export const SILICON_SPARE_SLUGS: string[] = [
   'spare-hr-specialist',
   'spare-training-lead',
   'spare-biz-analyst',
+  'spare-compliance-analyst',
+  'spare-customer-insights',
+  'spare-operations-planner',
+  'spare-growth-designer',
 ];
 
 /** 返回员工的本地头像 URL；没有映射时返回 null，由调用方回落到原 avatar 字段。 */

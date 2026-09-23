@@ -62,6 +62,19 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    // 桌面客户端认证使用请求体中的凭证，不依赖浏览器 Cookie，因此 Electron/Node
+    // 请求没有 Origin/Referer 时也应允许认证流程通过。仅精确放行认证端点，
+    // 其他 /api/client/* 写接口仍继续执行来源校验。
+    if (
+      [
+        '/api/client/auth/login',
+        '/api/client/auth/refresh',
+        '/api/client/auth/token',
+      ].includes(request.path)
+    ) {
+      return true;
+    }
+
     // 验证来源
     const origin = request.headers.origin || request.headers.referer;
 

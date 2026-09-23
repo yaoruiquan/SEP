@@ -127,6 +127,22 @@ describe('CsrfGuard', () => {
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
+    it('生产环境客户端认证接口无 Origin/Referer 应该放行', () => {
+      for (const path of [
+        '/api/client/auth/login',
+        '/api/client/auth/refresh',
+        '/api/client/auth/token',
+      ]) {
+        const context = createMockContext('POST', path);
+        expect(guard.canActivate(context)).toBe(true);
+      }
+    });
+
+    it('客户端认证放行不应扩大到其他客户端写接口', () => {
+      const context = createMockContext('POST', '/api/client/employees');
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
+
     it('生产环境缺少 Origin/Referer 应该抛出异常', () => {
       const context = createMockContext('POST', '/api/users');
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
