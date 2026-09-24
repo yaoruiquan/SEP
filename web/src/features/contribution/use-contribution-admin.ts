@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
-import { qk } from '@/lib/query-keys';
-import type { ContributionCapability } from '@/lib/types';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api-client";
+import { qk } from "@/lib/query-keys";
+import type { ContributionCapability } from "@/lib/types";
 
-export type PlatformQueueStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
-export type UnifiedReviewKind = 'ALL' | 'CAPABILITY' | 'SKILL_VERSION';
+export type PlatformQueueStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+export type UnifiedReviewKind = "ALL" | "CAPABILITY" | "SKILL_VERSION";
 
 export interface UnifiedReviewItem {
-  kind: 'CAPABILITY' | 'SKILL_VERSION';
+  kind: "CAPABILITY" | "SKILL_VERSION";
   id: string;
   capabilityId: string;
   capabilityName: string;
@@ -36,12 +36,32 @@ export type PlatformContributionDetail = PlatformContribution & {
   outputSchema: Record<string, unknown>;
   skillConfig: {
     id: string;
-    scope: 'PLATFORM' | 'ENTERPRISE';
+    scope: "PLATFORM" | "ENTERPRISE";
     template: string;
     modelId: string;
     temperature: number;
     maxTokens: number;
   } | null;
+  rpaVersions: Array<{
+    id: string;
+    version: string;
+    packageFilename: string | null;
+    packageFileCount: number;
+    packageBytes: number;
+    packageSha256: string;
+    configDoc: string;
+    status: string;
+    validationResult: {
+      valid?: boolean;
+      checks?: Array<{ code: string; passed: boolean; message: string }>;
+      issues?: Array<{ code: string; message: string; path?: string }>;
+      warnings?: Array<{ code: string; message: string; path?: string }>;
+    } | null;
+    validatedAt: string | null;
+    createdById: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   skillVersions: Array<{
     id: string;
     version: string;
@@ -59,21 +79,37 @@ export type PlatformContributionDetail = PlatformContribution & {
     createdAt: string;
     updatedAt: string;
   }>;
-  enterpriseReviewedBy: { id: string; name: string | null; email: string } | null;
-  platformSubmittedBy: { id: string; name: string | null; email: string } | null;
+  enterpriseReviewedBy: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
+  platformSubmittedBy: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
 };
 
 export function usePlatformContributionQueue(status: PlatformQueueStatus) {
   return useQuery({
     queryKey: qk.contributionAdminQueue(status),
-    queryFn: () => api.get<{ items: PlatformContribution[]; total: number; page: number; pageSize: number; status: PlatformQueueStatus }>(`/admin/contributions?status=${status}&pageSize=100`),
+    queryFn: () =>
+      api.get<{
+        items: PlatformContribution[];
+        total: number;
+        page: number;
+        pageSize: number;
+        status: PlatformQueueStatus;
+      }>(`/admin/contributions?status=${status}&pageSize=100`),
   });
 }
 
 export function usePlatformContribution(id: string) {
   return useQuery({
     queryKey: qk.contributionAdmin(id),
-    queryFn: () => api.get<PlatformContributionDetail>(`/admin/contributions/${id}`),
+    queryFn: () =>
+      api.get<PlatformContributionDetail>(`/admin/contributions/${id}`),
     enabled: Boolean(id),
   });
 }
@@ -81,13 +117,28 @@ export function usePlatformContribution(id: string) {
 export function usePlatformContributionReview() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; decision: 'APPROVE' | 'REJECT'; comment?: string }) =>
-      api.post<PlatformContribution>(`/admin/contributions/${input.id}/review`, { decision: input.decision, comment: input.comment }),
+    mutationFn: (input: {
+      id: string;
+      decision: "APPROVE" | "REJECT";
+      comment?: string;
+    }) =>
+      api.post<PlatformContribution>(
+        `/admin/contributions/${input.id}/review`,
+        { decision: input.decision, comment: input.comment },
+      ),
     onSuccess: (_data, input) => {
-      void queryClient.invalidateQueries({ queryKey: qk.contributionAdminQueue('PENDING_REVIEW') });
-      void queryClient.invalidateQueries({ queryKey: qk.contributionAdminQueue('APPROVED') });
-      void queryClient.invalidateQueries({ queryKey: qk.contributionAdminQueue('REJECTED') });
-      void queryClient.invalidateQueries({ queryKey: qk.contributionAdmin(input.id) });
+      void queryClient.invalidateQueries({
+        queryKey: qk.contributionAdminQueue("PENDING_REVIEW"),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: qk.contributionAdminQueue("APPROVED"),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: qk.contributionAdminQueue("REJECTED"),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: qk.contributionAdmin(input.id),
+      });
     },
   });
 }
@@ -95,6 +146,7 @@ export function usePlatformContributionReview() {
 export function useUnifiedCapabilityReviewQueue(kind: UnifiedReviewKind) {
   return useQuery({
     queryKey: qk.contributionReviewQueue(kind),
-    queryFn: () => api.get<UnifiedReviewQueue>(`/admin/capability-review?kind=${kind}`),
+    queryFn: () =>
+      api.get<UnifiedReviewQueue>(`/admin/capability-review?kind=${kind}`),
   });
 }

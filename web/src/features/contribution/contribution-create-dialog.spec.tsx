@@ -63,7 +63,7 @@ function goToContentStep() {
 /** 触发一次成功的包上传，回调里喂进解析结果。 */
 function uploadPackage(result: SkillPackageParseResult = PARSED) {
   const file = new File(['zip bytes'], 'competitor.zip', { type: 'application/zip' });
-  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  const input = document.querySelector('input[type="file"][accept=".zip"]') as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
   const [, options] = uploadMutation.mock.calls.at(-1) as [File, { onSuccess: (r: SkillPackageParseResult) => void }];
   // onSuccess 是 mutation 回调，手动调用要包 act，否则 setState 不 flush

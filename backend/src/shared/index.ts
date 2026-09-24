@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { EmployeeAvatarAsset } from './employee-avatar';
-export type { EmployeeAvatarAsset } from './employee-avatar';
-export * from './task.dto';
-export * from './client-task.dto';
+import type { EmployeeAvatarAsset } from "./employee-avatar";
+export type { EmployeeAvatarAsset } from "./employee-avatar";
+export * from "./task.dto";
+export * from "./client-task.dto";
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）
@@ -590,7 +590,7 @@ export type CapabilityUploadDto = z.infer<typeof CapabilityUploadDtoSchema>;
 /** SKILL 包上传的 sha256（内容寻址 key，小写十六进制） */
 export const SkillPackageSha256Schema = z
   .string()
-  .regex(/^[0-9a-f]{64}$/, 'sha256 格式非法');
+  .regex(/^[0-9a-f]{64}$/, "sha256 格式非法");
 
 /**
  * Skill 正文来源，二选一：
@@ -611,11 +611,22 @@ export const ContributionSkillConfigDtoSchema = z
   })
   .refine(
     (config) => Boolean(config.template) !== Boolean(config.packageSha256),
-    { message: '必须且只能提供 template 或 packageSha256 之一' },
+    { message: "必须且只能提供 template 或 packageSha256 之一" },
   );
-export type ContributionSkillConfigDto = z.infer<typeof ContributionSkillConfigDtoSchema>;
+export type ContributionSkillConfigDto = z.infer<
+  typeof ContributionSkillConfigDtoSchema
+>;
 
 /** 上传 SKILL 包的解析结果，前端据此预填能力信息并展示校验结论。 */
+export interface RpaPackageParseResult {
+  sha256: string;
+  filename: string;
+  fileCount: number;
+  totalBytes: number;
+  uncompressedBytes: number;
+  files: string[];
+}
+
 export interface SkillPackageParseResult {
   sha256: string;
   filename: string;
@@ -635,23 +646,62 @@ export interface SkillPackageParseResult {
 }
 
 // 能力贡献中心：所有注册用户都可创建，企业归属和两层审核由服务端决定。
-export const ContributionCapabilityCreateDtoSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().min(10).max(2000),
-  type: z.enum(['agent', 'skill']),
-  industry: z.array(z.string()).default([]),
-  position: z.array(z.string()).default([]),
-  inputSchema: z.record(z.any()).default({}),
-  outputSchema: z.record(z.any()).default({}),
-  skillConfig: ContributionSkillConfigDtoSchema.optional(),
-  agentConfig: z.object({
-    platform: z.enum(['coze', 'dify', 'n8n', 'opencode']),
-    botId: z.string().optional(),
-    workflowUrl: z.string().url().optional(),
-    skillName: z.string().optional(),
-  }).optional(),
-});
-export type ContributionCapabilityCreateDto = z.infer<typeof ContributionCapabilityCreateDtoSchema>;
+export const ContributionCapabilityCreateDtoSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    description: z.string().min(10).max(2000),
+    type: z.enum(["agent", "skill", "rpa"]),
+    industry: z.array(z.string()).default([]),
+    position: z.array(z.string()).default([]),
+    inputSchema: z.record(z.any()).default({}),
+    outputSchema: z.record(z.any()).default({}),
+    skillConfig: ContributionSkillConfigDtoSchema.optional(),
+    agentConfig: z
+      .object({
+        platform: z.enum(["coze", "dify", "n8n", "opencode"]),
+        botId: z.string().optional(),
+        workflowUrl: z.string().url().optional(),
+        skillName: z.string().optional(),
+      })
+      .optional(),
+    rpaConfig: z
+      .object({
+        platform: z.enum(["shizai", "yingdao"]),
+        executionMode: z.literal("download").default("download"),
+        packageSha256: SkillPackageSha256Schema,
+        packageFilename: z.string().max(120).optional(),
+        configDoc: z.string().min(10).max(10000),
+      })
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    const configs = [
+      value.skillConfig,
+      value.agentConfig,
+      value.rpaConfig,
+    ].filter(Boolean).length;
+    if (configs !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "必须且只能提供当前能力类型对应的一种配置",
+      });
+      return;
+    }
+    const hasExpectedConfig =
+      value.type === "skill"
+        ? value.skillConfig
+        : value.type === "agent"
+          ? value.agentConfig
+          : value.rpaConfig;
+    if (!hasExpectedConfig)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.type} 能力缺少对应配置`,
+      });
+  });
+export type ContributionCapabilityCreateDto = z.infer<
+  typeof ContributionCapabilityCreateDtoSchema
+>;
 
 export const ContributionCapabilityUpdateDtoSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -661,13 +711,17 @@ export const ContributionCapabilityUpdateDtoSchema = z.object({
   inputSchema: z.record(z.any()).optional(),
   outputSchema: z.record(z.any()).optional(),
 });
-export type ContributionCapabilityUpdateDto = z.infer<typeof ContributionCapabilityUpdateDtoSchema>;
+export type ContributionCapabilityUpdateDto = z.infer<
+  typeof ContributionCapabilityUpdateDtoSchema
+>;
 
 export const ContributionReviewDecisionSchema = z.object({
-  decision: z.enum(['APPROVE', 'REJECT']),
+  decision: z.enum(["APPROVE", "REJECT"]),
   comment: z.string().max(2000).optional(),
 });
-export type ContributionReviewDecision = z.infer<typeof ContributionReviewDecisionSchema>;
+export type ContributionReviewDecision = z.infer<
+  typeof ContributionReviewDecisionSchema
+>;
 
 /**
  * 发布新版本。正文来源与创建能力时同规则：上传包（只送 sha256）或在线编写，二选一。
@@ -682,18 +736,21 @@ export const ContributionVersionCreateDtoSchema = z
     packageFilename: z.string().max(120).optional(),
     changeSummary: z.string().min(1).max(1000),
   })
-  .refine(
-    (dto) => Boolean(dto.content) !== Boolean(dto.packageSha256),
-    { message: '必须且只能提供 content 或 packageSha256 之一' },
-  );
-export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
+  .refine((dto) => Boolean(dto.content) !== Boolean(dto.packageSha256), {
+    message: "必须且只能提供 content 或 packageSha256 之一",
+  });
+export type ContributionVersionCreateDto = z.infer<
+  typeof ContributionVersionCreateDtoSchema
+>;
 
 /** 作者在贡献中心编辑草稿版本的正文（仅在线编写的版本可改）。 */
 export const ContributionVersionUpdateDtoSchema = z.object({
   content: z.string().min(20),
   changeSummary: z.string().min(1).max(1000).optional(),
 });
-export type ContributionVersionUpdateDto = z.infer<typeof ContributionVersionUpdateDtoSchema>;
+export type ContributionVersionUpdateDto = z.infer<
+  typeof ContributionVersionUpdateDtoSchema
+>;
 
 /**
  * 人民币金额（元）：非负、最多两位小数。
@@ -701,23 +758,35 @@ export type ContributionVersionUpdateDto = z.infer<typeof ContributionVersionUpd
  */
 export const CnyAmountSchema = z
   .number()
-  .min(0, '金额不能为负数')
-  .refine((n) => Number.isFinite(n), { message: '金额必须是有效数字' })
+  .min(0, "金额不能为负数")
+  .refine((n) => Number.isFinite(n), { message: "金额必须是有效数字" })
   .refine((n) => Math.round(n * 100) === Number((n * 100).toFixed(4)), {
-    message: '金额最多保留两位小数',
+    message: "金额最多保留两位小数",
   });
 
 // Digital Employee
 export const EmployeeAvatarUrlSchema = z.union([
-  z.string().url().refine((value) => {
-    try {
-      const url = new URL(value);
-      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
-    } catch {
-      return false;
-    }
-  }, '头像必须使用 HTTP(S) 地址'),
-  z.string().regex(/^\/assets\/employees\/silicon\/[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/, '请选择硅基员工素材路径'),
+  z
+    .string()
+    .url()
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          ["http:", "https:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password
+        );
+      } catch {
+        return false;
+      }
+    }, "头像必须使用 HTTP(S) 地址"),
+  z
+    .string()
+    .regex(
+      /^\/assets\/employees\/silicon\/[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/,
+      "请选择硅基员工素材路径",
+    ),
 ]);
 
 export const DigitalEmployeeCreateDtoSchema = z.object({
@@ -725,7 +794,17 @@ export const DigitalEmployeeCreateDtoSchema = z.object({
   description: z.string().min(10).max(2000),
   industry: z.string(),
   position: z.string(),
-  functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).default("OPERATIONS_ORG"),
+  functionalCategory: z
+    .enum([
+      "TECH",
+      "PRODUCT_DESIGN",
+      "MARKETING_GROWTH",
+      "ECOMMERCE",
+      "SALES_CUSTOMER",
+      "OPERATIONS_ORG",
+      "FINANCE_LEGAL",
+    ])
+    .default("OPERATIONS_ORG"),
   avatar: EmployeeAvatarUrlSchema.optional(),
   systemPrompt: z.string().min(10),
   modelId: z.string().default(DEFAULT_MODEL_ID),
@@ -751,7 +830,17 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   description: z.string().min(10).max(2000).optional(),
   industry: z.string().optional(),
   position: z.string().optional(),
-  functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).optional(),
+  functionalCategory: z
+    .enum([
+      "TECH",
+      "PRODUCT_DESIGN",
+      "MARKETING_GROWTH",
+      "ECOMMERCE",
+      "SALES_CUSTOMER",
+      "OPERATIONS_ORG",
+      "FINANCE_LEGAL",
+    ])
+    .optional(),
   avatar: EmployeeAvatarUrlSchema.optional(),
   systemPrompt: z.string().min(10).optional(),
   modelId: z.string().optional(),
@@ -761,12 +850,17 @@ export const DigitalEmployeeUpdateDtoSchema = z.object({
   annualPriceCNY: CnyAmountSchema.optional(),
   /** 订阅赠送算力（元）。null = 回落系统默认值，0 = 明确不赠送。 */
   includedComputeCNY: CnyAmountSchema.nullable().optional(),
-  status: z.enum(["DRAFT", "PENDING", "APPROVED", "REJECTED", "ARCHIVED"]).optional(),
+  status: z
+    .enum(["DRAFT", "PENDING", "APPROVED", "REJECTED", "ARCHIVED"])
+    .optional(),
   /**
    * 版本号。运营发版时同步更新这里和上传对应的员工包，
    * 已有实例的 upgradeAvailable 才会真正触发。
    */
-  version: z.string().regex(/^\d+\.\d+\.\d+$/, '格式须为 x.y.z').optional(),
+  version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, "格式须为 x.y.z")
+    .optional(),
 });
 
 export type DigitalEmployeeUpdateDto = z.infer<
@@ -790,7 +884,10 @@ export type SubscriptionCreateDto = z.infer<typeof SubscriptionCreateDtoSchema>;
 
 export const WalletAdjustDtoSchema = z.object({
   enterpriseId: z.string().min(1),
-  amount: z.number().finite().refine((value) => value !== 0, '调整金额不能为 0'),
+  amount: z
+    .number()
+    .finite()
+    .refine((value) => value !== 0, "调整金额不能为 0"),
   reason: z.string().trim().min(1).max(500),
 });
 export type WalletAdjustDto = z.infer<typeof WalletAdjustDtoSchema>;
@@ -809,7 +906,7 @@ export const SubscriptionUpdateDtoSchema = z.object({
 export type SubscriptionUpdateDto = z.infer<typeof SubscriptionUpdateDtoSchema>;
 
 /** 雇佣关系状态。收敛后 InstanceStatus 已并入此枚举。 */
-export const SUBSCRIPTION_STATUSES = ['ACTIVE', 'PAUSED', 'EXPIRED'] as const;
+export const SUBSCRIPTION_STATUSES = ["ACTIVE", "PAUSED", "EXPIRED"] as const;
 export type SubscriptionStatusValue = (typeof SUBSCRIPTION_STATUSES)[number];
 
 export const SubscriptionStatusDtoSchema = z.object({
@@ -824,9 +921,9 @@ export type SubscriptionStatusDto = z.infer<typeof SubscriptionStatusDtoSchema>;
 
 /** 企业内角色。与全局 UserRole 是两套体系。 */
 export const ENTERPRISE_ROLES = [
-  'ENTERPRISE_ADMIN',
-  'DEPT_MANAGER',
-  'MEMBER',
+  "ENTERPRISE_ADMIN",
+  "DEPT_MANAGER",
+  "MEMBER",
 ] as const;
 
 export const EnterpriseRoleSchema = z.enum(ENTERPRISE_ROLES);
@@ -840,8 +937,8 @@ export type EnterpriseRoleValue = z.infer<typeof EnterpriseRoleSchema>;
  * 照常登录、按普通成员权限走。等「数据范围」那层做出来再放开。
  */
 export const ASSIGNABLE_ENTERPRISE_ROLES = [
-  'ENTERPRISE_ADMIN',
-  'MEMBER',
+  "ENTERPRISE_ADMIN",
+  "MEMBER",
 ] as const;
 
 export const AssignableEnterpriseRoleSchema = z.enum(
@@ -895,7 +992,7 @@ export const MemberCreateDtoSchema = z.object({
   name: z.string().min(1).max(50).optional(),
   /** 初始密码，成员首次登录后应自行修改 */
   password: z.string().min(8),
-  role: AssignableEnterpriseRoleSchema.default('MEMBER'),
+  role: AssignableEnterpriseRoleSchema.default("MEMBER"),
   departmentId: z.string().optional(),
   position: z.string().max(50).optional(),
 });
@@ -912,10 +1009,10 @@ export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
 // ── 企业邀请 ────────────────────────────────────────────────────────────────
 
 export const INVITATION_STATUSES = [
-  'PENDING',
-  'ACCEPTED',
-  'EXPIRED',
-  'REVOKED',
+  "PENDING",
+  "ACCEPTED",
+  "EXPIRED",
+  "REVOKED",
 ] as const;
 export const InvitationStatusSchema = z.enum(INVITATION_STATUSES);
 export type InvitationStatusValue = z.infer<typeof InvitationStatusSchema>;
@@ -931,7 +1028,7 @@ export const INVITATION_EXPIRES_DAYS = 7;
  */
 export const InvitationCreateDtoSchema = z.object({
   email: EmailSchema,
-  role: AssignableEnterpriseRoleSchema.default('MEMBER'),
+  role: AssignableEnterpriseRoleSchema.default("MEMBER"),
   departmentId: z.string().optional(),
   position: z.string().max(50).optional(),
 });
@@ -976,10 +1073,9 @@ export const GrantCreateDtoSchema = z
     /** 限时授权到期时间（ISO 字符串）。省略表示长期有效。 */
     expiresAt: z.string().datetime().optional(),
   })
-  .refine(
-    (d) => Boolean(d.departmentId) !== Boolean(d.memberId),
-    { message: '授权对象必须是部门或成员之一，不能同时指定或都不指定' },
-  );
+  .refine((d) => Boolean(d.departmentId) !== Boolean(d.memberId), {
+    message: "授权对象必须是部门或成员之一，不能同时指定或都不指定",
+  });
 export type GrantCreateDto = z.infer<typeof GrantCreateDtoSchema>;
 
 /** 一条授权记录。target 二选一，另一个为 null。 */
@@ -1006,14 +1102,20 @@ export interface MyEmployeeView {
   name: string;
   templateVersion: string;
   /** 员工模板。收敛前此字段名为 template。 */
-  employee: { id: string; name: string; avatar: string | null; avatarAsset?: EmployeeAvatarAsset | null; functionalCategory?: string };
+  employee: {
+    id: string;
+    name: string;
+    avatar: string | null;
+    avatarAsset?: EmployeeAvatarAsset | null;
+    functionalCategory?: string;
+  };
   /**
    * 授权来源部门。收敛后语义变了 —— 从前是「实例归属哪个部门」，
    * 现在是「这条授权发给哪个部门」，DIRECT 授权时为 null。
    */
   department: { id: string; name: string } | null;
   /** 授权来源：直接给我的，还是给我所在部门的 */
-  grantSource: 'DIRECT' | 'DEPARTMENT';
+  grantSource: "DIRECT" | "DEPARTMENT";
   expiresAt: string | null;
   /**
    * 该模板是否有可下载的员工包。为 false 时前端应禁用下载按钮 ——
@@ -1028,7 +1130,7 @@ export interface MyEmployeeView {
   /** 剩余可用赠送金额。非 ACTIVE 状态一律为 '0.00' —— 花不掉的钱不算剩余。 */
   giftRemainingCNY?: string;
   /** ACTIVE 可用 · EXHAUSTED 已用尽 · EXPIRED 订阅已终止 · NONE 无赠送记录 */
-  giftStatus?: 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'NONE';
+  giftStatus?: "ACTIVE" | "EXHAUSTED" | "EXPIRED" | "NONE";
 
   /**
    * 使用情况（会议2 §6.1「使用人数即口碑」）。
@@ -1085,17 +1187,19 @@ export interface MyEmployeeUsage {
 /** 发布新版本（multipart 表单的文本字段，文件另走 file 字段）*/
 export const PackagePublishDtoSchema = z.object({
   /** 与 DigitalEmployee.version 同步更新，格式 x.y.z */
-  version: z.string().regex(/^\d+\.\d+\.\d+$/, '版本格式须为 x.y.z'),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, "版本格式须为 x.y.z"),
   changelog: z.string().max(500).optional(),
   /**
    * pi package 引用（决策 5）。
    * 若只填 packageRef 不上传文件，平台不经手字节流，客户端直接 `pi install`。
    * 若同时上传文件，两者并存（ZIP 作为兜底通道）。
    */
-  packageRef: z.object({
-    type: z.enum(['npm', 'git']),
-    spec: z.string().min(1).max(200),
-  }).optional(),
+  packageRef: z
+    .object({
+      type: z.enum(["npm", "git"]),
+      spec: z.string().min(1).max(200),
+    })
+    .optional(),
 });
 export type PackagePublishDto = z.infer<typeof PackagePublishDtoSchema>;
 
@@ -1109,7 +1213,7 @@ export interface PackageView {
   /** 文件大小，packageRef-only 时为 null */
   fileSizeBytes: number | null;
   /** pi package 引用，ZIP-only 时为 null */
-  packageRef: { type: 'npm' | 'git'; spec: string } | null;
+  packageRef: { type: "npm" | "git"; spec: string } | null;
   changelog: string | null;
   createdAt: Date;
 }
@@ -1117,7 +1221,7 @@ export interface PackageView {
 /** 客户端获取雇佣关系可安装的包信息（P3.2） */
 export interface EmploymentPackageInfo {
   version: string;
-  packageRef: { type: 'npm' | 'git'; spec: string } | null;
+  packageRef: { type: "npm" | "git"; spec: string } | null;
   /** ZIP 通道是否可用（packageRef 不存在时客户端可提示手动下载）*/
   zipAvailable: boolean;
   sha256: string | null;
@@ -1132,7 +1236,7 @@ export const PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
 export interface SubscriptionView {
   id: string;
   name: string;
-  status: 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+  status: "ACTIVE" | "PAUSED" | "EXPIRED";
   /** 订阅锁定的模板版本 */
   templateVersion: string;
   /** 模板当前最新版本 */
@@ -1148,13 +1252,13 @@ export interface SubscriptionView {
 }
 
 // Conversation
-export const ConversationSourceSchema = z.enum(['CHAT', 'TASK']);
+export const ConversationSourceSchema = z.enum(["CHAT", "TASK"]);
 export type ConversationSource = z.infer<typeof ConversationSourceSchema>;
 
 export const ConversationCreateDtoSchema = z.object({
   employeeId: z.string(),
   title: z.string().optional(),
-  source: ConversationSourceSchema.optional().default('CHAT'),
+  source: ConversationSourceSchema.optional().default("CHAT"),
   taskPlanId: z.string().optional(),
   taskStepId: z.string().optional(),
 });
@@ -1168,7 +1272,7 @@ export const ConversationUpdateDtoSchema = z.object({
 export type ConversationUpdateDto = z.infer<typeof ConversationUpdateDtoSchema>;
 
 /** 附件类别，与后端上传白名单（upload.constants.ts）保持一致 */
-export const ATTACHMENT_TYPES = ['image', 'document', 'video'] as const;
+export const ATTACHMENT_TYPES = ["image", "document", "video"] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 
 /**
@@ -1183,10 +1287,9 @@ export const MessageAttachmentSchema = z.object({
   url: z
     .string()
     .min(1)
-    .refine(
-      (v) => /^https?:\/\//i.test(v) || v.startsWith('/'),
-      { message: '附件地址须为 http(s) 绝对地址或根相对路径' },
-    ),
+    .refine((v) => /^https?:\/\//i.test(v) || v.startsWith("/"), {
+      message: "附件地址须为 http(s) 绝对地址或根相对路径",
+    }),
   name: z.string().min(1).max(255),
   size: z.number().int().nonnegative(),
   mimeType: z.string().optional(),
@@ -1197,19 +1300,22 @@ export type MessageAttachment = z.infer<typeof MessageAttachmentSchema>;
 /** 单条消息最多携带的附件数，与 upload.constants.ts 的 MAX_FILES_PER_REQUEST 对齐 */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
 
-export const MessageSendDtoSchema = z.object({
-  // 带附件时允许空文本（"看看这张图"式的纯附件消息），
-  // 但不能既没文本也没附件
-  content: z.string().max(10000),
-  targetEmployeeId: z.string().optional(), // 指定处理该消息的员工（多员工协作）
-  attachments: z
-    .array(MessageAttachmentSchema)
-    .max(MAX_ATTACHMENTS_PER_MESSAGE)
-    .optional(),
-}).refine(
-  (dto) => dto.content.trim().length > 0 || (dto.attachments?.length ?? 0) > 0,
-  { message: '消息内容和附件不能同时为空', path: ['content'] },
-);
+export const MessageSendDtoSchema = z
+  .object({
+    // 带附件时允许空文本（"看看这张图"式的纯附件消息），
+    // 但不能既没文本也没附件
+    content: z.string().max(10000),
+    targetEmployeeId: z.string().optional(), // 指定处理该消息的员工（多员工协作）
+    attachments: z
+      .array(MessageAttachmentSchema)
+      .max(MAX_ATTACHMENTS_PER_MESSAGE)
+      .optional(),
+  })
+  .refine(
+    (dto) =>
+      dto.content.trim().length > 0 || (dto.attachments?.length ?? 0) > 0,
+    { message: "消息内容和附件不能同时为空", path: ["content"] },
+  );
 
 export type MessageSendDto = z.infer<typeof MessageSendDtoSchema>;
 
@@ -1225,7 +1331,10 @@ export type UpdateProfileDto = z.infer<typeof UpdateProfileDtoSchema>;
 // Enterprise Model Config DTOs (Phase 1 — 模型配置中心)
 // ============================================================================
 
-export const EMPLOYEE_MODEL_POLICIES = ['FOLLOW_TEMPLATE', 'FORCE_DEFAULT'] as const;
+export const EMPLOYEE_MODEL_POLICIES = [
+  "FOLLOW_TEMPLATE",
+  "FORCE_DEFAULT",
+] as const;
 export type EmployeeModelPolicy = (typeof EMPLOYEE_MODEL_POLICIES)[number];
 
 export const UpdateEnterpriseModelConfigDtoSchema = z.object({
@@ -1238,13 +1347,17 @@ export const UpdateEnterpriseModelConfigDtoSchema = z.object({
   /** 编排与分析模型。null / 空串 = 跟随平台默认模型 */
   plannerModel: z.string().nullable().optional(),
 });
-export type UpdateEnterpriseModelConfigDto = z.infer<typeof UpdateEnterpriseModelConfigDtoSchema>;
+export type UpdateEnterpriseModelConfigDto = z.infer<
+  typeof UpdateEnterpriseModelConfigDtoSchema
+>;
 
 export const DepartmentModelPolicyDtoSchema = z.object({
   defaultChatModel: z.string().nullable().optional(),
   allowedChatModels: z.array(z.string()).optional(),
 });
-export type DepartmentModelPolicyDto = z.infer<typeof DepartmentModelPolicyDtoSchema>;
+export type DepartmentModelPolicyDto = z.infer<
+  typeof DepartmentModelPolicyDtoSchema
+>;
 
 /** 解析后最终生效的模型配置（会话侧消费） */
 export interface EffectiveModelConfig {
@@ -1361,7 +1474,7 @@ export function parseFallbackPriceConfig(
 
 /** 单价：空白/非法/负数 → null；否则返回数值（允许 0，表示运营明确「免费」）。 */
 function parsePositivePrice(raw: string | undefined): number | null {
-  if (raw === undefined || raw === null || String(raw).trim() === '') {
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
     return null;
   }
   const value = Number(raw);
@@ -1452,7 +1565,7 @@ export const ClientLoginDtoSchema = z.object({
   email: EmailSchema,
   password: z.string().min(1),
   fingerprint: z.string().min(1).max(256),
-  platform: z.enum(['darwin', 'win32', 'linux']).or(z.string()),
+  platform: z.enum(["darwin", "win32", "linux"]).or(z.string()),
   clientVersion: z.string().optional(),
 });
 export type ClientLoginDto = z.infer<typeof ClientLoginDtoSchema>;
@@ -1476,7 +1589,7 @@ export const ChatCompletionRequestSchema = z.object({
   model: z.string().min(1),
   messages: z.array(
     z.object({
-      role: z.enum(['system', 'user', 'assistant', 'tool']),
+      role: z.enum(["system", "user", "assistant", "tool"]),
       content: z.string(),
       name: z.string().optional(),
     }),
@@ -1510,11 +1623,11 @@ export function calculateModelCost(
 ): number {
   // 简化版：用默认费率，后续从 PlatformModel 读单价
   const RATES: Record<string, { input: number; output: number }> = {
-    'gpt-4': { input: 0.03 / 1000, output: 0.06 / 1000 },  // USD per token
-    'gpt-3.5-turbo': { input: 0.001 / 1000, output: 0.002 / 1000 },
-    'claude-3-opus': { input: 0.015 / 1000, output: 0.075 / 1000 },
+    "gpt-4": { input: 0.03 / 1000, output: 0.06 / 1000 }, // USD per token
+    "gpt-3.5-turbo": { input: 0.001 / 1000, output: 0.002 / 1000 },
+    "claude-3-opus": { input: 0.015 / 1000, output: 0.075 / 1000 },
   };
-  const rate = RATES[modelId] || RATES['gpt-3.5-turbo']; // fallback
+  const rate = RATES[modelId] || RATES["gpt-3.5-turbo"]; // fallback
   const costUsd = inputTokens * rate.input + outputTokens * rate.output;
   return costUsd * usdRate;
 }
@@ -1525,7 +1638,7 @@ export function calculateModelCost(
 
 /** 批量将成员（EnterpriseMember）分配到某部门 */
 export const AssignDeptMembersDtoSchema = z.object({
-  memberIds: z.array(z.string()).min(1, '至少指定一位成员'),
+  memberIds: z.array(z.string()).min(1, "至少指定一位成员"),
 });
 export type AssignDeptMembersDto = z.infer<typeof AssignDeptMembersDtoSchema>;
 
@@ -1539,26 +1652,26 @@ export type SetDeptLeaderDto = z.infer<typeof SetDeptLeaderDtoSchema>;
 // Knowledge Base DTOs
 // ============================================================================
 
-export * from './knowledge.dto';
+export * from "./knowledge.dto";
 
 // ============================================================================
 // Compute Account DTOs
 // ============================================================================
 
-export * from './compute.dto';
+export * from "./compute.dto";
 
 // ============================================================================
 // Model Config DTOs
 // ============================================================================
 
-export * from './model-config.dto';
+export * from "./model-config.dto";
 
 // ============================================================================
 // Enterprise Settings DTOs (Phase 4 · 企业设置拆分 + 权限细化)
 // ============================================================================
 
-export * from './enterprise-settings.dto';
-export * from './skill-version.dto';
+export * from "./enterprise-settings.dto";
+export * from "./skill-version.dto";
 
 // ============================================================================
 // Cost Analytics DTOs
@@ -1595,8 +1708,8 @@ export type CostTrendPoint = z.infer<typeof CostTrendPointSchema>;
 
 export const CostAlertSchema = z.object({
   id: z.string(),
-  type: z.enum(['BUDGET_THRESHOLD', 'BUDGET_EXCEEDED', 'ANOMALY']),
-  severity: z.enum(['WARNING', 'ERROR']),
+  type: z.enum(["BUDGET_THRESHOLD", "BUDGET_EXCEEDED", "ANOMALY"]),
+  severity: z.enum(["WARNING", "ERROR"]),
   message: z.string(),
   triggeredAt: z.string(),
   acknowledged: z.boolean(),

@@ -45,6 +45,7 @@ model User {
   userQuotas                        UserQuota[]
   allocatedUserQuotas               UserQuota[]                @relation("UserQuotaAllocator")
   createdSkillVersions              SkillVersion[]             @relation("SkillVersionCreator")
+  createdRpaVersions                RpaVersion[]               @relation("RpaVersionCreator")
   ownedSkillVersions                SkillVersion[]             @relation("SkillVersionOwner")
   skillVersionAdoptions             SkillVersionAdoption[]     @relation("SkillVersionAdopter")
   createdCapabilityInsights         CapabilityInsight[]        @relation("CapabilityInsightCreator")
@@ -489,6 +490,7 @@ model Capability {
   // Type-specific configs (one-to-one relations)
   agentConfig AgentConfig?
   rpaConfig   RPAConfig?
+  rpaVersions RpaVersion[]
   skillConfig SkillConfig?
   aiAppConfig AIAppConfig?
 
@@ -621,8 +623,8 @@ model RPAConfig {
   platform      RPAPlatform // 实在 | 影刀
   executionMode RPAExecutionMode
 
-  // Package info
-  packageUrl    String? // OSS URL for RPA package
+  // 当前下载包。版本历史存放在 RpaVersion。
+  packageUrl    String? // 内容寻址存储 key，例如 rpa/<sha256>.zip
   packageSha256 String? // Package integrity check
   configDoc     String? @db.Text // Configuration documentation
 
@@ -630,6 +632,43 @@ model RPAConfig {
   updatedAt DateTime @updatedAt
 
   @@map("rpa_configs")
+}
+
+model RpaVersion {
+  id               String           @id @default(cuid())
+  capabilityId     String
+  capability       Capability       @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  version          String
+  packageKey       String
+  packageSha256    String
+  packageFilename  String?
+  packageFileCount Int
+  packageBytes     Int
+  configDoc        String           @db.Text
+  status           RpaVersionStatus @default(DRAFT)
+  validationResult Json?
+  validatedAt      DateTime?
+  submittedAt      DateTime?
+  rejectionReason  String?          @db.Text
+  createdById      String
+  createdBy        User             @relation("RpaVersionCreator", fields: [createdById], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([capabilityId, version])
+  @@index([capabilityId, status])
+  @@map("rpa_versions")
+}
+
+enum RpaVersionStatus {
+  DRAFT
+  PENDING_ENTERPRISE_REVIEW
+  ENTERPRISE_APPROVED
+  ENTERPRISE_REJECTED
+  PENDING_PLATFORM_REVIEW
+  PLATFORM_APPROVED
+  PLATFORM_REJECTED
+  ARCHIVED
 }
 
 enum RPAPlatform {

@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
   Optional,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   CapabilityType,
   ContributionPlatformStatus,
@@ -13,49 +13,93 @@ import {
   Prisma,
   SkillVersionScope,
   SkillVersionStatus,
-} from '@prisma/client';
-import matter from 'gray-matter';
-import { PrismaService } from '../../prisma/prisma.service';
-import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+} from "@prisma/client";
+import matter from "gray-matter";
+import { PrismaService } from "../../prisma/prisma.service";
+import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import type {
   ContributionCapabilityCreateDto,
   ContributionCapabilityUpdateDto,
   ContributionReviewDecision as ContributionDecisionDto,
   ContributionVersionCreateDto,
   ContributionVersionUpdateDto,
-} from 'shared';
-import { SkillPackageService } from '../skill-package/skill-package.service';
+} from "shared";
+import { SkillPackageService } from "../skill-package/skill-package.service";
+import { RpaPackageService } from "../rpa-package/rpa-package.service";
 import {
   PLATFORM_PROMOTION_SOURCE_SELECT,
   buildPlatformPromotion,
   platformPromotionSummary,
-} from '../skill-version/promote-to-platform';
-import { nextSemver } from '../skill-version/skill-version-numbering';
-import { AUTHOR_VERSION_SELECT, CONTRIBUTION_CAPABILITY_SELECT, CONTRIBUTION_PLATFORM_DETAIL_SELECT, CONTRIBUTION_PLATFORM_LIST_SELECT, USAGE_VERSION_SELECT } from './capability-contribution.types';
-import { CapabilityValidatorService } from './capability-validator.service';
-import { SettingService } from '../setting/setting.service';
-import { NotificationsService } from '../notifications/notifications.service';
+} from "../skill-version/promote-to-platform";
+import { nextSemver } from "../skill-version/skill-version-numbering";
+import {
+  AUTHOR_VERSION_SELECT,
+  CONTRIBUTION_CAPABILITY_SELECT,
+  CONTRIBUTION_PLATFORM_DETAIL_SELECT,
+  CONTRIBUTION_PLATFORM_LIST_SELECT,
+  USAGE_VERSION_SELECT,
+} from "./capability-contribution.types";
+import { CapabilityValidatorService } from "./capability-validator.service";
+import { SettingService } from "../setting/setting.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
-const DEFAULT_REWARD_CNY = { enterprise: '10', platform: '50' } as const;
+const DEFAULT_REWARD_CNY = { enterprise: "10", platform: "50" } as const;
 
-async function creditRewardInTx(tx: any, userId: string, amount: Prisma.Decimal, eventId: string, description: string) {
+async function creditRewardInTx(
+  tx: any,
+  userId: string,
+  amount: Prisma.Decimal,
+  eventId: string,
+  description: string,
+) {
   if (!tx.personalWallet || amount.lessThanOrEqualTo(0)) return;
-  const wallet = await tx.personalWallet.upsert({ where: { userId }, create: { userId }, update: {} });
+  const wallet = await tx.personalWallet.upsert({
+    where: { userId },
+    create: { userId },
+    update: {},
+  });
   const existing = await tx.personalWalletTransaction.findFirst?.({
-    where: { walletId: wallet.id, relatedType: 'contribution_reward', relatedId: eventId },
+    where: {
+      walletId: wallet.id,
+      relatedType: "contribution_reward",
+      relatedId: eventId,
+    },
     select: { id: true },
   });
   if (existing) return;
   const before = wallet.balance;
   const after = before.add(amount);
-  const updated = await tx.personalWallet.updateMany({ where: { id: wallet.id, version: wallet.version }, data: { balance: after, totalDepositCNY: { increment: amount }, version: { increment: 1 } } });
-  if (updated.count !== 1) throw new ConflictException('个人奖励入账冲突，请重试');
-  await tx.personalWalletTransaction.create({ data: { walletId: wallet.id, type: 'DEPOSIT', amount, balanceBefore: before, balanceAfter: after, relatedType: 'contribution_reward', relatedId: eventId, description } });
+  const updated = await tx.personalWallet.updateMany({
+    where: { id: wallet.id, version: wallet.version },
+    data: {
+      balance: after,
+      totalDepositCNY: { increment: amount },
+      version: { increment: 1 },
+    },
+  });
+  if (updated.count !== 1)
+    throw new ConflictException("个人奖励入账冲突，请重试");
+  await tx.personalWalletTransaction.create({
+    data: {
+      walletId: wallet.id,
+      type: "DEPOSIT",
+      amount,
+      balanceBefore: before,
+      balanceAfter: after,
+      relatedType: "contribution_reward",
+      relatedId: eventId,
+      description,
+    },
+  });
 }
 
-const CAPABILITY_TYPES: Record<ContributionCapabilityCreateDto['type'], CapabilityType> = {
-  skill: 'SKILL',
-  agent: 'AGENT',
+const CAPABILITY_TYPES: Record<
+  ContributionCapabilityCreateDto["type"],
+  CapabilityType
+> = {
+  skill: "SKILL",
+  agent: "AGENT",
+  rpa: "RPA",
 };
 
 @Injectable()
@@ -67,21 +111,29 @@ export class CapabilityContributionService {
     private readonly skillPackage: SkillPackageService,
     private readonly setting?: SettingService,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly rpaPackage?: RpaPackageService,
   ) {}
 
-  private async rewardAmount(kind: 'enterprise' | 'platform') {
-    const key = kind === 'enterprise' ? 'CONTRIBUTION_ENTERPRISE_REWARD_CNY' : 'CONTRIBUTION_PLATFORM_REWARD_CNY';
+  private async rewardAmount(kind: "enterprise" | "platform") {
+    const key =
+      kind === "enterprise"
+        ? "CONTRIBUTION_ENTERPRISE_REWARD_CNY"
+        : "CONTRIBUTION_PLATFORM_REWARD_CNY";
     const configured = await this.setting?.getEffectiveValue(key as any);
     const value = Number(configured ?? DEFAULT_REWARD_CNY[kind]);
-    return Number.isFinite(value) && value > 0 ? new Prisma.Decimal(value) : new Prisma.Decimal(DEFAULT_REWARD_CNY[kind]);
+    return Number.isFinite(value) && value > 0
+      ? new Prisma.Decimal(value)
+      : new Prisma.Decimal(DEFAULT_REWARD_CNY[kind]);
   }
 
   async overview(userId: string) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    const canReviewEnterprise = ctx?.role === 'ENTERPRISE_ADMIN';
+    const canReviewEnterprise = ctx?.role === "ENTERPRISE_ADMIN";
     const capabilities = await this.prisma.capability.findMany({
       where: canReviewEnterprise
-        ? { OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }] }
+        ? {
+            OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }],
+          }
         : { contributorId: userId },
       select: {
         enterpriseReviewStatus: true,
@@ -91,15 +143,21 @@ export class CapabilityContributionService {
       },
     });
     const rewards = await this.prisma.contributionRewardEvent.aggregate({
-      where: { recipientId: userId, status: { in: ['PENDING', 'AVAILABLE'] } },
+      where: { recipientId: userId, status: { in: ["PENDING", "AVAILABLE"] } },
       _sum: { points: true },
     });
     return {
       enterpriseId: ctx?.enterpriseId ?? null,
       capabilityCount: capabilities.length,
-      pendingEnterpriseReview: capabilities.filter((item) => item.enterpriseReviewStatus === 'PENDING').length,
-      pendingPlatformAuthorization: capabilities.filter((item) => item.platformReviewStatus === 'REQUESTED').length,
-      publicCapabilityCount: capabilities.filter((item) => item.visibility === 'MARKET_PUBLIC').length,
+      pendingEnterpriseReview: capabilities.filter(
+        (item) => item.enterpriseReviewStatus === "PENDING",
+      ).length,
+      pendingPlatformAuthorization: capabilities.filter(
+        (item) => item.platformReviewStatus === "REQUESTED",
+      ).length,
+      publicCapabilityCount: capabilities.filter(
+        (item) => item.visibility === "MARKET_PUBLIC",
+      ).length,
       usageCount: capabilities.reduce((sum, item) => sum + item.usageCount, 0),
       pendingRewardPoints: rewards._sum.points ?? 0,
     };
@@ -108,26 +166,59 @@ export class CapabilityContributionService {
   async listMine(userId: string) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
     return this.prisma.capability.findMany({
-      where: ctx?.role === 'ENTERPRISE_ADMIN'
-        ? { OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }] }
-        : { contributorId: userId },
+      where:
+        ctx?.role === "ENTERPRISE_ADMIN"
+          ? {
+              OR: [
+                { contributorId: userId },
+                { enterpriseId: ctx.enterpriseId },
+              ],
+            }
+          : { contributorId: userId },
       select: CONTRIBUTION_CAPABILITY_SELECT,
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { updatedAt: "desc" },
     });
   }
 
   async getOne(userId: string, capabilityId: string) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
     const capability = await this.prisma.capability.findFirst({
-      where: ctx?.role === 'ENTERPRISE_ADMIN'
-        ? { id: capabilityId, OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }] }
-        : { id: capabilityId, contributorId: userId },
+      where:
+        ctx?.role === "ENTERPRISE_ADMIN"
+          ? {
+              id: capabilityId,
+              OR: [
+                { contributorId: userId },
+                { enterpriseId: ctx.enterpriseId },
+              ],
+            }
+          : { id: capabilityId, contributorId: userId },
       select: {
         ...CONTRIBUTION_CAPABILITY_SELECT,
         inputSchema: true,
         outputSchema: true,
+        rpaVersions: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            version: true,
+            packageFilename: true,
+            packageFileCount: true,
+            packageBytes: true,
+            packageSha256: true,
+            configDoc: true,
+            status: true,
+            validationResult: true,
+            validatedAt: true,
+            rejectionReason: true,
+            createdById: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          take: 10,
+        },
         skillVersions: {
-          where: { scope: { not: 'PERSONAL' } },
+          where: { scope: { not: "PERSONAL" } },
           select: {
             ...AUTHOR_VERSION_SELECT,
             rejectionReason: true,
@@ -136,32 +227,55 @@ export class CapabilityContributionService {
             createdById: true,
             updatedAt: true,
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
         },
         contributionRewards: {
-          select: { id: true, eventType: true, points: true, amount: true, status: true, createdAt: true, settledAt: true },
-          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            eventType: true,
+            points: true,
+            amount: true,
+            status: true,
+            createdAt: true,
+            settledAt: true,
+          },
+          orderBy: { createdAt: "desc" },
           take: 20,
         },
       },
     });
-    if (!capability) throw new NotFoundException('能力不存在或无权访问');
+    if (!capability) throw new NotFoundException("能力不存在或无权访问");
     return capability;
   }
 
   async usage(userId: string, capabilityId: string) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    if (!ctx?.enterpriseId) return { capability: { id: capabilityId, name: '' }, totalBindings: 0, employees: [] };
+    if (!ctx?.enterpriseId)
+      return {
+        capability: { id: capabilityId, name: "" },
+        totalBindings: 0,
+        employees: [],
+      };
 
     const capability = await this.prisma.capability.findFirst({
-      where: ctx.role === 'ENTERPRISE_ADMIN'
-        ? { id: capabilityId, OR: [{ contributorId: userId }, { enterpriseId: ctx.enterpriseId }] }
-        : { id: capabilityId, enterpriseId: ctx.enterpriseId },
+      where:
+        ctx.role === "ENTERPRISE_ADMIN"
+          ? {
+              id: capabilityId,
+              OR: [
+                { contributorId: userId },
+                { enterpriseId: ctx.enterpriseId },
+              ],
+            }
+          : { id: capabilityId, enterpriseId: ctx.enterpriseId },
       select: { id: true, name: true },
     });
-    if (!capability) throw new NotFoundException('能力不存在或无权访问');
+    if (!capability) throw new NotFoundException("能力不存在或无权访问");
 
-    const memberUsers = await this.prisma.enterpriseMember.findMany({ where: { enterpriseId: ctx.enterpriseId }, select: { userId: true } });
+    const memberUsers = await this.prisma.enterpriseMember.findMany({
+      where: { enterpriseId: ctx.enterpriseId },
+      select: { userId: true },
+    });
     const userIds = memberUsers.map((member) => member.userId);
     const bindings = await this.prisma.employeeCapabilityBinding.findMany({
       where: { capabilityId },
@@ -170,12 +284,21 @@ export class CapabilityContributionService {
           select: {
             id: true,
             name: true,
-            bindings: { where: { capabilityId }, select: { defaultSkillVersion: { select: USAGE_VERSION_SELECT } } },
+            bindings: {
+              where: { capabilityId },
+              select: { defaultSkillVersion: { select: USAGE_VERSION_SELECT } },
+            },
             subscriptions: {
-              where: { enterpriseId: ctx.enterpriseId, status: 'ACTIVE' },
+              where: { enterpriseId: ctx.enterpriseId, status: "ACTIVE" },
               select: {
                 id: true,
-                skillVersionSelections: { where: { capabilityId }, select: { version: { select: USAGE_VERSION_SELECT }, selectedAt: true } },
+                skillVersionSelections: {
+                  where: { capabilityId },
+                  select: {
+                    version: { select: USAGE_VERSION_SELECT },
+                    selectedAt: true,
+                  },
+                },
               },
               take: 1,
             },
@@ -184,40 +307,63 @@ export class CapabilityContributionService {
       },
     });
 
-    const employees = await Promise.all(bindings.map(async ({ employee }) => {
-      const subscription = employee.subscriptions[0];
-      const selection = subscription?.skillVersionSelections[0] ?? null;
-      const effectiveVersion = selection?.version ?? employee.bindings[0]?.defaultSkillVersion ?? null;
-      const executionWhere = { capabilityId, session: { employeeId: employee.id, userId: { in: userIds } } };
-      const [usageCount, latestExecution] = await Promise.all([
-        this.prisma.toolExecution.count({ where: executionWhere }),
-        this.prisma.toolExecution.findFirst({ where: executionWhere, select: { createdAt: true }, orderBy: { createdAt: 'desc' } }),
-      ]);
-      return {
-        employeeId: employee.id,
-        employeeName: employee.name,
-        subscriptionId: subscription?.id ?? null,
-        selectedVersion: selection?.version ?? null,
-        effectiveVersion,
-        lastUsedAt: latestExecution?.createdAt ?? null,
-        usageCount,
-      };
-    }));
+    const employees = await Promise.all(
+      bindings.map(async ({ employee }) => {
+        const subscription = employee.subscriptions[0];
+        const selection = subscription?.skillVersionSelections[0] ?? null;
+        const effectiveVersion =
+          selection?.version ??
+          employee.bindings[0]?.defaultSkillVersion ??
+          null;
+        const executionWhere = {
+          capabilityId,
+          session: { employeeId: employee.id, userId: { in: userIds } },
+        };
+        const [usageCount, latestExecution] = await Promise.all([
+          this.prisma.toolExecution.count({ where: executionWhere }),
+          this.prisma.toolExecution.findFirst({
+            where: executionWhere,
+            select: { createdAt: true },
+            orderBy: { createdAt: "desc" },
+          }),
+        ]);
+        return {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          subscriptionId: subscription?.id ?? null,
+          selectedVersion: selection?.version ?? null,
+          effectiveVersion,
+          lastUsedAt: latestExecution?.createdAt ?? null,
+          usageCount,
+        };
+      }),
+    );
     return { capability, totalBindings: employees.length, employees };
   }
 
   async create(userId: string, dto: ContributionCapabilityCreateDto) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    if (dto.type === 'skill' && !dto.skillConfig) {
-      throw new BadRequestException('Skill 能力必须提供正文模板或上传 SKILL 包');
+    if (dto.type === "skill" && !dto.skillConfig) {
+      throw new BadRequestException(
+        "Skill 能力必须提供正文模板或上传 SKILL 包",
+      );
     }
-    if (dto.type === 'agent' && !dto.agentConfig) {
-      throw new BadRequestException('Agent 能力必须提供执行平台配置');
+    if (dto.type === "agent" && !dto.agentConfig) {
+      throw new BadRequestException("Agent 能力必须提供执行平台配置");
+    }
+    if (dto.type === "rpa" && !dto.rpaConfig) {
+      throw new BadRequestException("RPA 能力必须上传 ZIP 包并填写平台说明");
     }
 
     // 正文来源在这里收敛成一份：上传路径按 sha256 重新解包，在线编写路径剥
     // frontmatter。后面写 SkillConfig 与首版 SkillVersion 都用这一份，
     // 两处不会漂移。
+    const rpa = dto.rpaConfig
+      ? await this.resolveRpaSource(
+          dto.rpaConfig.packageSha256,
+          dto.rpaConfig.packageFilename,
+        )
+      : null;
     const skill = dto.skillConfig
       ? await this.resolveSkillSource({
           body: dto.skillConfig.template,
@@ -237,32 +383,59 @@ export class CapabilityContributionService {
         outputSchema: dto.outputSchema,
         contributorId: userId,
         enterpriseId: ctx?.enterpriseId ?? null,
-        ...(skill && dto.skillConfig && {
-          skillConfig: {
-            create: {
-              template: skill.content,
-              modelId: dto.skillConfig.modelId,
-              temperature: dto.skillConfig.temperature,
-              maxTokens: dto.skillConfig.maxTokens,
+        ...(skill &&
+          dto.skillConfig && {
+            skillConfig: {
+              create: {
+                template: skill.content,
+                modelId: dto.skillConfig.modelId,
+                temperature: dto.skillConfig.temperature,
+                maxTokens: dto.skillConfig.maxTokens,
+              },
             },
-          },
-          skillVersions: {
-            create: {
-              scope: ctx ? 'ENTERPRISE' : 'PLATFORM',
-              enterpriseId: ctx?.enterpriseId ?? null,
-              version: '1.0.0',
-              content: skill.content,
-              changeSummary: '初始版本',
-              status: 'DRAFT',
-              createdById: userId,
-              ...skill.packageFields,
+            skillVersions: {
+              create: {
+                scope: ctx ? "ENTERPRISE" : "PLATFORM",
+                enterpriseId: ctx?.enterpriseId ?? null,
+                version: "1.0.0",
+                content: skill.content,
+                changeSummary: "初始版本",
+                status: "DRAFT",
+                createdById: userId,
+                ...skill.packageFields,
+              },
             },
-          },
-        }),
+          }),
+        ...(rpa &&
+          dto.rpaConfig && {
+            rpaConfig: {
+              create: {
+                platform: dto.rpaConfig.platform.toUpperCase() as
+                  "SHIZAI" | "YINGDAO",
+                executionMode: "DOWNLOAD",
+                packageUrl: rpa.key,
+                packageSha256: rpa.sha256,
+                configDoc: dto.rpaConfig.configDoc,
+              },
+            },
+            rpaVersions: {
+              create: {
+                version: "1.0.0",
+                packageKey: rpa.key,
+                packageSha256: rpa.sha256,
+                packageFilename: rpa.filename,
+                packageFileCount: rpa.fileCount,
+                packageBytes: rpa.totalBytes,
+                configDoc: dto.rpaConfig.configDoc,
+                status: "DRAFT",
+                createdById: userId,
+              },
+            },
+          }),
         ...(dto.agentConfig && {
           agentConfig: {
             create: {
-              platform: dto.agentConfig.platform.toUpperCase() as 'COZE',
+              platform: dto.agentConfig.platform.toUpperCase() as "COZE",
               botId: dto.agentConfig.botId,
               workflowUrl: dto.agentConfig.workflowUrl,
               skillName: dto.agentConfig.skillName,
@@ -274,13 +447,23 @@ export class CapabilityContributionService {
     });
   }
 
-  async update(userId: string, capabilityId: string, dto: ContributionCapabilityUpdateDto) {
+  async update(
+    userId: string,
+    capabilityId: string,
+    dto: ContributionCapabilityUpdateDto,
+  ) {
     const capability = await this.getOwnedCapability(userId, capabilityId);
-    if (capability.enterpriseReviewStatus === 'PENDING' || capability.platformReviewStatus === 'PENDING_REVIEW') {
-      throw new ConflictException('审核中的能力不能编辑');
+    if (
+      capability.enterpriseReviewStatus === "PENDING" ||
+      capability.platformReviewStatus === "PENDING_REVIEW"
+    ) {
+      throw new ConflictException("审核中的能力不能编辑");
     }
-    if (capability.enterpriseReviewStatus === 'APPROVED' && capability.visibility === 'MARKET_PUBLIC') {
-      throw new ConflictException('已公开能力不能直接修改，请创建新版本');
+    if (
+      capability.enterpriseReviewStatus === "APPROVED" &&
+      capability.visibility === "MARKET_PUBLIC"
+    ) {
+      throw new ConflictException("已公开能力不能直接修改，请创建新版本");
     }
     return this.prisma.capability.update({
       where: { id: capability.id },
@@ -290,9 +473,11 @@ export class CapabilityContributionService {
         ...(dto.industry !== undefined && { industry: dto.industry }),
         ...(dto.position !== undefined && { position: dto.position }),
         ...(dto.inputSchema !== undefined && { inputSchema: dto.inputSchema }),
-        ...(dto.outputSchema !== undefined && { outputSchema: dto.outputSchema }),
-        ...(capability.enterpriseReviewStatus === 'REJECTED' && {
-          enterpriseReviewStatus: 'NOT_SUBMITTED',
+        ...(dto.outputSchema !== undefined && {
+          outputSchema: dto.outputSchema,
+        }),
+        ...(capability.enterpriseReviewStatus === "REJECTED" && {
+          enterpriseReviewStatus: "NOT_SUBMITTED",
           enterpriseRejectionReason: null,
         }),
       },
@@ -303,30 +488,63 @@ export class CapabilityContributionService {
   async submitEnterpriseReview(userId: string, capabilityId: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
     const capability = await this.getOwnedCapability(userId, capabilityId);
-    if (capability.enterpriseId !== ctx.enterpriseId) throw new ForbiddenException('能力不属于当前企业');
-    if (!['NOT_SUBMITTED', 'REJECTED'].includes(capability.enterpriseReviewStatus)) {
-      throw new ConflictException('当前状态不能提交企业审核');
+    if (capability.enterpriseId !== ctx.enterpriseId)
+      throw new ForbiddenException("能力不属于当前企业");
+    if (
+      !["NOT_SUBMITTED", "REJECTED"].includes(capability.enterpriseReviewStatus)
+    ) {
+      throw new ConflictException("当前状态不能提交企业审核");
     }
-    const validation = await this.validateCapability(capability.id, capability.type);
+    const validation = await this.validateCapability(
+      capability.id,
+      capability.type,
+    );
     if (!validation.valid) {
-      throw new BadRequestException({ message: '自动校验未通过，暂不能提交审核', validation });
+      throw new BadRequestException({
+        message: "自动校验未通过，暂不能提交审核",
+        validation,
+      });
     }
     const result = await this.prisma.$transaction(async (tx) => {
       const validatedAt = new Date();
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
-          enterpriseReviewStatus: 'PENDING',
+          enterpriseReviewStatus: "PENDING",
           enterpriseRejectionReason: null,
           validationResult: validation,
           validatedAt,
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === 'SKILL') {
+      if (capability.type === "SKILL") {
         await tx.skillVersion.updateMany({
-          where: { capabilityId: capability.id, scope: 'ENTERPRISE', status: { in: ['DRAFT', 'ENTERPRISE_REJECTED'] } },
-          data: { status: 'PENDING_ENTERPRISE_REVIEW', submittedAt: validatedAt, rejectionReason: null, validationResult: validation, validatedAt },
+          where: {
+            capabilityId: capability.id,
+            scope: "ENTERPRISE",
+            status: { in: ["DRAFT", "ENTERPRISE_REJECTED"] },
+          },
+          data: {
+            status: "PENDING_ENTERPRISE_REVIEW",
+            submittedAt: validatedAt,
+            rejectionReason: null,
+            validationResult: validation,
+            validatedAt,
+          },
+        });
+      } else if (capability.type === "RPA") {
+        await tx.rpaVersion.updateMany({
+          where: {
+            capabilityId: capability.id,
+            status: { in: ["DRAFT", "ENTERPRISE_REJECTED"] },
+          },
+          data: {
+            status: "PENDING_ENTERPRISE_REVIEW",
+            submittedAt: validatedAt,
+            rejectionReason: null,
+            validationResult: validation,
+            validatedAt,
+          },
         });
       }
       return updated;
@@ -334,60 +552,144 @@ export class CapabilityContributionService {
     return result;
   }
 
-  async reviewEnterprise(userId: string, capabilityId: string, dto: ContributionDecisionDto) {
+  async reviewEnterprise(
+    userId: string,
+    capabilityId: string,
+    dto: ContributionDecisionDto,
+  ) {
     const ctx = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertCanApprove(ctx);
-    const capability = await this.prisma.capability.findFirst({ where: { id: capabilityId, enterpriseId: ctx.enterpriseId } });
-    if (!capability) throw new NotFoundException('能力不存在');
-    if (capability.enterpriseReviewStatus !== 'PENDING') throw new ConflictException('只有待企业审核能力可以审核');
-    const approved = dto.decision === 'APPROVE';
+    const capability = await this.prisma.capability.findFirst({
+      where: { id: capabilityId, enterpriseId: ctx.enterpriseId },
+    });
+    if (!capability) throw new NotFoundException("能力不存在");
+    if (capability.enterpriseReviewStatus !== "PENDING")
+      throw new ConflictException("只有待企业审核能力可以审核");
+    const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
-          enterpriseReviewStatus: approved ? 'APPROVED' : 'REJECTED',
+          enterpriseReviewStatus: approved ? "APPROVED" : "REJECTED",
           enterpriseReviewedById: userId,
           enterpriseReviewedAt: new Date(),
           enterpriseRejectionReason: approved ? null : dto.comment,
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === 'SKILL') {
+      if (capability.type === "SKILL") {
         await tx.skillVersion.updateMany({
-          where: { capabilityId: capability.id, scope: 'ENTERPRISE', status: 'PENDING_ENTERPRISE_REVIEW' },
-          data: { status: approved ? 'ENTERPRISE_APPROVED' : 'ENTERPRISE_REJECTED', rejectionReason: approved ? null : dto.comment },
+          where: {
+            capabilityId: capability.id,
+            scope: "ENTERPRISE",
+            status: "PENDING_ENTERPRISE_REVIEW",
+          },
+          data: {
+            status: approved ? "ENTERPRISE_APPROVED" : "ENTERPRISE_REJECTED",
+            rejectionReason: approved ? null : dto.comment,
+          },
+        });
+      } else if (capability.type === "RPA") {
+        await tx.rpaVersion.updateMany({
+          where: {
+            capabilityId: capability.id,
+            status: "PENDING_ENTERPRISE_REVIEW",
+          },
+          data: {
+            status: approved ? "ENTERPRISE_APPROVED" : "ENTERPRISE_REJECTED",
+            rejectionReason: approved ? null : dto.comment,
+          },
         });
       }
       if (approved) {
-        const amount = await this.rewardAmount('enterprise');
+        const amount = await this.rewardAmount("enterprise");
         const dedupeKey = `enterprise-approved:${capability.id}`;
-        await tx.contributionRewardEvent.createMany({ data: [{ recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'ENTERPRISE_APPROVED', points: 10, amount, status: 'AVAILABLE', settledAt: new Date(), dedupeKey, metadata: { reviewerId: userId, amountCNY: amount.toString() } }], skipDuplicates: true });
-        await creditRewardInTx(tx, capability.contributorId, amount, dedupeKey, `企业审核通过奖励 ¥${amount.toFixed(2)}`);
+        await tx.contributionRewardEvent.createMany({
+          data: [
+            {
+              recipientId: capability.contributorId,
+              enterpriseId: capability.enterpriseId,
+              capabilityId: capability.id,
+              eventType: "ENTERPRISE_APPROVED",
+              points: 10,
+              amount,
+              status: "AVAILABLE",
+              settledAt: new Date(),
+              dedupeKey,
+              metadata: { reviewerId: userId, amountCNY: amount.toString() },
+            },
+          ],
+          skipDuplicates: true,
+        });
+        await creditRewardInTx(
+          tx,
+          capability.contributorId,
+          amount,
+          dedupeKey,
+          `企业审核通过奖励 ¥${amount.toFixed(2)}`,
+        );
       }
       return updated;
     });
-    if (this.notifications) await this.notifications.create({ userId: capability.contributorId, type: approved ? 'CONTRIBUTION_ENTERPRISE_APPROVED' : 'CONTRIBUTION_ENTERPRISE_REJECTED', category: 'APPROVAL', title: approved ? '企业审核已通过' : '企业审核未通过', message: approved ? `能力「${capability.name}」已通过企业审核，奖励已入账。` : `能力「${capability.name}」未通过企业审核：${dto.comment ?? '请查看审核意见'}`, relatedType: 'capability', relatedId: capability.id, actionUrl: `/contributions/${capability.id}` });
-    if (approved && this.notifications) await this.notifications.create({ userId: capability.contributorId, type: 'CONTRIBUTION_REWARD_CREDITED', title: '贡献奖励已入账', message: `能力「${capability.name}」的企业审核奖励已进入个人钱包。`, relatedType: 'contribution_reward', relatedId: capability.id, actionUrl: '/wallet' });
+    if (this.notifications)
+      await this.notifications.create({
+        userId: capability.contributorId,
+        type: approved
+          ? "CONTRIBUTION_ENTERPRISE_APPROVED"
+          : "CONTRIBUTION_ENTERPRISE_REJECTED",
+        category: "APPROVAL",
+        title: approved ? "企业审核已通过" : "企业审核未通过",
+        message: approved
+          ? `能力「${capability.name}」已通过企业审核，奖励已入账。`
+          : `能力「${capability.name}」未通过企业审核：${dto.comment ?? "请查看审核意见"}`,
+        relatedType: "capability",
+        relatedId: capability.id,
+        actionUrl: `/contributions/${capability.id}`,
+      });
+    if (approved && this.notifications)
+      await this.notifications.create({
+        userId: capability.contributorId,
+        type: "CONTRIBUTION_REWARD_CREDITED",
+        title: "贡献奖励已入账",
+        message: `能力「${capability.name}」的企业审核奖励已进入个人钱包。`,
+        relatedType: "contribution_reward",
+        relatedId: capability.id,
+        actionUrl: "/wallet",
+      });
     return result;
   }
 
   async requestPlatformReview(userId: string, capabilityId: string) {
     const capability = await this.getOwnedCapability(userId, capabilityId);
-    if (capability.enterpriseId && capability.enterpriseReviewStatus !== 'APPROVED') {
-      throw new ConflictException('企业审核通过后才能申请平台审核');
+    if (
+      capability.enterpriseId &&
+      capability.enterpriseReviewStatus !== "APPROVED"
+    ) {
+      throw new ConflictException("企业审核通过后才能申请平台审核");
     }
-    if (!['NOT_SUBMITTED', 'REJECTED'].includes(capability.platformReviewStatus)) {
-      throw new ConflictException('当前状态不能申请平台审核');
+    if (
+      !["NOT_SUBMITTED", "REJECTED"].includes(capability.platformReviewStatus)
+    ) {
+      throw new ConflictException("当前状态不能申请平台审核");
     }
-    const validation = await this.validateCapability(capability.id, capability.type);
-    if (!validation.valid) throw new BadRequestException({ message: '自动校验未通过，暂不能申请平台投稿', validation });
+    const validation = await this.validateCapability(
+      capability.id,
+      capability.type,
+    );
+    if (!validation.valid)
+      throw new BadRequestException({
+        message: "自动校验未通过，暂不能申请平台投稿",
+        validation,
+      });
     const directPlatformSubmission = !capability.enterpriseId;
     const result = await this.prisma.$transaction(async (tx) => {
       const submittedAt = new Date();
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
-          platformReviewStatus: directPlatformSubmission ? 'PENDING_REVIEW' : 'REQUESTED',
+          platformReviewStatus: directPlatformSubmission
+            ? "PENDING_REVIEW"
+            : "REQUESTED",
           platformSubmittedById: directPlatformSubmission ? userId : null,
           platformSubmittedAt: directPlatformSubmission ? submittedAt : null,
           platformRejectionReason: null,
@@ -401,15 +703,29 @@ export class CapabilityContributionService {
       // PENDING_PLATFORM_REVIEW，于是运营的待审列表里出现一批点通过必然 404 的行
       // —— reviewPlatformVersion 只认 scope=PLATFORM。改到 authorizePlatformSubmission
       // 那步去建平台副本。
-      if (capability.type === 'SKILL' && directPlatformSubmission) {
+      if (capability.type === "SKILL" && directPlatformSubmission) {
         await tx.skillVersion.updateMany({
           where: {
             capabilityId: capability.id,
-            scope: 'PLATFORM',
-            status: { in: ['DRAFT', 'PLATFORM_REJECTED'] },
+            scope: "PLATFORM",
+            status: { in: ["DRAFT", "PLATFORM_REJECTED"] },
           },
           data: {
-            status: 'PENDING_PLATFORM_REVIEW',
+            status: "PENDING_PLATFORM_REVIEW",
+            submittedAt,
+            validationResult: validation,
+            validatedAt: submittedAt,
+            rejectionReason: null,
+          },
+        });
+      } else if (capability.type === "RPA" && directPlatformSubmission) {
+        await tx.rpaVersion.updateMany({
+          where: {
+            capabilityId: capability.id,
+            status: { in: ["DRAFT", "PLATFORM_REJECTED"] },
+          },
+          data: {
+            status: "PENDING_PLATFORM_REVIEW",
             submittedAt,
             validationResult: validation,
             validatedAt: submittedAt,
@@ -424,19 +740,42 @@ export class CapabilityContributionService {
   async authorizePlatformSubmission(userId: string, capabilityId: string) {
     const ctx = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertEnterpriseAdmin(ctx);
-    const capability = await this.prisma.capability.findFirst({ where: { id: capabilityId, enterpriseId: ctx.enterpriseId } });
-    if (!capability) throw new NotFoundException('能力不存在');
-    if (capability.enterpriseReviewStatus !== 'APPROVED' || capability.platformReviewStatus !== 'REQUESTED') {
-      throw new ConflictException('只有企业审核通过且已发起投稿申请的能力可以授权');
+    const capability = await this.prisma.capability.findFirst({
+      where: { id: capabilityId, enterpriseId: ctx.enterpriseId },
+    });
+    if (!capability) throw new NotFoundException("能力不存在");
+    if (
+      capability.enterpriseReviewStatus !== "APPROVED" ||
+      capability.platformReviewStatus !== "REQUESTED"
+    ) {
+      throw new ConflictException(
+        "只有企业审核通过且已发起投稿申请的能力可以授权",
+      );
     }
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
-        data: { platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: userId, platformSubmittedAt: new Date() },
+        data: {
+          platformReviewStatus: "PENDING_REVIEW",
+          platformSubmittedById: userId,
+          platformSubmittedAt: new Date(),
+        },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === 'SKILL') {
+      if (capability.type === "SKILL") {
         await this.promoteLatestEnterpriseVersion(tx, capability.id, userId);
+      } else if (capability.type === "RPA") {
+        await tx.rpaVersion.updateMany({
+          where: {
+            capabilityId: capability.id,
+            status: { in: ["ENTERPRISE_APPROVED", "PLATFORM_REJECTED"] },
+          },
+          data: {
+            status: "PENDING_PLATFORM_REVIEW",
+            submittedAt: new Date(),
+            rejectionReason: null,
+          },
+        });
       }
       return updated;
     });
@@ -461,11 +800,14 @@ export class CapabilityContributionService {
     const source = await tx.skillVersion.findFirst({
       where: {
         capabilityId,
-        scope: 'ENTERPRISE',
-        status: { in: ['ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] },
+        scope: "ENTERPRISE",
+        status: { in: ["ENTERPRISE_APPROVED", "PLATFORM_REJECTED"] },
       },
-      orderBy: { createdAt: 'desc' },
-      select: { ...PLATFORM_PROMOTION_SOURCE_SELECT, enterprise: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        ...PLATFORM_PROMOTION_SOURCE_SELECT,
+        enterprise: { select: { name: true } },
+      },
     });
     if (!source) return null;
 
@@ -480,7 +822,7 @@ export class CapabilityContributionService {
       return tx.skillVersion.update({
         where: { id: existing.id },
         data: {
-          status: 'PENDING_PLATFORM_REVIEW',
+          status: "PENDING_PLATFORM_REVIEW",
           submittedAt: new Date(),
           rejectionReason: null,
         },
@@ -488,12 +830,12 @@ export class CapabilityContributionService {
     }
 
     const siblings = await tx.skillVersion.findMany({
-      where: { capabilityId, scope: 'PLATFORM', enterpriseId: null },
+      where: { capabilityId, scope: "PLATFORM", enterpriseId: null },
       select: { version: true },
     });
     const platformParent = await tx.skillVersion.findFirst({
-      where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: { createdAt: 'desc' },
+      where: { capabilityId, scope: "PLATFORM", status: "PLATFORM_APPROVED" },
+      orderBy: { createdAt: "desc" },
       select: { id: true },
     });
 
@@ -502,7 +844,7 @@ export class CapabilityContributionService {
         source,
         version: nextSemver(siblings.map((row) => row.version)),
         platformParentId: platformParent?.id ?? null,
-        status: 'PENDING_PLATFORM_REVIEW',
+        status: "PENDING_PLATFORM_REVIEW",
         actorId,
         changeSummary: platformPromotionSummary({
           enterpriseName: source.enterprise?.name ?? null,
@@ -514,46 +856,117 @@ export class CapabilityContributionService {
     });
   }
 
-  async reviewPlatform(userId: string, capabilityId: string, dto: ContributionDecisionDto) {
-    const reviewer = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-    if (reviewer?.role !== 'ADMIN') throw new ForbiddenException('仅平台运营可审核');
-    const capability = await this.prisma.capability.findUnique({ where: { id: capabilityId } });
-    if (!capability || capability.platformReviewStatus !== 'PENDING_REVIEW') throw new ConflictException('只有待平台审核能力可以审核');
-    const approved = dto.decision === 'APPROVE';
+  async reviewPlatform(
+    userId: string,
+    capabilityId: string,
+    dto: ContributionDecisionDto,
+  ) {
+    const reviewer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (reviewer?.role !== "ADMIN")
+      throw new ForbiddenException("仅平台运营可审核");
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+    });
+    if (!capability || capability.platformReviewStatus !== "PENDING_REVIEW")
+      throw new ConflictException("只有待平台审核能力可以审核");
+    const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
-          platformReviewStatus: approved ? 'APPROVED' : 'REJECTED',
-          visibility: approved ? 'MARKET_PUBLIC' : 'ENTERPRISE_PRIVATE',
-          status: approved ? 'APPROVED' : 'REJECTED',
+          platformReviewStatus: approved ? "APPROVED" : "REJECTED",
+          visibility: approved ? "MARKET_PUBLIC" : "ENTERPRISE_PRIVATE",
+          status: approved ? "APPROVED" : "REJECTED",
           platformRejectionReason: approved ? null : dto.comment,
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === 'SKILL') {
+      if (capability.type === "SKILL") {
         await tx.skillVersion.updateMany({
           // 只作用在平台副本上。企业投稿与个人直投现在都产出 scope=PLATFORM 的行，
           // 少了这个 scope 约束，企业那行会被改成 PLATFORM_APPROVED —— 于是出现
           // 「MARKET_PUBLIC 的能力一个平台版本都没有」，别的企业订阅后拿不到正文。
           where: {
             capabilityId: capability.id,
-            scope: 'PLATFORM',
-            status: 'PENDING_PLATFORM_REVIEW',
+            scope: "PLATFORM",
+            status: "PENDING_PLATFORM_REVIEW",
           },
-          data: { status: approved ? 'PLATFORM_APPROVED' : 'PLATFORM_REJECTED', rejectionReason: approved ? null : dto.comment },
+          data: {
+            status: approved ? "PLATFORM_APPROVED" : "PLATFORM_REJECTED",
+            rejectionReason: approved ? null : dto.comment,
+          },
+        });
+      }
+      if (capability.type === "RPA") {
+        await tx.rpaVersion.updateMany({
+          where: {
+            capabilityId: capability.id,
+            status: "PENDING_PLATFORM_REVIEW",
+          },
+          data: {
+            status: approved ? "PLATFORM_APPROVED" : "PLATFORM_REJECTED",
+            rejectionReason: approved ? null : dto.comment,
+          },
         });
       }
       if (approved) {
-        const amount = await this.rewardAmount('platform');
+        const amount = await this.rewardAmount("platform");
         const dedupeKey = `platform-approved:${capability.id}`;
-        await tx.contributionRewardEvent.createMany({ data: [{ recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'PLATFORM_APPROVED', points: 50, amount, status: 'AVAILABLE', settledAt: new Date(), dedupeKey, metadata: { reviewerId: userId, amountCNY: amount.toString() } }], skipDuplicates: true });
-        await creditRewardInTx(tx, capability.contributorId, amount, dedupeKey, `平台审核通过奖励 ¥${amount.toFixed(2)}`);
+        await tx.contributionRewardEvent.createMany({
+          data: [
+            {
+              recipientId: capability.contributorId,
+              enterpriseId: capability.enterpriseId,
+              capabilityId: capability.id,
+              eventType: "PLATFORM_APPROVED",
+              points: 50,
+              amount,
+              status: "AVAILABLE",
+              settledAt: new Date(),
+              dedupeKey,
+              metadata: { reviewerId: userId, amountCNY: amount.toString() },
+            },
+          ],
+          skipDuplicates: true,
+        });
+        await creditRewardInTx(
+          tx,
+          capability.contributorId,
+          amount,
+          dedupeKey,
+          `平台审核通过奖励 ¥${amount.toFixed(2)}`,
+        );
       }
       return updated;
     });
-    if (this.notifications) await this.notifications.create({ userId: capability.contributorId, type: approved ? 'CONTRIBUTION_PLATFORM_APPROVED' : 'CONTRIBUTION_PLATFORM_REJECTED', category: 'APPROVAL', title: approved ? '平台审核已通过' : '平台审核未通过', message: approved ? `能力「${capability.name}」已公开，奖励已入账。` : `能力「${capability.name}」未通过平台审核：${dto.comment ?? '请查看审核意见'}`, relatedType: 'capability', relatedId: capability.id, actionUrl: `/contributions/${capability.id}` });
-    if (approved && this.notifications) await this.notifications.create({ userId: capability.contributorId, type: 'CONTRIBUTION_REWARD_CREDITED', title: '贡献奖励已入账', message: `能力「${capability.name}」的平台审核奖励已进入个人钱包。`, relatedType: 'contribution_reward', relatedId: capability.id, actionUrl: '/wallet' });
+    if (this.notifications)
+      await this.notifications.create({
+        userId: capability.contributorId,
+        type: approved
+          ? "CONTRIBUTION_PLATFORM_APPROVED"
+          : "CONTRIBUTION_PLATFORM_REJECTED",
+        category: "APPROVAL",
+        title: approved ? "平台审核已通过" : "平台审核未通过",
+        message: approved
+          ? `能力「${capability.name}」已公开，奖励已入账。`
+          : `能力「${capability.name}」未通过平台审核：${dto.comment ?? "请查看审核意见"}`,
+        relatedType: "capability",
+        relatedId: capability.id,
+        actionUrl: `/contributions/${capability.id}`,
+      });
+    if (approved && this.notifications)
+      await this.notifications.create({
+        userId: capability.contributorId,
+        type: "CONTRIBUTION_REWARD_CREDITED",
+        title: "贡献奖励已入账",
+        message: `能力「${capability.name}」的平台审核奖励已进入个人钱包。`,
+        relatedType: "contribution_reward",
+        relatedId: capability.id,
+        actionUrl: "/wallet",
+      });
     return result;
   }
 
@@ -565,15 +978,25 @@ export class CapabilityContributionService {
    * 平台审核，作者就再也改不动了。现在公开能力照常派生新版本，父版本回落到
    * 当前公开版本，后续走版本级审核（submitVersion）而不是能力级审核。
    */
-  async createSkillVersion(userId: string, capabilityId: string, dto: ContributionVersionCreateDto) {
+  async createSkillVersion(
+    userId: string,
+    capabilityId: string,
+    dto: ContributionVersionCreateDto,
+  ) {
     const capability = await this.getOwnedCapability(userId, capabilityId);
-    if (capability.type !== 'SKILL') throw new BadRequestException('只有 Skill 支持版本迭代');
+    if (capability.type !== "SKILL")
+      throw new BadRequestException("只有 Skill 支持版本迭代");
 
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    const scope: SkillVersionScope = ctx ? 'ENTERPRISE' : 'PLATFORM';
+    const scope: SkillVersionScope = ctx ? "ENTERPRISE" : "PLATFORM";
     const enterpriseId = ctx?.enterpriseId ?? null;
 
-    const parent = await this.resolveParentVersion(capabilityId, dto.parentVersionId, scope, enterpriseId);
+    const parent = await this.resolveParentVersion(
+      capabilityId,
+      dto.parentVersionId,
+      scope,
+      enterpriseId,
+    );
     const skill = await this.resolveSkillSource({
       body: dto.content,
       packageSha256: dto.packageSha256,
@@ -593,7 +1016,7 @@ export class CapabilityContributionService {
         version: nextSemver(siblings.map((row) => row.version)),
         content: skill.content,
         changeSummary: dto.changeSummary,
-        status: 'DRAFT',
+        status: "DRAFT",
         createdById: userId,
         ...skill.packageFields,
       },
@@ -614,22 +1037,26 @@ export class CapabilityContributionService {
   ) {
     if (parentVersionId) {
       const explicit = await this.prisma.skillVersion.findFirst({
-        where: { id: parentVersionId, capabilityId, scope: { not: 'PERSONAL' } },
+        where: {
+          id: parentVersionId,
+          capabilityId,
+          scope: { not: "PERSONAL" },
+        },
         select: { id: true },
       });
-      if (!explicit) throw new BadRequestException('父版本与能力不匹配');
+      if (!explicit) throw new BadRequestException("父版本与能力不匹配");
       return explicit;
     }
     return (
       (await this.prisma.skillVersion.findFirst({
         where: { capabilityId, scope, enterpriseId },
         select: { id: true },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
       })) ??
       (await this.prisma.skillVersion.findFirst({
-        where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+        where: { capabilityId, scope: "PLATFORM", status: "PLATFORM_APPROVED" },
         select: { id: true },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
       }))
     );
   }
@@ -637,7 +1064,11 @@ export class CapabilityContributionService {
   /** 作者查看自己某个版本的正文。企业侧那个 preview 要求订阅授权，贡献场景永远拿不到。 */
   async getVersionForAuthor(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: { not: 'PERSONAL' }, capability: { contributorId: userId } },
+      where: {
+        id: versionId,
+        scope: { not: "PERSONAL" },
+        capability: { contributorId: userId },
+      },
       select: {
         ...AUTHOR_VERSION_SELECT,
         content: true,
@@ -645,24 +1076,34 @@ export class CapabilityContributionService {
         validationResult: true,
         validatedAt: true,
         updatedAt: true,
-        capability: { select: { id: true, name: true, description: true, visibility: true } },
+        capability: {
+          select: { id: true, name: true, description: true, visibility: true },
+        },
       },
     });
-    if (!version) throw new NotFoundException('版本不存在或无权访问');
+    if (!version) throw new NotFoundException("版本不存在或无权访问");
     return version;
   }
 
   /** 编辑草稿正文。上传来的版本不给改文字 —— 包才是它的正文来源，要改就换包。 */
-  async updateVersion(userId: string, versionId: string, dto: ContributionVersionUpdateDto) {
+  async updateVersion(
+    userId: string,
+    versionId: string,
+    dto: ContributionVersionUpdateDto,
+  ) {
     const version = await this.getEditableVersion(userId, versionId);
     if (version.packageKey) {
-      throw new ConflictException('这个版本的正文来自上传的包，请上传新版本替代');
+      throw new ConflictException(
+        "这个版本的正文来自上传的包，请上传新版本替代",
+      );
     }
     return this.prisma.skillVersion.update({
       where: { id: version.id },
       data: {
         content: matter(dto.content).content.trimStart(),
-        ...(dto.changeSummary !== undefined && { changeSummary: dto.changeSummary }),
+        ...(dto.changeSummary !== undefined && {
+          changeSummary: dto.changeSummary,
+        }),
       },
       select: { ...AUTHOR_VERSION_SELECT, content: true },
     });
@@ -675,17 +1116,23 @@ export class CapabilityContributionService {
   async submitVersion(userId: string, versionId: string) {
     const version = await this.getEditableVersion(userId, versionId);
     if (!version.changeSummary?.trim()) {
-      throw new BadRequestException('请先填写本版本的变更说明');
+      throw new BadRequestException("请先填写本版本的变更说明");
     }
     const validation = this.validator.validateSkill(version.content);
     if (!validation.valid) {
-      throw new BadRequestException({ message: '自动校验未通过，暂不能提交审核', validation });
+      throw new BadRequestException({
+        message: "自动校验未通过，暂不能提交审核",
+        validation,
+      });
     }
     const submittedAt = new Date();
     return this.prisma.skillVersion.update({
       where: { id: version.id },
       data: {
-        status: version.scope === 'ENTERPRISE' ? 'PENDING_ENTERPRISE_REVIEW' : 'PENDING_PLATFORM_REVIEW',
+        status:
+          version.scope === "ENTERPRISE"
+            ? "PENDING_ENTERPRISE_REVIEW"
+            : "PENDING_PLATFORM_REVIEW",
         submittedAt,
         rejectionReason: null,
         validationResult: validation,
@@ -698,12 +1145,20 @@ export class CapabilityContributionService {
   /** 作者名下、且处于可编辑状态（草稿或被驳回）的版本。 */
   private async getEditableVersion(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: { not: 'PERSONAL' }, capability: { contributorId: userId } },
+      where: {
+        id: versionId,
+        scope: { not: "PERSONAL" },
+        capability: { contributorId: userId },
+      },
     });
-    if (!version) throw new NotFoundException('版本不存在或无权访问');
-    const editable: SkillVersionStatus[] = ['DRAFT', 'ENTERPRISE_REJECTED', 'PLATFORM_REJECTED'];
+    if (!version) throw new NotFoundException("版本不存在或无权访问");
+    const editable: SkillVersionStatus[] = [
+      "DRAFT",
+      "ENTERPRISE_REJECTED",
+      "PLATFORM_REJECTED",
+    ];
     if (!editable.includes(version.status)) {
-      throw new ConflictException('只有草稿或被驳回的版本可以修改');
+      throw new ConflictException("只有草稿或被驳回的版本可以修改");
     }
     return version;
   }
@@ -711,18 +1166,33 @@ export class CapabilityContributionService {
   async rewards(userId: string) {
     return this.prisma.contributionRewardEvent.findMany({
       where: { recipientId: userId },
-      select: { id: true, eventType: true, points: true, amount: true, status: true, dedupeKey: true, metadata: true, createdAt: true, settledAt: true, capability: { select: { id: true, name: true } } },
-      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        eventType: true,
+        points: true,
+        amount: true,
+        status: true,
+        dedupeKey: true,
+        metadata: true,
+        createdAt: true,
+        settledAt: true,
+        capability: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
     });
   }
 
-  async listPlatformQueue(status: ContributionPlatformStatus = 'PENDING_REVIEW', page = 1, pageSize = 20) {
+  async listPlatformQueue(
+    status: ContributionPlatformStatus = "PENDING_REVIEW",
+    page = 1,
+    pageSize = 20,
+  ) {
     const where = { platformReviewStatus: status };
     const [items, total] = await Promise.all([
       this.prisma.capability.findMany({
         where,
         select: CONTRIBUTION_PLATFORM_LIST_SELECT,
-        orderBy: [{ platformSubmittedAt: 'desc' }, { updatedAt: 'desc' }],
+        orderBy: [{ platformSubmittedAt: "desc" }, { updatedAt: "desc" }],
         skip: Math.max(0, page - 1) * pageSize,
         take: pageSize,
       }),
@@ -731,26 +1201,79 @@ export class CapabilityContributionService {
     return { items, total, page, pageSize, status };
   }
 
-  async listUnifiedReviewQueue(kind: 'ALL' | 'CAPABILITY' | 'SKILL_VERSION' = 'ALL') {
+  async listUnifiedReviewQueue(
+    kind: "ALL" | "CAPABILITY" | "SKILL_VERSION" = "ALL",
+  ) {
     const [capabilities, versions] = await Promise.all([
-      kind === 'SKILL_VERSION' ? Promise.resolve([]) : this.prisma.capability.findMany({
-        where: { platformReviewStatus: 'PENDING_REVIEW' },
-        select: { id: true, name: true, type: true, platformReviewStatus: true, platformSubmittedAt: true, enterprise: { select: { id: true, name: true } }, platformSubmittedBy: { select: { id: true, name: true, email: true } }, contributor: { select: { id: true, name: true, email: true } } },
-        orderBy: { platformSubmittedAt: 'asc' },
-      }),
-      kind === 'CAPABILITY' ? Promise.resolve([]) : this.prisma.skillVersion.findMany({
-        where: { status: 'PENDING_PLATFORM_REVIEW' },
-        // sourceVersion.enterprise 是投稿版本的来源企业。
-        // 企业投稿时创建的是 scope=PLATFORM 的新版本，它自身 enterpriseId 为空
-        // （它要成为公共版本），来源企业只能顺着 sourceVersionId 往回查 ——
-        // 否则运营在审核队列里看到的一律是「个人贡献」，分不清是谁投的。
-        select: { id: true, capabilityId: true, version: true, status: true, submittedAt: true, capability: { select: { name: true } }, enterprise: { select: { id: true, name: true } }, sourceVersion: { select: { enterprise: { select: { id: true, name: true } } } }, createdBy: { select: { id: true, name: true, email: true } } },
-        orderBy: { submittedAt: 'asc' },
-      }),
+      kind === "SKILL_VERSION"
+        ? Promise.resolve([])
+        : this.prisma.capability.findMany({
+            where: { platformReviewStatus: "PENDING_REVIEW" },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              platformReviewStatus: true,
+              platformSubmittedAt: true,
+              enterprise: { select: { id: true, name: true } },
+              platformSubmittedBy: {
+                select: { id: true, name: true, email: true },
+              },
+              contributor: { select: { id: true, name: true, email: true } },
+            },
+            orderBy: { platformSubmittedAt: "asc" },
+          }),
+      kind === "CAPABILITY"
+        ? Promise.resolve([])
+        : this.prisma.skillVersion.findMany({
+            where: { status: "PENDING_PLATFORM_REVIEW" },
+            // sourceVersion.enterprise 是投稿版本的来源企业。
+            // 企业投稿时创建的是 scope=PLATFORM 的新版本，它自身 enterpriseId 为空
+            // （它要成为公共版本），来源企业只能顺着 sourceVersionId 往回查 ——
+            // 否则运营在审核队列里看到的一律是「个人贡献」，分不清是谁投的。
+            select: {
+              id: true,
+              capabilityId: true,
+              version: true,
+              status: true,
+              submittedAt: true,
+              capability: { select: { name: true } },
+              enterprise: { select: { id: true, name: true } },
+              sourceVersion: {
+                select: { enterprise: { select: { id: true, name: true } } },
+              },
+              createdBy: { select: { id: true, name: true, email: true } },
+            },
+            orderBy: { submittedAt: "asc" },
+          }),
     ]);
     const items = [
-      ...capabilities.map((item) => ({ kind: 'CAPABILITY' as const, id: item.id, capabilityId: item.id, capabilityName: item.name, name: item.name, type: item.type, version: null, status: item.platformReviewStatus, submittedAt: item.platformSubmittedAt, enterprise: item.enterprise, submittedBy: item.platformSubmittedBy ?? item.contributor })),
-      ...versions.map((item) => ({ kind: 'SKILL_VERSION' as const, id: item.id, capabilityId: item.capabilityId, capabilityName: item.capability.name, name: `${item.capability.name} v${item.version}`, type: 'SKILL' as const, version: item.version, status: item.status, submittedAt: item.submittedAt, enterprise: item.enterprise ?? item.sourceVersion?.enterprise ?? null, submittedBy: item.createdBy })),
+      ...capabilities.map((item) => ({
+        kind: "CAPABILITY" as const,
+        id: item.id,
+        capabilityId: item.id,
+        capabilityName: item.name,
+        name: item.name,
+        type: item.type,
+        version: null,
+        status: item.platformReviewStatus,
+        submittedAt: item.platformSubmittedAt,
+        enterprise: item.enterprise,
+        submittedBy: item.platformSubmittedBy ?? item.contributor,
+      })),
+      ...versions.map((item) => ({
+        kind: "SKILL_VERSION" as const,
+        id: item.id,
+        capabilityId: item.capabilityId,
+        capabilityName: item.capability.name,
+        name: `${item.capability.name} v${item.version}`,
+        type: "SKILL" as const,
+        version: item.version,
+        status: item.status,
+        submittedAt: item.submittedAt,
+        enterprise: item.enterprise ?? item.sourceVersion?.enterprise ?? null,
+        submittedBy: item.createdBy,
+      })),
     ].sort((a, b) => +(a.submittedAt ?? 0) - +(b.submittedAt ?? 0));
     return { items, total: items.length };
   }
@@ -760,11 +1283,55 @@ export class CapabilityContributionService {
       where: { id: capabilityId },
       select: CONTRIBUTION_PLATFORM_DETAIL_SELECT,
     });
-    if (!capability) throw new NotFoundException('能力不存在');
+    if (!capability) throw new NotFoundException("能力不存在");
     return capability;
   }
 
   /** 作者本人下载某个版本的原始 SKILL 包。 */
+  async getRpaPackage(userId: string, capabilityId: string) {
+    const ctx = await this.enterpriseContext.resolveOrNull(userId);
+    const capability = await this.prisma.capability.findUnique({
+      where: { id: capabilityId },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        contributorId: true,
+        enterpriseId: true,
+        visibility: true,
+        status: true,
+        enterpriseReviewStatus: true,
+        platformReviewStatus: true,
+        rpaConfig: { select: { packageSha256: true, packageUrl: true } },
+      },
+    });
+    if (
+      !capability ||
+      capability.type !== "RPA" ||
+      !capability.rpaConfig?.packageSha256
+    )
+      throw new NotFoundException("RPA 包不存在");
+    const publicReady =
+      capability.visibility === "MARKET_PUBLIC" &&
+      capability.platformReviewStatus === "APPROVED";
+    const enterpriseReady = Boolean(
+      ctx?.enterpriseId &&
+      capability.enterpriseId === ctx.enterpriseId &&
+      capability.enterpriseReviewStatus === "APPROVED",
+    );
+    const authorReady =
+      capability.contributorId === userId &&
+      (capability.enterpriseReviewStatus === "APPROVED" || publicReady);
+    if (!publicReady && !enterpriseReady && !authorReady)
+      throw new NotFoundException("RPA 包不存在或无权下载");
+    return {
+      key:
+        capability.rpaConfig.packageUrl ||
+        `rpa/${capability.rpaConfig.packageSha256}.zip`,
+      filename: `${capability.name}.zip`,
+    };
+  }
+
   async getVersionPackage(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
       where: { id: versionId, capability: { contributorId: userId } },
@@ -775,9 +1342,9 @@ export class CapabilityContributionService {
         capability: { select: { name: true } },
       },
     });
-    if (!version) throw new NotFoundException('版本不存在或无权访问');
+    if (!version) throw new NotFoundException("版本不存在或无权访问");
     if (!version.packageKey) {
-      throw new NotFoundException('该版本是在线编写的正文，没有可下载的包');
+      throw new NotFoundException("该版本是在线编写的正文，没有可下载的包");
     }
     return {
       key: version.packageKey,
@@ -791,6 +1358,18 @@ export class CapabilityContributionService {
    * 把「上传包」与「在线编写」两条正文来源归一。
    * 上传路径只信 sha256：正文从磁盘上那份字节重新提取，客户端回传的正文一律不采纳。
    */
+  private async resolveRpaSource(sha256: string, filename?: string) {
+    if (!this.rpaPackage) throw new BadRequestException("RPA 包服务暂不可用");
+    const stored = await this.rpaPackage.read(sha256);
+    return {
+      sha256: stored.sha256,
+      key: stored.key,
+      filename: filename ?? stored.filename,
+      fileCount: stored.fileCount,
+      totalBytes: stored.totalBytes,
+    };
+  }
+
   private async resolveSkillSource(source: {
     /** 在线编写的正文。创建能力时叫 template，发布版本时叫 content。 */
     body?: string;
@@ -810,35 +1389,68 @@ export class CapabilityContributionService {
       };
     }
     return {
-      content: matter(source.body ?? '').content.trimStart(),
+      content: matter(source.body ?? "").content.trimStart(),
       packageFields: {},
     };
   }
 
   private async getOwnedCapability(userId: string, capabilityId: string) {
-    const capability = await this.prisma.capability.findFirst({ where: { id: capabilityId, contributorId: userId } });
-    if (!capability) throw new NotFoundException('能力不存在或无权访问');
+    const capability = await this.prisma.capability.findFirst({
+      where: { id: capabilityId, contributorId: userId },
+    });
+    if (!capability) throw new NotFoundException("能力不存在或无权访问");
     return capability;
   }
 
   private async validateCapability(capabilityId: string, type: CapabilityType) {
-    if (type === 'SKILL') {
+    if (type === "SKILL") {
       const version = await this.prisma.skillVersion.findFirst({
         // 个人能力使用 PLATFORM 快照，企业能力在企业审核通过后使用
         // ENTERPRISE_APPROVED 快照；平台驳回后两条路径都允许重新投稿。
         where: {
           capabilityId,
-          status: { in: ['DRAFT', 'ENTERPRISE_REJECTED', 'ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] },
+          status: {
+            in: [
+              "DRAFT",
+              "ENTERPRISE_REJECTED",
+              "ENTERPRISE_APPROVED",
+              "PLATFORM_REJECTED",
+            ],
+          },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: { content: true },
       });
-      return this.validator.validateSkill(version?.content ?? '');
+      return this.validator.validateSkill(version?.content ?? "");
+    }
+    if (type === "RPA") {
+      const config = await this.prisma.rPAConfig.findUnique({
+        where: { capabilityId },
+        select: {
+          platform: true,
+          executionMode: true,
+          packageSha256: true,
+          configDoc: true,
+        },
+      });
+      return this.validator.validateRpa(config);
     }
     const config = await this.prisma.agentConfig.findUnique({
       where: { capabilityId },
-      select: { platform: true, botId: true, workflowUrl: true, skillName: true },
+      select: {
+        platform: true,
+        botId: true,
+        workflowUrl: true,
+        skillName: true,
+      },
     });
-    return this.validator.validateAgent(config ?? { platform: '' as never, botId: null, workflowUrl: null, skillName: null });
+    return this.validator.validateAgent(
+      config ?? {
+        platform: "" as never,
+        botId: null,
+        workflowUrl: null,
+        skillName: null,
+      },
+    );
   }
 }

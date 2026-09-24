@@ -319,7 +319,16 @@ export class CapabilityService {
 
   async findOneForDownload(id: string, userId: string, userRole: string) {
     const cap = await this.findOneInternal(id);
-    if (userRole === ADMIN_ROLE || cap.contributorId === userId) return cap;
+    const isPubliclyApproved =
+      (cap.visibility === 'MARKET_PUBLIC' && cap.platformReviewStatus === 'APPROVED') ||
+      // 存量能力在迁移前没有贡献中心的公开状态，继续兼容旧的 APPROVED 公开语义。
+      (cap.enterpriseId == null && cap.status === APPROVED);
+
+    // 市场公开能力不应再要求员工 Grant。Grant 只用于企业私有能力的
+    // 「已绑定员工可下载」场景；否则平台审核通过的投稿仍会被下载接口挡住。
+    if (isPubliclyApproved || userRole === ADMIN_ROLE || cap.contributorId === userId) {
+      return cap;
+    }
 
     const member = await this.prisma.enterpriseMember.findFirst({
       where: { userId },
@@ -344,6 +353,67 @@ export class CapabilityService {
     });
     if (!grant) throw new ForbiddenException('No permission to download this skill');
     return cap;
+  }
+
+  /**
+   * 返回统一贡献链路下的 SKILL 包 key。
+   *
+   * 新投稿把包放在 SkillVersion.packageKey，历史运营投稿仍把 key 放在
+   * Capability.metadata.zipPath。下载入口统一走这里，避免市场页继续读取一条
+   * 已经不再写入的旧字段而出现「审核通过但 404」。
+   */
+  async getSkillPackageForDownload(id: string, userId: string, userRole: string) {
+    const capability = await this.findOneForDownload(id, userId, userRole);
+    if (capability.type !== 'SKILL') {
+      throw new NotFoundException('Capability is not a SKILL package');
+    }
+
+    const publicReady =
+      (capability.visibility === 'MARKET_PUBLIC' && capability.platformReviewStatus === 'APPROVED') ||
+      (capability.enterpriseId == null && capability.status === APPROVED);
+
+    const version = publicReady
+      ? await this.prisma.skillVersion.findFirst({
+          where: {
+            capabilityId: id,
+            scope: 'PLATFORM',
+            status: 'PLATFORM_APPROVED',
+            packageKey: { not: null },
+          },
+          select: { packageKey: true, packageFilename: true, version: true },
+          orderBy: { createdAt: 'desc' },
+        })
+      : await this.prisma.skillVersion.findFirst({
+          where: {
+            capabilityId: id,
+            scope: 'ENTERPRISE',
+            status: 'ENTERPRISE_APPROVED',
+            packageKey: { not: null },
+          },
+          select: { packageKey: true, packageFilename: true, version: true },
+          orderBy: { createdAt: 'desc' },
+        });
+
+    if (version?.packageKey) {
+      return {
+        key: version.packageKey,
+        filename:
+          version.packageFilename || `${capability.name}-v${version.version}.zip`,
+      };
+    }
+
+    const metadata = capability.metadata as { zipPath?: unknown } | null;
+    // 旧运营数据的 metadata 包没有版本状态，只能在公开能力或平台管理员
+    // 下载时兼容读取；不能让企业投稿的 DRAFT 借旧字段绕过审核。
+    const canUseLegacyMetadata = publicReady || userRole === ADMIN_ROLE;
+    if (
+      canUseLegacyMetadata &&
+      typeof metadata?.zipPath === 'string' &&
+      metadata.zipPath
+    ) {
+      return { key: metadata.zipPath, filename: `${capability.name}.zip` };
+    }
+    throw new NotFoundException('Skill package file not found');
   }
 
   // ──────────────── Runtime execution (used by conversation layer) ────────────────

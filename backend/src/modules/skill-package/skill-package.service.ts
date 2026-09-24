@@ -19,6 +19,8 @@ const SKILL_ENTRY_NAME = 'SKILL.md';
 /** zip 魔数 PK\x03\x04。只看扩展名会被改名的任意文件骗过。 */
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
 
+type AdmZipEntryWithRawName = { rawEntryName?: Buffer };
+
 /** 按 sha256 重新解包得到的内容 —— 全部字段都从 zip 本身推导，不含客户端输入。 */
 export interface SkillPackageContent {
   /** 存储 key，`skills/<sha256>.zip` */
@@ -139,8 +141,17 @@ export class SkillPackageService {
     if (entries.length > MAX_ENTRIES) {
       throw new BadRequestException(`包内条目不能超过 ${MAX_ENTRIES} 个`);
     }
+    const seen = new Set<string>();
     for (const entry of entries) {
-      this.assertSafeEntryName(entry.entryName);
+      const rawEntryName = (entry as AdmZipEntryWithRawName).rawEntryName;
+      const normalizedName = entry.entryName.replace(/\\/g, '/');
+      // adm-zip may normalize traversal names before exposing entryName.
+      // Validate the original central-directory name as well.
+      this.assertSafeEntryName(rawEntryName?.toString('utf8') ?? entry.entryName, entry.entryName);
+      if (seen.has(normalizedName)) {
+        throw new BadRequestException(`包内包含重复路径：${entry.entryName}`);
+      }
+      seen.add(normalizedName);
     }
     const uncompressed = files.reduce((sum, entry) => sum + entry.header.size, 0);
     if (uncompressed > MAX_UNCOMPRESSED_BYTES) {
@@ -186,14 +197,14 @@ export class SkillPackageService {
    * 拒绝会写到解压目录之外的条目名。这里只解析内存里的 zip、不落盘解压，
    * 但包会被下发给客户端与 OpenCode 服务解压，恶意条目名必须在入口就拦掉。
    */
-  private assertSafeEntryName(entryName: string) {
+  private assertSafeEntryName(entryName: string, displayName = entryName) {
     const normalized = entryName.replace(/\\/g, '/');
     const unsafe =
       normalized.startsWith('/') ||
       /^[a-zA-Z]:/.test(normalized) ||
       normalized.split('/').includes('..');
     if (unsafe) {
-      throw new BadRequestException(`包内条目名非法：${entryName}`);
+      throw new BadRequestException(`包内条目名非法：${displayName}`);
     }
   }
 
