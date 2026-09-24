@@ -1,5 +1,9 @@
-import { CapabilityType, ContributionPlatformStatus, ContributionReviewStatus } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
+import {
+  CapabilityType,
+  ContributionPlatformStatus,
+  ContributionReviewStatus,
+} from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 export const CONTRIBUTION_CAPABILITY_SELECT = {
   id: true,
@@ -27,8 +31,27 @@ export const CONTRIBUTION_CAPABILITY_SELECT = {
   updatedAt: true,
   contributor: { select: { id: true, name: true, email: true } },
   enterprise: { select: { id: true, name: true } },
-  skillConfig: { select: { id: true, modelId: true, temperature: true, maxTokens: true } },
-  agentConfig: { select: { id: true, platform: true, botId: true, workflowUrl: true, skillName: true } },
+  skillConfig: {
+    select: { id: true, modelId: true, temperature: true, maxTokens: true },
+  },
+  rpaConfig: {
+    select: {
+      id: true,
+      platform: true,
+      executionMode: true,
+      packageSha256: true,
+      configDoc: true,
+    },
+  },
+  agentConfig: {
+    select: {
+      id: true,
+      platform: true,
+      botId: true,
+      workflowUrl: true,
+      skillName: true,
+    },
+  },
   _count: { select: { skillVersions: true, bindings: true } },
 } satisfies Prisma.CapabilitySelect;
 
@@ -41,9 +64,56 @@ export const CONTRIBUTION_PLATFORM_DETAIL_SELECT = {
   ...CONTRIBUTION_CAPABILITY_SELECT,
   inputSchema: true,
   outputSchema: true,
-  skillConfig: { select: { id: true, template: true, modelId: true, temperature: true, maxTokens: true } },
+  skillConfig: {
+    select: {
+      id: true,
+      template: true,
+      modelId: true,
+      temperature: true,
+      maxTokens: true,
+    },
+  },
+  rpaVersions: {
+    where: {
+      status: {
+        in: [
+          "PENDING_PLATFORM_REVIEW",
+          "ENTERPRISE_APPROVED",
+          "PLATFORM_REJECTED",
+          "PLATFORM_APPROVED",
+        ],
+      },
+    },
+    select: {
+      id: true,
+      version: true,
+      packageFilename: true,
+      packageFileCount: true,
+      packageBytes: true,
+      packageSha256: true,
+      configDoc: true,
+      status: true,
+      validationResult: true,
+      validatedAt: true,
+      createdById: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  },
   skillVersions: {
-    where: { scope: { in: ['ENTERPRISE', 'PLATFORM'] }, status: { in: ['PENDING_PLATFORM_REVIEW', 'ENTERPRISE_APPROVED', 'PLATFORM_REJECTED', 'PLATFORM_APPROVED'] } },
+    where: {
+      scope: { in: ["ENTERPRISE", "PLATFORM"] },
+      status: {
+        in: [
+          "PENDING_PLATFORM_REVIEW",
+          "ENTERPRISE_APPROVED",
+          "PLATFORM_REJECTED",
+          "PLATFORM_APPROVED",
+        ],
+      },
+    },
     select: {
       id: true,
       scope: true,
@@ -57,7 +127,7 @@ export const CONTRIBUTION_PLATFORM_DETAIL_SELECT = {
       createdAt: true,
       updatedAt: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
     take: 5,
   },
   enterpriseReviewedBy: { select: { id: true, name: true, email: true } },

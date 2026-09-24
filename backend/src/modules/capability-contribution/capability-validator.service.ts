@@ -9,7 +9,7 @@ export type ValidationIssue = {
 
 export type CapabilityValidationResult = {
   valid: boolean;
-  kind: 'SKILL' | 'AGENT';
+  kind: 'SKILL' | 'AGENT' | 'RPA';
   checks: Array<{ code: string; passed: boolean; message: string }>;
   issues: ValidationIssue[];
   warnings: ValidationIssue[];
@@ -50,6 +50,20 @@ export class CapabilityValidatorService {
     if (!normalized.includes('```')) warnings.push({ code: 'NO_CODE_BLOCK', message: '建议使用代码块明确输入输出示例', path: 'content' });
 
     return { valid: issues.length === 0, kind: 'SKILL', checks, issues, warnings };
+  }
+
+
+  validateRpa(config: { platform?: string | null; executionMode?: string | null; packageSha256?: string | null; configDoc?: string | null } | null): CapabilityValidationResult {
+    const issues: ValidationIssue[] = [];
+    const warnings: ValidationIssue[] = [];
+    const checks: CapabilityValidationResult['checks'] = [];
+    const platform = String(config?.platform || '').toUpperCase();
+    this.check(checks, issues, 'SUPPORTED_RPA_PLATFORM', ['SHIZAI', 'YINGDAO'].includes(platform), 'RPA 平台必须是实在智能或影刀', 'rpaConfig.platform');
+    this.check(checks, issues, 'DOWNLOAD_ONLY', String(config?.executionMode || '').toUpperCase() === 'DOWNLOAD', '当前只允许下载模式，平台不执行 RPA', 'rpaConfig.executionMode');
+    this.check(checks, issues, 'PACKAGE_SHA256', /^[0-9a-f]{64}$/.test(config?.packageSha256 || ''), 'RPA 必须关联已上传并校验的 ZIP 包', 'rpaConfig.packageSha256');
+    this.check(checks, issues, 'CONFIG_DOCUMENTATION', Boolean(config?.configDoc?.trim() && config.configDoc.trim().length >= 10), 'RPA 必须填写至少 10 个字符的使用与环境说明', 'rpaConfig.configDoc');
+    warnings.push({ code: 'NO_RUNTIME_SCAN', message: '平台只做静态包结构检查，不会执行 RPA 流程', path: 'rpaConfig' });
+    return { valid: issues.length === 0, kind: 'RPA', checks, issues, warnings };
   }
 
   validateAgent(config: Pick<AgentConfig, 'platform' | 'botId' | 'workflowUrl' | 'skillName'>): CapabilityValidationResult {

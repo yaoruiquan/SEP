@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, uploadForm } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
-import type { SkillPackageParseResult } from '../../../../backend/src/shared';
+import type { RpaPackageParseResult, SkillPackageParseResult } from '../../../../backend/src/shared';
 import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage } from '@/lib/types';
 
 /** 作者版本详情 = 列表里的版本摘要 + 正文。 */
@@ -48,6 +48,16 @@ export function useCreateContribution() {
  * 上传 SKILL 包并拿回解析结果。
  * 创建能力时只回传 sha256 —— 正文由服务端按哈希重新解包，客户端改不动它。
  */
+export function useUploadRpaPackage() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return uploadForm<RpaPackageParseResult>('/contributions/rpa-package', form);
+    },
+  });
+}
+
 export function useUploadSkillPackage() {
   return useMutation({
     mutationFn: (file: File) => {

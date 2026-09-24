@@ -611,11 +611,22 @@ export const ContributionSkillConfigDtoSchema = z
   })
   .refine(
     (config) => Boolean(config.template) !== Boolean(config.packageSha256),
-    { message: '必须且只能提供 template 或 packageSha256 之一' },
+    { message: "必须且只能提供 template 或 packageSha256 之一" },
   );
-export type ContributionSkillConfigDto = z.infer<typeof ContributionSkillConfigDtoSchema>;
+export type ContributionSkillConfigDto = z.infer<
+  typeof ContributionSkillConfigDtoSchema
+>;
 
 /** 上传 SKILL 包的解析结果，前端据此预填能力信息并展示校验结论。 */
+export interface RpaPackageParseResult {
+  sha256: string;
+  filename: string;
+  fileCount: number;
+  totalBytes: number;
+  uncompressedBytes: number;
+  files: string[];
+}
+
 export interface SkillPackageParseResult {
   sha256: string;
   filename: string;
@@ -635,23 +646,62 @@ export interface SkillPackageParseResult {
 }
 
 // 能力贡献中心：所有注册用户都可创建，企业归属和两层审核由服务端决定。
-export const ContributionCapabilityCreateDtoSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().min(10).max(2000),
-  type: z.enum(['agent', 'skill']),
-  industry: z.array(z.string()).default([]),
-  position: z.array(z.string()).default([]),
-  inputSchema: z.record(z.any()).default({}),
-  outputSchema: z.record(z.any()).default({}),
-  skillConfig: ContributionSkillConfigDtoSchema.optional(),
-  agentConfig: z.object({
-    platform: z.enum(['coze', 'dify', 'n8n', 'opencode']),
-    botId: z.string().optional(),
-    workflowUrl: z.string().url().optional(),
-    skillName: z.string().optional(),
-  }).optional(),
-});
-export type ContributionCapabilityCreateDto = z.infer<typeof ContributionCapabilityCreateDtoSchema>;
+export const ContributionCapabilityCreateDtoSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    description: z.string().min(10).max(2000),
+    type: z.enum(["agent", "skill", "rpa"]),
+    industry: z.array(z.string()).default([]),
+    position: z.array(z.string()).default([]),
+    inputSchema: z.record(z.any()).default({}),
+    outputSchema: z.record(z.any()).default({}),
+    skillConfig: ContributionSkillConfigDtoSchema.optional(),
+    agentConfig: z
+      .object({
+        platform: z.enum(["coze", "dify", "n8n", "opencode"]),
+        botId: z.string().optional(),
+        workflowUrl: z.string().url().optional(),
+        skillName: z.string().optional(),
+      })
+      .optional(),
+    rpaConfig: z
+      .object({
+        platform: z.enum(["shizai", "yingdao"]),
+        executionMode: z.literal("download").default("download"),
+        packageSha256: SkillPackageSha256Schema,
+        packageFilename: z.string().max(120).optional(),
+        configDoc: z.string().min(10).max(10000),
+      })
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    const configs = [
+      value.skillConfig,
+      value.agentConfig,
+      value.rpaConfig,
+    ].filter(Boolean).length;
+    if (configs !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "必须且只能提供当前能力类型对应的一种配置",
+      });
+      return;
+    }
+    const hasExpectedConfig =
+      value.type === "skill"
+        ? value.skillConfig
+        : value.type === "agent"
+          ? value.agentConfig
+          : value.rpaConfig;
+    if (!hasExpectedConfig)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.type} 能力缺少对应配置`,
+      });
+  });
+export type ContributionCapabilityCreateDto = z.infer<
+  typeof ContributionCapabilityCreateDtoSchema
+>;
 
 export const ContributionCapabilityUpdateDtoSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -661,13 +711,17 @@ export const ContributionCapabilityUpdateDtoSchema = z.object({
   inputSchema: z.record(z.any()).optional(),
   outputSchema: z.record(z.any()).optional(),
 });
-export type ContributionCapabilityUpdateDto = z.infer<typeof ContributionCapabilityUpdateDtoSchema>;
+export type ContributionCapabilityUpdateDto = z.infer<
+  typeof ContributionCapabilityUpdateDtoSchema
+>;
 
 export const ContributionReviewDecisionSchema = z.object({
-  decision: z.enum(['APPROVE', 'REJECT']),
+  decision: z.enum(["APPROVE", "REJECT"]),
   comment: z.string().max(2000).optional(),
 });
-export type ContributionReviewDecision = z.infer<typeof ContributionReviewDecisionSchema>;
+export type ContributionReviewDecision = z.infer<
+  typeof ContributionReviewDecisionSchema
+>;
 
 /**
  * 发布新版本。正文来源与创建能力时同规则：上传包（只送 sha256）或在线编写，二选一。
@@ -682,18 +736,21 @@ export const ContributionVersionCreateDtoSchema = z
     packageFilename: z.string().max(120).optional(),
     changeSummary: z.string().min(1).max(1000),
   })
-  .refine(
-    (dto) => Boolean(dto.content) !== Boolean(dto.packageSha256),
-    { message: '必须且只能提供 content 或 packageSha256 之一' },
-  );
-export type ContributionVersionCreateDto = z.infer<typeof ContributionVersionCreateDtoSchema>;
+  .refine((dto) => Boolean(dto.content) !== Boolean(dto.packageSha256), {
+    message: "必须且只能提供 content 或 packageSha256 之一",
+  });
+export type ContributionVersionCreateDto = z.infer<
+  typeof ContributionVersionCreateDtoSchema
+>;
 
 /** 作者在贡献中心编辑草稿版本的正文（仅在线编写的版本可改）。 */
 export const ContributionVersionUpdateDtoSchema = z.object({
   content: z.string().min(20),
   changeSummary: z.string().min(1).max(1000).optional(),
 });
-export type ContributionVersionUpdateDto = z.infer<typeof ContributionVersionUpdateDtoSchema>;
+export type ContributionVersionUpdateDto = z.infer<
+  typeof ContributionVersionUpdateDtoSchema
+>;
 
 /**
  * 人民币金额（元）：非负、最多两位小数。

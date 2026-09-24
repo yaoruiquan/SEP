@@ -118,6 +118,7 @@ export interface ContributionCapability {
   contributor: { id: string; name: string | null; email: string };
   enterprise: { id: string; name: string } | null;
   skillConfig: { id: string; modelId: string; temperature: number; maxTokens: number } | null;
+  rpaConfig: { id: string; platform: 'SHIZAI' | 'YINGDAO'; executionMode: 'DOWNLOAD' | 'CLOUD' | 'CLIENT'; packageSha256: string | null; configDoc: string | null } | null;
   agentConfig: { id: string; platform: string; botId: string | null; workflowUrl: string | null; skillName: string | null } | null;
   _count: { skillVersions: number; bindings: number };
 }
@@ -135,6 +136,22 @@ export interface ContributionOverview {
 export interface ContributionCapabilityDetail extends ContributionCapability {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
+  rpaVersions?: Array<{
+    id: string;
+    version: string;
+    packageFilename: string | null;
+    packageFileCount: number;
+    packageBytes: number;
+    packageSha256: string;
+    configDoc: string;
+    status: string;
+    validationResult?: Record<string, unknown> | null;
+    validatedAt?: string | null;
+    rejectionReason?: string | null;
+    createdById: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   skillVersions: Array<{
     id: string;
     scope: SkillVersionScope;

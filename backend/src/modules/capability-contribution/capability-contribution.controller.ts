@@ -27,6 +27,7 @@ import {
   type ContributionVersionCreateDto,
   type ContributionVersionUpdateDto,
   type SkillPackageParseResult,
+  type RpaPackageParseResult,
 } from 'shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -36,6 +37,7 @@ import {
 } from '../skill-package/skill-package.service';
 import { CapabilityContributionService } from './capability-contribution.service';
 import { CapabilityValidatorService } from './capability-validator.service';
+import { RPA_PACKAGE_MAX_BYTES, RpaPackageService } from '../rpa-package/rpa-package.service';
 
 type AuthRequest = { user: { id: string } };
 
@@ -43,6 +45,11 @@ type AuthRequest = { user: { id: string } };
  * memoryStorage 而非 diskStorage：包要先过魔数与结构校验才决定是否落盘，
  * 落盘位置还得由内容哈希决定。上限由 fileSize 兜住，不会长期占内存。
  */
+const RPA_PACKAGE_MULTER = {
+  storage: memoryStorage(),
+  limits: { fileSize: RPA_PACKAGE_MAX_BYTES, files: 1 },
+};
+
 const SKILL_PACKAGE_MULTER = {
   storage: memoryStorage(),
   limits: { fileSize: SKILL_PACKAGE_MAX_BYTES, files: 1 },
@@ -57,7 +64,18 @@ export class CapabilityContributionController {
     private readonly service: CapabilityContributionService,
     private readonly skillPackage: SkillPackageService,
     private readonly validator: CapabilityValidatorService,
+    private readonly rpaPackage: RpaPackageService,
   ) {}
+
+  @Post('rpa-package')
+  @ApiOperation({ summary: '上传 RPA ZIP 包' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiResponse({ status: 201, description: '解析成功，返回包元数据' })
+  @UseInterceptors(FileInterceptor('file', RPA_PACKAGE_MULTER))
+  async uploadRpaPackage(@UploadedFile() file: Express.Multer.File): Promise<RpaPackageParseResult> {
+    return this.rpaPackage.store(file);
+  }
 
   @Post('skill-package')
   @ApiOperation({
@@ -92,6 +110,14 @@ export class CapabilityContributionController {
       suggested: stored.suggested,
       validation,
     };
+  }
+
+  @Get(':id/rpa-package')
+  @ApiOperation({ summary: '下载已审核通过的 RPA 包' })
+  @ApiResponse({ status: 200, description: '返回 RPA zip 文件' })
+  async downloadRpaPackage(@Request() req: AuthRequest, @Param('id') id: string, @Res() res: Response) {
+    const { key, filename } = await this.service.getRpaPackage(req.user.id, id);
+    res.download(this.rpaPackage.resolveStoredPath(key), filename);
   }
 
   @Get('versions/:versionId')
