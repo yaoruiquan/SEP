@@ -9,10 +9,15 @@ describe('HttpExceptionFilter', () => {
     originalUrl = gatewayPath,
     requestId: string | undefined = 'request-123',
   ) {
+    const headers: Record<string, string> = { 'x-request-id': 'header-request-id' };
     const response = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
-      getHeader: jest.fn().mockReturnValue('header-request-id'),
+      getHeader: jest.fn((name: string) => headers[name]),
+      setHeader: jest.fn((name: string, value: string) => {
+        headers[name] = value;
+        return response;
+      }),
     };
     const host = {
       switchToHttp: () => ({
@@ -24,6 +29,12 @@ describe('HttpExceptionFilter', () => {
     new HttpExceptionFilter().catch(exception, host);
     return { response, body: response.json.mock.calls[0][0] };
   }
+
+  it('adds Retry-After to 429 responses when the producer did not set it', () => {
+    const { response } = catchException(new HttpException('Too many requests', 429));
+
+    expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '60');
+  });
 
   it('adds an OpenAI error while retaining the legacy envelope for gateway errors', () => {
     const { response, body } = catchException(new BadRequestException('Invalid model'));

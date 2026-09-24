@@ -21,6 +21,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { SkillVersionScope, SkillVersionStatus, UserRole } from '@prisma/client';
 import {
   AdoptEnterpriseVersionDtoSchema,
@@ -51,6 +52,11 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SkillVersionService } from './skill-version.service';
 
 type AuthRequest = { user: { id: string; role: UserRole } };
+
+// 技能页会在进入时并行拉取多个员工的技能。全局默认限流是每个路由/IP
+// 每分钟 100 次，客户端在企业员工较多或重试时容易把同一路由打满。
+// 这里只放宽只读技能元数据接口，不影响写接口和认证接口的安全阈值。
+const SKILL_READ_THROTTLE = { default: { ttl: 60_000, limit: 300 } };
 
 @ApiTags('Enterprise Skill Versions')
 @ApiBearerAuth()
@@ -112,6 +118,8 @@ export class EnterpriseSkillVersionController {
   ) { return this.submissions.review(req.user.id, id, dto); }
 
   @Get('employees/:employeeId/skills')
+  @SkipThrottle({ auth: true, chat: true })
+  @Throttle(SKILL_READ_THROTTLE)
   @ApiOperation({ summary: '获取已授权员工的技能及当前版本' })
   @ApiParam({ name: 'employeeId', description: '数字员工 ID' })
   @ApiResponse({ status: 200, description: '技能版本摘要列表' })
@@ -143,6 +151,8 @@ export class EnterpriseSkillVersionController {
   }
 
   @Get('skill-versions')
+  @SkipThrottle({ auth: true, chat: true })
+  @Throttle(SKILL_READ_THROTTLE)
   @ApiOperation({ summary: '获取当前企业创建的技能版本' })
   @ApiQuery({ name: 'status', required: false, enum: SkillVersionStatus })
   @ApiQuery({ name: 'capabilityId', required: false, description: '提供时返回该能力的已发布版本与本人全部个人版本；不传保持原企业列表契约' })
@@ -239,6 +249,8 @@ export class EnterpriseSkillVersionController {
   }
 
   @Get('capabilities/:capabilityId/versions')
+  @SkipThrottle({ auth: true, chat: true })
+  @Throttle(SKILL_READ_THROTTLE)
   @ApiOperation({ summary: '版本时间线：平台版与企业版混排，标出当前生效版本' })
   @ApiResponse({ status: 200, description: '版本列表，含审核历史' })
   @ApiResponse({ status: 403, description: '未获得该技能的使用授权' })

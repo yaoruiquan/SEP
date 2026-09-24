@@ -14,6 +14,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const raw = exception instanceof HttpException ? exception.getResponse() : 'Internal server error';
     const message = typeof raw === 'object' && raw !== null && 'message' in raw ? (raw as { message: unknown }).message : raw;
     const requestId = request.requestId || response.getHeader('x-request-id');
+
+    // ThrottlerGuard normally writes this header before throwing. Keep a
+    // deterministic fallback for other 429 producers so native clients can
+    // always decide when it is safe to retry instead of treating the result
+    // as an empty skills list.
+    if (status === HttpStatus.TOO_MANY_REQUESTS && !response.getHeader('Retry-After')) {
+      response.setHeader('Retry-After', '60');
+    }
+
     const body = {
       statusCode: status,
       message,
