@@ -93,6 +93,30 @@ describe('创建能力贡献', () => {
     expect(screen.getByRole('button', { name: /下一步/ })).toBeDisabled();
   });
 
+  it('本地目录扫描、打包、上传后沿用服务端解析结果创建草稿', async () => {
+    renderDialog();
+    goToContentStep();
+
+    const localInput = document.querySelector('input[type="file"]:not([accept])') as HTMLInputElement;
+    const skillFile = new File(['---\nname: 本地周报\ndescription: 从本地目录导入并生成周报\n---\n# 角色'], 'SKILL.md', { type: 'text/markdown' });
+    Object.defineProperty(skillFile, 'webkitRelativePath', { value: 'skills/local-report/SKILL.md' });
+    fireEvent.change(localInput, { target: { files: [skillFile] } });
+    fireEvent.click(await screen.findByRole('button', { name: '使用选中的 Skill' }));
+
+    await waitFor(() => expect(uploadMutation).toHaveBeenCalledTimes(1));
+    const [packagedFile, options] = uploadMutation.mock.calls[0] as [File, { onSuccess: (r: SkillPackageParseResult) => void }];
+    expect(packagedFile.name).toBe('本地周报.zip');
+    act(() => options.onSuccess(PARSED));
+
+    fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+    await waitFor(() => screen.getByRole('button', { name: /创建草稿/ }));
+    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
+
+    const [body] = createMutation.mock.calls[0] as [{ skillConfig: Record<string, unknown> }];
+    expect(body.skillConfig).toEqual({ packageSha256: 'a'.repeat(64), packageFilename: '竞品周报.zip' });
+    expect(JSON.stringify(body)).not.toContain('你是竞品分析助手');
+  });
+
   it('上传成功后展示包信息与校验结论', () => {
     renderDialog();
     goToContentStep();

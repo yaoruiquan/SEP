@@ -59,6 +59,30 @@ export async function scanSkills(options = {}) {
   });
 }
 
+/**
+ * 扫描用户明确指定的单个 Skill 目录。
+ *
+ * 与 scanSkills 的自动发现不同，这个 API 只读取调用方给出的目录，供 CLI
+ * 在用户明确选择 --path 后打包上传；不会执行目录中的任何脚本。
+ */
+export async function scanSkillDirectory(skillPath, options = {}) {
+  const skillDir = resolve(skillPath);
+  if (!(await isSafeDirectory(skillDir, skillDir))) {
+    throw new Error(`不是可读取的 Skill 目录: ${skillPath}`);
+  }
+  const skillFile = join(skillDir, SKILL_FILE);
+  if (!(await isRegularFile(skillFile)) || !(await isSafePath(skillFile, skillDir))) {
+    throw new Error(`Skill 目录必须包含 ${SKILL_FILE}: ${skillPath}`);
+  }
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const rootInfo = options.rootInfo ?? {
+    root: dirname(skillDir),
+    scope: options.scope ?? (skillDir === cwd || skillDir.startsWith(`${cwd}${sep}`) ? 'project' : 'user'),
+    tool: options.tool ?? inferTool(skillDir),
+  };
+  return inspectSkill(skillDir, skillFile, rootInfo, options);
+}
+
 async function scanRoot(rootInfo, options) {
   const root = resolve(rootInfo.root);
   if (!(await isDirectory(root)) || !(await isSafeDirectory(root, root))) return [];
