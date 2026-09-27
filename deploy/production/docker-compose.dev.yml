@@ -1,12 +1,36 @@
 # Shared client-integration environment. Reuses the host PostgreSQL, Redis and
 # Ollama services while keeping application data and credentials isolated.
 x-backend-environment: &backend-environment
-  NODE_ENV: production
+  # 默认使用开发模式，允许开发环境使用 Console Mail 和兼容密钥；
+  # 设置 SEP_DEV_NODE_ENV=production 时必须同时提供完整生产认证配置。
+  NODE_ENV: ${SEP_DEV_NODE_ENV:-development}
   PORT: "3001"
   DATABASE_URL: postgresql://${SEP_DEV_DB_USER:?SEP_DEV_DB_USER is required}:${SEP_DEV_DB_PASSWORD:?SEP_DEV_DB_PASSWORD is required}@longdao-postgres:5432/sep_dev
   REDIS_URL: ${SEP_DEV_REDIS_URL:-redis://longdao-redis:6379/2}
   JWT_SECRET: ${SEP_DEV_JWT_SECRET:?SEP_DEV_JWT_SECRET is required}
+  ACCESS_JWT_SECRET: ${SEP_DEV_ACCESS_JWT_SECRET:-}
+  ACCESS_TOKEN_EXPIRES_IN: ${SEP_DEV_ACCESS_TOKEN_EXPIRES_IN:-15m}
+  REFRESH_TOKEN_EXPIRES_IN: ${SEP_DEV_REFRESH_TOKEN_EXPIRES_IN:-7d}
+  REFRESH_TOKEN_PEPPER: ${SEP_DEV_REFRESH_TOKEN_PEPPER:-}
+  REFRESH_COOKIE_NAME: ${SEP_DEV_REFRESH_COOKIE_NAME:-sep_dev_refresh}
   JWT_EXPIRE_DAYS: "7"
+  MAIL_ENABLED: ${SEP_DEV_MAIL_ENABLED:-false}
+  MAIL_HOST: ${SEP_DEV_MAIL_HOST:-}
+  MAIL_PORT: ${SEP_DEV_MAIL_PORT:-587}
+  MAIL_SECURE: ${SEP_DEV_MAIL_SECURE:-false}
+  MAIL_USER: ${SEP_DEV_MAIL_USER:-}
+  MAIL_PASSWORD: ${SEP_DEV_MAIL_PASSWORD:-}
+  MAIL_FROM: ${SEP_DEV_MAIL_FROM:-}
+  MAIL_FROM_NAME: ${SEP_DEV_MAIL_FROM_NAME:-硅基人才平台}
+  OAUTH_TRANSACTION_TTL_SECONDS: ${SEP_DEV_OAUTH_TRANSACTION_TTL_SECONDS:-300}
+  WECHAT_OAUTH_ENABLED: ${SEP_DEV_WECHAT_OAUTH_ENABLED:-false}
+  WECHAT_APP_ID: ${SEP_DEV_WECHAT_APP_ID:-}
+  WECHAT_APP_SECRET: ${SEP_DEV_WECHAT_APP_SECRET:-}
+  WECHAT_REDIRECT_URI: ${SEP_DEV_WECHAT_REDIRECT_URI:-http://localhost:3001/api/auth/oauth/wechat/callback}
+  QQ_OAUTH_ENABLED: ${SEP_DEV_QQ_OAUTH_ENABLED:-false}
+  QQ_APP_ID: ${SEP_DEV_QQ_APP_ID:-}
+  QQ_APP_KEY: ${SEP_DEV_QQ_APP_KEY:-}
+  QQ_REDIRECT_URI: ${SEP_DEV_QQ_REDIRECT_URI:-http://localhost:3001/api/auth/oauth/qq/callback}
   SUB2API_BASE_URL: ${SUB2API_BASE_URL:-https://longdaoai.cn/v1}
   SUB2API_API_KEY: ${SUB2API_API_KEY:?SUB2API_API_KEY is required}
   SUB2API_DEFAULT_MODEL: ${SUB2API_DEFAULT_MODEL:-gemini-3.5-flash-high}
