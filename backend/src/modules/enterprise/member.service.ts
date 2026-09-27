@@ -2,18 +2,21 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
-import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
 import { MemberCreateDto, MemberUpdateDto } from "shared";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { InvitationService } from "./invitation.service";
 
 @Injectable()
 export class MemberService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ctx: EnterpriseContextService,
+    @Optional() private readonly invitations?: InvitationService,
   ) {}
 
   /** 列出本企业成员。可按部门过滤。 */
@@ -44,124 +47,21 @@ export class MemberService {
   }
 
   /**
-   * 添加成员 —— 第二个人进入企业的**唯一途径**。
+   * 添加成员统一转为邀请。
    *
-   * 注册入口只用于「开公司」；同事若走注册会创建出另一家公司，
-   * 与本企业数据完全隔离。
-   *
-   * MVP 采用「管理员代建账号 + 设初始密码」，不做邮件邀请
-   * （邮件服务未接入）。因此这里会创建 User。
-   *
-   * 一个已存在的 User（如已在别家企业）也可被加入本企业：
-   * EnterpriseMember 是关联表，天然支持。但 MVP 前端不做企业切换，
-   * 该用户登录后只会看到最早加入的那家 —— 故此处拒绝，避免产生
-   * 用户无法访问的"隐形成员"。
+   * 保留这个 service 方法是为了兼容旧的 service 调用方，但正式路径
+   * 不再创建 User、不再接触管理员提交的 password，所有账号创建与一次性
+   * token 都由 InvitationService/AuthService 负责。
    */
   async create(userId: string, dto: MemberCreateDto) {
-    const ctx = await this.ctx.resolve(userId);
-    this.ctx.assertEnterpriseAdmin(ctx);
-
-    if (dto.departmentId) {
-      await this.assertDepartmentInEnterprise(dto.departmentId, ctx.enterpriseId);
+    if (!this.invitations) {
+      throw new InternalServerErrorException("邀请服务未配置");
     }
-
-    // 邮箱大小写不敏感 —— 不归一化会让 "Bob@x.com" 绕过"已是成员"检查，
-    // 建出同一个人的第二条成员记录
-    const email = dto.email.toLowerCase().trim();
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-      select: { id: true, memberships: { select: { enterpriseId: true } } },
-    });
-
-    // ── 三分支：邮箱已注册时的处置 ────────────────────────────────────────
-    if (existingUser) {
-      // ① 已是本企业成员 —— 重复添加无意义
-      if (
-        existingUser.memberships.some(
-          (m) => m.enterpriseId === ctx.enterpriseId,
-        )
-      ) {
-        throw new ConflictException("该邮箱已是本企业成员");
-      }
-
-      // ② 已注册但无企业归属 —— 允许直接加入。
-      //
-      // 这是「离职后重新入职」「被移出后再加回」的必经路径：
-      // 账号还在，只是没有归属。旧实现在此处硬拒绝，导致这些人
-      // 永远无法再进入任何企业（邮箱被占，又不能加入）。
-      //
-      // 关键：**绝不动这个账号的密码**。dto.password 在此分支被忽略 ——
-      // 若允许覆盖，任一企业管理员只需"添加"某个已知邮箱并设密码，
-      // 就能登入他人账号，这是账号劫持。密码只能由账号本人设置。
-      if (existingUser.memberships.length === 0) {
-        const member = await this.prisma.enterpriseMember.create({
-          data: {
-            userId: existingUser.id,
-            enterpriseId: ctx.enterpriseId,
-            role: dto.role,
-            departmentId: dto.departmentId,
-            position: dto.position,
-          },
-          select: {
-            id: true,
-            role: true,
-            position: true,
-            user: { select: { id: true, email: true, name: true } },
-            department: { select: { id: true, name: true } },
-          },
-        });
-
-        return {
-          ...member,
-          /**
-           * 告知前端：该账号本就存在，沿用其原有密码，管理员填的密码未生效。
-           * 不返回这个标记，管理员会把自己填的密码转告对方，导致登录失败。
-           */
-          reusedExistingAccount: true,
-        };
-      }
-
-      // ③ 已归属其他企业 —— 拒绝，但给出可操作的下一步。
-      //
-      // EnterpriseMember 是关联表，技术上支持一人属多企业；但前端不做
-      // 企业切换，该用户登录后只会看到最早加入的那家 —— 直接放开会产生
-      // 用户自己看不见的"隐形成员"。故要求其先主动退出原企业。
-      throw new ConflictException(
-        "该邮箱已归属其他企业。请让对方先在个人设置中退出当前企业，" +
-          "再向其发送邀请链接加入本企业",
-      );
-    }
-
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    // User 与 EnterpriseMember 必须同时成功：
-    // 只建 User 会留下"有账号但不属于任何企业"的死账号
-    return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: dto.email,
-          name: dto.name,
-          password: passwordHash,
-        },
-      });
-
-      return tx.enterpriseMember.create({
-        data: {
-          userId: user.id,
-          enterpriseId: ctx.enterpriseId,
-          role: dto.role,
-          departmentId: dto.departmentId,
-          position: dto.position,
-        },
-        select: {
-          id: true,
-          role: true,
-          position: true,
-          user: { select: { id: true, email: true, name: true } },
-          department: { select: { id: true, name: true } },
-        },
-      });
+    return this.invitations.create(userId, {
+      email: dto.email,
+      role: dto.role,
+      departmentId: dto.departmentId,
+      position: dto.position,
     });
   }
 

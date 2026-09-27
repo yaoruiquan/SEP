@@ -60,8 +60,12 @@ export class ClientController {
   @ApiResponse({ status: 401, description: '邮箱或密码错误，或设备已被吊销' })
   async login(
     @Body(new ZodValidationPipe(ClientLoginDtoSchema)) dto: ClientLoginDto,
+    @Request() req: ExpressRequest,
   ) {
-    return this.clientService.login(dto);
+    return this.clientService.login(dto, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Post('auth/refresh')
@@ -73,6 +77,16 @@ export class ClientController {
     @Body(new ZodValidationPipe(ClientRefreshDtoSchema)) dto: ClientRefreshDto,
   ) {
     return this.clientService.refreshAccessToken(dto);
+  }
+
+  @Post('auth/logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '退出当前桌面会话' })
+  @ApiResponse({ status: 204, description: '已退出当前设备' })
+  async logout(
+    @Body(new ZodValidationPipe(ClientRefreshDtoSchema)) dto: ClientRefreshDto,
+  ) {
+    await this.clientService.logout(dto);
   }
 
   /**

@@ -5,18 +5,20 @@ import { ClientController } from './client.controller';
 import { ClientService } from './client.service';
 import { SettingModule } from '../setting/setting.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
+        secret: config.get<string>('ACCESS_JWT_SECRET') ?? config.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: '1h' },
       }),
     }),
     SettingModule,
     PrismaModule,
+    AuthModule,
   ],
   controllers: [ClientController],
   providers: [ClientService],

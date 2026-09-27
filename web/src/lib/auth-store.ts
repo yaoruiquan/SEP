@@ -45,7 +45,7 @@ interface AuthState {
 /**
  * Access token lives in memory only (never localStorage) per the auth design.
  * The refresh token is an httpOnly cookie the backend sets; on reload we call
- * GET /auth/refresh to rehydrate this store.
+ * POST /auth/refresh to rehydrate this store.
  */
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,

@@ -18,11 +18,11 @@ model User {
   id       String   @id @default(cuid())
   email    String   @unique
   name     String?
-  password String // Hashed
   avatar   String?
   /// 全局角色。企业内身份不看这里，看 EnterpriseMember.role。
   /// ADMIN 表示平台运营人员（可访问 (platform) 分组）。
   role     UserRole @default(USER)
+  status   UserStatus @default(ACTIVE)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -36,6 +36,13 @@ model User {
   /// 但用关联表保留结构能力，将来放开多企业无需数据迁移。
   memberships                       EnterpriseMember[]
   devices                           Device[]
+  authSessions                      AuthSession[]
+  authCredentials                   AuthCredential[]
+  authOneTimeTokens                 AuthOneTimeToken[]
+  authIdentities                    AuthIdentity[]
+  oauthTransactions                 AuthOAuthTransaction[]
+  authEvents                        AuthEvent[]
+  emailVerifiedAt                   DateTime?
   createdKnowledgeBases             KnowledgeBase[]            @relation("KnowledgeBaseCreator")
   uploadedDocuments                 Document[]                 @relation("DocumentUploader")
   createdTextChunks                 TextChunk[]                @relation("TextChunkCreator")
@@ -69,6 +76,32 @@ model User {
   auditLogs                         AuditLog[]              @relation("AuditActor")
 
   @@map("users")
+}
+
+enum AuthSessionType {
+  WEB
+  DESKTOP
+}
+
+enum CredentialType {
+  LOCAL_PASSWORD
+}
+
+enum AuthOneTimeTokenType {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+  EMAIL_CHANGE
+}
+
+enum OAuthTransactionIntent {
+  LOGIN
+  LINK
+  INVITATION
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
 }
 
 enum UserRole {
@@ -2088,12 +2121,154 @@ model Device {
   clientVersion String?
   lastSeenAt    DateTime  @default(now()) @updatedAt
   revokedAt     DateTime? // 运营吊销后设置
+  authSessions  AuthSession[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([userId, fingerprint])
   @@index([userId])
   @@map("devices")
+}
+
+// ============================================================================
+// Authentication Sessions (认证会话)
+// ============================================================================
+
+/// 一个登录设备/浏览器会话。Access JWT 只承载 session id，Refresh Token 状态保存在数据库。
+model AuthSession {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         AuthSessionType
+  familyId     String
+  deviceId     String?
+  device       Device?         @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  ipAddress    String?         @map("ip_address")
+  userAgent    String?         @map("user_agent")
+  expiresAt    DateTime
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  revokeReason String?
+  tokens       AuthToken[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([deviceId])
+  @@map("auth_sessions")
+}
+
+/// Refresh Token 的不可逆记录。每次轮换都会新增一条，旧 Token 标记 usedAt。
+model AuthToken {
+  id           String      @id @default(cuid())
+  sessionId    String
+  session      AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  familyId     String
+  tokenHash    String      @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  revokedAt    DateTime?
+  revokeReason String?
+  createdAt    DateTime    @default(now())
+
+  @@index([sessionId, usedAt])
+  @@index([familyId])
+  @@map("auth_tokens")
+}
+
+/// 认证安全事件。只保存审计所需元数据，不保存密码、令牌或 OAuth 授权码。
+model AuthEvent {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  success    Boolean  @default(true)
+  provider   String?
+  sessionId  String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("auth_events")
+}
+
+/// 本地密码等长期认证凭据。
+model AuthCredential {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         CredentialType
+  passwordHash String?
+  failedCount  Int            @default(0)
+  lockedUntil  DateTime?
+  lastUsedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@map("auth_credentials")
+}
+
+/// 密码重置、邮箱验证、邮箱变更等一次性令牌；数据库只保存不可逆摘要。
+model AuthOneTimeToken {
+  id          String                @id @default(cuid())
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        AuthOneTimeTokenType
+  tokenHash   String                @unique
+  metadata    Json?
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime              @default(now())
+
+  @@index([userId, type, consumedAt])
+  @@index([expiresAt])
+  @@map("auth_one_time_tokens")
+}
+
+/// 第三方 OAuth 登录/绑定的一次性状态事务。只保存 state/nonce 的摘要，防止回调重放与 CSRF。
+model AuthOAuthTransaction {
+  id          String                 @id @default(cuid())
+  provider    String
+  intent      OAuthTransactionIntent @default(LOGIN)
+  stateHash   String                 @unique
+  nonceHash   String?
+  redirectUri String
+  userId      String?
+  user        User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metadata    Json?
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime               @default(now())
+
+  @@index([provider, expiresAt])
+  @@index([userId, intent, consumedAt])
+  @@map("auth_oauth_transactions")
+}
+
+/// 已绑定的第三方身份。provider + providerAccountId 是全局唯一身份键。
+model AuthIdentity {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  providerEmail     String?
+  profile           Json?
+  emailVerified     Boolean?
+  lastUsedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+  @@index([provider, providerEmail])
+  @@map("auth_identities")
 }
 
 // ============================================================================

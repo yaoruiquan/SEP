@@ -17,6 +17,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { ComputeModule } from './modules/compute/compute.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { MailModule } from './modules/mail/mail.module';
 import { EnterpriseModelConfigModule } from './modules/enterprise-model-config/enterprise-model-config.module';
 import { CostAnalyticsModule } from './modules/cost-analytics/cost-analytics.module';
 import { EnterpriseSettingsModule } from './modules/enterprise-settings/enterprise-settings.module';
@@ -44,6 +45,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HealthModule } from './health/health.module';
 import { employeeAssetBaseUrl } from './common/employee-avatar';
+import { validateAuthEnvironment } from './auth-environment';
 
 @Module({
   imports: [
@@ -52,14 +54,7 @@ import { employeeAssetBaseUrl } from './common/employee-avatar';
       envFilePath: ['../.env', '.env'],
       validate: (env) => {
         employeeAssetBaseUrl(env);
-        if (env.NODE_ENV === 'production') {
-          const secret = env.JWT_SECRET;
-          if (!secret || secret.length < 32 || secret === 'sep-jwt-secret-change-in-production' || secret === 'dev-secret-key') {
-            throw new Error('生产环境必须配置长度至少 32 的随机 JWT_SECRET');
-          }
-          if (!env.CORS_ORIGIN) throw new Error('生产环境必须配置 CORS_ORIGIN');
-        }
-        return env;
+        return validateAuthEnvironment(env);
       },
     }),
     // 安全模块（全局限流、日志脱敏、异常处理）
@@ -83,6 +78,7 @@ import { employeeAssetBaseUrl } from './common/employee-avatar';
     KnowledgeModule,
     ComputeModule,
     NotificationsModule,
+    MailModule,
     EnterpriseModelConfigModule,
     CostAnalyticsModule,
     EnterpriseSettingsModule,

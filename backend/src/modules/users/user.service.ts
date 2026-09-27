@@ -4,13 +4,11 @@ import {
   Logger,
   NotFoundException,
   PayloadTooLargeException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UpdateProfileDto, ChangePasswordDto, UserProfileResponse } from 'shared';
-import * as bcrypt from 'bcrypt';
+import { UpdateProfileDto, UserProfileResponse } from 'shared';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { StorageService } from '../upload/storage/storage.service';
 import { validateUploadedFile } from '../upload/file-validator';
@@ -36,6 +34,7 @@ export class UserService {
       select: {
         id: true,
         email: true,
+        emailVerifiedAt: true,
         name: true,
         avatar: true,
         role: true,
@@ -55,6 +54,7 @@ export class UserService {
       select: {
         id: true,
         email: true,
+        emailVerifiedAt: true,
         name: true,
         avatar: true,
         role: true,
@@ -64,20 +64,6 @@ export class UserService {
     });
 
     return user;
-  }
-
-  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-
-    const isValid = await bcrypt.compare(dto.currentPassword, user.password);
-    if (!isValid) throw new UnauthorizedException('Current password is incorrect');
-
-    const hashed = await bcrypt.hash(dto.newPassword, 10);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { password: hashed },
-    });
   }
 
   /**

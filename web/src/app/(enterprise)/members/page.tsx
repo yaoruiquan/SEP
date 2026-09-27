@@ -95,7 +95,7 @@ export default function MembersPage() {
 
   // 新建表单
   const [newForm, setNewForm] = useState({
-    email: '', password: '', name: '', role: 'MEMBER' as 'ENTERPRISE_ADMIN' | 'MEMBER',
+    email: '', name: '', role: 'MEMBER' as 'ENTERPRISE_ADMIN' | 'MEMBER',
     departmentId: '', position: '',
   });
 
@@ -107,11 +107,10 @@ export default function MembersPage() {
   });
 
   const handleAdd = () => {
-    if (!newForm.email || !newForm.password) return;
+    if (!newForm.email) return;
     createMember.mutate(
       {
         email: newForm.email,
-        password: newForm.password,
         name: newForm.name || undefined,
         role: newForm.role,
         departmentId: newForm.departmentId || undefined,
@@ -121,7 +120,7 @@ export default function MembersPage() {
         onSuccess: () => {
           toast.success('成员已添加');
           setAdding(false);
-          setNewForm({ email: '', password: '', name: '', role: 'MEMBER', departmentId: '', position: '' });
+          setNewForm({ email: '', name: '', role: 'MEMBER', departmentId: '', position: '' });
         },
         onError: (e) => toast.error(e instanceof ApiError ? e.message : '添加失败'),
       },
@@ -295,15 +294,6 @@ export default function MembersPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">初始密码 *</label>
-              <Input
-                type="password"
-                placeholder="至少 8 位"
-                value={newForm.password}
-                onChange={(e) => setNewForm((f) => ({ ...f, password: e.target.value }))}
-              />
-            </div>
-            <div>
               <label className="mb-1 block text-xs font-medium">姓名</label>
               <Input
                 placeholder="可选"
@@ -348,7 +338,7 @@ export default function MembersPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                disabled={createMember.isPending || !newForm.email || !newForm.password}
+                disabled={createMember.isPending || !newForm.email}
               >
                 添加
               </Button>

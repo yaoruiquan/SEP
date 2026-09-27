@@ -510,6 +510,35 @@ export const LoginDtoSchema = z.object({
 
 export type LoginDto = z.infer<typeof LoginDtoSchema>;
 
+export const ForgotPasswordDtoSchema = z.object({
+  email: EmailSchema,
+});
+export type ForgotPasswordDto = z.infer<typeof ForgotPasswordDtoSchema>;
+
+export const ResetPasswordDtoSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+export type ResetPasswordDto = z.infer<typeof ResetPasswordDtoSchema>;
+
+export const RequestEmailVerificationDtoSchema = z.object({}).default({});
+export type RequestEmailVerificationDto = z.infer<typeof RequestEmailVerificationDtoSchema>;
+
+export const ConfirmEmailVerificationDtoSchema = z.object({
+  token: z.string().min(1),
+});
+export type ConfirmEmailVerificationDto = z.infer<typeof ConfirmEmailVerificationDtoSchema>;
+
+export const RequestEmailChangeDtoSchema = z.object({
+  newEmail: EmailSchema,
+});
+export type RequestEmailChangeDto = z.infer<typeof RequestEmailChangeDtoSchema>;
+
+export const ConfirmEmailChangeDtoSchema = z.object({
+  token: z.string().min(1),
+});
+export type ConfirmEmailChangeDto = z.infer<typeof ConfirmEmailChangeDtoSchema>;
+
 export interface AuthResponse {
   token: string;
   user: {
@@ -887,14 +916,13 @@ export interface DepartmentTreeNode {
  * 这是第二个人进入企业的**唯一途径** —— 注册入口只用于开公司，
  * 同事若走注册会创建出另一家公司。
  *
- * MVP 采用「管理员代建账号 + 设初始密码」，不做邮件邀请
- * （邮件服务尚未接入）。
+ * 认证中心 P1 起改为邀请制，管理员不再接触成员密码。
  */
 export const MemberCreateDtoSchema = z.object({
   email: EmailSchema,
   name: z.string().min(1).max(50).optional(),
-  /** 初始密码，成员首次登录后应自行修改 */
-  password: z.string().min(8),
+  /** 兼容旧客户端字段；服务端忽略，不再由管理员设置员工密码。 */
+  password: z.string().min(8).optional(),
   role: AssignableEnterpriseRoleSchema.default('MEMBER'),
   departmentId: z.string().optional(),
   position: z.string().max(50).optional(),
@@ -1267,6 +1295,7 @@ export type ChangePasswordDto = z.infer<typeof ChangePasswordDtoSchema>;
 export interface UserProfileResponse {
   id: string;
   email: string;
+  emailVerifiedAt: Date | null;
   name: string | null;
   avatar: string | null;
   role: string;

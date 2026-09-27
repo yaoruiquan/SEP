@@ -69,15 +69,15 @@ export function useCreateMember() {
   return useMutation({
     mutationFn: (body: {
       email: string;
-      password: string;
       name?: string;
       role?: 'ENTERPRISE_ADMIN' | 'MEMBER';
       departmentId?: string;
       position?: string;
-    }) => api.post<EnterpriseMember>('/enterprise/members', body),
+    }) => api.post<CreatedInvitation>('/enterprise/members', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.members() });
       qc.invalidateQueries({ queryKey: qk.departments });
+      qc.invalidateQueries({ queryKey: qk.invitations() });
     },
   });
 }

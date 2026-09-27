@@ -1,10 +1,11 @@
 import {
-  Controller, Post, Get, Body, HttpCode, HttpStatus,
-  Query, Request, Response, UseGuards,
+  Controller, Post, Get, Delete, Body, HttpCode, HttpStatus,
+  Query, Request, Response, UseGuards, Param,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { Throttle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import {
@@ -12,10 +13,19 @@ import {
   RegisterByInvitationDto, RegisterByInvitationDtoSchema,
   AcceptInvitationDto, AcceptInvitationDtoSchema,
   CreateEnterpriseDto, CreateEnterpriseDtoSchema,
+  ForgotPasswordDto, ForgotPasswordDtoSchema,
+  ResetPasswordDto, ResetPasswordDtoSchema,
+  ChangePasswordDto, ChangePasswordDtoSchema,
+  ConfirmEmailVerificationDto, ConfirmEmailVerificationDtoSchema,
+  RequestEmailChangeDto, RequestEmailChangeDtoSchema,
+  ConfirmEmailChangeDto, ConfirmEmailChangeDtoSchema,
 } from 'shared';
 import { InvitationService } from '../enterprise/invitation.service';
 import { MemberService } from '../enterprise/member.service';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { OAuthService } from './oauth.service';
+
+const DEFAULT_REFRESH_COOKIE = '__Host-sep_refresh';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -24,7 +34,17 @@ export class AuthController {
     private authService: AuthService,
     private invitations: InvitationService,
     private members: MemberService,
+    private config: ConfigService,
+    private oauth: OAuthService,
   ) {}
+
+  private get refreshCookieName(): string {
+    const configured = this.config.get<string>('REFRESH_COOKIE_NAME');
+    if (configured) return configured;
+    return this.config.get('NODE_ENV') === 'production'
+      ? DEFAULT_REFRESH_COOKIE
+      : 'refresh_token';
+  }
 
   @Post('register')
   @Throttle({ auth: { ttl: 60000, limit: 5 } }) // 每分钟最多 5 次注册尝试
@@ -170,27 +190,218 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(
     @Body(new ZodValidationPipe(LoginDtoSchema)) dto: LoginDto,
+    @Request() req: ExpressRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
-    return this.authService.login(dto, res);
+    return this.authService.login(dto, res, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
-  @Get('refresh')
+  @Post('password/forgot')
+  @Throttle({ auth: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Rehydrate in-memory access token from httpOnly cookie' })
-  @ApiResponse({ status: 200, description: 'New access token issued' })
-  @ApiResponse({ status: 401, description: 'Missing or invalid refresh token' })
-  async refresh(@Request() req: ExpressRequest) {
-    const refreshToken = req.cookies?.['refresh_token'];
-    return this.authService.refresh(refreshToken);
+  @ApiOperation({ summary: '请求密码重置邮件（不泄露邮箱是否存在）' })
+  @ApiResponse({ status: 200, description: '统一返回成功提示' })
+  async requestPasswordReset(
+    @Body(new ZodValidationPipe(ForgotPasswordDtoSchema)) dto: ForgotPasswordDto,
+    @Request() req: ExpressRequest,
+  ) {
+    return this.authService.requestPasswordReset(dto, { ipAddress: req.ip });
   }
+
+  @Post('password/reset')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '使用一次性令牌重置密码' })
+  @ApiResponse({ status: 200, description: '密码重置成功' })
+  @ApiResponse({ status: 400, description: '令牌无效、已使用或已过期' })
+  async resetPassword(
+    @Body(new ZodValidationPipe(ResetPasswordDtoSchema)) dto: ResetPasswordDto,
+  ) {
+    return this.authService.resetPassword(dto);
+  }
+
+  @Post('password/change')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '登录后修改密码并撤销其它会话' })
+  @ApiResponse({ status: 204, description: '密码修改成功' })
+  async changePassword(
+    @Request() req: ExpressRequest & { user: { id: string; sid?: string } },
+    @Body(new ZodValidationPipe(ChangePasswordDtoSchema)) dto: ChangePasswordDto,
+  ) {
+    await this.authService.changePassword(req.user.id, dto, req.user.sid);
+  }
+
+  @Post('email/verification/request')
+  @Throttle({ auth: { ttl: 60000, limit: 3 } })
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '请求邮箱验证邮件' })
+  async requestEmailVerification(@Request() req: ExpressRequest & { user: { id: string } }) {
+    return this.authService.requestEmailVerification(req.user.id, false, { ipAddress: req.ip });
+  }
+
+  @Post('email/verification/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '确认邮箱验证令牌' })
+  async confirmEmailVerification(
+    @Body(new ZodValidationPipe(ConfirmEmailVerificationDtoSchema)) dto: ConfirmEmailVerificationDto,
+  ) {
+    return this.authService.confirmEmailVerification(dto);
+  }
+
+  @Post('email/change/request')
+  @Throttle({ auth: { ttl: 60000, limit: 3 } })
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '请求修改登录邮箱' })
+  async requestEmailChange(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Body(new ZodValidationPipe(RequestEmailChangeDtoSchema)) dto: RequestEmailChangeDto,
+  ) {
+    return this.authService.requestEmailChange(req.user.id, dto);
+  }
+
+  @Post('email/change/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '确认登录邮箱修改令牌' })
+  async confirmEmailChange(
+    @Body(new ZodValidationPipe(ConfirmEmailChangeDtoSchema)) dto: ConfirmEmailChangeDto,
+  ) {
+    return this.authService.confirmEmailChange(dto);
+  }
+
+  @Get('oauth/:provider/invitation/start')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: '从企业邀请开始第三方登录' })
+  @ApiResponse({ status: 200, description: '返回第三方授权地址' })
+  @ApiResponse({ status: 400, description: '邀请无效或第三方登录未配置' })
+  async oauthInvitationStart(
+    @Param('provider') provider: string,
+    @Query('token') token: string,
+  ) {
+    return this.oauth.startInvitation(provider, token ?? '');
+  }
+
+  @Get('oauth/:provider/start')
+  @ApiOperation({ summary: '开始第三方登录' })
+  async oauthStart(@Param('provider') provider: string) {
+    return this.oauth.start({ provider, intent: 'LOGIN' });
+  }
+
+  @Post('oauth/:provider/link/start')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '开始绑定第三方账号' })
+  async oauthLinkStart(
+    @Param('provider') provider: string,
+    @Request() req: ExpressRequest & { user: { id: string } },
+  ) {
+    return this.oauth.start({ provider, intent: 'LINK', userId: req.user.id });
+  }
+
+  @Get('oauth/:provider/callback')
+  @ApiOperation({ summary: '第三方 OAuth 回调' })
+  async oauthCallback(
+    @Param('provider') provider: string,
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') error: string,
+    @Request() req: ExpressRequest,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ) {
+    return this.oauth.callback({ provider, code, state, error, ipAddress: req.ip, userAgent: req.get('user-agent') ?? undefined }, res);
+  }
+
+  @Get('oauth/identities')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查看已绑定第三方账号' })
+  async oauthIdentities(@Request() req: ExpressRequest & { user: { id: string } }) {
+    return this.oauth.listIdentities(req.user.id);
+  }
+
+  @Delete('oauth/identities/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '解绑第三方账号' })
+  async unlinkOAuth(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.oauth.unlink(req.user.id, id);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '轮换 Refresh Token 并签发新的 Access Token' })
+  @ApiResponse({ status: 200, description: '刷新成功，新 refresh token 写入 httpOnly cookie' })
+  @ApiResponse({ status: 401, description: '缺少或无效的 Refresh Token' })
+  async refresh(
+    @Request() req: ExpressRequest,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ) {
+    const refreshToken = req.cookies?.[this.refreshCookieName];
+    return this.authService.refresh(refreshToken, res);
+  }
+
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Clear refresh token cookie' })
-  @ApiResponse({ status: 204, description: 'Logged out' })
-  logout(@Response({ passthrough: true }) res: ExpressResponse) {
-    this.authService.logout(res);
+  @ApiOperation({ summary: '撤销当前会话并清除 Refresh Token Cookie' })
+  @ApiResponse({ status: 204, description: '已退出当前设备' })
+  async logout(
+    @Request() req: ExpressRequest,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ) {
+    await this.authService.logout(req.cookies?.[this.refreshCookieName], res);
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '撤销当前账号全部会话' })
+  async logoutAll(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ) {
+    await this.authService.logoutAll(req.user.id, res);
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '列出当前账号有效会话' })
+  async listSessions(@Request() req: ExpressRequest & { user: { id: string; sid?: string } }) {
+    return this.authService.listSessions(req.user.id, req.user.sid);
+  }
+
+  @Get('events')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查看当前账号最近认证事件' })
+  async listAuthEvents(@Request() req: ExpressRequest & { user: { id: string } }) {
+    return this.authService.listAuthEvents(req.user.id);
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '撤销指定会话' })
+  async revokeSession(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    await this.authService.revokeSession(req.user.id, id);
   }
 
   @Get('me')

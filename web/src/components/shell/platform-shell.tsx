@@ -60,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/announcements', label: '公告', icon: Megaphone },
       { href: '/admin/settings', label: '系统设置', icon: Settings },
       { href: '/admin/audit', label: '安全与审计', icon: ShieldCheck },
+      { href: '/admin/auth-users', label: '认证中心', icon: ShieldCheck },
     ],
   },
 ];
@@ -77,6 +78,7 @@ const CRUMBS: CrumbMap = {
   // 能力管理的两个下钻队列
   contributions: '投稿审核',
   skills: '版本审核',
+  'auth-users': '认证中心',
   new: '新建',
   edit: '编辑',
   bindings: '能力绑定',

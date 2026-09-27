@@ -59,7 +59,7 @@ describe('SubscriptionRequest E2E (Simple)', () => {
     const adminUser = await prisma.user.create({
       data: {
         email: 'admin-sr@test.com',
-        password: 'hashed',
+        authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: 'hashed' } },
         name: 'Admin User',
       },
     });
@@ -67,7 +67,7 @@ describe('SubscriptionRequest E2E (Simple)', () => {
     const memberUser = await prisma.user.create({
       data: {
         email: 'member-sr@test.com',
-        password: 'hashed',
+        authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: 'hashed' } },
         name: 'Member User',
       },
     });
