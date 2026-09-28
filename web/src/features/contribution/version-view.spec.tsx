@@ -147,6 +147,43 @@ describe('版本迭代', () => {
     detail = baseDetail([version({})]);
   });
 
+  it('RPA 下载走带认证的下载封装，不使用原生链接', () => {
+    detail = baseDetail([], {
+      type: 'RPA',
+      rpaConfig: {
+        id: 'rpa-config-1',
+        platform: 'SHIZAI',
+        executionMode: 'DOWNLOAD',
+        packageSha256: 'b'.repeat(64),
+        configDoc: '导入实在智能后运行',
+      },
+      rpaVersions: [{
+        id: 'rpa-v1',
+        version: '1.0.0',
+        packageFilename: '流程.zip',
+        packageFileCount: 1,
+        packageBytes: 128,
+        packageSha256: 'b'.repeat(64),
+        configDoc: '导入实在智能后运行',
+        status: 'PLATFORM_APPROVED',
+        createdById: 'author-1',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      }],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ContributionDetail id="cap-1" onBack={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '能力档案' }));
+    fireEvent.click(screen.getByRole('button', { name: /下载 ZIP/ }));
+
+    expect(downloadFile).toHaveBeenCalledWith('/contributions/cap-1/rpa-package');
+  });
+
   it('预览走作者授权来源，不走企业订阅那条', () => {
     renderVersions();
     fireEvent.click(screen.getByRole('button', { name: /预览/ }));

@@ -36,6 +36,7 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
   const [editVersionId, setEditVersionId] = useState('');
   const [publishOpen, setPublishOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [rpaDownloading, setRpaDownloading] = useState(false);
   const usage = useContributionUsage(contribution.id);
   const isEnterpriseAdmin = useAuthStore((s) => s.roleInEnterprise) === 'ENTERPRISE_ADMIN';
   const hasEnterprise = Boolean(useAuthStore((s) => s.enterprise));
@@ -47,6 +48,18 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
   const enterpriseReview = useReviewContribution('enterprise');
   const state = currentContributionState(contribution);
   const loading = submitEnterprise.isPending || requestPlatform.isPending || authorizePlatform.isPending || enterpriseReview.isPending;
+
+  const downloadRpa = async () => {
+    setRpaDownloading(true);
+    try {
+      const result = await downloadFile(`/contributions/${contribution.id}/rpa-package`);
+      toast.success('RPA 包下载成功', result.sha256 ? `SHA-256：${result.sha256}` : undefined);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '下载失败，请稍后重试');
+    } finally {
+      setRpaDownloading(false);
+    }
+  };
 
   const model = buildPipeline(contribution, { hasEnterprise, isContributor, isEnterpriseAdmin });
 
@@ -95,7 +108,7 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
       {view === 'pipeline' && <PipelineView model={model} loading={loading} onAction={onStageAction} />}
       {view === 'versions' && <VersionView contribution={contribution} isContributor={isContributor} onPreview={setPreviewVersionId} onEdit={setEditVersionId} onPublish={() => setPublishOpen(true)} />}
       {view === 'usage' && <UsageView query={usage} />}
-      {view === 'profile' && <ProfileView contribution={contribution} />}
+      {view === 'profile' && <ProfileView contribution={contribution} onDownloadRpa={downloadRpa} rpaDownloading={rpaDownloading} />}
       {view === 'rewards' && <RewardsView contribution={contribution} />}
     </div></main>
     {/* source='author'：贡献中心按 contributorId 授权。走企业侧那条会必然 403 ——
@@ -135,10 +148,10 @@ function PipelineView({ model, loading, onAction }: { model: PipelineModel; load
   );
 }
 
-function ProfileView({ contribution }: { contribution: ContributionCapabilityDetail }) {
+function ProfileView({ contribution, onDownloadRpa, rpaDownloading }: { contribution: ContributionCapabilityDetail; onDownloadRpa: () => void; rpaDownloading: boolean }) {
   const version = contribution.skillVersions[0];
   const rpaVersion = contribution.rpaVersions?.[0];
-  return <section className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Capability profile</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">能力档案</h3><p className="mt-1 text-sm text-gtext-secondary">能力的归属、版本和可见范围。</p><div className="mt-6 divide-y divide-glassline border-y border-glassline"><ProfileRow label="贡献者" value={contribution.contributor.name || contribution.contributor.email} /><ProfileRow label="归属工作区" value={contribution.enterprise?.name || '个人贡献'} /><ProfileRow label="当前版本" value={contribution.type === 'RPA' ? rpaVersion ? `v${rpaVersion.version}` : '暂无版本' : version ? `v${version.version}` : '暂无版本'} /><ProfileRow label="可见范围" value={contribution.visibility === 'MARKET_PUBLIC' ? '硅基人才市场' : '企业私有'} /><ProfileRow label="累计调用" value={`${contribution.usageCount} 次`} /><ProfileRow label="绑定员工" value={`${contribution._count.bindings} 个`} /></div>{contribution.type === 'RPA' && contribution.rpaConfig && <div className="mt-6 rounded-glass-lg border border-glassline bg-glass-1 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-gtext-primary">RPA 下载包</p><p className="mt-1 text-xs text-gtext-muted">{contribution.rpaConfig.platform === 'SHIZAI' ? '实在智能' : '影刀'} · 仅下载模式 · 审核通过后可用</p></div><a href={`/api/contributions/${contribution.id}/rpa-package`} className="inline-flex h-8 items-center gap-2 rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm font-medium text-gtext-primary transition-colors hover:bg-glass-3"><Download className="h-4 w-4" />下载 ZIP</a></div><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-gtext-secondary">{contribution.rpaConfig.configDoc || '暂无使用说明'}</p></div>}</section>;
+  return <section className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Capability profile</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">能力档案</h3><p className="mt-1 text-sm text-gtext-secondary">能力的归属、版本和可见范围。</p><div className="mt-6 divide-y divide-glassline border-y border-glassline"><ProfileRow label="贡献者" value={contribution.contributor.name || contribution.contributor.email} /><ProfileRow label="归属工作区" value={contribution.enterprise?.name || '个人贡献'} /><ProfileRow label="当前版本" value={contribution.type === 'RPA' ? rpaVersion ? `v${rpaVersion.version}` : '暂无版本' : version ? `v${version.version}` : '暂无版本'} /><ProfileRow label="可见范围" value={contribution.visibility === 'MARKET_PUBLIC' ? '硅基人才市场' : '企业私有'} /><ProfileRow label="累计调用" value={`${contribution.usageCount} 次`} /><ProfileRow label="绑定员工" value={`${contribution._count.bindings} 个`} /></div>{contribution.type === 'RPA' && contribution.rpaConfig && <div className="mt-6 rounded-glass-lg border border-glassline bg-glass-1 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-gtext-primary">RPA 下载包</p><p className="mt-1 text-xs text-gtext-muted">{contribution.rpaConfig.platform === 'SHIZAI' ? '实在智能' : '影刀'} · 仅下载模式 · 审核通过后可用</p></div><Button type="button" variant="glass" size="sm" loading={rpaDownloading} loadingText="下载中…" onClick={onDownloadRpa}><Download className="h-4 w-4" />下载 ZIP</Button></div><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-gtext-secondary">{contribution.rpaConfig.configDoc || '暂无使用说明'}</p></div>}</section>;
 }
 
 function ProfileRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between gap-6 py-4 text-sm"><span className="text-gtext-muted">{label}</span><span className="font-medium text-gtext-primary">{value}</span></div>; }
