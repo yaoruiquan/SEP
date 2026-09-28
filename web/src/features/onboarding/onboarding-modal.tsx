@@ -79,7 +79,6 @@ export function OnboardingModal({ onClose }: Props) {
       try {
         await createMember.mutateAsync({
           email,
-          password: 'Welcome123!', // MVP: 管理员代建账号，统一初始密码
           name: email.split('@')[0],
         });
         successCount++;
@@ -228,7 +227,7 @@ export function OnboardingModal({ onClose }: Props) {
                   className="w-full rounded border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                 />
                 <p className="mt-1 text-xs text-fg-muted">
-                  初始密码为 Welcome123!，成员首次登录后可修改
+                  成员会收到邀请链接，自行设置密码
                 </p>
               </div>
               <div className="flex gap-3">

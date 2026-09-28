@@ -104,4 +104,31 @@ export MOCK_EXPECT_READINESS=1
 check_service_readiness blue
 observe_candidate blue
 
+# Production auth preflight must reject incomplete or unsafe credentials without
+# printing their values, while accepting the minimum complete configuration.
+AUTH_ENV_FILE="$TMP_DIR/auth.env"
+cat > "$AUTH_ENV_FILE" <<'EOF'
+NODE_ENV=production
+JWT_SECRET=legacy-secret-for-other-modules
+ACCESS_JWT_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+REFRESH_TOKEN_PEPPER=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+CORS_ORIGIN=https://sep.example.com
+MAIL_ENABLED=true
+MAIL_HOST=smtp.example.com
+MAIL_USER=sep@example.com
+MAIL_PASSWORD=mail-password-is-not-printed
+MAIL_FROM=sep@example.com
+WECHAT_OAUTH_ENABLED=false
+QQ_OAUTH_ENABLED=false
+EOF
+ENV_FILE="$AUTH_ENV_FILE"
+check_env
+
+sed 's/REFRESH_TOKEN_PEPPER=.*/REFRESH_TOKEN_PEPPER=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' "$AUTH_ENV_FILE" > "$TMP_DIR/invalid-auth.env"
+ENV_FILE="$TMP_DIR/invalid-auth.env"
+if check_env; then
+  printf '%s\n' 'expected auth preflight to reject reused secrets' >&2
+  exit 1
+fi
+
 printf '%s\n' 'sep-deploy mock tests passed'

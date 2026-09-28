@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,11 @@ import type { EmployeeAvatarAsset } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { SessionService } from '../auth/session.service';
+import { AuthRiskService, LoginAuditContext } from '../auth/auth-risk.service';
+import { AuthEventService } from '../auth/auth-event.service';
+import { AuthRateLimitService } from '../auth/auth-rate-limit.service';
+import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import {
   ClientLoginDto,
@@ -25,7 +31,6 @@ import {
   ClientTaskEventDto,
 } from 'shared';
 
-const CLIENT_REFRESH_EXPIRES = '30d';
 const CLIENT_ACCESS_EXPIRES_IN = 60 * 60;
 
 export interface ClientAuthResponse {
@@ -54,6 +59,8 @@ export interface ClientAuthResponse {
 export interface ClientEmploymentTokenResponse {
   employmentToken: string;
   expiresIn: number;
+  refreshToken: string;
+  refreshTokenExpiresIn: number;
   employment: {
     id: string;
     name: string;
@@ -91,10 +98,15 @@ export class ClientService {
     private readonly config: ConfigService,
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
+    private readonly sessions: SessionService,
+    @Optional() private readonly risk?: AuthRiskService,
+    @Optional() private readonly events?: AuthEventService,
+    @Optional() private readonly rateLimit?: AuthRateLimitService,
+    @Optional() private readonly mail?: MailService,
   ) {}
 
   private get jwtSecret(): string {
-    return this.config.getOrThrow<string>('JWT_SECRET');
+    return this.config.get<string>('ACCESS_JWT_SECRET') ?? this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   /**
@@ -105,15 +117,54 @@ export class ClientService {
    * 2. 同时注册/更新设备记录（fingerprint + platform + clientVersion）
    * 3. 检查设备是否被吊销
    */
-  async login(dto: ClientLoginDto): Promise<ClientAuthResponse> {
+  async login(
+    dto: ClientLoginDto,
+    context: Pick<LoginAuditContext, 'ipAddress' | 'userAgent'> = {},
+  ): Promise<ClientAuthResponse> {
+    const auditContext: LoginAuditContext = { provider: 'desktop-password', ...context };
+    const accountLimit = await this.rateLimit?.isBlocked('login-account', dto.email.trim().toLowerCase(), { limit: 12, windowSeconds: 900 });
+    const ipLimit = context.ipAddress ? await this.rateLimit?.isBlocked('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 }) : undefined;
+    if (accountLimit && !accountLimit.allowed || ipLimit && !ipLimit.allowed) {
+      await this.events?.record({ action: 'LOGIN_FAILED', success: false, provider: 'desktop-password', ipAddress: context.ipAddress, userAgent: context.userAgent, metadata: { reason: 'rate_limited' } });
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
     // 1. 验证用户
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
+      include: { authCredentials: { where: { type: 'LOCAL_PASSWORD' }, take: 1 } },
     });
-    if (!user) throw new UnauthorizedException('邮箱或密码错误');
+    if (!user) {
+      await this.rateLimit?.consume('login-account', dto.email.trim().toLowerCase(), { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.risk?.recordAnonymousFailure(auditContext);
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    if (user.status === 'DISABLED') {
+      await this.rateLimit?.consume('login-account', dto.email.trim().toLowerCase(), { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'desktop-password', metadata: { reason: 'account_disabled' } });
+      throw new UnauthorizedException('账号已被禁用');
+    }
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
-    if (!isPasswordValid) throw new UnauthorizedException('邮箱或密码错误');
+    const credential = user.authCredentials[0];
+    const passwordHash = credential?.passwordHash ?? null;
+    if (!passwordHash) {
+      await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'desktop-password', metadata: { reason: 'password_credential_missing' } });
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    await this.risk?.assertLoginAllowed(user.id, {
+      passwordHash,
+      failedCount: credential?.failedCount ?? 0,
+      lockedUntil: credential?.lockedUntil ?? null,
+    }, auditContext);
+    const isPasswordValid = await bcrypt.compare(dto.password, passwordHash);
+    if (!isPasswordValid) {
+      await this.rateLimit?.consume('login-account', dto.email.trim().toLowerCase(), { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.risk?.recordPasswordFailure(user.id, passwordHash, auditContext);
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    await this.risk?.recordPasswordSuccess(user.id);
 
     // 2. 注册/更新设备
     const device = await this.prisma.device.upsert({
@@ -146,17 +197,27 @@ export class ClientService {
       throw new UnauthorizedException('该设备已被吊销，请联系管理员');
     }
 
-    // 4. 签发 access token（短期）和 client-refresh token（长期）
-    const accessToken = this.signAccessToken(user);
-
-    const refreshToken = this.jwtService.sign(
-      {
-        sub: user.id,
-        deviceId: device.id,
-        type: 'client-refresh',
-      },
-      { secret: this.jwtSecret, expiresIn: CLIENT_REFRESH_EXPIRES },
-    );
+    // 4. 统一认证会话：opaque refresh token 只存数据库 hash，且每次刷新轮换
+    const session = await this.sessions.createSession({
+      userId: user.id,
+      clientType: 'DESKTOP',
+      deviceId: device.id,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      refreshTtlSeconds: this.sessions.getRefreshTtlSeconds('DESKTOP'),
+    });
+    await this.events?.record({ userId: user.id, action: 'LOGIN_SUCCESS', provider: 'desktop-password', ipAddress: context.ipAddress, userAgent: context.userAgent, sessionId: session.sessionId });
+    if (session.isNewDevice && this.mail) {
+      void this.mail.sendNewDeviceLogin({
+        to: user.email,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        clientType: 'DESKTOP',
+      }).catch((error) => this.events?.record({ userId: user.id, action: 'NEW_DEVICE_NOTIFICATION_FAILED', success: false, provider: 'desktop-password', metadata: { reason: error instanceof Error ? error.message : 'mail_error' } }));
+      await this.events?.record({ userId: user.id, action: 'NEW_DEVICE_LOGIN', provider: 'desktop-password', sessionId: session.sessionId, ipAddress: context.ipAddress, userAgent: context.userAgent });
+    }
+    const accessToken = this.signAccessToken(user, session.sessionId);
+    const refreshToken = session.refreshToken;
 
     // 5. 查询企业归属
     const membership = await this.prisma.enterpriseMember.findFirst({
@@ -183,7 +244,7 @@ export class ClientService {
       accessToken,
       refreshToken,
       accessTokenExpiresIn: CLIENT_ACCESS_EXPIRES_IN,
-      refreshTokenExpiresIn: 30 * 24 * 60 * 60,
+      refreshTokenExpiresIn: this.sessions.getRefreshTtlSeconds('DESKTOP'),
       user: {
         id: user.id,
         email: user.email,
@@ -196,35 +257,40 @@ export class ClientService {
   }
 
   async refreshAccessToken(dto: ClientRefreshDto) {
-    let payload: any;
-    try {
-      payload = this.jwtService.verify(dto.refreshToken, { secret: this.jwtSecret });
-    } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
-    if (payload.type !== 'client-refresh' || typeof payload.sub !== 'string' || typeof payload.deviceId !== 'string') {
-      throw new UnauthorizedException('Token type must be client-refresh');
+    const current = await this.sessions.validateRefreshToken(dto.refreshToken, 'DESKTOP');
+    if (!current.deviceId) {
+      throw new UnauthorizedException('Desktop session has no device');
     }
 
     const device = await this.prisma.device.findUnique({
-      where: { id: payload.deviceId },
+      where: { id: current.deviceId },
       select: { userId: true, revokedAt: true },
     });
-    if (!device || device.revokedAt || device.userId !== payload.sub) {
+    if (!device || device.revokedAt || device.userId !== current.userId) {
+      await this.sessions.revokeSession(current.sessionId, 'device_revoked');
       throw new UnauthorizedException('Device has been revoked or is invalid');
     }
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+
+    const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
+    const user = await this.prisma.user.findUnique({ where: { id: rotated.userId } });
     if (!user) throw new UnauthorizedException('User not found');
     const membership = await this.prisma.enterpriseMember.findFirst({
       where: { userId: user.id }, orderBy: { createdAt: 'asc' },
       select: { enterprise: { select: { id: true, name: true } } },
     });
     return {
-      accessToken: this.signAccessToken(user),
+      accessToken: this.signAccessToken(user, rotated.sessionId),
+      refreshToken: rotated.refreshToken,
       accessTokenExpiresIn: CLIENT_ACCESS_EXPIRES_IN,
+      refreshTokenExpiresIn: this.sessions.getRefreshTtlSeconds('DESKTOP'),
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       enterprise: membership?.enterprise ?? null,
     };
+  }
+
+  async logout(dto: ClientRefreshDto): Promise<void> {
+    const revoked = await this.sessions.revokeRefreshToken(dto.refreshToken, 'logout');
+    if (revoked) await this.events?.record({ userId: revoked.userId, action: 'LOGOUT', sessionId: revoked.sessionId, provider: 'desktop' });
   }
 
   /**
@@ -234,22 +300,12 @@ export class ClientService {
    * 供员工包执行时作为身份凭据。TTL 从系统配置读取（默认 15 分钟）。
    */
   async refreshInstanceToken(dto: ClientTokenDto): Promise<ClientEmploymentTokenResponse> {
-    // 1. 验证 refresh token
-    let payload: any;
-    try {
-      payload = this.jwtService.verify(dto.refreshToken, { secret: this.jwtSecret });
-    } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
+    // 1. 验证统一 opaque refresh token，并检查设备是否仍然有效
+    const session = await this.sessions.validateRefreshToken(dto.refreshToken, 'DESKTOP');
+    const userId = session.userId;
+    const deviceId = session.deviceId;
+    if (!deviceId) throw new UnauthorizedException('Desktop session has no device');
 
-    if (payload.type !== 'client-refresh') {
-      throw new UnauthorizedException('Token type must be client-refresh');
-    }
-
-    const userId = payload.sub;
-    const deviceId = payload.deviceId;
-
-    // 2. 检查设备是否仍然有效
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
       select: { revokedAt: true },
@@ -258,6 +314,7 @@ export class ClientService {
       throw new UnauthorizedException('Device not found');
     }
     if (device.revokedAt) {
+      await this.sessions.revokeSession(session.sessionId, 'device_revoked');
       throw new UnauthorizedException('Device has been revoked');
     }
 
@@ -318,7 +375,10 @@ export class ClientService {
       throw new BadRequestException('Invalid CLIENT_TOKEN_TTL_MINUTES setting');
     }
 
-    // 6. 签发 client-employment JWT
+    // 6. 轮换桌面 Refresh Token，再签发短期 employment JWT。
+    // 该接口历史上只校验 refresh token，会形成可无限复用的认证旁路；
+    // 现在与普通桌面刷新保持同一 Rotation 语义，客户端必须保存新 token。
+    const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
     const employmentToken = this.jwtService.sign(
       {
         sub: userId,
@@ -333,6 +393,8 @@ export class ClientService {
     return {
       employmentToken,
       expiresIn: ttlMinutes * 60, // seconds
+      refreshToken: rotated.refreshToken,
+      refreshTokenExpiresIn: this.sessions.getRefreshTtlSeconds('DESKTOP'),
       employment: {
         id: subscription.id,
         name: subscription.employee.name,
@@ -532,9 +594,9 @@ export class ClientService {
     return this.listSubscriptions(userId);
   }
 
-  private signAccessToken(user: { id: string; email: string; role: string }) {
+  private signAccessToken(user: { id: string; email: string; role: string }, sessionId?: string) {
     return this.jwtService.sign(
-      { sub: user.id, email: user.email, role: user.role, type: 'access' },
+      { sub: user.id, email: user.email, role: user.role, sid: sessionId, type: 'access' },
       { secret: this.jwtSecret, expiresIn: CLIENT_ACCESS_EXPIRES_IN },
     );
   }

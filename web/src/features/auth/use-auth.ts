@@ -9,6 +9,7 @@ import {
   type AuthPayload,
 } from '@/lib/auth-store';
 import type { EnterpriseRole, InvitationPreview } from '@/lib/types';
+import { qk } from '@/lib/query-keys';
 
 /**
  * 只允许跳回**站内**路径，挡开放重定向。
@@ -200,6 +201,169 @@ export function useLogout() {
       // 多租户下尤其重要：缓存里可能有另一家企业的部门/成员列表
       queryClient.clear();
       router.replace('/login');
+    },
+  });
+}
+
+
+export interface AuthSession {
+  id: string;
+  type: 'WEB' | 'DESKTOP' | string;
+  deviceId: string | null;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+  isCurrent?: boolean;
+}
+
+export function useAuthSessions() {
+  return useQuery({
+    queryKey: ['auth', 'sessions'] as const,
+    queryFn: () => api.get<AuthSession[]>('/auth/sessions'),
+    staleTime: 15_000,
+  });
+}
+
+export interface AuthEvent {
+  id: string;
+  action: string;
+  success: boolean;
+  provider: string | null;
+  sessionId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export function useAuthEvents() {
+  return useQuery({
+    queryKey: ['auth', 'events'] as const,
+    queryFn: () => api.get<AuthEvent[]>('/auth/events'),
+    staleTime: 15_000,
+  });
+}
+
+export function useRevokeAuthSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => api.delete<void>(`/auth/sessions/${sessionId}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] });
+    },
+  });
+}
+
+export function useRevokeAllAuthSessions() {
+  const router = useRouter();
+  const clear = useAuthStore((s) => s.clear);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<void>('/auth/logout-all'),
+    onSuccess: () => {
+      clear();
+      queryClient.clear();
+      router.replace('/login');
+    },
+  });
+}
+
+export function useRequestPasswordReset() {
+  return useMutation({
+    mutationFn: (body: { email: string }) =>
+      api.post<{ message: string }>('/auth/password/forgot', body, { skipAuthRetry: true }),
+  });
+}
+
+export function useResetPassword() {
+  const router = useRouter();
+  return useMutation({
+    mutationFn: (body: { token: string; newPassword: string }) =>
+      api.post<{ message: string }>('/auth/password/reset', body, { skipAuthRetry: true }),
+    onSuccess: () => router.replace('/login?reset=success'),
+  });
+}
+
+export function useConfirmEmailVerification() {
+  return useMutation({
+    mutationFn: (token: string) =>
+      api.post<{ message: string }>('/auth/email/verification/confirm', { token }, { skipAuthRetry: true }),
+  });
+}
+
+export function useRequestEmailVerification() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/auth/email/verification/request', {}),
+  });
+}
+
+export function useRequestEmailChange() {
+  return useMutation({
+    mutationFn: (newEmail: string) =>
+      api.post<{ message: string }>('/auth/email/change/request', { newEmail }),
+  });
+}
+
+export function useConfirmEmailChange() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) =>
+      api.post<{ message: string; email: string }>(
+        '/auth/email/change/confirm',
+        { token },
+        { skipAuthRetry: true },
+      ),
+    onSuccess: ({ email }) => {
+      queryClient.invalidateQueries({ queryKey: qk.me });
+      const { user, token: accessToken, enterprise, roleInEnterprise, setAuth } = useAuthStore.getState();
+      if (user && accessToken) {
+        setAuth({
+          token: accessToken,
+          user: { ...user, email },
+          enterprise,
+          roleInEnterprise,
+        });
+      }
+    },
+  });
+}
+
+
+export interface OAuthIdentity {
+  id: string;
+  provider: 'wechat' | 'qq' | string;
+  providerAccountId: string;
+  providerEmail: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export function useOAuthIdentities() {
+  return useQuery({
+    queryKey: ['auth', 'oauth-identities'] as const,
+    queryFn: () => api.get<OAuthIdentity[]>('/auth/oauth/identities'),
+    staleTime: 30_000,
+  });
+}
+
+export function useStartOAuthLink() {
+  return useMutation({
+    mutationFn: (provider: 'wechat' | 'qq') =>
+      api.post<{ authorizationUrl: string }>(`/auth/oauth/${provider}/link/start`, {}),
+    onSuccess: ({ authorizationUrl }) => {
+      window.location.assign(authorizationUrl);
+    },
+  });
+}
+
+export function useUnlinkOAuthIdentity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (identityId: string) =>
+      api.delete<{ message: string }>(`/auth/oauth/identities/${identityId}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'oauth-identities'] });
     },
   });
 }

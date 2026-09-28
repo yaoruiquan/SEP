@@ -43,6 +43,7 @@ check_env() {
     error "env 文件不存在: $ENV_FILE"
     exit 1
   fi
+  check_auth_env
 }
 
 # The CI runner checks out the exact GitHub SHA before invoking this script.
@@ -90,7 +91,67 @@ check_compose_scope() {
 
 env_value() {
   local key=$1
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE"
+  local value
+  value=$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE")
+  # 只用于校验，不回显值；兼容 .env 中常见的单/双引号写法。
+  value=${value#\"}; value=${value%\"}
+  value=${value#\'}; value=${value%\'}
+  printf '%s' "$value"
+}
+
+is_https_url() {
+  [[ "$1" =~ ^https://[^[:space:]]+$ ]]
+}
+
+require_auth_env_value() {
+  local key=$1 value
+  value=$(env_value "$key")
+  [[ -n "$value" ]] || {
+    error "认证生产配置缺少 ${key}（不会输出密钥内容）"
+    return 1
+  }
+}
+
+# 在 Docker Compose/Node 启动前尽早阻断不完整的认证生产配置。
+# 后端仍会执行同一类校验，这里只做 fail-fast，不打印任何密钥值。
+check_auth_env() {
+  local node_env access_secret refresh_pepper mail_enabled oauth_enabled redirect
+  node_env=$(env_value NODE_ENV)
+  [[ -n "$node_env" ]] || node_env=production
+  [[ "$node_env" == production ]] || return 0
+
+  require_auth_env_value JWT_SECRET
+  require_auth_env_value ACCESS_JWT_SECRET
+  require_auth_env_value REFRESH_TOKEN_PEPPER
+  access_secret=$(env_value ACCESS_JWT_SECRET)
+  refresh_pepper=$(env_value REFRESH_TOKEN_PEPPER)
+  [[ ${#access_secret} -ge 32 ]] || { error 'ACCESS_JWT_SECRET 长度不足 32'; return 1; }
+  [[ ${#refresh_pepper} -ge 32 ]] || { error 'REFRESH_TOKEN_PEPPER 长度不足 32'; return 1; }
+  [[ "$access_secret" != "$refresh_pepper" ]] || { error 'ACCESS_JWT_SECRET 与 REFRESH_TOKEN_PEPPER 不能相同'; return 1; }
+
+  require_auth_env_value CORS_ORIGIN
+  mail_enabled=$(env_value MAIL_ENABLED)
+  [[ "$mail_enabled" == true ]] || { error '生产环境必须设置 MAIL_ENABLED=true'; return 1; }
+  for key in MAIL_HOST MAIL_USER MAIL_PASSWORD MAIL_FROM; do
+    require_auth_env_value "$key"
+  done
+
+  for provider in WECHAT QQ; do
+    oauth_enabled=$(env_value "${provider}_OAUTH_ENABLED")
+    [[ "$oauth_enabled" == true ]] || continue
+    if [[ "$provider" == WECHAT ]]; then
+      for key in WECHAT_APP_ID WECHAT_APP_SECRET WECHAT_REDIRECT_URI; do
+        require_auth_env_value "$key"
+      done
+      redirect=$(env_value WECHAT_REDIRECT_URI)
+    else
+      for key in QQ_APP_ID QQ_APP_KEY QQ_REDIRECT_URI; do
+        require_auth_env_value "$key"
+      done
+      redirect=$(env_value QQ_REDIRECT_URI)
+    fi
+    is_https_url "$redirect" || { error "${provider}_REDIRECT_URI 必须使用 HTTPS"; return 1; }
+  done
 }
 
 find_shared_container() {

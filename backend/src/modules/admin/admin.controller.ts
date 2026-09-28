@@ -13,12 +13,13 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
+import { AdminAuthService } from './admin-auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { z } from 'zod';
-import { UserRole } from '@prisma/client';
+import { UserRole, UserStatus } from '@prisma/client';
 import { CnyAmountSchema } from 'shared';
 
 const CreditAdjustmentSchema = z.object({
@@ -113,6 +114,10 @@ const ApproveCapabilitySchema = z.object({
   note: z.string().optional(),
 });
 
+const AdminDisableUserSchema = z.object({
+  reason: z.string().min(1, '禁用原因不能为空').max(500, '禁用原因不能超过500字符'),
+});
+
 const RejectCapabilitySchema = z.object({
   reason: z.string().min(1, '拒绝原因不能为空').max(500, '原因不能超过500字符'),
 });
@@ -123,7 +128,10 @@ const RejectCapabilitySchema = z.object({
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly adminAuthService: AdminAuthService,
+  ) {}
 
   @Get('stats')
   @ApiOperation({ summary: '获取运营仪表盘统计数据' })
@@ -133,6 +141,81 @@ export class AdminController {
   })
   getStats() {
     return this.adminService.getStats();
+  }
+
+  @Get('auth/users')
+  @ApiOperation({ summary: '查询用户认证状态（平台管理员）' })
+  @ApiQuery({ name: 'keyword', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, enum: UserStatus })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number })
+  listAuthUsers(
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: UserStatus,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const normalizedStatus = status && Object.values(UserStatus).includes(status) ? status : undefined;
+    return this.adminAuthService.listUsers({
+      keyword,
+      status: normalizedStatus,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Get('auth/users/:id')
+  @ApiOperation({ summary: '查看用户认证详情、第三方身份和有效会话' })
+  getAuthUser(@Param('id') id: string) {
+    return this.adminAuthService.getUserDetail(id);
+  }
+
+  @Get('auth/users/:id/events')
+  @ApiOperation({ summary: '查看指定用户认证事件' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  getAuthUserEvents(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.adminAuthService.listUserEvents(id, limit ? Number(limit) : undefined);
+  }
+
+  @Get('auth/metrics')
+  @ApiOperation({ summary: '查看认证安全指标' })
+  @ApiQuery({ name: 'hours', required: false, type: Number, description: '统计窗口，1-168小时，默认24小时' })
+  getAuthMetrics(@Query('hours') hours?: string) {
+    return this.adminAuthService.getSecurityMetrics(hours ? Number(hours) : 24);
+  }
+
+  @Patch('auth/users/:id/disable')
+  @ApiOperation({ summary: '禁用用户账号并退出全部设备' })
+  disableAuthUser(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AdminDisableUserSchema)) dto: z.infer<typeof AdminDisableUserSchema>,
+    @Request() req: any,
+  ) {
+    return this.adminAuthService.disableUser(id, req.user.id, dto.reason);
+  }
+
+  @Patch('auth/users/:id/enable')
+  @ApiOperation({ summary: '解禁用户账号' })
+  enableAuthUser(@Param('id') id: string, @Request() req: any) {
+    return this.adminAuthService.enableUser(id, req.user.id);
+  }
+
+  @Post('auth/users/:id/logout-all')
+  @ApiOperation({ summary: '强制用户退出全部设备' })
+  forceLogoutAuthUser(@Param('id') id: string, @Request() req: any) {
+    return this.adminAuthService.revokeAllSessions(id, req.user.id);
+  }
+
+  @Post('auth/users/:id/require-email-verification')
+  @ApiOperation({ summary: '强制用户重新验证邮箱' })
+  forceEmailVerification(@Param('id') id: string, @Request() req: any) {
+    return this.adminAuthService.forceEmailVerification(id, req.user.id);
+  }
+
+  @Post('auth/users/:id/force-password-reset')
+  @ApiOperation({ summary: '强制用户重置密码并退出全部设备' })
+  forcePasswordReset(@Param('id') id: string, @Request() req: any) {
+    return this.adminAuthService.forcePasswordReset(id, req.user.id);
   }
 
   @Get('enterprises')

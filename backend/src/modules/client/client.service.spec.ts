@@ -6,15 +6,17 @@ import { EnterpriseContextService } from '../enterprise/enterprise-context.servi
 import { SettingService } from '../setting/setting.service';
 import { JwtService } from '@nestjs/jwt';
 import { withEmployeeAvatar } from '../../common/employee-avatar';
+import { SessionService } from '../auth/session.service';
 
 describe('ClientService', () => {
   let service: ClientService;
   let prisma: any;
   let jwt: any;
+  let sessions: any;
 
   beforeEach(async () => {
     prisma = {
-      device: { findUnique: jest.fn() },
+      device: { findUnique: jest.fn(), upsert: jest.fn(), findMany: jest.fn() },
       user: { findUnique: jest.fn() },
       enterpriseMember: { findFirst: jest.fn() },
       employeeGrant: { findMany: jest.fn(), findFirst: jest.fn() },
@@ -23,6 +25,17 @@ describe('ClientService', () => {
       subscription: { findFirst: jest.fn() },
     };
     jwt = { sign: jest.fn().mockReturnValue('access-token'), verify: jest.fn() };
+    sessions = {
+      validateRefreshToken: jest.fn().mockResolvedValue({
+        sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
+      }),
+      rotateRefreshToken: jest.fn().mockResolvedValue({
+        sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1', refreshToken: 'next-refresh',
+      }),
+      getRefreshTtlSeconds: jest.fn().mockReturnValue(30 * 24 * 60 * 60),
+      createSession: jest.fn().mockResolvedValue({ sessionId: 'session-1', refreshToken: 'refresh-token' }),
+      revokeSession: jest.fn(),
+    };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -31,6 +44,7 @@ describe('ClientService', () => {
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
         { provide: SettingService, useValue: { getEffectiveValue: jest.fn() } },
+        { provide: SessionService, useValue: sessions },
         {
           provide: EnterpriseContextService,
           useValue: {
@@ -45,15 +59,15 @@ describe('ClientService', () => {
   });
 
   it('refreshes an access token only for the matching active device', async () => {
-    jwt.verify.mockReturnValue({ sub: 'user-1', deviceId: 'device-1', type: 'client-refresh' });
     prisma.device.findUnique.mockResolvedValue({ userId: 'user-1', revokedAt: null });
     prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com', name: 'A', role: 'USER' });
     prisma.enterpriseMember.findFirst.mockResolvedValue({ enterprise: { id: 'ent-1', name: 'Acme' } });
 
     await expect(service.refreshAccessToken({ refreshToken: 'refresh-token' })).resolves.toMatchObject({
-      accessToken: 'access-token', accessTokenExpiresIn: 3600,
+      accessToken: 'access-token', refreshToken: 'next-refresh', accessTokenExpiresIn: 3600,
       enterprise: { id: 'ent-1', name: 'Acme' },
     });
+    expect(sessions.rotateRefreshToken).toHaveBeenCalledWith('refresh-token', 'DESKTOP');
     expect(jwt.sign).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 'user-1', type: 'access' }),
       expect.objectContaining({ expiresIn: 3600 }),

@@ -89,7 +89,10 @@ test.describe.serial('客户端 SDK 核心流程', () => {
 
     const data = await response.json();
     employmentToken = data.employmentToken;
+    // employment token 接口也会轮换桌面 refresh token，后续请求必须保存新 token。
+    refreshToken = data.refreshToken;
     expect(employmentToken).toBeTruthy();
+    expect(refreshToken).toBeTruthy();
   });
 
   test('4. 模型网关 - Chat Completion', async ({ request }) => {

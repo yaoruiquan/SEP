@@ -28,9 +28,15 @@ cp /path/to/SEP/deploy/production/.env.example /opt/sep/.env
 需要填写的内容：
 - `POSTGRES_PASSWORD` — 从 `/opt/longdao/deploy/production/.env` 复制
 - `REDIS_PASSWORD` — 同上
-- `JWT_SECRET` — `openssl rand -hex 32`
+- `JWT_SECRET` — 兼容旧模块使用，执行 `openssl rand -hex 32`
+- `ACCESS_JWT_SECRET` — 认证中心 Access Token 密钥，执行 `openssl rand -hex 32`
+- `REFRESH_TOKEN_PEPPER` — Refresh Token 哈希 pepper，执行 `openssl rand -hex 32`；必须与 `ACCESS_JWT_SECRET` 不同
+- `MAIL_*` — 真实 SMTP 配置，生产必须保持 `MAIL_ENABLED=true`
+- `WECHAT_*` / `QQ_*` — 完成对应开放平台配置后再启用；回调地址必须是公网 HTTPS 地址
 - `SUB2API_API_KEY` — 在 sub2api 管理后台新建一个渠道 key
 - `EMBEDDING_BASE_URL` — Ollama 在 Docker 网络中的地址，例如 `http://sep-ollama:11434/v1`
+
+部署脚本会在 Compose 启动前执行认证配置预检；不会打印密钥值。后端启动时还会再次校验生产认证配置，避免绕过部署脚本直接启动不安全配置。
 
 先按 [Embedding 服务部署指南](../../docs/deployment/embedding-service.md) 验证 `/v1/embeddings` 返回 1024 维向量，再启动 SEP。
 

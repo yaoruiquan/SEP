@@ -2,7 +2,7 @@ import { authAccessor, type AuthPayload } from './auth-store';
 
 /**
  * All requests go through the Next.js rewrite proxy at /api/* → backend.
- * This keeps the browser same-origin so the refresh_token httpOnly cookie
+ * This keeps the browser same-origin so the __Host-sep_refresh httpOnly cookie
  * is sent automatically (credentials: 'include').
  */
 export const API_BASE = '/api';
@@ -77,12 +77,13 @@ function safeJson(text: string): unknown {
 
 let refreshInFlight: Promise<boolean> | null = null;
 
-/** Calls GET /auth/refresh; on success updates the store. Deduped. */
+/** Calls POST /auth/refresh; on success updates the store. Deduped. */
 export async function tryRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
         credentials: 'include',
       });
       if (!res.ok) return false;

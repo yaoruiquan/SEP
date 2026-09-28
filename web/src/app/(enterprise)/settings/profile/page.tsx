@@ -4,14 +4,19 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, Loader2, Upload } from 'lucide-react';
+import { Check, Loader2, Mail, Upload } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { useMe, useUpdateProfile, useChangePassword, useUploadAvatar } from '@/features/user/use-user';
-import { useLogout, useLeaveEnterprise } from '@/features/auth/use-auth';
+import {
+  useLogout,
+  useLeaveEnterprise,
+  useRequestEmailVerification,
+  useRequestEmailChange,
+} from '@/features/auth/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
 import { ApiError } from '@/lib/api-client';
 import { common } from '@/locales/zh-CN';
@@ -41,10 +46,14 @@ export default function SettingsPage() {
   const changePassword = useChangePassword();
   const logout = useLogout();
   const uploadAvatar = useUploadAvatar();
+  const requestEmailVerification = useRequestEmailVerification();
+  const requestEmailChange = useRequestEmailChange();
 
   const [pwSuccess, setPwSuccess] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarSaved, setAvatarSaved] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const profileForm = useForm({
@@ -110,6 +119,16 @@ export default function SettingsPage() {
     );
   });
 
+  function handleEmailChangeRequest() {
+    setEmailMessage(null);
+    requestEmailChange.mutate(newEmail, {
+      onSuccess: ({ message }) => {
+        setEmailMessage(message);
+        setNewEmail('');
+      },
+    });
+  }
+
   if (isLoading) return <CenteredSpinner label="加载中…" />;
 
   return (
@@ -172,9 +191,58 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">邮箱</label>
-              <Input value={me?.email ?? ''} disabled readOnly />
+            <div className="space-y-2">
+              <label className="mb-1.5 block text-sm font-medium text-foreground">登录邮箱</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input className="min-w-[240px] flex-1" value={me?.email ?? ''} disabled readOnly />
+                {me?.emailVerifiedAt ? (
+                  <span className="text-sm text-success">已验证</span>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => requestEmailVerification.mutate()}
+                    disabled={requestEmailVerification.isPending}
+                  >
+                    <Mail className="mr-1.5 h-4 w-4" />
+                    {requestEmailVerification.isPending ? '发送中…' : '发送验证邮件'}
+                  </Button>
+                )}
+              </div>
+              {requestEmailVerification.isSuccess && (
+                <p className="text-sm text-success">验证邮件已发送，请检查收件箱。</p>
+              )}
+              {requestEmailVerification.error && (
+                <p className="text-sm text-danger">{(requestEmailVerification.error as ApiError).message || '发送失败'}</p>
+              )}
+            </div>
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <label className="mb-1.5 block text-sm font-medium text-foreground">修改登录邮箱</label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  className="min-w-[240px] flex-1"
+                  type="email"
+                  value={newEmail}
+                  onChange={(event) => setNewEmail(event.target.value)}
+                  placeholder="新的邮箱地址"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleEmailChangeRequest}
+                  disabled={!newEmail || requestEmailChange.isPending}
+                >
+                  {requestEmailChange.isPending ? '发送中…' : '发送确认邮件'}
+                </Button>
+              </div>
+              <p className="text-xs text-fg-muted">需要先验证当前邮箱；确认新邮箱后才会生效。</p>
+              {emailMessage && <p className="text-sm text-success">{emailMessage}</p>}
+              {requestEmailChange.error && (
+                <p className="text-sm text-danger">{(requestEmailChange.error as ApiError).message || '发送失败'}</p>
+              )}
             </div>
 
             <div>

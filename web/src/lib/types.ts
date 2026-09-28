@@ -73,6 +73,7 @@ export interface EmployeeSkillVersionsResponse {
 export interface UserProfile {
   id: string;
   email: string;
+  emailVerifiedAt: string | null;
   name: string | null;
   avatar: string | null;
   role: UserRole;

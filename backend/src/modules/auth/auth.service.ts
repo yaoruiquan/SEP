@@ -3,26 +3,40 @@ import {
   Logger,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
+  InternalServerErrorException,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'node:crypto';
 import {
   RegisterDto,
   LoginDto,
   AuthResponse,
   RegisterByInvitationDto,
   CreateEnterpriseDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  ChangePasswordDto,
+  ConfirmEmailVerificationDto,
+  RequestEmailChangeDto,
+  ConfirmEmailChangeDto,
 } from 'shared';
 import { InvitationService } from '../enterprise/invitation.service';
 import { DefaultDepartmentsService } from '../enterprise/default-departments.service';
+import { SessionService } from './session.service';
+import { OneTimeTokenService } from './one-time-token.service';
+import { MailService } from '../mail/mail.service';
+import { AuthEventService } from './auth-event.service';
+import { AuthRiskService, LoginAuditContext } from './auth-risk.service';
+import { AuthRateLimitService } from './auth-rate-limit.service';
 
-const REFRESH_COOKIE = 'refresh_token';
-const ACCESS_EXPIRES = '1h';
-const REFRESH_EXPIRES = '1d'; // Changed from 7d to 1d for security
-const REFRESH_COOKIE_MAX_AGE_MS = 1 * 24 * 60 * 60 * 1000; // Changed from 7 days to 1 day
+const ACCESS_EXPIRES = '15m';
+const DEFAULT_REFRESH_COOKIE = '__Host-sep_refresh';
 
 @Injectable()
 export class AuthService {
@@ -34,28 +48,77 @@ export class AuthService {
     private config: ConfigService,
     private invitations: InvitationService,
     private defaultDepartments: DefaultDepartmentsService,
+    private readonly sessions: SessionService,
+    @Optional() private readonly oneTimeTokens?: OneTimeTokenService,
+    @Optional() private readonly mail?: MailService,
+    @Optional() private readonly events?: AuthEventService,
+    @Optional() private readonly risk?: AuthRiskService,
+    @Optional() private readonly rateLimit?: AuthRateLimitService,
   ) {}
 
   // ──────────────── helpers ────────────────
 
+  private get refreshCookieName(): string {
+    const configured = this.config.get<string>('REFRESH_COOKIE_NAME');
+    if (configured) return configured;
+    return this.config.get('NODE_ENV') === 'production'
+      ? DEFAULT_REFRESH_COOKIE
+      : 'refresh_token';
+  }
+
   private get jwtSecret(): string {
-    return this.config.getOrThrow<string>('JWT_SECRET');
-  }
-
-  private signAccess(user: { id: string; email: string; role: string }): string {
-    return this.jwtService.sign(
-      { sub: user.id, email: user.email, role: user.role, type: 'access' },
-      { secret: this.jwtSecret, expiresIn: ACCESS_EXPIRES },
+    return (
+      this.config.get<string>('ACCESS_JWT_SECRET') ??
+      this.config.getOrThrow<string>('JWT_SECRET')
     );
   }
 
-  private signRefresh(userId: string): string {
+  private get accessExpiresIn(): string {
+    return this.config.get<string>('ACCESS_TOKEN_EXPIRES_IN') ?? ACCESS_EXPIRES;
+  }
+
+  private signAccess(
+    user: { id: string; email: string; role: string },
+    sessionId?: string,
+  ): string {
     return this.jwtService.sign(
-      { sub: userId, type: 'refresh' },
-      { secret: this.jwtSecret, expiresIn: REFRESH_EXPIRES },
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        sid: sessionId,
+        type: 'access',
+      },
+      { secret: this.jwtSecret, expiresIn: this.accessExpiresIn },
     );
   }
 
+  private async issueWebSession(
+    user: { id: string; email: string; role: string },
+    res: Response,
+    context: Pick<LoginAuditContext, 'ipAddress' | 'userAgent'> = {},
+    notifyNewDevice = false,
+    auditProvider = 'password',
+  ): Promise<string> {
+    const session = await this.sessions.createSession({
+      userId: user.id,
+      clientType: 'WEB',
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      refreshTtlSeconds: this.sessions.getRefreshTtlSeconds('WEB'),
+    });
+    this.setRefreshCookie(res, session.refreshToken);
+    if (notifyNewDevice && session.isNewDevice && this.mail) {
+      void this.mail.sendNewDeviceLogin({
+        to: user.email,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        clientType: 'WEB',
+      }).catch((error) => this.logger.warn('新设备通知邮件发送失败', error instanceof Error ? error.message : String(error)));
+      await this.events?.record({ userId: user.id, action: 'NEW_DEVICE_LOGIN', provider: auditProvider, sessionId: session.sessionId, ipAddress: context.ipAddress, userAgent: context.userAgent });
+    }
+    return this.signAccess(user, session.sessionId);
+  }
   /**
    * 铺默认部门树。**吞掉异常**：部门缺了管理员自己能建，
    * 但企业已经建成、邮箱已被占用，此时上抛会让用户既登不进去也重注册不了。
@@ -73,13 +136,33 @@ export class AuthService {
   }
 
   private setRefreshCookie(res: Response, token: string): void {
-    res.cookie(REFRESH_COOKIE, token, {
+    const cookieName = this.refreshCookieName;
+    res.cookie(cookieName, token, {
       httpOnly: true,
-      secure: this.config.get('NODE_ENV') === 'production',
+      secure: cookieName.startsWith('__Host-') || this.config.get('NODE_ENV') === 'production',
       sameSite: 'lax',
-      maxAge: REFRESH_COOKIE_MAX_AGE_MS,
+      maxAge: this.sessions
+        ? this.sessions.getRefreshTtlSeconds('WEB') * 1000
+        : 24 * 60 * 60 * 1000,
       path: '/',
     });
+  }
+
+  /**
+   * 注册成功后发送邮箱验证邮件。邮件系统属于外部依赖，不能让邮件
+   * 短暂故障回滚已经创建好的账号、企业和会话；失败只记录脱敏日志。
+   */
+  private async sendVerificationEmail(user: { id: string; email: string }): Promise<void> {
+    try {
+      const { tokens, mail } = this.requireOneTimeServices();
+      const issued = await tokens.issue({ userId: user.id, type: 'EMAIL_VERIFICATION' });
+      await mail.sendEmailVerification({
+        to: user.email,
+        verificationUrl: `${this.config.get<string>('WEB_BASE_URL') ?? 'http://localhost:3000'}/verify-email?token=${encodeURIComponent(issued.token)}`,
+      });
+    } catch (error) {
+      this.logger.warn(`用户 ${user.id} 注册后的邮箱验证邮件发送失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // ──────────────── public methods ────────────────
@@ -110,7 +193,11 @@ export class AuthService {
     const { user, enterprise, member } = await this.prisma.$transaction(
       async (tx) => {
         const user = await tx.user.create({
-          data: { email: dto.email, name: dto.name, password: hashedPassword },
+          data: {
+            email: dto.email,
+            name: dto.name,
+            authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: hashedPassword } },
+          },
         });
 
         const enterprise = await tx.enterprise.create({
@@ -140,8 +227,8 @@ export class AuthService {
     // 则用户卡在"邮箱已占用但公司没建成"的死状态。
     await this.seedDefaultDepartments(enterprise.id);
 
-    const token = this.signAccess(user);
-    this.setRefreshCookie(res, this.signRefresh(user.id));
+    const token = await this.issueWebSession(user, res);
+    await this.sendVerificationEmail(user);
 
     return {
       token,
@@ -194,7 +281,11 @@ export class AuthService {
     const { user, enterprise, member } = await this.prisma.$transaction(
       async (tx) => {
         const user = await tx.user.create({
-          data: { email, name: dto.name, password: hashedPassword },
+          data: {
+            email,
+            name: dto.name,
+            authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: hashedPassword } },
+          },
         });
 
         const member = await tx.enterpriseMember.create({
@@ -227,8 +318,8 @@ export class AuthService {
       },
     );
 
-    const token = this.signAccess(user);
-    this.setRefreshCookie(res, this.signRefresh(user.id));
+    const token = await this.issueWebSession(user, res);
+    await this.sendVerificationEmail(user);
 
     return {
       token,
@@ -298,8 +389,7 @@ export class AuthService {
 
     // 重新签发：access token 本身不带企业信息，但前端要靠这个响应
     // 把 store 里的 enterprise 从 null 换成新公司，顺带续一次 refresh
-    const token = this.signAccess(user);
-    this.setRefreshCookie(res, this.signRefresh(user.id));
+    const token = await this.issueWebSession(user, res);
 
     return {
       token,
@@ -309,23 +399,212 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto, res: Response): Promise<AuthResponse> {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user) throw new UnauthorizedException('邮箱或密码错误');
+  async login(
+    dto: LoginDto,
+    res: Response,
+    context: Pick<LoginAuditContext, 'ipAddress' | 'userAgent'> = {},
+  ): Promise<AuthResponse> {
+    const emailHash = createHash('sha256').update(dto.email.trim().toLowerCase()).digest('hex');
+    const auditContext: LoginAuditContext = { provider: 'password', ...context, emailHash };
+    const ipLimit = context.ipAddress ? await this.rateLimit?.isBlocked('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 }) : undefined;
+    const accountLimit = await this.rateLimit?.isBlocked('login-account', emailHash, { limit: 12, windowSeconds: 900 });
+    if (ipLimit && !ipLimit.allowed || accountLimit && !accountLimit.allowed) {
+      await this.events?.record({ action: 'LOGIN_FAILED', success: false, provider: 'password', ipAddress: context.ipAddress, userAgent: context.userAgent, metadata: { reason: 'rate_limited', emailHash } });
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      include: { authCredentials: { where: { type: 'LOCAL_PASSWORD' }, take: 1 } },
+    });
+    if (!user) {
+      await this.rateLimit?.consume('login-account', emailHash, { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.risk?.recordAnonymousFailure(auditContext);
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    if (user.status === 'DISABLED') {
+      await this.rateLimit?.consume('login-account', emailHash, { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'password', metadata: { reason: 'account_disabled' } });
+      throw new UnauthorizedException('账号已被禁用');
+    }
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
-    if (!isPasswordValid) throw new UnauthorizedException('邮箱或密码错误');
+    const credential = user.authCredentials[0];
+    const passwordHash = credential?.passwordHash ?? null;
+    if (!passwordHash) {
+      await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'password', metadata: { reason: 'password_credential_missing' } });
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    await this.risk?.assertLoginAllowed(user.id, {
+      passwordHash,
+      failedCount: credential?.failedCount ?? 0,
+      lockedUntil: credential?.lockedUntil ?? null,
+    }, auditContext);
+    const isPasswordValid = await bcrypt.compare(dto.password, passwordHash);
+    if (!isPasswordValid) {
+      await this.rateLimit?.consume('login-account', emailHash, { limit: 12, windowSeconds: 900 });
+      if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
+      await this.risk?.recordPasswordFailure(user.id, passwordHash, auditContext);
+      throw new UnauthorizedException('邮箱或密码错误');
+    }
+    await this.risk?.recordPasswordSuccess(user.id);
 
-    const token = this.signAccess(user);
-    this.setRefreshCookie(res, this.signRefresh(user.id));
+    const token = await this.issueWebSession(user, res, context, true);
 
     const membership = await this.findMembership(user.id);
 
+    await this.events?.record({ userId: user.id, action: 'LOGIN_SUCCESS', provider: 'password', ipAddress: context.ipAddress, userAgent: context.userAgent });
     return {
       token,
       user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       ...membership,
     };
+  }
+
+  private requireOneTimeServices(): { tokens: OneTimeTokenService; mail: MailService } {
+    if (!this.oneTimeTokens || !this.mail) {
+      throw new InternalServerErrorException('认证邮件服务未配置');
+    }
+    return { tokens: this.oneTimeTokens, mail: this.mail };
+  }
+
+  private async passwordHashFor(userId: string): Promise<string> {
+    const credential = await this.prisma.authCredential.findUnique({
+      where: { userId_type: { userId, type: 'LOCAL_PASSWORD' } },
+      select: { passwordHash: true },
+    });
+    return credential?.passwordHash ?? '';
+  }
+
+  async requestPasswordReset(dto: ForgotPasswordDto, context: Pick<LoginAuditContext, 'ipAddress'> = {}, options: { skipRateLimit?: boolean } = {}): Promise<{ message: string }> {
+    const { tokens, mail } = this.requireOneTimeServices();
+    const emailHash = createHash('sha256').update(dto.email.trim().toLowerCase()).digest('hex');
+    const emailLimit = options.skipRateLimit ? undefined : await this.rateLimit?.consume('password-reset-email', emailHash, { limit: 3, windowSeconds: 3600 });
+    const ipLimit = options.skipRateLimit || !context.ipAddress ? undefined : await this.rateLimit?.consume('password-reset-ip', context.ipAddress, { limit: 10, windowSeconds: 3600 });
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (emailLimit && !emailLimit.allowed || ipLimit && !ipLimit.allowed) {
+      await this.events?.record({ userId: user?.id, action: 'PASSWORD_RESET_REQUESTED', success: false, provider: 'email', metadata: { reason: 'rate_limited', emailHash } });
+      return { message: '如果该邮箱已注册，你会收到密码重置邮件' };
+    }
+    await this.events?.record({
+      userId: user?.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      provider: 'email',
+      metadata: { emailHash },
+    });
+    if (user) {
+      const issued = await tokens.issue({ userId: user.id, type: 'PASSWORD_RESET' });
+      await mail.sendPasswordReset({
+        to: user.email,
+        resetUrl: `${this.config.get<string>('WEB_BASE_URL') ?? 'http://localhost:3000'}/reset-password?token=${encodeURIComponent(issued.token)}`,
+      });
+    }
+    return { message: '如果该邮箱已注册，你会收到密码重置邮件' };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const { tokens, mail } = this.requireOneTimeServices();
+    const consumed = await tokens.consume(dto.token, 'PASSWORD_RESET');
+    const user = await this.prisma.user.findUnique({ where: { id: consumed.userId } });
+    if (!user) throw new BadRequestException('令牌无效或已过期');
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.$transaction([
+      this.prisma.authCredential.upsert({
+        where: { userId_type: { userId: user.id, type: 'LOCAL_PASSWORD' } },
+        create: { userId: user.id, type: 'LOCAL_PASSWORD', passwordHash, lastUsedAt: new Date() },
+        update: { passwordHash, failedCount: 0, lockedUntil: null, lastUsedAt: new Date() },
+      }),
+    ]);
+    await this.sessions.revokeAllUserSessions(user.id, 'password_reset');
+    await mail.sendPasswordChanged({ to: user.email });
+    await this.events?.record({ userId: user.id, action: 'PASSWORD_RESET_COMPLETED' });
+    return { message: '密码已重置，请使用新密码登录' };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto, currentSessionId?: string): Promise<void> {
+    const { mail } = this.requireOneTimeServices();
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('用户不存在');
+    const currentHash = await this.passwordHashFor(userId);
+    if (!currentHash || !(await bcrypt.compare(dto.currentPassword, currentHash))) {
+      throw new UnauthorizedException('当前密码不正确');
+    }
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.$transaction([
+      this.prisma.authCredential.upsert({
+        where: { userId_type: { userId, type: 'LOCAL_PASSWORD' } },
+        create: { userId, type: 'LOCAL_PASSWORD', passwordHash, lastUsedAt: new Date() },
+        update: { passwordHash, failedCount: 0, lockedUntil: null, lastUsedAt: new Date() },
+      }),
+    ]);
+    await this.sessions.revokeAllUserSessionsExcept(userId, currentSessionId, 'password_changed');
+    await mail.sendPasswordChanged({ to: user.email });
+    await this.events?.record({ userId, action: 'PASSWORD_CHANGED', sessionId: currentSessionId });
+  }
+
+  async requestEmailVerification(userId: string, force = false, context: Pick<LoginAuditContext, 'ipAddress'> = {}): Promise<{ message: string }> {
+    const { tokens, mail } = this.requireOneTimeServices();
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('用户不存在');
+    if (force && user.emailVerifiedAt) {
+      await this.prisma.user.update({ where: { id: userId }, data: { emailVerifiedAt: null } });
+    }
+    const emailLimit = force ? undefined : await this.rateLimit?.consume('email-verification-user', userId, { limit: 3, windowSeconds: 3600 });
+    const ipLimit = force || !context.ipAddress ? undefined : await this.rateLimit?.consume('email-verification-ip', context.ipAddress, { limit: 10, windowSeconds: 3600 });
+    if ((emailLimit && !emailLimit.allowed || ipLimit && !ipLimit.allowed) && !force) {
+      await this.events?.record({ userId, action: 'EMAIL_VERIFICATION_REQUESTED', success: false, metadata: { reason: 'rate_limited' } });
+      return { message: '如果需要验证，你会收到验证邮件' };
+    }
+    if (force || !user.emailVerifiedAt) {
+      const issued = await tokens.issue({ userId, type: 'EMAIL_VERIFICATION' });
+      await mail.sendEmailVerification({
+        to: user.email,
+        verificationUrl: `${this.config.get<string>('WEB_BASE_URL') ?? 'http://localhost:3000'}/verify-email?token=${encodeURIComponent(issued.token)}`,
+      });
+    }
+    await this.events?.record({ userId, action: 'EMAIL_VERIFICATION_REQUESTED' });
+    return { message: '如果需要验证，你会收到验证邮件' };
+  }
+
+  async confirmEmailVerification(dto: ConfirmEmailVerificationDto): Promise<{ message: string }> {
+    const { tokens } = this.requireOneTimeServices();
+    const consumed = await tokens.consume(dto.token, 'EMAIL_VERIFICATION');
+    await this.prisma.user.update({ where: { id: consumed.userId }, data: { emailVerifiedAt: new Date() } });
+    await this.events?.record({ userId: consumed.userId, action: 'EMAIL_VERIFIED' });
+    return { message: '邮箱验证成功' };
+  }
+
+  async requestEmailChange(userId: string, dto: RequestEmailChangeDto): Promise<{ message: string }> {
+    const { tokens, mail } = this.requireOneTimeServices();
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.newEmail }, select: { id: true } });
+    if (existing) throw new ConflictException('该邮箱已被使用');
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, emailVerifiedAt: true },
+    });
+    if (!user) throw new UnauthorizedException('用户不存在');
+    if (!user.emailVerifiedAt) throw new BadRequestException('请先验证当前邮箱');
+    const issued = await tokens.issue({ userId, type: 'EMAIL_CHANGE', metadata: { newEmail: dto.newEmail } });
+    await mail.sendEmailVerification({
+      to: dto.newEmail,
+      verificationUrl: `${this.config.get<string>('WEB_BASE_URL') ?? 'http://localhost:3000'}/verify-email-change?token=${encodeURIComponent(issued.token)}`,
+    });
+    return { message: '确认邮件已发送到新邮箱' };
+  }
+
+  async confirmEmailChange(dto: ConfirmEmailChangeDto): Promise<{ message: string; email: string }> {
+    const { tokens } = this.requireOneTimeServices();
+    const consumed = await tokens.consume(dto.token, 'EMAIL_CHANGE');
+    const newEmail = typeof consumed.metadata?.newEmail === 'string' ? consumed.metadata.newEmail : '';
+    if (!newEmail) throw new BadRequestException('令牌无效或已过期');
+    try {
+      await this.prisma.user.update({ where: { id: consumed.userId }, data: { email: newEmail, emailVerifiedAt: new Date() } });
+    } catch (error: any) {
+      if (error?.code === 'P2002') throw new ConflictException('该邮箱已被使用');
+      throw error;
+    }
+    await this.events?.record({ userId: consumed.userId, action: 'EMAIL_CHANGED' });
+    return { message: '邮箱修改成功', email: newEmail };
   }
 
   /**
@@ -353,6 +632,21 @@ export class AuthService {
     return { enterprise: member.enterprise, roleInEnterprise: member.role };
   }
 
+  /** OAuth 登录/回调完成后复用统一 Web Session 和 AuthResponse。 */
+  async loginWithUser(userId: string, res: Response, context: Pick<LoginAuditContext, 'ipAddress' | 'userAgent'> = {}): Promise<AuthResponse> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+    if (user.status === 'DISABLED') throw new UnauthorizedException('账号已被禁用');
+    const token = await this.issueWebSession(user, res, context, true, 'oauth');
+    const membership = await this.findMembership(user.id);
+    await this.events?.record({ userId: user.id, action: 'LOGIN_SUCCESS', provider: 'oauth', ipAddress: context.ipAddress, userAgent: context.userAgent });
+    return {
+      token,
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
+      ...membership,
+    };
+  }
+
   /**
    * 刷新 access token。前端在页面重载后调它重建内存态，
    * 因此**必须一并返回企业信息** —— 否则刷新页面后侧边栏会失去角色，
@@ -360,22 +654,15 @@ export class AuthService {
    */
   async refresh(
     refreshToken: string | undefined,
+    res?: Response,
   ): Promise<Omit<AuthResponse, 'token'> & { token: string }> {
-    if (!refreshToken) throw new UnauthorizedException('No refresh token');
-
-    let payload: any;
-    try {
-      payload = this.jwtService.verify(refreshToken, { secret: this.jwtSecret });
-    } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
-
-    if (payload.type !== 'refresh') throw new UnauthorizedException('Invalid token type');
-
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const rotated = await this.sessions.rotateRefreshToken(refreshToken, 'WEB');
+    const user = await this.prisma.user.findUnique({ where: { id: rotated.userId } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (user.status === 'DISABLED') throw new UnauthorizedException('账号已被禁用');
 
-    const token = this.signAccess(user);
+    if (res) this.setRefreshCookie(res, rotated.refreshToken);
+    const token = this.signAccess(user, rotated.sessionId);
     const membership = await this.findMembership(user.id);
 
     return {
@@ -389,20 +676,45 @@ export class AuthService {
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, avatar: true, role: true, createdAt: true, updatedAt: true },
+      select: { id: true, email: true, emailVerifiedAt: true, name: true, avatar: true, role: true, createdAt: true, updatedAt: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
     const membership = await this.findMembership(userId);
     return { ...user, ...membership };
   }
 
-  logout(res: Response): void {
-    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  async logout(refreshToken: string | undefined, res: Response): Promise<void> {
+    const revoked = await this.sessions.revokeRefreshToken(refreshToken, 'logout');
+    if (revoked) await this.events?.record({ userId: revoked.userId, action: 'LOGOUT', sessionId: revoked.sessionId });
+    res.clearCookie(this.refreshCookieName, { path: '/' });
+  }
+
+  async logoutAll(userId: string, res: Response): Promise<void> {
+    await this.sessions.revokeAllUserSessions(userId, 'logout_all');
+    await this.events?.record({ userId, action: 'LOGOUT_ALL' });
+    res.clearCookie(this.refreshCookieName, { path: '/' });
+  }
+
+  async listSessions(userId: string, currentSessionId?: string) {
+    return this.sessions.listUserSessions(userId, currentSessionId);
+  }
+
+  async listAuthEvents(userId: string) {
+    return this.events?.listForUser(userId) ?? [];
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const sessions = await this.sessions.listUserSessions(userId);
+    if (!sessions.some((session) => session.id === sessionId)) {
+      throw new UnauthorizedException('Session not found');
+    }
+    await this.sessions.revokeSession(sessionId, 'user_revoke');
+    await this.events?.record({ userId, action: 'SESSION_REVOKED', sessionId });
   }
 
   async validateUser(userId: string) {
-    return this.prisma.user.findUnique({
-      where: { id: userId },
+    return this.prisma.user.findFirst({
+      where: { id: userId, status: 'ACTIVE' },
       select: { id: true, email: true, name: true, role: true },
     });
   }

@@ -19,6 +19,7 @@ import { memoryStorage } from 'multer';
 import type { Response as ExpressResponse } from 'express';
 import { UserService, MAX_USER_AVATAR_SIZE } from './user.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthService } from '../auth/auth.service';
 import { UpdateProfileDtoSchema, ChangePasswordDtoSchema } from 'shared';
 
 @ApiTags('users')
@@ -26,7 +27,10 @@ import { UpdateProfileDtoSchema, ChangePasswordDtoSchema } from 'shared';
 @UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get('me')
   @ApiOperation({ summary: '获取当前用户资料' })
@@ -50,7 +54,7 @@ export class UserController {
   @ApiResponse({ status: 401, description: '当前密码不正确' })
   async changePassword(@Request() req: any, @Body() body: unknown) {
     const dto = ChangePasswordDtoSchema.parse(body);
-    await this.userService.changePassword(req.user.id, dto);
+    await this.authService.changePassword(req.user.id, dto, req.user.sid);
   }
 
   @Post('me/avatar')

@@ -84,167 +84,36 @@ describe('MemberService', () => {
   });
 
   describe('create', () => {
-    it('新邮箱：在事务内同时建 User 与 Member', async () => {
-      const r = await svc.create('u1', {
-        email: 'new@acme.local',
-        password: 'Passw0rd!',
+    it('统一委托邀请服务，不再由管理员创建账号或设置密码', async () => {
+      const invitation = {
+        create: jest.fn().mockResolvedValue({ id: 'inv-new', token: 'one-time-token' }),
+      };
+      svc = new MemberService(prisma, ctxSvc, invitation as any);
+
+      const result = await svc.create('u1', {
+        email: '  NewHire@ACME.local ',
+        password: 'LegacyPasswordShouldBeIgnored',
         role: 'MEMBER',
+        departmentId: 'dept-tech',
+        position: '后端',
       } as never);
 
-      // 事务是必需的：只建 User 会留下"有账号但不属于任何企业"的死账号
-      expect(prisma.$transaction).toHaveBeenCalled();
-      expect(r.id).toBe('mem-new');
-    });
-
-    it('enterpriseId 取自上下文，忽略入参', async () => {
-      await svc.create('u1', {
-        email: 'new@acme.local',
-        password: 'Passw0rd!',
+      expect(result).toEqual({ id: 'inv-new', token: 'one-time-token' });
+      expect(invitation.create).toHaveBeenCalledWith('u1', {
+        email: '  NewHire@ACME.local ',
         role: 'MEMBER',
-        enterpriseId: 'ent-globex',
-      } as never);
-
-      // 通过事务回调内的 create 参数断言
-      const txFn = prisma.$transaction.mock.calls[0][0];
-      const captured: any = {};
-      await txFn({
-        user: { create: jest.fn().mockResolvedValue({ id: 'u-new' }) },
-        enterpriseMember: {
-          create: (a: any) => {
-            Object.assign(captured, a.data);
-            return Promise.resolve({ id: 'm' });
-          },
-        },
+        departmentId: 'dept-tech',
+        position: '后端',
       });
-      expect(captured.enterpriseId).toBe('ent-acme');
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('邮箱已是本企业成员 → 409', async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        id: 'u-exist',
-        memberships: [{ enterpriseId: 'ent-acme' }],
-      });
-
+    it('缺少邀请服务时拒绝走旧的管理员代设密码旁路', async () => {
       await expect(
-        svc.create('u1', {
-          email: 'dup@acme.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-        } as never),
-      ).rejects.toThrow(/已是本企业成员/);
-    });
-
-    it('邮箱已归属其他企业 → 409（MVP 单企业前提）', async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        id: 'u-exist',
-        memberships: [{ enterpriseId: 'ent-globex' }],
-      });
-
-      // 若允许加入，该用户登录后只看得到最早那家企业，
-      // 本企业里会出现他本人访问不到的"隐形成员"
-      await expect(
-        svc.create('u1', {
-          email: 'other@globex.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-        } as never),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('已归属其他企业时给出可操作指引（先退出原企业）', async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        id: 'u-exist',
-        memberships: [{ enterpriseId: 'ent-globex' }],
-      });
-
-      // 只说"不支持"是死路，管理员不知道下一步该做什么
-      await expect(
-        svc.create('u1', {
-          email: 'other@globex.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-        } as never),
-      ).rejects.toThrow(/退出当前企业/);
-    });
-
-    describe('已注册但无企业归属', () => {
-      beforeEach(() => {
-        prisma.user.findUnique.mockResolvedValue({
-          id: 'u-orphan',
-          memberships: [],
-        });
-      });
-
-      it('允许直接加入 —— 这是离职后重新入职的必经路径', async () => {
-        const res: any = await svc.create('u1', {
-          email: 'orphan@acme.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-          position: '后端',
-        } as never);
-
-        expect(res.id).toBe('mem-new');
-        const data = prisma.enterpriseMember.create.mock.calls[0][0].data;
-        expect(data.userId).toBe('u-orphan');
-        expect(data.enterpriseId).toBe('ent-acme');
-      });
-
-      it('❗绝不覆盖已有账号的密码 —— 否则等于账号劫持', async () => {
-        await svc.create('u1', {
-          email: 'orphan@acme.local',
-          password: 'AttackerSetsThis!',
-          role: 'MEMBER',
-        } as never);
-
-        // 不得新建 User，也不得 update 其密码
-        expect(prisma.user.create).not.toHaveBeenCalled();
-        expect(prisma.user.update).not.toHaveBeenCalled();
-        const data = prisma.enterpriseMember.create.mock.calls[0][0].data;
-        expect(JSON.stringify(data)).not.toContain('AttackerSetsThis');
-      });
-
-      it('返回 reusedExistingAccount 标记，避免管理员转告无效密码', async () => {
-        const res: any = await svc.create('u1', {
-          email: 'orphan@acme.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-        } as never);
-        expect(res.reusedExistingAccount).toBe(true);
-      });
-    });
-
-    it('邮箱大小写不敏感 —— 防止绕过"已是成员"检查建出重复成员', async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        id: 'u-exist',
-        memberships: [{ enterpriseId: 'ent-acme' }],
-      });
-
-      await expect(
-        svc.create('u1', {
-          email: '  Dup@ACME.local ',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-        } as never),
-      ).rejects.toThrow(/已是本企业成员/);
-      expect(prisma.user.findUnique.mock.calls[0][0].where.email).toBe(
-        'dup@acme.local',
-      );
-    });
-
-    it('❗指定别家企业的部门时拒绝', async () => {
-      prisma.department.findUnique.mockResolvedValue({
-        id: 'dept-globex',
-        enterpriseId: 'ent-globex',
-      });
-
-      await expect(
-        svc.create('u1', {
-          email: 'x@acme.local',
-          password: 'Passw0rd!',
-          role: 'MEMBER',
-          departmentId: 'dept-globex',
-        } as never),
-      ).rejects.toThrow(NotFoundException);
+        svc.create('u1', { email: 'new@acme.local', role: 'MEMBER' } as never),
+      ).rejects.toThrow(/邀请服务未配置/);
+      expect(prisma.user.create).not.toHaveBeenCalled();
     });
   });
 

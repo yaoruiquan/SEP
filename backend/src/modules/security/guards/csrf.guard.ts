@@ -70,6 +70,7 @@ export class CsrfGuard implements CanActivate {
         '/api/client/auth/login',
         '/api/client/auth/refresh',
         '/api/client/auth/token',
+        '/api/client/auth/logout',
       ].includes(request.path)
     ) {
       return true;

@@ -190,21 +190,21 @@ export class EnterpriseController {
 
   @Post("members")
   @ApiOperation({
-    summary: "添加成员（仅企业管理员）",
-    description:
-      "管理员代建账号并设初始密码。想让对方自己设密码请改用邀请链接。" +
-      "邮箱已注册时分三种处置：已是本企业成员 → 409；" +
-      "已注册但无企业归属 → 直接加入，**沿用其原有密码**（响应带 " +
-      "reusedExistingAccount=true，此时请勿把填写的密码转告对方）；" +
-      "已归属其他企业 → 409，需其先退出原企业。",
+    summary: "创建成员邀请（仅企业管理员）",
+    description: "兼容旧前端路径，但不再由管理员代设密码；服务端只创建邀请并发送设置密码邮件。",
   })
-  @ApiResponse({ status: 201, description: "已添加" })
-  @ApiResponse({ status: 409, description: "邮箱已是本企业成员或已归属其他企业" })
+  @ApiResponse({ status: 201, description: "邀请已创建，响应含一次性 token" })
+  @ApiResponse({ status: 409, description: "邮箱已是本企业成员" })
   async createMember(
     @Request() req: AuthedRequest,
     @Body(new ZodValidationPipe(MemberCreateDtoSchema)) dto: MemberCreateDto,
   ) {
-    return this.members.create(req.user.id, dto);
+    return this.invitations.create(req.user.id, {
+      email: dto.email,
+      role: dto.role,
+      departmentId: dto.departmentId,
+      position: dto.position,
+    });
   }
 
   @Patch("members/:id")
@@ -265,7 +265,7 @@ export class EnterpriseController {
     summary: "创建邀请（仅企业管理员）",
     description:
       "返回一次性明文 token，库里只存 SHA-256 摘要。" +
-      "MVP 不发邮件，前端拼成 /join?token=xxx 由管理员自行转达。" +
+      "邮件发送失败不回滚邀请，前端仍可拼成 /join?token=xxx 由管理员转达。" +
       "重复邀请同一邮箱会先作废旧的 PENDING 链接。",
   })
   @ApiResponse({ status: 201, description: "已创建，响应含一次性 token" })

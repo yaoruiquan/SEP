@@ -89,6 +89,13 @@ export async function seedShuyiAccounts(
   prisma: PrismaClient,
 ): Promise<SeededShuyi> {
   const password = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const upsertCredential = async (userId: string) => {
+    await prisma.authCredential.upsert({
+      where: { userId_type: { userId, type: 'LOCAL_PASSWORD' } },
+      update: { passwordHash: password },
+      create: { userId, type: 'LOCAL_PASSWORD', passwordHash: password },
+    });
+  };
 
   // ── 企业 ────────────────────────────────────────────────────────────────
   const enterprise = await prisma.enterprise.upsert({
@@ -143,14 +150,15 @@ export async function seedShuyiAccounts(
   for (const person of SHUYI_PEOPLE) {
     const user = await prisma.user.upsert({
       where: { email: person.email },
-      update: { name: person.name, password, role: UserRole.USER },
+      update: { name: person.name, role: UserRole.USER },
       create: {
         email: person.email,
         name: person.name,
-        password,
         role: UserRole.USER,
       },
     });
+
+    await upsertCredential(user.id);
 
     const departmentId = person.department
       ? (departments.get(person.department) ?? null)

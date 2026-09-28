@@ -46,12 +46,19 @@ export async function seedAccounts(
 ): Promise<SeededAccounts> {
   const password = await bcrypt.hash(DEMO_PASSWORD, 10);
 
-  const mkUser = (email: string, name: string, role: UserRole) =>
-    prisma.user.upsert({
+  const mkUser = async (email: string, name: string, role: UserRole) => {
+    const user = await prisma.user.upsert({
       where: { email },
-      update: { name, role, password },
-      create: { email, name, role, password },
+      update: { name, role },
+      create: { email, name, role },
     });
+    await prisma.authCredential.upsert({
+      where: { userId_type: { userId: user.id, type: 'LOCAL_PASSWORD' } },
+      update: { passwordHash: password },
+      create: { userId: user.id, type: 'LOCAL_PASSWORD', passwordHash: password },
+    });
+    return user;
+  };
 
   // 平台运营。UserRole.ADMIN 只表示「平台运营人员」（可进 (platform) 分组），
   // 企业内角色一律看 EnterpriseMember.role —— 两套体系，别混。

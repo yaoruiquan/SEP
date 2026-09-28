@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import * as crypto from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -12,6 +13,7 @@ import {
   InvitationStatusValue,
 } from "shared";
 import { EnterpriseContextService } from "./enterprise-context.service";
+import { MailService } from "../mail/mail.service";
 
 /** 邀请 token 字节数。32 字节 = 256 位 CSPRNG 熵，不可枚举。 */
 const TOKEN_BYTES = 32;
@@ -21,6 +23,7 @@ export class InvitationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ctx: EnterpriseContextService,
+    @Optional() private readonly mail?: MailService,
   ) {}
 
   /**
@@ -41,7 +44,8 @@ export class InvitationService {
    * 明文只在本次响应里出现，库里只存摘要 —— 邀请链接等同于一次性登录凭证，
    * 明文入库意味着数据库泄露即可冒充任意被邀请人。
    *
-   * MVP 不发邮件（邮件服务未接入），由管理员自行把链接转达给被邀请人。
+   * 邮件发送失败不回滚邀请，响应仍返回一次性 token，便于管理员在邮件
+   * Provider 暂不可用时安全地转达邀请链接。
    */
   async create(userId: string, dto: InvitationCreateDto) {
     const ctx = await this.ctx.resolve(userId);
@@ -104,6 +108,21 @@ export class InvitationService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    const invitationUrl = `${process.env.WEB_BASE_URL ?? "http://localhost:3000"}/join?token=${encodeURIComponent(token)}`;
+    try {
+      const enterprise = await this.prisma.enterprise.findUnique({
+        where: { id: ctx.enterpriseId },
+        select: { name: true },
+      });
+      await this.mail?.sendEnterpriseInvitation({
+        to: email,
+        invitationUrl,
+        enterpriseName: enterprise?.name ?? ctx.enterpriseId,
+      });
+    } catch {
+      // 邮件失败不回滚已创建邀请；管理员仍可从响应复制一次性链接重发。
+    }
 
     return {
       ...invitation,

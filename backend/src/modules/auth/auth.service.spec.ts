@@ -27,6 +27,7 @@ describe('AuthService.createEnterprise', () => {
   let defaultDepartments: any;
   let res: any;
   let svc: AuthService;
+  let sessions: any;
 
   beforeEach(() => {
     prisma = {
@@ -60,7 +61,12 @@ describe('AuthService.createEnterprise', () => {
     };
     res = { cookie: jest.fn() };
 
-    svc = new AuthService(prisma, jwt, config, invitations, defaultDepartments);
+    sessions = {
+      createSession: jest.fn().mockResolvedValue({ sessionId: 'session-1', refreshToken: 'opaque-refresh' }),
+      getRefreshTtlSeconds: jest.fn().mockReturnValue(7 * 24 * 60 * 60),
+      listUserSessions: jest.fn().mockResolvedValue([]),
+    };
+    svc = new AuthService(prisma, jwt, config, invitations, defaultDepartments, sessions);
   });
 
   it('一个事务里建出企业 + 算力账户 + 管理员成员', async () => {
@@ -112,8 +118,9 @@ describe('AuthService.createEnterprise', () => {
     expect(res.cookie).toHaveBeenCalledTimes(1);
     const [name, value, options] = res.cookie.mock.calls[0];
     expect(name).toBe('refresh_token');
+    expect(options.secure).toBe(false);
     // cookie 里放的必须是 refresh token，放 access 等于把 1h 的凭据当 7d 用
-    expect(value).toBe('refresh-jwt');
+    expect(value).toBe('opaque-refresh');
     expect(options.httpOnly).toBe(true);
     expect(options.sameSite).toBe('lax');
   });

@@ -3,6 +3,14 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+async function ensurePasswordCredential(userId: string, passwordHash: string) {
+  await prisma.authCredential.upsert({
+    where: { userId_type: { userId, type: 'LOCAL_PASSWORD' } },
+    update: { passwordHash },
+    create: { userId, type: 'LOCAL_PASSWORD', passwordHash },
+  });
+}
+
 async function main() {
   console.log('🌱 Starting seed...');
 
@@ -14,10 +22,10 @@ async function main() {
     create: {
       email: 'admin@sep.com',
       name: '平台管理员',
-      password: platformAdminPassword,
       role: 'ADMIN',
     },
   });
+  await ensurePasswordCredential(platformAdmin.id, platformAdminPassword);
   console.log('✅ Platform admin created:', platformAdmin.email);
 
   // 2. 创建企业
@@ -68,7 +76,6 @@ async function main() {
     create: {
       email: 'boss@example.com',
       name: '张总',
-      password: enterpriseAdminPassword,
       role: 'USER',
     },
   });
@@ -88,6 +95,7 @@ async function main() {
       role: 'ENTERPRISE_ADMIN',
     },
   });
+  await ensurePasswordCredential(enterpriseAdmin.id, enterpriseAdminPassword);
   console.log('✅ Enterprise admin created:', enterpriseAdmin.email);
 
   // 7. 创建普通员工用户（3个）
@@ -100,10 +108,10 @@ async function main() {
       create: {
         email: `user${i}@example.com`,
         name: `员工${i}`,
-        password,
         role: 'USER',
       },
     });
+    await ensurePasswordCredential(user.id, password);
     memberUsers.push(user);
 
     await prisma.enterpriseMember.upsert({

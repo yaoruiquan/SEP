@@ -350,6 +350,7 @@ describe('tryRefresh', () => {
 
     expect(result).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/refresh', {
+      method: 'POST',
       credentials: 'include',
     });
     expect(authAccessor.setAuth).toHaveBeenCalledWith(newAuth);

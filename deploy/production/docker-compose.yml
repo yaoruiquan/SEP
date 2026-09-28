@@ -52,8 +52,35 @@ services:
 
       # JWT
       - JWT_SECRET=${JWT_SECRET}
+      # 认证中心生产配置：Access JWT 与 Refresh Token 必须使用独立密钥。
+      - ACCESS_JWT_SECRET=${ACCESS_JWT_SECRET:?ACCESS_JWT_SECRET is required}
+      - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
+      - REFRESH_TOKEN_EXPIRES_IN=${REFRESH_TOKEN_EXPIRES_IN:-7d}
+      - REFRESH_TOKEN_PEPPER=${REFRESH_TOKEN_PEPPER:?REFRESH_TOKEN_PEPPER is required}
+      - REFRESH_COOKIE_NAME=${REFRESH_COOKIE_NAME:-__Host-sep_refresh}
       - JWT_EXPIRE_DAYS=7
       - CORS_ORIGIN=${CORS_ORIGIN}
+
+      # 邮件：生产环境必须启用真实 SMTP，具体字段由后端启动校验。
+      - MAIL_ENABLED=${MAIL_ENABLED:?MAIL_ENABLED is required}
+      - MAIL_HOST=${MAIL_HOST:-}
+      - MAIL_PORT=${MAIL_PORT:-587}
+      - MAIL_SECURE=${MAIL_SECURE:-false}
+      - MAIL_USER=${MAIL_USER:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_FROM=${MAIL_FROM:-}
+      - MAIL_FROM_NAME=${MAIL_FROM_NAME:-硅基人才平台}
+
+      # 国内第三方登录：未启用时可以留空；启用后由后端校验完整配置和 HTTPS 回调。
+      - OAUTH_TRANSACTION_TTL_SECONDS=${OAUTH_TRANSACTION_TTL_SECONDS:-300}
+      - WECHAT_OAUTH_ENABLED=${WECHAT_OAUTH_ENABLED:-false}
+      - WECHAT_APP_ID=${WECHAT_APP_ID:-}
+      - WECHAT_APP_SECRET=${WECHAT_APP_SECRET:-}
+      - WECHAT_REDIRECT_URI=${WECHAT_REDIRECT_URI:-}
+      - QQ_OAUTH_ENABLED=${QQ_OAUTH_ENABLED:-false}
+      - QQ_APP_ID=${QQ_APP_ID:-}
+      - QQ_APP_KEY=${QQ_APP_KEY:-}
+      - QQ_REDIRECT_URI=${QQ_REDIRECT_URI:-}
 
       # sub2api（已在 longdao-network 运行）
       #
