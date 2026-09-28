@@ -654,10 +654,47 @@ model RpaVersion {
   createdBy        User             @relation("RpaVersionCreator", fields: [createdById], references: [id])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+  securityScans    PackageSecurityScan[] @relation("RpaVersionSecurityScans")
 
   @@unique([capabilityId, version])
   @@index([capabilityId, status])
   @@map("rpa_versions")
+}
+
+enum PackageSecurityType {
+  SKILL
+  RPA
+}
+
+enum PackageSecurityScanStatus {
+  PENDING
+  PASSED
+  FAILED
+  QUARANTINED
+}
+
+model PackageSecurityScan {
+  id             String                    @id @default(cuid())
+  packageSha256  String
+  packageType    PackageSecurityType
+  status         PackageSecurityScanStatus @default(PENDING)
+  scanner        String
+  scannerVersion String
+  issues         Json?
+  warnings       Json?
+  scannedAt      DateTime?
+  skillVersionId String?
+  skillVersion   SkillVersion?             @relation("SkillVersionSecurityScans", fields: [skillVersionId], references: [id], onDelete: Cascade)
+  rpaVersionId   String?
+  rpaVersion     RpaVersion?               @relation("RpaVersionSecurityScans", fields: [rpaVersionId], references: [id], onDelete: Cascade)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([packageSha256, packageType])
+  @@index([status, createdAt])
+  @@index([skillVersionId])
+  @@index([rpaVersionId])
+  @@map("package_security_scans")
 }
 
 enum RpaVersionStatus {
@@ -795,6 +832,7 @@ model SkillVersion {
   defaultBindings     EmployeeCapabilityBinding[] @relation("DefaultSkillVersion")
   contributionRewards ContributionRewardEvent[]
   executions          ToolExecution[]
+  securityScans       PackageSecurityScan[] @relation("SkillVersionSecurityScans")
 
   @@index([capabilityId, status])
   @@index([enterpriseId, status])

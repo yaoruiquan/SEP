@@ -24,6 +24,7 @@ import {
   SKILL_PACKAGE_MAX_BYTES,
   SkillPackageService,
 } from '../skill-package/skill-package.service';
+import { PackageSecurityService } from '../capability-contribution/package-security.service';
 
 @ApiTags('admin/upload')
 @ApiBearerAuth()
@@ -34,6 +35,7 @@ export class AdminUploadController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly skillPackage: SkillPackageService,
+    private readonly security: PackageSecurityService,
   ) {}
 
   @Post('upload-skill')
@@ -61,6 +63,7 @@ export class AdminUploadController {
   )
   async uploadSkillZip(@UploadedFile() file: Express.Multer.File) {
     const stored = await this.skillPackage.store(file);
+    await this.security.scanSkill(stored);
     // 响应保持原有字段名 —— 运营端的 skill-form 直接读 zipPath / totalSize。
     return {
       zipPath: stored.key,
@@ -110,6 +113,13 @@ export class AdminUploadController {
       throw new NotFoundException('未找到 zip 文件路径');
     }
 
+    res.setHeader('Content-Type', 'application/zip');
+    if (this.skillPackage.isSharedStorage?.()) {
+      const bytes = await this.skillPackage.readBytes(zipPath);
+      res.setHeader('Content-Length', bytes.length);
+      return res.attachment(`${capability.name}.zip`).send(bytes);
+    }
+
     // 3. 构建完整文件路径
     const filePath = this.skillPackage.resolveStoredPath(zipPath);
 
@@ -119,7 +129,8 @@ export class AdminUploadController {
     }
 
     // 5. 返回文件
-    res.download(filePath, `${capability.name}.zip`, (err) => {
+    res.setHeader('Content-Length', fs.statSync(filePath).size);
+    return res.download(filePath, `${capability.name}.zip`, (err) => {
       if (err) {
         // console.error('下载失败:', err);
       }

@@ -10,7 +10,7 @@ import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CapabilityService } from './capability.service';
 import { CapabilityUploadDto } from 'shared';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { SkillPackageService } from '../skill-package/skill-package.service';
 
 @ApiTags('Capabilities')
@@ -68,13 +68,19 @@ export class CapabilityController {
       req.user.id,
       req.user.role,
     );
-    const fullPath = this.skillPackage.resolveStoredPath(key);
+    res.setHeader('Content-Type', 'application/zip');
+    if (this.skillPackage.isSharedStorage?.()) {
+      const bytes = await this.skillPackage.readBytes(key);
+      res.setHeader('Content-Length', bytes.length);
+      return res.attachment(filename).send(bytes);
+    }
 
+    const fullPath = this.skillPackage.resolveStoredPath(key);
     if (!existsSync(fullPath)) {
       throw new NotFoundException('Skill package file does not exist on disk');
     }
-
-    res.download(fullPath, filename);
+    res.setHeader('Content-Length', statSync(fullPath).size);
+    return res.download(fullPath, filename);
   }
 
   // ────────────── Contributor routes ──────────────

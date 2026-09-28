@@ -6,9 +6,10 @@ import { WalletModule } from '../wallet/wallet.module';
 import { SkillPackageModule } from '../skill-package/skill-package.module';
 import { SettingModule } from '../setting/setting.module';
 import { PersonalWalletModule } from '../personal-wallet/personal-wallet.module';
+import { CapabilityContributionModule } from '../capability-contribution/capability-contribution.module';
 
 @Module({
-  imports: [WalletModule, SkillPackageModule, SettingModule, PersonalWalletModule],
+  imports: [WalletModule, SkillPackageModule, SettingModule, PersonalWalletModule, CapabilityContributionModule],
   controllers: [AdminController, AdminUploadController],
   providers: [AdminService],
   exports: [AdminService],

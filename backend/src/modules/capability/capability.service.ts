@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
@@ -13,6 +14,7 @@ import {
 } from './adapters/adapter.interface';
 import { CapabilityUploadDto } from 'shared';
 import matter from 'gray-matter';
+import { PackageSecurityService } from '../capability-contribution/package-security.service';
 
 // Prisma enum values referenced as strings to avoid importing generated enum
 const APPROVED = 'APPROVED' as const;
@@ -64,6 +66,7 @@ export class CapabilityService {
     private prisma: PrismaService,
     private adapterFactory: AdapterFactory,
     private skillVersionService: SkillVersionService,
+    @Optional() private packageSecurity?: PackageSecurityService,
   ) {}
 
   // ──────────────── Browse / Read ────────────────
@@ -380,7 +383,7 @@ export class CapabilityService {
             status: 'PLATFORM_APPROVED',
             packageKey: { not: null },
           },
-          select: { packageKey: true, packageFilename: true, version: true },
+          select: { packageKey: true, packageSha256: true, packageFilename: true, version: true },
           orderBy: { createdAt: 'desc' },
         })
       : await this.prisma.skillVersion.findFirst({
@@ -390,11 +393,14 @@ export class CapabilityService {
             status: 'ENTERPRISE_APPROVED',
             packageKey: { not: null },
           },
-          select: { packageKey: true, packageFilename: true, version: true },
+          select: { packageKey: true, packageSha256: true, packageFilename: true, version: true },
           orderBy: { createdAt: 'desc' },
         });
 
     if (version?.packageKey) {
+      if (version.packageSha256) {
+        await this.packageSecurity?.assertDownloadable(version.packageSha256, 'SKILL');
+      }
       return {
         key: version.packageKey,
         filename:

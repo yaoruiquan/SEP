@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { UploadModule } from '../upload/upload.module';
 import { SkillPackageService } from './skill-package.service';
 
 /**
@@ -6,6 +7,7 @@ import { SkillPackageService } from './skill-package.service';
  * 两处各写一遍的话，包校验规则一定会漂移。
  */
 @Module({
+  imports: [UploadModule],
   providers: [SkillPackageService],
   exports: [SkillPackageService],
 })

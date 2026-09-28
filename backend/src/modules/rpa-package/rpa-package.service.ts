@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "crypto";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { basename, resolve, sep } from "path";
 import AdmZip from "adm-zip";
+import { StorageService } from '../upload/storage/storage.service';
 
 export const RPA_PACKAGE_MAX_BYTES = 50 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
@@ -43,7 +45,10 @@ export interface StoredRpaPackage {
 export class RpaPackageService {
   private readonly root: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly storage?: StorageService,
+  ) {
     this.root = resolve(
       this.config.get<string>("RPA_PACKAGE_DIR") || "./uploads/rpa",
     );
@@ -64,13 +69,15 @@ export class RpaPackageService {
       .update(file.buffer)
       .digest("hex");
     const parsed = this.parse(file.buffer, sha256);
-    await mkdir(this.root, { recursive: true });
-    try {
-      await writeFile(this.resolveStoredPath(parsed.key), file.buffer, {
-        flag: "wx",
-      });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (this.usesSharedStorage()) {
+      await this.storage!.put({ key: parsed.key, buffer: file.buffer, mime: 'application/zip', filename: file.originalname });
+    } else {
+      await mkdir(this.root, { recursive: true });
+      try {
+        await writeFile(this.resolveStoredPath(parsed.key), file.buffer, { flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
     }
     return { ...parsed, filename: this.sanitizeFilename(file.originalname) };
   }
@@ -80,7 +87,7 @@ export class RpaPackageService {
       throw new BadRequestException("RPA 包 sha256 格式非法");
     let buffer: Buffer;
     try {
-      buffer = await readFile(this.resolveStoredPath(this.keyFor(sha256)));
+      buffer = await this.readBytes(this.keyFor(sha256));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
         throw new NotFoundException("RPA 包不存在或已过期，请重新上传");
@@ -89,7 +96,36 @@ export class RpaPackageService {
     return { ...this.parse(buffer, sha256), filename: `${sha256}.zip` };
   }
 
+  async readBytes(key: string): Promise<Buffer> {
+    this.assertStorageKey(key);
+    try {
+      return this.usesSharedStorage()
+        ? await this.storage!.get(key)
+        : await readFile(this.resolveStoredPath(key));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NotFoundException('RPA 包不存在或已过期，请重新上传');
+      }
+      throw error;
+    }
+  }
+
+  isSharedStorage() {
+    return this.usesSharedStorage();
+  }
+
+  private usesSharedStorage() {
+    return this.storage?.driverName === 'oss';
+  }
+
+  private assertStorageKey(key: string) {
+    if (!key.startsWith('rpa/') || !/^[0-9a-f]{64}\.zip$/.test(key.slice('rpa/'.length))) {
+      throw new BadRequestException('RPA 存储 key 非法');
+    }
+  }
+
   resolveStoredPath(key: string): string {
+    this.assertStorageKey(key);
     if (!key.startsWith("rpa/"))
       throw new BadRequestException("RPA 存储 key 非法");
     const absolute = resolve(this.root, key.slice("rpa/".length));

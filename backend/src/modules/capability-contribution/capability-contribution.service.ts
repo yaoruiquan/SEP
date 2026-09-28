@@ -46,6 +46,7 @@ import {
   type CreateNotificationDto,
 } from "../notifications/notifications.service";
 import { AuditService } from "../audit/audit.service";
+import { PackageSecurityService } from './package-security.service';
 
 const DEFAULT_REWARD_CNY = { enterprise: "10", platform: "50" } as const;
 
@@ -132,6 +133,7 @@ export class CapabilityContributionService {
     @Optional() private readonly notifications?: NotificationsService,
     @Optional() private readonly rpaPackage?: RpaPackageService,
     @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly security?: PackageSecurityService,
   ) {}
 
   private readonly logger = new Logger(CapabilityContributionService.name);
@@ -612,6 +614,7 @@ export class CapabilityContributionService {
       capability.id,
       capability.type,
     );
+    await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     if (!validation.valid) {
       throw new BadRequestException({
         message: "自动校验未通过，暂不能提交审核",
@@ -703,6 +706,7 @@ export class CapabilityContributionService {
     if (!capability) throw new NotFoundException("能力不存在");
     if (capability.enterpriseReviewStatus !== "PENDING")
       throw new ConflictException("只有待企业审核能力可以审核");
+    await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
       const pendingSkillVersions = capability.type === "SKILL"
@@ -831,6 +835,7 @@ export class CapabilityContributionService {
       capability.id,
       capability.type,
     );
+    await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     if (!validation.valid)
       throw new BadRequestException({
         message: "自动校验未通过，暂不能申请平台投稿",
@@ -920,6 +925,7 @@ export class CapabilityContributionService {
         "只有企业审核通过且已发起投稿申请的能力可以授权",
       );
     }
+    await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.capability.update({
         where: { id: capability.id },
@@ -1044,6 +1050,7 @@ export class CapabilityContributionService {
     });
     if (!capability || capability.platformReviewStatus !== "PENDING_REVIEW")
       throw new ConflictException("只有待平台审核能力可以审核");
+    await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
       const pendingSkillVersions = capability.type === "SKILL"
@@ -1394,12 +1401,16 @@ export class CapabilityContributionService {
         status: true,
         createdById: true,
         version: true,
+        packageSha256: true,
         capability: { select: { name: true } },
       },
     });
     if (!version) throw new NotFoundException("版本不存在");
     if (version.status !== "PENDING_ENTERPRISE_REVIEW") {
       throw new ConflictException("只有待企业审核版本可以审核");
+    }
+    if (version.packageSha256) {
+      await this.security?.assertReviewable(version.packageSha256, "SKILL");
     }
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1462,11 +1473,15 @@ export class CapabilityContributionService {
         status: true,
         createdById: true,
         version: true,
+        packageSha256: true,
       },
     });
     if (!version) throw new NotFoundException("版本不存在");
     if (version.status !== "PENDING_PLATFORM_REVIEW") {
       throw new ConflictException("只有待平台审核版本可以审核");
+    }
+    if (version.packageSha256) {
+      await this.security?.assertReviewable(version.packageSha256, "SKILL");
     }
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1548,6 +1563,9 @@ export class CapabilityContributionService {
    */
   async submitVersion(userId: string, versionId: string) {
     const version = await this.getEditableVersion(userId, versionId);
+    if (version.packageSha256) {
+      await this.security?.assertReviewable(version.packageSha256, "SKILL");
+    }
     if (!version.changeSummary?.trim()) {
       throw new BadRequestException("请先填写本版本的变更说明");
     }
@@ -1610,6 +1628,143 @@ export class CapabilityContributionService {
       throw new ConflictException("只有草稿或被驳回的版本可以修改");
     }
     return version;
+  }
+
+
+  /** 已发布能力市场检索。只返回通过平台审核且可安装/下载的版本。 */
+  async searchMarket(input: {
+    q?: string;
+    type?: string;
+    industry?: string;
+    position?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(1, input.page ?? 1);
+    const limit = Math.min(50, Math.max(1, input.limit ?? 20));
+    const q = input.q?.trim();
+    const publishedFilter: Prisma.CapabilityWhereInput = {
+      OR: [
+        { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+        { enterpriseId: null, status: 'APPROVED' },
+      ],
+    };
+    const where: Prisma.CapabilityWhereInput = {
+      AND: [
+        publishedFilter,
+        ...(q ? [{
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { description: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }] : []),
+      ],
+      ...(input.type ? { type: input.type.toUpperCase() as CapabilityType } : {}),
+      ...(input.industry ? { industry: { has: input.industry } } : {}),
+      ...(input.position ? { position: { has: input.position } } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.prisma.capability.count({ where }),
+      this.prisma.capability.findMany({
+        where,
+        orderBy: [{ usageCount: 'desc' }, { updatedAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, name: true, description: true, type: true,
+          industry: true, position: true, usageCount: true, rating: true,
+          visibility: true, platformReviewStatus: true, updatedAt: true,
+          contributor: { select: { id: true, name: true } },
+          skillVersions: {
+            where: { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, version: true, packageSha256: true, packageFilename: true },
+          },
+          rpaVersions: {
+            where: { status: 'PLATFORM_APPROVED' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, version: true, packageSha256: true, packageFilename: true },
+          },
+        },
+      }),
+    ]);
+    return {
+      items: items.map((item) => ({
+        ...item,
+        install: item.type === 'SKILL' && item.skillVersions[0]
+          ? { versionId: item.skillVersions[0].id, endpoint: `/contributions/versions/${item.skillVersions[0].id}/package` }
+          : null,
+        download: item.type === 'RPA' && item.rpaVersions[0]
+          ? { versionId: item.rpaVersions[0].id, endpoint: `/contributions/${item.id}/rpa-package` }
+          : null,
+      })),
+      total, page, limit, totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /** 投稿后显式绑定到已有数字员工；不自动创建员工，也不允许绑定未发布版本。 */
+  async bindPublishedCapability(userId: string, capabilityId: string, employeeId: string, priority?: number) {
+    const [capability, employee] = await Promise.all([
+      this.prisma.capability.findFirst({
+        where: { id: capabilityId, OR: [
+          { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+          { enterpriseId: null, status: 'APPROVED' },
+        ] },
+        select: { id: true, type: true },
+      }),
+      this.prisma.digitalEmployee.findUnique({ where: { id: employeeId }, select: { id: true } }),
+    ]);
+    if (!capability || !employee) throw new NotFoundException('已发布能力或数字员工不存在');
+    try {
+      const binding = await this.prisma.employeeCapabilityBinding.create({
+        data: {
+          employeeId, capabilityId,
+          priority: priority ?? 0,
+          defaultSkillVersionId: capability.type === 'SKILL'
+            ? (await this.prisma.skillVersion.findFirst({ where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, orderBy: { createdAt: 'desc' }, select: { id: true } }))?.id
+            : undefined,
+        },
+        include: { capability: { select: { id: true, name: true, type: true, description: true } } },
+      });
+      await this.recordDownloadAudit({
+        actorId: userId,
+        action: 'CONTRIBUTION_BIND_EMPLOYEE',
+        resourceType: 'CAPABILITY', resourceId: capabilityId,
+        metadata: { employeeId, priority: priority ?? 0 },
+      });
+      return binding;
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('能力已绑定到该数字员工');
+      throw error;
+    }
+  }
+
+  async productionMetrics(days = 30) {
+    const since = new Date(Date.now() - Math.min(90, Math.max(1, days)) * 86_400_000);
+    const [audit, reviews, notifications, scans] = await Promise.all([
+      this.prisma.auditLog.findMany({ where: { createdAt: { gte: since }, action: { startsWith: 'CONTRIBUTION_' } }, select: { action: true, result: true, createdAt: true, metadata: true } }),
+      this.prisma.skillVersionReview.findMany({ where: { createdAt: { gte: since } }, select: { actorType: true, decision: true, comment: true, createdAt: true } }),
+      this.prisma.notification.count({ where: { createdAt: { gte: since }, category: 'APPROVAL' } }),
+      this.security?.metrics() ?? Promise.resolve(null),
+    ]);
+    const downloads = audit.filter((row) => row.action.endsWith('_DOWNLOAD'));
+    const byAction = downloads.reduce<Record<string, number>>((out, row) => {
+      out[row.action] = (out[row.action] ?? 0) + 1;
+      return out;
+    }, {});
+    const rejected = reviews.filter((row) => row.decision === 'REJECT');
+    const reasons = Object.entries(rejected.reduce<Record<string, number>>((out, row) => {
+      const reason = row.comment?.trim() || '未填写原因'; out[reason] = (out[reason] ?? 0) + 1; return out;
+    }, {})).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    return {
+      windowDays: Math.min(90, Math.max(1, days)),
+      downloads: { authorizedRequestsByAction: byAction, totalAuthorizedRequests: downloads.length },
+      review: { total: reviews.length, rejected: rejected.length, rejectionReasons: reasons },
+      approvalNotifications: notifications,
+      security: scans,
+    };
   }
 
   async rewards(userId: string) {
@@ -1727,6 +1882,28 @@ export class CapabilityContributionService {
     return { items, total: items.length };
   }
 
+
+  async getRpaVersionPreview(versionId: string) {
+    const version = await this.prisma.rpaVersion.findUnique({
+      where: { id: versionId },
+      select: {
+        id: true, version: true, packageKey: true, packageSha256: true,
+        packageFilename: true, packageFileCount: true, packageBytes: true,
+        configDoc: true, status: true, validationResult: true,
+        capability: { select: { id: true, name: true, description: true, enterpriseId: true } },
+      },
+    });
+    if (!version) throw new NotFoundException('RPA 版本不存在');
+    if (!this.rpaPackage) throw new BadRequestException('RPA 包服务暂不可用');
+    const parsed = await this.rpaPackage.read(version.packageSha256);
+    return {
+      ...version,
+      packageKey: undefined,
+      files: parsed.files,
+      security: await this.security?.getScan(version.packageSha256, 'RPA') ?? null,
+    };
+  }
+
   async getPlatformSubmission(capabilityId: string) {
     const capability = await this.prisma.capability.findUnique({
       where: { id: capabilityId },
@@ -1782,6 +1959,7 @@ export class CapabilityContributionService {
     if (!/^[0-9a-f]{64}$/.test(sha256) || key !== `rpa/${sha256}.zip`) {
       throw new NotFoundException("RPA 包存储信息无效");
     }
+    await this.security?.assertDownloadable(sha256, 'RPA');
     await this.recordDownloadAudit({
       actorId: userId,
       action: "CONTRIBUTION_RPA_DOWNLOAD",
@@ -1884,6 +2062,7 @@ export class CapabilityContributionService {
     const filename =
       version.packageFilename ||
       `${version.capability.name}-v${version.version}.zip`;
+    await this.security?.assertDownloadable(version.packageSha256, 'SKILL');
     await this.recordDownloadAudit({
       actorId: userId,
       action: "CONTRIBUTION_SKILL_DOWNLOAD",
@@ -1990,6 +2169,46 @@ export class CapabilityContributionService {
     });
     if (!capability) throw new NotFoundException("能力不存在或无权访问");
     return capability;
+  }
+
+  private async assertCapabilityPackageReviewable(
+    capabilityId: string,
+    type: CapabilityType,
+  ) {
+    if (!this.security || (type !== "SKILL" && type !== "RPA")) return;
+    if (type === "SKILL") {
+      const versions = await this.prisma.skillVersion.findMany({
+        where: {
+          capabilityId,
+          scope: { not: "PERSONAL" },
+          packageSha256: { not: null },
+          status: {
+            in: [
+              "DRAFT",
+              "PENDING_ENTERPRISE_REVIEW",
+              "ENTERPRISE_REJECTED",
+              "ENTERPRISE_APPROVED",
+              "PENDING_PLATFORM_REVIEW",
+              "PLATFORM_REJECTED",
+            ],
+          },
+        },
+        select: { packageSha256: true },
+      });
+      for (const version of versions ?? []) {
+        if (version.packageSha256) {
+          await this.security.assertReviewable(version.packageSha256, "SKILL");
+        }
+      }
+      return;
+    }
+    const config = await this.prisma.rPAConfig.findUnique({
+      where: { capabilityId },
+      select: { packageSha256: true },
+    });
+    if (config?.packageSha256) {
+      await this.security.assertReviewable(config.packageSha256, "RPA");
+    }
   }
 
   private async validateCapability(capabilityId: string, type: CapabilityType) {

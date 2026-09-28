@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { basename, join, resolve, sep } from 'path';
 import AdmZip from 'adm-zip';
 import matter from 'gray-matter';
+import { StorageService } from '../upload/storage/storage.service';
 
 /** zip 自身字节上限。包里只装 SKILL.md 与少量附件，20MB 足够且能挡住误传大文件。 */
 export const SKILL_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
@@ -56,7 +57,10 @@ export interface StoredSkillPackage extends SkillPackageContent {
 export class SkillPackageService {
   private readonly root: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly storage?: StorageService,
+  ) {
     this.root = resolve(
       this.config.get<string>('SKILL_PACKAGE_DIR') || './uploads/skills',
     );
@@ -78,12 +82,16 @@ export class SkillPackageService {
     const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
     const parsed = this.parse(file.buffer, sha256);
 
-    await mkdir(this.root, { recursive: true });
-    // wx：已存在就不重写。内容寻址下同名即同内容，重写只是浪费 IO。
-    try {
-      await writeFile(this.resolveStoredPath(parsed.key), file.buffer, { flag: 'wx' });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (this.usesSharedStorage()) {
+      await this.storage!.put({ key: parsed.key, buffer: file.buffer, mime: 'application/zip', filename: file.originalname });
+    } else {
+      await mkdir(this.root, { recursive: true });
+      // wx：已存在就不重写。内容寻址下同名即同内容，重写只是浪费 IO。
+      try {
+        await writeFile(this.resolveStoredPath(parsed.key), file.buffer, { flag: 'wx' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
     }
 
     return { ...parsed, filename: this.sanitizeFilename(file.originalname) };
@@ -100,7 +108,7 @@ export class SkillPackageService {
     const key = this.keyFor(sha256);
     let buffer: Buffer;
     try {
-      buffer = await readFile(this.resolveStoredPath(key));
+      buffer = await this.readBytes(key);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new NotFoundException('上传的 SKILL 包不存在或已过期，请重新上传');
@@ -108,6 +116,35 @@ export class SkillPackageService {
       throw error;
     }
     return this.parse(buffer, sha256);
+  }
+
+  /** 读取已存储的原始 ZIP；OSS 与本地磁盘共用此下载入口。 */
+  async readBytes(key: string): Promise<Buffer> {
+    this.assertStorageKey(key);
+    try {
+      return this.usesSharedStorage()
+        ? await this.storage!.get(key)
+        : await readFile(this.resolveStoredPath(key));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NotFoundException('上传的 SKILL 包不存在或已过期，请重新上传');
+      }
+      throw error;
+    }
+  }
+
+  isSharedStorage() {
+    return this.usesSharedStorage();
+  }
+
+  private usesSharedStorage() {
+    return this.storage?.driverName === 'oss';
+  }
+
+  private assertStorageKey(key: string) {
+    if (!key.startsWith('skills/') || !/^[0-9a-f]{64}\.zip$/.test(key.slice('skills/'.length))) {
+      throw new BadRequestException('Skill 存储 key 非法');
+    }
   }
 
   /**

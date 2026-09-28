@@ -9,8 +9,10 @@ import {
   Res,
   NotFoundException,
   UploadedFile,
+  Query,
   UseGuards,
   UseInterceptors,
+  Optional,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -40,6 +42,7 @@ import {
 import { CapabilityContributionService } from './capability-contribution.service';
 import { CapabilityValidatorService } from './capability-validator.service';
 import { RPA_PACKAGE_MAX_BYTES, RpaPackageService } from '../rpa-package/rpa-package.service';
+import { PackageSecurityService } from './package-security.service';
 
 type AuthRequest = {
   user: { id: string; role?: string };
@@ -79,16 +82,27 @@ export class CapabilityContributionController {
     private readonly skillPackage: SkillPackageService,
     private readonly validator: CapabilityValidatorService,
     private readonly rpaPackage: RpaPackageService,
+    @Optional() private readonly security?: PackageSecurityService,
   ) {}
+
+  @Get('market')
+  @ApiOperation({ summary: '检索已发布的能力市场' })
+  @ApiResponse({ status: 200, description: '返回已发布 Skill/RPA 列表及安装/下载端点' })
+  market(@Query('q') q?: string, @Query('type') type?: string, @Query('industry') industry?: string, @Query('position') position?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.service.searchMarket({ q, type, industry, position, page: Number(page) || 1, limit: Number(limit) || 20 });
+  }
 
   @Post('rpa-package')
   @ApiOperation({ summary: '上传 RPA ZIP 包' })
+  @ApiResponse({ status: 400, description: 'ZIP 结构或安全检查未通过' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 201, description: '解析成功，返回包元数据' })
   @UseInterceptors(FileInterceptor('file', RPA_PACKAGE_MULTER))
   async uploadRpaPackage(@UploadedFile() file: Express.Multer.File): Promise<RpaPackageParseResult> {
-    return this.rpaPackage.store(file);
+    const stored = await this.rpaPackage.store(file);
+    await this.security?.scanRpa(stored);
+    return stored;
   }
 
   @Post('skill-package')
@@ -115,6 +129,7 @@ export class CapabilityContributionController {
     // 上传即校验：提交审核前就把缺段落、含密钥之类的问题暴露出来，
     // 而不是等第三步走完、点提交才报错。
     const { kind: _kind, ...validation } = this.validator.validateSkill(stored.content);
+    await this.security?.scanSkill(stored);
     return {
       sha256: stored.sha256,
       filename: stored.filename,
@@ -135,12 +150,17 @@ export class CapabilityContributionController {
       id,
       requestAuditContext(req),
     );
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('X-SHA256', sha256);
+    if (this.rpaPackage.isSharedStorage?.()) {
+      const bytes = await this.rpaPackage.readBytes(key);
+      res.setHeader('Content-Length', bytes.length);
+      return res.attachment(filename).send(bytes);
+    }
     const fullPath = this.rpaPackage.resolveStoredPath(key);
     if (!existsSync(fullPath)) throw new NotFoundException('RPA 包文件不存在');
-    res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Length', statSync(fullPath).size);
-    res.setHeader('X-SHA256', sha256);
-    res.download(fullPath, filename);
+    return res.download(fullPath, filename);
   }
 
   @Get('versions/:versionId')
@@ -205,13 +225,18 @@ export class CapabilityContributionController {
       req.user.role,
       requestAuditContext(req),
     );
-    const fullPath = this.skillPackage.resolveStoredPath(key);
-    if (!existsSync(fullPath)) throw new NotFoundException('Skill 包文件不存在');
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Length', statSync(fullPath).size);
     res.setHeader('X-SHA256', sha256);
     res.setHeader('X-Version', version);
-    res.download(fullPath, filename);
+    if (this.skillPackage.isSharedStorage?.()) {
+      const bytes = await this.skillPackage.readBytes(key);
+      res.setHeader('Content-Length', bytes.length);
+      return res.attachment(filename).send(bytes);
+    }
+    const fullPath = this.skillPackage.resolveStoredPath(key);
+    if (!existsSync(fullPath)) throw new NotFoundException('Skill 包文件不存在');
+    res.setHeader('Content-Length', statSync(fullPath).size);
+    return res.download(fullPath, filename);
   }
 
   @Get('overview')

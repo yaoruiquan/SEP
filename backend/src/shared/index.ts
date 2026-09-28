@@ -715,6 +715,12 @@ export type ContributionCapabilityUpdateDto = z.infer<
   typeof ContributionCapabilityUpdateDtoSchema
 >;
 
+export const ContributionEmployeeBindSchema = z.object({
+  employeeId: z.string().min(1),
+  priority: z.number().int().min(0).max(100).optional(),
+});
+export type ContributionEmployeeBindDto = z.infer<typeof ContributionEmployeeBindSchema>;
+
 export const ContributionReviewDecisionSchema = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
   comment: z.string().max(2000).optional(),

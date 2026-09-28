@@ -1046,3 +1046,34 @@ describe('CapabilityContributionService review notifications', () => {
     expect(notifications.create).toHaveBeenCalled();
   });
 });
+
+
+describe('CapabilityContributionService market visibility', () => {
+  it('ANDs search terms with published visibility so q cannot expose unpublished capabilities', async () => {
+    const capability = { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) };
+    const service = new CapabilityContributionService(
+      { capability } as never,
+      { resolveOrNull: jest.fn() } as never,
+      new CapabilityValidatorService(),
+      {} as never,
+    );
+
+    await service.searchMarket({ q: 'secret' });
+
+    const where = capability.findMany.mock.calls[0][0].where;
+    expect(where.AND).toHaveLength(2);
+    expect(where.AND[0]).toEqual({
+      OR: [
+        { visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' },
+        { enterpriseId: null, status: 'APPROVED' },
+      ],
+    });
+    expect(where.AND[1]).toEqual({
+      OR: [
+        { name: { contains: 'secret', mode: 'insensitive' } },
+        { description: { contains: 'secret', mode: 'insensitive' } },
+      ],
+    });
+    expect(capability.count).toHaveBeenCalledWith({ where });
+  });
+});
