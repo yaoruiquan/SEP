@@ -13,6 +13,7 @@ import {
   Prisma,
   SkillVersionScope,
   SkillVersionStatus,
+  RpaVersionStatus,
 } from "@prisma/client";
 import matter from "gray-matter";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -693,6 +694,28 @@ export class CapabilityContributionService {
     });
   }
 
+  private async recordRpaVersionReviews(
+    tx: Prisma.TransactionClient,
+    versions: Array<{ id: string; version: string; packageSha256: string }>,
+    actorType: "ENTERPRISE" | "PLATFORM",
+    decision: "APPROVE" | "REJECT",
+    reviewerId: string,
+    comment?: string,
+  ) {
+    if (versions.length === 0) return;
+    await tx.rpaVersionReview.createMany({
+      data: versions.map((version) => ({
+        versionId: version.id,
+        actorType,
+        decision,
+        reviewerId,
+        packageVersion: version.version,
+        packageSha256: version.packageSha256,
+        comment,
+      })),
+    });
+  }
+
   async reviewEnterprise(
     userId: string,
     capabilityId: string,
@@ -717,6 +740,12 @@ export class CapabilityContributionService {
               status: "PENDING_ENTERPRISE_REVIEW",
             },
             select: { id: true },
+          })) ?? [])
+        : [];
+      const pendingRpaVersions = capability.type === "RPA"
+        ? ((await tx.rpaVersion.findMany({
+            where: { capabilityId: capability.id, status: "PENDING_ENTERPRISE_REVIEW" },
+            select: { id: true, version: true, packageSha256: true },
           })) ?? [])
         : [];
       const updated = await tx.capability.update({
@@ -760,6 +789,14 @@ export class CapabilityContributionService {
             rejectionReason: approved ? null : dto.comment,
           },
         });
+        await this.recordRpaVersionReviews(
+          tx,
+          pendingRpaVersions,
+          "ENTERPRISE",
+          dto.decision,
+          userId,
+          dto.comment,
+        );
       }
       if (approved) {
         const amount = await this.rewardAmount("enterprise");
@@ -1063,6 +1100,12 @@ export class CapabilityContributionService {
             select: { id: true },
           })) ?? [])
         : [];
+      const pendingRpaVersions = capability.type === "RPA"
+        ? ((await tx.rpaVersion.findMany({
+            where: { capabilityId: capability.id, status: "PENDING_PLATFORM_REVIEW" },
+            select: { id: true, version: true, packageSha256: true },
+          })) ?? [])
+        : [];
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
@@ -1108,6 +1151,14 @@ export class CapabilityContributionService {
             rejectionReason: approved ? null : dto.comment,
           },
         });
+        await this.recordRpaVersionReviews(
+          tx,
+          pendingRpaVersions,
+          "PLATFORM",
+          dto.decision,
+          userId,
+          dto.comment,
+        );
       }
       if (approved) {
         const amount = await this.rewardAmount("platform");
@@ -1697,7 +1748,7 @@ export class CapabilityContributionService {
           ? { versionId: item.skillVersions[0].id, endpoint: `/contributions/versions/${item.skillVersions[0].id}/package` }
           : null,
         download: item.type === 'RPA' && item.rpaVersions[0]
-          ? { versionId: item.rpaVersions[0].id, endpoint: `/contributions/${item.id}/rpa-package` }
+          ? { versionId: item.rpaVersions[0].id, endpoint: `/contributions/${item.id}/rpa-package?versionId=${encodeURIComponent(item.rpaVersions[0].id)}` }
           : null,
       })),
       total, page, limit, totalPages: Math.ceil(total / limit) || 1,
@@ -1917,6 +1968,7 @@ export class CapabilityContributionService {
   async getRpaPackage(
     userId: string,
     capabilityId: string,
+    versionId?: string,
     auditContext?: DownloadAuditContext,
   ) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
@@ -1929,54 +1981,78 @@ export class CapabilityContributionService {
         contributorId: true,
         enterpriseId: true,
         visibility: true,
-        status: true,
         enterpriseReviewStatus: true,
         platformReviewStatus: true,
-        rpaConfig: { select: { packageSha256: true, packageUrl: true } },
       },
     });
-    if (
-      !capability ||
-      capability.type !== "RPA" ||
-      !capability.rpaConfig?.packageSha256
-    )
+    if (!capability || capability.type !== "RPA") {
       throw new NotFoundException("RPA 包不存在");
+    }
+
     const publicReady =
       capability.visibility === "MARKET_PUBLIC" &&
       capability.platformReviewStatus === "APPROVED";
     const enterpriseReady = Boolean(
       ctx?.enterpriseId &&
-      capability.enterpriseId === ctx.enterpriseId &&
-      capability.enterpriseReviewStatus === "APPROVED",
+        capability.enterpriseId === ctx.enterpriseId &&
+        capability.enterpriseReviewStatus === "APPROVED",
     );
     const authorReady =
-      capability.contributorId === userId &&
-      (capability.enterpriseReviewStatus === "APPROVED" || publicReady);
-    if (!publicReady && !enterpriseReady && !authorReady)
+      capability.contributorId === userId && (publicReady || enterpriseReady);
+    if (!publicReady && !enterpriseReady && !authorReady) {
       throw new NotFoundException("RPA 包不存在或无权下载");
-    const sha256 = capability.rpaConfig.packageSha256;
-    const key = capability.rpaConfig.packageUrl || `rpa/${sha256}.zip`;
-    if (!/^[0-9a-f]{64}$/.test(sha256) || key !== `rpa/${sha256}.zip`) {
+    }
+
+    const allowedStatuses: RpaVersionStatus[] = publicReady
+      ? [RpaVersionStatus.PLATFORM_APPROVED]
+      : enterpriseReady || authorReady
+        ? [RpaVersionStatus.ENTERPRISE_APPROVED, RpaVersionStatus.PLATFORM_APPROVED]
+        : [];
+    const version = await this.prisma.rpaVersion.findFirst({
+      where: {
+        ...(versionId ? { id: versionId } : { capabilityId }),
+        capabilityId,
+        status: { in: allowedStatuses },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        version: true,
+        packageKey: true,
+        packageSha256: true,
+        packageFilename: true,
+      },
+    });
+    if (!version) throw new NotFoundException("RPA 版本不存在或无权下载");
+
+    const expectedKey = `rpa/${version.packageSha256}.zip`;
+    if (
+      !/^[0-9a-f]{64}$/.test(version.packageSha256) ||
+      version.packageKey !== expectedKey
+    ) {
       throw new NotFoundException("RPA 包存储信息无效");
     }
-    await this.security?.assertDownloadable(sha256, 'RPA');
+    await this.security?.assertDownloadable(version.packageSha256, "RPA");
     await this.recordDownloadAudit({
       actorId: userId,
       action: "CONTRIBUTION_RPA_DOWNLOAD",
-      resourceType: "RPA_CAPABILITY",
-      resourceId: capability.id,
+      resourceType: "RPA_VERSION",
+      resourceId: version.id,
       enterpriseId: capability.enterpriseId,
       metadata: {
-        sha256,
-        filename: `${capability.name}.zip`,
+        versionId: version.id,
+        version: version.version,
+        sha256: version.packageSha256,
+        filename: version.packageFilename || `${capability.name}.zip`,
         visibility: capability.visibility,
         ...this.downloadRequestMetadata(auditContext),
       },
     });
     return {
-      key,
-      sha256,
-      filename: `${capability.name}.zip`,
+      key: version.packageKey,
+      sha256: version.packageSha256,
+      version: version.version,
+      filename: version.packageFilename || `${capability.name}.zip`,
     };
   }
 
@@ -2202,12 +2278,24 @@ export class CapabilityContributionService {
       }
       return;
     }
-    const config = await this.prisma.rPAConfig.findUnique({
-      where: { capabilityId },
+    const versions = await this.prisma.rpaVersion.findMany({
+      where: {
+        capabilityId,
+        status: {
+          in: [
+            "DRAFT",
+            "PENDING_ENTERPRISE_REVIEW",
+            "ENTERPRISE_REJECTED",
+            "ENTERPRISE_APPROVED",
+            "PENDING_PLATFORM_REVIEW",
+            "PLATFORM_REJECTED",
+          ],
+        },
+      },
       select: { packageSha256: true },
     });
-    if (config?.packageSha256) {
-      await this.security.assertReviewable(config.packageSha256, "RPA");
+    for (const version of versions ?? []) {
+      await this.security.assertReviewable(version.packageSha256, "RPA");
     }
   }
 

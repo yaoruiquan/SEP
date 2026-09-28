@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { scanSkillDirectory, scanSkills } from './scanner.mjs';
+import { inspectSkillDirectory, scanSkills } from './scanner.mjs';
 import { createStoredZip, normalizeArchivePath } from './zip.mjs';
 
 const DEFAULT_API_URL = 'http://localhost:3001/api';
@@ -82,7 +82,7 @@ export async function createContribution({ baseUrl, token, parsed, name, descrip
 }
 
 export async function scanSelectedSkill(path, options = {}) {
-  const result = await scanSkillDirectory(path, options);
+  const result = await inspectSkillDirectory(path, options);
   return { ...result, absolutePath: resolve(path) };
 }
 

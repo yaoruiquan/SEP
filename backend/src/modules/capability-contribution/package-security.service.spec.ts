@@ -45,11 +45,18 @@ describe('PackageSecurityService', () => {
       .rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('keeps legacy packages without a scan record reviewable', async () => {
+  it('blocks review when a package has no scan record', async () => {
     prisma.packageSecurityScan.findUnique.mockResolvedValue(null);
 
     await expect(service.assertReviewable('c'.repeat(64), PackageSecurityType.SKILL))
-      .resolves.toBeUndefined();
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('blocks download when a package has no scan record', async () => {
+    prisma.packageSecurityScan.findUnique.mockResolvedValue(null);
+
+    await expect(service.assertDownloadable('d'.repeat(64), PackageSecurityType.RPA))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('blocks download after a scan failure', async () => {

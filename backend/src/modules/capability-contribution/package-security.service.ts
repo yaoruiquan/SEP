@@ -60,8 +60,8 @@ export class PackageSecurityService {
       where: { packageSha256_packageType: { packageSha256, packageType } },
       select: { status: true },
     });
-    // 存量包没有扫描记录时不阻断历史已发布数据；新上传包一定会写记录。
-    if (scan && scan.status !== PackageSecurityScanStatus.PASSED) {
+    // 安全门禁采用 fail-closed：没有扫描记录或扫描未通过都不能下载。
+    if (!scan || scan.status !== PackageSecurityScanStatus.PASSED) {
       throw new BadRequestException('该能力包未通过安全扫描，暂不可下载');
     }
   }
@@ -71,8 +71,8 @@ export class PackageSecurityService {
       where: { packageSha256_packageType: { packageSha256, packageType } },
       select: { status: true, issues: true },
     });
-    // 历史存量包没有扫描记录时保留兼容；新上传包必须先有明确扫描结论。
-    if (scan && scan.status !== PackageSecurityScanStatus.PASSED) {
+    // 安全门禁采用 fail-closed：没有扫描记录或扫描未通过都不能提交审核。
+    if (!scan || scan.status !== PackageSecurityScanStatus.PASSED) {
       throw new BadRequestException({
         message: '该能力包未通过安全扫描，暂不能提交审核',
         security: scan,

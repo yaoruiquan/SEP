@@ -749,9 +749,10 @@ describe('CapabilityContributionService', () => {
 });
 
 describe('CapabilityContributionService RPA download access', () => {
-  it('allows the contributor to download after enterprise approval before market publication', async () => {
+  function makeService() {
     const prisma = {
       capability: { findUnique: jest.fn() },
+      rpaVersion: { findFirst: jest.fn() },
     };
     const context = {
       resolveOrNull: jest.fn().mockResolvedValue({
@@ -765,6 +766,12 @@ describe('CapabilityContributionService RPA download access', () => {
       new CapabilityValidatorService(),
       { read: jest.fn() } as never,
     );
+    return { prisma, context, service };
+  }
+
+  it('allows the contributor to download an enterprise-approved RPA version', async () => {
+    const { prisma, service } = makeService();
+    const sha256 = 'a'.repeat(64);
     prisma.capability.findUnique.mockResolvedValue({
       id: 'rpa-1',
       name: '报表流程',
@@ -772,36 +779,34 @@ describe('CapabilityContributionService RPA download access', () => {
       contributorId: 'user-1',
       enterpriseId: 'enterprise-1',
       visibility: 'ENTERPRISE_PRIVATE',
-      status: 'PENDING',
       enterpriseReviewStatus: 'APPROVED',
       platformReviewStatus: 'NOT_SUBMITTED',
-      rpaConfig: {
-        packageSha256: 'a'.repeat(64),
-        packageUrl: `rpa/${'a'.repeat(64)}.zip`,
-      },
+    });
+    prisma.rpaVersion.findFirst.mockResolvedValue({
+      id: 'rpa-version-1',
+      version: '1.0.0',
+      packageKey: `rpa/${sha256}.zip`,
+      packageSha256: sha256,
+      packageFilename: '报表流程-v1.zip',
     });
 
     await expect(service.getRpaPackage('user-1', 'rpa-1')).resolves.toEqual({
-      key: `rpa/${'a'.repeat(64)}.zip`,
-      sha256: 'a'.repeat(64),
-      filename: '报表流程.zip',
+      key: `rpa/${sha256}.zip`,
+      sha256,
+      version: '1.0.0',
+      filename: '报表流程-v1.zip',
     });
+    expect(prisma.rpaVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        capabilityId: 'rpa-1',
+        status: { in: ['ENTERPRISE_APPROVED', 'PLATFORM_APPROVED'] },
+      }),
+    }));
   });
 
-  it('does not allow a contributor to download an unreviewed RPA draft', async () => {
-    const prisma = { capability: { findUnique: jest.fn() } };
-    const context = {
-      resolveOrNull: jest.fn().mockResolvedValue({
-        enterpriseId: 'enterprise-1',
-        role: 'MEMBER',
-      }),
-    };
-    const service = new CapabilityContributionService(
-      prisma as never,
-      context as never,
-      new CapabilityValidatorService(),
-      { read: jest.fn() } as never,
-    );
+  it('uses the explicitly requested RPA version and rejects an unreviewed version', async () => {
+    const { prisma, service } = makeService();
+    const sha256 = 'b'.repeat(64);
     prisma.capability.findUnique.mockResolvedValue({
       id: 'rpa-2',
       name: '草稿流程',
@@ -809,18 +814,17 @@ describe('CapabilityContributionService RPA download access', () => {
       contributorId: 'user-1',
       enterpriseId: 'enterprise-1',
       visibility: 'ENTERPRISE_PRIVATE',
-      status: 'PENDING',
-      enterpriseReviewStatus: 'PENDING',
+      enterpriseReviewStatus: 'APPROVED',
       platformReviewStatus: 'NOT_SUBMITTED',
-      rpaConfig: {
-        packageSha256: 'b'.repeat(64),
-        packageUrl: `rpa/${'b'.repeat(64)}.zip`,
-      },
     });
+    prisma.rpaVersion.findFirst.mockResolvedValue(null);
 
-    await expect(service.getRpaPackage('user-1', 'rpa-2')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.getRpaPackage('user-1', 'rpa-2', 'draft-version'))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.rpaVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'draft-version', capabilityId: 'rpa-2' }),
+    }));
+    void sha256;
   });
 });
 
@@ -888,10 +892,11 @@ describe('CapabilityContributionService download audit', () => {
     }));
   });
 
-  it('records RPA download metadata for an authorized contributor', async () => {
+  it('records RPA version download metadata for an authorized contributor', async () => {
     const sha256 = 'b'.repeat(64);
     const prisma = {
       capability: { findUnique: jest.fn() },
+      rpaVersion: { findFirst: jest.fn() },
     };
     const context = {
       resolveOrNull: jest.fn().mockResolvedValue({
@@ -917,13 +922,18 @@ describe('CapabilityContributionService download audit', () => {
       contributorId: 'user-1',
       enterpriseId: 'enterprise-1',
       visibility: 'ENTERPRISE_PRIVATE',
-      status: 'PENDING',
       enterpriseReviewStatus: 'APPROVED',
       platformReviewStatus: 'NOT_SUBMITTED',
-      rpaConfig: { packageSha256: sha256, packageUrl: `rpa/${sha256}.zip` },
+    });
+    prisma.rpaVersion.findFirst.mockResolvedValue({
+      id: 'rpa-version-1',
+      version: '1.2.0',
+      packageKey: `rpa/${sha256}.zip`,
+      packageSha256: sha256,
+      packageFilename: '报表流程-v1.2.zip',
     });
 
-    await service.getRpaPackage('user-1', 'rpa-1', {
+    await service.getRpaPackage('user-1', 'rpa-1', undefined, {
       ip: '10.0.0.1',
       userAgent: 'SEP-Web/1.0',
     });
@@ -931,9 +941,11 @@ describe('CapabilityContributionService download audit', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       actorId: 'user-1',
       action: 'CONTRIBUTION_RPA_DOWNLOAD',
-      resourceType: 'RPA_CAPABILITY',
-      resourceId: 'rpa-1',
+      resourceType: 'RPA_VERSION',
+      resourceId: 'rpa-version-1',
       metadata: expect.objectContaining({
+        versionId: 'rpa-version-1',
+        version: '1.2.0',
         sha256,
         ip: '10.0.0.1',
         userAgent: 'SEP-Web/1.0',
@@ -1075,81 +1087,5 @@ describe('CapabilityContributionService market visibility', () => {
       ],
     });
     expect(capability.count).toHaveBeenCalledWith({ where });
-  });
-});
-
-describe('CapabilityContributionService RPA download access', () => {
-  it('allows the contributor to download after enterprise approval before market publication', async () => {
-    const prisma = {
-      capability: { findUnique: jest.fn() },
-    };
-    const context = {
-      resolveOrNull: jest.fn().mockResolvedValue({
-        enterpriseId: 'enterprise-1',
-        role: 'MEMBER',
-      }),
-    };
-    const service = new CapabilityContributionService(
-      prisma as never,
-      context as never,
-      new CapabilityValidatorService(),
-      { read: jest.fn() } as never,
-    );
-    prisma.capability.findUnique.mockResolvedValue({
-      id: 'rpa-1',
-      name: '报表流程',
-      type: 'RPA',
-      contributorId: 'user-1',
-      enterpriseId: 'enterprise-1',
-      visibility: 'ENTERPRISE_PRIVATE',
-      status: 'PENDING',
-      enterpriseReviewStatus: 'APPROVED',
-      platformReviewStatus: 'NOT_SUBMITTED',
-      rpaConfig: {
-        packageSha256: 'a'.repeat(64),
-        packageUrl: `rpa/${'a'.repeat(64)}.zip`,
-      },
-    });
-
-    await expect(service.getRpaPackage('user-1', 'rpa-1')).resolves.toEqual({
-      key: `rpa/${'a'.repeat(64)}.zip`,
-      sha256: 'a'.repeat(64),
-      filename: '报表流程.zip',
-    });
-  });
-
-  it('does not allow a contributor to download an unreviewed RPA draft', async () => {
-    const prisma = { capability: { findUnique: jest.fn() } };
-    const context = {
-      resolveOrNull: jest.fn().mockResolvedValue({
-        enterpriseId: 'enterprise-1',
-        role: 'MEMBER',
-      }),
-    };
-    const service = new CapabilityContributionService(
-      prisma as never,
-      context as never,
-      new CapabilityValidatorService(),
-      { read: jest.fn() } as never,
-    );
-    prisma.capability.findUnique.mockResolvedValue({
-      id: 'rpa-2',
-      name: '草稿流程',
-      type: 'RPA',
-      contributorId: 'user-1',
-      enterpriseId: 'enterprise-1',
-      visibility: 'ENTERPRISE_PRIVATE',
-      status: 'PENDING',
-      enterpriseReviewStatus: 'PENDING',
-      platformReviewStatus: 'NOT_SUBMITTED',
-      rpaConfig: {
-        packageSha256: 'b'.repeat(64),
-        packageUrl: `rpa/${'b'.repeat(64)}.zip`,
-      },
-    });
-
-    await expect(service.getRpaPackage('user-1', 'rpa-2')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
   });
 });

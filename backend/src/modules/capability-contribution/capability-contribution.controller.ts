@@ -144,14 +144,21 @@ export class CapabilityContributionController {
   @Get(':id/rpa-package')
   @ApiOperation({ summary: '下载已审核通过的 RPA 包' })
   @ApiResponse({ status: 200, description: '返回 RPA zip 文件' })
-  async downloadRpaPackage(@Request() req: AuthRequest, @Param('id') id: string, @Res() res: Response) {
-    const { key, filename, sha256 } = await this.service.getRpaPackage(
+  async downloadRpaPackage(
+    @Request() req: AuthRequest,
+    @Param('id') id: string,
+    @Query('versionId') versionId: string | undefined,
+    @Res() res: Response,
+  ) {
+    const { key, filename, sha256, version } = await this.service.getRpaPackage(
       req.user.id,
       id,
+      versionId,
       requestAuditContext(req),
     );
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('X-SHA256', sha256);
+    res.setHeader('X-Version', version);
     if (this.rpaPackage.isSharedStorage?.()) {
       const bytes = await this.rpaPackage.readBytes(key);
       res.setHeader('Content-Length', bytes.length);

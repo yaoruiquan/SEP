@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanSkillDirectory } from './scanner.mjs';
+import { inspectSkillDirectory } from './scanner.mjs';
 import { createStoredZip } from './zip.mjs';
 import { createContribution, packageSelectedSkill, uploadSkillPackage } from './upload.mjs';
 
@@ -57,7 +57,7 @@ async function listen(server) {
 
 test('explicit Skill directory can be scanned, packaged, uploaded and used to create a draft', async (t) => {
   const { skill } = await fixture();
-  const scanned = await scanSkillDirectory(skill, { tool: 'codex', scope: 'user' });
+  const scanned = await inspectSkillDirectory(skill, { tool: 'codex', scope: 'user' });
   const packaged = await packageSelectedSkill(skill, scanned);
   assert.equal(packaged.filename, '周报-Skill.zip');
   assert.deepEqual([...packaged.bytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]);

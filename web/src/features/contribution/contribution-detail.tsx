@@ -52,7 +52,9 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
   const downloadRpa = async () => {
     setRpaDownloading(true);
     try {
-      const result = await downloadFile(`/contributions/${contribution.id}/rpa-package`);
+      const versionId = contribution.rpaVersions?.[0]?.id;
+      if (!versionId) throw new Error('暂无可下载的 RPA 审核版本');
+      const result = await downloadFile(`/contributions/${contribution.id}/rpa-package?versionId=${encodeURIComponent(versionId)}`);
       toast.success('RPA 包下载成功', result.sha256 ? `SHA-256：${result.sha256}` : undefined);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '下载失败，请稍后重试');

@@ -19,7 +19,12 @@ import { dirname, resolve } from 'node:path';
 import { packageSkill, packageSkillById, scanSkills, SCANNER_VERSION } from './scanner.mjs';
 
 const DEFAULT_PORT = 3210;
-const DEFAULT_API_BASE = process.env.SEP_API_BASE_URL || 'http://localhost:3001';
+const DEFAULT_API_BASE = normalizeApiBase(process.env.SEP_API_BASE_URL || 'http://localhost:3001');
+
+function normalizeApiBase(value) {
+  const base = String(value).replace(/\/+$/, '');
+  return /\/api$/i.test(base) ? base : `${base}/api`;
+}
 
 function parseArgs(argv) {
   const positionals = [];
@@ -50,13 +55,13 @@ function printHelp() {
     `  sep-skill publish <skill-directory> [--name 名称] [--description 说明]\n` +
     `  sep-skill serve [--port 3210]\n\n` +
     `环境变量:\n` +
-    `  SEP_API_BASE_URL  平台 API 地址，默认 http://localhost:3001\n` +
+    `  SEP_API_BASE_URL  平台 API 地址，默认 http://localhost:3001/api\n` +
     `  SEP_ACCESS_TOKEN  CLI publish 使用的短期 Access Token（不会写入文件）\n`);
 }
 
 async function publish(skillPath, options, authorization) {
   const { item, filename, buffer } = await packageSkill(skillPath, { source: 'cli', scope: 'user' });
-  const apiBase = String(options.api || DEFAULT_API_BASE).replace(/\/$/, '');
+  const apiBase = normalizeApiBase(options.api || DEFAULT_API_BASE);
   const headers = authorization ? { Authorization: authorization } : {};
   const form = new FormData();
   form.append('file', new Blob([buffer], { type: 'application/zip' }), filename);

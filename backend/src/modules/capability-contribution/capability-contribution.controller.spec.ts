@@ -48,6 +48,7 @@ describe("CapabilityContributionController download responses", () => {
       key: "rpa/a.zip",
       sha256: "a".repeat(64),
       filename: "报表流程.zip",
+      version: "2.0.0",
     });
 
     await controller.downloadRpaPackage(
@@ -57,10 +58,11 @@ describe("CapabilityContributionController download responses", () => {
         headers: { "user-agent": "test" },
       } as never,
       "cap-1",
+      undefined,
       res as never,
     );
 
-    expect(service.getRpaPackage).toHaveBeenCalledWith("user-1", "cap-1", {
+    expect(service.getRpaPackage).toHaveBeenCalledWith("user-1", "cap-1", undefined, {
       ip: "127.0.0.1",
       userAgent: "test",
     });
@@ -70,7 +72,35 @@ describe("CapabilityContributionController download responses", () => {
     );
     expect(res.setHeader).toHaveBeenCalledWith("Content-Length", 11);
     expect(res.setHeader).toHaveBeenCalledWith("X-SHA256", "a".repeat(64));
+    expect(res.setHeader).toHaveBeenCalledWith("X-Version", "2.0.0");
     expect(res.download).toHaveBeenCalledWith(path, "报表流程.zip");
+  });
+
+  it("forwards an explicit RPA version id", async () => {
+    const { controller, service, rpaPackage } = makeController();
+    const path = join(directory, "rpa-v2.zip");
+    writeFileSync(path, Buffer.from("rpa-payload"));
+    const res = response();
+    rpaPackage.resolveStoredPath.mockReturnValue(path);
+    service.getRpaPackage.mockResolvedValue({
+      key: "rpa/v2.zip",
+      sha256: "b".repeat(64),
+      version: "2.0.0",
+      filename: "流程-v2.zip",
+    });
+
+    await controller.downloadRpaPackage(
+      { user: { id: "user-1" }, headers: {} } as never,
+      "cap-1",
+      "rpa-version-2",
+      res as never,
+    );
+
+    expect(service.getRpaPackage).toHaveBeenCalledWith("user-1", "cap-1", "rpa-version-2", {
+      ip: undefined,
+      userAgent: undefined,
+    });
+    expect(res.setHeader).toHaveBeenCalledWith("X-Version", "2.0.0");
   });
 
   it("returns a safe 404 when the authorized RPA object is missing", async () => {
@@ -89,6 +119,7 @@ describe("CapabilityContributionController download responses", () => {
       controller.downloadRpaPackage(
         { user: { id: "user-1" } } as never,
         "cap-1",
+        undefined,
         res as never,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);

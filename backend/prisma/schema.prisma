@@ -60,6 +60,7 @@ model User {
   enterpriseReviewedSkillVersions   SkillVersion[]             @relation("SkillVersionEnterpriseReviewer")
   platformReviewedSkillVersions     SkillVersion[]             @relation("SkillVersionPlatformReviewer")
   skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
+  rpaVersionReviews                 RpaVersionReview[]         @relation("RpaVersionReviewer")
   selectedSubscriptionSkillVersions SubscriptionSkillVersion[] @relation("SubscriptionSkillVersionSelector")
   contributionRewardEvents          ContributionRewardEvent[]  @relation("ContributionRewardRecipient")
   taskRuns                          TaskRun[]
@@ -688,6 +689,7 @@ model RpaVersion {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   securityScans    PackageSecurityScan[] @relation("RpaVersionSecurityScans")
+  reviews          RpaVersionReview[]     @relation("RpaVersionReviews")
 
   @@unique([capabilityId, version])
   @@index([capabilityId, status])
@@ -987,6 +989,23 @@ model SkillVersionReview {
 
   @@index([versionId, createdAt])
   @@map("skill_version_reviews")
+}
+
+model RpaVersionReview {
+  id            String             @id @default(cuid())
+  versionId     String
+  version       RpaVersion         @relation("RpaVersionReviews", fields: [versionId], references: [id], onDelete: Cascade)
+  actorType     SkillReviewActorType
+  decision      SkillReviewDecision
+  reviewerId    String
+  reviewer      User               @relation("RpaVersionReviewer", fields: [reviewerId], references: [id])
+  packageVersion String
+  packageSha256 String
+  comment       String?            @db.Text
+  createdAt     DateTime           @default(now())
+
+  @@index([versionId, createdAt])
+  @@map("rpa_version_reviews")
 }
 
 model AIAppConfig {
