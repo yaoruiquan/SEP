@@ -34,3 +34,28 @@ test('does not follow symlinks outside the scan root', async () => {
   const items = await scanSkills({ roots: [{ root: skills, scope: 'project', tool: 'agents' }] });
   assert.equal(items.some((item) => item.path.endsWith('escaped')), false);
 });
+
+test('discovers ancestor project roots and supports agent filters', async () => {
+  const { root, skills } = await fixture();
+  const nested = join(root, 'packages', 'app');
+  const roots = (await import('./scanner.mjs')).discoverRoots({ cwd: nested, home: join(root, 'home'), scope: 'project', agents: ['generic'] });
+  assert.equal(roots.some((item) => item.root === skills), true);
+  assert.equal(roots.find((item) => item.root === skills)?.scope, 'project');
+  assert.equal(roots.every((item) => item.tool === 'agents'), true);
+});
+
+test('uses platform-specific OpenCode user roots without changing the shared scan contract', async () => {
+  const { discoverRoots } = await import('./scanner.mjs');
+  const windowsRoots = discoverRoots({ home: '/Users/tester', cwd: '/workspace/app', platform: 'win32', scope: 'user', agents: ['opencode'] });
+  assert.equal(windowsRoots.some((item) => item.root.endsWith('/AppData/Roaming/opencode/skills')), true);
+  assert.equal(windowsRoots.every((item) => item.scope === 'user' && item.tool === 'opencode'), true);
+});
+
+test('packageSkill creates a zip without executing package files', async () => {
+  const { root, skills } = await fixture();
+  const { packageSkill } = await import('./scanner.mjs');
+  const result = await packageSkill(join(skills, 'weekly-report'));
+  assert.equal(result.filename, 'Weekly-Report.zip');
+  assert.deepEqual([...result.buffer.subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+  void root;
+});

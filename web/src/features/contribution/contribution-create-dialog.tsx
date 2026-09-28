@@ -8,15 +8,12 @@ import { Input, Textarea } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
-import { SkillPackageUpload } from './components/skill-package-upload';
 import { RpaPackageUpload } from './components/rpa-package-upload';
 import { LocalSkillScanner } from './components/local-skill-scanner';
 import { useCreateContribution, useUploadSkillPackage } from './use-contributions';
 import type { RpaPackageParseResult, SkillPackageParseResult } from '../../../../backend/src/shared';
 
 type ContributionType = 'skill' | 'rpa';
-/** Skill 正文来源。上传是主路径 —— 能力本来就是一个 SKILL.md 包，不是现场写的提示词。 */
-type SkillSource = 'upload' | 'inline';
 type Step = 1 | 2 | 3;
 
 export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -25,7 +22,6 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
   const uploadSkill = useUploadSkillPackage();
   const [step, setStep] = useState<Step>(1);
   const [type, setType] = useState<ContributionType>('skill');
-  const [source, setSource] = useState<SkillSource>('upload');
   const [pkg, setPkg] = useState<SkillPackageParseResult | null>(null);
   const [rpaPkg, setRpaPkg] = useState<RpaPackageParseResult | null>(null);
   const [rpaPlatform, setRpaPlatform] = useState<'shizai' | 'yingdao'>('shizai');
@@ -34,23 +30,12 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
   const [description, setDescription] = useState('');
   const [industry, setIndustry] = useState('');
   const [position, setPosition] = useState('');
-  const [content, setContent] = useState('');
-  const [platform, setPlatform] = useState<'coze' | 'dify' | 'n8n' | 'opencode'>('coze');
-  const [workflowUrl, setWorkflowUrl] = useState('');
 
   const reset = () => {
-    setStep(1); setType('skill'); setSource('upload'); setPkg(null); setRpaPkg(null); setRpaPlatform('shizai'); setRpaDoc(''); setName(''); setDescription('');
-    setIndustry(''); setPosition(''); setContent('');
+    setStep(1); setType('skill'); setPkg(null); setRpaPkg(null); setRpaPlatform('shizai'); setRpaDoc('');
+    setName(''); setDescription(''); setIndustry(''); setPosition('');
   };
   const close = (value: boolean) => { if (!value) reset(); onOpenChange(value); };
-
-  /** 包解析成功后用 frontmatter 预填能力信息，但不覆盖用户已经手填的值。 */
-  const packageFromLocalSkill = (file: File) => {
-    uploadSkill.mutate(file, {
-      onSuccess: (result) => acceptPackage(result),
-      onError: (error) => toast.error(error instanceof Error ? error.message : '本地 Skill 上传失败，请稍后重试'),
-    });
-  };
 
   const acceptPackage = (result: SkillPackageParseResult | null) => {
     setPkg(result);
@@ -59,16 +44,19 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
     setDescription((current) => current.trim() || result.suggested.description || '');
   };
 
-  const configReady = type === 'rpa'
-    ? Boolean(rpaPkg && rpaDoc.trim().length >= 10)
-    : source === 'upload' ? Boolean(pkg) : content.trim().length >= 20;
+  const importLocalSkill = (file: File) => {
+    uploadSkill.mutate(file, {
+      onSuccess: acceptPackage,
+      onError: (error) => toast.error(error instanceof Error ? error.message : '本地 Skill 上传失败，请稍后重试'),
+    });
+  };
+
+  const configReady = type === 'rpa' ? Boolean(rpaPkg && rpaDoc.trim().length >= 10) : Boolean(pkg);
   const canContinue = step === 1 || (step === 2 && configReady);
 
   const next = () => {
     if (step === 2 && !configReady) {
-      toast.error(type === 'rpa'
-        ? !rpaPkg ? '请先上传 RPA ZIP 包' : '使用与环境说明至少需要 10 个字'
-        : source === 'upload' ? '请先上传 SKILL 包' : 'Skill 正文至少需要 20 个字符');
+      toast.error(type === 'rpa' ? !rpaPkg ? '请先上传 RPA ZIP 包' : '使用与环境说明至少需要 10 个字' : '请先扫描并确认导入一个 Skill');
       return;
     }
     setStep((current) => Math.min(3, current + 1) as Step);
@@ -81,10 +69,7 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
       name: name.trim(), description: description.trim(), type, industry: splitTags(industry), position: splitTags(position),
       ...(type === 'rpa'
         ? { rpaConfig: { platform: rpaPlatform, executionMode: 'download' as const, packageSha256: rpaPkg!.sha256, packageFilename: rpaPkg!.filename, configDoc: rpaDoc.trim() } }
-        // 上传路径只送 sha256：正文由服务端按哈希重新解包，客户端改不动它
-        : { skillConfig: pkg && source === 'upload'
-            ? { packageSha256: pkg.sha256, packageFilename: pkg.filename }
-            : { template: content.trim() } }),
+        : { skillConfig: { packageSha256: pkg!.sha256, packageFilename: pkg!.filename } }),
     }, {
       onSuccess: () => { toast.success('能力草稿已创建', '接下来可以提交企业审核'); close(false); },
       onError: (error) => toast.error(error instanceof Error ? error.message : '创建失败，请稍后重试'),
@@ -99,42 +84,25 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
       </DialogHeader>
       <div className="max-h-[min(560px,calc(100vh-230px))] overflow-y-auto px-6 py-5 scroll-thin">
         {step === 1 && <TypeStep type={type} onTypeChange={setType} />}
-        {step === 2 && <ConfigStep type={type} source={source} pkg={pkg} rpaPkg={rpaPkg} rpaPlatform={rpaPlatform} rpaDoc={rpaDoc} content={content} onSourceChange={setSource} onPackageChange={acceptPackage} onLocalSkillPackaged={packageFromLocalSkill} onRpaPackageChange={setRpaPkg} onRpaPlatformChange={setRpaPlatform} onRpaDocChange={setRpaDoc} onContentChange={setContent} />}
-        {step === 3 && <InfoStep prefilled={Boolean(pkg && source === 'upload')} name={name} description={description} industry={industry} position={position} onNameChange={setName} onDescriptionChange={setDescription} onIndustryChange={setIndustry} onPositionChange={setPosition} />}
+        {step === 2 && <ConfigStep type={type} pkg={pkg} rpaPkg={rpaPkg} rpaPlatform={rpaPlatform} rpaDoc={rpaDoc} onLocalSkillPackaged={importLocalSkill} onRpaPackageChange={setRpaPkg} onRpaPlatformChange={setRpaPlatform} onRpaDocChange={setRpaDoc} />}
+        {step === 3 && <InfoStep prefilled={Boolean(pkg)} name={name} description={description} industry={industry} position={position} onNameChange={setName} onDescriptionChange={setDescription} onIndustryChange={setIndustry} onPositionChange={setPosition} />}
       </div>
       <DialogFooter className="border-t border-glassline bg-glass-1/40 px-6 py-4"><Button variant="glass" onClick={() => step === 1 ? close(false) : setStep((current) => Math.max(1, current - 1) as Step)}>{step === 1 ? '取消' : <><ArrowLeft className="h-4 w-4" />上一步</>}</Button>{step < 3 ? <Button variant="glass-primary" disabled={!canContinue} onClick={next}>下一步<ArrowRight className="h-4 w-4" /></Button> : <Button variant="glass-primary" loading={create.isPending} onClick={submit}><Plus className="h-4 w-4" />创建草稿</Button>}</DialogFooter>
     </DialogContent>
   </Dialog>;
 }
 
-function StepIndicator({ step, current, label }: { step: Step; current: Step; label: string }) {
-  const complete = current > step; const active = current === step;
-  return <div className="flex min-w-0 items-center gap-2"><span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-semibold transition-colors', complete ? 'border-gsuccess bg-gsuccess/15 text-gsuccess' : active ? 'border-gbrand-ring bg-gbrand/15 text-gbrand-text' : 'border-glassline bg-glass-1 text-gtext-muted')}>{complete ? <Check className="h-3.5 w-3.5" /> : step}</span><span className={cn('truncate text-xs', active || complete ? 'text-gtext-primary' : 'text-gtext-muted')}>{label}</span></div>;
-}
-
+function StepIndicator({ step, current, label }: { step: Step; current: Step; label: string }) { const complete = current > step; const active = current === step; return <div className="flex min-w-0 items-center gap-2"><span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-semibold transition-colors', complete ? 'border-gsuccess bg-gsuccess/15 text-gsuccess' : active ? 'border-gbrand-ring bg-gbrand/15 text-gbrand-text' : 'border-glassline bg-glass-1 text-gtext-muted')}>{complete ? <Check className="h-3.5 w-3.5" /> : step}</span><span className={cn('truncate text-xs', active || complete ? 'text-gtext-primary' : 'text-gtext-muted')}>{label}</span></div>; }
 function StepLine({ active }: { active: boolean }) { return <span className={cn('h-px min-w-4 flex-1 transition-colors', active ? 'bg-gbrand' : 'bg-glassline')} />; }
+function TypeStep({ type, onTypeChange }: { type: ContributionType; onTypeChange: (type: ContributionType) => void }) { return <div><SectionIntro eyebrow="01 / 类型" title="选择要贡献的能力资产" description="Skill 与 RPA 都是独立能力，可在审核通过后被多个数字员工复用；投稿不会自动创建数字员工。" /><div className="mt-6 grid gap-3 sm:grid-cols-2"><TypeChoice active={type === 'skill'} onClick={() => onTypeChange('skill')} icon={<Sparkles className="h-5 w-5" />} title="Skill" desc="从本机 Agent Skills 目录扫描并导入" /><TypeChoice active={type === 'rpa'} onClick={() => onTypeChange('rpa')} icon={<Workflow className="h-5 w-5" />} title="RPA" desc="上传 ZIP，审核通过后授权用户下载" /></div><div className="mt-5 rounded-glass-md border border-glassline bg-glass-1/50 p-3 text-xs leading-5 text-gtext-muted">Skill 投稿不创建数字员工；一个 Skill 通过审核后可被多个数字员工复用。</div></div>; }
 
-function TypeStep({ type, onTypeChange }: { type: ContributionType; onTypeChange: (type: ContributionType) => void }) {
-  return <div><SectionIntro eyebrow="01 / 类型" title="选择要贡献的能力资产" description="Skill 与 RPA 都是独立能力，可在审核通过后被多个数字员工复用；投稿不会自动创建数字员工。" /><div className="mt-6 grid gap-3 sm:grid-cols-2"><TypeChoice active={type === 'skill'} onClick={() => onTypeChange('skill')} icon={<Sparkles className="h-5 w-5" />} title="Skill" desc="可复用的提示词、步骤和执行规范" /><TypeChoice active={type === 'rpa'} onClick={() => onTypeChange('rpa')} icon={<Workflow className="h-5 w-5" />} title="RPA" desc="上传实在智能或影刀 ZIP，审核通过后供用户下载" /></div></div>;
+function ConfigStep({ type, pkg, rpaPkg, rpaPlatform, rpaDoc, onLocalSkillPackaged, onRpaPackageChange, onRpaPlatformChange, onRpaDocChange }: { type: ContributionType; pkg: SkillPackageParseResult | null; rpaPkg: RpaPackageParseResult | null; rpaPlatform: 'shizai' | 'yingdao'; rpaDoc: string; onLocalSkillPackaged: (file: File) => void; onRpaPackageChange: (result: RpaPackageParseResult | null) => void; onRpaPlatformChange: (platform: 'shizai' | 'yingdao') => void; onRpaDocChange: (value: string) => void }) {
+  if (type === 'rpa') return <div><SectionIntro eyebrow="02 / RPA 配置" title="上传可复用的自动化流程" description="平台只做 ZIP 结构与元数据检查，不执行其中的脚本或流程。审核通过后，授权用户可以下载并在本地导入。" /><div className="mt-5 grid gap-4"><RpaPackageUpload value={rpaPkg} onChange={onRpaPackageChange} /><label className="block text-sm text-gtext-secondary">RPA 平台<select value={rpaPlatform} onChange={(event) => onRpaPlatformChange(event.target.value as 'shizai' | 'yingdao')} className="mt-1.5 h-10 w-full rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm text-gtext-primary outline-none focus:border-glassline-brand"><option value="shizai">实在智能</option><option value="yingdao">影刀</option></select></label><label className="block text-sm text-gtext-secondary">使用与环境说明<Textarea glass value={rpaDoc} onChange={(event) => onRpaDocChange(event.target.value)} placeholder="说明适用平台版本、导入步骤、账号/环境要求和注意事项（至少 10 个字）" className="mt-1.5 min-h-28 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{rpaDoc.trim().length} / 至少 10 个字符 · 不要填写密码、Token 等敏感信息</span></label></div></div>;
+  return <div><SectionIntro eyebrow="02 / Skill 来源" title="扫描并导入本机 Skill" description="扫描由 SEP Skill CLI 在本机完成，支持用户级和项目级 Agent Skills 目录。选择一个 Skill 后，平台会再次校验包内容。" /><div className="mt-5"><LocalSkillScanner onPackaged={onLocalSkillPackaged} /></div>{pkg && <div className="mt-3 rounded-glass-md border border-gsuccess/30 bg-gsuccess/10 p-3 text-xs text-gsuccess">已确认本地 Skill 包：{pkg.filename} · sha256 {pkg.sha256.slice(0, 12)}…；未确认其他扫描结果。</div>}<div className="mt-4 rounded-glass-md border border-glassline bg-glass-1/50 p-3 text-xs leading-5 text-gtext-muted">如果 Skill 是通过 npm、其他 registry 或 Git 安装的，请先在本机安装/检出到受支持的 Agent Skills 目录，再由 CLI 扫描导入。平台不会执行 npm、npx 或用户脚本。</div></div>;
 }
 
-function InfoStep({ prefilled, name, description, industry, position, onNameChange, onDescriptionChange, onIndustryChange, onPositionChange }: { prefilled: boolean; name: string; description: string; industry: string; position: string; onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void; onIndustryChange: (value: string) => void; onPositionChange: (value: string) => void }) {
-  return <div><SectionIntro eyebrow="03 / 能力信息" title="让别人一眼理解它的价值" description={prefilled ? '名称与说明已从 SKILL.md 的 frontmatter 预填，可以直接改。' : '清晰的名称和适用范围会直接影响企业审核与后续复用。'} /><div className="mt-6 grid gap-4"><label className="block text-sm text-gtext-secondary">能力名称<Input glass value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：竞品周报生成器" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">能力说明<Textarea glass value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="说明它解决什么问题、适用什么场景，至少 10 个字" className="mt-1.5 min-h-24 resize-y" /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm text-gtext-secondary">适用行业<span className="mb-1 block text-[11px] text-gtext-muted">多个标签用逗号分隔</span><Input glass value={industry} onChange={(event) => onIndustryChange(event.target.value)} placeholder="例如：互联网、软件服务" /></label><label className="block text-sm text-gtext-secondary">适用岗位<span className="mb-1 block text-[11px] text-gtext-muted">多个标签用逗号分隔</span><Input glass value={position} onChange={(event) => onPositionChange(event.target.value)} placeholder="例如：研发负责人、项目经理" /></label></div></div></div>;
-}
-
-function ConfigStep({ type, source, pkg, rpaPkg, rpaPlatform, rpaDoc, content, onSourceChange, onPackageChange, onLocalSkillPackaged, onRpaPackageChange, onRpaPlatformChange, onRpaDocChange, onContentChange }: { type: ContributionType; source: SkillSource; pkg: SkillPackageParseResult | null; rpaPkg: RpaPackageParseResult | null; rpaPlatform: 'shizai' | 'yingdao'; rpaDoc: string; content: string; onSourceChange: (value: SkillSource) => void; onPackageChange: (value: SkillPackageParseResult | null) => void; onLocalSkillPackaged: (file: File) => void; onRpaPackageChange: (value: RpaPackageParseResult | null) => void; onRpaPlatformChange: (value: 'shizai' | 'yingdao') => void; onRpaDocChange: (value: string) => void; onContentChange: (value: string) => void }) {
-  if (type === 'rpa') return <div><SectionIntro eyebrow="02 / RPA 配置" title="上传可复用的自动化流程" description="平台只做 ZIP 结构与元数据检查，不执行其中的脚本或流程。审核通过后，授权用户可以下载并在本地导入。" /><div className="mt-5 grid gap-4"><RpaPackageUpload value={rpaPkg} onChange={onRpaPackageChange} /><label className="block text-sm text-gtext-secondary">RPA 平台<select value={rpaPlatform} onChange={(event) => onRpaPlatformChange(event.target.value as typeof rpaPlatform)} className="mt-1.5 h-10 w-full rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm text-gtext-primary outline-none focus:border-glassline-brand"><option value="shizai">实在智能</option><option value="yingdao">影刀</option></select></label><label className="block text-sm text-gtext-secondary">使用与环境说明<Textarea glass value={rpaDoc} onChange={(event) => onRpaDocChange(event.target.value)} placeholder="说明适用平台版本、导入步骤、账号/环境要求和注意事项（至少 10 个字）" className="mt-1.5 min-h-28 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{rpaDoc.trim().length} / 至少 10 个字符 · 不要填写密码、Token 等敏感信息</span></label></div></div>;
-  return <div><SectionIntro eyebrow="02 / Skill 内容" title="上传它的 SKILL 包" description="上传后系统会立刻解析和校验；本地扫描器发现的 Skill 也可以先打包为 ZIP 再投稿。" /><div className="mt-5 inline-flex items-center gap-1 rounded-glass-md border border-glassline bg-glass-2 p-1"><SourceTab active={source === 'upload'} onClick={() => onSourceChange('upload')}>上传 SKILL 包</SourceTab><SourceTab active={source === 'inline'} onClick={() => onSourceChange('inline')}>在线编写</SourceTab></div><div className="mt-4">{source === 'upload' ? <><LocalSkillScanner onPackaged={onLocalSkillPackaged} /><div className="my-3 text-center text-[11px] text-gtext-muted">或直接上传已经打包好的 ZIP</div><SkillPackageUpload value={pkg} onChange={onPackageChange} /></> : <label className="block text-sm text-gtext-secondary">Skill 正文<Textarea glass value={content} onChange={(event) => onContentChange(event.target.value)} placeholder={'# 角色\n# 输入\n# 步骤\n# 输出\n# 边界条件'} className="mt-1.5 min-h-56 resize-y font-mono text-xs leading-6" /><span className="mt-2 block text-[11px] text-gtext-muted">{content.trim().length} / 至少 20 个字符 · 建议包含角色、输入、步骤、输出和边界条件</span></label>}</div></div>;
-}
-
-function SourceTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} aria-pressed={active} className={cn('h-7 rounded-glass-pill px-3 text-xs transition-all duration-200', active ? 'bg-gbg-raised text-gtext-primary shadow-glass-sm' : 'text-gtext-muted hover:bg-glass-3 hover:text-gtext-secondary')}>{children}</button>;
-}
-
+function InfoStep({ prefilled, name, description, industry, position, onNameChange, onDescriptionChange, onIndustryChange, onPositionChange }: { prefilled: boolean; name: string; description: string; industry: string; position: string; onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void; onIndustryChange: (value: string) => void; onPositionChange: (value: string) => void }) { return <div><SectionIntro eyebrow="03 / 信息" title="补充能力信息" description="信息会进入审核队列和能力目录；不要填写密码、Token、Cookie 或其他敏感信息。" />{prefilled && <p className="mt-4 rounded-glass-md border border-gsuccess/30 bg-gsuccess/10 p-3 text-xs text-gsuccess">已从本地 SKILL.md frontmatter 预填名称与说明，你仍可在这里修改。</p>}<div className="mt-5 grid gap-4"><label className="block text-sm text-gtext-secondary">能力名称<Input glass value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：竞品周报生成器" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">能力说明<Textarea glass value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="说明它解决什么问题、输入输出是什么" className="mt-1.5 min-h-24 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{description.trim().length} / 至少 10 个字</span></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm text-gtext-secondary">适用行业<Input glass value={industry} onChange={(event) => onIndustryChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">适用岗位<Input glass value={position} onChange={(event) => onPositionChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label></div></div></div>; }
+function SourceTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} aria-pressed={active} className={cn('h-7 rounded-glass-pill px-3 text-xs transition-all duration-200', active ? 'bg-gbg-raised text-gtext-primary shadow-glass-sm' : 'text-gtext-muted hover:bg-glass-3 hover:text-gtext-secondary')}>{children}</button>; }
 function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) { return <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gbrand-text">{eyebrow}</p><h3 className="mt-2 text-lg font-semibold text-gtext-primary">{title}</h3><p className="mt-1 max-w-xl text-sm leading-6 text-gtext-muted">{description}</p></div>; }
-
 function TypeChoice({ active, onClick, icon, title, desc }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; desc: string }) { return <button type="button" onClick={onClick} aria-pressed={active} className={cn('group flex min-h-28 items-start gap-3 rounded-glass-lg border p-4 text-left transition-all duration-150', active ? 'border-glassline-brand bg-gbrand/10 shadow-glass-sm' : 'border-glassline bg-glass-1 hover:border-glassline-brand/60 hover:bg-glass-2')}><span className={cn('mt-0.5 transition-colors', active ? 'text-gbrand-text' : 'text-gtext-muted group-hover:text-gbrand-text')}>{icon}</span><span><span className="flex items-center gap-2 text-sm font-semibold text-gtext-primary">{title}{active && <Check className="h-3.5 w-3.5 text-gbrand-text" />}</span><span className="mt-1 block text-xs leading-5 text-gtext-muted">{desc}</span></span></button>; }
-
-function SoonChoice({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) { return <div className="flex min-h-28 items-start gap-3 rounded-glass-lg border border-dashed border-glassline bg-glass-1/40 p-4 opacity-60"><span className="mt-0.5 text-gtext-muted">{icon}</span><span><span className="flex items-center gap-2 text-sm font-semibold text-gtext-secondary">{title}<LockKeyhole className="h-3.5 w-3.5" /></span><span className="mt-1 block text-xs leading-5 text-gtext-muted">{desc}</span><span className="mt-2 inline-flex text-[10px] text-gtext-muted">即将支持</span></span></div>; }
-
 function splitTags(value: string) { return value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean); }

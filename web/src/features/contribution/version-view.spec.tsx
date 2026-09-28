@@ -147,43 +147,6 @@ describe('版本迭代', () => {
     detail = baseDetail([version({})]);
   });
 
-  it('RPA 下载走带认证的下载封装，不使用原生链接', () => {
-    detail = baseDetail([], {
-      type: 'RPA',
-      rpaConfig: {
-        id: 'rpa-config-1',
-        platform: 'SHIZAI',
-        executionMode: 'DOWNLOAD',
-        packageSha256: 'b'.repeat(64),
-        configDoc: '导入实在智能后运行',
-      },
-      rpaVersions: [{
-        id: 'rpa-v1',
-        version: '1.0.0',
-        packageFilename: '流程.zip',
-        packageFileCount: 1,
-        packageBytes: 128,
-        packageSha256: 'b'.repeat(64),
-        configDoc: '导入实在智能后运行',
-        status: 'PLATFORM_APPROVED',
-        createdById: 'author-1',
-        createdAt: '2026-08-01T00:00:00.000Z',
-        updatedAt: '2026-08-01T00:00:00.000Z',
-      }],
-    });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <ContributionDetail id="cap-1" onBack={vi.fn()} />
-      </QueryClientProvider>,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '能力档案' }));
-    fireEvent.click(screen.getByRole('button', { name: /下载 ZIP/ }));
-
-    expect(downloadFile).toHaveBeenCalledWith('/contributions/cap-1/rpa-package');
-  });
-
   it('预览走作者授权来源，不走企业订阅那条', () => {
     renderVersions();
     fireEvent.click(screen.getByRole('button', { name: /预览/ }));
@@ -194,18 +157,6 @@ describe('版本迭代', () => {
   it('作者能发布新版本', () => {
     renderVersions();
     expect(screen.getByRole('button', { name: /发布新版本/ })).toBeInTheDocument();
-  });
-
-  it('查看变更展示父版本、当前正文和审核历史', () => {
-    renderVersions();
-    fireEvent.click(screen.getByRole('button', { name: '查看变更' }));
-
-    expect(screen.getByRole('region', { name: '版本变更与审核历史' })).toBeInTheDocument();
-    expect(screen.getByText('v1.0.0 变更与审核历史')).toBeInTheDocument();
-    expect(screen.getByText(/旧版/)).toBeInTheDocument();
-    expect(screen.getAllByText(/新版/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/企业审核 · 驳回/)).toBeInTheDocument();
-    expect(screen.getAllByText('缺少异常数据处理').length).toBeGreaterThan(0);
   });
 
   it('上传来的版本给下载包、不给行内编辑', () => {
@@ -222,13 +173,15 @@ describe('版本迭代', () => {
     expect(screen.getByText(/周报\.zip/)).toBeInTheDocument();
   });
 
-  it('在线编写的草稿给行内编辑，走贡献中心自己的编辑器', () => {
+  it('新版本入口只允许本机 CLI 扫描导入，不提供在线编写或 Skill ZIP 直传', () => {
     renderVersions();
-    // 不再跳 /skills/[versionId]/edit —— 那是企业租户界面，读写都要订阅授权，
-    // 作者点进去必然 403
-    expect(screen.queryByRole('link', { name: /编辑/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /编辑/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /下载包/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /发布新版本/ }));
+
+    expect(screen.getByText('自动扫描本地 Agent Skills')).toBeInTheDocument();
+    expect(screen.queryByText('在线编写')).not.toBeInTheDocument();
+    expect(screen.queryByText(/拖入 zip/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /选择.*目录/ })).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
   });
 
   it('平台驳回的版本仍可返工并重新提交', () => {

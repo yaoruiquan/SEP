@@ -1107,12 +1107,13 @@ describe('CapabilityContributionService RPA download access', () => {
       platformReviewStatus: 'NOT_SUBMITTED',
       rpaConfig: {
         packageSha256: 'a'.repeat(64),
-        packageUrl: 'rpa/a.zip',
+        packageUrl: `rpa/${'a'.repeat(64)}.zip`,
       },
     });
 
     await expect(service.getRpaPackage('user-1', 'rpa-1')).resolves.toEqual({
-      key: 'rpa/a.zip',
+      key: `rpa/${'a'.repeat(64)}.zip`,
+      sha256: 'a'.repeat(64),
       filename: '报表流程.zip',
     });
   });
@@ -1143,7 +1144,7 @@ describe('CapabilityContributionService RPA download access', () => {
       platformReviewStatus: 'NOT_SUBMITTED',
       rpaConfig: {
         packageSha256: 'b'.repeat(64),
-        packageUrl: 'rpa/b.zip',
+        packageUrl: `rpa/${'b'.repeat(64)}.zip`,
       },
     });
 
