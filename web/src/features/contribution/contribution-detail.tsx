@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, Download, Eye, FileCode2, LockKeyhole, Plus, Send, Trophy, UsersRound } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, GitCompareArrows, History, LockKeyhole, Plus, Send, Trophy, UsersRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { useAuthStore } from '@/lib/auth-store';
+import { downloadFile } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { ContributionCapability, ContributionCapabilityDetail } from '@/lib/types';
 import { TYPE_META, currentContributionState, toneClasses } from './contribution-status';
@@ -16,7 +17,7 @@ import { PipelineTimeline } from './components/pipeline-timeline';
 import { RejectReasonDialog } from './components/reject-reason-dialog';
 import { VersionPublishDialog } from './components/version-publish-dialog';
 import { VersionEditDialog } from './components/version-edit-dialog';
-import { useContribution, useContributionAction, useContributionUsage, useReviewContribution, useSubmitVersion } from './use-contributions';
+import { useContribution, useContributionAction, useContributionUsage, useReviewContribution, useSubmitVersion, useVersionDiff } from './use-contributions';
 import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 
@@ -148,6 +149,21 @@ function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish
   const versions = contribution.skillVersions;
   const submit = useSubmitVersion(contribution.id);
   const [submittingId, setSubmittingId] = useState('');
+  const [downloadingId, setDownloadingId] = useState('');
+  const [diffVersionId, setDiffVersionId] = useState('');
+  const diffQuery = useVersionDiff(diffVersionId);
+
+  const downloadVersion = async (versionId: string) => {
+    setDownloadingId(versionId);
+    try {
+      const result = await downloadFile(`/contributions/versions/${versionId}/package`);
+      toast.success('Skill 包下载成功', result.sha256 ? `SHA-256：${result.sha256}` : undefined);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '下载失败，请稍后重试');
+    } finally {
+      setDownloadingId('');
+    }
+  };
 
   const submitVersion = (versionId: string) => {
     setSubmittingId(versionId);
@@ -189,11 +205,18 @@ function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish
               latest={index === 0}
               isContributor={isContributor}
               submitting={submittingId === version.id}
+              downloading={downloadingId === version.id}
+              onDownload={() => downloadVersion(version.id)}
               onPreview={() => onPreview(version.id)}
               onEdit={() => onEdit(version.id)}
               onSubmit={() => submitVersion(version.id)}
+              showingDiff={diffVersionId === version.id}
+              onDiff={() => setDiffVersionId((current) => current === version.id ? '' : version.id)}
             />
           ))}
+          {diffVersionId && (
+            <VersionDiffPanel query={diffQuery} />
+          )}
         </div>
       ) : (
         <div className="mt-6 rounded-glass-lg border border-dashed border-glassline px-5 py-10 text-center text-sm text-gtext-muted">
@@ -206,7 +229,7 @@ function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish
 
 type DetailVersion = ContributionCapabilityDetail['skillVersions'][number];
 
-function VersionCard({ version, latest, isContributor, submitting, onPreview, onEdit, onSubmit }: { version: DetailVersion; latest: boolean; isContributor: boolean; submitting: boolean; onPreview: () => void; onEdit: () => void; onSubmit: () => void }) {
+function VersionCard({ version, latest, isContributor, submitting, downloading, showingDiff, onDownload, onPreview, onEdit, onSubmit, onDiff }: { version: DetailVersion; latest: boolean; isContributor: boolean; submitting: boolean; downloading: boolean; showingDiff: boolean; onDownload: () => void; onPreview: () => void; onEdit: () => void; onSubmit: () => void; onDiff: () => void }) {
   const meta = SKILL_VERSION_STATUS[version.status];
   // 草稿与被驳回都可以再动。PLATFORM_REJECTED 以前漏了 —— 平台驳回后个人贡献者无路可走。
   const reworkable = version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED' || version.status === 'PLATFORM_REJECTED';
@@ -235,18 +258,25 @@ function VersionCard({ version, latest, isContributor, submitting, onPreview, on
             {' · 更新于 '}{new Date(version.updatedAt).toLocaleDateString('zh-CN')}
           </p>
           {version.rejectionReason && (
-            <p className="mt-2 rounded-glass-md border border-gdanger/28 bg-gdanger/10 px-3 py-2 text-xs leading-5 text-gtext-primary">
-              驳回原因：{version.rejectionReason}
-            </p>
+            <div className="mt-2 rounded-glass-md border border-gdanger/28 bg-gdanger/10 px-3 py-2 text-xs leading-5 text-gtext-primary">
+              <p>驳回原因：{version.rejectionReason}</p>
+              {isContributor && reworkable && <p className="mt-1 text-gtext-secondary">修正正文或上传新包后，可从此版本重新提交审核。</p>}
+            </div>
+          )}
+          {version.packageKey && isContributor && reworkable && (
+            <p className="mt-2 text-xs text-gtext-muted">上传包版本不可原地修改；上传新包会创建一个新的修订版本。</p>
           )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="glass" size="sm" onClick={onDiff}>
+            <GitCompareArrows className="h-4 w-4" />{showingDiff ? '收起变更' : '查看变更'}
+          </Button>
           <Button variant="glass" size="sm" onClick={onPreview}><Eye className="h-4 w-4" />预览</Button>
           {version.packageKey && (
-            <a href={`/api/contributions/versions/${version.id}/package`} className="inline-flex h-8 items-center gap-2 rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm font-medium text-gtext-primary transition-colors hover:bg-glass-3">
+            <Button variant="glass" size="sm" loading={downloading} onClick={onDownload}>
               <Download className="h-4 w-4" />
               下载包
-            </a>
+            </Button>
           )}
           {isContributor && inlineEditable && (
             <Button variant="glass" size="sm" onClick={onEdit}>
@@ -264,6 +294,38 @@ function VersionCard({ version, latest, isContributor, submitting, onPreview, on
       </div>
     </article>
   );
+}
+
+
+function VersionDiffPanel({ query }: { query: ReturnType<typeof useVersionDiff> }) {
+  if (query.isLoading) return <div className="rounded-glass-lg border border-glassline bg-glass-1 px-5 py-8 text-center text-sm text-gtext-muted">正在加载版本变更...</div>;
+  if (query.isError || !query.data) return <div className="rounded-glass-lg border border-gdanger/25 bg-gdanger/10 px-5 py-5 text-sm text-gdanger">版本变更暂时无法加载，请稍后重试。</div>;
+  const diff = query.data;
+  return (
+    <section className="rounded-glass-lg border border-glassline-brand bg-glass-accent-2 p-5" aria-label="版本变更与审核历史">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text"><GitCompareArrows className="h-4 w-4" />Version diff</p>
+          <h4 className="mt-1 text-base font-semibold text-gtext-primary">v{diff.version.version} 变更与审核历史</h4>
+          {diff.version.changeSummary && <p className="mt-1 text-sm text-gtext-secondary">{diff.version.changeSummary}</p>}
+        </div>
+        <Badge className={diff.changed ? 'border-gwarning/30 bg-gwarning/10 text-gwarning' : 'border-gsuccess/30 bg-gsuccess/10 text-gsuccess'}>{diff.changed ? '内容已变化' : '内容未变化'}</Badge>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <DiffContent title={diff.parent ? `父版本 v${diff.parent.version}` : '无父版本'} content={diff.parent?.content || '这是首个版本，没有可对比的父版本。'} muted={!diff.parent} />
+        <DiffContent title={`当前版本 v${diff.current.version}`} content={diff.current.content} />
+      </div>
+      {diff.version.rejectionReason && <div className="mt-4 rounded-glass-md border border-gdanger/25 bg-gdanger/10 px-3 py-2 text-sm text-gtext-primary"><strong>当前驳回原因：</strong>{diff.version.rejectionReason}</div>}
+      <div className="mt-5 border-t border-glassline pt-4">
+        <p className="flex items-center gap-2 text-sm font-semibold text-gtext-primary"><History className="h-4 w-4 text-gbrand-text" />审核历史</p>
+        {diff.reviews.length ? <div className="mt-3 space-y-2">{diff.reviews.map((review) => <div key={review.id} className="flex flex-wrap items-center justify-between gap-2 rounded-glass-md border border-glassline bg-glass-1 px-3 py-2 text-xs"><span className="font-medium text-gtext-primary">{review.actorType === 'ENTERPRISE' ? '企业审核' : '平台审核'} · {review.decision === 'APPROVE' ? '通过' : '驳回'}</span><span className="text-gtext-muted">{review.reviewer?.name || review.reviewer?.email || review.reviewerId} · {new Date(review.createdAt).toLocaleString('zh-CN')}</span>{review.comment && <p className="basis-full text-gtext-secondary">{review.comment}</p>}</div>)}</div> : <p className="mt-3 text-xs text-gtext-muted">暂无版本级审核记录。</p>}
+      </div>
+    </section>
+  );
+}
+
+function DiffContent({ title, content, muted = false }: { title: string; content: string; muted?: boolean }) {
+  return <div className="min-w-0 rounded-glass-md border border-glassline bg-glass-1 p-3"><p className="text-xs font-semibold text-gtext-secondary">{title}</p><pre className={cn('mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-glass-sm bg-black/10 p-3 text-xs leading-5', muted ? 'text-gtext-muted' : 'text-gtext-primary')}>{content}</pre></div>;
 }
 
 function UsageView({ query }: { query: ReturnType<typeof useContributionUsage> }) {

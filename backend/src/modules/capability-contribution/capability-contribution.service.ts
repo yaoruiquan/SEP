@@ -3,13 +3,13 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from "@nestjs/common";
 import {
   CapabilityType,
   ContributionPlatformStatus,
-  ContributionReviewStatus,
   Prisma,
   SkillVersionScope,
   SkillVersionStatus,
@@ -41,9 +41,23 @@ import {
 } from "./capability-contribution.types";
 import { CapabilityValidatorService } from "./capability-validator.service";
 import { SettingService } from "../setting/setting.service";
-import { NotificationsService } from "../notifications/notifications.service";
+import {
+  NotificationsService,
+  type CreateNotificationDto,
+} from "../notifications/notifications.service";
+import { AuditService } from "../audit/audit.service";
 
 const DEFAULT_REWARD_CNY = { enterprise: "10", platform: "50" } as const;
+
+const VERSION_REVIEW_SELECT = {
+  id: true,
+  actorType: true,
+  decision: true,
+  reviewerId: true,
+  comment: true,
+  createdAt: true,
+  reviewer: { select: { id: true, name: true, email: true } },
+} as const;
 
 async function creditRewardInTx(
   tx: any,
@@ -93,6 +107,11 @@ async function creditRewardInTx(
   });
 }
 
+type DownloadAuditContext = {
+  ip?: string | null;
+  userAgent?: string | null;
+};
+
 const CAPABILITY_TYPES: Record<
   ContributionCapabilityCreateDto["type"],
   CapabilityType
@@ -112,7 +131,101 @@ export class CapabilityContributionService {
     private readonly setting?: SettingService,
     @Optional() private readonly notifications?: NotificationsService,
     @Optional() private readonly rpaPackage?: RpaPackageService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
+
+  private readonly logger = new Logger(CapabilityContributionService.name);
+
+  /**
+   * 通知属于审核状态变更后的旁路动作：通知中心或网关暂时不可用时，不能
+   * 回滚已经完成的审核、奖励或投稿状态。所有能力贡献相关通知统一从这里
+   * 发出，便于生产环境记录失败并继续主流程。
+   */
+  private async safeNotify(notification: CreateNotificationDto) {
+    if (!this.notifications) return;
+    try {
+      await this.notifications.create(notification);
+    } catch (error) {
+      this.logger.warn(
+        `能力贡献通知写入失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async safeNotifyUsers(
+    userIds: string[],
+    notification: Omit<CreateNotificationDto, "userId">,
+  ) {
+    if (!this.notifications) return;
+    const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+    if (uniqueUserIds.length === 0) return;
+    try {
+      await this.notifications.createBatch(uniqueUserIds, notification);
+    } catch (error) {
+      this.logger.warn(
+        `能力贡献批量通知写入失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async notifyEnterpriseReviewers(
+    enterpriseId: string | null | undefined,
+    capabilityId: string,
+    message: string,
+  ) {
+    if (!this.notifications || !enterpriseId) return;
+    try {
+      const reviewers = await this.prisma.enterpriseMember.findMany({
+        where: { enterpriseId, role: "ENTERPRISE_ADMIN" },
+        select: { userId: true },
+      });
+      await this.safeNotifyUsers(
+        reviewers.map((reviewer) => reviewer.userId),
+        {
+          type: "INFO",
+          category: "APPROVAL",
+          title: "有新的能力待企业审核",
+          message,
+          relatedType: "capability",
+          relatedId: capabilityId,
+          actionUrl: `/contributions/${capabilityId}`,
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `查询企业审核人失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async notifyPlatformReviewers(
+    capabilityId: string,
+    message: string,
+  ) {
+    if (!this.notifications) return;
+    try {
+      const reviewers = await this.prisma.user.findMany({
+        where: { role: "ADMIN" },
+        select: { id: true },
+      });
+      await this.safeNotifyUsers(
+        reviewers.map((reviewer) => reviewer.id),
+        {
+          type: "INFO",
+          category: "APPROVAL",
+          title: "有新的能力待平台审核",
+          message,
+          relatedType: "capability",
+          relatedId: capabilityId,
+          actionUrl: `/contributions/${capabilityId}`,
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `查询平台审核人失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   private async rewardAmount(kind: "enterprise" | "platform") {
     const key =
@@ -549,7 +662,32 @@ export class CapabilityContributionService {
       }
       return updated;
     });
+    await this.notifyEnterpriseReviewers(
+      capability.enterpriseId,
+      capability.id,
+      `能力「${capability.name}」已提交企业审核，请及时处理。`,
+    );
     return result;
+  }
+
+  private async recordCapabilityVersionReviews(
+    tx: Prisma.TransactionClient,
+    versionIds: string[],
+    actorType: "ENTERPRISE" | "PLATFORM",
+    decision: "APPROVE" | "REJECT",
+    reviewerId: string,
+    comment?: string,
+  ) {
+    if (versionIds.length === 0) return;
+    await tx.skillVersionReview.createMany({
+      data: versionIds.map((versionId) => ({
+        versionId,
+        actorType,
+        decision,
+        reviewerId,
+        comment,
+      })),
+    });
   }
 
   async reviewEnterprise(
@@ -567,6 +705,16 @@ export class CapabilityContributionService {
       throw new ConflictException("只有待企业审核能力可以审核");
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
+      const pendingSkillVersions = capability.type === "SKILL"
+        ? ((await tx.skillVersion.findMany({
+            where: {
+              capabilityId: capability.id,
+              scope: "ENTERPRISE",
+              status: "PENDING_ENTERPRISE_REVIEW",
+            },
+            select: { id: true },
+          })) ?? [])
+        : [];
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
@@ -589,6 +737,14 @@ export class CapabilityContributionService {
             rejectionReason: approved ? null : dto.comment,
           },
         });
+        await this.recordCapabilityVersionReviews(
+          tx,
+          pendingSkillVersions.map((row) => row.id),
+          "ENTERPRISE",
+          dto.decision,
+          userId,
+          dto.comment,
+        );
       } else if (capability.type === "RPA") {
         await tx.rpaVersion.updateMany({
           where: {
@@ -631,23 +787,22 @@ export class CapabilityContributionService {
       }
       return updated;
     });
-    if (this.notifications)
-      await this.notifications.create({
-        userId: capability.contributorId,
-        type: approved
-          ? "CONTRIBUTION_ENTERPRISE_APPROVED"
-          : "CONTRIBUTION_ENTERPRISE_REJECTED",
-        category: "APPROVAL",
-        title: approved ? "企业审核已通过" : "企业审核未通过",
-        message: approved
-          ? `能力「${capability.name}」已通过企业审核，奖励已入账。`
-          : `能力「${capability.name}」未通过企业审核：${dto.comment ?? "请查看审核意见"}`,
-        relatedType: "capability",
-        relatedId: capability.id,
-        actionUrl: `/contributions/${capability.id}`,
-      });
-    if (approved && this.notifications)
-      await this.notifications.create({
+    await this.safeNotify({
+      userId: capability.contributorId,
+      type: approved
+        ? "CONTRIBUTION_ENTERPRISE_APPROVED"
+        : "CONTRIBUTION_ENTERPRISE_REJECTED",
+      category: "APPROVAL",
+      title: approved ? "企业审核已通过" : "企业审核未通过",
+      message: approved
+        ? `能力「${capability.name}」已通过企业审核，奖励已入账。`
+        : `能力「${capability.name}」未通过企业审核：${dto.comment ?? "请查看审核意见"}`,
+      relatedType: "capability",
+      relatedId: capability.id,
+      actionUrl: `/contributions/${capability.id}`,
+    });
+    if (approved)
+      await this.safeNotify({
         userId: capability.contributorId,
         type: "CONTRIBUTION_REWARD_CREDITED",
         title: "贡献奖励已入账",
@@ -735,6 +890,19 @@ export class CapabilityContributionService {
       }
       return updated;
     });
+    if (capability.enterpriseId) {
+      await this.notifyEnterpriseReviewers(
+        capability.enterpriseId,
+        capability.id,
+        `能力「${capability.name}」已提交平台公开申请，等待企业管理员授权。`,
+      );
+    } else {
+      await this.notifyPlatformReviewers(
+        capability.id,
+        `能力「${capability.name}」已提交平台审核，请及时处理。`,
+      );
+    }
+    return result;
   }
 
   async authorizePlatformSubmission(userId: string, capabilityId: string) {
@@ -779,6 +947,10 @@ export class CapabilityContributionService {
       }
       return updated;
     });
+    await this.notifyPlatformReviewers(
+      capability.id,
+      `企业已授权能力「${capability.name}」投稿平台，请及时审核。`,
+    );
     return result;
   }
 
@@ -874,6 +1046,16 @@ export class CapabilityContributionService {
       throw new ConflictException("只有待平台审核能力可以审核");
     const approved = dto.decision === "APPROVE";
     const result = await this.prisma.$transaction(async (tx) => {
+      const pendingSkillVersions = capability.type === "SKILL"
+        ? ((await tx.skillVersion.findMany({
+            where: {
+              capabilityId: capability.id,
+              scope: "PLATFORM",
+              status: "PENDING_PLATFORM_REVIEW",
+            },
+            select: { id: true },
+          })) ?? [])
+        : [];
       const updated = await tx.capability.update({
         where: { id: capability.id },
         data: {
@@ -899,6 +1081,14 @@ export class CapabilityContributionService {
             rejectionReason: approved ? null : dto.comment,
           },
         });
+        await this.recordCapabilityVersionReviews(
+          tx,
+          pendingSkillVersions.map((row) => row.id),
+          "PLATFORM",
+          dto.decision,
+          userId,
+          dto.comment,
+        );
       }
       if (capability.type === "RPA") {
         await tx.rpaVersion.updateMany({
@@ -942,23 +1132,22 @@ export class CapabilityContributionService {
       }
       return updated;
     });
-    if (this.notifications)
-      await this.notifications.create({
-        userId: capability.contributorId,
-        type: approved
-          ? "CONTRIBUTION_PLATFORM_APPROVED"
-          : "CONTRIBUTION_PLATFORM_REJECTED",
-        category: "APPROVAL",
-        title: approved ? "平台审核已通过" : "平台审核未通过",
-        message: approved
-          ? `能力「${capability.name}」已公开，奖励已入账。`
-          : `能力「${capability.name}」未通过平台审核：${dto.comment ?? "请查看审核意见"}`,
-        relatedType: "capability",
-        relatedId: capability.id,
-        actionUrl: `/contributions/${capability.id}`,
-      });
-    if (approved && this.notifications)
-      await this.notifications.create({
+    await this.safeNotify({
+      userId: capability.contributorId,
+      type: approved
+        ? "CONTRIBUTION_PLATFORM_APPROVED"
+        : "CONTRIBUTION_PLATFORM_REJECTED",
+      category: "APPROVAL",
+      title: approved ? "平台审核已通过" : "平台审核未通过",
+      message: approved
+        ? `能力「${capability.name}」已公开，奖励已入账。`
+        : `能力「${capability.name}」未通过平台审核：${dto.comment ?? "请查看审核意见"}`,
+      relatedType: "capability",
+      relatedId: capability.id,
+      actionUrl: `/contributions/${capability.id}`,
+    });
+    if (approved)
+      await this.safeNotify({
         userId: capability.contributorId,
         type: "CONTRIBUTION_REWARD_CREDITED",
         title: "贡献奖励已入账",
@@ -1076,6 +1265,10 @@ export class CapabilityContributionService {
         validationResult: true,
         validatedAt: true,
         updatedAt: true,
+        reviews: {
+          orderBy: { createdAt: "desc" },
+          select: VERSION_REVIEW_SELECT,
+        },
         capability: {
           select: { id: true, name: true, description: true, visibility: true },
         },
@@ -1083,6 +1276,246 @@ export class CapabilityContributionService {
     });
     if (!version) throw new NotFoundException("版本不存在或无权访问");
     return version;
+  }
+
+  /**
+   * 返回版本与其父版本的审阅对比。
+   *
+   * 待审正文只对投稿人、所属企业管理员和平台管理员开放；普通用户即使知道
+   * versionId 也不能通过这个接口探测尚未发布的 Skill 内容。
+   */
+  async getVersionDiff(userId: string, versionId: string, requestRole?: string) {
+    const version = await this.prisma.skillVersion.findUnique({
+      where: { id: versionId },
+      select: {
+        id: true,
+        capabilityId: true,
+        scope: true,
+        enterpriseId: true,
+        parentVersionId: true,
+        sourceVersionId: true,
+        version: true,
+        content: true,
+        changeSummary: true,
+        status: true,
+        rejectionReason: true,
+        submittedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        createdById: true,
+        capability: {
+          select: {
+            name: true,
+            contributorId: true,
+          },
+        },
+        parentVersion: {
+          select: { id: true, version: true, content: true },
+        },
+        sourceVersion: {
+          select: { enterpriseId: true },
+        },
+        reviews: {
+          orderBy: { createdAt: "desc" },
+          select: VERSION_REVIEW_SELECT,
+        },
+      },
+    });
+    if (!version) throw new NotFoundException("版本不存在");
+
+    let allowed = version.capability.contributorId === userId;
+    if (!allowed && requestRole === "ADMIN") allowed = true;
+    if (!allowed && !requestRole) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+      allowed = user?.role === "ADMIN";
+    }
+    if (!allowed) {
+      const ctx = await this.enterpriseContext.resolveOrNull(userId);
+      allowed = Boolean(
+        ctx?.role === "ENTERPRISE_ADMIN" &&
+          (version.enterpriseId === ctx.enterpriseId ||
+            version.sourceVersion?.enterpriseId === ctx.enterpriseId),
+      );
+    }
+    if (!allowed) throw new NotFoundException("版本不存在或无权访问");
+
+    return {
+      version: {
+        id: version.id,
+        capabilityId: version.capabilityId,
+        capabilityName: version.capability.name,
+        scope: version.scope,
+        enterpriseId: version.enterpriseId,
+        parentVersionId: version.parentVersionId,
+        sourceVersionId: version.sourceVersionId,
+        version: version.version,
+        changeSummary: version.changeSummary,
+        status: version.status,
+        rejectionReason: version.rejectionReason,
+        submittedAt: version.submittedAt,
+        createdAt: version.createdAt,
+        updatedAt: version.updatedAt,
+      },
+      parent: version.parentVersion
+        ? {
+            id: version.parentVersion.id,
+            version: version.parentVersion.version,
+            content: version.parentVersion.content,
+          }
+        : null,
+      current: { id: version.id, version: version.version, content: version.content },
+      changed: version.parentVersion
+        ? version.parentVersion.content !== version.content
+        : true,
+      reviews: version.reviews,
+    };
+  }
+
+  /** 企业管理员审核单个企业 Skill 版本；审核记录与版本状态同事务写入。 */
+  async reviewEnterpriseVersion(
+    userId: string,
+    versionId: string,
+    dto: ContributionDecisionDto,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    this.enterpriseContext.assertCanApprove(ctx);
+    const version = await this.prisma.skillVersion.findFirst({
+      where: {
+        id: versionId,
+        scope: "ENTERPRISE",
+        enterpriseId: ctx.enterpriseId,
+      },
+      select: {
+        id: true,
+        capabilityId: true,
+        status: true,
+        createdById: true,
+        version: true,
+        capability: { select: { name: true } },
+      },
+    });
+    if (!version) throw new NotFoundException("版本不存在");
+    if (version.status !== "PENDING_ENTERPRISE_REVIEW") {
+      throw new ConflictException("只有待企业审核版本可以审核");
+    }
+    const approved = dto.decision === "APPROVE";
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.skillVersion.update({
+        where: { id: version.id },
+        data: {
+          status: approved ? "ENTERPRISE_APPROVED" : "ENTERPRISE_REJECTED",
+          enterpriseReviewedById: userId,
+          enterpriseReviewedAt: new Date(),
+          rejectionReason: approved ? null : dto.comment,
+        },
+        select: AUTHOR_VERSION_SELECT,
+      });
+      await tx.skillVersionReview.create({
+        data: {
+          versionId: version.id,
+          actorType: "ENTERPRISE",
+          decision: dto.decision,
+          reviewerId: userId,
+          comment: dto.comment,
+        },
+      });
+      return updated;
+    });
+    await this.safeNotify({
+      userId: version.createdById,
+      type: approved
+        ? "CONTRIBUTION_ENTERPRISE_APPROVED"
+        : "CONTRIBUTION_ENTERPRISE_REJECTED",
+      category: "APPROVAL",
+      title: approved ? "Skill 版本企业审核已通过" : "Skill 版本企业审核未通过",
+      message: approved
+        ? `Skill v${version.version} 已通过企业审核。`
+        : `Skill v${version.version} 未通过企业审核：${dto.comment ?? "请查看审核意见"}`,
+      relatedType: "skill_version",
+      relatedId: version.id,
+      actionUrl: `/contributions/${version.capabilityId}`,
+    });
+    return result;
+  }
+
+  /** 平台管理员审核单个平台 Skill 版本；不重复发放能力首次发布奖励。 */
+  async reviewPlatformVersion(
+    userId: string,
+    versionId: string,
+    dto: ContributionDecisionDto,
+  ) {
+    const reviewer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (reviewer?.role !== "ADMIN") {
+      throw new ForbiddenException("仅平台运营可审核");
+    }
+    const version = await this.prisma.skillVersion.findFirst({
+      where: { id: versionId, scope: "PLATFORM" },
+      select: {
+        id: true,
+        capabilityId: true,
+        status: true,
+        createdById: true,
+        version: true,
+      },
+    });
+    if (!version) throw new NotFoundException("版本不存在");
+    if (version.status !== "PENDING_PLATFORM_REVIEW") {
+      throw new ConflictException("只有待平台审核版本可以审核");
+    }
+    const approved = dto.decision === "APPROVE";
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.skillVersion.update({
+        where: { id: version.id },
+        data: {
+          status: approved ? "PLATFORM_APPROVED" : "PLATFORM_REJECTED",
+          platformReviewedById: userId,
+          platformReviewedAt: new Date(),
+          rejectionReason: approved ? null : dto.comment,
+        },
+        select: AUTHOR_VERSION_SELECT,
+      });
+      await tx.skillVersionReview.create({
+        data: {
+          versionId: version.id,
+          actorType: "PLATFORM",
+          decision: dto.decision,
+          reviewerId: userId,
+          comment: dto.comment,
+        },
+      });
+      if (approved && tx.employeeCapabilityBinding?.updateMany) {
+        await tx.employeeCapabilityBinding.updateMany({
+          where: {
+            capabilityId: version.capabilityId,
+            defaultSkillVersion: { scope: "PLATFORM" },
+            NOT: { defaultSkillVersionId: version.id },
+          },
+          data: { defaultSkillVersionId: version.id },
+        });
+      }
+      return updated;
+    });
+    await this.safeNotify({
+      userId: version.createdById,
+      type: approved
+        ? "CONTRIBUTION_PLATFORM_APPROVED"
+        : "CONTRIBUTION_PLATFORM_REJECTED",
+      category: "APPROVAL",
+      title: approved ? "Skill 版本平台审核已通过" : "Skill 版本平台审核未通过",
+      message: approved
+        ? `Skill v${version.version} 已通过平台审核。`
+        : `Skill v${version.version} 未通过平台审核：${dto.comment ?? "请查看审核意见"}`,
+      relatedType: "skill_version",
+      relatedId: version.id,
+      actionUrl: `/contributions/${version.capabilityId}`,
+    });
+    return result;
   }
 
   /** 编辑草稿正文。上传来的版本不给改文字 —— 包才是它的正文来源，要改就换包。 */
@@ -1126,7 +1559,7 @@ export class CapabilityContributionService {
       });
     }
     const submittedAt = new Date();
-    return this.prisma.skillVersion.update({
+    const result = await this.prisma.skillVersion.update({
       where: { id: version.id },
       data: {
         status:
@@ -1140,6 +1573,22 @@ export class CapabilityContributionService {
       },
       select: AUTHOR_VERSION_SELECT,
     });
+    const message = `Skill「${version.version}」的新版本已提交${
+      version.scope === "ENTERPRISE" ? "企业" : "平台"
+    }审核，请及时处理。`;
+    if (version.scope === "ENTERPRISE") {
+      await this.notifyEnterpriseReviewers(
+        version.enterpriseId,
+        version.capabilityId,
+        message,
+      );
+    } else {
+      await this.notifyPlatformReviewers(
+        version.capabilityId,
+        message,
+      );
+    }
+    return result;
   }
 
   /** 作者名下、且处于可编辑状态（草稿或被驳回）的版本。 */
@@ -1287,8 +1736,12 @@ export class CapabilityContributionService {
     return capability;
   }
 
-  /** 作者本人下载某个版本的原始 SKILL 包。 */
-  async getRpaPackage(userId: string, capabilityId: string) {
+  /** 返回已审核版本的 RPA 包下载信息。 */
+  async getRpaPackage(
+    userId: string,
+    capabilityId: string,
+    auditContext?: DownloadAuditContext,
+  ) {
     const ctx = await this.enterpriseContext.resolveOrNull(userId);
     const capability = await this.prisma.capability.findUnique({
       where: { id: capabilityId },
@@ -1324,33 +1777,170 @@ export class CapabilityContributionService {
       (capability.enterpriseReviewStatus === "APPROVED" || publicReady);
     if (!publicReady && !enterpriseReady && !authorReady)
       throw new NotFoundException("RPA 包不存在或无权下载");
+    const sha256 = capability.rpaConfig.packageSha256;
+    const key = capability.rpaConfig.packageUrl || `rpa/${sha256}.zip`;
+    if (!/^[0-9a-f]{64}$/.test(sha256) || key !== `rpa/${sha256}.zip`) {
+      throw new NotFoundException("RPA 包存储信息无效");
+    }
+    await this.recordDownloadAudit({
+      actorId: userId,
+      action: "CONTRIBUTION_RPA_DOWNLOAD",
+      resourceType: "RPA_CAPABILITY",
+      resourceId: capability.id,
+      enterpriseId: capability.enterpriseId,
+      metadata: {
+        sha256,
+        filename: `${capability.name}.zip`,
+        visibility: capability.visibility,
+        ...this.downloadRequestMetadata(auditContext),
+      },
+    });
     return {
-      key:
-        capability.rpaConfig.packageUrl ||
-        `rpa/${capability.rpaConfig.packageSha256}.zip`,
+      key,
+      sha256,
       filename: `${capability.name}.zip`,
     };
   }
 
-  async getVersionPackage(userId: string, versionId: string) {
-    const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, capability: { contributorId: userId } },
+  /**
+   * 返回 Skill 版本包下载信息。
+   *
+   * 下载权限按版本状态判定，而不是按「是否是贡献者」判定：
+   * - 平台公开版本：任何已登录用户可下载；
+   * - 企业私有版本：同企业成员可下载；
+   * - 贡献者本人：可下载自己已经通过对应审核的版本，便于回收与自检；
+   * - 草稿、审核中、驳回版本永远不能通过这个客户端入口下载。
+   */
+  async getVersionPackage(
+    userId: string,
+    versionId: string,
+    userRole?: string,
+    auditContext?: DownloadAuditContext,
+  ) {
+    const ctx = await this.enterpriseContext.resolveOrNull(userId);
+    const version = await this.prisma.skillVersion.findUnique({
+      where: { id: versionId },
       select: {
         packageKey: true,
+        packageSha256: true,
         packageFilename: true,
         version: true,
-        capability: { select: { name: true } },
+        scope: true,
+        status: true,
+        capability: {
+          select: {
+            id: true,
+            name: true,
+            contributorId: true,
+            enterpriseId: true,
+            visibility: true,
+            enterpriseReviewStatus: true,
+            platformReviewStatus: true,
+          },
+        },
       },
     });
-    if (!version) throw new NotFoundException("版本不存在或无权访问");
-    if (!version.packageKey) {
+    if (!version || !version.capability)
+      throw new NotFoundException("版本不存在或无权访问");
+    if (!version.packageKey || !version.packageSha256) {
       throw new NotFoundException("该版本是在线编写的正文，没有可下载的包");
     }
+
+    const platformReady =
+      version.scope === "PLATFORM" &&
+      version.status === "PLATFORM_APPROVED" &&
+      version.capability.visibility === "MARKET_PUBLIC" &&
+      version.capability.platformReviewStatus === "APPROVED";
+    const enterpriseReady = Boolean(
+      version.scope === "ENTERPRISE" &&
+      version.status === "ENTERPRISE_APPROVED" &&
+      ctx?.enterpriseId &&
+      ctx.enterpriseId === version.capability.enterpriseId &&
+      version.capability.enterpriseReviewStatus === "APPROVED",
+    );
+    const authorReady =
+      version.capability.contributorId === userId &&
+      (version.status === "ENTERPRISE_APPROVED" ||
+        version.status === "PLATFORM_APPROVED");
+    const platformAdminReady =
+      userRole === "ADMIN" &&
+      (version.status === "ENTERPRISE_APPROVED" ||
+        version.status === "PLATFORM_APPROVED");
+    if (
+      !platformReady &&
+      !enterpriseReady &&
+      !authorReady &&
+      !platformAdminReady
+    ) {
+      throw new NotFoundException("版本不存在或无权访问");
+    }
+
+    if (
+      !/^[0-9a-f]{64}$/.test(version.packageSha256) ||
+      version.packageKey !== `skills/${version.packageSha256}.zip`
+    ) {
+      throw new NotFoundException("Skill 包存储信息无效");
+    }
+    const filename =
+      version.packageFilename ||
+      `${version.capability.name}-v${version.version}.zip`;
+    await this.recordDownloadAudit({
+      actorId: userId,
+      action: "CONTRIBUTION_SKILL_DOWNLOAD",
+      resourceType: "SKILL_VERSION",
+      resourceId: versionId,
+      enterpriseId: version.capability.enterpriseId,
+      metadata: {
+        sha256: version.packageSha256,
+        version: version.version,
+        scope: version.scope,
+        visibility: version.capability.visibility,
+        filename,
+        ...this.downloadRequestMetadata(auditContext),
+      },
+    });
     return {
       key: version.packageKey,
-      filename:
-        version.packageFilename ||
-        `${version.capability.name}-v${version.version}.zip`,
+      sha256: version.packageSha256,
+      version: version.version,
+      filename,
+    };
+  }
+
+  private async recordDownloadAudit(input: {
+    actorId: string;
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    enterpriseId?: string | null;
+    metadata: Record<string, unknown>;
+  }) {
+    if (!this.audit) return;
+    try {
+      await this.audit.record({
+        actorId: input.actorId,
+        enterpriseId: input.enterpriseId,
+        action: input.action,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+        summary: "能力包下载成功",
+        metadata: input.metadata,
+      });
+    } catch (error) {
+      // 审计系统短暂不可用时不能把已经授权的包下载变成 5xx；AuditService 自身已负责重试，
+      // 这里记录告警，后续由监控发现审计写入异常。
+      this.logger.warn(
+        `能力包下载审计写入失败: ${(error as Error)?.message ?? String(error)}`,
+      );
+    }
+  }
+
+  private downloadRequestMetadata(context?: DownloadAuditContext) {
+    return {
+      ...(context?.ip ? { ip: context.ip.slice(0, 128) } : {}),
+      ...(context?.userAgent
+        ? { userAgent: context.userAgent.slice(0, 256) }
+        : {}),
     };
   }
 

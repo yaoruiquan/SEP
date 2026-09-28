@@ -32,6 +32,8 @@ describe('CapabilityContributionService', () => {
       update: jest.fn(),
     },
     skillVersion: { updateMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    skillVersionReview: { create: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
+    employeeCapabilityBinding: { updateMany: jest.fn() },
     agentConfig: { findUnique: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -613,6 +615,137 @@ describe('CapabilityContributionService', () => {
       .rejects.toBeInstanceOf(ConflictException);
     expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
   });
+
+  describe('CapabilityContributionService version review', () => {
+  it('returns parent/current Skill content together with version review history', async () => {
+    prisma.skillVersion.findUnique.mockResolvedValue({
+      id: 'version-2',
+      capabilityId: 'cap-1',
+      scope: 'ENTERPRISE',
+      enterpriseId: 'enterprise-1',
+      parentVersionId: 'version-1',
+      sourceVersionId: null,
+      version: '1.1.0',
+      content: '# 角色\n新版销售分析\n# 输入\n数据\n# 步骤\n分析\n# 输出\n报告',
+      changeSummary: '补充边界条件',
+      status: 'ENTERPRISE_REJECTED',
+      rejectionReason: '缺少异常数据处理',
+      submittedAt: new Date('2026-09-27T00:00:00.000Z'),
+      createdAt: new Date('2026-09-26T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-27T00:00:00.000Z'),
+      createdById: 'user-1',
+      capability: { name: '销售分析', contributorId: 'user-1' },
+      parentVersion: {
+        id: 'version-1',
+        version: '1.0.0',
+        content: '# 角色\n销售分析\n# 输入\n数据\n# 步骤\n分析\n# 输出\n报告',
+      },
+      sourceVersion: null,
+      reviews: [{
+        id: 'review-1',
+        actorType: 'ENTERPRISE',
+        decision: 'REJECT',
+        reviewerId: 'admin-1',
+        comment: '缺少异常数据处理',
+        createdAt: new Date('2026-09-27T00:00:00.000Z'),
+        reviewer: { id: 'admin-1', name: '管理员', email: 'admin@example.com' },
+      }],
+    });
+
+    await expect(service.getVersionDiff('user-1', 'version-2')).resolves.toEqual(expect.objectContaining({
+      version: expect.objectContaining({ status: 'ENTERPRISE_REJECTED', rejectionReason: '缺少异常数据处理' }),
+      parent: expect.objectContaining({ id: 'version-1', version: '1.0.0' }),
+      current: expect.objectContaining({ id: 'version-2', version: '1.1.0' }),
+      changed: true,
+      reviews: expect.arrayContaining([expect.objectContaining({ decision: 'REJECT' })]),
+    }));
+  });
+
+  it('hides a pending version diff from an unrelated enterprise member', async () => {
+    prisma.skillVersion.findUnique.mockResolvedValue({
+      id: 'version-2',
+      capabilityId: 'cap-1',
+      scope: 'ENTERPRISE',
+      enterpriseId: 'other-enterprise',
+      parentVersionId: null,
+      sourceVersionId: null,
+      version: '1.1.0',
+      content: 'pending content',
+      changeSummary: 'pending',
+      status: 'PENDING_ENTERPRISE_REVIEW',
+      rejectionReason: null,
+      submittedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdById: 'other-user',
+      capability: { name: '销售分析', contributorId: 'other-user' },
+      parentVersion: null,
+      sourceVersion: null,
+      reviews: [],
+    });
+    enterpriseContext.resolveOrNull.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+
+    await expect(service.getVersionDiff('user-1', 'version-2')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('records an enterprise review for a rejected version and preserves the rejection comment', async () => {
+    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'version-2',
+      capabilityId: 'cap-1',
+      status: 'PENDING_ENTERPRISE_REVIEW',
+      createdById: 'user-1',
+      version: '1.1.0',
+      capability: { name: '销售分析' },
+    });
+    prisma.skillVersion.update.mockResolvedValue({ id: 'version-2', status: 'ENTERPRISE_REJECTED' });
+    prisma.skillVersionReview.create.mockResolvedValue({ id: 'review-2' });
+
+    await service.reviewEnterpriseVersion('admin-1', 'version-2', {
+      decision: 'REJECT',
+      comment: '请补充异常数据处理',
+    });
+
+    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'version-2' },
+      data: expect.objectContaining({ status: 'ENTERPRISE_REJECTED', rejectionReason: '请补充异常数据处理' }),
+    }));
+    expect(prisma.skillVersionReview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        versionId: 'version-2',
+        actorType: 'ENTERPRISE',
+        decision: 'REJECT',
+        reviewerId: 'admin-1',
+        comment: '请补充异常数据处理',
+      }),
+    });
+  });
+
+  it('records a platform approval without issuing a duplicate capability reward', async () => {
+    prisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'platform-v2',
+      capabilityId: 'cap-1',
+      status: 'PENDING_PLATFORM_REVIEW',
+      createdById: 'user-1',
+      version: '2.0.0',
+    });
+    prisma.skillVersion.update.mockResolvedValue({ id: 'platform-v2', status: 'PLATFORM_APPROVED' });
+    prisma.skillVersionReview.create.mockResolvedValue({ id: 'review-3' });
+
+    await service.reviewPlatformVersion('platform-admin', 'platform-v2', { decision: 'APPROVE' });
+
+    expect(prisma.skillVersionReview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        versionId: 'platform-v2',
+        actorType: 'PLATFORM',
+        decision: 'APPROVE',
+        reviewerId: 'platform-admin',
+      }),
+    });
+    expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
+  });
+  });
 });
 
 describe('CapabilityContributionService RPA download access', () => {
@@ -644,12 +777,13 @@ describe('CapabilityContributionService RPA download access', () => {
       platformReviewStatus: 'NOT_SUBMITTED',
       rpaConfig: {
         packageSha256: 'a'.repeat(64),
-        packageUrl: 'rpa/a.zip',
+        packageUrl: `rpa/${'a'.repeat(64)}.zip`,
       },
     });
 
     await expect(service.getRpaPackage('user-1', 'rpa-1')).resolves.toEqual({
-      key: 'rpa/a.zip',
+      key: `rpa/${'a'.repeat(64)}.zip`,
+      sha256: 'a'.repeat(64),
       filename: '报表流程.zip',
     });
   });
@@ -680,12 +814,235 @@ describe('CapabilityContributionService RPA download access', () => {
       platformReviewStatus: 'NOT_SUBMITTED',
       rpaConfig: {
         packageSha256: 'b'.repeat(64),
-        packageUrl: 'rpa/b.zip',
+        packageUrl: `rpa/${'b'.repeat(64)}.zip`,
       },
     });
 
     await expect(service.getRpaPackage('user-1', 'rpa-2')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('CapabilityContributionService download audit', () => {
+  it('records Skill download metadata without blocking an authorized download when audit storage is unavailable', async () => {
+    const sha256 = 'a'.repeat(64);
+    const prisma = {
+      skillVersion: { findUnique: jest.fn() },
+    };
+    const context = {
+      resolveOrNull: jest.fn().mockResolvedValue(null),
+    };
+    const audit = {
+      record: jest.fn().mockRejectedValue(new Error('audit database unavailable')),
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      context as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      audit as never,
+    );
+    prisma.skillVersion.findUnique.mockResolvedValue({
+      packageKey: `skills/${sha256}.zip`,
+      packageSha256: sha256,
+      packageFilename: '销售分析.zip',
+      version: '1.0.0',
+      scope: 'PLATFORM',
+      status: 'PLATFORM_APPROVED',
+      capability: {
+        id: 'cap-1',
+        name: '销售分析',
+        contributorId: 'author-1',
+        enterpriseId: null,
+        visibility: 'MARKET_PUBLIC',
+        enterpriseReviewStatus: 'NOT_SUBMITTED',
+        platformReviewStatus: 'APPROVED',
+      },
+    });
+
+    await expect(
+      service.getVersionPackage('reader-1', 'v1', undefined, {
+        ip: '127.0.0.1',
+        userAgent: 'SEP-CLI/1.0',
+      }),
+    ).resolves.toEqual({
+      key: `skills/${sha256}.zip`,
+      sha256,
+      version: '1.0.0',
+      filename: '销售分析.zip',
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: 'reader-1',
+      action: 'CONTRIBUTION_SKILL_DOWNLOAD',
+      resourceType: 'SKILL_VERSION',
+      resourceId: 'v1',
+      metadata: expect.objectContaining({
+        sha256,
+        ip: '127.0.0.1',
+        userAgent: 'SEP-CLI/1.0',
+      }),
+    }));
+  });
+
+  it('records RPA download metadata for an authorized contributor', async () => {
+    const sha256 = 'b'.repeat(64);
+    const prisma = {
+      capability: { findUnique: jest.fn() },
+    };
+    const context = {
+      resolveOrNull: jest.fn().mockResolvedValue({
+        enterpriseId: 'enterprise-1',
+        role: 'MEMBER',
+      }),
+    };
+    const audit = { record: jest.fn().mockResolvedValue(undefined) };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      context as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      audit as never,
+    );
+    prisma.capability.findUnique.mockResolvedValue({
+      id: 'rpa-1',
+      name: '报表流程',
+      type: 'RPA',
+      contributorId: 'user-1',
+      enterpriseId: 'enterprise-1',
+      visibility: 'ENTERPRISE_PRIVATE',
+      status: 'PENDING',
+      enterpriseReviewStatus: 'APPROVED',
+      platformReviewStatus: 'NOT_SUBMITTED',
+      rpaConfig: { packageSha256: sha256, packageUrl: `rpa/${sha256}.zip` },
+    });
+
+    await service.getRpaPackage('user-1', 'rpa-1', {
+      ip: '10.0.0.1',
+      userAgent: 'SEP-Web/1.0',
+    });
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: 'user-1',
+      action: 'CONTRIBUTION_RPA_DOWNLOAD',
+      resourceType: 'RPA_CAPABILITY',
+      resourceId: 'rpa-1',
+      metadata: expect.objectContaining({
+        sha256,
+        ip: '10.0.0.1',
+        userAgent: 'SEP-Web/1.0',
+      }),
+    }));
+  });
+
+});
+
+describe('CapabilityContributionService review notifications', () => {
+  it('notifies enterprise admins when a capability enters enterprise review', async () => {
+    const capability = {
+      id: 'cap-1',
+      name: '销售分析',
+      type: 'SKILL',
+      enterpriseId: 'enterprise-1',
+      contributorId: 'user-1',
+      enterpriseReviewStatus: 'NOT_SUBMITTED',
+      platformReviewStatus: 'NOT_SUBMITTED',
+    };
+    const prisma = {
+      capability: {
+        findFirst: jest.fn().mockResolvedValue(capability),
+        update: jest.fn().mockResolvedValue(capability),
+      },
+      skillVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          content: '# 角色\n数据分析师\n# 输入\n销售数据\n# 步骤\n分析趋势\n# 输出\n报告',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      contributionRewardEvent: { createMany: jest.fn() },
+      enterpriseMember: {
+        findMany: jest.fn().mockResolvedValue([{ userId: 'admin-1' }, { userId: 'admin-2' }]),
+      },
+      $transaction: jest.fn(),
+    };
+    const context = {
+      resolve: jest.fn().mockResolvedValue({ enterpriseId: 'enterprise-1' }),
+    };
+    const notifications = {
+      create: jest.fn().mockResolvedValue(undefined),
+      createBatch: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      context as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+      undefined,
+      notifications as never,
+    );
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
+    );
+
+    await service.submitEnterpriseReview('user-1', 'cap-1');
+
+    expect(notifications.createBatch).toHaveBeenCalledWith(
+      ['admin-1', 'admin-2'],
+      expect.objectContaining({
+        type: 'INFO',
+        category: 'APPROVAL',
+        relatedId: 'cap-1',
+      }),
+    );
+  });
+
+  it('does not fail an approval request when notification storage is unavailable', async () => {
+    const capability = {
+      id: 'cap-1',
+      name: '公开周报',
+      type: 'SKILL',
+      enterpriseId: null,
+      contributorId: 'user-1',
+      platformReviewStatus: 'PENDING_REVIEW',
+    };
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ role: 'ADMIN' }) },
+      capability: {
+        findUnique: jest.fn().mockResolvedValue(capability),
+        update: jest.fn().mockResolvedValue(capability),
+      },
+      skillVersion: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      contributionRewardEvent: { createMany: jest.fn() },
+      $transaction: jest.fn(),
+    };
+    const notifications = {
+      create: jest.fn().mockRejectedValue(new Error('notification database unavailable')),
+      createBatch: jest.fn(),
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      { resolveOrNull: jest.fn() } as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+      undefined,
+      notifications as never,
+    );
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
+    );
+
+    await expect(
+      service.reviewPlatform('platform-admin', 'cap-1', { decision: 'APPROVE' }),
+    ).resolves.toEqual(capability);
+    expect(notifications.create).toHaveBeenCalled();
   });
 });

@@ -18,6 +18,10 @@ beforeAll(() => {
 });
 
 const submitVersion = vi.fn();
+
+const { downloadFile } = vi.hoisted(() => ({ downloadFile: vi.fn() }));
+downloadFile.mockResolvedValue({ filename: '周报.zip', sha256: 'a'.repeat(64) });
+vi.mock('@/lib/api-client', () => ({ downloadFile }));
 /** 预览弹窗替换成探针：只关心贡献中心传了哪条授权来源。 */
 const previewProps: Array<{ source?: string; versionId: string }> = [];
 
@@ -34,6 +38,17 @@ vi.mock('./use-contributions', () => ({
   useContributionAction: () => ({ mutate: vi.fn(), isPending: false }),
   useReviewContribution: () => ({ mutate: vi.fn(), isPending: false }),
   useSubmitVersion: () => ({ mutate: submitVersion, isPending: false }),
+  useVersionDiff: (versionId: string) => ({
+    isLoading: false,
+    isError: false,
+    data: versionId ? {
+      version: { id: versionId, capabilityId: 'cap-1', capabilityName: '竞品周报生成器', scope: 'ENTERPRISE', enterpriseId: 'e1', parentVersionId: 'parent-1', sourceVersionId: null, version: '1.0.0', changeSummary: '补充边界条件', status: 'ENTERPRISE_REJECTED', rejectionReason: '缺少异常数据处理', submittedAt: null, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-02T00:00:00.000Z' },
+      parent: { id: 'parent-1', version: '0.9.0', content: '# 角色\n旧版' },
+      current: { id: versionId, version: '1.0.0', content: '# 角色\n新版' },
+      changed: true,
+      reviews: [{ id: 'review-1', actorType: 'ENTERPRISE', decision: 'REJECT', reviewerId: 'admin-1', comment: '缺少异常数据处理', createdAt: '2026-08-02T00:00:00.000Z', reviewer: { id: 'admin-1', name: '管理员', email: 'admin@example.com' } }],
+    } : undefined,
+  }),
   // VersionPublishDialog 也从这个模块取 hook
   useCreateVersion: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadSkillPackage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -127,6 +142,7 @@ function renderVersions() {
 describe('版本迭代', () => {
   beforeEach(() => {
     submitVersion.mockReset();
+    downloadFile.mockClear();
     previewProps.length = 0;
     detail = baseDetail([version({})]);
   });
@@ -143,16 +159,26 @@ describe('版本迭代', () => {
     expect(screen.getByRole('button', { name: /发布新版本/ })).toBeInTheDocument();
   });
 
+  it('查看变更展示父版本、当前正文和审核历史', () => {
+    renderVersions();
+    fireEvent.click(screen.getByRole('button', { name: '查看变更' }));
+
+    expect(screen.getByRole('region', { name: '版本变更与审核历史' })).toBeInTheDocument();
+    expect(screen.getByText('v1.0.0 变更与审核历史')).toBeInTheDocument();
+    expect(screen.getByText(/旧版/)).toBeInTheDocument();
+    expect(screen.getAllByText(/新版/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/企业审核 · 驳回/)).toBeInTheDocument();
+    expect(screen.getAllByText('缺少异常数据处理').length).toBeGreaterThan(0);
+  });
+
   it('上传来的版本给下载包、不给行内编辑', () => {
     detail = baseDetail([
       version({ packageKey: 'skills/aa.zip', packageFilename: '周报.zip', packageFileCount: 3 }),
     ]);
     renderVersions();
 
-    expect(screen.getByRole('link', { name: /下载包/ })).toHaveAttribute(
-      'href',
-      '/api/contributions/versions/v1/package',
-    );
+    fireEvent.click(screen.getByRole('button', { name: /下载包/ }));
+    expect(downloadFile).toHaveBeenCalledWith('/contributions/versions/v1/package');
     // 正文来源是包，改文字没有意义 —— 要改就发新版本
     expect(screen.queryByRole('button', { name: /编辑/ })).not.toBeInTheDocument();
     expect(screen.getByText('SKILL 包')).toBeInTheDocument();
@@ -165,7 +191,7 @@ describe('版本迭代', () => {
     // 作者点进去必然 403
     expect(screen.queryByRole('link', { name: /编辑/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /编辑/ })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /下载包/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /下载包/ })).not.toBeInTheDocument();
   });
 
   it('平台驳回的版本仍可返工并重新提交', () => {

@@ -185,6 +185,37 @@ export interface ContributionCapabilityDetail extends ContributionCapability {
   }>;
 }
 
+export interface ContributionVersionDiff {
+  version: {
+    id: string;
+    capabilityId: string;
+    capabilityName: string;
+    scope: string;
+    enterpriseId: string | null;
+    parentVersionId: string | null;
+    sourceVersionId: string | null;
+    version: string;
+    changeSummary: string | null;
+    status: string;
+    rejectionReason: string | null;
+    submittedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  parent: { id: string; version: string; content: string } | null;
+  current: { id: string; version: string; content: string };
+  changed: boolean;
+  reviews: Array<{
+    id: string;
+    actorType: string;
+    decision: string;
+    reviewerId: string;
+    comment: string | null;
+    createdAt: string;
+    reviewer?: { id: string; name: string | null; email: string } | null;
+  }>;
+}
+
 export interface ContributionRewardEvent {
   id: string;
   eventType: string;

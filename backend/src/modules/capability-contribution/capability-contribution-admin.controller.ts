@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ContributionPlatformStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -64,5 +64,26 @@ export class CapabilityReviewAdminController {
   list(@Query('kind') kind?: 'ALL' | 'CAPABILITY' | 'SKILL_VERSION') {
     const parsed = kind && z.enum(REVIEW_KINDS).safeParse(kind);
     return this.service.listUnifiedReviewQueue(parsed?.success ? parsed.data : 'ALL');
+  }
+
+  @Get('versions/:versionId/diff')
+  @ApiOperation({ summary: '平台审核人查看 Skill 版本差异与审核历史' })
+  versionDiff(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
+    return this.service.getVersionDiff(req.user.id, versionId, 'ADMIN');
+  }
+
+  @Post('versions/:versionId/review')
+  @ApiOperation({ summary: '平台管理员审核 Skill 版本' })
+  @ApiResponse({ status: 409, description: '版本当前状态不可审核' })
+  reviewVersion(
+    @Request() req: AuthRequest,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.service.reviewPlatformVersion(
+      req.user.id,
+      versionId,
+      ContributionReviewDecisionSchema.parse(body),
+    );
   }
 }

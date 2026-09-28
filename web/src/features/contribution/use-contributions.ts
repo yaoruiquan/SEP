@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, uploadForm } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
 import type { RpaPackageParseResult, SkillPackageParseResult } from '../../../../backend/src/shared';
-import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage } from '@/lib/types';
+import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage, ContributionVersionDiff } from '@/lib/types';
 
 /** 作者版本详情 = 列表里的版本摘要 + 正文。 */
 export type AuthorVersionDetail = ContributionCapabilityDetail['skillVersions'][number] & {
@@ -95,6 +95,15 @@ export function useSubmitVersion(capabilityId: string) {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(capabilityId) });
     },
+  });
+}
+
+/** 作者、企业管理员和平台审核人查看某个 Skill 版本相对父版本的差异与审核历史。 */
+export function useVersionDiff(versionId: string) {
+  return useQuery({
+    queryKey: ['skill-versions', 'diff', versionId] as const,
+    queryFn: () => api.get<ContributionVersionDiff>(`/contributions/versions/${versionId}/diff`),
+    enabled: Boolean(versionId),
   });
 }
 

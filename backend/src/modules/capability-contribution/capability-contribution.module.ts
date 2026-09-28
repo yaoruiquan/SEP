@@ -8,9 +8,10 @@ import { CapabilityValidatorService } from './capability-validator.service';
 import { SettingModule } from '../setting/setting.module';
 import { PersonalWalletModule } from '../personal-wallet/personal-wallet.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [SkillPackageModule, RpaPackageModule, SettingModule, PersonalWalletModule, NotificationsModule],
+  imports: [SkillPackageModule, RpaPackageModule, SettingModule, PersonalWalletModule, NotificationsModule, AuditModule],
   controllers: [CapabilityContributionController, CapabilityContributionAdminController, CapabilityReviewAdminController],
   providers: [CapabilityContributionService, CapabilityValidatorService],
   exports: [CapabilityContributionService],

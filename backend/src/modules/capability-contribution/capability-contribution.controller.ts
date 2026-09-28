@@ -7,6 +7,7 @@ import {
   Post,
   Request,
   Res,
+  NotFoundException,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -14,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { existsSync, statSync } from 'node:fs';
 import { memoryStorage } from 'multer';
 import {
   ContributionCapabilityCreateDtoSchema,
@@ -39,7 +41,19 @@ import { CapabilityContributionService } from './capability-contribution.service
 import { CapabilityValidatorService } from './capability-validator.service';
 import { RPA_PACKAGE_MAX_BYTES, RpaPackageService } from '../rpa-package/rpa-package.service';
 
-type AuthRequest = { user: { id: string } };
+type AuthRequest = {
+  user: { id: string; role?: string };
+  ip?: string;
+  headers?: Record<string, string | string[] | undefined>;
+};
+
+function requestAuditContext(req: AuthRequest) {
+  const userAgent = req.headers?.['user-agent'];
+  return {
+    ip: req.ip,
+    userAgent: Array.isArray(userAgent) ? userAgent[0] : userAgent,
+  };
+}
 
 /**
  * memoryStorage 而非 diskStorage：包要先过魔数与结构校验才决定是否落盘，
@@ -116,8 +130,17 @@ export class CapabilityContributionController {
   @ApiOperation({ summary: '下载已审核通过的 RPA 包' })
   @ApiResponse({ status: 200, description: '返回 RPA zip 文件' })
   async downloadRpaPackage(@Request() req: AuthRequest, @Param('id') id: string, @Res() res: Response) {
-    const { key, filename } = await this.service.getRpaPackage(req.user.id, id);
-    res.download(this.rpaPackage.resolveStoredPath(key), filename);
+    const { key, filename, sha256 } = await this.service.getRpaPackage(
+      req.user.id,
+      id,
+      requestAuditContext(req),
+    );
+    const fullPath = this.rpaPackage.resolveStoredPath(key);
+    if (!existsSync(fullPath)) throw new NotFoundException('RPA 包文件不存在');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', statSync(fullPath).size);
+    res.setHeader('X-SHA256', sha256);
+    res.download(fullPath, filename);
   }
 
   @Get('versions/:versionId')
@@ -130,6 +153,24 @@ export class CapabilityContributionController {
   @ApiResponse({ status: 404, description: '版本不存在或不属于当前作者' })
   version(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
     return this.service.getVersionForAuthor(req.user.id, versionId);
+  }
+
+  @Get('versions/:versionId/diff')
+  @ApiOperation({ summary: '查看 Skill 版本与父版本的差异和审核历史' })
+  @ApiResponse({ status: 404, description: '版本不存在或无权访问' })
+  versionDiff(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
+    return this.service.getVersionDiff(req.user.id, versionId, req.user.role);
+  }
+
+  @Post('versions/:versionId/enterprise-review')
+  @ApiOperation({ summary: '企业管理员审核 Skill 版本' })
+  @ApiResponse({ status: 409, description: '版本当前状态不可审核' })
+  enterpriseReviewVersion(
+    @Request() req: AuthRequest,
+    @Param('versionId') versionId: string,
+    @Body(new ZodValidationPipe(ContributionReviewDecisionSchema)) dto: ContributionReviewDecision,
+  ) {
+    return this.service.reviewEnterpriseVersion(req.user.id, versionId, dto);
   }
 
   @Patch('versions/:versionId')
@@ -158,11 +199,19 @@ export class CapabilityContributionController {
     @Param('versionId') versionId: string,
     @Res() res: Response,
   ) {
-    const { key, filename } = await this.service.getVersionPackage(
+    const { key, filename, sha256, version } = await this.service.getVersionPackage(
       req.user.id,
       versionId,
+      req.user.role,
+      requestAuditContext(req),
     );
-    res.download(this.skillPackage.resolveStoredPath(key), filename);
+    const fullPath = this.skillPackage.resolveStoredPath(key);
+    if (!existsSync(fullPath)) throw new NotFoundException('Skill 包文件不存在');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', statSync(fullPath).size);
+    res.setHeader('X-SHA256', sha256);
+    res.setHeader('X-Version', version);
+    res.download(fullPath, filename);
   }
 
   @Get('overview')

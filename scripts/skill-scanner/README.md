@@ -32,3 +32,30 @@ node scripts/skill-scanner/upload.mjs \
 ```
 
 `--path` 必须指向直接包含 `SKILL.md` 的目录。CLI 会生成无压缩 UTF-8 ZIP，调用 `POST /contributions/skill-package`，然后在 `--create` 时只把服务端返回的 `sha256` 发给 `POST /contributions`；不会把正文作为可信数据重复提交。API 根地址也可通过 `SEP_API_URL` 配置，访问令牌通过 `SEP_ACCESS_TOKEN` 配置。
+
+## 已发布 Skill 下载与安装
+
+只允许下载平台已发布且当前账号有权限访问的版本。CLI 会发送 Bearer token，下载后强制校验响应头 `X-SHA256`，再解析 ZIP；不会执行包内脚本，也不会覆盖已有安装目录。
+
+```bash
+# 下载 ZIP 到当前目录（默认使用服务端返回的文件名）
+SEP_ACCESS_TOKEN=... \
+node scripts/skill-scanner/install.mjs \
+  download --version <versionId> \
+  --output ./weekly-report.zip
+
+# 安装到 Codex 默认目录 ~/.agents/skills/<skill-name>
+SEP_ACCESS_TOKEN=... \
+node scripts/skill-scanner/install.mjs \
+  install --version <versionId> \
+  --tool codex
+
+# 也支持 claude、gemini、agents；可用 --target 指定允许根目录下的目标目录
+SEP_ACCESS_TOKEN=... \
+node scripts/skill-scanner/install.mjs \
+  install --version <versionId> \
+  --tool claude \
+  --target ~/.claude/skills/weekly-report
+```
+
+安装前会拒绝缺少合法 `X-SHA256` 的响应、哈希不匹配、路径穿越、绝对路径、重复文件、加密/ZIP64/多磁盘 ZIP、超出条目或解压体积限制的包；安装通过临时目录和同父目录原子重命名完成。
