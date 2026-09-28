@@ -34,7 +34,7 @@ export function LocalSkillScanner({ onPackaged }: { onPackaged: (file: File) => 
     const files = Array.from(fileList);
     const paths = files.map((file) => ({ file, path: normalizeRelativePath(file) }));
     const skillRoots = paths
-      .filter(({ path }) => path.split('/').pop() === 'SKILL.md')
+      .filter(({ path }) => path.split('/').pop()?.toLowerCase() === 'skill.md')
       .map(({ path }) => path.split('/').slice(0, -1).join('/'));
     const uniqueRoots = [...new Set(skillRoots)].sort((a, b) => b.split('/').length - a.split('/').length);
 
@@ -50,7 +50,7 @@ export function LocalSkillScanner({ onPackaged }: { onPackaged: (file: File) => 
     const next: SkillCandidate[] = [];
     for (const [key, groupedFiles] of grouped) {
       const filesForSkill = groupedFiles.sort((a, b) => normalizeRelativePath(a).localeCompare(normalizeRelativePath(b)));
-      const skillFile = filesForSkill.find((file) => normalizeRelativePath(file).split('/').pop() === 'SKILL.md');
+      const skillFile = filesForSkill.find((file) => normalizeRelativePath(file).split('/').pop()?.toLowerCase() === 'skill.md');
       if (!skillFile) continue;
       const content = await skillFile.text();
       const metadata = parseFrontmatter(content);

@@ -1077,3 +1077,78 @@ describe('CapabilityContributionService market visibility', () => {
     expect(capability.count).toHaveBeenCalledWith({ where });
   });
 });
+
+describe('CapabilityContributionService RPA download access', () => {
+  it('allows the contributor to download after enterprise approval before market publication', async () => {
+    const prisma = {
+      capability: { findUnique: jest.fn() },
+    };
+    const context = {
+      resolveOrNull: jest.fn().mockResolvedValue({
+        enterpriseId: 'enterprise-1',
+        role: 'MEMBER',
+      }),
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      context as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+    );
+    prisma.capability.findUnique.mockResolvedValue({
+      id: 'rpa-1',
+      name: '报表流程',
+      type: 'RPA',
+      contributorId: 'user-1',
+      enterpriseId: 'enterprise-1',
+      visibility: 'ENTERPRISE_PRIVATE',
+      status: 'PENDING',
+      enterpriseReviewStatus: 'APPROVED',
+      platformReviewStatus: 'NOT_SUBMITTED',
+      rpaConfig: {
+        packageSha256: 'a'.repeat(64),
+        packageUrl: 'rpa/a.zip',
+      },
+    });
+
+    await expect(service.getRpaPackage('user-1', 'rpa-1')).resolves.toEqual({
+      key: 'rpa/a.zip',
+      filename: '报表流程.zip',
+    });
+  });
+
+  it('does not allow a contributor to download an unreviewed RPA draft', async () => {
+    const prisma = { capability: { findUnique: jest.fn() } };
+    const context = {
+      resolveOrNull: jest.fn().mockResolvedValue({
+        enterpriseId: 'enterprise-1',
+        role: 'MEMBER',
+      }),
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      context as never,
+      new CapabilityValidatorService(),
+      { read: jest.fn() } as never,
+    );
+    prisma.capability.findUnique.mockResolvedValue({
+      id: 'rpa-2',
+      name: '草稿流程',
+      type: 'RPA',
+      contributorId: 'user-1',
+      enterpriseId: 'enterprise-1',
+      visibility: 'ENTERPRISE_PRIVATE',
+      status: 'PENDING',
+      enterpriseReviewStatus: 'PENDING',
+      platformReviewStatus: 'NOT_SUBMITTED',
+      rpaConfig: {
+        packageSha256: 'b'.repeat(64),
+        packageUrl: 'rpa/b.zip',
+      },
+    });
+
+    await expect(service.getRpaPackage('user-1', 'rpa-2')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
