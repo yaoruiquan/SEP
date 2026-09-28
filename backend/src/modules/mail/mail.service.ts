@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { SettingService } from '../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 type MailMessage = { to: string; subject: string; text: string; html?: string };
 
@@ -48,6 +50,10 @@ export class SmtpMailProvider implements MailDeliveryProvider {
       },
     });
   }
+  async verifyConnection(): Promise<void> {
+    await this.transporter.verify();
+  }
+
   async send(message: MailMessage): Promise<void> {
     await this.transporter.sendMail({
       from: this.from,
@@ -62,25 +68,124 @@ export class SmtpMailProvider implements MailDeliveryProvider {
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly provider: MailDeliveryProvider;
-  private readonly enabled: boolean;
-  private readonly from: string;
-  private readonly fromName: string;
+  private provider: MailDeliveryProvider;
+  private providerFingerprint?: string;
+  private readonly hasRuntimeSettings: boolean;
 
-  constructor(private readonly config: ConfigService) {
-    this.enabled = config.get<string>('MAIL_ENABLED') === 'true';
-    this.from = config.get<string>('MAIL_FROM') ?? 'no-reply@example.com';
-    this.fromName = config.get<string>('MAIL_FROM_NAME') ?? '硅基人才平台';
-    if (this.enabled) {
-      this.provider = new SmtpMailProvider(config);
-    } else {
-      this.provider = new ConsoleMailProvider();
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly settings?: SettingService,
+  ) {
+    this.hasRuntimeSettings = Boolean(settings);
+    // Keep an environment-backed provider available immediately for tests and
+    // for bootstrap paths; when SystemSetting is present send() refreshes it
+    // from the current effective values and replaces it on configuration change.
+    this.provider = this.createProviderFromValues({
+      enabled: config.get<string>('MAIL_ENABLED') === 'true',
+      host: config.get<string>('MAIL_HOST'),
+      port: Number(config.get<string>('MAIL_PORT') ?? 587),
+      secure: config.get<string>('MAIL_SECURE') === 'true' || Number(config.get<string>('MAIL_PORT') ?? 587) === 465,
+      user: config.get<string>('MAIL_USER'),
+      password: config.get<string>('MAIL_PASSWORD'),
+      from: config.get<string>('MAIL_FROM') ?? 'no-reply@example.com',
+      fromName: config.get<string>('MAIL_FROM_NAME') ?? '硅基人才平台',
+    });
+  }
+
+  private createProviderFromValues(values: {
+    enabled: boolean;
+    host?: string;
+    port: number;
+    secure: boolean;
+    user?: string;
+    password?: string;
+    from: string;
+    fromName: string;
+  }): MailDeliveryProvider {
+    if (!values.enabled) return new ConsoleMailProvider();
+    if (!values.host || !values.user || !values.password) {
+      this.logger.warn('邮件服务已启用但 SMTP 配置不完整，将使用控制台邮件提供器');
+      return new ConsoleMailProvider();
     }
+    return new SmtpMailProvider({
+      get: (key: string) => ({
+        MAIL_PORT: String(values.port),
+        MAIL_SECURE: String(values.secure),
+        MAIL_FROM: values.from,
+        MAIL_FROM_NAME: values.fromName,
+        MAIL_HOST: values.host,
+        MAIL_USER: values.user,
+        MAIL_PASSWORD: values.password,
+      } as Record<string, string>)[key],
+      getOrThrow: (key: string) => {
+        const value = ({ MAIL_HOST: values.host, MAIL_USER: values.user, MAIL_PASSWORD: values.password } as Record<string, string | undefined>)[key];
+        if (!value) throw new Error(`${key} 未配置`);
+        return value;
+      },
+    } as ConfigService);
+  }
+
+  private async effective(key: keyof typeof SETTING_KEYS, envKey: string): Promise<string | undefined> {
+    return this.settings
+      ? this.settings.getEffectiveValue(SETTING_KEYS[key])
+      : this.config.get<string>(envKey);
+  }
+
+  private async refreshProvider(): Promise<{ enabled: boolean; fromName: string }> {
+    const [enabledRaw, host, portRaw, secureRaw, user, password, from, fromName] = await Promise.all([
+      this.effective('MAIL_ENABLED', 'MAIL_ENABLED'),
+      this.effective('MAIL_HOST', 'MAIL_HOST'),
+      this.effective('MAIL_PORT', 'MAIL_PORT'),
+      this.effective('MAIL_SECURE', 'MAIL_SECURE'),
+      this.effective('MAIL_USER', 'MAIL_USER'),
+      this.effective('MAIL_PASSWORD', 'MAIL_PASSWORD'),
+      this.effective('MAIL_FROM', 'MAIL_FROM'),
+      this.effective('MAIL_FROM_NAME', 'MAIL_FROM_NAME'),
+    ]);
+    const port = Number(portRaw ?? 587);
+    const values = {
+      enabled: enabledRaw === 'true',
+      host,
+      port: Number.isInteger(port) && port > 0 ? port : 587,
+      secure: secureRaw === 'true' || port === 465,
+      user,
+      password,
+      from: from ?? 'no-reply@example.com',
+      fromName: fromName ?? '硅基人才平台',
+    };
+    const fingerprint = JSON.stringify({ ...values, password: password ? 'configured' : '' });
+    if (this.hasRuntimeSettings && fingerprint !== this.providerFingerprint) {
+      this.provider = this.createProviderFromValues(values);
+      this.providerFingerprint = fingerprint;
+    }
+    return { enabled: values.enabled, fromName: values.fromName };
+  }
+
+  async testConnection(): Promise<{ enabled: boolean; verified: boolean; message: string }> {
+    const { enabled } = await this.refreshProvider();
+    if (!enabled) return { enabled: false, verified: false, message: '邮件服务未启用' };
+    const provider = this.provider;
+    if (!(provider instanceof SmtpMailProvider)) return { enabled: true, verified: false, message: 'SMTP 配置不完整' };
+    await provider.verifyConnection();
+    return { enabled: true, verified: true, message: 'SMTP 连接正常' };
+  }
+
+  async sendTestDelivery(to: string): Promise<void> {
+    if (!/^\S+@\S+\.\S+$/.test(to)) throw new BadRequestException('测试收件地址不是有效邮箱');
+    const { enabled } = await this.refreshProvider();
+    if (!enabled) throw new BadRequestException('邮件服务未启用');
+    if (!(this.provider instanceof SmtpMailProvider)) throw new BadRequestException('SMTP 配置不完整');
+    await this.send({
+      to,
+      subject: '邮件服务测试',
+      text: '这是一封来自运营配置中心的测试邮件。',
+    });
   }
 
   async send(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
-    if (!this.enabled && this.config.get<string>('NODE_ENV') === 'test') return;
-    await this.provider.send({ ...input, subject: `[${this.fromName}] ${input.subject}` });
+    const { enabled, fromName } = await this.refreshProvider();
+    if (!enabled && this.config.get<string>('NODE_ENV') === 'test') return;
+    await this.provider.send({ ...input, subject: `[${fromName}] ${input.subject}` });
   }
 
   async sendPasswordReset(input: { to: string; resetUrl: string }): Promise<void> {

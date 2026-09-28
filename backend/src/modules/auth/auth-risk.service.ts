@@ -2,6 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthEventService } from './auth-event.service';
+import { Optional } from '@nestjs/common';
+import { SettingService } from '../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 export interface LoginAuditContext {
   provider: 'password' | 'desktop-password';
@@ -22,15 +25,18 @@ export class AuthRiskService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly events: AuthEventService,
+    @Optional() private readonly settings?: SettingService,
   ) {}
 
-  private get maxFailedAttempts(): number {
-    const value = Number(this.config.get<string>('AUTH_MAX_FAILED_ATTEMPTS') ?? 5);
+  private async maxFailedAttempts(): Promise<number> {
+    const raw = this.settings ? await this.settings.getEffectiveValue(SETTING_KEYS.AUTH_MAX_FAILED_ATTEMPTS) : this.config.get<string>('AUTH_MAX_FAILED_ATTEMPTS');
+    const value = Number(raw ?? 5);
     return Number.isInteger(value) && value >= 3 && value <= 20 ? value : 5;
   }
 
-  private get lockMinutes(): number {
-    const value = Number(this.config.get<string>('AUTH_LOCK_MINUTES') ?? 15);
+  private async lockMinutes(): Promise<number> {
+    const raw = this.settings ? await this.settings.getEffectiveValue(SETTING_KEYS.AUTH_LOCK_MINUTES) : this.config.get<string>('AUTH_LOCK_MINUTES');
+    const value = Number(raw ?? 15);
     return Number.isInteger(value) && value >= 1 && value <= 1440 ? value : 15;
   }
 
@@ -74,9 +80,10 @@ export class AuthRiskService {
       ? 0
       : current?.failedCount ?? 0;
     const failedCount = previousCount + 1;
-    const locked = failedCount >= this.maxFailedAttempts;
+    const [maxFailedAttempts, lockMinutes] = await Promise.all([this.maxFailedAttempts(), this.lockMinutes()]);
+    const locked = failedCount >= maxFailedAttempts;
     const lockedUntil = locked
-      ? new Date(Date.now() + this.lockMinutes * 60 * 1000)
+      ? new Date(Date.now() + lockMinutes * 60 * 1000)
       : null;
 
     await this.prisma.authCredential.upsert({
@@ -111,7 +118,7 @@ export class AuthRiskService {
         provider: context.provider,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
-        metadata: this.auditMetadata(context, { failedCount, lockMinutes: this.lockMinutes }),
+        metadata: this.auditMetadata(context, { failedCount, lockMinutes }),
       });
     }
   }

@@ -70,7 +70,7 @@ function LoginForm() {
       <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-gtext-primary">邮箱</label>
-          <Input type="email" placeholder="you@company.com" {...register('email')} />
+          <Input type="email" autoComplete="username" placeholder="you@company.com" {...register('email')} />
           {errors.email && (
             <p className="mt-1 text-xs text-danger">
               {errors.email.message}
@@ -82,7 +82,7 @@ function LoginForm() {
             <label className="block text-sm font-medium text-gtext-primary">密码</label>
             <Link href="/forgot-password" className="text-xs text-primary hover:underline">忘记密码？</Link>
           </div>
-          <Input type="password" placeholder="••••••••" {...register('password')} />
+          <Input type="password" autoComplete="current-password" placeholder="••••••••" {...register('password')} />
           {errors.password && (
             <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
           )}

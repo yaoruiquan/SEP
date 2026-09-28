@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
+import { Optional } from '@nestjs/common';
+import { SettingService } from '../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 export interface AuthRateLimitOptions {
   limit: number;
@@ -23,6 +26,7 @@ export class AuthRateLimitService {
   constructor(
     private readonly redisService: RedisService,
     private readonly config: ConfigService,
+    @Optional() private readonly settings?: SettingService,
   ) {}
 
   private key(scope: string, identity: string): string {
@@ -30,10 +34,15 @@ export class AuthRateLimitService {
     return `sep:auth:rate:${scope}:${digest}`;
   }
 
-  private configured(scope: string, fallback: AuthRateLimitOptions): AuthRateLimitOptions {
+  private async configured(scope: string, fallback: AuthRateLimitOptions): Promise<AuthRateLimitOptions> {
     const prefix = scope.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-    const limit = Number(this.config.get<string>(`AUTH_RATE_${prefix}_LIMIT`) ?? fallback.limit);
-    const windowSeconds = Number(this.config.get<string>(`AUTH_RATE_${prefix}_WINDOW_SECONDS`) ?? fallback.windowSeconds);
+    const limitKey = `AUTH_RATE_${prefix}_LIMIT`;
+    const windowKey = `AUTH_RATE_${prefix}_WINDOW_SECONDS`;
+    const [limitRaw, windowRaw] = this.settings
+      ? await Promise.all([this.settings.getEffectiveValue(limitKey as any), this.settings.getEffectiveValue(windowKey as any)])
+      : [this.config.get<string>(limitKey), this.config.get<string>(windowKey)];
+    const limit = Number(limitRaw ?? fallback.limit);
+    const windowSeconds = Number(windowRaw ?? fallback.windowSeconds);
     return {
       limit: Number.isInteger(limit) && limit > 0 ? limit : fallback.limit,
       windowSeconds: Number.isInteger(windowSeconds) && windowSeconds > 0 ? windowSeconds : fallback.windowSeconds,
@@ -41,7 +50,7 @@ export class AuthRateLimitService {
   }
 
   async consume(scope: string, identity: string, fallback: AuthRateLimitOptions): Promise<AuthRateLimitResult> {
-    const options = this.configured(scope, fallback);
+    const options = await this.configured(scope, fallback);
     try {
       const redis = this.redisService.redis;
       const redisKey = this.key(scope, identity || 'anonymous');
@@ -63,7 +72,7 @@ export class AuthRateLimitService {
   }
 
   async isBlocked(scope: string, identity: string, fallback: AuthRateLimitOptions): Promise<AuthRateLimitResult> {
-    const options = this.configured(scope, fallback);
+    const options = await this.configured(scope, fallback);
     try {
       const redis = this.redisService.redis;
       const redisKey = this.key(scope, identity || 'anonymous');

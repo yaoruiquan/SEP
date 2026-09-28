@@ -19,6 +19,8 @@ import { QqOAuthProvider } from './providers/qq.provider';
 import { InvitationService } from '../enterprise/invitation.service';
 import { AuthEventService } from './auth-event.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
+import { SettingService } from '../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 @Injectable()
 export class OAuthService {
@@ -34,21 +36,25 @@ export class OAuthService {
     qq: QqOAuthProvider,
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
+    @Optional() private readonly settings?: SettingService,
   ) {
     this.providers = new Map<string, OAuthProviderAdapter>();
     this.providers.set(wechat.id, wechat);
     this.providers.set(qq.id, qq);
   }
 
-  private provider(id: string): OAuthProviderAdapter {
+  private async provider(id: string): Promise<OAuthProviderAdapter> {
     const provider = this.providers.get(id);
     if (!provider) throw new NotFoundException('不支持的登录方式');
-    if (!provider.isConfigured()) throw new BadRequestException(`${provider.displayName} 登录暂未配置`);
+    if (!await provider.isConfigured()) throw new BadRequestException(`${provider.displayName} 登录暂未配置`);
     return provider;
   }
 
-  private redirectUri(provider: string): string {
-    const configured = this.config.get<string>(`${provider.toUpperCase()}_REDIRECT_URI`);
+  private async redirectUri(provider: string): Promise<string> {
+    const key = provider === 'wechat' ? SETTING_KEYS.WECHAT_REDIRECT_URI : provider === 'qq' ? SETTING_KEYS.QQ_REDIRECT_URI : undefined;
+    const configured = key && this.settings
+      ? await this.settings.getEffectiveValue(key)
+      : this.config.get<string>(`${provider.toUpperCase()}_REDIRECT_URI`);
     if (!configured) throw new BadRequestException('第三方登录回调地址未配置');
     return configured;
   }
@@ -58,11 +64,11 @@ export class OAuthService {
   }
 
   async start(input: { provider: string; intent?: OAuthIntent; userId?: string; metadata?: Record<string, unknown> }) {
-    const adapter = this.provider(input.provider);
+    const adapter = await this.provider(input.provider);
     if (input.intent && input.intent !== 'LOGIN' && input.intent !== 'INVITATION' && !input.userId) {
       throw new UnauthorizedException('绑定第三方账号需要先登录');
     }
-    const redirectUri = this.redirectUri(input.provider);
+    const redirectUri = await this.redirectUri(input.provider);
     const transaction = await this.state.create({
       provider: input.provider,
       intent: input.intent ?? 'LOGIN',
@@ -101,8 +107,8 @@ export class OAuthService {
     try {
       const rateLimit = input.ipAddress ? await this.rateLimit?.consume('oauth-callback-ip', input.ipAddress, { limit: 30, windowSeconds: 300 }) : undefined;
       if (rateLimit && !rateLimit.allowed) throw new BadRequestException('第三方登录请求过于频繁，请稍后重试');
-      adapter = this.provider(input.provider);
-      redirectUri = this.redirectUri(input.provider);
+      adapter = await this.provider(input.provider);
+      redirectUri = await this.redirectUri(input.provider);
       // 即使用户在第三方页面点击取消，只要带回 state 也必须消费事务，
       // 防止同一授权事务稍后被重复提交。
       transaction = await this.state.consume({ provider: input.provider, state: input.state ?? '', redirectUri });

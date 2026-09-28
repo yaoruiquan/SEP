@@ -306,6 +306,16 @@ export function useResumeEnterprise() {
 export interface SettingView {
   key: string;
   label: string;
+  category?: string;
+  description?: string;
+  type?: string;
+  unit?: string;
+  placeholder?: string;
+  defaultValue?: string;
+  source?: 'database' | 'environment' | 'default' | 'unconfigured' | string;
+  editable?: boolean;
+  restartRequired?: boolean;
+  testable?: boolean;
   secret: boolean;
   value?: string;
   configured: boolean;
@@ -343,6 +353,47 @@ export function useUpdateSettings() {
       qc.invalidateQueries({ queryKey: ['settings'] });
       qc.invalidateQueries({ queryKey: ['models', 'available'] });
     },
+  });
+}
+
+export interface MailTestConnectionResult {
+  enabled: boolean;
+  verified: boolean;
+  message: string;
+}
+
+export function useTestMailConnection() {
+  return useMutation({
+    mutationFn: () => api.post<MailTestConnectionResult>('/settings/mail/test'),
+  });
+}
+
+export function useSendTestMail() {
+  return useMutation({
+    mutationFn: (to: string) => api.post<{ success: true }>('/settings/mail/test-delivery', { to }),
+  });
+}
+
+export type OAuthProviderName = 'wechat' | 'qq';
+
+export interface OAuthConfigCheckResult {
+  provider: OAuthProviderName;
+  enabled: boolean;
+  configured: boolean;
+  valid: boolean;
+  checks: {
+    enabled: boolean;
+    appId: boolean;
+    secret: boolean;
+    redirectUri: boolean;
+  };
+  message: string;
+}
+
+export function useTestOAuthProvider() {
+  return useMutation({
+    mutationFn: (provider: OAuthProviderName) =>
+      api.post<OAuthConfigCheckResult>(`/settings/oauth/${provider}/test`),
   });
 }
 

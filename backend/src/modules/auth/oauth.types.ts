@@ -35,7 +35,7 @@ export interface OAuthProviderAdapter {
   readonly id: OAuthProviderId;
   readonly displayName: string;
   readonly type: OAuthProviderType;
-  isConfigured(): boolean;
+  isConfigured(): boolean | Promise<boolean>;
   buildAuthorizationUrl(input: OAuthStartInput): Promise<string>;
   exchangeCode(input: OAuthCallbackInput): Promise<OAuthTokenSet>;
   fetchUserProfile(tokens: OAuthTokenSet): Promise<NormalizedOAuthProfile>;

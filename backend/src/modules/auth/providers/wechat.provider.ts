@@ -1,7 +1,9 @@
 import { ConfigService } from '@nestjs/config';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { NormalizedOAuthProfile, OAuthCallbackInput, OAuthProviderAdapter, OAuthStartInput, OAuthTokenSet } from '../oauth.types';
 import { getJson, OAuthFetch, requireProviderValue } from './oauth-http';
+import { SettingService } from '../../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 interface WechatTokenResponse {
   access_token?: string;
@@ -29,21 +31,41 @@ export class WechatOAuthProvider implements OAuthProviderAdapter {
   readonly type = 'wechat-qr' as const;
   readonly fetcher: OAuthFetch;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly settings?: SettingService,
+  ) {
     this.fetcher = (input, init) => fetch(input, init);
   }
 
-  private get appId(): string | undefined { return this.config.get<string>('WECHAT_APP_ID'); }
-  private get appSecret(): string | undefined { return this.config.get<string>('WECHAT_APP_SECRET'); }
-  private get redirectUri(): string | undefined { return this.config.get<string>('WECHAT_REDIRECT_URI'); }
+  private async value(key: 'enabled' | 'appId' | 'appSecret' | 'redirectUri'): Promise<string | undefined> {
+    const settingKey = {
+      enabled: SETTING_KEYS.WECHAT_OAUTH_ENABLED,
+      appId: SETTING_KEYS.WECHAT_APP_ID,
+      appSecret: SETTING_KEYS.WECHAT_APP_SECRET,
+      redirectUri: SETTING_KEYS.WECHAT_REDIRECT_URI,
+    }[key];
+    const envKey = {
+      enabled: 'WECHAT_OAUTH_ENABLED',
+      appId: 'WECHAT_APP_ID',
+      appSecret: 'WECHAT_APP_SECRET',
+      redirectUri: 'WECHAT_REDIRECT_URI',
+    }[key];
+    return this.settings
+      ? await this.settings.getEffectiveValue(settingKey)
+      : this.config.get<string>(envKey);
+  }
 
-  isConfigured(): boolean {
-    return this.config.get<string>('WECHAT_OAUTH_ENABLED') === 'true' && Boolean(this.appId && this.appSecret && this.redirectUri);
+  async isConfigured(): Promise<boolean> {
+    const [enabled, appId, appSecret, redirectUri] = await Promise.all([
+      this.value('enabled'), this.value('appId'), this.value('appSecret'), this.value('redirectUri'),
+    ]);
+    return enabled === 'true' && Boolean(appId && appSecret && redirectUri);
   }
 
   async buildAuthorizationUrl(input: OAuthStartInput): Promise<string> {
-    const appId = requireProviderValue(this.appId, '微信登录尚未配置');
-    const redirectUri = input.redirectUri || requireProviderValue(this.redirectUri, '微信登录回调地址尚未配置');
+    const appId = requireProviderValue(await this.value('appId'), '微信登录尚未配置');
+    const redirectUri = input.redirectUri || requireProviderValue(await this.value('redirectUri'), '微信登录回调地址尚未配置');
     const url = new URL('https://open.weixin.qq.com/connect/qrconnect');
     url.searchParams.set('appid', appId);
     url.searchParams.set('redirect_uri', redirectUri);
@@ -54,8 +76,8 @@ export class WechatOAuthProvider implements OAuthProviderAdapter {
   }
 
   async exchangeCode(input: OAuthCallbackInput): Promise<OAuthTokenSet> {
-    const appId = requireProviderValue(this.appId, '微信登录尚未配置');
-    const secret = requireProviderValue(this.appSecret, '微信登录尚未配置');
+    const appId = requireProviderValue(await this.value('appId'), '微信登录尚未配置');
+    const secret = requireProviderValue(await this.value('appSecret'), '微信登录尚未配置');
     if (!input.code) throw new BadRequestException('微信授权码缺失');
     const url = new URL('https://api.weixin.qq.com/sns/oauth2/access_token');
     url.searchParams.set('appid', appId);

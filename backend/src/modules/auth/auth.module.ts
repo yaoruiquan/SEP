@@ -17,10 +17,12 @@ import { QqOAuthProvider } from './providers/qq.provider';
 import { AuthEventService } from './auth-event.service';
 import { AuthRiskService } from './auth-risk.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
+import { SettingModule } from '../setting/setting.module';
 
 @Module({
   imports: [
     PrismaModule,
+    SettingModule,
     MailModule,
     PassportModule,
     JwtModule.registerAsync({

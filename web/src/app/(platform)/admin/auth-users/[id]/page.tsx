@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { ArrowLeft, Ban, KeyRound, LogOut, MailCheck, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
 import { useAdminAuthUser, useAdminAuthUserEvents, useDisableAdminAuthUser, useEnableAdminAuthUser, useForceEmailVerification, useForceLogoutAdminAuthUser, useForcePasswordReset } from '@/features/admin/use-admin-auth';
 
-export default function AdminAuthUserDetailPage({ params }: { params: { id: string } }) {
+export default function AdminAuthUserDetailPage({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
+  const params = use(paramsPromise);
   const user = useAdminAuthUser(params.id);
   const events = useAdminAuthUserEvents(params.id);
   const [reason, setReason] = useState('平台安全策略要求');

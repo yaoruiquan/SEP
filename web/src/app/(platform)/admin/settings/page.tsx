@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import BasicSettings from "./BasicSettings";
+import SettingsCenter from "./SettingsCenter";
 import ModelManagement from "./ModelManagement";
 
-type TabType = "basic" | "models";
+type TabType = "settings" | "models";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabType>("basic");
+  const [activeTab, setActiveTab] = useState<TabType>("settings");
 
   const tabs = [
-    { key: "basic" as const, label: "基础设置", icon: "⚙️" },
+    { key: "settings" as const, label: "配置中心", icon: "⚙️" },
     { key: "models" as const, label: "模型管理", icon: "🤖" },
   ];
 
@@ -20,7 +20,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">系统设置</h1>
         <p className="mt-1 text-sm text-fg-muted">
-          管理平台级配置、模型和系统参数
+          按业务域管理平台配置、认证安全与模型
         </p>
       </div>
 
@@ -51,7 +51,7 @@ export default function SettingsPage() {
 
       {/* Tab Content */}
       <div className="min-h-[500px]">
-        {activeTab === "basic" && <BasicSettings />}
+        {activeTab === "settings" && <SettingsCenter />}
         {activeTab === "models" && <ModelManagement />}
       </div>
     </div>

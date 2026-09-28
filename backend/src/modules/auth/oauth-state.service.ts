@@ -4,6 +4,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { OAuthIntent, OAuthProviderId } from './oauth.types';
+import { Optional } from '@nestjs/common';
+import { SettingService } from '../setting/setting.service';
+import { SETTING_KEYS } from 'shared';
 
 export interface OAuthTransactionResult {
   id: string;
@@ -26,14 +29,18 @@ export class OAuthStateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Optional() private readonly settings?: SettingService,
   ) {}
 
   private hash(value: string): string {
     return createHash('sha256').update(value).digest('hex');
   }
 
-  private ttlSeconds(): number {
-    const configured = Number(this.config.get<string>('OAUTH_TRANSACTION_TTL_SECONDS') ?? 300);
+  private async ttlSeconds(): Promise<number> {
+    const raw = this.settings
+      ? await this.settings.getEffectiveValue(SETTING_KEYS.OAUTH_TRANSACTION_TTL_SECONDS)
+      : this.config.get<string>('OAUTH_TRANSACTION_TTL_SECONDS');
+    const configured = Number(raw ?? 300);
     return Number.isInteger(configured) && configured >= 60 && configured <= 900 ? configured : 300;
   }
 
@@ -46,7 +53,7 @@ export class OAuthStateService {
   }): Promise<OAuthTransactionResult> {
     const state = randomBytes(32).toString('base64url');
     const nonce = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + this.ttlSeconds() * 1000);
+    const expiresAt = new Date(Date.now() + (await this.ttlSeconds()) * 1000);
     const row = await this.prisma.authOAuthTransaction.create({
       data: {
         provider: input.provider,
