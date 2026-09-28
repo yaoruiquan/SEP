@@ -183,7 +183,7 @@ function AuthSettings({ fields, edits, setEdits }: { fields: SettingView[]; edit
   const renderFields = (items: SettingView[]) => <div className="grid gap-x-6 gap-y-6 p-6 md:grid-cols-2">{items.map((setting) => <SettingField key={setting.key} setting={setting} value={edits[setting.key] ?? ''} onChange={(value) => setEdits((current) => ({ ...current, [setting.key]: value }))} />)}</div>;
   return <div className="space-y-5">
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Mail className="h-4 w-4 text-primary" />邮件与密码找回</CardTitle><CardDescription>密码重置、邮箱验证和安全通知依赖 SMTP。保存后可以直接测试连接和发送测试邮件。</CardDescription></CardHeader>{renderFields(mailFields)}<MailTesting /></Card>
-    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />微信与 QQ 登录</CardTitle><CardDescription>先保存 AppID、密钥和 HTTPS 回调地址，再执行配置检查。检查不会调用真实授权登录，也不会暴露密钥。</CardDescription></CardHeader><div className="grid gap-5 p-6 md:grid-cols-2"><OAuthTesting provider="wechat" label="微信登录" fields={wechatFields} /><OAuthTesting provider="qq" label="QQ 登录" fields={qqFields} /></div></Card>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />微信与 QQ 登录</CardTitle><CardDescription>在这里填写并保存第三方平台配置。启用前请先在微信开放平台或 QQ 互联完成网站应用审核，并确保回调地址与平台后台完全一致。</CardDescription></CardHeader><div className="grid gap-5 p-6 md:grid-cols-2"><OAuthTesting provider="wechat" label="微信登录" fields={wechatFields} edits={edits} setEdits={setEdits} /><OAuthTesting provider="qq" label="QQ 登录" fields={qqFields} edits={edits} setEdits={setEdits} /></div></Card>
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />登录风控与限流</CardTitle><CardDescription>用于降低撞库、暴力破解和 OAuth 回调滥用风险；窗口单位为秒，次数单位为窗口内允许次数。</CardDescription></CardHeader>{renderFields(riskFields)}</Card>
   </div>;
 }
@@ -218,10 +218,11 @@ function MailTesting() {
   return <div className="border-t border-border bg-bg-subtle/40 p-6"><div className="flex flex-wrap items-center gap-3"><Button variant="outline" size="sm" onClick={runConnectionTest} loading={connection.isPending} loadingText="测试中…"><TestTube2 className="h-4 w-4" />测试 SMTP 连接</Button><span className="text-xs text-fg-muted">只验证 SMTP 握手，不发送邮件。</span>{result && <Badge variant="secondary">{result}</Badge>}</div><div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"><label className="min-w-0 flex-1 text-sm"><span className="mb-2 block font-medium">测试收件地址</span><Input type="email" value={to} placeholder="your@example.com" onChange={(event) => setTo(event.target.value)} /></label><Button size="sm" onClick={sendTest} loading={delivery.isPending} loadingText="发送中…"><Send className="h-4 w-4" />发送测试邮件</Button></div></div>;
 }
 
-function OAuthTesting({ provider, label, fields }: { provider: OAuthProviderName; label: string; fields: SettingView[] }) {
+function OAuthTesting({ provider, label, fields, edits, setEdits }: { provider: OAuthProviderName; label: string; fields: SettingView[]; edits: Record<string, string>; setEdits: Dispatch<SetStateAction<Record<string, string>>> }) {
   const test = useTestOAuthProvider();
   const [result, setResult] = useState<OAuthConfigCheckResult>();
-  const enabled = fields.find((field) => field.key.endsWith('_OAUTH_ENABLED'))?.value === 'true';
+  const enabled = edits[fields.find((field) => field.key.endsWith('_OAUTH_ENABLED'))?.key ?? ''] === 'true';
+  const onChange = (setting: SettingView, value: string) => setEdits((current) => ({ ...current, [setting.key]: value }));
   const run = async () => {
     try {
       const data = await test.mutateAsync(provider);
@@ -232,7 +233,7 @@ function OAuthTesting({ provider, label, fields }: { provider: OAuthProviderName
       toast.error(`${label}配置检查失败`, (error as Error).message);
     }
   };
-  return <div className="rounded-md border border-border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{label}</p><p className="mt-1 text-xs text-fg-muted">{enabled ? '当前已启用，建议检查完整配置' : '当前未启用；保存后可再次检查'}</p></div><Button variant="outline" size="sm" onClick={run} loading={test.isPending} loadingText="检查中…"><FlaskConical className="h-4 w-4" />检查配置</Button></div>{result && <div className="mt-4 space-y-2 text-xs"><div className={result.valid ? 'text-success' : 'text-warning'}>{result.valid ? '✓' : '!' } {result.message}</div><div className="grid grid-cols-2 gap-2 text-fg-muted"><span>启用状态：{result.checks.enabled ? '通过' : '未启用'}</span><span>AppID：{result.checks.appId ? '已配置' : '缺失'}</span><span>密钥：{result.checks.secret ? '已配置' : '缺失'}</span><span>回调地址：{result.checks.redirectUri ? '通过' : '缺失或非 HTTPS'}</span></div></div>}</div>;
+  return <div className="rounded-md border border-border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{label}</p><p className="mt-1 text-xs text-fg-muted">{enabled ? '当前已启用，建议检查完整配置' : '当前未启用；填写并保存后再开启'}</p></div><Button variant="outline" size="sm" onClick={run} loading={test.isPending} loadingText="检查中…"><FlaskConical className="h-4 w-4" />检查配置</Button></div><div className="mt-4 grid gap-4">{fields.map((setting) => <SettingField key={setting.key} setting={setting} value={edits[setting.key] ?? ''} onChange={(value) => onChange(setting, value)} />)}</div>{result && <div className="mt-4 space-y-2 border-t border-border pt-4 text-xs"><div className={result.valid ? 'text-success' : 'text-warning'}>{result.valid ? '✓' : '!' } {result.message}</div><div className="grid grid-cols-2 gap-2 text-fg-muted"><span>启用状态：{result.checks.enabled ? '通过' : '未启用'}</span><span>AppID：{result.checks.appId ? '已配置' : '缺失'}</span><span>密钥：{result.checks.secret ? '已配置' : '缺失'}</span><span>回调地址：{result.checks.redirectUri ? '通过' : '缺失或非 HTTPS'}</span></div></div>}</div>;
 }
 
 function SettingField({ setting, value, onChange }: { setting: SettingView; value: string; onChange: (value: string) => void }) {
