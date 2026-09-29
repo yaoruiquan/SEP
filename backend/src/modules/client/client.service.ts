@@ -365,20 +365,23 @@ export class ClientService {
     ]);
 
     return {
-      items: employees.map((employee) => ({
-        employeeId: employee.id,
-        name: employee.name,
-        avatar: withEmployeeAvatar(employee).avatarAsset?.portraitUrl ?? employee.avatar,
-        avatarAsset: withEmployeeAvatar(employee).avatarAsset,
-        position: employee.position,
-        description: employee.description,
-        functionalCategory: employee.functionalCategory,
-        employeeStatus: employee.status,
-        availability: 'AVAILABLE' as const,
-        canApply: true,
-        capabilities: employee.bindings.map(({ capability }) => capability),
-        updatedAt: employee.updatedAt.toISOString(),
-      })),
+      items: employees.map((employee) => {
+        const avatar = withEmployeeAvatar(employee);
+        return {
+          employeeId: employee.id,
+          name: employee.name,
+          avatar: avatar.avatarAsset?.portraitUrl ?? avatar.avatar,
+          avatarAsset: avatar.avatarAsset,
+          position: employee.position,
+          description: employee.description,
+          functionalCategory: employee.functionalCategory,
+          employeeStatus: employee.status,
+          availability: 'AVAILABLE' as const,
+          canApply: true,
+          capabilities: employee.bindings.map(({ capability }) => capability),
+          updatedAt: employee.updatedAt.toISOString(),
+        };
+      }),
       page: query.page,
       pageSize: query.pageSize,
       total,

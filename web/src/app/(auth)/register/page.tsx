@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/feedback';
 import { useRegister } from '@/features/auth/use-auth';
+import { OAuthProviderButtons } from '@/features/auth/oauth-provider-buttons';
 import { ApiError } from '@/lib/api-client';
 import { extractInviteToken } from '@/lib/invite-token';
 import { cn } from '@/lib/utils';
@@ -202,6 +203,8 @@ function FoundEnterpriseForm() {
         {registerMutation.isPending && <Spinner />}
         注册并开通企业
       </Button>
+
+      <OAuthProviderButtons intent="REGISTER" disabled={registerMutation.isPending} />
     </form>
   );
 }

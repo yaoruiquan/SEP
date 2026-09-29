@@ -26,6 +26,32 @@ export function safeRedirect(target: string | null | undefined): string | null {
   return target;
 }
 
+
+export type OAuthProviderId = 'wechat' | 'qq' | 'dingtalk';
+
+export interface OAuthProviderOption {
+  id: OAuthProviderId;
+  displayName: string;
+  type: 'oauth2' | 'oidc' | 'wechat-qr';
+}
+
+/**
+ * 获取运营端当前开放给访客使用的第三方渠道。
+ * 后端只返回启用且配置完整的渠道，不包含任何密钥。
+ */
+export function useOAuthProviders() {
+  return useQuery({
+    queryKey: ['auth', 'oauth-providers'] as const,
+    queryFn: () =>
+      api.get<{ providers: OAuthProviderOption[] }>('/auth/oauth/providers', {
+        skipAuthRetry: true,
+      }),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+
 export function useLogin(redirectTo?: string | null) {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);

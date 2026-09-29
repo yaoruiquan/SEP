@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { OAuthService } from './oauth.service';
 
 function makeService(withEvents = false) {
@@ -24,24 +24,72 @@ function makeService(withEvents = false) {
   const state: any = { create: jest.fn(), consume: jest.fn() };
   const auth: any = { loginWithUser: jest.fn() };
   const invitations: any = { findUsableByToken: jest.fn() };
-  const wechat: any = { id: 'wechat', displayName: '微信', isConfigured: () => true };
-  const qq: any = { id: 'qq', displayName: 'QQ', isConfigured: () => true };
+  const wechat: any = { id: 'wechat', displayName: '微信', type: 'oauth2', isConfigured: jest.fn(() => true) };
+  const qq: any = { id: 'qq', displayName: 'QQ', type: 'oauth2', isConfigured: jest.fn(() => true) };
   const events: any = { record: jest.fn().mockResolvedValue(undefined) };
-  return { service: new OAuthService(prisma, config, state, auth, invitations, wechat, qq, withEvents ? events : undefined), prisma, state, auth, invitations, events };
+  return { service: new OAuthService(prisma, config, state, auth, invitations, wechat, qq, withEvents ? events : undefined), prisma, state, auth, invitations, wechat, qq, events };
 }
 
 describe('OAuthService identity policy', () => {
-  it('creates a new identity without merging by provider email', async () => {
+  it('registers a new identity without merging by provider email', async () => {
     const { service, prisma } = makeService();
     prisma.authIdentity.findUnique.mockResolvedValue(null);
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.user.create.mockResolvedValue({ id: 'user-1' });
     const userId = await (service as any).resolveIdentity(
-      { provider: 'wechat', intent: 'LOGIN', redirectUri: 'x', userId: null, metadata: null },
+      { provider: 'wechat', intent: 'REGISTER', redirectUri: 'x', userId: null, metadata: null },
       { provider: 'wechat', providerAccountId: 'unionid-1', email: 'same@example.com', name: '用户', avatar: null, rawProfile: { unionid: 'unionid-1' }, emailVerified: null },
     );
     expect(userId).toBe('user-1');
     expect(prisma.user.create).toHaveBeenCalled();
+  });
+
+  it('rejects an unbound provider identity during login', async () => {
+    const { service, prisma } = makeService();
+    prisma.authIdentity.findUnique.mockResolvedValue(null);
+
+    await expect((service as any).resolveIdentity(
+      { provider: 'wechat', intent: 'LOGIN', redirectUri: 'x', userId: null, metadata: null },
+      { provider: 'wechat', providerAccountId: 'unionid-new', email: 'new@example.com', name: '用户', avatar: null, rawProfile: {}, emailVerified: true },
+    )).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects registration when the provider identity already exists', async () => {
+    const { service, prisma } = makeService();
+    prisma.authIdentity.findUnique.mockResolvedValue({ id: 'identity-1', userId: 'user-1' });
+
+    await expect((service as any).resolveIdentity(
+      { provider: 'wechat', intent: 'REGISTER', redirectUri: 'x', userId: null, metadata: null },
+      { provider: 'wechat', providerAccountId: 'unionid-1', email: null, name: '用户', avatar: null, rawProfile: {}, emailVerified: true },
+    )).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('only exposes configured public providers', async () => {
+    const { service, qq } = makeService();
+    qq.isConfigured.mockReturnValue(false);
+
+    await expect(service.listPublicProviders()).resolves.toEqual([
+      { id: 'wechat', displayName: '微信', type: 'oauth2' },
+    ]);
+  });
+
+  it('starts registration with REGISTER intent', async () => {
+    const { service, state } = makeService();
+    state.create.mockResolvedValue({
+      state: 'state-value',
+      nonce: 'nonce-value',
+      expiresAt: new Date(Date.now() + 300_000),
+    });
+    const provider = (service as any).providers.get('wechat');
+    provider.buildAuthorizationUrl = jest.fn().mockResolvedValue('https://wechat.example/auth');
+
+    await service.startRegistration('wechat');
+
+    expect(state.create).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'wechat',
+      intent: 'REGISTER',
+    }));
   });
 
   it('rejects a provider email collision instead of silently taking over the account', async () => {
@@ -49,7 +97,7 @@ describe('OAuthService identity policy', () => {
     prisma.authIdentity.findUnique.mockResolvedValue(null);
     prisma.user.findUnique.mockResolvedValue({ id: 'existing-user' });
     await expect((service as any).resolveIdentity(
-      { provider: 'qq', intent: 'LOGIN', redirectUri: 'x', userId: null, metadata: null },
+      { provider: 'qq', intent: 'REGISTER', redirectUri: 'x', userId: null, metadata: null },
       { provider: 'qq', providerAccountId: 'openid-1', email: 'same@example.com', name: null, avatar: null, rawProfile: {}, emailVerified: null },
     )).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.user.create).not.toHaveBeenCalled();

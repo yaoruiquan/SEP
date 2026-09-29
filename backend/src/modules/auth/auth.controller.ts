@@ -277,6 +277,22 @@ export class AuthController {
     return this.authService.confirmEmailChange(dto);
   }
 
+  @Get('oauth/providers')
+  @ApiOperation({ summary: '获取当前可用的第三方登录渠道' })
+  @ApiResponse({ status: 200, description: '只返回已启用且配置完整的第三方渠道，不包含任何密钥' })
+  async oauthProviders() {
+    return { providers: await this.oauth.listPublicProviders() };
+  }
+
+  @Get('oauth/:provider/register/start')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: '开始第三方注册并开通企业' })
+  @ApiResponse({ status: 200, description: '返回第三方授权地址' })
+  @ApiResponse({ status: 400, description: '第三方注册渠道未配置' })
+  async oauthRegisterStart(@Param('provider') provider: string) {
+    return this.oauth.startRegistration(provider);
+  }
+
   @Get('oauth/:provider/invitation/start')
   @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: '从企业邀请开始第三方登录' })

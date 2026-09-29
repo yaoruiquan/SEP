@@ -651,7 +651,7 @@ Authorization: Bearer <accessToken>
 | --- | --- | --- | --- |
 | `keyword` | string | 否 | 按员工名称、职位、简介或行业搜索（当前不搜索能力名称） |
 | `capabilityId` | string | 否 | 按能力 ID 精确筛选 |
-| `functionalCategory` | string | 否 | 按职能分类筛选 |
+| `functionalCategory` | string | 否 | 按枚举筛选：`TECH`、`PRODUCT_DESIGN`、`MARKETING_GROWTH`、`ECOMMERCE`、`SALES_CUSTOMER`、`OPERATIONS_ORG`、`FINANCE_LEGAL` |
 | `page` | integer | 否 | 从 `1` 开始，默认 `1` |
 | `pageSize` | integer | 否 | 默认 `20`，最大 `100` |
 | `sort` | string | 否 | `updatedAt_desc`（默认）、`createdAt_desc`、`name_asc` |
@@ -682,7 +682,7 @@ Authorization: Bearer <accessToken>
       "avatarAsset": null,
       "position": "数据分析师",
       "description": "负责业务数据分析、趋势判断和分析报告生成",
-      "functionalCategory": "数据分析",
+      "functionalCategory": "TECH",
       "employeeStatus": "APPROVED",
       "availability": "AVAILABLE",
       "canApply": true,
@@ -691,7 +691,7 @@ Authorization: Bearer <accessToken>
           "id": "capability-data-analysis",
           "name": "数据分析",
           "description": "分析结构化业务数据并输出结论",
-          "type": "ABILITY"
+          "type": "SKILL"
         }
       ],
       "updatedAt": "2026-09-20T08:30:00.000Z"
@@ -962,7 +962,7 @@ POST /api/enterprise/skill-versions/:versionId/review
 - [ ] 无有效员工授权时拒绝 Skill 提交；
 - [ ] 客户端不传入 `enterpriseId`、`userId`、`memberId`、`ownerId` 或 `status`。
 
-## 8. 新增接口的服务端实现/待开发位置
+## 8. 新增接口的服务端实现位置
 
 已实现位置：
 

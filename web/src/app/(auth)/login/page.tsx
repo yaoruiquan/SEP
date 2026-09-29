@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CenteredSpinner, Spinner } from '@/components/ui/feedback';
 import { useLogin } from '@/features/auth/use-auth';
-import { ApiError, api } from '@/lib/api-client';
+import { OAuthProviderButtons } from '@/features/auth/oauth-provider-buttons';
+import { ApiError } from '@/lib/api-client';
 
 const schema = z.object({
   email: z.string().email('请输入有效邮箱'),
@@ -51,14 +52,6 @@ function LoginForm() {
   // 原先这里有个 console.log 把整个 values（含明文密码）打进控制台，已移除
   const onSubmit = (values: FormValues) => login.mutate(values);
 
-  const startOAuth = async (provider: 'wechat' | 'qq' | 'dingtalk') => {
-    try {
-      const data = await api.get<{ authorizationUrl: string }>(`/auth/oauth/${provider}/start`);
-      window.location.assign(data.authorizationUrl);
-    } catch {
-      // 真实配置缺失时不输出 provider secret 或授权响应。
-    }
-  };
   const serverError =
     login.error instanceof ApiError ? login.error.message : login.error ? '登录失败' : null;
 
@@ -99,16 +92,7 @@ function LoginForm() {
           登录
         </Button>
 
-      <div className="my-5 flex items-center gap-3 text-xs text-gtext-tertiary">
-        <span className="h-px flex-1 bg-border" />
-        <span>或使用以下方式登录</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Button type="button" variant="outline" onClick={() => void startOAuth('dingtalk')}>钉钉登录</Button>
-        <Button type="button" variant="outline" onClick={() => void startOAuth('wechat')}>微信登录</Button>
-        <Button type="button" variant="outline" onClick={() => void startOAuth('qq')}>QQ 登录</Button>
-      </div>
+      <OAuthProviderButtons intent="LOGIN" disabled={login.isPending} />
       </form>
 
       <p className="mt-6 text-center text-sm text-gtext-secondary">

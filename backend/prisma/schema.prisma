@@ -97,6 +97,7 @@ enum AuthOneTimeTokenType {
 
 enum OAuthTransactionIntent {
   LOGIN
+  REGISTER
   LINK
   INVITATION
 }

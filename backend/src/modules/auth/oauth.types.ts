@@ -1,6 +1,6 @@
 export type OAuthProviderId = 'wechat' | 'qq' | 'dingtalk' | (string & {});
 export type OAuthProviderType = 'oauth2' | 'oidc' | 'wechat-qr';
-export type OAuthIntent = 'LOGIN' | 'LINK' | 'INVITATION';
+export type OAuthIntent = 'LOGIN' | 'REGISTER' | 'LINK' | 'INVITATION';
 
 export interface OAuthStartInput {
   state: string;

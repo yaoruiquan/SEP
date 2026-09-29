@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -17,7 +17,8 @@ import {
   useRegisterByInvitation,
   useAcceptInvitation,
 } from '@/features/auth/use-auth';
-import { ApiError, api } from '@/lib/api-client';
+import { OAuthProviderButtons } from '@/features/auth/oauth-provider-buttons';
+import { ApiError } from '@/lib/api-client';
 import type { InvitationPreview } from '@/lib/types';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -227,33 +228,11 @@ function RegisterByInvitationForm({
   token: string;
 }) {
   const mutation = useRegisterByInvitation();
-  const [oauthProvider, setOauthProvider] = useState<'wechat' | 'qq' | 'dingtalk' | null>(null);
-  const [oauthError, setOauthError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<JoinValues>({ resolver: zodResolver(joinSchema) });
-
-  const startInvitationOAuth = async (provider: 'wechat' | 'qq' | 'dingtalk') => {
-    setOauthProvider(provider);
-    setOauthError(null);
-    try {
-      const result = await api.get<{ authorizationUrl: string }>(
-        `/auth/oauth/${provider}/invitation/start?token=${encodeURIComponent(token)}`,
-        { skipAuthRetry: true },
-      );
-      window.location.assign(result.authorizationUrl);
-    } catch (error) {
-      setOauthProvider(null);
-      setOauthError(
-        error instanceof ApiError
-          ? error.message
-          : '第三方登录暂时不可用，请改用密码加入或稍后重试',
-      );
-    }
-  };
-
   const err = mutation.error;
   const serverError =
     err instanceof ApiError ? err.message : err ? '加入失败，请稍后重试' : null;
@@ -316,50 +295,16 @@ function RegisterByInvitationForm({
         </div>
       )}
 
-      <Button type="submit" className="w-full" disabled={mutation.isPending || Boolean(oauthProvider)}>
+      <Button type="submit" className="w-full" disabled={mutation.isPending}>
         {mutation.isPending && <Spinner />}
         设置密码并加入
       </Button>
 
-      <div className="my-5 flex items-center gap-3 text-xs text-gtext-tertiary">
-        <span className="h-px flex-1 bg-border" />
-        <span>或使用第三方账号加入</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={mutation.isPending || Boolean(oauthProvider)}
-          onClick={() => void startInvitationOAuth('dingtalk')}
-        >
-          {oauthProvider === 'dingtalk' && <Spinner />}
-          钉钉加入
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={mutation.isPending || Boolean(oauthProvider)}
-          onClick={() => void startInvitationOAuth('wechat')}
-        >
-          {oauthProvider === 'wechat' && <Spinner />}
-          微信加入
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={mutation.isPending || Boolean(oauthProvider)}
-          onClick={() => void startInvitationOAuth('qq')}
-        >
-          {oauthProvider === 'qq' && <Spinner />}
-          QQ 加入
-        </Button>
-      </div>
-      {oauthError && (
-        <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
-          {oauthError}
-        </div>
-      )}
+      <OAuthProviderButtons
+        intent="INVITATION"
+        token={token}
+        disabled={mutation.isPending}
+      />
 
       <p className="flex items-start gap-1.5 text-xs leading-relaxed text-gtext-muted">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />

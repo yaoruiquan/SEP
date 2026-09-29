@@ -13,7 +13,7 @@ import { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { OAuthStateService, ConsumedOAuthTransaction } from './oauth-state.service';
-import { NormalizedOAuthProfile, OAuthIntent, OAuthProviderAdapter, OAuthProviderId } from './oauth.types';
+import { NormalizedOAuthProfile, OAuthIntent, OAuthProviderAdapter, OAuthProviderId, OAuthProviderType } from './oauth.types';
 import { WechatOAuthProvider } from './providers/wechat.provider';
 import { QqOAuthProvider } from './providers/qq.provider';
 import { DingtalkOAuthProvider } from './providers/dingtalk.provider';
@@ -73,7 +73,7 @@ export class OAuthService {
 
   async start(input: { provider: string; intent?: OAuthIntent; userId?: string; metadata?: Record<string, unknown> }) {
     const adapter = await this.provider(input.provider);
-    if (input.intent && input.intent !== 'LOGIN' && input.intent !== 'INVITATION' && !input.userId) {
+    if (input.intent === 'LINK' && !input.userId) {
       throw new UnauthorizedException('绑定第三方账号需要先登录');
     }
     const redirectUri = await this.redirectUri(input.provider);
@@ -90,6 +90,28 @@ export class OAuthService {
       redirectUri,
     });
     return { provider: input.provider, authorizationUrl, expiresAt: transaction.expiresAt };
+  }
+
+  /**
+   * 返回前端可展示的第三方渠道。只暴露启用且配置完整的渠道，
+   * 不返回任何 Client Secret / App Secret。
+   */
+  async listPublicProviders(): Promise<Array<{ id: string; displayName: string; type: OAuthProviderType; }>> {
+    const providers = await Promise.all(
+      [...this.providers.values()].map(async (provider) => ({
+        id: provider.id,
+        displayName: provider.displayName,
+        type: provider.type,
+        configured: await provider.isConfigured(),
+      })),
+    );
+    return providers
+      .filter((provider) => provider.configured)
+      .map(({ id, displayName, type }) => ({ id, displayName, type }));
+  }
+
+  async startRegistration(provider: string) {
+    return this.start({ provider, intent: 'REGISTER' });
   }
 
   /**
@@ -155,9 +177,9 @@ export class OAuthService {
         userAgent: input.userAgent,
         metadata: {
           reason: error instanceof ConflictException
-            ? 'account_conflict'
+            ? transaction?.intent === 'REGISTER' ? 'account_exists' : 'account_conflict'
             : error instanceof UnauthorizedException
-              ? 'invitation_email_mismatch'
+              ? transaction?.intent === 'INVITATION' ? 'invitation_email_mismatch' : 'oauth_not_registered'
               : error instanceof BadRequestException
                 ? 'invalid_callback'
                 : 'provider_error',
@@ -165,9 +187,9 @@ export class OAuthService {
       });
       frontend.searchParams.set('status', 'error');
       if (error instanceof ConflictException) {
-        frontend.searchParams.set('reason', 'account_conflict');
+        frontend.searchParams.set('reason', transaction?.intent === 'REGISTER' ? 'account_exists' : 'account_conflict');
       } else if (error instanceof UnauthorizedException) {
-        frontend.searchParams.set('reason', 'invitation_email_mismatch');
+        frontend.searchParams.set('reason', transaction?.intent === 'INVITATION' ? 'invitation_email_mismatch' : 'oauth_not_registered');
       } else if (error instanceof BadRequestException) {
         frontend.searchParams.set('reason', 'invitation_invalid');
       }
@@ -287,6 +309,9 @@ export class OAuthService {
       select: { id: true, userId: true },
     });
     if (existing) {
+      if (transaction.intent === 'REGISTER' && !transaction.userId) {
+        throw new ConflictException('该第三方账号已注册，请直接登录');
+      }
       if (transaction.intent === 'LINK' && transaction.userId && existing.userId !== transaction.userId) {
         throw new ConflictException('该第三方账号已绑定其他账号');
       }
@@ -323,6 +348,9 @@ export class OAuthService {
     }
 
     if (transaction.userId) throw new BadRequestException('登录事务无效');
+    if (transaction.intent === 'LOGIN') {
+      throw new UnauthorizedException('该第三方账号尚未注册，请先注册');
+    }
     if (profile.email) {
       const emailUser = await this.prisma.user.findUnique({ where: { email: profile.email }, select: { id: true } });
       if (emailUser) throw new ConflictException('该邮箱已注册，请先使用原登录方式登录后绑定第三方账号');

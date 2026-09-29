@@ -72,6 +72,91 @@ describe('ClientService', () => {
     service = module.get(ClientService);
   });
 
+  it('lists only approved platform employees with paginated capability summaries', async () => {
+    prisma.digitalEmployee.count.mockResolvedValue(1);
+    prisma.digitalEmployee.findMany.mockResolvedValue([
+      {
+        id: 'emp-platform-1',
+        name: '数据分析员工',
+        avatar: null,
+        avatarStyle: null,
+        avatarBindings: null,
+        position: '数据分析师',
+        description: '负责数据分析',
+        functionalCategory: 'TECH',
+        status: 'APPROVED',
+        updatedAt: new Date('2026-09-29T08:30:00.000Z'),
+        bindings: [{ capability: { id: 'cap-1', name: '数据分析', description: '分析数据', type: 'SKILL' } }],
+      },
+    ]);
+
+    await expect(service.listPlatformEmployees({ page: 1, pageSize: 20, sort: 'updatedAt_desc' })).resolves.toMatchObject({
+      total: 1,
+      hasNextPage: false,
+      items: [{ employeeId: 'emp-platform-1', canApply: true, capabilities: [{ id: 'cap-1' }] }],
+    });
+    expect(prisma.digitalEmployee.findMany.mock.calls[0][0]).toMatchObject({
+      where: { status: 'APPROVED' },
+      skip: 0,
+      take: 20,
+    });
+  });
+
+  it('creates a platform employee access request without trusting client identity fields', async () => {
+    prisma.digitalEmployee.findFirst.mockResolvedValue({ id: 'emp-platform-1' });
+    const createRequest = (service as any).subscriptionRequests.createRequest;
+    createRequest.mockResolvedValue({
+      id: 'request-1',
+      status: 'PENDING',
+      clientTargetType: 'PLATFORM_EMPLOYEE',
+      employeeId: 'emp-platform-1',
+      employee: { id: 'emp-platform-1', name: '数据分析员工' },
+      subscriptionId: null,
+      requestedCapabilities: ['cap-1'],
+      createdAt: new Date('2026-09-29T08:30:00.000Z'),
+      updatedAt: new Date('2026-09-29T08:30:00.000Z'),
+    });
+
+    await expect(service.createEmployeeAccessRequest('user-1', {
+      targetType: 'PLATFORM_EMPLOYEE',
+      employeeId: 'emp-platform-1',
+      subscriptionId: null,
+      reason: '需要数据分析',
+      requestedCapabilities: ['cap-1'],
+    }, 'client-key-1')).resolves.toMatchObject({
+      requestId: 'request-1',
+      status: 'PENDING',
+      targetType: 'PLATFORM_EMPLOYEE',
+      employee: { employeeId: 'emp-platform-1' },
+    });
+    expect(createRequest).toHaveBeenCalledWith(
+      'user-1',
+      { employeeId: 'emp-platform-1', reason: '需要数据分析' },
+      expect.objectContaining({ targetType: 'PLATFORM_EMPLOYEE', idempotencyKey: 'client-key-1' }),
+    );
+  });
+
+  it('returns only the authenticated user own access request status', async () => {
+    const getClientRequest = (service as any).subscriptionRequests.getClientRequest;
+    getClientRequest.mockResolvedValue({
+      id: 'request-1',
+      status: 'CANCELED',
+      clientTargetType: 'ENTERPRISE_SUBSCRIPTION',
+      employeeId: 'emp-1',
+      employee: { id: 'emp-1', name: '员工' },
+      subscriptionId: 'sub-1',
+      requestedCapabilities: [],
+      createdAt: new Date('2026-09-29T08:30:00.000Z'),
+      updatedAt: new Date('2026-09-29T08:31:00.000Z'),
+    });
+    await expect(service.getEmployeeAccessRequest('user-1', 'request-1')).resolves.toMatchObject({
+      requestId: 'request-1',
+      status: 'CANCELLED',
+      targetType: 'ENTERPRISE_SUBSCRIPTION',
+    });
+    expect(getClientRequest).toHaveBeenCalledWith('user-1', 'request-1');
+  });
+
   it('refreshes an access token only for the matching active device', async () => {
     prisma.device.findUnique.mockResolvedValue({ userId: 'user-1', revokedAt: null });
     prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com', name: 'A', role: 'USER' });
