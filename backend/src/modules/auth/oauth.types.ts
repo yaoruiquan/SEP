@@ -1,4 +1,4 @@
-export type OAuthProviderId = 'wechat' | 'qq' | (string & {});
+export type OAuthProviderId = 'wechat' | 'qq' | 'dingtalk' | (string & {});
 export type OAuthProviderType = 'oauth2' | 'oidc' | 'wechat-qr';
 export type OAuthIntent = 'LOGIN' | 'LINK' | 'INVITATION';
 

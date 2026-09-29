@@ -41,7 +41,7 @@ const CATEGORY_ORDER = ['overview', 'platform', 'auth', 'ai', 'billing', 'paymen
 const CATEGORY_META: Record<string, { label: string; description: string; icon: typeof ShieldCheck }> = {
   overview: { label: '概览', description: '查看配置健康度与生效来源', icon: Sparkles },
   platform: { label: '平台信息', description: '品牌、客服与备案信息', icon: SlidersHorizontal },
-  auth: { label: '认证与安全', description: '邮件、微信、QQ 登录与登录风控', icon: ShieldCheck },
+  auth: { label: '认证与安全', description: '邮件、钉钉、微信、QQ 登录与登录风控', icon: ShieldCheck },
   ai: { label: 'AI 服务', description: '上游渠道、默认模型与响应策略', icon: Sparkles },
   billing: { label: '计费与额度', description: '汇率、单价与算力赠送规则', icon: Database },
   payments: { label: '支付与收款', description: '支付渠道和平台收款配置', icon: Database },
@@ -54,7 +54,7 @@ const CATEGORY_META: Record<string, { label: string; description: string; icon: 
 
 function categoryFor(setting: SettingView): string {
   if (setting.category) return setting.category;
-  if (/^(MAIL_|WECHAT_|QQ_|AUTH_|OAUTH_)/.test(setting.key)) return 'auth';
+  if (/^(MAIL_|WECHAT_|QQ_|DINGTALK_|AUTH_|OAUTH_)/.test(setting.key)) return 'auth';
   if (/^SUB2API_|MODEL_/.test(setting.key)) return 'ai';
   if (/PRICE|CNY|BALANCE|USD/.test(setting.key)) return 'billing';
   if (/ALIPAY|WECHAT_PAY|PAYMENT|PAY_/.test(setting.key)) return 'payments';
@@ -179,11 +179,13 @@ function AuthSettings({ fields, edits, setEdits }: { fields: SettingView[]; edit
   const mailFields = fields.filter((field) => field.key.startsWith('MAIL_'));
   const wechatFields = fields.filter((field) => field.key.startsWith('WECHAT_'));
   const qqFields = fields.filter((field) => field.key.startsWith('QQ_'));
+  const dingtalkFields = fields.filter((field) => field.key.startsWith('DINGTALK_'));
   const riskFields = fields.filter((field) => field.key.startsWith('AUTH_') || field.key.startsWith('OAUTH_'));
   const renderFields = (items: SettingView[]) => <div className="grid gap-x-6 gap-y-6 p-6 md:grid-cols-2">{items.map((setting) => <SettingField key={setting.key} setting={setting} value={edits[setting.key] ?? ''} onChange={(value) => setEdits((current) => ({ ...current, [setting.key]: value }))} />)}</div>;
   return <div className="space-y-5">
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Mail className="h-4 w-4 text-primary" />邮件与密码找回</CardTitle><CardDescription>密码重置、邮箱验证和安全通知依赖 SMTP。保存后可以直接测试连接和发送测试邮件。</CardDescription></CardHeader>{renderFields(mailFields)}<MailTesting /></Card>
-    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />微信与 QQ 登录</CardTitle><CardDescription>在这里填写并保存第三方平台配置。启用前请先在微信开放平台或 QQ 互联完成网站应用审核，并确保回调地址与平台后台完全一致。</CardDescription></CardHeader><div className="grid gap-5 p-6 md:grid-cols-2"><OAuthTesting provider="wechat" label="微信登录" fields={wechatFields} edits={edits} setEdits={setEdits} /><OAuthTesting provider="qq" label="QQ 登录" fields={qqFields} edits={edits} setEdits={setEdits} /></div></Card>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />钉钉主登录</CardTitle><CardDescription>钉钉是当前国内企业用户的主登录方式。请先在钉钉开放平台完成应用创建、回调地址配置和权限申请，再保存并检查配置。</CardDescription></CardHeader><div className="p-6"><OAuthTesting provider="dingtalk" label="钉钉登录" fields={dingtalkFields} edits={edits} setEdits={setEdits} /></div></Card>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />其他第三方登录</CardTitle><CardDescription>微信和 QQ 作为补充登录方式。启用前请先完成对应开放平台的网站应用审核，并确保回调地址与平台后台完全一致。</CardDescription></CardHeader><div className="grid gap-5 p-6 md:grid-cols-2"><OAuthTesting provider="wechat" label="微信登录" fields={wechatFields} edits={edits} setEdits={setEdits} /><OAuthTesting provider="qq" label="QQ 登录" fields={qqFields} edits={edits} setEdits={setEdits} /></div></Card>
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />登录风控与限流</CardTitle><CardDescription>用于降低撞库、暴力破解和 OAuth 回调滥用风险；窗口单位为秒，次数单位为窗口内允许次数。</CardDescription></CardHeader>{renderFields(riskFields)}</Card>
   </div>;
 }
@@ -233,7 +235,7 @@ function OAuthTesting({ provider, label, fields, edits, setEdits }: { provider: 
       toast.error(`${label}配置检查失败`, (error as Error).message);
     }
   };
-  return <div className="rounded-md border border-border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{label}</p><p className="mt-1 text-xs text-fg-muted">{enabled ? '当前已启用，建议检查完整配置' : '当前未启用；填写并保存后再开启'}</p></div><Button variant="outline" size="sm" onClick={run} loading={test.isPending} loadingText="检查中…"><FlaskConical className="h-4 w-4" />检查配置</Button></div><div className="mt-4 grid gap-4">{fields.map((setting) => <SettingField key={setting.key} setting={setting} value={edits[setting.key] ?? ''} onChange={(value) => onChange(setting, value)} />)}</div>{result && <div className="mt-4 space-y-2 border-t border-border pt-4 text-xs"><div className={result.valid ? 'text-success' : 'text-warning'}>{result.valid ? '✓' : '!' } {result.message}</div><div className="grid grid-cols-2 gap-2 text-fg-muted"><span>启用状态：{result.checks.enabled ? '通过' : '未启用'}</span><span>AppID：{result.checks.appId ? '已配置' : '缺失'}</span><span>密钥：{result.checks.secret ? '已配置' : '缺失'}</span><span>回调地址：{result.checks.redirectUri ? '通过' : '缺失或非 HTTPS'}</span></div></div>}</div>;
+  return <div className="rounded-md border border-border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{label}</p><p className="mt-1 text-xs text-fg-muted">{enabled ? '当前已启用，建议检查完整配置' : '当前未启用；填写并保存后再开启'}</p></div><Button variant="outline" size="sm" onClick={run} loading={test.isPending} loadingText="检查中…"><FlaskConical className="h-4 w-4" />检查配置</Button></div><div className="mt-4 grid gap-4">{fields.map((setting) => <SettingField key={setting.key} setting={setting} value={edits[setting.key] ?? ''} onChange={(value) => onChange(setting, value)} />)}</div>{result && <div className="mt-4 space-y-2 border-t border-border pt-4 text-xs"><div className={result.valid ? 'text-success' : 'text-warning'}>{result.valid ? '✓' : '!' } {result.message}</div><div className="grid grid-cols-2 gap-2 text-fg-muted"><span>启用状态：{result.checks.enabled ? '通过' : '未启用'}</span><span>{provider === 'dingtalk' ? 'Client ID' : 'AppID'}：{result.checks.appId ? '已配置' : '缺失'}</span><span>密钥：{result.checks.secret ? '已配置' : '缺失'}</span><span>回调地址：{result.checks.redirectUri ? '通过' : '缺失或非 HTTPS'}</span></div></div>}</div>;
 }
 
 function SettingField({ setting, value, onChange }: { setting: SettingView; value: string; onChange: (value: string) => void }) {

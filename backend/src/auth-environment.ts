@@ -39,13 +39,14 @@ export function validateAuthEnvironment(env: Record<string, string | undefined>)
 
   validateOAuthProvider(env, 'WECHAT', ['WECHAT_APP_ID', 'WECHAT_APP_SECRET', 'WECHAT_REDIRECT_URI']);
   validateOAuthProvider(env, 'QQ', ['QQ_APP_ID', 'QQ_APP_KEY', 'QQ_REDIRECT_URI']);
+  validateOAuthProvider(env, 'DINGTALK', ['DINGTALK_CLIENT_ID', 'DINGTALK_CLIENT_SECRET', 'DINGTALK_REDIRECT_URI']);
 
   return env;
 }
 
 function validateOAuthProvider(
   env: Record<string, string | undefined>,
-  provider: 'WECHAT' | 'QQ',
+  provider: 'WECHAT' | 'QQ' | 'DINGTALK',
   requiredKeys: readonly string[],
 ): void {
   if (env[`${provider}_OAUTH_ENABLED`] !== 'true') return;

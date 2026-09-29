@@ -51,7 +51,7 @@ function LoginForm() {
   // 原先这里有个 console.log 把整个 values（含明文密码）打进控制台，已移除
   const onSubmit = (values: FormValues) => login.mutate(values);
 
-  const startOAuth = async (provider: 'wechat' | 'qq') => {
+  const startOAuth = async (provider: 'wechat' | 'qq' | 'dingtalk') => {
     try {
       const data = await api.get<{ authorizationUrl: string }>(`/auth/oauth/${provider}/start`);
       window.location.assign(data.authorizationUrl);
@@ -104,7 +104,8 @@ function LoginForm() {
         <span>或使用以下方式登录</span>
         <span className="h-px flex-1 bg-border" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Button type="button" variant="outline" onClick={() => void startOAuth('dingtalk')}>钉钉登录</Button>
         <Button type="button" variant="outline" onClick={() => void startOAuth('wechat')}>微信登录</Button>
         <Button type="button" variant="outline" onClick={() => void startOAuth('qq')}>QQ 登录</Button>
       </div>

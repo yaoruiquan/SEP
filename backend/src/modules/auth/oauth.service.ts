@@ -16,11 +16,12 @@ import { OAuthStateService, ConsumedOAuthTransaction } from './oauth-state.servi
 import { NormalizedOAuthProfile, OAuthIntent, OAuthProviderAdapter, OAuthProviderId } from './oauth.types';
 import { WechatOAuthProvider } from './providers/wechat.provider';
 import { QqOAuthProvider } from './providers/qq.provider';
+import { DingtalkOAuthProvider } from './providers/dingtalk.provider';
 import { InvitationService } from '../enterprise/invitation.service';
 import { AuthEventService } from './auth-event.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
 import { SettingService } from '../setting/setting.service';
-import { SETTING_KEYS } from 'shared';
+import { SETTING_KEYS, type SettingKey } from 'shared';
 
 @Injectable()
 export class OAuthService {
@@ -37,10 +38,12 @@ export class OAuthService {
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
     @Optional() private readonly settings?: SettingService,
+    @Optional() dingtalk?: DingtalkOAuthProvider,
   ) {
     this.providers = new Map<string, OAuthProviderAdapter>();
     this.providers.set(wechat.id, wechat);
     this.providers.set(qq.id, qq);
+    if (dingtalk) this.providers.set(dingtalk.id, dingtalk);
   }
 
   private async provider(id: string): Promise<OAuthProviderAdapter> {
@@ -51,7 +54,12 @@ export class OAuthService {
   }
 
   private async redirectUri(provider: string): Promise<string> {
-    const key = provider === 'wechat' ? SETTING_KEYS.WECHAT_REDIRECT_URI : provider === 'qq' ? SETTING_KEYS.QQ_REDIRECT_URI : undefined;
+    const settingKeys: Record<string, SettingKey | undefined> = {
+      wechat: SETTING_KEYS.WECHAT_REDIRECT_URI,
+      qq: SETTING_KEYS.QQ_REDIRECT_URI,
+      dingtalk: SETTING_KEYS.DINGTALK_REDIRECT_URI,
+    };
+    const key = settingKeys[provider];
     const configured = key && this.settings
       ? await this.settings.getEffectiveValue(key)
       : this.config.get<string>(`${provider.toUpperCase()}_REDIRECT_URI`);

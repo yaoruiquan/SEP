@@ -25,7 +25,7 @@ export interface SettingView {
   configured: boolean;
 }
 
-export type OAuthConfigProvider = 'wechat' | 'qq';
+export type OAuthConfigProvider = 'wechat' | 'qq' | 'dingtalk';
 
 export interface OAuthConfigCheck {
   provider: OAuthConfigProvider;
@@ -118,19 +118,26 @@ export class SettingService {
   }
 
   async checkOAuthConfig(provider: OAuthConfigProvider): Promise<OAuthConfigCheck> {
-    const keys = provider === 'wechat'
-      ? {
-          enabled: SETTING_KEYS.WECHAT_OAUTH_ENABLED,
-          appId: SETTING_KEYS.WECHAT_APP_ID,
-          secret: SETTING_KEYS.WECHAT_APP_SECRET,
-          redirectUri: SETTING_KEYS.WECHAT_REDIRECT_URI,
-        }
-      : {
-          enabled: SETTING_KEYS.QQ_OAUTH_ENABLED,
-          appId: SETTING_KEYS.QQ_APP_ID,
-          secret: SETTING_KEYS.QQ_APP_KEY,
-          redirectUri: SETTING_KEYS.QQ_REDIRECT_URI,
-        };
+    const keys = {
+      wechat: {
+        enabled: SETTING_KEYS.WECHAT_OAUTH_ENABLED,
+        appId: SETTING_KEYS.WECHAT_APP_ID,
+        secret: SETTING_KEYS.WECHAT_APP_SECRET,
+        redirectUri: SETTING_KEYS.WECHAT_REDIRECT_URI,
+      },
+      qq: {
+        enabled: SETTING_KEYS.QQ_OAUTH_ENABLED,
+        appId: SETTING_KEYS.QQ_APP_ID,
+        secret: SETTING_KEYS.QQ_APP_KEY,
+        redirectUri: SETTING_KEYS.QQ_REDIRECT_URI,
+      },
+      dingtalk: {
+        enabled: SETTING_KEYS.DINGTALK_OAUTH_ENABLED,
+        appId: SETTING_KEYS.DINGTALK_CLIENT_ID,
+        secret: SETTING_KEYS.DINGTALK_CLIENT_SECRET,
+        redirectUri: SETTING_KEYS.DINGTALK_REDIRECT_URI,
+      },
+    }[provider];
     const [enabledRaw, appId, secret, redirectUri] = await Promise.all([
       this.getEffectiveValue(keys.enabled),
       this.getEffectiveValue(keys.appId),
@@ -149,7 +156,7 @@ export class SettingService {
       ? '尚未启用该登录方式'
       : valid
         ? '配置完整，可以进入真实 OAuth 联调'
-        : '配置不完整，请补齐 AppID、密钥和 HTTPS 回调地址';
+        : '配置不完整，请补齐 Client ID/AppID、密钥和 HTTPS 回调地址';
     return { provider, enabled: checks.enabled, configured, valid, checks, message };
   }
 
@@ -163,7 +170,7 @@ export class SettingService {
   }
 
   private inferCategory(key: string): string {
-    if (/^(MAIL_|WECHAT_|QQ_|AUTH_|OAUTH_)/.test(key)) return 'auth';
+    if (/^(MAIL_|WECHAT_|QQ_|DINGTALK_|AUTH_|OAUTH_)/.test(key)) return 'auth';
     if (/^(SUB2API_|MODEL_)/.test(key)) return 'ai';
     if (/PRICE|CNY|BALANCE|USD/.test(key)) return 'billing';
     if (/ENTERPRISE|WELCOME|MAX_CONCURRENT/.test(key)) return 'users';
@@ -192,7 +199,7 @@ export class SettingService {
     if (field.type === 'url') {
       let url: URL;
       try { url = new URL(value); } catch { throw new BadRequestException(`${field.label} 不是有效地址`); }
-      if ((field.key === 'WECHAT_REDIRECT_URI' || field.key === 'QQ_REDIRECT_URI') && url.protocol !== 'https:') {
+      if ((field.key === 'WECHAT_REDIRECT_URI' || field.key === 'QQ_REDIRECT_URI' || field.key === 'DINGTALK_REDIRECT_URI') && url.protocol !== 'https:') {
         throw new BadRequestException(`${field.label} 必须使用 HTTPS`);
       }
     }

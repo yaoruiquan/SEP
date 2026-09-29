@@ -7,12 +7,17 @@ import { SettingService } from '../setting/setting.service';
 import { JwtService } from '@nestjs/jwt';
 import { withEmployeeAvatar } from '../../common/employee-avatar';
 import { SessionService } from '../auth/session.service';
+import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-query.service';
+import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 
 describe('ClientService', () => {
   let service: ClientService;
   let prisma: any;
   let jwt: any;
   let sessions: any;
+  let allowanceQuery: any;
+  let personalWallet: any;
 
   beforeEach(async () => {
     prisma = {
@@ -23,8 +28,11 @@ describe('ClientService', () => {
       platformModel: { findMany: jest.fn() },
       enterpriseModelConfig: { findUnique: jest.fn() },
       subscription: { findFirst: jest.fn() },
+      digitalEmployee: { count: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
     };
     jwt = { sign: jest.fn().mockReturnValue('access-token'), verify: jest.fn() };
+    allowanceQuery = { getOne: jest.fn() };
+    personalWallet = { getView: jest.fn() };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
         sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
@@ -45,10 +53,16 @@ describe('ClientService', () => {
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
         { provide: SettingService, useValue: { getEffectiveValue: jest.fn() } },
         { provide: SessionService, useValue: sessions },
+        { provide: MemberAllowanceQueryService, useValue: allowanceQuery },
+        { provide: PersonalWalletService, useValue: personalWallet },
+        { provide: SubscriptionRequestService, useValue: { createRequest: jest.fn(), getClientRequest: jest.fn() } },
         {
           provide: EnterpriseContextService,
           useValue: {
             resolve: jest.fn().mockResolvedValue({
+              enterpriseId: 'ent-1', memberId: 'member-1', departmentId: 'dept-1', role: 'MEMBER',
+            }),
+            resolveOrNull: jest.fn().mockResolvedValue({
               enterpriseId: 'ent-1', memberId: 'member-1', departmentId: 'dept-1', role: 'MEMBER',
             }),
           },
@@ -72,6 +86,121 @@ describe('ClientService', () => {
       expect.objectContaining({ sub: 'user-1', type: 'access' }),
       expect.objectContaining({ expiresIn: 3600 }),
     );
+  });
+
+  it('aggregates enterprise allowance and personal wallet for the client', async () => {
+    const enterprise = {
+      userId: 'user-1',
+      limitCNY: '300.00',
+      usedCNY: '35.4200',
+      remainingCNY: '264.5800',
+      topUpRemainingCNY: '50.00',
+      totalRemainingCNY: '314.5800',
+      resetAt: '2026-10-01T00:00:00.000Z',
+    };
+    const personal = {
+      balanceCNY: '10.00',
+      totalDepositCNY: '20.00',
+      totalConsumeCNY: '10.00',
+    };
+    allowanceQuery.getOne.mockResolvedValue(enterprise);
+    personalWallet.getView.mockResolvedValue(personal);
+
+    await expect(service.getComputeBalance('user-1')).resolves.toEqual({
+      enterprise,
+      personal,
+    });
+    expect(allowanceQuery.getOne).toHaveBeenCalledWith('ent-1', 'user-1');
+    expect(personalWallet.getView).toHaveBeenCalledWith('user-1');
+  });
+
+  it('returns a personal wallet balance without enterprise allowance for an unaffiliated user', async () => {
+    const personal = {
+      balanceCNY: '0.00',
+      totalDepositCNY: '0.00',
+      totalConsumeCNY: '0.00',
+    };
+    personalWallet.getView.mockResolvedValue(personal);
+
+    const context = (service as any).enterpriseContext;
+    context.resolveOrNull.mockResolvedValueOnce(null);
+
+    await expect(service.getComputeBalance('user-2')).resolves.toEqual({
+      enterprise: null,
+      personal,
+    });
+    expect(allowanceQuery.getOne).not.toHaveBeenCalled();
+    expect(personalWallet.getView).toHaveBeenCalledWith('user-2');
+  });
+
+  it('returns the current user avatar and the server-resolved enterprise logo', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'a@example.com',
+      name: 'A',
+      avatar: '/api/users/avatars/user-avatar.webp',
+      role: 'USER',
+    });
+    prisma.enterpriseMember.findFirst.mockResolvedValue({
+      enterprise: {
+        id: 'ent-1',
+        name: 'Acme',
+        logo: '/api/enterprise/logos/acme-logo.png',
+      },
+    });
+
+    await expect(service.getProfile('user-1')).resolves.toEqual({
+      user: {
+        id: 'user-1',
+        email: 'a@example.com',
+        name: 'A',
+        avatar: '/api/users/avatars/user-avatar.webp',
+        role: 'USER',
+      },
+      enterprise: {
+        id: 'ent-1',
+        name: 'Acme',
+        logo: '/api/enterprise/logos/acme-logo.png',
+      },
+    });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: { id: true, email: true, name: true, avatar: true, role: true },
+    });
+    expect(prisma.enterpriseMember.findFirst).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      orderBy: { createdAt: 'asc' },
+      select: { enterprise: { select: { id: true, name: true, logo: true } } },
+    });
+  });
+
+  it('returns null enterprise and nullable image fields for users without branding', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-2',
+      email: 'b@example.com',
+      name: null,
+      avatar: null,
+      role: 'USER',
+    });
+    prisma.enterpriseMember.findFirst.mockResolvedValue(null);
+
+    await expect(service.getProfile('user-2')).resolves.toEqual({
+      user: {
+        id: 'user-2',
+        email: 'b@example.com',
+        name: null,
+        avatar: null,
+        role: 'USER',
+      },
+      enterprise: null,
+    });
+  });
+
+  it('rejects a profile lookup when the authenticated user no longer exists', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.enterpriseMember.findFirst.mockResolvedValue(null);
+
+    await expect(service.getProfile('deleted-user')).rejects.toThrow('User not found');
   });
 
   it('lists only authorized subscriptions, deduplicates grants, and returns effective models', async () => {

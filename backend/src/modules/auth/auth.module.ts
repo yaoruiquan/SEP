@@ -14,6 +14,7 @@ import { OAuthService } from './oauth.service';
 import { OAuthStateService } from './oauth-state.service';
 import { WechatOAuthProvider } from './providers/wechat.provider';
 import { QqOAuthProvider } from './providers/qq.provider';
+import { DingtalkOAuthProvider } from './providers/dingtalk.provider';
 import { AuthEventService } from './auth-event.service';
 import { AuthRiskService } from './auth-risk.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
@@ -34,7 +35,7 @@ import { SettingModule } from '../setting/setting.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider],
+  providers: [AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider, DingtalkOAuthProvider],
   exports: [AuthService, SessionService, OAuthService, AuthEventService, AuthRiskService, AuthRateLimitService],
 })
 export class AuthModule {}

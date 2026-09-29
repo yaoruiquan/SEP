@@ -15,6 +15,7 @@ const baseProductionEnv = (): Record<string, string | undefined> => ({
   MAIL_FROM: 'no-reply@example.com',
   WECHAT_OAUTH_ENABLED: 'false',
   QQ_OAUTH_ENABLED: 'false',
+  DINGTALK_OAUTH_ENABLED: 'false',
 });
 
 describe('validateAuthEnvironment', () => {
@@ -48,5 +49,12 @@ describe('validateAuthEnvironment', () => {
       QQ_APP_KEY: 'qq-key',
       QQ_REDIRECT_URI: 'http://app.example.com/api/auth/oauth/qq/callback',
     })).toThrow('QQ_REDIRECT_URI');
+    expect(() => validateAuthEnvironment({
+      ...baseProductionEnv(),
+      DINGTALK_OAUTH_ENABLED: 'true',
+      DINGTALK_CLIENT_ID: 'client-id',
+      DINGTALK_CLIENT_SECRET: 'client-secret',
+      DINGTALK_REDIRECT_URI: 'http://app.example.com/api/auth/oauth/dingtalk/callback',
+    })).toThrow('DINGTALK_REDIRECT_URI');
   });
 });

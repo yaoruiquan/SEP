@@ -227,7 +227,7 @@ function RegisterByInvitationForm({
   token: string;
 }) {
   const mutation = useRegisterByInvitation();
-  const [oauthProvider, setOauthProvider] = useState<'wechat' | 'qq' | null>(null);
+  const [oauthProvider, setOauthProvider] = useState<'wechat' | 'qq' | 'dingtalk' | null>(null);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const {
     register,
@@ -235,7 +235,7 @@ function RegisterByInvitationForm({
     formState: { errors },
   } = useForm<JoinValues>({ resolver: zodResolver(joinSchema) });
 
-  const startInvitationOAuth = async (provider: 'wechat' | 'qq') => {
+  const startInvitationOAuth = async (provider: 'wechat' | 'qq' | 'dingtalk') => {
     setOauthProvider(provider);
     setOauthError(null);
     try {
@@ -326,7 +326,16 @@ function RegisterByInvitationForm({
         <span>或使用第三方账号加入</span>
         <span className="h-px flex-1 bg-border" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={mutation.isPending || Boolean(oauthProvider)}
+          onClick={() => void startInvitationOAuth('dingtalk')}
+        >
+          {oauthProvider === 'dingtalk' && <Spinner />}
+          钉钉加入
+        </Button>
         <Button
           type="button"
           variant="outline"

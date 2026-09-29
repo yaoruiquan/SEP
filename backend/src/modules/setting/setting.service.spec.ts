@@ -46,6 +46,7 @@ describe('SettingService', () => {
     await expect(service.updateMany({ [SETTING_KEYS.MAIL_ENABLED]: 'yes' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ [SETTING_KEYS.AUTH_MAX_FAILED_ATTEMPTS]: '2' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ [SETTING_KEYS.WECHAT_REDIRECT_URI]: 'http://localhost/callback' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMany({ [SETTING_KEYS.DINGTALK_REDIRECT_URI]: 'http://localhost/callback' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ UNKNOWN_SETTING: 'x' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -66,6 +67,24 @@ describe('SettingService', () => {
       checks: { enabled: true, appId: true, secret: true, redirectUri: true },
       message: '配置完整，可以进入真实 OAuth 联调',
     });
+  });
+
+  it('checks DingTalk configuration using Client ID and encrypted Client Secret metadata', async () => {
+    const { service, prisma, config } = fixture();
+    config.get.mockImplementation((key: string) => ({
+      DINGTALK_OAUTH_ENABLED: 'true',
+      DINGTALK_CLIENT_ID: 'client-id',
+      DINGTALK_CLIENT_SECRET: 'client-secret',
+      DINGTALK_REDIRECT_URI: 'https://api.example.com/auth/oauth/dingtalk/callback',
+    } as Record<string, string>)[key]);
+    prisma.systemSetting.findUnique.mockResolvedValue(null);
+    await expect(service.checkOAuthConfig('dingtalk')).resolves.toEqual(expect.objectContaining({
+      provider: 'dingtalk',
+      enabled: true,
+      configured: true,
+      valid: true,
+      checks: { enabled: true, appId: true, secret: true, redirectUri: true },
+    }));
   });
 
   it('deletes an override when an empty value is submitted', async () => {

@@ -6,6 +6,10 @@ import { ClientService } from './client.service';
 import { SettingModule } from '../setting/setting.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { ComputeCreditModule } from '../compute-credit/compute-credit.module';
+import { PersonalWalletModule } from '../personal-wallet/personal-wallet.module';
+import { DigitalEmployeeModule } from '../digital-employee/digital-employee.module';
+import { SubscriptionRequestModule } from '../subscription-request/subscription-request.module';
 
 @Module({
   imports: [
@@ -19,6 +23,10 @@ import { AuthModule } from '../auth/auth.module';
     SettingModule,
     PrismaModule,
     AuthModule,
+    ComputeCreditModule,
+    PersonalWalletModule,
+    DigitalEmployeeModule,
+    SubscriptionRequestModule,
   ],
   controllers: [ClientController],
   providers: [ClientService],

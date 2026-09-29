@@ -26,6 +26,7 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
+  dingtalk: '钉钉',
   wechat: '微信',
   qq: 'QQ',
   password: '密码',

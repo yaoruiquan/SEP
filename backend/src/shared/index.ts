@@ -107,6 +107,11 @@ export const SETTING_KEYS = {
   MAIL_FROM: "MAIL_FROM",
   MAIL_FROM_NAME: "MAIL_FROM_NAME",
   WECHAT_OAUTH_ENABLED: "WECHAT_OAUTH_ENABLED",
+  DINGTALK_OAUTH_ENABLED: "DINGTALK_OAUTH_ENABLED",
+  DINGTALK_CLIENT_ID: "DINGTALK_CLIENT_ID",
+  DINGTALK_CLIENT_SECRET: "DINGTALK_CLIENT_SECRET",
+  DINGTALK_REDIRECT_URI: "DINGTALK_REDIRECT_URI",
+  DINGTALK_SCOPE: "DINGTALK_SCOPE",
   WECHAT_APP_ID: "WECHAT_APP_ID",
   WECHAT_APP_SECRET: "WECHAT_APP_SECRET",
   WECHAT_REDIRECT_URI: "WECHAT_REDIRECT_URI",
@@ -147,6 +152,7 @@ export const SECRET_SETTING_KEYS: readonly SettingKey[] = [
   SETTING_KEYS.ALIPAY_PRIVATE_KEY,
   SETTING_KEYS.MAIL_PASSWORD,
   SETTING_KEYS.WECHAT_APP_SECRET,
+  SETTING_KEYS.DINGTALK_CLIENT_SECRET,
   SETTING_KEYS.QQ_APP_KEY,
 ];
 
@@ -506,6 +512,11 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
   { key: SETTING_KEYS.MAIL_FROM, label: "发件邮箱", secret: false, envFallback: "MAIL_FROM", placeholder: "no-reply@example.com", category: "auth", type: "email", testable: true },
   { key: SETTING_KEYS.MAIL_FROM_NAME, label: "发件人名称", secret: false, envFallback: "MAIL_FROM_NAME", placeholder: "硅基人才平台", category: "auth", type: "string", testable: true },
   { key: SETTING_KEYS.WECHAT_OAUTH_ENABLED, label: "启用微信登录", secret: false, envFallback: "WECHAT_OAUTH_ENABLED", placeholder: "false", category: "auth", description: "微信开放平台网站应用登录。", type: "boolean", defaultValue: "false", testable: true },
+  { key: SETTING_KEYS.DINGTALK_OAUTH_ENABLED, label: "启用钉钉登录", secret: false, envFallback: "DINGTALK_OAUTH_ENABLED", placeholder: "false", category: "auth", description: "钉钉 OAuth 2.0 Web 登录；建议作为国内企业用户主登录方式。", type: "boolean", defaultValue: "false", testable: true },
+  { key: SETTING_KEYS.DINGTALK_CLIENT_ID, label: "钉钉 Client ID", secret: false, envFallback: "DINGTALK_CLIENT_ID", placeholder: "请输入 Client ID（企业内部应用通常为 AppKey）", category: "auth", type: "string", testable: true },
+  { key: SETTING_KEYS.DINGTALK_CLIENT_SECRET, label: "钉钉 Client Secret", secret: true, envFallback: "DINGTALK_CLIENT_SECRET", placeholder: "请输入 Client Secret（企业内部应用通常为 AppSecret）", category: "auth", type: "string", testable: true },
+  { key: SETTING_KEYS.DINGTALK_REDIRECT_URI, label: "钉钉回调地址", secret: false, envFallback: "DINGTALK_REDIRECT_URI", placeholder: "https://api.example.com/auth/oauth/dingtalk/callback", category: "auth", description: "必须与钉钉开放平台应用配置完全一致，并使用 HTTPS。", type: "url", testable: true },
+  { key: SETTING_KEYS.DINGTALK_SCOPE, label: "钉钉授权范围", secret: false, envFallback: "DINGTALK_SCOPE", placeholder: "openid", category: "auth", description: "默认使用 openid；只有确认应用已申请对应权限时才增加 scope。", type: "string", defaultValue: "openid", testable: true },
   { key: SETTING_KEYS.WECHAT_APP_ID, label: "微信 AppID", secret: false, envFallback: "WECHAT_APP_ID", placeholder: "wx...", category: "auth", type: "string", testable: true },
   { key: SETTING_KEYS.WECHAT_APP_SECRET, label: "微信 AppSecret", secret: true, envFallback: "WECHAT_APP_SECRET", placeholder: "请输入 AppSecret", category: "auth", type: "string", testable: true },
   { key: SETTING_KEYS.WECHAT_REDIRECT_URI, label: "微信回调地址", secret: false, envFallback: "WECHAT_REDIRECT_URI", placeholder: "https://api.example.com/auth/oauth/wechat/callback", category: "auth", description: "必须与微信开放平台后台配置完全一致，并使用 HTTPS。", type: "url", testable: true },
@@ -1919,3 +1930,5 @@ export const CostAlertSchema = z.object({
   acknowledged: z.boolean(),
 });
 export type CostAlert = z.infer<typeof CostAlertSchema>;
+
+export * from './client-employee.dto';

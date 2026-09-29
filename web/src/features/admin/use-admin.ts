@@ -374,7 +374,7 @@ export function useSendTestMail() {
   });
 }
 
-export type OAuthProviderName = 'wechat' | 'qq';
+export type OAuthProviderName = 'wechat' | 'qq' | 'dingtalk';
 
 export interface OAuthConfigCheckResult {
   provider: OAuthProviderName;

@@ -67,7 +67,37 @@ Content-Type: application/json
 
 成员接口基于当前登录身份确定数据范围；不需要、也不应传入 `userId` 来指定查看对象。
 
-### 3.1 我的企业算力额度
+### 3.1 客户端一站式算力余额
+
+桌面客户端优先使用以下聚合接口，避免分别维护两次请求：
+
+```http
+GET /client/compute-balance
+```
+
+响应示例：
+
+```json
+{
+  "enterprise": {
+    "limitCNY": "300.00",
+    "usedCNY": "35.4200",
+    "remainingCNY": "264.5800",
+    "topUpRemainingCNY": "50.00",
+    "totalRemainingCNY": "314.5800",
+    "resetAt": "2026-10-01T00:00:00.000Z"
+  },
+  "personal": {
+    "balanceCNY": "10.00",
+    "totalDepositCNY": "20.00",
+    "totalConsumeCNY": "10.00"
+  }
+}
+```
+
+`enterprise` 是企业为当前成员承担的本周期额度，`personal` 是用户自费钱包；两者是不同账本，客户端应分别展示。无企业归属的账号返回 `enterprise: null`，但仍返回个人钱包对象。服务端不返回一个未经产品定义的简单相加值，避免把「可用额度」误解为单一钱包余额。
+
+### 3.2 我的企业算力额度
 
 ```http
 GET /compute-credit/my-allowance
@@ -126,7 +156,7 @@ GET /compute-credit/my-allowance
 
 > `totalRemainingCNY` 只表示常规周期额度剩余，不包含 `topUpRemainingCNY`；追加余额跨周期保留，但仍受成员当日/当月（或配置周期）企业承担上限约束，不能用于绕过额度上限。企业资金余额、成员周期额度和个人钱包是不同概念；实际能否继续对话由扣费闸门判定。
 
-### 3.2 我的个人钱包
+### 3.3 我的个人钱包
 
 ```http
 GET /personal-wallet
@@ -148,7 +178,7 @@ GET /personal-wallet
 
 成员端额度页面建议同时请求 `my-allowance` 与 `personal-wallet`：前者展示公司本周期愿意承担的额度，后者展示成员自己的钱。
 
-### 3.3 个人钱包流水
+### 3.4 个人钱包流水
 
 ```http
 GET /personal-wallet/transactions?page=1&pageSize=20
@@ -181,7 +211,7 @@ GET /personal-wallet/transactions?page=1&pageSize=20
 
 `amountCNY` 正数表示入账，负数表示出账；金额可能保留到 4 位小数，不应在解析或展示前截断成整数分。
 
-### 3.4 算力用量账单
+### 3.5 算力用量账单
 
 ```http
 GET /compute-credit/usage-records?page=1&pageSize=20&startDate=2026-09-01&endDate=2026-09-23
@@ -191,7 +221,7 @@ GET /compute-credit/usage-records?page=1&pageSize=20&startDate=2026-09-01&endDat
 
 响应为分页对象：`total`、`page`、`pageSize`、`totalPages`、`records`。账单包含模型/员工、Token 用量及人民币成本和各扣费来源，例如 `costCNY`、`creditPaidCNY`、`memberWalletPaidCNY`、`walletPaidCNY`、`personalPaidCNY`、`unpaidCNY`。金额字段为元的字符串。
 
-### 3.5 用量分析
+### 3.6 用量分析
 
 ```http
 GET /compute-credit/usage-breakdown?days=7

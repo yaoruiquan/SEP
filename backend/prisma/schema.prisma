@@ -1183,6 +1183,14 @@ model SubscriptionRequest {
   /// GRANT=企业已订阅（审批通过后仅授权，免费）。由后端按当时订阅状态自动判定。
   kind SubscriptionRequestKind @default(SUBSCRIBE)
 
+  /// 客户端统一申请接口的目标类型。历史申请为空。
+  clientTargetType       String?
+  /// 客户端请求的能力摘要 ID 快照，不保存 Skill 正文。
+  requestedCapabilities  Json?
+  /// 客户端幂等键及请求指纹。普通 Web 申请不使用这两个字段。
+  clientIdempotencyKey   String? @unique
+  clientRequestFingerprint String?
+
   status RequestStatus @default(PENDING)
 
   /// 审批人（企业管理员或平台管理员）

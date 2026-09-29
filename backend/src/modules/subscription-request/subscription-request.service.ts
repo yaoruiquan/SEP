@@ -31,8 +31,33 @@ export class SubscriptionRequestService {
   async createRequest(
     userId: string,
     dto: CreateSubscriptionRequestDto,
+    clientOptions: {
+      targetType?: 'ENTERPRISE_SUBSCRIPTION' | 'PLATFORM_EMPLOYEE';
+      requestedCapabilities?: string[];
+      idempotencyKey?: string;
+      requestFingerprint?: string;
+    } = {},
   ) {
     const ctx = await this.enterpriseContext.resolve(userId);
+
+    if (clientOptions.idempotencyKey) {
+      const existing = await this.prisma.subscriptionRequest.findUnique({
+        where: { clientIdempotencyKey: clientOptions.idempotencyKey },
+        include: {
+          employee: { select: { id: true, name: true, avatar: true } },
+          requester: { select: { id: true, userId: true, role: true } },
+        },
+      });
+      if (existing) {
+        if (
+          existing.requesterId !== ctx.memberId ||
+          existing.clientRequestFingerprint !== clientOptions.requestFingerprint
+        ) {
+          throw new ConflictException('Idempotency-Key 已被其他请求使用');
+        }
+        return existing;
+      }
+    }
 
     // 检查员工是否存在
     const employee = await this.prisma.digitalEmployee.findUnique({
@@ -116,6 +141,10 @@ export class SubscriptionRequestService {
         requestedDays: dto.requestedDays,
         kind,
         status: RequestStatus.PENDING,
+        clientTargetType: clientOptions.targetType,
+        requestedCapabilities: clientOptions.requestedCapabilities ?? undefined,
+        clientIdempotencyKey: clientOptions.idempotencyKey,
+        clientRequestFingerprint: clientOptions.requestFingerprint,
       },
       include: {
         employee: { select: { id: true, name: true, avatar: true } },
@@ -360,6 +389,23 @@ export class SubscriptionRequestService {
         employee: { select: { id: true, name: true, avatar: true } },
       },
     });
+  }
+
+  /** 查询客户端申请详情，并强制限制为当前用户自己的申请。 */
+  async getClientRequest(userId: string, requestId: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const request = await this.prisma.subscriptionRequest.findFirst({
+      where: {
+        id: requestId,
+        enterpriseId: ctx.enterpriseId,
+        requesterId: ctx.memberId,
+      },
+      include: {
+        employee: { select: { id: true, name: true, avatar: true } },
+      },
+    });
+    if (!request) throw new NotFoundException('申请不存在');
+    return request;
   }
 
   /**

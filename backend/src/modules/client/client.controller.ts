@@ -9,6 +9,9 @@ import {
   Param,
   Patch,
   UseGuards,
+  BadRequestException,
+  Query,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -35,6 +38,10 @@ import {
   ClientTaskHeartbeatDtoSchema,
   ClientTaskEventDto,
   ClientTaskEventDtoSchema,
+  ClientPlatformEmployeeQuery,
+  ClientPlatformEmployeeQuerySchema,
+  ClientEmployeeAccessRequest,
+  ClientEmployeeAccessRequestSchema,
 } from 'shared';
 
 @ApiTags('Client')
@@ -66,6 +73,78 @@ export class ClientController {
       ipAddress: req.ip,
       userAgent: req.get('user-agent') ?? undefined,
     });
+  }
+
+  @Get('platform-employees')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询平台公开员工目录' })
+  @ApiResponse({ status: 200, description: '返回已上架且可申请的平台员工能力摘要' })
+  async listPlatformEmployees(
+    @Query(new ZodValidationPipe(ClientPlatformEmployeeQuerySchema)) query: ClientPlatformEmployeeQuery,
+  ) {
+    return this.clientService.listPlatformEmployees(query);
+  }
+
+  @Post('employee-access-requests')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '提交员工授权/使用申请' })
+  @ApiResponse({ status: 201, description: '申请提交成功' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 409, description: '幂等键冲突或存在未结束的重复申请' })
+  async createEmployeeAccessRequest(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body(new ZodValidationPipe(ClientEmployeeAccessRequestSchema)) body: ClientEmployeeAccessRequest,
+  ) {
+    if (!idempotencyKey?.trim()) {
+      throw new BadRequestException('缺少 Idempotency-Key 请求头');
+    }
+    return this.clientService.createEmployeeAccessRequest(req.user.id, body, idempotencyKey.trim());
+  }
+
+  @Get('employee-access-requests/:requestId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询当前用户的员工申请状态' })
+  @ApiResponse({ status: 200, description: '申请状态' })
+  @ApiResponse({ status: 404, description: '申请不存在或无权查看' })
+  async getEmployeeAccessRequest(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('requestId') requestId: string,
+  ) {
+    return this.clientService.getEmployeeAccessRequest(req.user.id, requestId);
+  }
+
+  @Get('compute-balance')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '获取客户端当前用户的算力余额',
+    description:
+      '一次返回企业承担的本周期个人额度和用户个人钱包余额。' +
+      '两部分账本口径不同，客户端应分别展示，不要直接把企业额度当作个人钱包余额。',
+  })
+  @ApiResponse({ status: 200, description: '企业额度与个人钱包余额' })
+  @ApiResponse({ status: 401, description: '未认证或 access token 已失效' })
+  async getComputeBalance(@Request() req: ExpressRequest & { user: { id: string } }) {
+    return this.clientService.getComputeBalance(req.user.id);
+  }
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '获取客户端当前用户与企业展示资料',
+    description:
+      '返回当前账号的头像和所属企业 Logo。图片字段是稳定的 API 路径；' +
+      '无头像或无企业归属时返回 null。',
+  })
+  @ApiResponse({ status: 200, description: '当前用户与企业展示资料' })
+  @ApiResponse({ status: 401, description: '未认证或 access token 已失效' })
+  async getProfile(@Request() req: ExpressRequest & { user: { id: string } }) {
+    return this.clientService.getProfile(req.user.id);
   }
 
   @Post('auth/refresh')

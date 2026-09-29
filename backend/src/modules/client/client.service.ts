@@ -19,6 +19,10 @@ import { AuthRiskService, LoginAuditContext } from '../auth/auth-risk.service';
 import { AuthEventService } from '../auth/auth-event.service';
 import { AuthRateLimitService } from '../auth/auth-rate-limit.service';
 import { MailService } from '../mail/mail.service';
+import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-query.service';
+import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
+import { createHash } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import {
   ClientLoginDto,
@@ -29,6 +33,9 @@ import {
   UpdateClientTaskMirrorStatusDto,
   ClientTaskHeartbeatDto,
   ClientTaskEventDto,
+  ClientPlatformEmployeeQuery,
+  ClientEmployeeAccessRequest,
+  ClientPlatformEmployeeListResponse,
 } from 'shared';
 
 const CLIENT_ACCESS_EXPIRES_IN = 60 * 60;
@@ -41,12 +48,14 @@ export interface ClientAuthResponse {
   user: {
     id: string;
     email: string;
-    name: string;
+    name: string | null;
+    avatar: string | null;
     role: string;
   };
   enterprise: {
     id: string;
     name: string;
+    logo: string | null;
   } | null;
   devices: Array<{
     id: string;
@@ -54,6 +63,26 @@ export interface ClientAuthResponse {
     platform: string;
     lastSeenAt: Date;
   }>;
+}
+
+export interface ClientComputeBalanceResponse {
+  enterprise: Awaited<ReturnType<MemberAllowanceQueryService['getOne']>> | null;
+  personal: Awaited<ReturnType<PersonalWalletService['getView']>>;
+}
+
+export interface ClientProfileResponse {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    avatar: string | null;
+    role: string;
+  };
+  enterprise: {
+    id: string;
+    name: string;
+    logo: string | null;
+  } | null;
 }
 
 export interface ClientEmploymentTokenResponse {
@@ -99,6 +128,9 @@ export class ClientService {
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly sessions: SessionService,
+    private readonly allowanceQuery: MemberAllowanceQueryService,
+    private readonly personalWallet: PersonalWalletService,
+    private readonly subscriptionRequests: SubscriptionRequestService,
     @Optional() private readonly risk?: AuthRiskService,
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
@@ -224,7 +256,7 @@ export class ClientService {
       where: { userId: user.id },
       orderBy: { createdAt: 'asc' },
       select: {
-        enterprise: { select: { id: true, name: true } },
+        enterprise: { select: { id: true, name: true, logo: true } },
       },
     });
 
@@ -249,10 +281,238 @@ export class ClientService {
         id: user.id,
         email: user.email,
         name: user.name,
+        avatar: user.avatar,
         role: user.role,
       },
       enterprise: membership?.enterprise || null,
       devices,
+    };
+  }
+
+  /**
+   * 获取桌面客户端当前账号的展示资料。
+   *
+   * 客户端登录返回的 access token 与 Web 共用 JwtAuthGuard，因此该接口
+   * 只接受 access token，不接受 refresh token；企业归属始终由服务端
+   * 根据 userId 解析，不接受客户端传入 enterpriseId。
+   */
+  async listPlatformEmployees(
+    query: ClientPlatformEmployeeQuery,
+  ): Promise<ClientPlatformEmployeeListResponse> {
+    const keyword = query.keyword?.trim();
+    const where: any = {
+      status: 'APPROVED',
+      ...(query.functionalCategory
+        ? { functionalCategory: query.functionalCategory }
+        : {}),
+      ...(query.capabilityId
+        ? {
+            bindings: {
+              some: {
+                capabilityId: query.capabilityId,
+                capability: { status: 'APPROVED' },
+              },
+            },
+          }
+        : {}),
+      ...(keyword
+        ? {
+            OR: [
+              { name: { contains: keyword, mode: 'insensitive' } },
+              { description: { contains: keyword, mode: 'insensitive' } },
+              { position: { contains: keyword, mode: 'insensitive' } },
+              { industry: { contains: keyword, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const orderBy =
+      query.sort === 'name_asc'
+        ? { name: 'asc' as const }
+        : query.sort === 'createdAt_desc'
+          ? { createdAt: 'desc' as const }
+          : { updatedAt: 'desc' as const };
+
+    const [total, employees] = await Promise.all([
+      this.prisma.digitalEmployee.count({ where }),
+      this.prisma.digitalEmployee.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          name: true,
+          avatar: true,
+          avatarStyle: true,
+          avatarBindings: true,
+          position: true,
+          description: true,
+          functionalCategory: true,
+          status: true,
+          updatedAt: true,
+          bindings: {
+            where: { capability: { status: 'APPROVED' } },
+            orderBy: { priority: 'asc' },
+            select: {
+              capability: {
+                select: { id: true, name: true, description: true, type: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: employees.map((employee) => ({
+        employeeId: employee.id,
+        name: employee.name,
+        avatar: withEmployeeAvatar(employee).avatarAsset?.portraitUrl ?? employee.avatar,
+        avatarAsset: withEmployeeAvatar(employee).avatarAsset,
+        position: employee.position,
+        description: employee.description,
+        functionalCategory: employee.functionalCategory,
+        employeeStatus: employee.status,
+        availability: 'AVAILABLE' as const,
+        canApply: true,
+        capabilities: employee.bindings.map(({ capability }) => capability),
+        updatedAt: employee.updatedAt.toISOString(),
+      })),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      hasNextPage: query.page * query.pageSize < total,
+    };
+  }
+
+  async createEmployeeAccessRequest(
+    userId: string,
+    dto: ClientEmployeeAccessRequest,
+    idempotencyKey: string,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    let employeeId = dto.employeeId ?? null;
+    let requestedSubscriptionId = dto.subscriptionId ?? null;
+
+    if (dto.targetType === 'ENTERPRISE_SUBSCRIPTION') {
+      const subscription = await this.prisma.subscription.findFirst({
+        where: { id: dto.subscriptionId!, enterpriseId: ctx.enterpriseId },
+        select: { id: true, employeeId: true, status: true },
+      });
+      if (!subscription) throw new NotFoundException('企业订阅不存在');
+      if (subscription.status !== 'ACTIVE') {
+        throw new BadRequestException('企业订阅当前不可申请使用');
+      }
+      employeeId = subscription.employeeId;
+      requestedSubscriptionId = subscription.id;
+    } else {
+      const employee = await this.prisma.digitalEmployee.findFirst({
+        where: { id: dto.employeeId!, status: 'APPROVED' },
+        select: { id: true },
+      });
+      if (!employee) throw new NotFoundException('平台员工不存在或未上架');
+    }
+
+    const requestFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          targetType: dto.targetType,
+          subscriptionId: requestedSubscriptionId,
+          employeeId,
+          reason: dto.reason,
+          requestedCapabilities: dto.requestedCapabilities,
+        }),
+      )
+      .digest('hex');
+
+    const request = await this.subscriptionRequests.createRequest(
+      userId,
+      { employeeId: employeeId!, reason: dto.reason },
+      {
+        targetType: dto.targetType,
+        requestedCapabilities: dto.requestedCapabilities,
+        idempotencyKey,
+        requestFingerprint,
+      },
+    );
+    return this.toClientAccessRequestResponse(request, dto.targetType, requestedSubscriptionId, dto.requestedCapabilities);
+  }
+
+  async getEmployeeAccessRequest(userId: string, requestId: string) {
+    const request = await this.subscriptionRequests.getClientRequest(userId, requestId);
+    return this.toClientAccessRequestResponse(
+      request,
+      request.clientTargetType === 'PLATFORM_EMPLOYEE' ? 'PLATFORM_EMPLOYEE' : 'ENTERPRISE_SUBSCRIPTION',
+      request.subscriptionId,
+      Array.isArray(request.requestedCapabilities) ? request.requestedCapabilities as string[] : [],
+    );
+  }
+
+  private toClientAccessRequestResponse(
+    request: any,
+    targetType: 'ENTERPRISE_SUBSCRIPTION' | 'PLATFORM_EMPLOYEE',
+    requestedSubscriptionId: string | null,
+    requestedCapabilities: string[],
+  ) {
+    const status = request.status === 'CANCELED' ? 'CANCELLED' : request.status;
+    const message =
+      status === 'APPROVED'
+        ? '申请已通过，请重新查询订阅列表'
+        : status === 'REJECTED'
+          ? request.reviewNote ?? '申请已被拒绝'
+          : status === 'CANCELLED'
+            ? '申请已取消'
+            : '申请已提交，等待企业管理员处理';
+    return {
+      requestId: request.id,
+      status,
+      targetType,
+      employee: {
+        employeeId: request.employee?.id ?? request.employeeId,
+        subscriptionId: request.subscriptionId ?? requestedSubscriptionId,
+        name: request.employee?.name ?? request.employeeName ?? '',
+      },
+      requestedCapabilities,
+      createdAt: request.createdAt.toISOString(),
+      updatedAt: request.updatedAt.toISOString(),
+      message,
+      ...(request.reviewNote ? { reviewNote: request.reviewNote } : {}),
+    };
+  }
+
+  async getComputeBalance(userId: string): Promise<ClientComputeBalanceResponse> {
+    const [enterpriseContext, personal] = await Promise.all([
+      this.enterpriseContext.resolveOrNull(userId),
+      this.personalWallet.getView(userId),
+    ]);
+
+    return {
+      enterprise: enterpriseContext
+        ? await this.allowanceQuery.getOne(enterpriseContext.enterpriseId, userId)
+        : null,
+      personal,
+    };
+  }
+
+  async getProfile(userId: string): Promise<ClientProfileResponse> {
+    const [user, membership] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, name: true, avatar: true, role: true },
+      }),
+      this.prisma.enterpriseMember.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { enterprise: { select: { id: true, name: true, logo: true } } },
+      }),
+    ]);
+
+    if (!user) throw new UnauthorizedException('User not found');
+
+    return {
+      user,
+      enterprise: membership?.enterprise ?? null,
     };
   }
 
@@ -276,14 +536,14 @@ export class ClientService {
     if (!user) throw new UnauthorizedException('User not found');
     const membership = await this.prisma.enterpriseMember.findFirst({
       where: { userId: user.id }, orderBy: { createdAt: 'asc' },
-      select: { enterprise: { select: { id: true, name: true } } },
+      select: { enterprise: { select: { id: true, name: true, logo: true } } },
     });
     return {
       accessToken: this.signAccessToken(user, rotated.sessionId),
       refreshToken: rotated.refreshToken,
       accessTokenExpiresIn: CLIENT_ACCESS_EXPIRES_IN,
       refreshTokenExpiresIn: this.sessions.getRefreshTtlSeconds('DESKTOP'),
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, role: user.role },
       enterprise: membership?.enterprise ?? null,
     };
   }

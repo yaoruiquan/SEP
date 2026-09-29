@@ -332,7 +332,7 @@ export function useConfirmEmailChange() {
 
 export interface OAuthIdentity {
   id: string;
-  provider: 'wechat' | 'qq' | string;
+  provider: 'wechat' | 'qq' | 'dingtalk' | string;
   providerAccountId: string;
   providerEmail: string | null;
   createdAt: string;
@@ -349,7 +349,7 @@ export function useOAuthIdentities() {
 
 export function useStartOAuthLink() {
   return useMutation({
-    mutationFn: (provider: 'wechat' | 'qq') =>
+    mutationFn: (provider: 'wechat' | 'qq' | 'dingtalk') =>
       api.post<{ authorizationUrl: string }>(`/auth/oauth/${provider}/link/start`, {}),
     onSuccess: ({ authorizationUrl }) => {
       window.location.assign(authorizationUrl);

@@ -44,10 +44,10 @@ export class SettingController {
   }
 
   @Post('oauth/:provider/test')
-  @ApiOperation({ summary: '检查微信或 QQ OAuth 配置完整性（仅管理员，不调用第三方）' })
+  @ApiOperation({ summary: '检查微信、QQ 或钉钉 OAuth 配置完整性（仅管理员，不调用第三方）' })
   @ApiResponse({ status: 200, description: 'OAuth 配置检查结果' })
   async testOAuthConfig(@Param('provider') provider: string) {
-    if (provider !== 'wechat' && provider !== 'qq') throw new BadRequestException('不支持的 OAuth 登录方式');
+    if (provider !== 'wechat' && provider !== 'qq' && provider !== 'dingtalk') throw new BadRequestException('不支持的 OAuth 登录方式');
     return this.settingService.checkOAuthConfig(provider as OAuthConfigProvider);
   }
 
