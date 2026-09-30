@@ -210,7 +210,7 @@ export class CapabilityContributionController {
   @Post('versions/:versionId/submit')
   @ApiOperation({
     summary: '提交版本审核',
-    description: '企业版本先过企业管理员，个人版本直投平台。能力级审核只管首次发布，迭代走这里。',
+    description: '企业版本先过企业管理员；已公开能力的企业版本通过后自动生成平台待审版本。个人版本直投平台。',
   })
   @ApiResponse({ status: 400, description: '缺变更说明，或自动校验未通过' })
   submitVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string) {

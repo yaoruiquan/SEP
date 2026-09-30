@@ -173,15 +173,12 @@ describe('版本迭代', () => {
     expect(screen.getByText(/周报\.zip/)).toBeInTheDocument();
   });
 
-  it('新版本入口只允许本机 CLI 扫描导入，不提供在线编写或 Skill ZIP 直传', () => {
+  it('新版本入口要求上传 SKILL ZIP 包', () => {
     renderVersions();
     fireEvent.click(screen.getByRole('button', { name: /发布新版本/ }));
 
-    expect(screen.getByText('自动扫描本地 Agent Skills')).toBeInTheDocument();
-    expect(screen.queryByText('在线编写')).not.toBeInTheDocument();
-    expect(screen.queryByText(/拖入 zip/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /选择.*目录/ })).not.toBeInTheDocument();
-    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.getByText('点击选择 SKILL ZIP 包')).toBeInTheDocument();
+    expect(document.querySelector('input[type="file"][accept=".zip,application/zip"]')).toBeInTheDocument();
   });
 
   it('平台驳回的版本仍可返工并重新提交', () => {

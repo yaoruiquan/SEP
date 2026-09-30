@@ -27,15 +27,6 @@ vi.mock('./use-contributions', () => ({
   useUploadRpaPackage: () => ({ mutateAsync: uploadRpaMutation, isPending: false }),
 }));
 
-vi.mock('./components/local-skill-scanner', () => ({
-  LocalSkillScanner: ({ onPackaged }: { onPackaged: (file: File) => void }) => (
-    <div>
-      <button type="button">扫描本地 Skills</button>
-      <button type="button" onClick={() => onPackaged(new File(['zip bytes'], '竞品周报.zip', { type: 'application/zip' }))}>确认导入选中的 Skill</button>
-    </div>
-  ),
-}));
-
 vi.mock('@/lib/auth-store', () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({ enterprise: { id: 'e1', name: '示例企业' } }),
@@ -78,39 +69,12 @@ function goToContentStep() {
   fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
 }
 
-function mockBridge() {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes('/scan')) {
-      return new Response(JSON.stringify({
-        scannerVersion: '0.2.0',
-        items: [{
-          id: 'a'.repeat(64),
-          name: '竞品周报',
-          description: '汇总竞品动态',
-          path: '/Users/test/.claude/skills/weekly',
-          source: 'claude-code',
-          scope: 'user',
-          sha256: 'b'.repeat(64),
-          fileCount: 2,
-          totalBytes: 1024,
-          files: ['SKILL.md', 'examples/input.txt'],
-        }],
-      }), { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-    return new Response('zip bytes', {
-      status: 200,
-      headers: { 'content-type': 'application/zip' },
-    });
-  }));
-}
-
-async function importLocalSkill(result: SkillPackageParseResult = PARSED) {
+async function uploadSkillZip(result: SkillPackageParseResult = PARSED) {
   uploadMutation.mockImplementation((_file: File, options: { onSuccess: (value: SkillPackageParseResult) => void }) => {
     options.onSuccess(result);
   });
-  fireEvent.click(screen.getByRole('button', { name: '扫描本地 Skills' }));
-  fireEvent.click(screen.getByRole('button', { name: '确认导入选中的 Skill' }));
+  const input = document.querySelector('input[type="file"][accept=".zip,application/zip"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['zip bytes'], 'weekly.zip', { type: 'application/zip' })] } });
   await waitFor(() => expect(uploadMutation).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.getByRole('button', { name: /下一步/ })).not.toBeDisabled());
 }
@@ -132,25 +96,20 @@ describe('创建能力贡献', () => {
     uploadRpaMutation.mockResolvedValue(RPA_PARSED);
   });
 
-  it('Skill 第二步只显示自动扫描和 CLI 导入，不显示目录选择、ZIP 直传或在线编写', () => {
+  it('Skill 第二步只提供服务端校验的 SKILL ZIP 上传', () => {
     renderDialog();
     goToContentStep();
 
-    expect(screen.getByText('扫描并导入本机 Skill')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '扫描本地 Skills' })).toBeInTheDocument();
-    expect(screen.queryByText('上传 SKILL 包')).not.toBeInTheDocument();
-    expect(screen.queryByText('在线编写')).not.toBeInTheDocument();
-    expect(screen.queryByText(/拖入 zip/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /选择.*目录/ })).not.toBeInTheDocument();
-    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.getByText('上传 SKILL ZIP 包')).toBeInTheDocument();
+    expect(screen.getByText('点击选择 SKILL ZIP 包')).toBeInTheDocument();
+    expect(document.querySelector('input[type="file"][accept=".zip,application/zip"]')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /下一步/ })).toBeDisabled();
   });
 
-  it('扫描并确认 Skill 后上传服务端校验，创建草稿只提交包哈希和文件名', async () => {
-    mockBridge();
+  it('上传 Skill ZIP 并通过服务端校验后，创建草稿只提交包哈希和文件名', async () => {
     renderDialog();
     goToContentStep();
-    await importLocalSkill();
+    await uploadSkillZip();
 
     expect(screen.getByRole('button', { name: /下一步/ })).not.toBeDisabled();
 
@@ -164,14 +123,14 @@ describe('创建能力贡献', () => {
     expect(JSON.stringify(body)).not.toContain('template');
   });
 
-  it('RPA 仍保留 ZIP 上传流程，不复用 Skill 本地扫描入口', async () => {
+  it('RPA 保留自己的 ZIP 上传流程', async () => {
     renderDialog();
     fireEvent.click(screen.getByRole('button', { name: /^RPA/ }));
     goToContentStep();
 
     expect(screen.getByText('上传可复用的自动化流程')).toBeInTheDocument();
     expect(screen.getByText('点击选择 RPA ZIP 包')).toBeInTheDocument();
-    expect(screen.queryByText('扫描并导入本机 Skill')).not.toBeInTheDocument();
+    expect(screen.queryByText('上传 SKILL ZIP 包')).not.toBeInTheDocument();
     const input = document.querySelector('input[type="file"][accept=".zip,application/zip"]') as HTMLInputElement;
     expect(input).toBeTruthy();
 

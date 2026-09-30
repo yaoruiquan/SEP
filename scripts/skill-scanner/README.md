@@ -1,6 +1,6 @@
 # SEP Skill Scanner / CLI
 
-能力贡献中心的 Skill 来源现在收敛为**本地自动扫描 + CLI/本地桥接导入**。浏览器不会再通过目录选择器读取磁盘；扫描和打包都在用户自己的设备上完成，只有用户明确选择并发布时才会把包上传到平台。
+本目录提供独立的本地 Skill 扫描、打包和 CLI 投稿工具。能力贡献中心网页端目前只支持选择并上传 SKILL ZIP，不会自动扫描或读取客户端磁盘；如需使用本扫描器，请在本机通过 CLI 手动扫描/打包后，再在贡献中心上传生成的 ZIP。
 
 ## 命令
 
@@ -28,7 +28,7 @@ node scripts/skill-scanner/sep-skill.mjs serve --port 3210
 - `GET /scan?scope=all&agent=claude,codex`
 - `GET /package?id=<scan-item-id>`：只打包扫描结果中的明确选择项
 
-本地桥接不执行 Skill 内容、不持久化 Access Token、不扫描用户未配置的磁盘范围，也不接受网页传入任意本地路径。默认只允许 `localhost:3000` / `127.0.0.1:3000` 跨域调用，可用 `SEP_SKILL_ALLOWED_ORIGINS` 配置。网页接入时应显示扫描范围，并要求逐项确认。
+本地桥接不执行 Skill 内容、不持久化 Access Token、不扫描用户未配置的磁盘范围，也不接受网页传入任意本地路径。默认只允许 `localhost:3000` / `127.0.0.1:3000` 跨域调用，可用 `SEP_SKILL_ALLOWED_ORIGINS` 配置。能力贡献中心前端使用 ZIP 上传接口，不调用本地桥接。
 
 ## 扫描范围
 

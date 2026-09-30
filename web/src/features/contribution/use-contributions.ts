@@ -45,7 +45,7 @@ export function useCreateContribution() {
 }
 
 /**
- * 上传由本地 CLI/bridge 导入的 Skill 包，并拿回服务端解析结果。
+ * 上传 Skill ZIP 包，并拿回服务端解析结果。
  * 创建能力时只回传 sha256 —— 正文由服务端按哈希重新解包，客户端改不动它。
  */
 export function useUploadRpaPackage() {
@@ -68,7 +68,7 @@ export function useUploadSkillPackage() {
   });
 }
 
-/** 发布新版本。Skill 版本只允许使用本机扫描/CLI 导入后的包 sha256。 */
+/** 发布新版本。Skill 版本正文来自服务端已校验的 ZIP 包。 */
 export function useCreateVersion(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -721,6 +721,60 @@ describe('CapabilityContributionService', () => {
     });
   });
 
+  it('sends an enterprise-approved version of a public capability to platform review as a separate copy', async () => {
+    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+    const reviewTarget = {
+      id: 'enterprise-v2',
+      capabilityId: 'cap-1',
+      status: 'PENDING_ENTERPRISE_REVIEW',
+      createdById: 'user-1',
+      version: '1.1.0',
+      capability: { name: '销售分析', visibility: 'MARKET_PUBLIC' },
+    };
+    const approvedSource = {
+      id: 'enterprise-v2',
+      capabilityId: 'cap-1',
+      enterpriseId: 'enterprise-1',
+      scope: 'ENTERPRISE',
+      version: '1.1.0',
+      content: '# 新版正文',
+      changeSummary: '补充边界处理',
+      status: 'ENTERPRISE_APPROVED',
+      parentVersionId: 'enterprise-v1',
+      packageKey: 'skills/new.zip',
+      packageSha256: 'a'.repeat(64),
+      packageFileCount: 3,
+      packageFilename: 'sales-analysis.zip',
+      enterprise: { name: '示例企业' },
+    };
+    prisma.skillVersion.findFirst
+      .mockResolvedValueOnce(reviewTarget)
+      .mockResolvedValueOnce(approvedSource)
+      .mockResolvedValueOnce({ id: 'platform-v1' });
+    prisma.skillVersion.findUnique.mockResolvedValue(null);
+    prisma.skillVersion.findMany.mockResolvedValue([{ version: '1.0.0' }]);
+    prisma.skillVersion.create.mockResolvedValue({ id: 'platform-v2' });
+
+    await service.reviewEnterpriseVersion('admin-1', 'enterprise-v2', { decision: 'APPROVE' });
+
+    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'enterprise-v2' },
+      data: expect.objectContaining({ status: 'ENTERPRISE_APPROVED' }),
+    }));
+    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        capabilityId: 'cap-1',
+        scope: 'PLATFORM',
+        sourceVersionId: 'enterprise-v2',
+        parentVersionId: 'platform-v1',
+        version: '1.0.1',
+        status: 'PENDING_PLATFORM_REVIEW',
+        content: '# 新版正文',
+        packageKey: 'skills/new.zip',
+      }),
+    }));
+  });
+
   it('records a platform approval without issuing a duplicate capability reward', async () => {
     prisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
     prisma.skillVersion.findFirst.mockResolvedValue({

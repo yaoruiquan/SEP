@@ -998,7 +998,7 @@ export class CapabilityContributionService {
   }
 
   /**
-   * 整能力投稿时，把企业最新的那一版复制成平台待审版本。
+   * 把企业最新的已审核版本复制成平台待审版本。
    *
    * 两处和以前不同，都是原来那套写法留下的坑：
    *   - **复制而不是原地改**：企业那行保持 ENTERPRISE_APPROVED 继续在本企业生效，
@@ -1453,7 +1453,7 @@ export class CapabilityContributionService {
         createdById: true,
         version: true,
         packageSha256: true,
-        capability: { select: { name: true } },
+        capability: { select: { name: true, visibility: true } },
       },
     });
     if (!version) throw new NotFoundException("版本不存在");
@@ -1464,7 +1464,7 @@ export class CapabilityContributionService {
       await this.security?.assertReviewable(version.packageSha256, "SKILL");
     }
     const approved = dto.decision === "APPROVE";
-    const result = await this.prisma.$transaction(async (tx) => {
+    const { updated, platformVersion } = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.skillVersion.update({
         where: { id: version.id },
         data: {
@@ -1484,7 +1484,10 @@ export class CapabilityContributionService {
           comment: dto.comment,
         },
       });
-      return updated;
+      const platformVersion = approved && version.capability.visibility === "MARKET_PUBLIC"
+        ? await this.promoteLatestEnterpriseVersion(tx, version.capabilityId, userId)
+        : null;
+      return { updated, platformVersion };
     });
     await this.safeNotify({
       userId: version.createdById,
@@ -1500,7 +1503,13 @@ export class CapabilityContributionService {
       relatedId: version.id,
       actionUrl: `/contributions/${version.capabilityId}`,
     });
-    return result;
+    if (platformVersion) {
+      await this.notifyPlatformReviewers(
+        version.capabilityId,
+        `公开能力「${version.capability.name}」的新版本已通过企业审核，现待平台审核。`,
+      );
+    }
+    return updated;
   }
 
   /** 平台管理员审核单个平台 Skill 版本；不重复发放能力首次发布奖励。 */
