@@ -5,6 +5,9 @@ import {
   ConflictException,
   BadRequestException,
   InternalServerErrorException,
+  HttpException,
+  HttpStatus,
+  ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -25,6 +28,7 @@ import {
   ConfirmEmailVerificationDto,
   RequestEmailChangeDto,
   ConfirmEmailChangeDto,
+  RequestRegistrationEmailCodeDto,
 } from 'shared';
 import { InvitationService } from '../enterprise/invitation.service';
 import { DefaultDepartmentsService } from '../enterprise/default-departments.service';
@@ -34,6 +38,7 @@ import { MailService } from '../mail/mail.service';
 import { AuthEventService } from './auth-event.service';
 import { AuthRiskService, LoginAuditContext } from './auth-risk.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
+import { RegistrationEmailCodeService } from './registration-email-code.service';
 
 const ACCESS_EXPIRES = '15m';
 const DEFAULT_REFRESH_COOKIE = '__Host-sep_refresh';
@@ -54,6 +59,7 @@ export class AuthService {
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly risk?: AuthRiskService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
+    @Optional() private readonly registrationEmailCodes?: RegistrationEmailCodeService,
   ) {}
 
   // ──────────────── helpers ────────────────
@@ -148,24 +154,47 @@ export class AuthService {
     });
   }
 
-  /**
-   * 注册成功后发送邮箱验证邮件。邮件系统属于外部依赖，不能让邮件
-   * 短暂故障回滚已经创建好的账号、企业和会话；失败只记录脱敏日志。
-   */
-  private async sendVerificationEmail(user: { id: string; email: string }): Promise<void> {
-    try {
-      const { tokens, mail } = this.requireOneTimeServices();
-      const issued = await tokens.issue({ userId: user.id, type: 'EMAIL_VERIFICATION' });
-      await mail.sendEmailVerification({
-        to: user.email,
-        verificationUrl: `${this.config.get<string>('WEB_BASE_URL') ?? 'http://localhost:3000'}/verify-email?token=${encodeURIComponent(issued.token)}`,
-      });
-    } catch (error) {
-      this.logger.warn(`用户 ${user.id} 注册后的邮箱验证邮件发送失败: ${error instanceof Error ? error.message : String(error)}`);
+  private requireRegistrationEmailCodes(): RegistrationEmailCodeService {
+    if (!this.registrationEmailCodes) {
+      throw new ServiceUnavailableException('注册邮箱验证码服务暂不可用');
     }
+    return this.registrationEmailCodes;
   }
 
   // ──────────────── public methods ────────────────
+
+  async requestRegistrationEmailCode(
+    dto: RequestRegistrationEmailCodeDto,
+    context: Pick<LoginAuditContext, 'ipAddress'> = {},
+  ): Promise<{ message: string }> {
+    const email = dto.email.trim().toLowerCase();
+    const emailLimit = await this.rateLimit?.consume(
+      'registration-email-code-email',
+      email,
+      { limit: 3, windowSeconds: 3600 },
+    );
+    const ipLimit = context.ipAddress
+      ? await this.rateLimit?.consume(
+        'registration-email-code-ip',
+        context.ipAddress,
+        { limit: 10, windowSeconds: 3600 },
+      )
+      : undefined;
+
+    if (emailLimit && !emailLimit.allowed || ipLimit && !ipLimit.allowed) {
+      throw new HttpException('验证码请求过于频繁，请稍后重试', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!existingUser) {
+      await this.requireRegistrationEmailCodes().issue(email);
+    }
+
+    return { message: '如果该邮箱可用于注册，验证码将发送至该邮箱' };
+  }
 
   /**
    * 企业自助注册：一次创建「公司 + 创建者」。
@@ -188,6 +217,8 @@ export class AuthService {
     });
     if (existingUser) throw new ConflictException('邮箱已被注册');
 
+    await this.requireRegistrationEmailCodes().consume(dto.email, dto.emailCode);
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const { user, enterprise, member } = await this.prisma.$transaction(
@@ -196,6 +227,7 @@ export class AuthService {
           data: {
             email: dto.email,
             name: dto.name,
+            emailVerifiedAt: new Date(),
             authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: hashedPassword } },
           },
         });
@@ -228,7 +260,6 @@ export class AuthService {
     await this.seedDefaultDepartments(enterprise.id);
 
     const token = await this.issueWebSession(user, res);
-    await this.sendVerificationEmail(user);
 
     return {
       token,
@@ -276,6 +307,8 @@ export class AuthService {
       throw new ConflictException('邮箱已被注册，请登录后再接受邀请');
     }
 
+    await this.requireRegistrationEmailCodes().consume(email, dto.emailCode);
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const { user, enterprise, member } = await this.prisma.$transaction(
@@ -284,6 +317,7 @@ export class AuthService {
           data: {
             email,
             name: dto.name,
+            emailVerifiedAt: new Date(),
             authCredentials: { create: { type: 'LOCAL_PASSWORD', passwordHash: hashedPassword } },
           },
         });
@@ -319,7 +353,6 @@ export class AuthService {
     );
 
     const token = await this.issueWebSession(user, res);
-    await this.sendVerificationEmail(user);
 
     return {
       token,

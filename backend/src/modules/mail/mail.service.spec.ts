@@ -31,6 +31,13 @@ describe('MailService', () => {
     expect(logger.debug).toHaveBeenCalledWith(
       expect.not.stringContaining('secret-code'),
     );
+
+    await provider.send({
+      to: 'user@example.com',
+      subject: '验证码',
+      text: '你的注册验证码是：123456，10 分钟内有效。',
+    });
+    expect(logger.debug).toHaveBeenLastCalledWith('你的注册验证码是：******，10 分钟内有效。');
   });
 
   it('MAIL_ENABLED=false 不创建 SMTP transporter', async () => {
@@ -114,5 +121,28 @@ describe('MailService', () => {
     expect(provider.send).toHaveBeenCalledWith(expect.objectContaining({
       text: expect.not.stringMatching(/password|token/i),
     }));
+  });
+
+  it('注册验证码邮件只发给目标邮箱并包含有效时长', async () => {
+    const provider = { send: jest.fn().mockResolvedValue(undefined) };
+    const config = {
+      get: jest.fn((key: string) => ({
+        MAIL_ENABLED: 'true',
+        MAIL_FROM: 'noreply@example.com',
+        MAIL_FROM_NAME: '硅基人才平台',
+      } as Record<string, string>)[key]),
+      getOrThrow: jest.fn((key: string) => key === 'MAIL_HOST' ? 'smtp.example.com' : 'secret'),
+    };
+    const service = new MailService(config as any);
+    (service as any).provider = provider;
+
+    await service.sendRegistrationEmailCode({ to: 'user@example.com', code: '012345' });
+
+    expect(provider.send).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'user@example.com',
+      subject: '[硅基人才平台] 邮箱注册验证码',
+      text: expect.stringContaining('012345'),
+    }));
+    expect(provider.send.mock.calls[0][0].text).toContain('10 分钟');
   });
 });

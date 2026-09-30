@@ -68,6 +68,15 @@ export function useLogin(redirectTo?: string | null) {
   });
 }
 
+export function useSendRegistrationEmailCode() {
+  return useMutation({
+    mutationFn: (body: { email: string }) =>
+      api.post<{ message: string }>('/auth/registration/email-code', body, {
+        skipAuthRetry: true,
+      }),
+  });
+}
+
 /**
  * 注册即开公司：后端在一个事务里建 User + Enterprise + 首个
  * ENTERPRISE_ADMIN 成员 + 算力账户，故 enterpriseName 是必填。
@@ -79,6 +88,7 @@ export function useRegister() {
   return useMutation({
     mutationFn: (body: {
       email: string;
+      emailCode: string;
       password: string;
       enterpriseName: string;
       name?: string;
@@ -123,6 +133,7 @@ export function useRegisterByInvitation() {
     mutationFn: (body: {
       token: string;
       email: string;
+      emailCode: string;
       password: string;
       name?: string;
     }) =>

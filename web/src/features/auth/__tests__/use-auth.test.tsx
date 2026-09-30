@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   useLogin,
+  useSendRegistrationEmailCode,
   useRegister,
   useLogout,
   useVerifyInvitation,
@@ -175,6 +176,7 @@ describe('useRegister', () => {
 
     result.current.mutate({
       email: 'new@example.com',
+      emailCode: '123456',
       password: 'password123',
       enterpriseName: 'New Enterprise',
       name: 'New User',
@@ -188,6 +190,7 @@ describe('useRegister', () => {
       '/auth/register',
       {
         email: 'new@example.com',
+        emailCode: '123456',
         password: 'password123',
         enterpriseName: 'New Enterprise',
         name: 'New User',
@@ -208,6 +211,7 @@ describe('useRegister', () => {
 
     result.current.mutate({
       email: 'existing@example.com',
+      emailCode: '123456',
       password: 'password123',
       enterpriseName: 'Test',
     });
@@ -348,6 +352,7 @@ describe('useRegisterByInvitation', () => {
     result.current.mutate({
       token: 'invitation-token',
       email: 'invited@example.com',
+      emailCode: '123456',
       password: 'password123',
       name: 'Invited User',
     });
@@ -361,6 +366,7 @@ describe('useRegisterByInvitation', () => {
       {
         token: 'invitation-token',
         email: 'invited@example.com',
+        emailCode: '123456',
         password: 'password123',
         name: 'Invited User',
       },
@@ -369,6 +375,26 @@ describe('useRegisterByInvitation', () => {
 
     const store = useAuthStore.getState();
     expect(store.roleInEnterprise).toBe('ENTERPRISE_MEMBER');
+  });
+});
+
+describe('useSendRegistrationEmailCode', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('requests a public registration email code without auth retry', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ message: '如果该邮箱可用于注册，验证码将发送至该邮箱' });
+    const { result } = renderHook(() => useSendRegistrationEmailCode(), {
+      wrapper: createWrapper(),
+    });
+
+    result.current.mutate({ email: 'new@example.com' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.post).toHaveBeenCalledWith(
+      '/auth/registration/email-code',
+      { email: 'new@example.com' },
+      { skipAuthRetry: true },
+    );
   });
 });
 

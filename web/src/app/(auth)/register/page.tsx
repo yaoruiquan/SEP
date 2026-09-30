@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Building2, Mail, ArrowRight } from 'lucide-react';
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/feedback';
 import { useRegister } from '@/features/auth/use-auth';
 import { OAuthProviderButtons } from '@/features/auth/oauth-provider-buttons';
+import { RegistrationEmailCodeField } from '@/features/auth/registration-email-code-field';
 import { ApiError } from '@/lib/api-client';
 import { extractInviteToken } from '@/lib/invite-token';
 import { cn } from '@/lib/utils';
@@ -118,7 +119,12 @@ const foundSchema = z.object({
     .max(100, '公司名称最多 100 个字'),
   name: z.string().min(1, '请输入昵称'),
   email: z.string().email('请输入有效邮箱'),
+  emailCode: z.string().regex(/^\d{6}$/, '请输入 6 位邮箱验证码'),
   password: z.string().min(8, '密码至少 8 位'),
+  confirmPassword: z.string().min(1, '请确认密码'),
+}).refine((values) => values.password === values.confirmPassword, {
+  message: '两次输入的密码不一致',
+  path: ['confirmPassword'],
 });
 type FoundValues = z.infer<typeof foundSchema>;
 
@@ -127,8 +133,10 @@ function FoundEnterpriseForm() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<FoundValues>({ resolver: zodResolver(foundSchema) });
+  const email = useWatch({ control, name: 'email' });
 
   const serverError =
     registerMutation.error instanceof ApiError
@@ -139,7 +147,13 @@ function FoundEnterpriseForm() {
 
   return (
     <form
-      onSubmit={handleSubmit((v) => registerMutation.mutate(v))}
+      onSubmit={handleSubmit((v) => registerMutation.mutate({
+        email: v.email,
+        emailCode: v.emailCode,
+        password: v.password,
+        enterpriseName: v.enterpriseName,
+        name: v.name,
+      }))}
       className="space-y-4"
     >
       <div>
@@ -171,6 +185,11 @@ function FoundEnterpriseForm() {
           <p className="mt-1 text-xs text-danger">{errors.email.message}</p>
         )}
       </div>
+      <RegistrationEmailCodeField
+        email={email ?? ''}
+        registration={register('emailCode')}
+        error={errors.emailCode?.message}
+      />
       <div>
         <label className="mb-1.5 block text-sm font-medium text-gtext-primary">
           密码
@@ -178,6 +197,15 @@ function FoundEnterpriseForm() {
         <Input type="password" placeholder="至少 8 位" {...register('password')} />
         {errors.password && (
           <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
+        )}
+      </div>
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-gtext-primary">
+          确认密码
+        </label>
+        <Input type="password" placeholder="再次输入密码" {...register('confirmPassword')} />
+        {errors.confirmPassword && (
+          <p className="mt-1 text-xs text-danger">{errors.confirmPassword.message}</p>
         )}
       </div>
 

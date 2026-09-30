@@ -17,6 +17,7 @@ import {
   ResetPasswordDto, ResetPasswordDtoSchema,
   ChangePasswordDto, ChangePasswordDtoSchema,
   ConfirmEmailVerificationDto, ConfirmEmailVerificationDtoSchema,
+  RequestRegistrationEmailCodeDto, RequestRegistrationEmailCodeDtoSchema,
   RequestEmailChangeDto, RequestEmailChangeDtoSchema,
   ConfirmEmailChangeDto, ConfirmEmailChangeDtoSchema,
 } from 'shared';
@@ -44,6 +45,23 @@ export class AuthController {
     return this.config.get('NODE_ENV') === 'production'
       ? DEFAULT_REFRESH_COOKIE
       : 'refresh_token';
+  }
+
+  @Post('registration/email-code')
+  @Throttle({ auth: { ttl: 60000, limit: 5 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '发送注册邮箱验证码',
+    description: '公开接口。对于已注册邮箱与可注册邮箱返回相同提示，验证码 10 分钟有效。',
+  })
+  @ApiResponse({ status: 200, description: '请求已处理；不透露邮箱是否已注册' })
+  @ApiResponse({ status: 429, description: '请求过于频繁' })
+  @ApiResponse({ status: 503, description: '验证码服务暂不可用' })
+  async requestRegistrationEmailCode(
+    @Body(new ZodValidationPipe(RequestRegistrationEmailCodeDtoSchema)) dto: RequestRegistrationEmailCodeDto,
+    @Request() req: ExpressRequest,
+  ) {
+    return this.authService.requestRegistrationEmailCode(dto, { ipAddress: req.ip });
   }
 
   @Post('register')

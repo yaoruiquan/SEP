@@ -22,12 +22,20 @@ function redactUrl(value: string): string {
   }
 }
 
+function redactEmailCodes(value: string): string {
+  return value.replace(/(验证码(?:是|为)?[：:]?\s*)\d{6}/g, '$1******');
+}
+
 @Injectable()
 export class ConsoleMailProvider implements MailDeliveryProvider {
   private readonly logger = new Logger(ConsoleMailProvider.name);
   async send(message: MailMessage): Promise<void> {
     this.logger.log(`邮件已准备（开发模式）：to=${message.to}, subject=${message.subject}`);
-    if (message.text) this.logger.debug(message.text.replace(/https?:\/\/\S+/g, redactUrl));
+    if (message.text) {
+      this.logger.debug(
+        redactEmailCodes(message.text.replace(/https?:\/\/\S+/g, redactUrl)),
+      );
+    }
   }
 }
 
@@ -201,6 +209,14 @@ export class MailService {
       to: input.to,
       subject: '验证邮箱地址',
       text: `请打开以下链接完成邮箱验证：${input.verificationUrl}`,
+    });
+  }
+
+  async sendRegistrationEmailCode(input: { to: string; code: string }): Promise<void> {
+    return this.send({
+      to: input.to,
+      subject: '邮箱注册验证码',
+      text: `你的注册验证码是：${input.code}，10 分钟内有效。若非本人操作，请忽略本邮件。`,
     });
   }
 

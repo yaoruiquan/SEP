@@ -18,6 +18,7 @@ import { DingtalkOAuthProvider } from './providers/dingtalk.provider';
 import { AuthEventService } from './auth-event.service';
 import { AuthRiskService } from './auth-risk.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
+import { RegistrationEmailCodeService } from './registration-email-code.service';
 import { SettingModule } from '../setting/setting.module';
 
 @Module({
@@ -35,7 +36,7 @@ import { SettingModule } from '../setting/setting.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider, DingtalkOAuthProvider],
+  providers: [AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, RegistrationEmailCodeService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider, DingtalkOAuthProvider],
   exports: [AuthService, SessionService, OAuthService, AuthEventService, AuthRiskService, AuthRateLimitService],
 })
 export class AuthModule {}

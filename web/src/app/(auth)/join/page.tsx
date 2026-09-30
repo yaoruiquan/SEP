@@ -18,6 +18,7 @@ import {
   useAcceptInvitation,
 } from '@/features/auth/use-auth';
 import { OAuthProviderButtons } from '@/features/auth/oauth-provider-buttons';
+import { RegistrationEmailCodeField } from '@/features/auth/registration-email-code-field';
 import { ApiError } from '@/lib/api-client';
 import type { InvitationPreview } from '@/lib/types';
 
@@ -210,7 +211,12 @@ function Row({
 
 const joinSchema = z.object({
   name: z.string().min(1, '请输入昵称').max(50, '昵称最多 50 个字'),
+  emailCode: z.string().regex(/^\d{6}$/, '请输入 6 位邮箱验证码'),
   password: z.string().min(8, '密码至少 8 位'),
+  confirmPassword: z.string().min(1, '请确认密码'),
+}).refine((values) => values.password === values.confirmPassword, {
+  message: '两次输入的密码不一致',
+  path: ['confirmPassword'],
 });
 type JoinValues = z.infer<typeof joinSchema>;
 
@@ -245,6 +251,7 @@ function RegisterByInvitationForm({
         mutation.mutate({
           token,
           email: invitation.email,
+          emailCode: v.emailCode,
           password: v.password,
           name: v.name,
         }),
@@ -260,6 +267,11 @@ function RegisterByInvitationForm({
           由邀请指定，不可修改
         </p>
       </div>
+      <RegistrationEmailCodeField
+        email={invitation.email}
+        registration={register('emailCode')}
+        error={errors.emailCode?.message}
+      />
       <div>
         <label className="mb-1.5 block text-sm font-medium text-gtext-primary">
           昵称
@@ -276,6 +288,15 @@ function RegisterByInvitationForm({
         <Input type="password" placeholder="至少 8 位" {...register('password')} />
         {errors.password && (
           <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
+        )}
+      </div>
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-gtext-primary">
+          确认密码
+        </label>
+        <Input type="password" placeholder="再次输入密码" {...register('confirmPassword')} />
+        {errors.confirmPassword && (
+          <p className="mt-1 text-xs text-danger">{errors.confirmPassword.message}</p>
         )}
       </div>
 

@@ -129,6 +129,10 @@ export const SETTING_KEYS = {
   AUTH_RATE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS: "AUTH_RATE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS",
   AUTH_RATE_PASSWORD_RESET_IP_LIMIT: "AUTH_RATE_PASSWORD_RESET_IP_LIMIT",
   AUTH_RATE_PASSWORD_RESET_IP_WINDOW_SECONDS: "AUTH_RATE_PASSWORD_RESET_IP_WINDOW_SECONDS",
+  AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_LIMIT: "AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_LIMIT",
+  AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_WINDOW_SECONDS: "AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_WINDOW_SECONDS",
+  AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_LIMIT: "AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_LIMIT",
+  AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_WINDOW_SECONDS: "AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_WINDOW_SECONDS",
   AUTH_RATE_EMAIL_VERIFICATION_USER_LIMIT: "AUTH_RATE_EMAIL_VERIFICATION_USER_LIMIT",
   AUTH_RATE_EMAIL_VERIFICATION_USER_WINDOW_SECONDS: "AUTH_RATE_EMAIL_VERIFICATION_USER_WINDOW_SECONDS",
   AUTH_RATE_EMAIL_VERIFICATION_IP_LIMIT: "AUTH_RATE_EMAIL_VERIFICATION_IP_LIMIT",
@@ -503,7 +507,7 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     min: 1,
   },
   // 认证与安全配置
-  { key: SETTING_KEYS.MAIL_ENABLED, label: "启用邮件服务", secret: false, envFallback: "MAIL_ENABLED", placeholder: "false", category: "auth", description: "用于密码重置、邮箱验证和安全通知。", type: "boolean", defaultValue: "false", testable: true },
+  { key: SETTING_KEYS.MAIL_ENABLED, label: "启用邮件服务", secret: false, envFallback: "MAIL_ENABLED", placeholder: "false", category: "auth", description: "用于注册验证码、密码重置、邮箱验证和安全通知。", type: "boolean", defaultValue: "false", testable: true },
   { key: SETTING_KEYS.MAIL_HOST, label: "SMTP 服务器", secret: false, envFallback: "MAIL_HOST", placeholder: "smtp.example.com", category: "auth", description: "邮件服务商提供的 SMTP 主机地址。", type: "string", testable: true },
   { key: SETTING_KEYS.MAIL_PORT, label: "SMTP 端口", secret: false, envFallback: "MAIL_PORT", placeholder: "587", category: "auth", description: "通常使用 587（STARTTLS）或 465（SSL）。", type: "integer", unit: "端口", defaultValue: "587", min: 1, max: 65535, testable: true },
   { key: SETTING_KEYS.MAIL_SECURE, label: "SMTP SSL", secret: false, envFallback: "MAIL_SECURE", placeholder: "false", category: "auth", description: "465 端口通常需要开启。", type: "boolean", defaultValue: "false", testable: true },
@@ -535,6 +539,10 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
   { key: SETTING_KEYS.AUTH_RATE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS, label: "密码重置邮箱限流窗口", secret: false, envFallback: "AUTH_RATE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS", placeholder: "3600", category: "auth", type: "integer", unit: "秒", defaultValue: "3600", min: 1, max: 100000 },
   { key: SETTING_KEYS.AUTH_RATE_PASSWORD_RESET_IP_LIMIT, label: "密码重置 IP 限流次数", secret: false, envFallback: "AUTH_RATE_PASSWORD_RESET_IP_LIMIT", placeholder: "20", category: "auth", type: "integer", unit: "次/秒", defaultValue: "20", min: 1, max: 100000 },
   { key: SETTING_KEYS.AUTH_RATE_PASSWORD_RESET_IP_WINDOW_SECONDS, label: "密码重置 IP 限流窗口", secret: false, envFallback: "AUTH_RATE_PASSWORD_RESET_IP_WINDOW_SECONDS", placeholder: "3600", category: "auth", type: "integer", unit: "秒", defaultValue: "3600", min: 1, max: 100000 },
+  { key: SETTING_KEYS.AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_LIMIT, label: "注册验证码邮箱发送次数", secret: false, envFallback: "AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_LIMIT", placeholder: "3", category: "auth", type: "integer", unit: "次/窗口", defaultValue: "3", min: 1, max: 100000 },
+  { key: SETTING_KEYS.AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_WINDOW_SECONDS, label: "注册验证码邮箱限流窗口", secret: false, envFallback: "AUTH_RATE_REGISTRATION_EMAIL_CODE_EMAIL_WINDOW_SECONDS", placeholder: "3600", category: "auth", type: "integer", unit: "秒", defaultValue: "3600", min: 1, max: 100000 },
+  { key: SETTING_KEYS.AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_LIMIT, label: "注册验证码 IP 发送次数", secret: false, envFallback: "AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_LIMIT", placeholder: "10", category: "auth", type: "integer", unit: "次/窗口", defaultValue: "10", min: 1, max: 100000 },
+  { key: SETTING_KEYS.AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_WINDOW_SECONDS, label: "注册验证码 IP 限流窗口", secret: false, envFallback: "AUTH_RATE_REGISTRATION_EMAIL_CODE_IP_WINDOW_SECONDS", placeholder: "3600", category: "auth", type: "integer", unit: "秒", defaultValue: "3600", min: 1, max: 100000 },
   { key: SETTING_KEYS.AUTH_RATE_EMAIL_VERIFICATION_USER_LIMIT, label: "邮箱验证用户限流次数", secret: false, envFallback: "AUTH_RATE_EMAIL_VERIFICATION_USER_LIMIT", placeholder: "5", category: "auth", type: "integer", unit: "次/秒", defaultValue: "5", min: 1, max: 100000 },
   { key: SETTING_KEYS.AUTH_RATE_EMAIL_VERIFICATION_USER_WINDOW_SECONDS, label: "邮箱验证用户限流窗口", secret: false, envFallback: "AUTH_RATE_EMAIL_VERIFICATION_USER_WINDOW_SECONDS", placeholder: "3600", category: "auth", type: "integer", unit: "秒", defaultValue: "3600", min: 1, max: 100000 },
   { key: SETTING_KEYS.AUTH_RATE_EMAIL_VERIFICATION_IP_LIMIT, label: "邮箱验证 IP 限流次数", secret: false, envFallback: "AUTH_RATE_EMAIL_VERIFICATION_IP_LIMIT", placeholder: "20", category: "auth", type: "integer", unit: "次/秒", defaultValue: "20", min: 1, max: 100000 },
@@ -686,6 +694,7 @@ export type TestMailDeliveryDto = z.infer<typeof TestMailDeliveryDtoSchema>;
  */
 export const RegisterDtoSchema = z.object({
   email: EmailSchema,
+  emailCode: z.string().regex(/^\d{6}$/),
   password: z.string().min(8),
   name: z.string().optional(),
   /** 公司名称。注册即创建该企业，注册人成为其首个企业管理员。 */
@@ -721,6 +730,13 @@ export const ForgotPasswordDtoSchema = z.object({
   email: EmailSchema,
 });
 export type ForgotPasswordDto = z.infer<typeof ForgotPasswordDtoSchema>;
+
+export const RequestRegistrationEmailCodeDtoSchema = z.object({
+  email: EmailSchema,
+});
+export type RequestRegistrationEmailCodeDto = z.infer<
+  typeof RequestRegistrationEmailCodeDtoSchema
+>;
 
 export const ResetPasswordDtoSchema = z.object({
   token: z.string().min(1),
@@ -1242,6 +1258,7 @@ export type InvitationCreateDto = z.infer<typeof InvitationCreateDtoSchema>;
 export const RegisterByInvitationDtoSchema = z.object({
   token: z.string().min(1),
   email: EmailSchema,
+  emailCode: z.string().regex(/^\d{6}$/),
   password: z.string().min(8),
   name: z.string().min(1).max(50).optional(),
 });
