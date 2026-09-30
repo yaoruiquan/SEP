@@ -125,7 +125,11 @@ export class AdminAuthService {
     for (const event of events) {
       const row = byAction[event.action] ?? { total: 0, success: 0, failed: 0 };
       row.total += 1;
-      event.success ? row.success += 1 : row.failed += 1;
+      if (event.success) {
+        row.success += 1;
+      } else {
+        row.failed += 1;
+      }
       byAction[event.action] = row;
     }
     return { windowHours, since, total: events.length, success: events.filter((event) => event.success).length, failed: events.filter((event) => !event.success).length, byAction };
