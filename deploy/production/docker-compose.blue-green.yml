@@ -50,6 +50,7 @@ x-backend-environment: &backend-environment
   EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
   EMBEDDING_TIMEOUT_MS: ${EMBEDDING_TIMEOUT_MS:-120000}
   UPLOAD_PATH: /app/uploads
+  UPLOAD_LOCAL_DIR: /app/uploads/chat
   PACKAGE_STORAGE_PATH: /app/storage/packages
   API_BASE_URL: https://longdaoSEP.cn/api
   WEB_BASE_URL: https://longdaoSEP.cn

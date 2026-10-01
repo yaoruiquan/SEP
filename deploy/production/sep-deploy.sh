@@ -298,6 +298,40 @@ wait_service_healthy() {
   return 1
 }
 
+ensure_upload_volume_permissions() {
+  local image=$1
+  info "检查 sep_uploads 卷权限..."
+  docker run --rm --user 0:0 \
+    --volume sep_uploads:/app/uploads \
+    --entrypoint sh "$image" -ec '
+      owner_uid=$(id -u node)
+      mkdir -p /app/uploads/chat
+      if [ "$(stat -c %u /app/uploads)" != "$owner_uid" ] || \
+         [ "$(stat -c %u /app/uploads/chat)" != "$owner_uid" ]; then
+        chown -R node:node /app/uploads
+      fi
+      mkdir -p /app/uploads/chat/enterprise-logos /app/uploads/chat/user-avatars
+      chown node:node /app/uploads /app/uploads/chat \
+        /app/uploads/chat/enterprise-logos /app/uploads/chat/user-avatars
+      chmod 0750 /app/uploads /app/uploads/chat \
+        /app/uploads/chat/enterprise-logos /app/uploads/chat/user-avatars
+    '
+  docker run --rm --user node:node \
+    --volume sep_uploads:/app/uploads \
+    --entrypoint node "$image" -e '
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const root = "/app/uploads/chat";
+      for (const relative of ["", "enterprise-logos", "user-avatars"]) {
+        const directory = path.join(root, relative);
+        const probe = path.join(directory, `.sep-write-check-${process.pid}-${Date.now()}`);
+        fs.writeFileSync(probe, "ok", { flag: "wx" });
+        fs.rmSync(probe);
+      }
+    '
+  success "sep_uploads 卷可由 node 用户写入"
+}
+
 restore_caddy_backup() {
   local backup=$1
   cp "$backup" "$CADDYFILE"
@@ -378,6 +412,15 @@ check_service_readiness() {
   fi
 
   docker exec "$backend" node -e "fetch('http://127.0.0.1:3001/api/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  docker exec "$backend" node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const root = path.resolve(process.env.UPLOAD_LOCAL_DIR || "./uploads/chat");
+    const probe = path.join(root, `.sep-write-check-${process.pid}-${Date.now()}`);
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(probe, "ok", { flag: "wx" });
+    fs.rmSync(probe);
+  '
   docker exec "$web" node -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 }
 
@@ -450,6 +493,7 @@ cmd_deploy_bluegreen() {
   prune_build_cache
   info "构建候选后端和前端镜像..."
   dc_bg build "${candidate}-backend" "${candidate}-web"
+  ensure_upload_volume_permissions "sep-${candidate}-backend:${DEPLOY_TAG}"
 
   run_migrations
 
@@ -514,6 +558,9 @@ cmd_rollback_bluegreen() {
     check_service_readiness legacy
   else
     previous_color=$(target_color "$previous")
+    local previous_image
+    previous_image=$(docker inspect --format='{{.Config.Image}}' "sep-${previous_color}-backend")
+    ensure_upload_volume_permissions "$previous_image"
     dc_bg up -d "${previous_color}-backend" "${previous_color}-web"
     wait_service_healthy "sep-${previous_color}-backend"
     wait_service_healthy "sep-${previous_color}-web"
@@ -556,6 +603,7 @@ cmd_deploy_backend() {
 
   info "重建 sep-backend 镜像..."
   dc build --no-cache sep-backend
+  ensure_upload_volume_permissions "sep-backend:${DEPLOY_TAG}"
 
   run_migrations
 
@@ -586,6 +634,7 @@ cmd_deploy() {
 
   info "构建所有镜像..."
   dc build --no-cache sep-backend sep-web
+  ensure_upload_volume_permissions "sep-backend:${DEPLOY_TAG}"
 
   run_migrations
 
@@ -614,10 +663,18 @@ cmd_restart() {
       ;;
   esac
   if [[ "$service" == "all" ]]; then
+    local backend_image
+    backend_image=$(docker inspect --format='{{.Config.Image}}' sep-backend)
+    ensure_upload_volume_permissions "$backend_image"
     info "重启所有 SEP 服务..."
     docker restart sep-backend sep-web 2>/dev/null || true
     wait_healthy sep-backend
   else
+    if [[ "$service" == "sep-backend" ]]; then
+      local backend_image
+      backend_image=$(docker inspect --format='{{.Config.Image}}' sep-backend)
+      ensure_upload_volume_permissions "$backend_image"
+    fi
     info "重启 $service..."
     docker restart "$service"
     [[ "$service" == "sep-backend" ]] && wait_healthy sep-backend

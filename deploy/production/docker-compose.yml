@@ -108,6 +108,7 @@ services:
 
       # 文件上传
       - UPLOAD_PATH=/app/uploads
+      - UPLOAD_LOCAL_DIR=/app/uploads/chat
       # 员工包 ZIP 文件必须落在持久化卷，容器重建时不能依赖容器文件系统
       - PACKAGE_STORAGE_PATH=/app/storage/packages
 

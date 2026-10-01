@@ -13,6 +13,7 @@ export SEP_CADDYFILE="$TMP_DIR/sep.caddy"
 export SEP_CADDY_BACKUP_DIR="$TMP_DIR/backups"
 export SEP_CADDY_CONTAINER=mock-caddy
 export MOCK_UPSTREAM_FILE="$TMP_DIR/upstreams"
+export MOCK_DOCKER_CALLS="$TMP_DIR/docker-calls"
 
 mkdir -p "$TMP_DIR/bin" "$SEP_DEPLOY_STATE_DIR"
 printf '%s\n' \
@@ -50,12 +51,20 @@ if [[ "${1:-}" == exec ]]; then
       fi
       ;;
     node)
-      if [[ "${MOCK_EXPECT_READINESS:-0}" == 1 && "${1:-}" == *"127.0.0.1:3001"* ]]; then
+      if [[ "${MOCK_EXPECT_READINESS:-0}" == 1 && "$*" == *"127.0.0.1:3001"* ]]; then
         [[ "$*" == *"127.0.0.1:3001/api/health/ready"* ]]
+      fi
+      if [[ "${MOCK_EXPECT_UPLOAD_PROBE:-0}" == 1 && "$*" == *"UPLOAD_LOCAL_DIR"* ]]; then
+        [[ "$*" == *"writeFileSync"* && "$*" == *"rmSync"* ]]
       fi
       exit 0
       ;;
   esac
+  exit 0
+fi
+
+if [[ "${1:-}" == run ]]; then
+  printf '%s\n' "$*" >> "$MOCK_DOCKER_CALLS"
   exit 0
 fi
 
@@ -83,6 +92,13 @@ source "$ROOT_DIR/deploy/production/sep-deploy.sh"
 [[ "$(target_color sep-green-web)" == green ]]
 [[ "$(target_backend sep-green-web)" == sep-green-backend ]]
 
+ensure_upload_volume_permissions sep-green-backend:test
+grep -Fq -- '--user 0:0' "$MOCK_DOCKER_CALLS"
+grep -Fq -- '--user node:node' "$MOCK_DOCKER_CALLS"
+grep -Fq -- '--volume sep_uploads:/app/uploads' "$MOCK_DOCKER_CALLS"
+grep -Fq '/app/uploads/chat/enterprise-logos' "$MOCK_DOCKER_CALLS"
+grep -Fq '/app/uploads/chat/user-avatars' "$MOCK_DOCKER_CALLS"
+
 printf '%s\n' '[{"dial":"sep-green-backend:3001"},{"dial":"sep-green-web:3000"}]' > "$MOCK_UPSTREAM_FILE"
 switch_caddy_upstream sep-green-web
 grep -Fq 'reverse_proxy @sep_ws sep-green-backend:3001' "$SEP_CADDYFILE"
@@ -101,6 +117,7 @@ grep -Fq 'reverse_proxy sep-green-web:3000' "$SEP_CADDYFILE"
 export SEP_POST_DEPLOY_CHECKS=1
 export SEP_POST_DEPLOY_INTERVAL_SECONDS=0
 export MOCK_EXPECT_READINESS=1
+export MOCK_EXPECT_UPLOAD_PROBE=1
 check_service_readiness blue
 observe_candidate blue
 

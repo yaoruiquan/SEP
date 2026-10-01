@@ -205,6 +205,8 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 
 脚本会用该 SHA 生成默认镜像标签（短 SHA），并拒绝部署到不同 checkout。候选色会同时启动后端和前端，readiness 通过后 Caddy 的 Web 与 `/ws/*` upstream 一起切换；旧色会在发布后观察期和排空时间内保持运行。观察失败时脚本会自动切回旧色并停止候选色，Caddy reload 或配置校验失败也会恢复切换前的备份。
 
+每次部署启动候选后端前，脚本会检查共享 `sep_uploads` 卷，将上传目录修正为 `node` 用户可写，并用 `node` 用户实际执行临时写入/删除验证。候选环境的 readiness 也会再次做写入检查；失败时不会切换 Caddy。生产本地存储路径固定为 `/app/uploads/chat`。
+
 观察通过后才会停止旧色。手动回滚使用：
 
 ```bash

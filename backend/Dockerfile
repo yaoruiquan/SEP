@@ -55,7 +55,7 @@ COPY --from=builder /app/backend/dist ./dist
 # prisma schema + migrations（供运行时读取）
 COPY --from=builder /app/backend/prisma ./prisma
 
-RUN mkdir -p uploads && chown -R node:node /app
+RUN mkdir -p /app/uploads/chat && chown -R node:node /app
 
 USER node
 
