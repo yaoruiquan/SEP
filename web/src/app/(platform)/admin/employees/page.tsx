@@ -31,10 +31,13 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={meta.tone}>{meta.label}</Badge>;
 }
 
+const EMPLOYEES_PAGE_SIZE = 20;
+
 export default function AdminEmployeesPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<'approved' | 'draft' | 'pending'>('approved');
+  const [page, setPage] = useState(1);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; employeeId: string; employeeName: string }>({
     open: false,
     employeeId: '',
@@ -42,18 +45,25 @@ export default function AdminEmployeesPage() {
   });
 
   const { data: employeesResponse, isLoading, isError, error } = useQuery({
-    queryKey: ['admin-employees', tab],
+    queryKey: ['admin-employees', tab, page],
     queryFn: async () => {
       const statusMap = {
         approved: 'APPROVED',
         draft: 'DRAFT',
         pending: 'PENDING',
       };
-      return adminApi.listEmployees({ status: statusMap[tab] as any });
+      return adminApi.listEmployees({
+        status: statusMap[tab] as any,
+        page,
+        pageSize: EMPLOYEES_PAGE_SIZE,
+      });
     },
   });
 
   const employees = employeesResponse?.data || [];
+  const totalEmployees = employeesResponse?.total ?? 0;
+  const totalPages = Math.max(employeesResponse?.totalPages ?? 1, 1);
+  const tabLabel = tab === 'approved' ? '已发布' : tab === 'draft' ? '草稿' : common.status.pendingReview;
 
   const publishMutation = useMutation({
     mutationFn: (id: string) => adminApi.publishEmployee(id),
@@ -129,7 +139,13 @@ export default function AdminEmployeesPage() {
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v: any) => setTab(v)}>
+      <Tabs
+        value={tab}
+        onValueChange={(v: any) => {
+          setTab(v);
+          setPage(1);
+        }}
+      >
         <TabsList>
           <TabsTrigger value="approved">已发布</TabsTrigger>
           <TabsTrigger value="draft">草稿</TabsTrigger>
@@ -144,6 +160,11 @@ export default function AdminEmployeesPage() {
                 {tab === 'draft' && '草稿员工'}
                 {tab === 'pending' && `${common.status.pendingReview}员工`}
               </CardTitle>
+              {!isLoading && !isError && (
+                <p className="text-sm text-fg-muted">
+                  共 {totalEmployees} 名{tabLabel}员工，第 {page} / {totalPages} 页
+                </p>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               {isLoading ? (
@@ -170,7 +191,8 @@ export default function AdminEmployeesPage() {
                   暂无数据
                 </p>
               ) : (
-                <table className="w-full text-sm">
+                <>
+                  <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40 text-fg-muted">
                       <th className="px-5 py-2 text-left font-medium">员工</th>
@@ -296,7 +318,31 @@ export default function AdminEmployeesPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4 text-sm text-fg-muted">
+                      <span>第 {page} / {totalPages} 页</span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={page === 1 || isLoading}
+                          onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                        >
+                          上一页
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={page >= totalPages || isLoading}
+                          onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
+                        >
+                          下一页
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
