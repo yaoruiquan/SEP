@@ -1,4 +1,5 @@
 import { preservedAvatarBindings } from '../../common/avatar-style';
+import { withEmployeeAvatar } from '../../common/employee-avatar';
 import {
   Injectable,
   NotFoundException,
@@ -122,12 +123,13 @@ export class DigitalEmployeeService {
     const newCutoff = now - 7 * 24 * 60 * 60 * 1000;
 
     return employees.map((e) => {
+      const avatar = withEmployeeAvatar(e);
       const stats = records.get(e.id) ?? { totalExecutions: 0, successRate: null };
       const subscriptions = e._count?.subscriptions ?? 0;
       // 热门是可解释的使用信号：企业订阅和实际执行都计入，避免只看单一指标。
       const hotScore = subscriptions * 100 + stats.totalExecutions;
       return {
-        ...e,
+        ...avatar,
         stats,
         isNew: Boolean(e.publishedAt && e.publishedAt.getTime() >= newCutoff),
         isHot: hotScore >= 20 && (subscriptions >= 2 || stats.totalExecutions >= 20),
@@ -145,11 +147,12 @@ export class DigitalEmployeeService {
       // 未上架的员工对访客应表现为「不存在」，不泄漏其存在性
       throw new NotFoundException(`员工 ${id} 不存在`);
     }
+    const avatar = withEmployeeAvatar(employee);
     const stats = await this.trackRecord.forEmployee(id);
     const subscriptions = employee._count?.subscriptions ?? 0;
     const hotScore = subscriptions * 100 + stats.totalExecutions;
     return {
-      ...employee,
+      ...avatar,
       stats,
       isNew: Boolean(
         employee.publishedAt &&

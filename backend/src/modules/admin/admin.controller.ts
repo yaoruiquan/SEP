@@ -504,15 +504,18 @@ export class AdminController {
   }
 
   @Patch('employees/batch-update-avatar-style')
-  @ApiOperation({ summary: '设置平台默认头像风格并更新跟随默认的员工' })
+  @ApiOperation({ summary: '设置平台默认头像风格并更新员工' })
   @ApiResponse({ status: 200, description: '更新成功，返回更新数量' })
   @ApiResponse({ status: 400, description: '头像风格不存在' })
   batchUpdateAvatarStyle(
-    @Body(new ZodValidationPipe(z.object({ styleId: z.string().min(1, '风格ID不能为空') })))
-    dto: { styleId: string },
+    @Body(new ZodValidationPipe(z.object({
+      styleId: z.string().min(1, '风格ID不能为空'),
+      applyToAll: z.boolean().optional(),
+    })))
+    dto: { styleId: string; applyToAll?: boolean },
     @Request() req: any,
   ) {
-    return this.adminService.batchUpdateAvatarStyle(dto.styleId, req.user.id);
+    return this.adminService.batchUpdateAvatarStyle(dto.styleId, req.user.id, dto.applyToAll === true);
   }
 
   @Patch('employees/:id/avatar-style')

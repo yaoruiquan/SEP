@@ -388,6 +388,34 @@ describe('DigitalEmployeeService', () => {
       expect(arg.where.OR).toBeUndefined();
     });
 
+    it('列表返回统一头像资产，保留公开字段白名单', async () => {
+      const employee = {
+        id: 'emp-avatar',
+        name: '头像测试员工',
+        avatar: 'https://cdn.example.com/avatar.webp',
+        avatarStyle: 'custom',
+        avatarBindings: {},
+        publishedAt: new Date(),
+        _count: { subscriptions: 0 },
+      };
+      prismaMock.digitalEmployee.findMany.mockResolvedValue([employee]);
+
+      const result = await service.findPublicList();
+
+      expect(result[0]).toEqual(expect.objectContaining({
+        avatar: employee.avatar,
+        avatarAsset: {
+          id: 'employee:emp-avatar:avatar',
+          version: null,
+          portraitUrl: employee.avatar,
+          faceUrl: employee.avatar,
+        },
+      }));
+      expect(result[0]).not.toHaveProperty('systemPrompt');
+      expect(result[0]).not.toHaveProperty('modelId');
+      expect(result[0]).not.toHaveProperty('maxSteps');
+    });
+
     it('列表为最近 7 天上架员工标记 NEW，并按使用信号标记 HOT', async () => {
       prismaMock.digitalEmployee.findMany.mockResolvedValue([
         {

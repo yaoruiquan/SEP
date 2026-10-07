@@ -125,7 +125,7 @@ describe('AvatarStylesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.getAvatarStyles.mockResolvedValue(response());
-    apiMocks.batchUpdateAvatarStyle.mockResolvedValue({ success: true, updated: 1, style: 'platform' });
+    apiMocks.batchUpdateAvatarStyle.mockResolvedValue({ success: true, updated: 1, style: 'platform', appliedToAll: false });
     apiMocks.updateEmployeeAvatarStyle.mockResolvedValue({});
     apiMocks.registerAvatarStyle.mockResolvedValue(PLATFORM_STYLE);
     apiMocks.bindEmployeeAvatar.mockResolvedValue({});
@@ -140,19 +140,31 @@ describe('AvatarStylesPage', () => {
     expect(screen.getAllByText('尚未覆盖全部员工，可在下方为已匹配的员工单独使用。')).toHaveLength(1);
   });
 
-  it('确认默认切换前提示只影响 followers，并在确认后发送 styleId', async () => {
+  it('确认默认切换前默认只影响 followers，并在确认后发送 styleId', async () => {
     renderPage();
     await waitForPage();
 
     fireEvent.click(within(screen.getByRole('article', { name: '卡通风格' })).getByRole('button', { name: '设为平台默认' }));
 
     const dialog = await screen.findByRole('alertdialog');
-    expect(dialog.textContent).toContain('将更新 1 位跟随默认的员工。1 位单独设置的员工保持原设置。');
+    expect(dialog.textContent).toContain('默认更新 1 位跟随默认的员工。1 位单独设置的员工会保持原设置');
     expect(apiMocks.batchUpdateAvatarStyle).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '确认切换' }));
-    await waitFor(() => expect(apiMocks.batchUpdateAvatarStyle).toHaveBeenCalledWith('dicebear'));
+    await waitFor(() => expect(apiMocks.batchUpdateAvatarStyle).toHaveBeenCalledWith('dicebear', false));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('勾选同步全部员工后发送覆盖参数', async () => {
+    renderPage();
+    await waitForPage();
+
+    fireEvent.click(within(screen.getByRole('article', { name: '卡通风格' })).getByRole('button', { name: '设为平台默认' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '同步全部员工' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认切换' }));
+
+    await waitFor(() => expect(apiMocks.batchUpdateAvatarStyle).toHaveBeenCalledWith('dicebear', true));
   });
 
   it('默认切换失败时保留弹窗并允许重试', async () => {

@@ -587,13 +587,14 @@ export const adminApi = {
   bindEmployeeAvatar: (employeeId: string, input: { styleId: string; portraitUrl: string; faceUrl?: string; version?: string }) =>
     api.post(`/admin/employees/${employeeId}/avatar-bindings`, input),
 
-  /** 更新平台默认风格，仅影响跟随默认的员工。 */
-  batchUpdateAvatarStyle: (styleId: string) => {
+  /** 更新平台默认风格；applyToAll=true 时同步覆盖单独设置的员工。 */
+  batchUpdateAvatarStyle: (styleId: string, applyToAll = false) => {
     return api.patch<{
       success: boolean;
       updated: number;
       style: string;
-    }>('/admin/employees/batch-update-avatar-style', { styleId });
+      appliedToAll: boolean;
+    }>('/admin/employees/batch-update-avatar-style', { styleId, applyToAll });
   },
 
   /**

@@ -63,6 +63,7 @@ function EmployeeStyleRow({ employee, styles, onSaved }: {
 export default function AvatarStylesPage() {
   const queryClient = useQueryClient();
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
+  const [applyToAll, setApplyToAll] = useState(false);
   const [source, setSource] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -75,10 +76,11 @@ export default function AvatarStylesPage() {
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
   };
   const mutation = useMutation({
-    mutationFn: (styleId: string) => adminApi.batchUpdateAvatarStyle(styleId),
+    mutationFn: (input: { styleId: string; applyToAll: boolean }) => adminApi.batchUpdateAvatarStyle(input.styleId, input.applyToAll),
     onSuccess: async (result) => {
       await refreshAvatars();
       setSelectedStyle(null);
+      setApplyToAll(false);
       toast.success(`平台默认风格已更新，已同步 ${result.updated} 位员工`);
     },
   });
@@ -121,7 +123,7 @@ export default function AvatarStylesPage() {
           <section aria-labelledby="platform-styles-title" className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div><h2 id="platform-styles-title" className="text-lg font-semibold">平台默认风格</h2>
-                <p className="mt-1 text-sm text-fg-muted">切换仅影响跟随默认的员工；素材覆盖完整后才能设为默认。</p></div>
+                <p className="mt-1 text-sm text-fg-muted">默认只影响跟随默认的员工；如需统一全部员工，可在确认时选择覆盖单独设置。</p></div>
               <select aria-label="筛选风格来源" value={source} onChange={(event) => setSource(event.target.value)} className={`${selectClass} sm:w-40`}>
                 <option value="all">全部风格</option><option value="platform">平台素材</option><option value="dicebear">卡通头像库</option>
               </select>
@@ -141,7 +143,7 @@ export default function AvatarStylesPage() {
                     <span>{style.source === 'dicebear' ? '卡通头像库' : '平台素材'}</span><span>已匹配 {style.coverage.matched} / {style.coverage.total} 位</span>
                   </div>
                   <Button variant={isDefault ? 'secondary' : 'outline'} className="w-full" disabled={isDefault || !style.canSetDefault || mutation.isPending}
-                    onClick={() => { mutation.reset(); setSelectedStyle(style.id); }}> {isDefault ? '正在使用' : '设为平台默认'}</Button>
+                    onClick={() => { mutation.reset(); setApplyToAll(false); setSelectedStyle(style.id); }}> {isDefault ? '正在使用' : '设为平台默认'}</Button>
                   {!style.canSetDefault && !isDefault && <p className="mt-2 text-xs leading-5 text-fg-muted">尚未覆盖全部员工，可在下方为已匹配的员工单独使用。</p>}
                 </article>;
               })}
@@ -169,10 +171,14 @@ export default function AvatarStylesPage() {
       <AlertDialog open={Boolean(selectedStyle)} onOpenChange={(open) => { if (!open && !mutation.isPending) setSelectedStyle(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>将「{selected?.name}」设为平台默认？</AlertDialogTitle>
-            <AlertDialogDescription>将更新 {data?.followersCount ?? 0} 位跟随默认的员工。{data?.overridesCount ?? 0} 位单独设置的员工保持原设置。各风格的图片绑定会保留，之后可以切回。</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogDescription>默认更新 {data?.followersCount ?? 0} 位跟随默认的员工。{data?.overridesCount ?? 0} 位单独设置的员工会保持原设置；原头像会保留，之后可以切回。</AlertDialogDescription></AlertDialogHeader>
+          {(data?.overridesCount ?? 0) > 0 && <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+            <input type="checkbox" aria-label="同步全部员工" className="mt-0.5 h-4 w-4 accent-primary" checked={applyToAll} onChange={(event) => setApplyToAll(event.target.checked)} />
+            <span><strong className="font-medium text-amber-900">同步全部员工</strong><span className="mt-1 block text-amber-800">将另外 {data?.overridesCount ?? 0} 位单独设置员工也切换到「{selected?.name}」，并保留原头像以便恢复。</span></span>
+          </label>}
           {mutation.isError && <p role="alert" className="text-sm text-red-600">{errorMessage(mutation.error)}</p>}
           <AlertDialogFooter><Button variant="outline" disabled={mutation.isPending} onClick={() => setSelectedStyle(null)}>取消</Button>
-            <Button loading={mutation.isPending} loadingText="正在切换" disabled={!selected?.canSetDefault} onClick={() => selectedStyle && mutation.mutate(selectedStyle)}>确认切换</Button></AlertDialogFooter>
+            <Button loading={mutation.isPending} loadingText="正在切换" disabled={!selected?.canSetDefault} onClick={() => selectedStyle && mutation.mutate({ styleId: selectedStyle, applyToAll })}>确认切换</Button></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

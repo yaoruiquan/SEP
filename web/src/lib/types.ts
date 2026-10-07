@@ -395,6 +395,7 @@ export interface MarketEmployee {
   position: string;
   functionalCategory: string;
   avatar: string | null;
+  avatarAsset?: EmployeeAvatarAsset | null;
   price: number | null;
   annualPriceCNY: number | null;
   includedComputeCNY: number;

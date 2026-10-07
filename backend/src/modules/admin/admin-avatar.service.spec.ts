@@ -71,6 +71,27 @@ describe('AdminService avatar styles', () => {
     expect(digitalEmployee.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: follower.id } }));
   });
 
+  it('同步全部员工时会把单独设置员工纳入默认风格，同时保留自定义头像', async () => {
+    const follower = employee();
+    const override = employee({
+      id: 'employee-2',
+      avatar: 'https://example.com/fixed.png',
+      avatarStyle: 'custom',
+      avatarCustomUrl: 'https://example.com/fixed.png',
+    });
+    const { service, digitalEmployee, getRows } = createHarness([follower, override]);
+
+    const result = await service.batchUpdateAvatarStyle('cartoon:micah', 'admin-1', true);
+
+    expect(result).toMatchObject({ updated: 2, skipped: 0, appliedToAll: true, styleId: 'cartoon:micah' });
+    expect(getRows().every((item) => item.avatarStyle === 'follow-default')).toBe(true);
+    expect(getRows()[1]).toMatchObject({
+      avatar: expect.stringContaining('api.dicebear.com'),
+      avatarCustomUrl: 'https://example.com/fixed.png',
+    });
+    expect(digitalEmployee.update).toHaveBeenCalledTimes(2);
+  });
+
   it('从硅基切到卡通后可切回原硅基头像', async () => {
     const source = employee({ avatarStyle: 'silicon-3d' });
     const { service, digitalEmployee, getRows } = createHarness([source]);

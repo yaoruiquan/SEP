@@ -1518,7 +1518,7 @@ export class AdminService {
     };
   }
 
-  async batchUpdateAvatarStyle(styleId: string, operatorId: string) {
+  async batchUpdateAvatarStyle(styleId: string, operatorId: string, applyToAll = false) {
     const canonical = canonicalAvatarStyleId(styleId);
     return this.avatarTransaction(async (tx) => {
       const style = (await this.avatarDefinitions(tx)).find((item) => item.id === canonical);
@@ -1529,14 +1529,24 @@ export class AdminService {
         throw new BadRequestException('该头像风格素材覆盖不完整，不能设为平台默认');
       }
       const followers = prepared.filter((employee) => !employee.avatarStyle || employee.avatarStyle === FOLLOW_DEFAULT_STYLE_ID);
+      const targets = applyToAll ? prepared : followers;
       await tx.systemSetting.upsert({ where: { key: 'DEFAULT_AVATAR_STYLE' }, create: { key: 'DEFAULT_AVATAR_STYLE', value: canonical, label: '数字员工默认头像风格' }, update: { value: canonical } });
-      for (const employee of followers) {
+      for (const employee of targets) {
         const avatar = resolveAvatarForStyle(employee, canonical)!;
         const bindings = employee.avatarBindings;
         bindings[canonical] ??= { portraitUrl: avatar };
-        await tx.digitalEmployee.update({ where: { id: employee.id }, data: { avatar, avatarStyle: FOLLOW_DEFAULT_STYLE_ID, avatarBindings: bindings } });
+        const preservedCustomUrl = employee.avatarCustomUrl || (employee.avatarStyle === 'custom' ? employee.avatar : null);
+        await tx.digitalEmployee.update({
+          where: { id: employee.id },
+          data: {
+            avatar,
+            avatarStyle: FOLLOW_DEFAULT_STYLE_ID,
+            avatarBindings: bindings,
+            ...(preservedCustomUrl ? { avatarCustomUrl: preservedCustomUrl } : {}),
+          },
+        });
       }
-      return { success: true, updated: followers.length, skipped: employees.length - followers.length, style: style.name, styleId: canonical };
+      return { success: true, updated: targets.length, skipped: employees.length - targets.length, style: style.name, styleId: canonical, appliedToAll: applyToAll };
     });
   }
 

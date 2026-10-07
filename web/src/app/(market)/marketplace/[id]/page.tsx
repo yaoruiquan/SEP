@@ -207,6 +207,7 @@ export default function EmployeeDetailPage() {
           <Avatar
             name={emp.name}
             src={emp.avatar}
+            asset={emp.avatarAsset}
             portrait
             className="h-24 w-24 shrink-0 shadow-glass-lg ring-1 ring-glassline"
           />
