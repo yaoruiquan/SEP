@@ -349,6 +349,9 @@ export class WalletService {
       throw new BadRequestException("充值金额必须大于 0");
     }
 
+    // 历史企业可能没有对应的钱包记录；后台充值应自动补齐，避免运营端只能看到“钱包不存在”。
+    await this.ensureWalletExists(enterpriseId);
+
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.enterpriseWallet.findUnique({
         where: { enterpriseId },
@@ -412,6 +415,9 @@ export class WalletService {
     if (amount <= 0) {
       throw new BadRequestException("扣减金额必须大于 0");
     }
+
+    // 与充值保持一致：先确保钱包存在，再在事务内进行余额校验和更新。
+    await this.ensureWalletExists(enterpriseId);
 
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.enterpriseWallet.findUnique({

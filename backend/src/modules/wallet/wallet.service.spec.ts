@@ -45,6 +45,7 @@ describe('WalletService', () => {
     const mockPrisma = {
       enterpriseWallet: {
         findUnique: jest.fn(),
+        create: jest.fn(),
         upsert: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -214,6 +215,68 @@ describe('WalletService', () => {
       await expect(
         service.refund('ent-1', 0, 'subscription', null, '退款'),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('admin balance operations', () => {
+    it('should create a missing wallet before admin deposit', async () => {
+      const createdWallet = {
+        ...mockWallet,
+        id: 'wallet-created',
+        balance: new Decimal(0),
+        totalDeposit: new Decimal(0),
+        totalConsume: new Decimal(0),
+        totalRefund: new Decimal(0),
+        version: 0,
+      };
+
+      (prisma.enterpriseWallet.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(createdWallet);
+      (prisma.enterpriseWallet.create as jest.Mock).mockResolvedValue(createdWallet);
+      (prisma.enterpriseWallet.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.walletTransaction.create as jest.Mock).mockResolvedValue({
+        ...mockTransaction,
+        walletId: 'wallet-created',
+        type: 'DEPOSIT',
+        amount: new Decimal(100),
+        balanceBefore: new Decimal(0),
+        balanceAfter: new Decimal(100),
+      });
+
+      const result = await service.adminDeposit('ent-1', 100, '运营充值', 'admin-1');
+
+      expect(result.balance).toBe(100);
+      expect(prisma.enterpriseWallet.create).toHaveBeenCalledWith({
+        data: { enterpriseId: 'ent-1' },
+      });
+      expect(prisma.enterpriseWallet.updateMany).toHaveBeenCalled();
+    });
+
+    it('should initialize a missing wallet before admin deduct and then report insufficient balance', async () => {
+      const createdWallet = {
+        ...mockWallet,
+        id: 'wallet-created',
+        balance: new Decimal(0),
+        totalDeposit: new Decimal(0),
+        totalConsume: new Decimal(0),
+        totalRefund: new Decimal(0),
+        version: 0,
+      };
+
+      (prisma.enterpriseWallet.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(createdWallet);
+      (prisma.enterpriseWallet.create as jest.Mock).mockResolvedValue(createdWallet);
+
+      await expect(
+        service.adminDeduct('ent-1', 100, '运营扣款', 'admin-1'),
+      ).rejects.toThrow(/余额不足/);
+
+      expect(prisma.enterpriseWallet.create).toHaveBeenCalledWith({
+        data: { enterpriseId: 'ent-1' },
+      });
+      expect(prisma.enterpriseWallet.updateMany).not.toHaveBeenCalled();
     });
   });
 
