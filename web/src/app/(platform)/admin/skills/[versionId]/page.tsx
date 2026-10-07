@@ -75,7 +75,7 @@ export default function AdminSkillVersionDetailPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-6">
+    <div className="w-full min-w-0 space-y-5 p-6">
       <button
         onClick={() => router.push('/admin/skills')}
         className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary"
@@ -97,24 +97,24 @@ export default function AdminSkillVersionDetailPage() {
           </p>
         </div>
       </header>
-      <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-        <Card className="min-h-[70vh] p-5">
-          <Tabs value={tab} onValueChange={setTab}>
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="min-h-[70vh] min-w-0 p-5">
+          <Tabs value={tab} onValueChange={setTab} className="min-w-0">
             <TabsList className="bg-glass-1">
               <TabsTrigger value="rendered">渲染视图</TabsTrigger>
               <TabsTrigger value="source">Markdown</TabsTrigger>
             </TabsList>
-            <TabsContent value="rendered" className="mt-4">
+            <TabsContent value="rendered" className="mt-4 min-w-0">
               <Markdown content={version.content} />
             </TabsContent>
-            <TabsContent value="source" className="mt-4">
+            <TabsContent value="source" className="mt-4 min-w-0">
               <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-gtext-secondary">
                 {version.content}
               </pre>
             </TabsContent>
           </Tabs>
         </Card>
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <Card className="p-5">
             <h2 className="font-medium text-gtext-primary">版本信息</h2>
             <dl className="mt-4 space-y-3 text-sm">

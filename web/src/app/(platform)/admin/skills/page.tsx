@@ -47,7 +47,7 @@ export default function AdminSkillsPage() {
   const truncated = query.data ? query.data.total > query.data.items.length : false;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-6">
+    <div className="w-full min-w-0 space-y-5 p-6">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
