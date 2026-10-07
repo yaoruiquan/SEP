@@ -107,28 +107,6 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
     );
   }
 
-  // 单模型时退化为文本行：单段甜甜圈会画出一个带白色分割缝的整环，看起来像坏图。
-  if (chartData.length === 1) {
-    const only = chartData[0];
-    return (
-      <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center">
-        <div
-          className="flex h-16 w-16 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: `${only.color}1a` }}
-        >
-          <Cpu className="h-8 w-8" style={{ color: only.color }} />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">{only.displayName}</p>
-          <p className="mt-1 text-2xl font-bold text-foreground">
-            {numberFormatter.format(only.requests)} 次
-          </p>
-          <p className="mt-1 text-xs text-fg-muted">总成本 {formatCost(only.cost)}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="grid items-center gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       {/* 左侧: 渐变圆环图 */}
@@ -144,9 +122,9 @@ function ModelDistributionChart({ data }: { data: ModelDistribution[] }) {
                 cy="50%"
                 innerRadius={70}
                 outerRadius={100}
-                paddingAngle={2}
+                paddingAngle={chartData.length > 1 ? 2 : 0}
                 stroke="var(--card)"
-                strokeWidth={2}
+                strokeWidth={chartData.length > 1 ? 2 : 0}
               >
                 {chartData.map((entry) => (
                   <Cell key={entry.model} fill={entry.color} />
