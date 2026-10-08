@@ -9,11 +9,10 @@ interface ThemeLogoProps {
 }
 
 /**
- * 主题自适应 Logo
- * - 深色主题：logo-new.png（深色 logo）
- * - 浅色主题：logo-light.png（粉色 logo）
+ * 平台品牌 Logo。
  *
- * 通过读取 html.dark/light class 来判断主题，避免依赖 ThemeProvider
+ * Logo 使用固定的紫白渐变品牌资产，不随页面明暗主题切换，保证首页、登录页
+ * 以及各个工作台中的品牌识别保持一致。
  */
 export function ThemeLogo({
   width = 28,
@@ -22,21 +21,17 @@ export function ThemeLogo({
   priority = false,
 }: ThemeLogoProps) {
   return (
-    <span className={cn('relative block shrink-0 overflow-hidden rounded', className)} style={{ width, height }} aria-hidden="true">
-      <Image
-        src="/logo-light.png"
-        alt=""
-        width={width}
-        height={height}
-        className="theme-logo-light absolute inset-0 h-full w-full object-contain"
-        priority={priority}
-      />
+    <span
+      className={cn('relative block shrink-0 overflow-hidden rounded', className)}
+      style={{ width, height }}
+      aria-hidden="true"
+    >
       <Image
         src="/logo-new.png"
         alt=""
         width={width}
         height={height}
-        className="theme-logo-dark absolute inset-0 hidden h-full w-full object-contain"
+        className="absolute inset-0 h-full w-full object-contain"
         priority={priority}
       />
     </span>
