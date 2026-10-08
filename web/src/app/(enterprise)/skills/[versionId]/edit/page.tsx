@@ -68,7 +68,7 @@ export default function SkillVersionEditPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-6">
+    <div className="mx-auto w-full max-w-7xl space-y-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button onClick={() => router.push('/capabilities')} className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary">
           <ArrowLeft className="h-4 w-4" /> 返回{nav.capabilities}

@@ -44,7 +44,7 @@ export default function CapabilityIterationDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-4xl space-y-4">
+      <div className="mx-auto w-full max-w-4xl space-y-4">
         <div className="h-8 w-64 animate-pulse rounded-glass-md bg-glass-2" />
         <div className="h-64 animate-pulse rounded-glass-lg border border-glassline bg-glass-1" />
       </div>
@@ -54,7 +54,7 @@ export default function CapabilityIterationDetailPage() {
   if (isError || !timeline) {
     const message = error instanceof Error ? error.message : '能力详情加载失败';
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto w-full max-w-4xl">
         <BackLink />
         <p className="mt-4 rounded-glass-lg border border-gdanger/25 bg-gdanger/[0.06] px-4 py-8 text-center text-sm text-gdanger">
           {message}
@@ -64,7 +64,7 @@ export default function CapabilityIterationDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 pb-8">
+    <div className="mx-auto w-full max-w-4xl space-y-5 pb-8">
       <div>
         <BackLink />
         <h1 className="mt-2.5 text-xl font-bold text-gtext-primary">{timeline.capability.name}</h1>
