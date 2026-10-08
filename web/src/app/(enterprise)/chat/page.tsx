@@ -35,10 +35,12 @@ export default function ChatPage() {
     setPickerOpen(true);
   }
 
-  const effectiveActive = activeId ?? sessions[0]?.id ?? null;
-  const mountedSessionIds = effectiveActive && !sessions.some((s) => s.id === effectiveActive)
-    ? [...sessions.map((s) => s.id), effectiveActive]
-    : sessions.map((s) => s.id);
+  // 历史会话可能关联已下架员工；优先打开仍可用的会话，避免进入页面就被旧会话卡住。
+  const defaultSessionId =
+    sessions.find((session) => session.employee?.status !== 'ARCHIVED')?.id ??
+    sessions[0]?.id ??
+    null;
+  const effectiveActive = activeId ?? defaultSessionId;
 
   const handleCreate = (employeeId: string) => {
     createConv.mutate(
@@ -86,16 +88,11 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {effectiveActive ? (
-          <>
-            {mountedSessionIds.map((sessionId) => (
-              <div
-                key={sessionId}
-                className={sessionId === effectiveActive ? 'flex min-h-0 w-full min-w-0 flex-1' : 'hidden'}
-              >
-                <ChatWindow conversationId={sessionId} />
-              </div>
-            ))}
-          </>
+          <ChatWindow
+            key={effectiveActive}
+            conversationId={effectiveActive}
+            onNewSession={() => setPickerOpen(true)}
+          />
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

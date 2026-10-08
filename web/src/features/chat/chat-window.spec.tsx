@@ -37,6 +37,8 @@ beforeAll(() => {
 
 let conversationData: unknown = undefined;
 let conversationLoading = false;
+let conversationError = false;
+const refetchConversationSpy = vi.fn();
 let subscribedData: unknown[] = [];
 type BlockedInfo = {
   message: string;
@@ -58,6 +60,8 @@ vi.mock('./use-conversations', () => ({
   useConversation: () => ({
     data: conversationData,
     isLoading: conversationLoading,
+    isError: conversationError,
+    refetch: refetchConversationSpy,
   }),
 }));
 
@@ -170,12 +174,15 @@ function message(over: Partial<Message> = {}): Message {
   };
 }
 
-function renderWindow(onClient?: (client: QueryClient) => void) {
+function renderWindow(
+  onClient?: (client: QueryClient) => void,
+  onNewSession?: () => void,
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   onClient?.(qc);
   return render(
     <QueryClientProvider client={qc}>
-      <ChatWindow conversationId="c1" />
+      <ChatWindow conversationId="c1" onNewSession={onNewSession} />
     </QueryClientProvider>,
   );
 }
@@ -208,6 +215,8 @@ describe('ChatWindow', () => {
     vi.clearAllMocks();
     sendSpy.mockResolvedValue('ok');
     conversationLoading = false;
+    conversationError = false;
+    refetchConversationSpy.mockReset();
     subscribedData = [];
     streamState = {
       streaming: false,
@@ -250,6 +259,32 @@ describe('ChatWindow', () => {
       conversationData = { id: 'c1', messages: [], employee: undefined };
       renderWindow();
       expect(screen.getByText('开始和 碳基员工 对话')).toBeInTheDocument();
+    });
+
+    it('会话详情加载失败时显示重试提示且不挂载输入框', () => {
+      conversationError = true;
+      renderWindow();
+
+      expect(screen.getByText('会话加载失败')).toBeInTheDocument();
+      expect(screen.getByText('会话详情暂时无法读取，请重试；如果仍然失败，请刷新页面后再试。')).toBeInTheDocument();
+      expect(screen.queryByTestId('input-bar')).not.toBeInTheDocument();
+    });
+
+    it('默认员工已下架时保留历史消息但禁止继续发送', () => {
+      conversationData = {
+        id: 'c1',
+        title: '历史会话',
+        employee: { ...EMPLOYEE, status: 'ARCHIVED' },
+        messages: [message({ role: 'USER', content: '历史问题' })],
+      };
+      const onNewSession = vi.fn();
+      renderWindow(undefined, onNewSession);
+
+      expect(screen.getByText('该硅基员工已下架')).toBeInTheDocument();
+      expect(screen.getByText('历史问题')).toBeInTheDocument();
+      expect(screen.queryByTestId('input-bar')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+      expect(onNewSession).toHaveBeenCalledOnce();
     });
   });
 

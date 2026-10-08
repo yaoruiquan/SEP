@@ -6,7 +6,8 @@ import { Bot } from 'lucide-react';
 import { qk } from '@/lib/query-keys';
 import { computeCreditKeys } from '@/lib/api/use-compute-credit';
 import { personalWalletKeys } from '@/lib/api/use-personal-wallet';
-import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
+import { CenteredSpinner, EmptyState, ErrorState } from '@/components/ui/feedback';
+import { Button } from '@/components/ui/button';
 import { MessageBubble } from './message-bubble';
 import { InputBar } from './input-bar';
 import { ModelSwitcher } from './model-switcher';
@@ -20,6 +21,7 @@ import type { Message, MessageAttachment } from '@/lib/types';
 
 interface ChatWindowProps {
   conversationId: string;
+  onNewSession?: () => void;
 }
 
 /** Local echo of a just-sent user message before the server round-trips. */
@@ -29,9 +31,9 @@ interface PendingUser {
   attachments?: MessageAttachment[];
 }
 
-export function ChatWindow({ conversationId }: ChatWindowProps) {
+export function ChatWindow({ conversationId, onNewSession }: ChatWindowProps) {
   const qc = useQueryClient();
-  const { data: conversation, isLoading } = useConversation(conversationId);
+  const { data: conversation, isLoading, isError, refetch } = useConversation(conversationId);
   const { state, send, stop, reset, dismissBlocked } = useChatStream();
   const [pendingUser, setPendingUser] = useState<PendingUser | null>(null);
   // 本轮流式回复的作者，用于让实时气泡显示正确的员工而非会话默认员工
@@ -54,6 +56,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const { data: subscribedEmployees = [] } = useSubscribedEmployees();
 
   const employee = conversation?.employee;
+  const employeeArchived = employee?.status === 'ARCHIVED';
   const persisted: Message[] = conversation?.messages ?? [];
 
   // 会话默认员工排在首位，其余订阅员工去重跟在后面
@@ -128,6 +131,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     targetEmployeeId?: string,
     attachments?: MessageAttachment[],
   ): Promise<SendOutcome> => {
+    // 会话详情未加载成功或默认员工已下架时，不允许误发到无效会话。
+    if (!conversation || isError || employeeArchived) return 'failed';
+
     const seq = ++sendSeqRef.current;
     setPendingUser({ id: `pending-${Date.now()}`, content: text, attachments });
     setStreamingAuthorId(targetEmployeeId ?? employee?.id ?? null);
@@ -183,7 +189,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     persisted.length === 0 &&
     !pendingUser &&
     !showLiveAssistant &&
-    !state.notice;
+    !state.notice &&
+    !employeeArchived;
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
@@ -215,6 +222,12 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
         {isLoading ? (
           <CenteredSpinner label="加载会话…" />
+        ) : isError ? (
+          <ErrorState
+            title="会话加载失败"
+            message="会话详情暂时无法读取，请重试；如果仍然失败，请刷新页面后再试。"
+            onRetry={() => void refetch()}
+          />
         ) : isEmpty ? (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState
@@ -230,6 +243,26 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             aria-live="polite"
             aria-relevant="additions"
           >
+            {employeeArchived && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-medium">该硅基员工已下架</p>
+                <p className="mt-1 text-amber-800">
+                  这段历史消息仍可查看，但不能继续发送。请新建会话选择当前已上架的员工。
+                </p>
+                {onNewSession && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3 border-amber-300 bg-white hover:bg-amber-100"
+                    onClick={onNewSession}
+                  >
+                    新建会话
+                  </Button>
+                )}
+              </div>
+            )}
+
             {persisted
               .filter((m) => m.role !== 'TOOL')
               .map((m) => {
@@ -292,15 +325,17 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       {/* 无条件挂载：点「个人余额充值」时它会先自关，条件挂载会把充值弹窗一起卸掉 */}
       <QuotaBlockedDialog info={state.blocked} onClose={dismissBlocked} />
 
-      <div className="z-20 flex-shrink-0 border-t bg-white">
-        <InputBar
-          onSend={handleSend}
-          onStop={stop}
-          streaming={state.streaming}
-          defaultEmployeeId={employee?.id ?? ''}
-          employees={employees}
-        />
-      </div>
+      {!isLoading && !isError && !employeeArchived && conversation && (
+        <div className="z-20 flex-shrink-0 border-t bg-white">
+          <InputBar
+            onSend={handleSend}
+            onStop={stop}
+            streaming={state.streaming}
+            defaultEmployeeId={employee?.id ?? ''}
+            employees={employees}
+          />
+        </div>
+      )}
     </div>
   );
 }

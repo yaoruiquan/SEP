@@ -324,7 +324,7 @@ export interface ConversationSession {
   taskStepId?: string | null;
   createdAt: string;
   updatedAt: string;
-  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'avatarAsset' | 'modelId'>;
+  employee?: Pick<DigitalEmployee, 'id' | 'name' | 'avatar' | 'avatarAsset' | 'modelId' | 'status'>;
   _count?: { messages?: number };
 }
 

@@ -103,7 +103,7 @@ export class ConversationService {
         modelId: true,
         createdAt: true,
         updatedAt: true,
-        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, status: true } },
       },
     });
 
@@ -113,7 +113,14 @@ export class ConversationService {
 
   async findAll(userId: string, source: ConversationSource = 'CHAT') {
     const sessions = await this.prisma.conversationSession.findMany({
-      where: { userId, source },
+      // 归档会话通过 status 隐藏；历史消息仍保留在数据库中，供审计和必要时恢复。
+      // 普通对话也排除已下架员工，避免员工后续下架时旧会话重新进入会话中心。
+      where: {
+        userId,
+        source,
+        status: 'ACTIVE',
+        ...(source === 'CHAT' ? { employee: { is: { status: { not: 'ARCHIVED' } } } } : {}),
+      },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -125,7 +132,7 @@ export class ConversationService {
         modelId: true,
         createdAt: true,
         updatedAt: true,
-        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, status: true } },
         _count: { select: { messages: true } },
       },
     });
@@ -139,7 +146,7 @@ export class ConversationService {
     const session = await this.prisma.conversationSession.findUnique({
       where: { id: sessionId },
       include: {
-        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, modelId: true } },
+        employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, modelId: true, status: true } },
         messages: {
           orderBy: { createdAt: 'asc' },
           select: {

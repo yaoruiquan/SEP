@@ -41,4 +41,29 @@ describe('conversation employee avatars', () => {
   it('does not return another user conversation or its employee metadata', async () => {
     await expect(service.findOne(session.id, 'user-2')).rejects.toThrow(ForbiddenException);
   });
+
+  it('lists only active sessions so archived conversations stay out of the chat center', async () => {
+    await service.findAll('user-1', 'CHAT');
+
+    expect(prisma.conversationSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'user-1',
+          source: 'CHAT',
+          status: 'ACTIVE',
+          employee: { is: { status: { not: 'ARCHIVED' } } },
+        },
+      }),
+    );
+  });
+
+  it('keeps task execution history independent from employee publication status', async () => {
+    await service.findAll('user-1', 'TASK');
+
+    expect(prisma.conversationSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1', source: 'TASK', status: 'ACTIVE' },
+      }),
+    );
+  });
 });

@@ -89,6 +89,7 @@ function SessionRow({
     ? `${session.employee.name}的对话`
     : '新会话';
   const title = session.title || defaultTitle;
+  const employeeArchived = session.employee?.status === 'ARCHIVED';
 
   if (editing) {
     return (
@@ -134,6 +135,11 @@ function SessionRow({
         >
           {title}
         </span>
+        {employeeArchived && (
+          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+            员工已下架
+          </span>
+        )}
         <span className="text-xs text-fg-subtle">
           {formatDistanceToNow(new Date(session.updatedAt), {
             addSuffix: true,
