@@ -20,6 +20,7 @@ import {
   useAvailableCapabilities,
   useBindCapabilities,
   useDefaultEmployeeGiftCNY,
+  useDefaultEmployeeGiftPercentage,
 } from '@/features/admin/use-admin';
 import { useEnabledModels } from '@/features/admin/use-models';
 import { parseGiftInput } from '@/features/admin/employee-gift';
@@ -46,6 +47,7 @@ export default function NewEmployeePage() {
   // 而 '0' 表示「明确不赠送」。用 number 状态无法区分这两种意图。
   const [includedComputeInput, setIncludedComputeInput] = useState('');
   const { data: defaultGift } = useDefaultEmployeeGiftCNY();
+  const { data: defaultGiftPercentage } = useDefaultEmployeeGiftPercentage();
 
   const { data: capabilitiesData, isLoading: capabilitiesLoading } = useAvailableCapabilities();
 
@@ -289,11 +291,15 @@ export default function NewEmployeePage() {
                 step={0.01}
                 value={includedComputeInput}
                 onChange={(e) => setIncludedComputeInput(e.target.value)}
-                placeholder={`留空使用系统默认值 ¥${defaultGift.toFixed(2)}`}
+                placeholder={
+                  defaultGiftPercentage > 0
+                    ? `留空按年费 × ${defaultGiftPercentage}% 计算`
+                    : `留空使用系统默认值 ¥${defaultGift.toFixed(2)}`
+                }
               />
               <p className="text-xs text-muted-foreground">
                 企业订阅该员工后获得的一笔人民币算力余额，赠送余额用完后扣企业钱包。
-                留空 = 用系统默认值；填 0 = 明确不赠送。
+                留空 = 按运营端默认规则计算；填 0 = 明确不赠送。当前默认：{defaultGiftPercentage > 0 ? `年费 × ${defaultGiftPercentage}%` : `¥${defaultGift.toFixed(2)}`}。
               </p>
             </div>
           </div>

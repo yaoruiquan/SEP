@@ -14,6 +14,7 @@ const EMPLOYEE = {
   name: '销售助手',
   version: '2.1.0',
   includedComputeCNY: null as Decimal | null,
+  annualPriceCNY: new Decimal(5000),
 };
 
 describe('SubscriptionFulfillmentService', () => {
@@ -145,7 +146,10 @@ describe('SubscriptionFulfillmentService', () => {
     it('调用方未给金额时回落「员工级配置 > 系统默认值」', async () => {
       await svc.fulfill(prisma, { ...baseParams, sourceType: 'subscription' });
 
-      expect(credits.resolveGrantAmountCNY).toHaveBeenCalledWith(null);
+      expect(credits.resolveGrantAmountCNY).toHaveBeenCalledWith(
+        null,
+        EMPLOYEE.annualPriceCNY,
+      );
       expect(credits.grantSubscriptionCredit).toHaveBeenCalledWith(
         prisma,
         expect.objectContaining({ grantedCNY: 1000 }),

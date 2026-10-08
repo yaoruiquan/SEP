@@ -62,15 +62,16 @@ export class SubscriptionFulfillmentService {
   ) {}
 
   /**
-   * 解析某员工的「订阅赠送算力（元）」生效值：员工级配置 > 系统默认值。
+   * 解析某员工的「订阅赠送算力（元）」生效值：员工级金额 > 年费默认比例 > 默认金额。
    *
    * 下单和加购物车时都要用它算快照 —— 展示金额与最终入账金额必须同源，
    * 否则用户在购物车看到 ¥1000、履约却拿到 ¥0。
    */
   async resolveGiftCNY(
     employeeOverride: Prisma.Decimal | number | null | undefined,
+    annualPriceCNY?: Prisma.Decimal | number | null,
   ): Promise<number> {
-    return this.credits.resolveGrantAmountCNY(employeeOverride);
+    return this.credits.resolveGrantAmountCNY(employeeOverride, annualPriceCNY);
   }
 
   async fulfill(
@@ -79,7 +80,13 @@ export class SubscriptionFulfillmentService {
   ): Promise<FulfillSubscriptionResult> {
     const employee = await tx.digitalEmployee.findUnique({
       where: { id: params.employeeId },
-      select: { id: true, name: true, version: true, includedComputeCNY: true },
+      select: {
+        id: true,
+        name: true,
+        version: true,
+        includedComputeCNY: true,
+        annualPriceCNY: true,
+      },
     });
     if (!employee) {
       throw new NotFoundException(`员工 ${params.employeeId} 不存在`);
@@ -143,7 +150,10 @@ export class SubscriptionFulfillmentService {
 
     const grantedCNY =
       params.grantedCNY ??
-      (await this.credits.resolveGrantAmountCNY(employee.includedComputeCNY));
+      (await this.credits.resolveGrantAmountCNY(
+        employee.includedComputeCNY,
+        employee.annualPriceCNY,
+      ));
 
     const credit = await this.credits.grantSubscriptionCredit(tx, {
       subscriptionId: subscription.id,

@@ -273,6 +273,7 @@ describe('SubscriptionService', () => {
       // 解析在事务外完成（要读系统设置），金额显式传给履约
       expect(creditSvc.resolveGrantAmountCNY).toHaveBeenCalledWith(
         new Decimal(800),
+        expect.anything(),
       );
       expect(creditSvc.grantSubscriptionCredit).toHaveBeenCalledWith(
         prisma,

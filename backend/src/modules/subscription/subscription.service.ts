@@ -132,6 +132,7 @@ export class SubscriptionService {
     // 「员工级配置 > 系统默认值」的判定在 resolveGrantAmountCNY 里。
     const grantedCNY = await this.credits.resolveGrantAmountCNY(
       employee.includedComputeCNY,
+      employee.annualPriceCNY,
     );
 
     // 履约与扣款必须同一个事务：订阅建成但扣款失败 = 白送一年，

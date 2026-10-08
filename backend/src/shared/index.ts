@@ -72,6 +72,8 @@ export const SETTING_KEYS = {
   FALLBACK_PRICE_OUTPUT: "FALLBACK_PRICE_OUTPUT",
   /** 新员工「订阅赠送算力（元）」默认值。员工级 includedComputeCNY 为 null 时用它。 */
   DEFAULT_EMPLOYEE_GIFT_CNY: "DEFAULT_EMPLOYEE_GIFT_CNY",
+  /** 员工年费的默认赠送比例；仅员工级赠送金额为 null 时生效。 */
+  DEFAULT_EMPLOYEE_GIFT_PERCENTAGE: "DEFAULT_EMPLOYEE_GIFT_PERCENTAGE",
   /** 低余额告警阈值（元）。口径统一为人民币，不再是 tokens。 */
   LOW_BALANCE_THRESHOLD: "LOW_BALANCE_THRESHOLD",
   // 安全与限制
@@ -302,6 +304,20 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     type: "number",
     unit: "元",
     min: 0,
+  },
+  {
+    key: SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE,
+    label: "订阅赠送算力默认比例",
+    secret: false,
+    envFallback: "DEFAULT_EMPLOYEE_GIFT_PERCENTAGE",
+    placeholder: "10",
+    category: "billing",
+    description: "员工未单独设置赠送金额时，默认按员工年费的 10% 赠送；设为 0 时使用固定默认赠送金额。",
+    type: "number",
+    unit: "%",
+    defaultValue: "10",
+    min: 0,
+    max: 100,
   },
   {
     key: SETTING_KEYS.LOW_BALANCE_THRESHOLD,

@@ -31,6 +31,19 @@ export default function BasicSettings() {
     return init;
   });
 
+  useEffect(() => {
+    if (!settings?.length) return;
+    setEdits((current) => {
+      if (Object.keys(current).length > 0) return current;
+      return Object.fromEntries(
+        settings.map((setting) => [
+          setting.key,
+          setting.secret ? '' : (setting.value ?? ''),
+        ]),
+      );
+    });
+  }, [settings]);
+
   if (isLoading) return <CenteredSpinner label="加载设置…" />;
 
   const handleSave = async () => {
@@ -201,6 +214,12 @@ export default function BasicSettings() {
             '订阅赠送算力默认值（元）',
             'number',
             '员工未单独配置赠送金额时生效。改动只影响之后创建的新订阅，不追溯已有订阅。',
+          )}
+          {renderField(
+            'DEFAULT_EMPLOYEE_GIFT_PERCENTAGE',
+            '订阅赠送算力默认比例（%）',
+            'number',
+            '员工未单独配置固定赠送金额且比例大于 0 时，按员工年费 × 此比例计算。范围 0–100；改动只影响之后创建的新订阅，不追溯已有订阅。',
           )}
           {renderField(
             'FALLBACK_PRICE_INPUT',

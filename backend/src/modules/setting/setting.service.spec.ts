@@ -28,6 +28,7 @@ describe('SettingService', () => {
     prisma.systemSetting.findUnique.mockResolvedValue(null);
     await expect(service.getEffectiveValue(SETTING_KEYS.SUB2API_BASE_URL)).resolves.toBe('https://env.example/v1');
     await expect(service.getEffectiveValue(SETTING_KEYS.MAIL_PORT)).resolves.toBe('587');
+    await expect(service.getEffectiveValue(SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE)).resolves.toBe('10');
   });
 
   it('stores secrets encrypted and never exposes plaintext in admin list', async () => {
@@ -45,6 +46,9 @@ describe('SettingService', () => {
     const { service } = fixture();
     await expect(service.updateMany({ [SETTING_KEYS.MAIL_ENABLED]: 'yes' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ [SETTING_KEYS.AUTH_MAX_FAILED_ATTEMPTS]: '2' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMany({ [SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE]: '101' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMany({ [SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE]: '-1' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMany({ [SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE]: '20' })).resolves.toBeUndefined();
     await expect(service.updateMany({ [SETTING_KEYS.WECHAT_REDIRECT_URI]: 'http://localhost/callback' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ [SETTING_KEYS.DINGTALK_REDIRECT_URI]: 'http://localhost/callback' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateMany({ UNKNOWN_SETTING: 'x' })).rejects.toBeInstanceOf(BadRequestException);

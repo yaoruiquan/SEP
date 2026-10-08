@@ -15,6 +15,7 @@ describe("ComputeCreditService —— 赠送额度", () => {
   let settings: any;
   let svc: ComputeCreditService;
   let defaultGift: string | undefined;
+  let giftPercentage: string | undefined;
   let walletBalance: Decimal;
   let personalBalance: Decimal;
   let personalWallet: any;
@@ -22,6 +23,7 @@ describe("ComputeCreditService —— 赠送额度", () => {
 
   beforeEach(() => {
     defaultGift = "1000";
+    giftPercentage = undefined;
     walletBalance = new Decimal(0);
     personalBalance = new Decimal(0);
 
@@ -46,7 +48,9 @@ describe("ComputeCreditService —— 赠送额度", () => {
       getEffectiveValue: jest.fn((key: string) =>
         key === SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_CNY
           ? defaultGift
-          : undefined,
+          : key === SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE
+            ? giftPercentage
+            : undefined,
       ),
     };
     personalWallet = {
@@ -78,11 +82,31 @@ describe("ComputeCreditService —— 赠送额度", () => {
       await expect(svc.resolveGrantAmountCNY(undefined)).resolves.toBe(1000);
     });
 
-    it("❗员工明确配置 0 时就是不赠送，不能回落系统默认值", async () => {
-      // 这是本次改造最容易写错的一处：`|| default` 会把 0 吞掉，
-      // 让运营「这个员工不赠送」的决定被静默改成赠送 1000 元
-      await expect(svc.resolveGrantAmountCNY(new Decimal(0))).resolves.toBe(0);
-      await expect(svc.resolveGrantAmountCNY(0)).resolves.toBe(0);
+    it("❗员工明确配置 0 时优先于比例和默认金额", async () => {
+      giftPercentage = "15";
+      // `|| default` 会把 0 吞掉，让运营「这个员工不赠送」的决定被静默覆盖。
+      await expect(
+        svc.resolveGrantAmountCNY(new Decimal(0), 5000),
+      ).resolves.toBe(0);
+      await expect(svc.resolveGrantAmountCNY(0, 5000)).resolves.toBe(0);
+    });
+
+    it("员工金额未配置时按年费比例赠送，并按账本精度舍入", async () => {
+      giftPercentage = "12.5";
+      await expect(
+        svc.resolveGrantAmountCNY(null, new Decimal("1234.567891")),
+      ).resolves.toBe(154.320986);
+    });
+
+    it("比例为 0、非法或年费非正时回退默认金额", async () => {
+      giftPercentage = "0";
+      await expect(svc.resolveGrantAmountCNY(null, 5000)).resolves.toBe(1000);
+      giftPercentage = "not-a-number";
+      await expect(svc.resolveGrantAmountCNY(null, 5000)).resolves.toBe(1000);
+      giftPercentage = "101";
+      await expect(svc.resolveGrantAmountCNY(null, 5000)).resolves.toBe(1000);
+      giftPercentage = "10";
+      await expect(svc.resolveGrantAmountCNY(null, 0)).resolves.toBe(1000);
     });
 
     it("员工配置了金额时覆盖系统默认值", async () => {

@@ -61,6 +61,7 @@ export class CartService {
           subtotal: unitPrice * (item.periodMonths / 12),
           includedComputeCNY: await this.fulfillment.resolveGiftCNY(
             item.employee.includedComputeCNY,
+            item.employee.annualPriceCNY,
           ),
           addedAt: item.createdAt,
         };

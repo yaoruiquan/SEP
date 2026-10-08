@@ -78,16 +78,37 @@ export class ComputeCreditService {
   }
 
   /**
-   * 解析一个订阅应当赠送多少钱：**员工级配置 > 系统默认值**。
+   * 解析一个订阅应当赠送多少钱：**员工级金额 > 年费默认比例 > 默认金额**。
    *
-   * `null` 与 `0` 语义不同：null 表示运营没配过这个员工，回落系统默认；
-   * 0 表示运营明确「这个员工不赠送」。把两者混为一谈会让「默认值」
-   * 对所有存量员工突然生效，产生一批没人批准过的赠送额度。
+   * `null` 与 `0` 语义不同：null 表示员工金额未配置，才使用系统默认策略；
+   * 0 表示运营明确「这个员工不赠送」，必须优先于任何系统默认策略。
    */
   async resolveGrantAmountCNY(
     employeeOverride: Decimal | number | null | undefined,
+    annualPriceCNY?: Decimal | number | null,
   ): Promise<number> {
     if (employeeOverride === null || employeeOverride === undefined) {
+      const rawPercentage = await this.settings.getEffectiveValue(
+        SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE,
+      );
+      const percentage =
+        typeof rawPercentage === "string" && rawPercentage.trim() !== ""
+          ? Number(rawPercentage)
+          : typeof rawPercentage === "number"
+            ? rawPercentage
+            : Number.NaN;
+      if (
+        Number.isFinite(percentage) &&
+        percentage > 0 &&
+        percentage <= 100 &&
+        annualPriceCNY !== null &&
+        annualPriceCNY !== undefined
+      ) {
+        const annualPrice = new Decimal(annualPriceCNY);
+        if (annualPrice.isFinite() && annualPrice.greaterThan(0)) {
+          return money(annualPrice.mul(percentage).div(100)).toNumber();
+        }
+      }
       return this.getDefaultGiftCNY();
     }
     const value = new Decimal(employeeOverride);

@@ -88,6 +88,7 @@ export class OrderService {
           includedComputeCNY: new Decimal(
             await this.fulfillment.resolveGiftCNY(
               cartItem.employee.includedComputeCNY,
+              cartItem.employee.annualPriceCNY,
             ),
           ),
         };
@@ -173,7 +174,10 @@ export class OrderService {
     const totalAmount = unitPrice.mul(new Decimal(input.periodMonths).div(12));
     const orderNo = this.generateOrderNo();
     const includedComputeCNY = new Decimal(
-      await this.fulfillment.resolveGiftCNY(employee.includedComputeCNY),
+      await this.fulfillment.resolveGiftCNY(
+        employee.includedComputeCNY,
+        employee.annualPriceCNY,
+      ),
     );
 
     return this.prisma.order.create({

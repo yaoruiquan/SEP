@@ -344,6 +344,20 @@ export function useDefaultEmployeeGiftCNY() {
   };
 }
 
+/**
+ * 系统默认「订阅赠送算力比例（%）」。
+ * 员工未单独配置固定金额且比例大于 0 时，按年费 × 比例计算。
+ */
+export function useDefaultEmployeeGiftPercentage() {
+  const { data: settings, ...rest } = useSettings();
+  const raw = settings?.find((s) => s.key === 'DEFAULT_EMPLOYEE_GIFT_PERCENTAGE')?.value;
+  const parsed = Number(raw);
+  return {
+    ...rest,
+    data: Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 0,
+  };
+}
+
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
