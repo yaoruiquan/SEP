@@ -18,7 +18,10 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
+import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 import { Request as ExpressRequest } from 'express';
 import { ClientService } from './client.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -38,11 +41,45 @@ import {
   ClientTaskHeartbeatDtoSchema,
   ClientTaskEventDto,
   ClientTaskEventDtoSchema,
+  ClientTaskMirrorQueryDto,
+  ClientTaskMirrorQueryDtoSchema,
   ClientPlatformEmployeeQuery,
   ClientPlatformEmployeeQuerySchema,
   ClientEmployeeAccessRequest,
   ClientEmployeeAccessRequestSchema,
 } from 'shared';
+
+const mirrorResponseSchema: SchemaObject = {
+  type: 'object',
+  required: ['id', 'clientTaskId', 'clientRunId', 'userId', 'subscriptionId', 'title', 'status', 'progress', 'lastSequence', 'createdAt', 'updatedAt'],
+  properties: {
+    id: { type: 'string' }, clientTaskId: { type: 'string' }, clientRunId: { type: 'string' },
+    userId: { type: 'string' }, enterpriseId: { type: 'string', nullable: true },
+    subscriptionId: { type: 'string' }, title: { type: 'string' }, taskType: { type: 'string' },
+    modelId: { type: 'string', nullable: true }, status: { type: 'string' },
+    progress: { type: 'integer' }, lastSequence: { type: 'integer' },
+    currentStep: { type: 'string', nullable: true }, activity: { type: 'string', nullable: true },
+    errorSummary: { type: 'string', nullable: true }, clientVersion: { type: 'string', nullable: true },
+    lastHeartbeatAt: { type: 'string', format: 'date-time', nullable: true },
+    startedAt: { type: 'string', format: 'date-time', nullable: true },
+    completedAt: { type: 'string', format: 'date-time', nullable: true },
+    createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+const mirrorSummaryResponseSchema: SchemaObject = {
+  ...mirrorResponseSchema,
+  required: [...mirrorResponseSchema.required, 'user'],
+  properties: {
+    ...mirrorResponseSchema.properties,
+    user: { type: 'object', required: ['id', 'name'], properties: {
+      id: { type: 'string' }, name: { type: 'string', nullable: true },
+    } },
+  },
+};
+const taskRateLimitResponse = {
+  status: 429, description: 'default 桶限流（100 次/分钟）；按 Retry-After 秒数重试',
+  headers: { 'Retry-After': { description: '等待秒数', schema: { type: 'integer' as const } } },
+};
 
 @ApiTags('Client')
 @Controller('client')
@@ -227,38 +264,133 @@ export class ClientController {
   }
 
   @Post('tasks')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '创建客户端任务云端镜像' })
-  async createTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Body(new ZodValidationPipe(CreateClientTaskMirrorDtoSchema)) body: CreateClientTaskMirrorDto) { return this.clientService.createTaskMirror(req.user.id, body); }
+  @ApiOperation({ summary: '幂等创建客户端任务云端镜像', description: '同 run 不重置状态；不同 run 重置执行状态但保留任务全局 lastSequence 和历史事件。每次重新验证订阅授权，禁止跨企业复用 clientTaskId。' })
+  @ApiResponse({ status: 201, description: '创建或更新后的镜像（相同任务保持 id）', schema: mirrorResponseSchema })
+  @ApiResponse({ status: 400, description: 'Body 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业、无有效订阅授权或跨企业复用任务 ID' })
+  @ApiResponse({ status: 409, description: '并发同步冲突，请重试' })
+  @ApiResponse(taskRateLimitResponse)
+  async createTaskMirror(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Body(new ZodValidationPipe(CreateClientTaskMirrorDtoSchema)) body: CreateClientTaskMirrorDto,
+  ) {
+    return this.clientService.createTaskMirror(req.user.id, body);
+  }
 
   @Patch('tasks/:id/status')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '更新客户端任务状态' })
-  async updateTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(UpdateClientTaskMirrorStatusDtoSchema)) body: UpdateClientTaskMirrorStatusDto) { return this.clientService.updateTaskMirror(req.user.id, id, body); }
+  @ApiOperation({ summary: '更新本人客户端任务状态', description: 'clientRunId 可选；省略时兼容当前 run，显式陈旧 run 返回 409。' })
+  @ApiResponse({ status: 200, description: '更新后的镜像', schema: mirrorResponseSchema })
+  @ApiResponse({ status: 400, description: 'Body 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业权限' })
+  @ApiResponse({ status: 404, description: '本企业本人任务不存在' })
+  @ApiResponse({ status: 409, description: '陈旧 run 或并发同步冲突' })
+  @ApiResponse(taskRateLimitResponse)
+  async updateTaskMirror(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateClientTaskMirrorStatusDtoSchema)) body: UpdateClientTaskMirrorStatusDto,
+  ) {
+    return this.clientService.updateTaskMirror(req.user.id, id, body);
+  }
 
   @Post('tasks/:id/heartbeat')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '上报客户端任务心跳' })
-  async heartbeatTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(ClientTaskHeartbeatDtoSchema)) body: ClientTaskHeartbeatDto) { return this.clientService.heartbeatTaskMirror(req.user.id, id, body); }
+  @ApiOperation({ summary: '上报本人客户端任务心跳' })
+  @ApiResponse({ status: 201, description: '更新后的镜像', schema: mirrorResponseSchema })
+  @ApiResponse({ status: 400, description: 'Body 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业权限' })
+  @ApiResponse({ status: 404, description: '本企业本人任务不存在' })
+  @ApiResponse({ status: 409, description: '并发同步冲突，请重试' })
+  @ApiResponse(taskRateLimitResponse)
+  async heartbeatTaskMirror(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ClientTaskHeartbeatDtoSchema)) body: ClientTaskHeartbeatDto,
+  ) {
+    return this.clientService.heartbeatTaskMirror(req.user.id, id, body);
+  }
 
   @Post('tasks/:id/events')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '上报客户端任务事件' })
-  async eventTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string, @Body(new ZodValidationPipe(ClientTaskEventDtoSchema)) body: ClientTaskEventDto) { return this.clientService.eventTaskMirror(req.user.id, id, body); }
+  @ApiOperation({ summary: '幂等上报本人客户端任务事件', description: 'clientRunId 可选，省略时归档当前 run；显式历史 run 不覆盖当前执行进度。sequence 必须按任务全局单调递增，重复返回 duplicate:true。message 每片最多 1000 字符，保留空白；长文本 stepKey=content:v1:<messageId>:<index>:<total>。' })
+  @ApiResponse({ status: 201, description: '镜像；已确认的 sequence 返回 duplicate:true', schema: {
+    ...mirrorResponseSchema, properties: { ...mirrorResponseSchema.properties, duplicate: { type: 'boolean' } },
+  } })
+  @ApiResponse({ status: 400, description: 'Body 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业权限' })
+  @ApiResponse({ status: 404, description: '本企业本人任务不存在' })
+  @ApiResponse({ status: 409, description: '并发同步冲突，请重试' })
+  @ApiResponse(taskRateLimitResponse)
+  async eventTaskMirror(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ClientTaskEventDtoSchema)) body: ClientTaskEventDto,
+  ) {
+    return this.clientService.eventTaskMirror(req.user.id, id, body);
+  }
 
   @Get('tasks')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '查询企业客户端任务镜像' })
-  async listTaskMirrors(@Request() req: ExpressRequest & { user: { id: string } }) { return this.clientService.listTaskMirrors(req.user.id); }
+  @ApiOperation({ summary: '查询有权查看的客户端任务镜像', description: '管理员默认本企业全员；普通成员/部门负责人默认本人。无 page/limit 保留最近 100 条数组；提供任意分页参数返回分页对象，按 updatedAt desc、id desc 排序。' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '正整数；分页时默认 1' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: '1–100；分页时默认 50' })
+  @ApiQuery({ name: 'scope', required: false, enum: ['mine', 'enterprise'], description: 'mine 强制本人；enterprise 仅企业管理员；省略沿用角色范围' })
+  @ApiResponse({ status: 200, description: '兼容数组或分页对象，user 仅含 id/name', schema: { oneOf: [
+    { type: 'array', items: mirrorSummaryResponseSchema },
+    { type: 'object', required: ['items', 'total', 'page', 'limit', 'hasNextPage'], properties: {
+      items: { type: 'array', items: mirrorSummaryResponseSchema },
+      total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, hasNextPage: { type: 'boolean' },
+    } },
+  ] } })
+  @ApiResponse({ status: 400, description: 'Query 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业或非管理员指定 enterprise scope' })
+  @ApiResponse(taskRateLimitResponse)
+  async listTaskMirrors(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Query(new ZodValidationPipe(ClientTaskMirrorQueryDtoSchema)) query: ClientTaskMirrorQueryDto,
+  ) {
+    return this.clientService.listTaskMirrors(req.user.id, query);
+  }
 
   @Get('tasks/:id')
+  @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '查询客户端任务镜像详情' })
-  async getTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string) { return this.clientService.getTaskMirror(req.user.id, id); }
+  @ApiOperation({ summary: '查询客户端任务镜像详情', description: '与列表角色范围一致；返回镜像、创建人最小摘要与按 sequence 排序的完整 events。' })
+  @ApiResponse({ status: 200, description: '{...mirror,user:{id,name},events}', schema: {
+    ...mirrorSummaryResponseSchema, required: [...mirrorSummaryResponseSchema.required, 'events'],
+    properties: { ...mirrorSummaryResponseSchema.properties, events: { type: 'array', items: {
+      type: 'object', properties: {
+        id: { type: 'string' }, mirrorId: { type: 'string' }, clientRunId: { type: 'string' },
+        sequence: { type: 'integer' }, type: { type: 'string' },
+        stepKey: { type: 'string', nullable: true }, message: { type: 'string', nullable: true },
+        progress: { type: 'integer', nullable: true }, occurredAt: { type: 'string', format: 'date-time', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    } } },
+  } })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业权限' })
+  @ApiResponse({ status: 404, description: '不存在或不在可见范围的任务' })
+  @ApiResponse(taskRateLimitResponse)
+  async getTaskMirror(@Request() req: ExpressRequest & { user: { id: string } }, @Param('id') id: string) {
+    return this.clientService.getTaskMirror(req.user.id, id);
+  }
 }
