@@ -376,7 +376,7 @@ describe('Task mirror route throttling', () => {
     { name: 'auth', ttl: 60000, limit: 10 },
     { name: 'chat', ttl: 60000, limit: 60 },
   ];
-  const executionContext = (handler: Function, header: jest.Mock) => ({
+  const executionContext = (handler: (...args: never[]) => unknown, header: jest.Mock) => ({
     getHandler: () => handler, getClass: () => ClientController,
     switchToHttp: () => ({
       getRequest: () => ({ ip: '127.0.0.1', headers: {} }),
