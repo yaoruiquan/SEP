@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronDown, MessageSquareText, Sparkles, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ApiError } from '@/lib/api-client';
 import { ExecutionDetailPanel } from './execution-detail-panel';
 import { useCapabilityUsage } from './use-capability-iteration';
 
@@ -22,7 +23,7 @@ export function UsagePanel({
   capabilityId: string;
   canManage?: boolean;
 }) {
-  const { data, isLoading, isError } = useCapabilityUsage(capabilityId);
+  const { data, isLoading, isError, error } = useCapabilityUsage(capabilityId);
   // 执行明细是使用统计的下钻，不是平级话题 —— 原先它占一个独立 tab，
   // §6.7「目录层级越深越难用」之后收进这里，默认收起
   const [showExecutions, setShowExecutions] = useState(false);
@@ -32,6 +33,9 @@ export function UsagePanel({
   }
 
   if (isError || !data) {
+    if (error instanceof ApiError && error.status === 403) {
+      return <p className="px-4 py-6 text-center text-xs text-gtext-muted">暂无使用记录查看权限</p>;
+    }
     return (
       <p className="rounded-glass-lg border border-gdanger/25 bg-gdanger/[0.06] px-4 py-6 text-center text-xs text-gdanger">
         使用记录加载失败

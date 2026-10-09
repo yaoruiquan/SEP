@@ -73,6 +73,12 @@ export interface EnterpriseSkillVersionReviewResponse {
   limit: number;
 }
 
+export interface EnterpriseSkillVersionReviewResult {
+  id: string;
+  status: SkillVersionStatus;
+  publishedVersionId: string | null;
+}
+
 export interface SkillVersionPreview extends SkillVersionSummary {
   content: string;
   rejectionReason?: string | null;

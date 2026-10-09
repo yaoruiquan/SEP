@@ -42,12 +42,12 @@ function createPrismaMock() {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     skillVersionReview: { create: jest.fn() },
     subscription: {
       findFirst: jest.fn(),
       findUnique: jest.fn().mockResolvedValue({ enterpriseId: 'enterprise-1', employee: { bindings: [] } }),
-      // publishEnterpriseVersion 在事务里查「哪些雇佣关系要切到新版」
       findMany: jest.fn().mockResolvedValue([]),
     },
     capability: { findUnique: jest.fn().mockResolvedValue({ name: '测试能力' }) },
@@ -63,6 +63,7 @@ function createPrismaMock() {
       findUnique: jest.fn(),
       upsert: jest.fn(),
     },
+    enterpriseSkillDefault: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
@@ -77,17 +78,23 @@ describe('SkillVersionService', () => {
     assertEnterpriseAdmin: jest.Mock;
   };
   let service: SkillVersionService;
+  let defaults: { get: jest.Mock; lock: jest.Mock; set: jest.Mock };
 
   beforeEach(() => {
     prisma = createPrismaMock();
     enterpriseContext = {
       resolve: jest.fn().mockResolvedValue(memberContext),
       assertCanApprove: jest.fn(),
-      assertEnterpriseAdmin: jest.fn(),
+      assertEnterpriseAdmin: jest.fn((ctx) => {
+        if (ctx.role !== 'ENTERPRISE_ADMIN') throw new ForbiddenException('仅企业管理员可执行此操作');
+      }),
     };
+    defaults = { get: jest.fn().mockResolvedValue(null), lock: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue({ affectedSubscriptions: 0 }) };
     service = new SkillVersionService(
       prisma as unknown as PrismaService,
       enterpriseContext as unknown as EnterpriseContextService,
+      defaults as never,
     );
   });
 
@@ -179,8 +186,6 @@ describe('SkillVersionService', () => {
     );
   });
 
-  // 企业内提审流已下线（会议纪要2 §6.4），取代它的是「发布并生效」一步。
-  // 这里守住的仍是同一条边界：普通成员不能让一个企业版生效。
   it('does not allow an ordinary member to publish an enterprise version', async () => {
     enterpriseContext.assertEnterpriseAdmin.mockImplementation(() => {
       throw new ForbiddenException('仅企业管理员可执行此操作');
@@ -214,11 +219,139 @@ describe('SkillVersionService', () => {
       ),
     ).rejects.toThrow(BadRequestException);
     expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+    expect(defaults.lock).not.toHaveBeenCalled();
+    expect(defaults.set).not.toHaveBeenCalled();
+  });
+
+  it('switches the enterprise default through the shared service without changing member preferences', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    prisma.subscription.findFirst.mockResolvedValue({
+      id: 'subscription-1', employeeId: 'employee-1', enterpriseId: 'enterprise-1',
+    });
+    prisma.employeeCapabilityBinding.findFirst.mockResolvedValue({ id: 'binding-1' });
+    prisma.skillVersion.findUnique.mockResolvedValue(platformVersion);
+    await service.selectVersion('admin-1', 'subscription-1', 'capability-1', platformVersion.id);
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(defaults.set).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1', platformVersion.id, 'admin-1');
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(defaults.set.mock.invocationCallOrder[0]);
+    expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+    expect(prisma.memberSkillVersionSelection.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { scope: 'PERSONAL', enterpriseId: 'enterprise-1', ownerId: 'admin-1', status: 'ENTERPRISE_APPROVED' },
+    { scope: 'ENTERPRISE', enterpriseId: 'other-enterprise', status: 'ENTERPRISE_APPROVED' },
+    { scope: 'ENTERPRISE', enterpriseId: 'enterprise-1', status: 'ENTERPRISE_REJECTED' },
+  ])('cannot make a personal, foreign or unpublished version the enterprise default: %j', async (version) => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    prisma.subscription.findFirst.mockResolvedValue({
+      id: 'subscription-1', employeeId: 'employee-1', enterpriseId: 'enterprise-1',
+    });
+    prisma.employeeCapabilityBinding.findFirst.mockResolvedValue({ id: 'binding-1' });
+    prisma.skillVersion.findUnique.mockResolvedValue({ ...platformVersion, ...version });
+    await expect(service.selectVersion('admin-1', 'subscription-1', 'capability-1', platformVersion.id))
+      .rejects.toThrow(BadRequestException);
+    expect(defaults.set).not.toHaveBeenCalled();
+  });
+
+  describe('setEnterpriseDefault', () => {
+    it('denies ordinary members before checking capability visibility or writing defaults', async () => {
+      await expect(service.setEnterpriseDefault('user-1', 'capability-1', platformVersion.id))
+        .rejects.toThrow(ForbiddenException);
+      expect(enterpriseContext.assertEnterpriseAdmin).toHaveBeenCalledWith(memberContext);
+      expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.findUnique).not.toHaveBeenCalled();
+      expect(defaults.lock).not.toHaveBeenCalled();
+      expect(defaults.set).not.toHaveBeenCalled();
+    });
+
+    it('allows an administrator to roll back a retained enterprise skill without a subscription', async () => {
+      enterpriseContext.resolve.mockResolvedValue(adminContext);
+      prisma.subscription.findFirst.mockResolvedValue(null);
+      prisma.skillVersion.findFirst.mockResolvedValue({ id: 'enterprise-new' });
+      const oldVersion = { ...platformVersion, id: 'enterprise-old', scope: 'ENTERPRISE',
+        enterpriseId: 'enterprise-1', status: 'ENTERPRISE_APPROVED', version: '1.0.0' };
+      prisma.skillVersion.findUnique.mockResolvedValue(oldVersion);
+
+      await expect(service.setEnterpriseDefault('admin-1', 'capability-1', oldVersion.id))
+        .resolves.toEqual({ capabilityId: 'capability-1', versionId: oldVersion.id, version: oldVersion });
+
+      expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
+        enterpriseId: 'enterprise-1', capabilityId: 'capability-1', capability: { type: 'SKILL' }, OR: [
+          { scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED' },
+          { scope: 'PERSONAL', workingCopyId: null,
+            status: { in: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] } },
+        ],
+      } }));
+      expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+      expect(defaults.set).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1', oldVersion.id, 'admin-1');
+      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(defaults.set.mock.invocationCallOrder[0]);
+      expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+      expect(prisma.memberSkillVersionSelection.findFirst).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+    });
+
+    it('hides capabilities that have neither an active enterprise binding nor retained versions', async () => {
+      enterpriseContext.resolve.mockResolvedValue(adminContext);
+      prisma.subscription.findFirst.mockResolvedValue(null);
+      prisma.skillVersion.findFirst.mockResolvedValue(null);
+      await expect(service.setEnterpriseDefault('admin-1', 'capability-1', platformVersion.id))
+        .rejects.toThrow(NotFoundException);
+      expect(prisma.skillVersion.findUnique).not.toHaveBeenCalled();
+      expect(defaults.set).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { scope: 'PERSONAL', enterpriseId: 'enterprise-1', ownerId: 'admin-1', status: 'ENTERPRISE_APPROVED' },
+      { scope: 'ENTERPRISE', enterpriseId: 'other-enterprise', status: 'ENTERPRISE_APPROVED' },
+      { scope: 'ENTERPRISE', enterpriseId: 'enterprise-1', status: 'DRAFT' },
+      { scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW' },
+      { capabilityId: 'other-capability' },
+    ])('rejects invalid global default selections without taking the write lock: %j', async (version) => {
+      enterpriseContext.resolve.mockResolvedValue(adminContext);
+      prisma.subscription.findFirst.mockResolvedValue({ id: 'subscription-1' });
+      prisma.skillVersion.findUnique.mockResolvedValue({ ...platformVersion, ...version });
+      await expect(service.setEnterpriseDefault('admin-1', 'capability-1', platformVersion.id))
+        .rejects.toThrow(BadRequestException);
+      expect(defaults.lock).not.toHaveBeenCalled();
+      expect(defaults.set).not.toHaveBeenCalled();
+    });
+  });
+
+  it('creates an enterprise draft with numbering under the lock without publishing it', async () => {
+    prisma.subscription.findFirst.mockResolvedValue({ id: 'subscription-1', employeeId: 'employee-1' });
+    prisma.employeeCapabilityBinding.findFirst.mockResolvedValue({ id: 'binding-1' });
+    prisma.skillVersion.findUnique.mockResolvedValue(platformVersion);
+    prisma.skillVersion.findMany.mockResolvedValue([{ version: '1.1.0' }]);
+    const draft = { id: 'enterprise-draft', version: '1.1.1', status: 'DRAFT' };
+    prisma.skillVersion.create.mockResolvedValue(draft);
+
+    await expect(service.createEnterpriseVersion('user-1', 'subscription-1', {
+      capabilityId: 'capability-1', parentVersionId: platformVersion.id, changeSummary: 'Draft improvement',
+    })).resolves.toEqual(draft);
+
+    expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      enterpriseId: 'enterprise-1', id: 'subscription-1', status: 'ACTIVE',
+      grants: { some: { OR: [{ memberId: 'member-1' }, { departmentId: 'department-1' }],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] }] } },
+    }) }));
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.findMany.mock.invocationCallOrder[0]);
+    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: {
+      capabilityId: 'capability-1', enterpriseId: 'enterprise-1', scope: 'ENTERPRISE',
+      parentVersionId: platformVersion.id, version: '1.1.1', content: platformVersion.content,
+      changeSummary: 'Draft improvement', createdById: 'user-1',
+    } }));
+    expect(defaults.set).not.toHaveBeenCalled();
+    expect(prisma.skillVersionReview.create).not.toHaveBeenCalled();
+    expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
   });
 
   it('allows an enterprise-rejected version to be edited again', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
     prisma.skillVersion.findFirst.mockResolvedValue({
       id: 'rejected-version',
+      capabilityId: 'capability-1',
       enterpriseId: 'enterprise-1',
       scope: 'ENTERPRISE',
       parentVersionId: 'parent-version',
@@ -232,6 +365,60 @@ describe('SkillVersionService', () => {
     });
 
     expect(prisma.skillVersion.update).toHaveBeenCalled();
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(prisma.skillVersion.findFirst).toHaveBeenCalledTimes(2);
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.findFirst.mock.invocationCallOrder[1]);
+    expect(prisma.skillVersion.findFirst.mock.invocationCallOrder[1]).toBeLessThan(prisma.skillVersion.update.mock.invocationCallOrder[0]);
+  });
+
+  it.each(['MEMBER', 'DEPT_MANAGER'] as const)('denies %s editing an enterprise draft', async (role) => {
+    enterpriseContext.resolve.mockResolvedValue({ ...memberContext, role });
+    await expect(service.updateEnterpriseVersion('user-1', 'enterprise-draft', { content: 'Forbidden body' }))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(defaults.lock).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+  });
+
+  it('edits a draft only after rereading its tenant-scoped state inside the shared lock', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    const draft = { id: 'enterprise-draft', capabilityId: 'capability-1', status: 'DRAFT' };
+    prisma.skillVersion.findFirst.mockResolvedValue(draft);
+    prisma.skillVersion.update.mockResolvedValue({ ...draft, content: '# Edited' });
+    await expect(service.updateEnterpriseVersion('admin-1', draft.id, {
+      content: '---\nname: skill\n---\n\n# Edited', changeSummary: 'Revised draft',
+    })).resolves.toMatchObject({ content: '# Edited' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(prisma.skillVersion.findFirst).toHaveBeenNthCalledWith(2, { where: {
+      id: draft.id, enterpriseId: 'enterprise-1', scope: 'ENTERPRISE',
+    } });
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.findFirst.mock.invocationCallOrder[1]);
+    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: draft.id }, data: { content: '# Edited', changeSummary: 'Revised draft' },
+    }));
+    expect(defaults.set).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [null, NotFoundException],
+    [{ status: 'ENTERPRISE_APPROVED' }, ConflictException],
+    [{ status: 'PENDING_ENTERPRISE_REVIEW' }, ConflictException],
+    [{ status: 'ARCHIVED' }, ConflictException],
+  ] as const)('rejects editing when the locked draft has disappeared or changed state: %j', async (current, Exception) => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    const draft = { id: 'enterprise-draft', capabilityId: 'capability-1', status: 'DRAFT' };
+    prisma.skillVersion.findFirst.mockResolvedValueOnce(draft).mockResolvedValueOnce(current);
+    await expect(service.updateEnterpriseVersion('admin-1', draft.id, { content: 'Must never overwrite publication' }))
+      .rejects.toBeInstanceOf(Exception);
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(prisma.skillVersion.findFirst).toHaveBeenNthCalledWith(2, { where: {
+      id: draft.id, enterpriseId: 'enterprise-1', scope: 'ENTERPRISE',
+    } });
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.findFirst.mock.invocationCallOrder[1]);
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+    expect(defaults.set).not.toHaveBeenCalled();
   });
 
   it('refuses to publish an already-approved version', async () => {
@@ -263,6 +450,50 @@ describe('SkillVersionService', () => {
     await expect(
       service.publishEnterpriseVersion('user-1', 'legacy-version'),
     ).resolves.toBeDefined();
+  });
+
+  it('publishes a legacy enterprise draft under the shared default lock', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    const draft = { id: 'draft-version', capabilityId: 'capability-1', status: 'DRAFT', version: '1.1.0' };
+    const approved = { ...draft, status: 'ENTERPRISE_APPROVED' };
+    prisma.skillVersion.findFirst.mockResolvedValue(draft);
+    prisma.skillVersion.update.mockResolvedValue(approved);
+    defaults.set.mockResolvedValue({ affectedSubscriptions: 2 });
+    await expect(service.publishEnterpriseVersion('admin-1', draft.id))
+      .resolves.toMatchObject({ version: approved, affectedSubscriptions: 2 });
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(defaults.set).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1', draft.id, 'admin-1');
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.update.mock.invocationCallOrder[0]);
+    expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates an enterprise publication with version numbering inside the default lock', async () => {
+    const published = { id: 'enterprise-new', version: '1.1.1', scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED' };
+    prisma.skillVersion.findMany.mockResolvedValue([{ version: '1.1.0' }]);
+    prisma.skillVersion.findFirst.mockResolvedValue(null);
+    prisma.skillVersion.create.mockResolvedValue(published);
+    await expect(service.createEnterpriseVersionFromContent('admin-1', 'enterprise-1', 'capability-1', '# New', 'Reviewed improvement'))
+      .resolves.toEqual(published);
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillVersion.findMany.mock.invocationCallOrder[0]);
+    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      enterpriseId: 'enterprise-1', capabilityId: 'capability-1', version: '1.1.1', content: '# New',
+    }) }));
+    expect(defaults.set).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1', published.id, 'admin-1');
+    expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not change defaults or append a review when another publisher won the atomic claim', async () => {
+    enterpriseContext.resolve.mockResolvedValue(adminContext);
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'draft-version', capabilityId: 'capability-1', status: 'DRAFT', version: '1.1.0',
+    });
+    prisma.skillVersion.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.publishEnterpriseVersion('admin-1', 'draft-version')).rejects.toThrow(ConflictException);
+    expect(defaults.lock).toHaveBeenCalledWith(prisma, 'enterprise-1', 'capability-1');
+    expect(defaults.set).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+    expect(prisma.skillVersionReview.create).not.toHaveBeenCalled();
   });
 
   it('creates a platform review copy without changing the enterprise source version', async () => {

@@ -122,6 +122,13 @@ describe('EnterpriseShell 导航角色过滤', () => {
     expect(screen.getByText(nav.departments)).toBeInTheDocument();
     expect(screen.getByText(nav.members)).toBeInTheDocument();
   });
+  it.each(['ENTERPRISE_ADMIN', 'MEMBER'])('%s仅保留技能库，不再展示独立技能审核入口', (role) => {
+    setRole(role);
+    const { container } = renderShell();
+    expect(container.querySelector('a[href="/capabilities"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/skill-reviews"]')).toBeNull();
+    expect(screen.queryByText('技能审核')).not.toBeInTheDocument();
+  });
 
   it('普通成员看不到部门/团队成员 —— 进去也什么都改不了', () => {
     setRole('MEMBER');

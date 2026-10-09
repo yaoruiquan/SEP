@@ -13,7 +13,7 @@ import { CapabilityStats } from './capability-stats';
 /**
  * 技能库列表。
  *
- * 三段结构：汇总条 → 待办区（有待采纳才出现）→ 按硅基员工分组的技能行。
+ * 三段结构：汇总条 → 待办区（有待审核才出现）→ 按硅基员工分组的技能行。
  *
  * 两个刻意的设计选择：
  *
@@ -40,7 +40,7 @@ export function CapabilityIterationList() {
   const [view, setView] = useState<ViewMode>('grouped');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
 
   const visible = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -110,8 +110,6 @@ export function CapabilityIterationList() {
         </div>
       </div>
 
-      <p className="text-xs text-gtext-muted">个人版本按员工订阅分别设置，在详情查看</p>
-
       {visible.length === 0 ? (
         <div className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-12 text-center">
           <Library className="mx-auto h-8 w-8 text-gtext-disabled" />
@@ -168,7 +166,7 @@ function SummaryBar({
           个技能，还没有人调整过
         </span>
         <span className="text-gtext-disabled">
-          · {canManage ? '成员改完会自动出现在这里，等你采纳' : '你可以创建自己的副本随时调整'}
+          · {canManage ? '成员改完会自动出现在这里，等你审核' : '你可以创建自己的副本随时调整'}
         </span>
       </div>
     );
@@ -178,7 +176,7 @@ function SummaryBar({
     { label: '个技能', value: summary.capabilityCount },
     { label: '个已调整', value: summary.customizedCount },
     {
-      label: canManage ? '条改动待采纳' : '条我的改动待采纳',
+      label: canManage ? '条改动待审核' : '条我的改动待审核',
       value: summary.pendingAdoptionTotal,
       highlight: summary.pendingAdoptionTotal > 0,
     },
@@ -206,7 +204,7 @@ function SummaryBar({
 /**
  * 待办区。
  *
- * 这一页的核心动作是「看到成员改动并采纳」，它必须是打开页面第一眼看到的东西 ——
+ * 这一页的核心动作是「看到成员改动并审核」，它必须是打开页面第一眼看到的东西 ——
  * 埋在列表里等于没做。
  */
 function PendingBoard({ items, canManage }: { items: IterableCapability[]; canManage: boolean }) {
@@ -231,10 +229,10 @@ function PendingBoard({ items, canManage }: { items: IterableCapability[]; canMa
             </span>
             <span className="shrink-0 text-xs text-gbrand-text">
               {canManage
-                ? `${item.pendingAdoptionCount} 位成员调整过 · 去采纳`
+                ? `${item.pendingAdoptionCount} 条改动 · 去审核`
                 : item.myPersonalVersionActive
-                  ? '我的副本正在使用 · 等待企业采纳'
-                  : '我的副本已保存 · 等待企业采纳'}
+                  ? '我的副本正在使用 · 等待企业审核'
+                  : '我的副本已保存 · 等待企业审核'}
             </span>
           </Link>
         ))}
@@ -261,7 +259,7 @@ function FlatHeader() {
   );
 }
 
-/** 按硅基员工分组。一个技能被多位员工带着时会在各组重复出现 —— 那是事实，不是 bug。 */
+/** 未绑定员工的企业技能保留独立分组；多员工共享技能在各员工组出现。 */
 function GroupedList({
   items,
   collapsed,
@@ -282,15 +280,26 @@ function GroupedList({
       }
     >();
     for (const item of items) {
+      if (item.employees.length === 0) {
+        const group = map.get('enterprise:skills') ?? {
+          name: '企业技能',
+          avatar: null,
+          subtitle: '',
+          items: [],
+        };
+        group.items.push(item);
+        map.set('enterprise:skills', group);
+      }
       for (const employee of item.employees) {
-        const group = map.get(employee.employeeId) ?? {
+        const groupId = `employee:${employee.employeeId}`;
+        const group = map.get(groupId) ?? {
           name: employee.employeeName,
           avatar: employee.employeeAvatar,
           subtitle: employeeSubtitle(employee),
           items: [],
         };
         group.items.push(item);
-        map.set(employee.employeeId, group);
+        map.set(groupId, group);
       }
     }
     return [...map.entries()].sort((a, b) => b[1].items.length - a[1].items.length);
@@ -314,12 +323,16 @@ function GroupedList({
               aria-expanded={!isCollapsed}
               className="flex w-full items-center gap-3 bg-glass-2 px-4 py-3 text-left transition-colors hover:bg-glass-3"
             >
-              <Avatar
+              {employeeId === 'enterprise:skills' ? (
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-glass-md bg-gbrand/10 text-gbrand-text">
+                  <Library className="h-5 w-5" />
+                </span>
+              ) : <Avatar
                 name={group.name}
                 src={group.avatar}
                 portrait
                 className="h-10 w-10 shrink-0 shadow-glass-sm ring-1 ring-white/15"
-              />
+              />}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-gtext-primary">
                   {group.name}
@@ -334,7 +347,7 @@ function GroupedList({
               </span>
               {pending > 0 && (
                 <span className="shrink-0 rounded-glass-pill bg-gbrand/15 px-2 py-0.5 text-xs font-medium text-gbrand-text">
-                  {pending} 条待采纳
+                  {pending} 条待审核
                 </span>
               )}
               <ChevronDown
@@ -388,7 +401,7 @@ function CapabilityRow({
         {item.capability.name}
       </span>
 
-      <span className="flex min-w-0 flex-col items-center gap-1" title="个人使用版本按订阅分别设置，可在版本记录查看和切换">
+      <span className="flex min-w-0 flex-col items-center gap-1">
         {item.myPersonalVersionId && item.myPersonalVersionActive ? (
           <ScopeTag tone="personal">副本正在使用</ScopeTag>
         ) : (
@@ -398,7 +411,7 @@ function CapabilityRow({
             ) : scope === 'PLATFORM' ? (
               <ScopeTag tone="platform">默认：平台版 {item.currentVersion?.version}</ScopeTag>
             ) : (
-              <ScopeTag tone="platform">默认：平台版</ScopeTag>
+              <ScopeTag tone="platform">暂无默认版本</ScopeTag>
             )}
             {item.myPersonalVersionId && <ScopeTag tone="saved">副本已保存</ScopeTag>}
           </>
@@ -419,13 +432,13 @@ function CapabilityRow({
 
       <span className="truncate text-right text-xs">
         {item.pendingAdoptionCount > 0 ? (
-          <span className="font-medium text-gbrand-text">{item.pendingAdoptionCount} 条待采纳</span>
+          <span className="font-medium text-gbrand-text">{item.pendingAdoptionCount} 条待审核</span>
         ) : null}
       </span>
 
       {showEmployees && (
         <span className="truncate text-right text-xs text-gtext-muted">
-          {item.employees.map((employee) => employee.employeeName).join('、')}
+          {item.employees.map((employee) => employee.employeeName).join('、') || '企业技能'}
         </span>
       )}
     </Link>
@@ -535,10 +548,6 @@ function EmptyState() {
     <div className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-12 text-center">
       <Library className="mx-auto h-6 w-6 text-gtext-disabled" />
       <p className="mt-3 text-sm font-medium text-gtext-secondary">技能库还是空的</p>
-      <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-gtext-muted">
-        企业雇佣硅基员工后，员工带的技能会出现在这里。你可以创建并保存自己的副本，在版本记录按订阅选择使用，
-        管理员采纳后成为企业统一版本，且不影响平台公共版本。
-      </p>
     </div>
   );
 }

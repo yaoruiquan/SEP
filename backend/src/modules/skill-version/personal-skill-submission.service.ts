@@ -4,6 +4,7 @@ import { Prisma, type SkillVersionStatus } from '@prisma/client';
 import type { PersonalSkillReviewQuery, ReviewSkillVersionDto, SubmitPersonalSkillVersionDto } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService, type EnterpriseContext } from '../enterprise/enterprise-context.service';
+import { EnterpriseSkillReviewService, PERSONAL_REVIEW_RELATIONS, personalReviewState } from './enterprise-skill-review.service';
 
 export const PERSONAL_SUBMISSION_SELECT = {
   id: true, capabilityId: true, parentVersionId: true, enterpriseId: true,
@@ -17,6 +18,7 @@ export class PersonalSkillSubmissionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly context: EnterpriseContextService,
+    private readonly reviewsService: EnterpriseSkillReviewService,
   ) {}
 
   private async assertGranted(ctx: EnterpriseContext, capabilityId: string) {
@@ -25,7 +27,7 @@ export class PersonalSkillSubmissionService {
       where: {
         enterpriseId: ctx.enterpriseId, status: 'ACTIVE',
         OR: [{ endDate: null }, { endDate: { gt: now } }],
-        employee: { bindings: { some: { capabilityId, capability: { type: 'SKILL' } } } },
+        employee: { bindings: { some: { capabilityId, enabled: true, capability: { type: 'SKILL' } } } },
         grants: { some: {
           OR: [{ memberId: ctx.memberId }, ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : [])],
           AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
@@ -42,7 +44,12 @@ export class PersonalSkillSubmissionService {
     // A deterministic primary key makes retries atomic across processes without a separate request table.
     const digest = createHash('sha256').update(JSON.stringify([ctx.enterpriseId, userId, key])).digest('hex');
     const id = `psv_${digest}`;
-    const select = { ...PERSONAL_SUBMISSION_SELECT, content: true } as const;
+    const select = { ...PERSONAL_SUBMISSION_SELECT, content: true, ...PERSONAL_REVIEW_RELATIONS } as const;
+    const receipt = (row: typeof existing) => {
+      if (!row) throw new NotFoundException('个人版本不存在');
+      const { adoptedInto: _adoptedInto, reviewSnapshots: _reviewSnapshots, ...summary } = row;
+      return { ...summary, publishedVersionId: personalReviewState(row).publishedVersionId };
+    };
     const matches = (row: { capabilityId: string; parentVersionId: string | null; content: string; changeSummary: string | null }) => {
       if (row.capabilityId !== dto.capabilityId || row.parentVersionId !== dto.parentVersionId ||
           row.content !== dto.content || row.changeSummary !== (dto.changeSummary ?? null)) {
@@ -50,7 +57,7 @@ export class PersonalSkillSubmissionService {
       }
     };
     const existing = await this.prisma.skillVersion.findUnique({ where: { id }, select });
-    if (existing) { matches(existing); return existing; }
+    if (existing) { matches(existing); return receipt(existing); }
 
     const parent = await this.prisma.skillVersion.findUnique({ where: { id: dto.parentVersionId } });
     if (!parent) throw new NotFoundException('来源版本不存在');
@@ -79,63 +86,64 @@ export class PersonalSkillSubmissionService {
       throw error;
     });
     matches(created);
-    return created;
+    return receipt(created);
   }
 
   async list(userId: string, capabilityId: string, status?: SkillVersionStatus) {
     const ctx = await this.context.resolve(userId);
-    await this.assertGranted(ctx, capabilityId);
-    return this.prisma.skillVersion.findMany({
+    const now = new Date();
+    const visible = await this.prisma.subscription.findFirst({ where: {
+      enterpriseId: ctx.enterpriseId, status: 'ACTIVE',
+      OR: [{ endDate: null }, { endDate: { gt: now } }],
+      employee: { bindings: { some: { capabilityId, enabled: true, capability: { type: 'SKILL' } } } },
+      ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { grants: { some: {
+        OR: [{ memberId: ctx.memberId }, ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : [])],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+      } } }),
+    }, select: { id: true } });
+    if (!visible) {
+      const retained = await this.prisma.skillVersion.findFirst({ where: {
+        capabilityId, enterpriseId: ctx.enterpriseId, scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED',
+      }, select: { id: true } });
+      if (!retained) throw new NotFoundException('本企业技能不存在');
+    }
+    const rows = await this.prisma.skillVersion.findMany({
       where: { capabilityId, ...(status ? { status } : {}), OR: [
         { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
         { scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId, status: 'ENTERPRISE_APPROVED' },
         { scope: 'PERSONAL', enterpriseId: ctx.enterpriseId, ownerId: userId },
       ] },
-      select: PERSONAL_SUBMISSION_SELECT,
+      select: { ...PERSONAL_SUBMISSION_SELECT, ...PERSONAL_REVIEW_RELATIONS },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    return rows.map(({ adoptedInto, reviewSnapshots, ...row }) => ({ ...row,
+      publishedVersionId: personalReviewState({ ...row, adoptedInto, reviewSnapshots }).publishedVersionId,
+    }));
   }
 
   async reviews(userId: string, query: PersonalSkillReviewQuery) {
     const ctx = await this.context.resolve(userId);
     this.context.assertEnterpriseAdmin(ctx);
     const where: Prisma.SkillVersionWhereInput = {
-      enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', submittedAt: { not: null },
-      status: query.status, ...(query.capabilityId ? { capabilityId: query.capabilityId } : {}),
+      enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', workingCopyId: null,
+      status: { in: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] },
+      ...(query.capabilityId ? { capabilityId: query.capabilityId } : {}),
     };
-    const [total, items] = await this.prisma.$transaction([
-      this.prisma.skillVersion.count({ where }),
-      this.prisma.skillVersion.findMany({ where, select: {
+    const rows = await this.prisma.skillVersion.findMany({ where, select: {
         ...PERSONAL_SUBMISSION_SELECT,
+        ...PERSONAL_REVIEW_RELATIONS,
         capability: { select: { id: true, name: true, description: true } },
         owner: { select: { id: true, name: true, email: true } },
       },
-        orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }], skip: (query.page - 1) * query.limit, take: query.limit }),
-    ]);
-    return { total, items, page: query.page, limit: query.limit };
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }] });
+    const matching = rows.map(({ adoptedInto, reviewSnapshots, ...row }) => ({ ...row,
+      ...personalReviewState({ ...row, adoptedInto, reviewSnapshots }),
+    })).filter((row) => row.reviewStatus === query.status);
+    const start = (query.page - 1) * query.limit;
+    return { total: matching.length, items: matching.slice(start, start + query.limit), page: query.page, limit: query.limit };
   }
 
   async review(userId: string, versionId: string, dto: ReviewSkillVersionDto) {
-    const ctx = await this.context.resolve(userId);
-    this.context.assertEnterpriseAdmin(ctx);
-    return this.prisma.$transaction(async (tx) => {
-      const version = await tx.skillVersion.findFirst({ where: {
-        id: versionId, enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', submittedAt: { not: null },
-      } });
-      if (!version) throw new NotFoundException('个人送审版本不存在');
-      const updated = await tx.skillVersion.updateMany({
-        where: { id: versionId, status: 'PENDING_ENTERPRISE_REVIEW' },
-        data: {
-          status: dto.decision === 'APPROVE' ? 'ENTERPRISE_APPROVED' : 'ENTERPRISE_REJECTED',
-          enterpriseReviewedById: userId, enterpriseReviewedAt: new Date(),
-          rejectionReason: dto.decision === 'REJECT' ? dto.comment : null,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('该版本已审核，不能重复审核');
-      await tx.skillVersionReview.create({ data: {
-        versionId, actorType: 'ENTERPRISE', decision: dto.decision, reviewerId: userId, comment: dto.comment,
-      } });
-      return tx.skillVersion.findUnique({ where: { id: versionId }, select: PERSONAL_SUBMISSION_SELECT });
-    });
+    return this.reviewsService.review(userId, versionId, dto);
   }
 }

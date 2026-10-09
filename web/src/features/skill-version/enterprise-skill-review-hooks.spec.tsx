@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api-client';
-import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion } from './use-skill-version';
+import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion, useSelectSkillVersion } from './use-skill-version';
 
 vi.mock('@/lib/api-client', () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 const clients: QueryClient[] = [];
@@ -16,6 +16,19 @@ function setup() {
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.get).mockResolvedValue({ total: 0, items: [], page: 1, limit: 20 }); vi.mocked(api.post).mockResolvedValue({ id: 'v' }); });
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
+
+describe('旧订阅选版兼容', () => {
+  it('原useSelectSkillVersion保留订阅接口及缓存刷新', async () => {
+    const { wrapper, invalidate } = setup();
+    const { result } = renderHook(() => useSelectSkillVersion('employee'), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ subscriptionId: 'sub', capabilityId: 'cap', versionId: 'enterprise' });
+    });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/subscriptions/sub/skills/cap/select-version', { versionId: 'enterprise' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-versions', 'employee', 'employee'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['capability-iteration'] });
+  });
+});
 
 describe('企业个人技能审核 hooks', () => {
   it('查询传递状态、技能ID及分页，按企业隔离缓存并配置前台轮询', async () => {
@@ -56,6 +69,22 @@ describe('企业个人技能审核 hooks', () => {
     await act(async () => { await expect(result.current.mutateAsync({ id: 'v', decision: 'REJECT', comment: ' ' })).rejects.toThrow(); });
     expect(api.post).not.toHaveBeenCalled();
     expect(invalidate).not.toHaveBeenCalled();
+  });
+  it('工作副本传递预览时的expectedUpdatedAt，并保留发布回执', async () => {
+    const receipt = { id: 'working-copy', status: 'PERSONAL_ACTIVE', publishedVersionId: 'enterprise-new' };
+    vi.mocked(api.post).mockResolvedValueOnce(receipt);
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useReviewEnterprisePersonalSkillVersion(), { wrapper });
+    await act(async () => {
+      expect(await result.current.mutateAsync({ id: 'working-copy', decision: 'APPROVE', expectedUpdatedAt: '2026-10-09T00:00:00.000Z' })).toEqual(receipt);
+    });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/skill-versions/working-copy/review', { decision: 'APPROVE', expectedUpdatedAt: '2026-10-09T00:00:00.000Z' });
+  });
+  it('历史通过未发布仍复用APPROVE接口', async () => {
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useReviewEnterprisePersonalSkillVersion(), { wrapper });
+    await act(async () => { await result.current.mutateAsync({ id: 'legacy', decision: 'APPROVE' }); });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/skill-versions/legacy/review', { decision: 'APPROVE' });
   });
   it('审核失败不发成功缓存失效，允许人工重试', async () => {
     vi.mocked(api.post).mockRejectedValueOnce(new Error('服务不可用'));

@@ -17,8 +17,9 @@ function build() {
     memberSkillVersionSelection: { upsert: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) },
     subscriptionSkillVersion: { findUnique: jest.fn().mockResolvedValue({ version: platform }), upsert: jest.fn() },
   };
+  const defaults = { get: jest.fn().mockResolvedValue(null), lock: jest.fn(), set: jest.fn() };
   const context = { resolve: jest.fn().mockResolvedValue(ctx), assertEnterpriseAdmin: jest.fn(() => { throw new ForbiddenException(); }) };
-  return { prisma, context, service: new SkillVersionService(prisma as never, context as never) };
+  return { prisma, context, defaults, service: new SkillVersionService(prisma as never, context as never, defaults as never) };
 }
 
 describe('成员选版隔离与实际执行', () => {
@@ -47,19 +48,27 @@ describe('成员选版隔离与实际执行', () => {
     { ...personal, ownerId: 'other-user' },
     { ...personal, status: 'ARCHIVED' },
     { ...personal, enterpriseId: 'other-ent' },
-    { ...approvedPersonal, status: 'PENDING_ENTERPRISE_REVIEW' },
-    { ...approvedPersonal, status: 'ENTERPRISE_REJECTED' },
+    { ...approvedPersonal, status: 'DRAFT' },
+    { ...approvedPersonal, status: 'ARCHIVED' },
     { ...approvedPersonal, ownerId: 'other-user' },
     { ...approvedPersonal, enterpriseId: 'other-ent' },
     { ...approvedPersonal, capabilityId: 'other-cap' },
+    { ...personal, status: 'PENDING_ENTERPRISE_REVIEW', ownerId: 'other-user' },
+    { ...personal, status: 'PENDING_ENTERPRISE_REVIEW', enterpriseId: 'other-ent' },
+    { ...personal, status: 'ENTERPRISE_REJECTED', ownerId: 'other-user' },
+    { ...personal, status: 'ENTERPRISE_REJECTED', enterpriseId: 'other-ent' },
   ])('拒绝不可用版本 %j', async (version) => {
     const { service, prisma } = build();
     prisma.skillVersion.findUnique.mockResolvedValue(version as typeof platform);
     await expect(service.selectPersonalVersion('user-1', 'sub-1', 'cap-1', version.id)).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
   });
-  it.each([personal, approvedPersonal, { ...platform, scope: 'ENTERPRISE', enterpriseId: 'ent-1', status: 'ENTERPRISE_APPROVED' }])('可用本企业版本/本人副本/本人审核通过版本可选', async (version) => {
-    const { service, prisma } = build();
+  it.each([personal, approvedPersonal,
+    { ...personal, status: 'PENDING_ENTERPRISE_REVIEW' },
+    { ...personal, status: 'ENTERPRISE_REJECTED' },
+    { ...platform, scope: 'ENTERPRISE', enterpriseId: 'ent-1', status: 'ENTERPRISE_APPROVED' },
+  ])('本企业发布版与本人未归档个人版可选 %j', async (version) => {
+    const { service, prisma, defaults } = build();
     prisma.skillVersion.findUnique.mockResolvedValue(version as typeof platform);
     await service.selectPersonalVersion('user-1', 'sub-1', 'cap-1', version.id);
     expect(prisma.memberSkillVersionSelection.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -67,6 +76,7 @@ describe('成员选版隔离与实际执行', () => {
       update: { versionId: version.id },
     }));
     expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+    expect(defaults.set).not.toHaveBeenCalled();
   });
   it('本人送审通过后显式选版，执行解析使用同一版本而非旧副本或企业默认', async () => {
     const { service, prisma } = build();
@@ -87,17 +97,29 @@ describe('成员选版隔离与实际执行', () => {
     } }));
   });
   it.each([
-    { ...approvedPersonal, status: 'PENDING_ENTERPRISE_REVIEW' },
-    { ...approvedPersonal, status: 'ENTERPRISE_REJECTED' },
+    { ...approvedPersonal, status: 'ARCHIVED' },
+    { ...approvedPersonal, status: 'DRAFT' },
     { ...approvedPersonal, ownerId: 'other-user' },
     { ...approvedPersonal, enterpriseId: 'other-ent' },
     { ...approvedPersonal, capabilityId: 'other-cap' },
+    { ...personal, status: 'PENDING_ENTERPRISE_REVIEW', ownerId: 'other-user' },
+    { ...personal, status: 'ENTERPRISE_REJECTED', enterpriseId: 'other-ent' },
   ])('执行解析不使用无效或越权的个人显式选版 %j', async (version) => {
     const { service, prisma } = build();
     prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({ versionId: version.id, version });
     await expect(service.resolveEffectiveVersion('sub-1', 'cap-1', 'user-1')).resolves.toEqual(platform);
     expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
   });
+  it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_REJECTED'] as const)(
+    '本人 %s 个人选版可执行，不被企业默认覆盖', async (status) => {
+      const { service, prisma, defaults } = build();
+      const version = { ...personal, status };
+      prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({ versionId: version.id, version });
+      await expect(service.resolveEffectiveVersion('sub-1', 'cap-1', 'user-1')).resolves.toEqual(version);
+      expect(defaults.get).not.toHaveBeenCalled();
+      expect(prisma.subscriptionSkillVersion.findUnique).not.toHaveBeenCalled();
+    },
+  );
   it('显式选版胜过已存在的个人副本和企业默认', async () => {
     const { service, prisma } = build();
     prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({ versionId: platform.id, version: platform } as never);
@@ -124,6 +146,18 @@ describe('成员选版隔离与实际执行', () => {
     const { service, prisma } = build();
     await expect(service.resolveEffectiveVersion('sub-1', 'cap-1')).resolves.toEqual(platform);
     expect(prisma.memberSkillVersionSelection.findFirst).not.toHaveBeenCalled();
+  });
+  it('跟随企业使用持久默认，回退旧版也不改个人选版', async () => {
+    const { service, prisma, defaults } = build();
+    prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({ versionId: null, version: null } as never);
+    const enterprise = { ...platform, id: 'enterprise-new', scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED' };
+    defaults.get.mockResolvedValue({ version: enterprise } as never);
+    await expect(service.resolveEffectiveVersion('sub-1', 'cap-1', 'user-1')).resolves.toEqual(enterprise);
+    defaults.get.mockResolvedValue({ version: platform } as never);
+    await expect(service.resolveEffectiveVersion('sub-1', 'cap-1', 'user-1')).resolves.toEqual(platform);
+    expect(defaults.get).toHaveBeenCalledWith('ent-1', 'cap-1');
+    expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
+    expect(prisma.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
   });
   it('普通成员仍不能改企业默认', async () => {
     const { service, prisma } = build();

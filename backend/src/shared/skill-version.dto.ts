@@ -40,12 +40,18 @@ export const PersonalSkillReviewQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const PersonalSkillDiffQuerySchema = PersonalSkillReviewQuerySchema.omit({ status: true }).extend({
+  status: z.enum(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED']).optional(),
+});
+
 export type SubmitPersonalSkillVersionDto = z.infer<typeof SubmitPersonalSkillVersionDtoSchema>;
 export type PersonalSkillReviewQuery = z.infer<typeof PersonalSkillReviewQuerySchema>;
+export type PersonalSkillDiffQuery = z.infer<typeof PersonalSkillDiffQuerySchema>;
 
 export const ReviewSkillVersionDtoSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),
   comment: z.string().trim().max(2000).optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).superRefine((value, ctx) => {
   if (value.decision === 'REJECT' && !value.comment) {
     ctx.addIssue({
@@ -70,18 +76,16 @@ export const CreatePlatformSkillVersionDtoSchema = z.object({
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
-/**
- * 采纳成员的个人改动。
- *
- * 一个 id 是「逐条采纳」，多个 id 是「一键采纳多人改动」—— 会议两种都要，
- * 所以接口只有一个、靠数组长度区分，而不是两个端点。
- */
+/** 旧 Web 审核入口兼容 DTO；多条来源必须通过修订及合并冲突校验。 */
 export const AdoptPersonalVersionsDtoSchema = z.object({
   sourceVersionIds: z
     .array(z.string().min(1))
     .min(1, '至少选择一条改动')
-    .max(50, '一次最多采纳 50 条'),
+    .max(50, '一次最多审核 50 条'),
   changeSummary: z.string().trim().max(2000).optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  expectedVersions: z.record(z.string().datetime({ offset: true })).optional(),
+  expectedMergedContent: z.string().min(1).max(500_000).optional(),
 });
 
 export type CreateEnterpriseSkillVersionDto = z.infer<

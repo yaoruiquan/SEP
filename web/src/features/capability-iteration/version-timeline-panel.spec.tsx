@@ -4,10 +4,10 @@ import { VersionTimelinePanel } from './version-timeline-panel';
 import { useAuthStore } from '@/lib/auth-store';
 import type { TimelineVersion, VersionTimeline } from './use-capability-iteration';
 
-const mocks = vi.hoisted(() => ({ personal: vi.fn(), enterprise: vi.fn(), personalPending: false }));
+const mocks = vi.hoisted(() => ({ personal: vi.fn(), enterprise: vi.fn(), personalPending: false, enterprisePending: false }));
 vi.mock('./use-capability-iteration', () => ({
   useSelectPersonalVersion: () => ({ mutate: mocks.personal, isPending: mocks.personalPending }),
-  useSelectEffectiveVersion: () => ({ mutate: mocks.enterprise, isPending: false }),
+  useSelectEffectiveVersion: () => ({ mutate: mocks.enterprise, isPending: mocks.enterprisePending }),
   usePublishEnterpriseVersion: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/features/skill-version/use-skill-version', () => ({
@@ -47,18 +47,18 @@ function timeline(canManage = false): VersionTimeline {
 const row = (index: number) => within(screen.getAllByRole('listitem')[index]);
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.personalPending = false;
+  vi.clearAllMocks(); mocks.personalPending = false; mocks.enterprisePending = false;
   useAuthStore.setState({ user: { id: 'me', name: '我', email: 'me@example.test', avatar: null, role: 'USER' } });
 });
 
 describe('VersionTimelinePanel 个人选版', () => {
-  it('入口指定员工 B 时立即操作 B，个人与企业操作均不误用 A', () => {
+  it('入口指定员工 B 时个人操作使用 B，企业操作不传订阅', () => {
     render(<VersionTimelinePanel timeline={timeline(true)} initialSubscriptionId="sub-b" />);
     expect(screen.getByRole('combobox')).toHaveValue('sub-b');
     fireEvent.click(row(0).getByRole('button', { name: '设为个人使用' }));
     expect(mocks.personal).toHaveBeenCalledWith({ subscriptionId: 'sub-b', versionId: 'platform' }, expect.any(Object));
     fireEvent.click(row(0).getByRole('button', { name: '设为企业默认' }));
-    expect(mocks.enterprise).toHaveBeenCalledWith({ subscriptionId: 'sub-b', versionId: 'platform' }, expect.any(Object));
+    expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
   });
 
   it.each([undefined, 'unknown-subscription'])('入口 %s 不匹配时回退授权订阅，不默认管理但未授权的 A', (initialSubscriptionId) => {
@@ -125,7 +125,7 @@ describe('VersionTimelinePanel 个人选版', () => {
     expect(row(2).queryByRole('button', { name: '设为企业默认' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'sub-b' } });
     fireEvent.click(row(0).getByRole('button', { name: '设为企业默认' }));
-    expect(mocks.enterprise).toHaveBeenCalledWith({ subscriptionId: 'sub-b', versionId: 'platform' }, expect.any(Object));
+    expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
     fireEvent.click(row(0).getByRole('button', { name: '设为个人使用' }));
     expect(mocks.personal).toHaveBeenCalledWith({ subscriptionId: 'sub-b', versionId: 'platform' }, expect.any(Object));
   });
@@ -134,7 +134,7 @@ describe('VersionTimelinePanel 个人选版', () => {
     const data = timeline(true);
     data.subscriptions[0].canSelectPersonal = false;
     render(<VersionTimelinePanel timeline={data} initialSubscriptionId="sub-a" />);
-    expect(screen.getByText(/此订阅未授权给你/)).toBeInTheDocument();
+    expect(screen.getByText('未获使用授权')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '跟随企业' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '使用我的副本' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '设为个人使用' })).not.toBeInTheDocument();
@@ -161,14 +161,17 @@ describe('VersionTimelinePanel 个人选版', () => {
     expect(mocks.personal).toHaveBeenCalledWith({ subscriptionId: 'sub-a', versionId: 'mine' }, expect.any(Object));
   });
 
-  it('切换订阅后企业默认为空时，不借用首条订阅的共享选择', () => {
+  it('个人订阅版本为空不影响技能级企业默认标记或默认动作', () => {
     const data = timeline(true);
     data.subscriptions[1].enterpriseVersionId = null;
     data.subscriptions[1].currentVersionId = null;
     data.subscriptions[1].effectiveVersionId = null;
     render(<VersionTimelinePanel timeline={data} />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'sub-b' } });
-    expect(screen.queryByText('企业默认')).not.toBeInTheDocument();
+    expect(row(1).getByText('企业默认')).toBeInTheDocument();
+    expect(row(1).queryByRole('button', { name: '设为企业默认' })).not.toBeInTheDocument();
+    fireEvent.click(row(0).getByRole('button', { name: '设为企业默认' }));
+    expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
     expect(screen.getByText(/我当前使用：暂无可用版本/)).toBeInTheDocument();
   });
 
@@ -184,6 +187,64 @@ describe('VersionTimelinePanel 个人选版', () => {
 
 
 describe('个人送审审核结果选用', () => {
+  it.each([false, true])('无任何订阅时仍可查看企业历史，不能编辑或个人选版，管理员=%s', (canManage) => {
+    const data = timeline(canManage);
+    data.subscriptions = [];
+    data.subscriptionId = '';
+    data.versions.push(version('enterprise-old', 'ENTERPRISE', 'ENTERPRISE_APPROVED'));
+    render(<VersionTimelinePanel timeline={data} />);
+    expect(row(1).getByText('企业版 1.0.0')).toBeVisible();
+    expect(row(1).getByText('企业默认')).toBeVisible();
+    fireEvent.click(row(1).getByRole('button', { name: '展开' }));
+    expect(row(1).getByText('还没有审核记录')).toBeVisible();
+    expect(screen.queryByRole('link', { name: '编辑企业版本' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /设为个人使用|使用此副本|使用我的副本|跟随企业/ })).not.toBeInTheDocument();
+    expect(mocks.personal).not.toHaveBeenCalled();
+    if (canManage) {
+      fireEvent.click(row(0).getByRole('button', { name: '设为企业默认' }));
+      expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
+      fireEvent.click(row(6).getByRole('button', { name: '设为企业默认' }));
+      expect(mocks.enterprise).toHaveBeenLastCalledWith({ versionId: 'enterprise-old' }, expect.any(Object));
+      for (const index of [1, 2, 3, 4, 5]) {
+        expect(row(index).queryByRole('button', { name: '设为企业默认' })).not.toBeInTheDocument();
+      }
+    } else {
+      expect(screen.queryByRole('button', { name: '设为企业默认' })).not.toBeInTheDocument();
+      expect(mocks.enterprise).not.toHaveBeenCalled();
+    }
+  });
+  it('无订阅管理员切换默认期间禁止重复提交', () => {
+    mocks.enterprisePending = true;
+    const data = timeline(true);
+    data.subscriptions = [];
+    data.subscriptionId = '';
+    render(<VersionTimelinePanel timeline={data} />);
+    const button = row(0).getByRole('button', { name: '设为企业默认' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(mocks.enterprise).not.toHaveBeenCalled();
+  });
+  it('管理员仅有管理订阅时无编辑入口，企业默认操作仍可用', () => {
+    const data = timeline(true);
+    data.subscriptions.forEach((item) => { item.canSelectPersonal = false; });
+    render(<VersionTimelinePanel timeline={data} />);
+    expect(screen.queryByRole('link', { name: '编辑企业版本' })).not.toBeInTheDocument();
+    expect(row(0).getByRole('button', { name: '设为企业默认' })).toBeEnabled();
+    expect(screen.queryByText(/仅影响你在|企业默认对本企业/)).not.toBeInTheDocument();
+  });
+  it.each(['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_REJECTED'] as const)('本人个人版%s可自用，不受企业审核状态限制', (status) => {
+    const data = timeline(true);
+    data.versions.push({ ...version('own-personal', 'PERSONAL', status), ownerId: 'me' });
+    render(<VersionTimelinePanel timeline={data} />);
+    fireEvent.click(row(6).getByRole('button', { name: '使用此副本' }));
+    expect(mocks.personal).toHaveBeenCalledWith({ subscriptionId: 'sub-a', versionId: 'own-personal' }, expect.any(Object));
+    expect(row(6).queryByRole('button', { name: '设为企业默认' })).not.toBeInTheDocument();
+  });
+  it('企业草稿没有未预览正文的一键发布或新增入口', () => {
+    render(<VersionTimelinePanel timeline={timeline(true)} />);
+    expect(screen.queryByRole('button', { name: '发布并生效' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建草稿' })).not.toBeInTheDocument();
+  });
   it('本人已通过的送审版可个人选用，不要求等于Web工作副本ID，也不能设企业默认', () => {
     const data = timeline(true);
     data.versions.push({ ...version('submitted-approved', 'PERSONAL', 'ENTERPRISE_APPROVED'), ownerId: 'me' });
@@ -196,8 +257,9 @@ describe('个人送审审核结果选用', () => {
     expect(mocks.enterprise).not.toHaveBeenCalled();
   });
   it.each([
-    { status: 'PENDING_ENTERPRISE_REVIEW', ownerId: 'me' },
-    { status: 'ENTERPRISE_REJECTED', ownerId: 'me' },
+    { status: 'PENDING_ENTERPRISE_REVIEW', ownerId: 'other' },
+    { status: 'ENTERPRISE_REJECTED', ownerId: 'other' },
+    { status: 'PERSONAL_ACTIVE', ownerId: 'other' },
     { status: 'ENTERPRISE_APPROVED', ownerId: 'other' },
     { status: 'ENTERPRISE_APPROVED', ownerId: undefined },
   ] as const)('不可选送审版 %j', ({ status, ownerId }) => {

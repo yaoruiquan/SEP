@@ -7,7 +7,7 @@ import type { AdminVersionRow } from './group-admin-versions';
 import type {
   EmployeeSkillVersionsResponse,
   EnterpriseSkillReviewStatus,
-  EnterpriseSkillVersionReviewItem,
+  EnterpriseSkillVersionReviewResult,
   EnterpriseSkillVersionReviewResponse,
   SkillVersionPreview,
   SkillVersionScope,
@@ -99,9 +99,13 @@ export function useReviewEnterprisePersonalSkillVersion() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: ReviewSkillVersionDto & { id: string }) =>
-      api.post<EnterpriseSkillVersionReviewItem>(
+      api.post<EnterpriseSkillVersionReviewResult>(
         `/enterprise/skill-versions/${data.id}/review`,
-        ReviewSkillVersionDtoSchema.parse({ decision: data.decision, comment: data.comment }),
+        ReviewSkillVersionDtoSchema.parse({
+          decision: data.decision,
+          comment: data.comment,
+          ...(data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: data.expectedUpdatedAt } : {}),
+        }),
       ),
     onSuccess: async () => {
       await Promise.all([

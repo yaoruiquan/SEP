@@ -5,32 +5,30 @@ import {
   Check,
   FilePenLine,
   GitCompare,
-  Loader2,
   Trash2,
   UserRound,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
+import { useReviewEnterprisePersonalSkillVersion } from '@/features/skill-version/use-skill-version';
+import type { EnterpriseSkillReviewStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { diffLines } from './diff-lines';
 import {
-  useAdoptPersonalVersions,
   useCreatePersonalVersion,
   useDiscardPersonalVersion,
   usePersonalDiffs,
   useUpdatePersonalVersion,
+  useVersionTimeline,
   type PersonalDiffItem,
 } from './use-capability-iteration';
 
-/**
- * 「大家的改动」（管理员）/「我的副本」（成员）。
- *
- * 员工编辑自己的副本、**不提审**；保存不覆盖各订阅的显式选择。
- * 管理员天然可见并可逐条或一键采纳。所以这一屏刻意没有「提交审核」按钮 ——
- * 那正是会议明确否掉的设计。
- */
+/** Web 工作副本和客户端提交共用审核入口；预览固定本次审核的内容。 */
 export function PersonalChangesPanel({
   capabilityId,
   currentUserId,
@@ -38,10 +36,16 @@ export function PersonalChangesPanel({
   capabilityId: string;
   currentUserId: string | null;
 }) {
-  const { data, isLoading, isError, error } = usePersonalDiffs(capabilityId);
+  const [filters, setFilters] = useState<{ status: 'ALL' | EnterpriseSkillReviewStatus; page: number }>({ status: 'ALL', page: 1 });
+  const { data, isLoading, isError, error, refetch, isFetching, isPlaceholderData } = usePersonalDiffs(capabilityId, true, filters.page,
+    filters.status === 'ALL' ? undefined : filters.status);
   const createVersion = useCreatePersonalVersion(capabilityId);
-  const adopt = useAdoptPersonalVersions(capabilityId);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const timeline = useVersionTimeline(capabilityId);
+  const canEditPersonal = !timeline.isError && Boolean(timeline.data?.subscriptions.some((item) => item.canSelectPersonal));
+  const review = useReviewEnterprisePersonalSkillVersion();
+  const [preview, setPreview] = useState<{ item: PersonalDiffItem; baseline: string } | null>(null);
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | null>(null);
+  const [comment, setComment] = useState('');
 
   if (isLoading) {
     return <div className="h-48 animate-pulse rounded-glass-lg border border-glassline bg-glass-1" />;
@@ -57,27 +61,44 @@ export function PersonalChangesPanel({
 
   const canManage = data?.canManage ?? false;
   const items = data?.items ?? [];
-  const mine = items.find((item) => item.owner?.id === currentUserId);
-  // 管理员需要在「大家的改动」里看到企业内全部副本，包括自己的，才能采纳
-  // 自己创建的副本；普通成员仍只看到自己的副本。
-  const others = canManage
-    ? items
-    : items.filter((item) => item.owner?.id !== currentUserId);
-  const pendingIds = items.filter((item) => item.pending).map((item) => item.id);
-
-  const handleAdoptSelected = () => {
-    if (selected.size === 0) return;
-    adopt.mutate(
-      { sourceVersionIds: [...selected] },
+  const mine = data?.myWorkingCopy !== undefined ? data.myWorkingCopy ?? undefined
+    : items.find((item) => item.owner?.id === currentUserId && item.isWorkingCopy);
+  const visibleItems = canManage ? items : items.filter((item) => item.owner?.id === currentUserId && item.id !== mine?.id);
+  const total = data?.total ?? items.length;
+  const pageCount = Math.max(1, Math.ceil(total / (data?.limit ?? 20)));
+  const currentPage = data?.page ?? filters.page;
+  const latestPreviewItem = mine?.id === preview?.item.id ? mine : items.find((item) => item.id === preview?.item.id);
+  const previewChanged = Boolean(preview && (!latestPreviewItem
+    || latestPreviewItem.updatedAt !== preview.item.updatedAt
+    || latestPreviewItem.content !== preview.item.content
+    || latestPreviewItem.reviewStatus !== preview.item.reviewStatus
+    || latestPreviewItem.pending !== preview.item.pending
+    || latestPreviewItem.publishedVersionId !== preview.item.publishedVersionId));
+  const confirmReview = () => {
+    if (!canManage || !preview || !decision || previewChanged || review.isPending) return;
+    if (decision === 'REJECT' && !comment.trim()) return;
+    review.mutate(
+      {
+        id: preview.item.id,
+        decision,
+        comment: comment.trim() || undefined,
+        ...(preview.item.isWorkingCopy ? { expectedUpdatedAt: preview.item.updatedAt } : {}),
+      },
       {
         onSuccess: (result) => {
-          toast.success(
-            `已采纳 ${result.adoptedCount} 条改动`,
-            `生成新企业版本并对 ${result.affectedSubscriptions} 个雇佣关系生效`,
-          );
-          setSelected(new Set());
+          toast.success(decision === 'APPROVE' ? '审核通过' : '已驳回',
+            result.publishedVersionId ? '企业版本已发布并设为企业默认' : undefined);
+          setPreview(null);
+          setDecision(null);
         },
-        onError: (err) => toast.error('采纳失败', (err as Error).message),
+        onError: (err) => {
+          toast.error('审核失败', err.message);
+          if ('status' in err && err.status === 409) {
+            setPreview(null);
+            setDecision(null);
+            void refetch();
+          }
+        },
       },
     );
   };
@@ -85,92 +106,123 @@ export function PersonalChangesPanel({
   return (
     <div className="space-y-4">
       <MyCopyCard
+        key={mine?.id ?? 'new-copy'}
         capabilityId={capabilityId}
         mine={mine}
+        canEditPersonal={canEditPersonal}
         baselineContent={data?.baseline?.content ?? ''}
         onCreate={() =>
-          createVersion.mutate(undefined, {
-            onSuccess: () => toast.success('我的副本已保存', '新建副本会在本次授权订阅使用；已有副本不会自动切版，可在版本记录选择使用副本'),
+          canEditPersonal && createVersion.mutate(undefined, {
+            onSuccess: () => toast.success('我的副本已保存'),
             onError: (err) => toast.error('创建失败', (err as Error).message),
           })
         }
         creating={createVersion.isPending}
       />
 
-      {canManage && (
+      {(canManage || total > 0 || filters.status !== 'ALL' || filters.page > 1) && (
         <section>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold text-gtext-primary">大家的改动</h3>
-              <p className="mt-0.5 text-[11px] text-gtext-muted">
-                成员不需要提交审核，改动天然可见。可逐条采纳，也可多选后一键采纳。
-              </p>
-            </div>
-            {pendingIds.length > 0 && (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelected((prev) =>
-                      prev.size === pendingIds.length ? new Set() : new Set(pendingIds),
-                    )
-                  }
-                  className="text-[11px] text-gtext-secondary underline-offset-2 hover:underline"
-                >
-                  {selected.size === pendingIds.length ? '取消全选' : `全选 ${pendingIds.length} 条`}
-                </button>
-                <Button
-                  size="sm"
-                  variant="glass-primary"
-                  disabled={selected.size === 0}
-                  loading={adopt.isPending}
-                  onClick={handleAdoptSelected}
-                  className="h-7 px-2.5 text-[11px]"
-                >
-                  <Check className="h-3 w-3" />
-                  一键采纳{selected.size > 0 ? ` ${selected.size} 条` : ''}
-                </Button>
-              </div>
-            )}
+            <h3 className="text-sm font-semibold text-gtext-primary">{canManage ? '大家的改动' : '我的提交记录'}</h3>
+            <label className="flex items-center gap-2 text-xs text-gtext-muted">
+              审核状态
+              <select aria-label="审核状态" value={filters.status} disabled={isFetching || review.isPending} onChange={(event) => setFilters({ status: event.target.value as typeof filters.status, page: 1 })}
+                className="h-8 rounded-md border border-glassline bg-glass-1 px-2 text-gtext-primary">
+                <option value="ALL">全部</option>
+                <option value="PENDING_ENTERPRISE_REVIEW">待审核</option>
+                <option value="ENTERPRISE_APPROVED">已通过</option>
+                <option value="ENTERPRISE_REJECTED">已驳回</option>
+              </select>
+            </label>
           </div>
 
-          {others.length === 0 ? (
+          {visibleItems.length === 0 ? (
             <p className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-8 text-center text-xs text-gtext-muted">
-              还没有其他成员改过这个技能
+              暂无符合条件的改动
             </p>
           ) : (
             <div className="space-y-2">
-              {others.map((item) => (
+              {visibleItems.map((item) => (
                 <ChangeCard
                   key={item.id}
                   item={item}
                   baselineContent={data?.baseline?.content ?? ''}
-                  selected={selected.has(item.id)}
-                  onSelectChange={(checked) =>
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      if (checked) next.add(item.id);
-                      else next.delete(item.id);
-                      return next;
-                    })
-                  }
-                  onAdopt={() =>
-                    adopt.mutate(
-                      { sourceVersionIds: [item.id] },
-                      {
-                        onSuccess: () =>
-                          toast.success(`已采纳 ${item.owner?.name ?? '成员'} 的改动`),
-                        onError: (err) => toast.error('采纳失败', (err as Error).message),
-                      },
-                    )
-                  }
-                  adopting={adopt.isPending}
+                  canManage={canManage}
+                  onPreview={() => {
+                    setPreview({ item: { ...item }, baseline: data?.baseline?.content ?? '' });
+                    setDecision(null);
+                    setComment('');
+                  }}
+                  reviewing={review.isPending || Boolean(isPlaceholderData)}
                 />
               ))}
             </div>
           )}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gtext-muted">
+            <span>共 {total} 条 · 第 {currentPage} / {pageCount} 页</span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="glass" aria-label="上一页" title="上一页" disabled={currentPage <= 1 || review.isPending || isFetching}
+                onClick={() => setFilters((previous) => ({ ...previous, page: Math.max(1, currentPage - 1) }))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="glass" aria-label="下一页" title="下一页" disabled={currentPage >= pageCount || review.isPending || isFetching}
+                onClick={() => setFilters((previous) => ({ ...previous, page: currentPage + 1 }))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </section>
       )}
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open && !review.isPending) setPreview(null); }}>
+        {preview && (
+          <DialogContent glass className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>审核预览 · {preview.item.owner?.name ?? '我的改动'}</DialogTitle>
+              <DialogDescription>{preview.item.isWorkingCopy ? 'Web 工作副本' : '客户端提交'} · {reviewLabel(preview.item)}</DialogDescription>
+            </DialogHeader>
+            <ReviewMetadata item={preview.item} />
+            <section aria-label="正文差异">
+              <h4 className="text-xs font-semibold">正文差异</h4>
+              <DiffView baseline={preview.baseline} current={preview.item.content} />
+            </section>
+            <section aria-label="完整正文">
+              <h4 className="text-xs font-semibold">完整正文</h4>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-glass-2 p-3 text-xs">{preview.item.content}</pre>
+            </section>
+            {previewChanged && <p role="alert" className="text-xs text-gdanger">内容或审核状态已变化，请关闭后重新预览再审核。</p>}
+            {canManage && (preview.item.pending || preview.item.isLegacyUnpublished) && !decision && (
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="glass-primary" disabled={previewChanged || review.isPending} onClick={() => setDecision('APPROVE')}>
+                  <Check className="h-4 w-4" />{preview.item.isLegacyUnpublished ? '发布为企业版' : '审核通过'}
+                </Button>
+                {!preview.item.isLegacyUnpublished && <Button size="sm" variant="glass" disabled={previewChanged || review.isPending} onClick={() => setDecision('REJECT')}>
+                  <X className="h-4 w-4" />驳回
+                </Button>}
+              </div>
+            )}
+            {decision && (
+              <div className="space-y-3 border-t border-glassline pt-3">
+                <p className="text-xs text-gtext-secondary">{decision === 'APPROVE'
+                  ? '确认将预览内容发布为企业版本并设为企业默认？'
+                  : '确认驳回这份改动？'}</p>
+                <label className="block text-xs text-gtext-secondary">
+                  {decision === 'REJECT' ? '驳回原因（必填）' : '审核意见（选填）'}
+                  <Textarea glass aria-label={decision === 'REJECT' ? '驳回原因' : '审核意见'} value={comment} maxLength={2000}
+                    disabled={review.isPending} onChange={(event) => setComment(event.target.value)} className="mt-2 min-h-20" />
+                </label>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="glass-primary" loading={review.isPending}
+                    disabled={previewChanged || (decision === 'REJECT' && !comment.trim())} onClick={confirmReview}>
+                    {decision === 'APPROVE' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                    {decision === 'APPROVE' ? '确认通过并发布' : '确认驳回'}
+                  </Button>
+                  <Button size="sm" variant="glass" disabled={review.isPending} onClick={() => setDecision(null)}>返回预览</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -179,12 +231,14 @@ export function PersonalChangesPanel({
 function MyCopyCard({
   capabilityId,
   mine,
+  canEditPersonal,
   baselineContent,
   onCreate,
   creating,
 }: {
   capabilityId: string;
   mine: PersonalDiffItem | undefined;
+  canEditPersonal: boolean;
   baselineContent: string;
   onCreate: () => void;
   creating: boolean;
@@ -194,20 +248,18 @@ function MyCopyCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [summary, setSummary] = useState('');
+  const canEdit = canEditPersonal && Boolean(mine?.canEdit);
 
   if (!mine) {
     return (
       <section className="rounded-glass-lg border border-glassline bg-glass-1 p-4">
         <h3 className="text-sm font-semibold text-gtext-primary">我的副本</h3>
-        <p className="mt-1 text-[11px] leading-5 text-gtext-muted">
-          新建副本会在本次授权订阅使用，不影响其他订阅的个人选择。
-          使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本。
-          无需提交审核，企业管理员可采纳进企业统一版本。
-        </p>
+        {!canEditPersonal && <p className="mt-1 text-xs text-gtext-muted">只读</p>}
         <Button
           size="sm"
           variant="glass-primary"
           loading={creating}
+          disabled={!canEditPersonal}
           onClick={onCreate}
           className="mt-3 h-7 px-2.5 text-[11px]"
         >
@@ -232,14 +284,15 @@ function MyCopyCard({
             {mine.basedOn
               ? `基于 ${scopeLabel(mine.basedOn.scope)} ${mine.basedOn.version}`
               : '基于当前生效版本'}
-            {mine.adopted ? ' · 已被企业采纳过' : mine.pending ? ' · 等待企业采纳' : ''}
+            {' · '}{reviewLabel(mine)}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
-          {!editing && (
+          {(!editing || !canEdit) && mine.canEdit && (
             <Button
               size="sm"
               variant="glass"
+              disabled={!canEdit}
               onClick={() => {
                 setDraft(mine.content);
                 setSummary(mine.changeSummary ?? '');
@@ -251,13 +304,14 @@ function MyCopyCard({
               编辑
             </Button>
           )}
-          <Button
+          {mine.canEdit && <Button
             size="sm"
             variant="glass"
             loading={discard.isPending}
+            disabled={!canEdit}
             onClick={() =>
               discard.mutate(mine.id, {
-                onSuccess: () => toast.success('已弃用副本', '需要保留副本但暂停使用时，请在版本记录选择跟随企业'),
+                onSuccess: () => toast.success('已弃用副本'),
                 onError: (err) => toast.error('弃用失败', (err as Error).message),
               })
             }
@@ -265,16 +319,15 @@ function MyCopyCard({
           >
             <Trash2 className="h-3 w-3" />
             弃用
-          </Button>
+          </Button>}
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] leading-5 text-gtext-muted">
-        使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本。
-        保存不会覆盖已选的平台版、企业版或跟随企业设置。跟随企业仅暂停使用，不删除副本。
-      </p>
+      {!canEdit && <p className="mt-2 text-xs text-gtext-muted">只读</p>}
+      {mine.rejectionReason && <p className="mt-2 break-words text-xs text-gdanger">驳回原因：{mine.rejectionReason}</p>}
+      <ReviewMetadata item={mine} />
 
-      {editing ? (
+      {editing && canEdit ? (
         <div className="mt-3 space-y-2">
           <Textarea
             glass
@@ -286,7 +339,7 @@ function MyCopyCard({
             glass
             value={summary}
             onChange={(event) => setSummary(event.target.value)}
-            placeholder="这次改了什么？管理员看到的就是这句话（选填，但填了更容易被采纳）"
+            placeholder="改动摘要（选填）"
             className="min-h-16 resize-y text-xs"
           />
           <div className="flex items-center gap-2">
@@ -299,7 +352,7 @@ function MyCopyCard({
                   { versionId: mine.id, content: draft, changeSummary: summary || undefined },
                   {
                     onSuccess: () => {
-                      toast.success('已保存', '使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本');
+                      toast.success('已保存');
                       setEditing(false);
                     },
                     onError: (err) => toast.error('保存失败', (err as Error).message),
@@ -330,47 +383,36 @@ function MyCopyCard({
 function ChangeCard({
   item,
   baselineContent,
-  selected,
-  onSelectChange,
-  onAdopt,
-  adopting,
+  canManage,
+  onPreview,
+  reviewing,
 }: {
   item: PersonalDiffItem;
   baselineContent: string;
-  selected: boolean;
-  onSelectChange: (checked: boolean) => void;
-  onAdopt: () => void;
-  adopting: boolean;
+  canManage: boolean;
+  onPreview: () => void;
+  reviewing: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div
-      className={cn(
-        'rounded-glass-lg border bg-glass-1 p-3 transition-colors',
-        selected ? 'border-glassline-brand bg-gbrand/[0.05]' : 'border-glassline',
-      )}
+      className="rounded-glass-lg border border-glassline bg-glass-1 p-3"
     >
       <div className="flex flex-wrap items-center gap-2">
-        {item.pending && (
-          <Checkbox checked={selected} onCheckedChange={(checked) => onSelectChange(Boolean(checked))} />
-        )}
         <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gtext-primary">
           <UserRound className="h-3.5 w-3.5 text-gtext-muted" />
           {item.owner?.name ?? '未知成员'}
         </span>
-        {item.pending ? (
-          <span className="rounded-glass-pill bg-gbrand/15 px-1.5 py-0.5 text-[10px] font-medium text-gbrand-text">
-            {item.adopted ? '采纳后又改过' : '待采纳'}
-          </span>
-        ) : (
-          <span className="rounded-glass-pill bg-glass-3 px-1.5 py-0.5 text-[10px] text-gtext-muted">
-            已采纳
-          </span>
-        )}
+        <span className="text-[11px] text-gtext-muted">{item.isWorkingCopy ? 'Web 工作副本' : '客户端提交'}</span>
+        <span className={cn('rounded-glass-pill px-1.5 py-0.5 text-[10px]',
+          item.reviewStatus === 'ENTERPRISE_REJECTED' ? 'bg-gdanger/10 text-gdanger'
+            : item.pending || item.isLegacyUnpublished ? 'bg-gbrand/15 text-gbrand-text' : 'bg-gsuccess/10 text-gsuccess')}>
+          {reviewLabel(item)}
+        </span>
         <span className="text-[11px] text-gtext-muted">
           {new Date(item.updatedAt).toLocaleString('zh-CN')}
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
@@ -379,27 +421,42 @@ function ChangeCard({
             <GitCompare className="h-3 w-3" />
             {expanded ? '收起差异' : '看差异'}
           </button>
-          {item.pending && (
-            <Button
-              size="sm"
-              variant="glass"
-              loading={adopting}
-              onClick={onAdopt}
-              className="h-7 px-2.5 text-[11px]"
-            >
-              采纳
-            </Button>
-          )}
+          <Button size="sm" variant="glass" disabled={reviewing} onClick={onPreview} className="h-7 px-2.5 text-[11px]">
+            <GitCompare className="h-3 w-3" />
+            {canManage && (item.pending || item.isLegacyUnpublished) ? '预览并审核' : '预览正文'}
+          </Button>
         </div>
       </div>
 
       {item.changeSummary && (
         <p className="mt-1.5 text-xs leading-5 text-gtext-secondary">{item.changeSummary}</p>
       )}
+      {item.rejectionReason && <p className="mt-2 break-words text-xs text-gdanger">驳回原因：{item.rejectionReason}</p>}
+      <ReviewMetadata item={item} />
+      {item.submittedAt && <p className="mt-1 text-[11px] text-gtext-muted">提交时间：{new Date(item.submittedAt).toLocaleString('zh-CN')}</p>}
+      {item.publishedVersionId && <p className="mt-1 break-all text-[11px] text-gtext-muted">企业版本：{item.publishedVersionId}</p>}
 
       {expanded && <DiffView baseline={baselineContent} current={item.content} />}
     </div>
   );
+}
+
+function ReviewMetadata({ item }: { item: PersonalDiffItem }) {
+  if (!item.reviewedBy && !item.enterpriseReviewedAt) return null;
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[11px] text-gtext-muted">
+      {item.reviewedBy && <p className="min-w-0 break-all">审核人：{item.reviewedBy.name ?? item.reviewedBy.id}</p>}
+      {item.enterpriseReviewedAt && <p className="min-w-0 break-words">审核时间：{new Date(item.enterpriseReviewedAt).toLocaleString('zh-CN')}</p>}
+    </div>
+  );
+}
+
+function reviewLabel(item: PersonalDiffItem): string {
+  if (item.isLegacyUnpublished) return '历史通过未发布';
+  if (item.reviewStatus === 'ENTERPRISE_REJECTED') return '已驳回';
+  if (item.reviewStatus === 'ENTERPRISE_APPROVED') return '已通过';
+  return item.adopted ? '审核后又有改动 · 待审核' : '待审核';
 }
 
 /**
