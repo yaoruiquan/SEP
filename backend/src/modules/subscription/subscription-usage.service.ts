@@ -96,9 +96,10 @@ export class SubscriptionUsageService {
       CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED')
         AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED')
         THEN CURRENT_TIMESTAMP ELSE ${start} END)`;
+    // End equality is not overlap, but an instantaneous/fallback start at from is still usage.
     return Prisma.sql`AND (
       (TRUE
-        ${query.from ? Prisma.sql`AND ${end} >= ${new Date(query.from)}` : Prisma.empty}
+        ${query.from ? Prisma.sql`AND (${end} > ${new Date(query.from)} OR ${start} >= ${new Date(query.from)})` : Prisma.empty}
         ${query.to ? Prisma.sql`AND ${start} < ${new Date(query.to)}` : Prisma.empty})
       OR EXISTS (
         SELECT 1 FROM client_task_mirror_events e

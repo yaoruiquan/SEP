@@ -953,6 +953,14 @@ export class ClientService {
       if (clientRunId !== row.clientRunId && run?.protocolVersion !== 2) {
         throw new ConflictException('Stale client run');
       }
+      const current = run ?? row;
+      const terminal = ['COMPLETED', 'FAILED', 'CANCELLED'];
+      if (terminal.includes(current.status) && body.status !== current.status) {
+        throw new ConflictException('Terminal run status is immutable; create a new run');
+      }
+      if (!terminal.includes(body.status) && body.completedAt) {
+        throw new BadRequestException('Nonterminal run cannot have a completion time');
+      }
       const now = new Date();
       const data: Prisma.ClientTaskMirrorUpdateInput = { status: body.status };
       if (body.progress !== undefined) data.progress = body.progress;
@@ -961,8 +969,8 @@ export class ClientService {
       if (body.errorSummary !== undefined) data.errorSummary = body.errorSummary;
       if (body.startedAt !== undefined) data.startedAt = body.startedAt ? new Date(body.startedAt) : null;
       else if (body.status === 'RUNNING' && !(run ?? row).startedAt) data.startedAt = now;
-      if (body.completedAt !== undefined) data.completedAt = body.completedAt ? new Date(body.completedAt) : null;
-      else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(body.status)) data.completedAt = (run ?? row).completedAt ?? now;
+      if (terminal.includes(body.status)) data.completedAt = body.completedAt ? new Date(body.completedAt) : current.completedAt ?? now;
+      else data.completedAt = null;
       if (run) {
         await tx.clientTaskMirrorRun.update({ where: { id: run.id }, data: {
           status: body.status, startedAt: data.startedAt, completedAt: data.completedAt,
@@ -1028,7 +1036,10 @@ export class ClientService {
           }
           // Late chunks are archived, but cannot rewind a newer execution state.
           participant = await tx.clientTaskParticipation.update({ where: { id: participant.id }, data: {
-            ...(body.sequence > participant.lastSequence ? { status: input.status, lastSequence: body.sequence } : {}),
+            ...(body.sequence > participant.lastSequence ? {
+              lastSequence: body.sequence,
+              ...(!['COMPLETED', 'FAILED', 'CANCELLED'].includes(participant.status) ? { status: input.status } : {}),
+            } : {}),
             ...(!participant.startedAt && input.startedAt ? { startedAt: new Date(input.startedAt) } : {}),
             ...(!participant.completedAt && input.completedAt ? { completedAt: new Date(input.completedAt) } : {}),
           } });

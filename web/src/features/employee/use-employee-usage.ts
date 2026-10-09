@@ -91,7 +91,8 @@ export function useEmployeeUsage(
 
 export function useEmployeeUsageDetail(
   subscriptionId: string,
-  record: EmployeeUsageRecord | null,
+  record: Pick<EmployeeUsageRecord, "source" | "recordId"> | null,
+  refetchInterval?: number,
 ) {
   return useQuery({
     queryKey: [
@@ -107,6 +108,7 @@ export function useEmployeeUsageDetail(
       ),
     enabled: Boolean(subscriptionId && record),
     staleTime: 0,
+    refetchInterval,
   });
 }
 

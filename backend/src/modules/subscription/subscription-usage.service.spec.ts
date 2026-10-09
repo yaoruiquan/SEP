@@ -292,11 +292,11 @@ describe('SubscriptionUsageService', () => {
     expect(period).toBe(clientPeriodSql(membersCall, true));
     // The end, not the start, must reach the day's lower bound; neither endpoint needs to be inside it.
     expect(period).toContain('COALESCE(p."completedAt", r."completedAt",');
-    expect(period).toContain('END) >= ?');
+    expect(period).toContain('END) > ?');
     expect(period).toContain(
       'AND COALESCE(p."startedAt", r."startedAt", r."queuedAt") < ?',
     );
-    expect(period).not.toContain('r."queuedAt") >= ?');
+    expect(period).toContain('OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?');
     expect(period).not.toContain('r."queuedAt") BETWEEN');
     for (const [call, count] of [
       [listCall, 3],
@@ -309,7 +309,7 @@ describe('SubscriptionUsageService', () => {
               value instanceof Date &&
               value.getTime() === new Date(boundary).getTime(),
           ),
-        ).toHaveLength(count);
+        ).toHaveLength(count + (boundary === '2026-10-08T16:00:00Z' ? 1 : 0));
       }
     }
   });
@@ -319,7 +319,7 @@ describe('SubscriptionUsageService', () => {
     const period = clientPeriodSql(prisma.$queryRaw.mock.calls[0]);
     expect(period).toBe(clientPeriodSql(prisma.$queryRaw.mock.calls[1], true));
     expect(period).toContain(
-      "CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') THEN CURRENT_TIMESTAMP ELSE COALESCE(p.\"startedAt\", r.\"startedAt\", r.\"queuedAt\") END) >= ?",
+      "CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') THEN CURRENT_TIMESTAMP ELSE COALESCE(p.\"startedAt\", r.\"startedAt\", r.\"queuedAt\") END) > ?",
     );
     expect(period).not.toMatch(/IS NULL|updatedAt|lastHeartbeatAt|infinity/);
   });
@@ -362,7 +362,7 @@ describe('SubscriptionUsageService', () => {
         clientPeriodSql(prisma.$queryRaw.mock.calls[1], true),
       );
       if ('from' in input) {
-        expect(period).toContain('END) >= ?');
+        expect(period).toContain('END) > ?');
         expect(period).toContain('e."occurredAt" >= ?');
         expect(period).not.toContain('< ?');
       } else {
@@ -372,6 +372,17 @@ describe('SubscriptionUsageService', () => {
       }
     },
   );
+
+  it('excludes executions ending exactly at from while including starts and attributed events at from', async () => {
+    await service.list('sub', 'admin', query({ from: '2026-10-09', to: '2026-10-10' }));
+    for (const [index, options] of [[0, false], [1, true]] as const) {
+      const period = clientPeriodSql(prisma.$queryRaw.mock.calls[index], options);
+      expect(period).toContain('END) > ? OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?)');
+      expect(period).not.toContain('END) >= ?');
+      expect(period).toContain('r."queuedAt") < ?');
+      expect(period).toContain('e."occurredAt" >= ? AND e."occurredAt" < ?');
+    }
+  });
 
   it('does not scan client events when no business period is selected', async () => {
     await service.list('sub', 'admin', query());
@@ -480,7 +491,7 @@ describe('SubscriptionUsageService', () => {
             value instanceof Date &&
             value.getTime() === new Date(boundary).getTime(),
         ),
-      ).toHaveLength(4);
+      ).toHaveLength(boundary === '2026-10-08T16:00:00Z' ? 5 : 4);
     }
     expect(sqlText([call])).not.toContain("AND s.source = 'TASK'");
     expect(sqlText([call])).toContain('b."userId" IS NOT NULL');

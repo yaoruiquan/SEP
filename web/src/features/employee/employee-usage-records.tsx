@@ -222,7 +222,7 @@ export function EmployeeUsageRecords({
             </div>
           ) : (
             detail.data && (
-              <UsageBody
+              <EmployeeUsageBody
                 key={`${detail.data.source}:${detail.data.recordId}`}
                 subscriptionId={subscriptionId}
                 detail={detail.data}
@@ -235,12 +235,14 @@ export function EmployeeUsageRecords({
   );
 }
 
-function UsageBody({
+export function EmployeeUsageBody({
   subscriptionId,
   detail,
+  showMonitorLink = true,
 }: {
   subscriptionId: string;
   detail: EmployeeUsageDetail;
+  showMonitorLink?: boolean;
 }) {
   const [runId, setRunId] = useState("");
   if (detail.source !== "client")
@@ -300,13 +302,13 @@ function UsageBody({
             ))}
           </select>
         </label>
-        <Link
+        {showMonitorLink && <Link
           className="inline-flex items-center gap-1 text-sm text-gbrand-text"
           href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, taskId: detail.task.id })}`}
         >
           <ExternalLink className="h-4 w-4" />
           任务监控
-        </Link>
+        </Link>}
       </div>
       <p className="text-xs text-gtext-muted">
         仅当前雇佣关系的实际参与正文，不含任务汇总及其他员工正文。

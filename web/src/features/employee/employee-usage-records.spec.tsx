@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "@/lib/theme-provider";
-import { EmployeeUsageRecords } from "./employee-usage-records";
+import { EmployeeUsageBody, EmployeeUsageRecords } from "./employee-usage-records";
 import type {
   EmployeeUsageDetail,
   EmployeeUsageList,
@@ -66,6 +66,21 @@ beforeEach(() => {
 });
 
 describe("EmployeeUsageRecords", () => {
+  it("监控可复用订阅范围正文而不再生成循环跳转链接", () => {
+    render(<EmployeeUsageBody subscriptionId="sub-1" showMonitorLink={false} detail={{
+      source: "client", recordId: "mirror-1",
+      task: { id: "mirror-1", clientTaskId: "task-1", title: "调研任务" },
+      runs: [{ clientRunId: "run-1", queuedAt: record.usedAt, participations: [{
+        id: "part-1", clientRunId: "run-1", nodeId: null, title: "资料检索", subscriptionName: "小林",
+        status: "COMPLETED", startedAt: null, completedAt: null, events: [{
+          id: "event-1", clientRunId: "run-1", participationId: "part-1", sequence: 1, type: "model_output",
+          message: "当前员工正文", stepKey: null, progress: null, occurredAt: record.usedAt, createdAt: record.usedAt,
+        }],
+      }] }],
+    }} />);
+    expect(screen.getByText("当前员工正文")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "任务监控" })).not.toBeInTheDocument();
+  });
   it("列表不预加载正文，翻页保留服务端统一分页", () => {
     const props = renderRecords();
     expect(mocks.detail).toHaveBeenLastCalledWith("sub-1", null);

@@ -331,6 +331,29 @@ describe('Client task mirror create and run synchronization', () => {
     expect(result.completedAt).toEqual(createdAt);
   });
 
+  it.each(['COMPLETED', 'FAILED', 'CANCELLED'])('legacy terminal %s cannot be reopened by a late status request', async status => {
+    const f = fixture();
+    f.seed(makeRow({ status, completedAt: createdAt, progress: 100 }));
+    const before = { ...f.rows()[0] };
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING', progress: 10 }))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(f.rows()[0]).toEqual(before);
+    expect(await f.service.listTaskMirrors('user-1', { view: 'active' })).toEqual([]);
+    expect(f.prisma.clientTaskMirror.update).not.toHaveBeenCalled();
+  });
+
+  it('terminal retries cannot clear completion time and nonterminal requests cannot set it', async () => {
+    const f = fixture();
+    f.seed(makeRow({ status: 'COMPLETED', completedAt: createdAt }));
+    expect(await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'COMPLETED', completedAt: null }))
+      .toMatchObject({ completedAt: createdAt });
+    f.seed(makeRow({ id: 'pending' }));
+    await expect(f.service.updateTaskMirror('user-1', 'pending', {
+      status: 'RUNNING', completedAt: createdAt.toISOString(),
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(f.rows()[1]).toMatchObject({ status: 'QUEUED', completedAt: null });
+  });
+
   it('explicit history event archives under its run without touching active progress/heartbeat', async () => {
     const f = fixture();
     f.seed(makeRow({ clientRunId: 'run-2', progress: 10, lastSequence: 17, lastHeartbeatAt: createdAt }));
@@ -415,6 +438,38 @@ describe('Client task monitor v2 runs and participation', () => {
     queuedAt: '2026-10-08T08:00:00+08:00', ...overrides });
   const participant = (overrides: Record<string, unknown> = {}) => ({ executionId: 'node-run-1',
     subscriptionId: 'sub-1', nodeId: 'node-1', title: 'Node', modelId: 'model-1', ...overrides });
+
+  it.each(['COMPLETED', 'FAILED', 'CANCELLED'] as const)('v2 terminal %s remains final for current and historical runs', async status => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status, progress: 100 });
+    const finishedMirror = { ...f.rows()[0] };
+    const finishedRun = { ...f.runs()[0] };
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING' }))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(f.rows()[0]).toEqual(finishedMirror);
+    expect(f.runs()[0]).toEqual(finishedRun);
+    expect(await f.service.listTaskMirrors('user-1', { view: 'active' })).toEqual([]);
+    await f.service.createTaskMirror('user-1', v2({ clientRunId: 'run-2' }));
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-2', status: 'RUNNING' });
+    const current = { ...f.rows()[0] };
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-1', status: 'RUNNING' }))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(f.rows()[0]).toEqual(current);
+    expect(f.runs()[0]).toEqual(finishedRun);
+  });
+
+  it('archives newer participant chunks without reopening a terminal execution', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'node_finished',
+      participation: participant({ status: 'COMPLETED', completedAt: createdAt.toISOString() }) });
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 2, type: 'model_output', message: 'late output',
+      participation: participant({ status: 'RUNNING' }) });
+    expect(f.participations()[0]).toMatchObject({ status: 'COMPLETED', lastSequence: 2, completedAt: createdAt });
+    expect(f.events()).toHaveLength(2);
+    expect(f.events()[1].message).toBe('late output');
+  });
 
   it('v2 freezes verified snapshots and replay never reselects or rewinds an old run', async () => {
     const f = fixture();

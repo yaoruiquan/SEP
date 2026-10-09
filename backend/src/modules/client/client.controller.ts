@@ -294,13 +294,13 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '更新本人客户端任务状态', description: 'clientRunId 可选；省略时更新当前 run。已验证 v2 历史 run 可更新自身状态但不影响当前镜像；旧协议历史 run 返回 409。' })
+  @ApiOperation({ summary: '更新本人客户端任务状态', description: 'clientRunId 可选；省略时更新当前 run。已验证 v2 历史 run 可更新自身状态但不影响当前镜像；旧协议历史 run 返回 409。同一 run 的终态不可改变，重跑需新 clientRunId；终态重试不能清除 completedAt，非终态不能指定完成时间。' })
   @ApiResponse({ status: 200, description: '更新后的镜像', schema: mirrorResponseSchema })
   @ApiResponse({ status: 400, description: 'Body 校验失败' })
   @ApiResponse({ status: 401, description: '未认证' })
   @ApiResponse({ status: 403, description: '无企业权限' })
   @ApiResponse({ status: 404, description: '本企业本人任务不存在' })
-  @ApiResponse({ status: 409, description: '陈旧 run 或并发同步冲突' })
+  @ApiResponse({ status: 409, description: '陈旧 run、终态转换或并发同步冲突' })
   @ApiResponse(taskRateLimitResponse)
   async updateTaskMirror(
     @Request() req: ExpressRequest & { user: { id: string } },

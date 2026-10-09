@@ -299,6 +299,8 @@ CANCELLED
 
 进入终态后，不再发送普通心跳；如果业务需要补充错误信息，应在进入 `FAILED` 时一并发送 `errorSummary`。
 
+同一 `clientRunId` 进入终态后，不能再切换到其他状态，否则返回 `409`。重跑须创建新的 `clientRunId`。重复提交同一终态允许补充信息，但 `completedAt: null` 不会清除已记录的完成时间；非终态携带非空 `completedAt` 返回 `400`。参与执行的后续正文片段仍会归档，不会重新打开已结束的执行。
+
 ### 4.3 状态请求示例
 
 进入排队：
@@ -625,6 +627,8 @@ Authorization: Bearer <accessToken>
 ```
 
 响应包含任务镜像和全部事件：
+
+这是任务级详情接口，不是员工范围正文接口。从员工使用记录进入监控，或在监控中选择某个雇佣关系时，Web 正文改用 `GET /subscriptions/:subscriptionId/usage-records/client/:recordId`，只读取该订阅已验证的参与执行及事件，不读取其他员工或任务汇总正文。两个范围使用独立缓存；管理员读取员工范围正文仍执行访问审计。
 
 ```json
 {

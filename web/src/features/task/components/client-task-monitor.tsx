@@ -6,6 +6,8 @@ import { ChevronDown, ChevronLeft, ChevronRight, Filter, Monitor, RefreshCw, Rot
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
+import { EmployeeUsageBody } from '@/features/employee/employee-usage-records';
+import { useEmployeeUsageDetail } from '@/features/employee/use-employee-usage';
 import {
   useClientTaskMirror,
   useClientTaskMirrors,
@@ -115,7 +117,17 @@ export function ClientTaskMirrorDetailView({ detail }: { detail: ClientTaskMirro
   </div>;
 }
 
-function TaskDetail({ id }: { id: string }) {
+function ScopedTaskDetail({ id, subscriptionId }: { id: string; subscriptionId: string }) {
+  const query = useEmployeeUsageDetail(subscriptionId, { source: 'client', recordId: id }, 10000);
+  if (query.isLoading) return <CenteredSpinner label="正在读取事件…" />;
+  if (query.isError) return <div role="alert" className="space-y-2 py-3 text-sm text-gdanger">
+    <p>事件读取失败，请稍后重试。记录可能不存在或没有访问权限。</p>
+    <Button variant="glass" size="sm" onClick={() => void query.refetch()}><RefreshCw className="h-3.5 w-3.5" />重试详情</Button>
+  </div>;
+  return query.data?.source === 'client' ? <><h3 className="mb-3 break-words text-sm text-gtext-primary">{query.data.task.title}</h3><EmployeeUsageBody subscriptionId={subscriptionId} detail={query.data} showMonitorLink={false} /></> : null;
+}
+
+function FullTaskDetail({ id }: { id: string }) {
   const query = useClientTaskMirror(id);
   if (query.isLoading) return <CenteredSpinner label="正在读取事件…" />;
   if (query.isError) return <div role="alert" className="space-y-2 py-3 text-sm text-gdanger">
@@ -125,7 +137,11 @@ function TaskDetail({ id }: { id: string }) {
   return query.data ? <><h3 className="mb-3 break-words text-sm text-gtext-primary">{query.data.title}</h3><ClientTaskMirrorDetailView detail={query.data} /></> : null;
 }
 
-function Row({ task, open, toggle, now }: { task: ClientTaskMirror; open: boolean; toggle: () => void; now: number }) {
+function TaskDetail({ id, subscriptionId }: { id: string; subscriptionId?: string }) {
+  return subscriptionId ? <ScopedTaskDetail key={subscriptionId} id={id} subscriptionId={subscriptionId} /> : <FullTaskDetail id={id} />;
+}
+
+function Row({ task, open, toggle, now, subscriptionId }: { task: ClientTaskMirror; open: boolean; toggle: () => void; now: number; subscriptionId?: string }) {
   const heartbeat = task.lastHeartbeatAt ? Date.parse(task.lastHeartbeatAt) : NaN;
   const heartbeatAge = Math.max(0, Math.floor((now - heartbeat) / 1000));
   const stale = Number.isFinite(heartbeat) && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(task.status) && now - heartbeat > 60000;
@@ -151,7 +167,7 @@ function Row({ task, open, toggle, now }: { task: ClientTaskMirror; open: boolea
       <span className="hidden text-xs tabular-nums text-gtext-secondary sm:block">{Math.round(task.progress ?? 0)}%</span>
       {open ? <ChevronDown className="h-4 w-4 text-gtext-muted" /> : <ChevronRight className="h-4 w-4 text-gtext-muted" />}
     </button>
-    {open && <div className="min-w-0 border-b border-glassline bg-gbg-deep/25 px-3 py-4 sm:px-6"><TaskDetail id={task.id} /></div>}
+    {open && <div className="min-w-0 border-b border-glassline bg-gbg-deep/25 px-3 py-4 sm:px-6"><TaskDetail id={task.id} subscriptionId={subscriptionId} /></div>}
   </>;
 }
 
@@ -174,6 +190,20 @@ export function ClientTaskMonitor({ taskId, subscriptionId }: { taskId?: string;
   const [filters, setFilters] = useState<ClientTaskMirrorListOptions>({ sort: 'queuedAt_desc', ...(subscriptionId ? { subscriptionId } : {}) });
   const [filterError, setFilterError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [previousSubscriptionId, setPreviousSubscriptionId] = useState(subscriptionId);
+  const [previousTaskId, setPreviousTaskId] = useState(taskId);
+  // Reconcile navigation before rendering children so details never fetch the previous scope.
+  if (previousSubscriptionId !== subscriptionId) {
+    setPreviousSubscriptionId(subscriptionId);
+    setDraft((previous) => ({ ...previous, subscriptionId: subscriptionId ?? '' }));
+    setFilters((previous) => ({ ...previous, subscriptionId: subscriptionId || undefined }));
+    setPage(1);
+    setSelected(undefined);
+  }
+  if (previousTaskId !== taskId || previousSubscriptionId !== subscriptionId) {
+    setPreviousTaskId(taskId);
+    setDismissedTaskId(undefined);
+  }
   const limit = 50;
   const query = useClientTaskMirrors(true, { page, limit, view, ...filters });
   const options = useClientTaskMirrorFilterOptions(filters);
@@ -184,13 +214,6 @@ export function ClientTaskMonitor({ taskId, subscriptionId }: { taskId?: string;
     const timer = window.setInterval(() => setNow(Date.now()), 10000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
-    setDraft((previous) => ({ ...previous, subscriptionId: subscriptionId ?? '' }));
-    setFilters((previous) => ({ ...previous, subscriptionId: subscriptionId || undefined }));
-    setPage(1);
-    setSelected(undefined);
-  }, [subscriptionId]);
-
   const updateDraft = (key: keyof Omit<Draft, 'statuses'>, value: string) => setDraft((previous) => ({ ...previous, [key]: value }));
   const changePage = (next: number) => { setSelected(undefined); setPage(next); };
   const applyFilters = (event: FormEvent) => {
@@ -251,13 +274,13 @@ export function ClientTaskMonitor({ taskId, subscriptionId }: { taskId?: string;
       </form>
       {linkedTaskId && <section aria-label="指定任务详情" className="border-b border-glassline py-4">
         <div className="mb-3 flex items-center justify-between gap-2"><h2 className="break-all text-sm text-gtext-secondary">指定任务详情 · {linkedTaskId}</h2><Button variant="ghost" size="sm" title="关闭指定任务详情" aria-label="关闭指定任务详情" onClick={() => setDismissedTaskId(linkedTaskId)}><X className="h-4 w-4" /></Button></div>
-        <TaskDetail key={linkedTaskId} id={linkedTaskId} />
+        <TaskDetail key={linkedTaskId} id={linkedTaskId} subscriptionId={filters.subscriptionId} />
       </section>}
       {result?.legacy && <p className="py-2 text-xs text-gtext-muted">服务端尚未支持完整分页，目前仅显示最近最多 100 条记录；筛选覆盖可能有限。</p>}
       {query.isLoading ? <CenteredSpinner label="正在读取客户端任务…" /> : query.isError ? <div className="space-y-3 py-8 text-sm text-gdanger" role="alert">
         <p>客户端任务监控暂时不可用，请稍后重试。</p><Button variant="glass" size="sm" onClick={() => void query.refetch()}>重试</Button>
         {page > 1 && <Button variant="glass" size="sm" onClick={() => changePage(page - 1)}>返回上一页</Button>}
-      </div> : result?.items.length ? result.items.map((task) => <Row key={task.id} task={task} now={now} open={selected === task.id && linkedTaskId !== task.id} toggle={() => setSelected((id) => id === task.id ? undefined : task.id)} />) : <div className="py-10 text-center text-sm text-gtext-muted">暂无已同步的客户端任务</div>}
+      </div> : result?.items.length ? result.items.map((task) => <Row key={task.id} task={task} now={now} subscriptionId={filters.subscriptionId} open={selected === task.id && linkedTaskId !== task.id} toggle={() => setSelected((id) => id === task.id ? undefined : task.id)} />) : <div className="py-10 text-center text-sm text-gtext-muted">暂无已同步的客户端任务</div>}
       {result && !query.isError && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-glassline py-3 text-xs text-gtext-muted">
         <span>第 {page} 页 · 每页 {limit} 条</span><div className="flex gap-2"><Button variant="glass" size="sm" disabled={page <= 1} onClick={() => changePage(page - 1)} title="上一页" aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="glass" size="sm" disabled={!result.hasNextPage} onClick={() => changePage(page + 1)} title="下一页" aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div>
       </div>}
