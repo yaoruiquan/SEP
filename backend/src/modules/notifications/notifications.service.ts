@@ -1,9 +1,10 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
+import type { NotificationCategory } from 'shared';
+export type { NotificationCategory } from 'shared';
 import { NotificationsGateway } from './notifications.gateway';
 
-export type NotificationCategory = 'SYSTEM' | 'USAGE_ALERT' | 'SECURITY' | 'APPROVAL';
 export type NotificationSeverity = 'INFO' | 'WARNING' | 'ERROR';
 
 const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = {

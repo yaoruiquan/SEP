@@ -12,7 +12,9 @@ import { ConfigService } from '@nestjs/config';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
+        // 通知 WebSocket 使用客户端登录返回的 access token，
+        // 必须与 JwtStrategy/ClientModule 共用 ACCESS_JWT_SECRET。
+        secret: config.get<string>('ACCESS_JWT_SECRET') ?? config.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: '7d' },
       }),
     }),
