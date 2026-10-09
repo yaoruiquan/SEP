@@ -2,9 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import { ReviewSkillVersionDtoSchema, type ReviewSkillVersionDto } from '../../../../backend/src/shared/skill-version.dto';
 import type { AdminVersionRow } from './group-admin-versions';
 import type {
   EmployeeSkillVersionsResponse,
+  EnterpriseSkillReviewStatus,
+  EnterpriseSkillVersionReviewItem,
+  EnterpriseSkillVersionReviewResponse,
   SkillVersionPreview,
   SkillVersionScope,
   SkillVersionStatus,
@@ -16,6 +20,7 @@ export const skillVersionKeys = {
   preview: (versionId: string, source: PreviewSource) =>
     ['skill-versions', 'preview', source, versionId] as const,
   enterprise: () => ['skill-versions', 'enterprise'] as const,
+  reviews: (enterpriseId: string | null) => ['skill-versions', 'enterprise-reviews', enterpriseId] as const,
   admin: () => ['skill-versions', 'admin'] as const,
 };
 
@@ -64,6 +69,49 @@ export function useEnterpriseSkillVersions() {
   });
 }
 
+export function useEnterpriseSkillVersionReviews(filters: {
+  enterpriseId: string | null;
+  status: EnterpriseSkillReviewStatus;
+  capabilityId?: string;
+  page?: number;
+  limit?: number;
+}, enabled = true) {
+  const { enterpriseId, status, capabilityId, page = 1, limit = 20 } = filters;
+  const params = new URLSearchParams({ status, page: String(page), limit: String(limit) });
+  if (capabilityId) params.set('capabilityId', capabilityId);
+  return useQuery({
+    queryKey: [...skillVersionKeys.reviews(enterpriseId), { status, capabilityId, page, limit }],
+    queryFn: () => api.get<EnterpriseSkillVersionReviewResponse>(
+      `/enterprise/skill-version-reviews?${params.toString()}`,
+    ),
+    enabled: enabled && Boolean(enterpriseId),
+    // 审核队列不能继承全局5分钟缓存/禁用焦点刷新，否则跨端提交会延迟可见。
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
+}
+
+export function useReviewEnterprisePersonalSkillVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ReviewSkillVersionDto & { id: string }) =>
+      api.post<EnterpriseSkillVersionReviewItem>(
+        `/enterprise/skill-versions/${data.id}/review`,
+        ReviewSkillVersionDtoSchema.parse({ decision: data.decision, comment: data.comment }),
+      ),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['skill-versions'] }),
+        qc.invalidateQueries({ queryKey: ['capability-iteration'] }),
+      ]);
+    },
+  });
+}
+
 export function useCreateEnterpriseSkillVersion() {
   const qc = useQueryClient();
   return useMutation({
@@ -100,7 +148,7 @@ export function useUpdateEnterpriseSkillVersion() {
 /**
  * 发布企业版草稿并立即生效。
  *
- * 取代了原先的「提交审核 → 通过/驳回」两步 —— 会议纪要2 §6.4 否掉了企业内提审流，
+ * 企业管理员自建企业草稿不走「提交审核 → 通过/驳回」两步；个人显式送审仍单独审核。
  * 管理员自建草稿再自审是纯仪式（批准人和提交人是同一个人）。后端那两个端点已删除。
  */
 export function usePublishEnterpriseSkillVersion() {
@@ -130,7 +178,10 @@ export function useSelectSkillVersion(employeeId: string) {
         `/enterprise/subscriptions/${data.subscriptionId}/skills/${data.capabilityId}/select-version`,
         { versionId: data.versionId },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: skillVersionKeys.employee(employeeId) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: skillVersionKeys.employee(employeeId) });
+      void qc.invalidateQueries({ queryKey: ['capability-iteration'] });
+    },
   });
 }
 

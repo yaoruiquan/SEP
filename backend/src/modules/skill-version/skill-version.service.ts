@@ -125,9 +125,9 @@ export class SkillVersionService {
     return {
       subscriptionId: subscription.id,
       canManage: ctx.role === 'ENTERPRISE_ADMIN',
-      skills: bindings.map((binding) => {
+      skills: await Promise.all(bindings.map(async (binding) => {
         const candidates = versionsByCapability.get(binding.capability.id) ?? [];
-        const currentVersion =
+        const enterpriseVersion =
           selectedByCapability.get(binding.capability.id) ??
           (binding.defaultSkillVersion?.status === 'PLATFORM_APPROVED' ? binding.defaultSkillVersion : null) ??
           candidates.find((version) => version.scope === 'PLATFORM') ??
@@ -136,16 +136,22 @@ export class SkillVersionService {
           (version) => version.scope === 'PLATFORM',
         );
 
+        const effective = await this.resolveEffectiveVersion(subscription.id, binding.capability.id, userId);
+        // 解析器返回执行正文/包信息；列表仍只返回摘要，避免把完整版本泄露进元数据接口。
+        const currentVersion = effective ? Object.fromEntries(
+          Object.keys(VERSION_SUMMARY_SELECT).map((key) => [key, effective[key as keyof typeof effective]]),
+        ) : null;
         return {
           capability: binding.capability,
+          enterpriseVersion,
           currentVersion,
           versions: candidates,
           latestPublishedVersion: latestPlatformVersion ?? null,
           upgradeAvailable:
-            Boolean(currentVersion && latestPlatformVersion) &&
-            currentVersion?.id !== latestPlatformVersion?.id,
+            Boolean(enterpriseVersion && latestPlatformVersion) &&
+            enterpriseVersion?.id !== latestPlatformVersion?.id,
         };
-      }),
+      })),
     };
   }
 
@@ -308,60 +314,89 @@ export class SkillVersionService {
     });
   }
 
-  /**
-   * 本次执行实际该用哪一版技能正文。
-   *
-   * 优先级 —— 越靠上越贴近「谁在用」：
-   *   1. PERSONAL   该成员自己的副本（会议：使用发生在个人，改完下一句对话就该用上）
-   *   2. 企业选版   SubscriptionSkillVersion（管理员为这条雇佣关系钉的版本）
-   *   3. 模板默认版 EmployeeCapabilityBinding.defaultSkillVersion
-   *   4. 平台最新   最后一个 PLATFORM_APPROVED
-   *
-   * `userId` 为空时跳过第 1 层 —— 任务执行等场景可能没有明确的「使用者」。
-   */
-  async resolveEffectiveVersion(
+  /** 个人选择只更新本成员，绝不能写 SubscriptionSkillVersion 企业默认。 */
+  async selectPersonalVersion(
+    userId: string,
     subscriptionId: string,
     capabilityId: string,
+    versionId: string | null,
+  ) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    const subscription = await this.getGrantedSubscriptionById(
+      ctx.enterpriseId, ctx.memberId, ctx.departmentId, subscriptionId,
+    );
+    await this.assertCapabilityBound(subscription.employeeId, capabilityId);
+    if (versionId !== null) {
+      const version = await this.prisma.skillVersion.findUnique({ where: { id: versionId } });
+      if (!version || version.capabilityId !== capabilityId ||
+          !this.isSelectableVersion(version, ctx.enterpriseId, userId)) {
+        throw new BadRequestException('所选版本与技能不匹配、尚未审核通过或无权使用');
+      }
+    }
+    return this.prisma.memberSkillVersionSelection.upsert({
+      where: { memberId_subscriptionId_capabilityId: {
+        memberId: ctx.memberId, subscriptionId, capabilityId,
+      } },
+      create: { memberId: ctx.memberId, subscriptionId, capabilityId, versionId },
+      update: { versionId },
+    });
+  }
+
+  private isSelectableVersion(
+    version: { scope: SkillVersionScope; status: SkillVersionStatus; enterpriseId: string | null; ownerId: string | null },
+    enterpriseId: string,
     userId?: string,
   ) {
-    if (userId) {
-      const personal = await this.prisma.skillVersion.findFirst({
-        where: {
-          capabilityId,
-          scope: 'PERSONAL',
-          ownerId: userId,
-          status: 'PERSONAL_ACTIVE',
-        },
-        // 一人一能力理论上只有一条（createPersonalVersion 会复用现有的），
-        // 取最新是为了历史脏数据也能有确定行为
-        orderBy: { createdAt: 'desc' },
-      });
-      if (personal) return personal;
-    }
+    return (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
+      (version.scope === 'ENTERPRISE' && version.enterpriseId === enterpriseId && version.status === 'ENTERPRISE_APPROVED') ||
+      (userId !== undefined && version.scope === 'PERSONAL' && version.enterpriseId === enterpriseId &&
+        version.ownerId === userId &&
+        (version.status === 'PERSONAL_ACTIVE' || version.status === 'ENTERPRISE_APPROVED'));
+  }
 
+  /**
+   * 实际执行：本人显式选版 > 存量个人副本 > 企业默认 > 模板默认 > 平台最新。
+   * 显式 versionId=null 表示跟随企业，跳过副本但保留其内容。
+   * 没有个人记录时保留旧副本优先行为；没有使用者时只解析企业默认。
+   * 身份按订阅所属企业反查，不使用用户可能在别家企业的上下文。
+   */
+  async resolveEffectiveVersion(subscriptionId: string, capabilityId: string, userId?: string) {
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: {
+        enterpriseId: true,
+        employee: { select: { bindings: {
+          where: { capabilityId }, select: { defaultSkillVersion: true }, take: 1,
+        } } },
+      },
+    });
+    if (userId && subscription) {
+      const preference = await this.prisma.memberSkillVersionSelection.findFirst({
+        where: { subscriptionId, capabilityId, member: { userId, enterpriseId: subscription.enterpriseId } },
+        include: { version: true },
+      });
+      if (preference) {
+        if (preference.version && preference.version.capabilityId === capabilityId &&
+            this.isSelectableVersion(preference.version, subscription.enterpriseId, userId)) {
+          return preference.version;
+        }
+        // 显式跟随或已失效的版本，安全回落企业，不恢复此前副本。
+      } else {
+        const personal = await this.prisma.skillVersion.findFirst({
+          where: { capabilityId, enterpriseId: subscription.enterpriseId,
+            scope: 'PERSONAL', ownerId: userId, status: 'PERSONAL_ACTIVE' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (personal) return personal;
+      }
+    }
     const selection = await this.prisma.subscriptionSkillVersion.findUnique({
       where: { subscriptionId_capabilityId: { subscriptionId, capabilityId } },
       include: { version: true },
     });
     if (selection) return selection.version;
-
-    const subscription = await this.prisma.subscription.findUnique({
-      where: { id: subscriptionId },
-      select: {
-        employee: {
-          select: {
-            bindings: {
-              where: { capabilityId },
-              select: { defaultSkillVersion: true },
-              take: 1,
-            },
-          },
-        },
-      },
-    });
     const defaultVersion = subscription?.employee.bindings[0]?.defaultSkillVersion;
     if (defaultVersion?.status === 'PLATFORM_APPROVED') return defaultVersion;
-
     return this.prisma.skillVersion.findFirst({
       where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
       orderBy: { createdAt: 'desc' },
@@ -714,35 +749,45 @@ export class SkillVersionService {
     const subscription = await this.assertCapabilityVisible(ctx, capabilityId);
 
     const existing = await this.prisma.skillVersion.findFirst({
-      where: { capabilityId, scope: 'PERSONAL', ownerId: userId, status: 'PERSONAL_ACTIVE' },
+      where: { capabilityId, enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', ownerId: userId, status: 'PERSONAL_ACTIVE' },
       select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
     });
     if (existing) return existing;
 
     // 副本的起点是「我现在实际在用的那一版」，不是平台原版 ——
     // 否则员工一建副本就把企业的定制丢了。
-    const base = await this.resolveEffectiveVersion(subscription.id, capabilityId);
+    const base = await this.resolveEffectiveVersion(subscription.id, capabilityId, userId);
     if (!base) throw new NotFoundException('该技能还没有可用版本，无法创建副本');
 
-    return this.prisma.skillVersion.create({
-      data: {
-        capabilityId,
-        enterpriseId: ctx.enterpriseId,
-        scope: 'PERSONAL',
-        status: 'PERSONAL_ACTIVE',
-        ownerId: userId,
-        parentVersionId: base.id,
-        // 个人副本不参与 semver 序列，版本号只记「基于哪一版」，
-        // 让界面能说出「我的副本（基于 企业版 1.1.0）」
-        version: base.version,
-        content: base.content,
-        createdById: userId,
-      },
-      select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
+    return this.prisma.$transaction(async (tx) => {
+      const version = await tx.skillVersion.create({
+        data: {
+          capabilityId,
+          enterpriseId: ctx.enterpriseId,
+          scope: 'PERSONAL',
+          status: 'PERSONAL_ACTIVE',
+          ownerId: userId,
+          parentVersionId: base.id,
+          // 个人副本不参与 semver 序列，版本号只记「基于哪一版」，
+          // 让界面能说出「我的副本（基于 企业版 1.1.0）」
+          version: base.version,
+          content: base.content,
+          createdById: userId,
+        },
+        select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
+      });
+      await tx.memberSkillVersionSelection.upsert({
+        where: { memberId_subscriptionId_capabilityId: {
+          memberId: ctx.memberId, subscriptionId: subscription.id, capabilityId,
+        } },
+        create: { memberId: ctx.memberId, subscriptionId: subscription.id, capabilityId, versionId: version.id },
+        update: { versionId: version.id },
+      });
+      return version;
     });
   }
 
-  /** 员工编辑自己的副本。改完即生效，没有提审这一步。 */
+  /** 保存本人副本。正在使用此副本的执行下一次即采用新正文，不覆盖其他显式选版。 */
   async updatePersonalVersion(
     userId: string,
     versionId: string,
@@ -1336,6 +1381,7 @@ export class SkillVersionService {
       where: {
         enterpriseId: ctx.enterpriseId,
         status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
         grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) },
         employee: { bindings: { some: { capabilityId } } },
       },
@@ -1526,6 +1572,14 @@ export class SkillVersionService {
       if (version.ownerId === userId) myVersionMap.set(version.capabilityId, version.id);
     }
 
+    const personalSelections = await this.prisma.memberSkillVersionSelection.findMany({
+      where: { memberId: ctx.memberId, subscriptionId: { in: subscriptions.map((item) => item.id) }, capabilityId: { in: capabilityIds } },
+      select: { subscriptionId: true, capabilityId: true, versionId: true },
+    });
+    const preferenceMap = new Map(personalSelections.map((selection) => [
+      `${selection.subscriptionId}:${selection.capabilityId}`, selection,
+    ]));
+
     const items = [...byCapability.values()].map((entry) => ({
       capability: entry.capability,
       employees: entry.employees,
@@ -1539,8 +1593,12 @@ export class SkillVersionService {
         ? pendingMap.get(entry.capability.id) ?? 0
         : (myVersionMap.has(entry.capability.id) &&
             pendingMap.get(entry.capability.id) ? 1 : 0),
-      /// 我自己的副本 id。有值时列表页显示「我的副本已生效」而不是「跟随企业版」。
+      /// 已保存的本人副本；是否在授权订阅使用要结合个人偏好，不能仅看存在。
       myPersonalVersionId: myVersionMap.get(entry.capability.id) ?? null,
+      myPersonalVersionActive: myVersionMap.has(entry.capability.id) && entry.employees.some((employee) => {
+        const preference = preferenceMap.get(`${employee.subscriptionId}:${entry.capability.id}`);
+        return !preference || preference.versionId === myVersionMap.get(entry.capability.id);
+      }),
     }));
 
     return {
@@ -1566,7 +1624,7 @@ export class SkillVersionService {
     const ctx = await this.enterpriseContext.resolve(userId);
     const subscription = await this.assertCapabilityVisible(ctx, capabilityId);
 
-    const [capability, versions, selection, subscriptions] = await Promise.all([
+    const [capability, versions, selection, subscriptions, personal] = await Promise.all([
       this.prisma.capability.findUnique({
         where: { id: capabilityId },
         select: { id: true, name: true, description: true },
@@ -1579,6 +1637,8 @@ export class SkillVersionService {
             // 企业版把草稿与待审也列出来：迭代过程本身要可见，
             // 只显示已通过的版本会让「我提交的那版去哪了」无从回答
             { scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId },
+            // 本人送审/已审版本可在时间线跟踪结果及选用；不混入其他成员个人记录。
+            { scope: 'PERSONAL', enterpriseId: ctx.enterpriseId, ownerId: userId },
           ],
         },
         select: {
@@ -1610,16 +1670,26 @@ export class SkillVersionService {
         where: {
           enterpriseId: ctx.enterpriseId,
           status: 'ACTIVE',
+          OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
+          ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : {
+            grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) },
+          }),
           employee: { bindings: { some: { capabilityId } } },
         },
         select: {
           id: true,
+          grants: { where: this.activeGrantWhere(ctx.memberId, ctx.departmentId), select: { id: true }, take: 1 },
+          personalSkillSelections: { where: { memberId: ctx.memberId, capabilityId }, select: { versionId: true } },
           employee: { select: { id: true, name: true } },
           skillVersionSelections: {
             where: { capabilityId },
             select: { versionId: true, selectedAt: true },
           },
         },
+      }),
+      this.prisma.skillVersion.findFirst({
+        where: { capabilityId, scope: 'PERSONAL', status: 'PERSONAL_ACTIVE', ownerId: userId, enterpriseId: ctx.enterpriseId },
+        select: { id: true }, orderBy: { createdAt: 'desc' },
       }),
     ]);
 
@@ -1628,12 +1698,24 @@ export class SkillVersionService {
     return {
       capability,
       subscriptionId: subscription.id,
-      subscriptions: subscriptions.map((item) => ({
-        subscriptionId: item.id,
-        employeeId: item.employee.id,
-        employeeName: item.employee.name,
-        currentVersionId: item.skillVersionSelections[0]?.versionId ?? null,
-        selectedAt: item.skillVersionSelections[0]?.selectedAt?.toISOString() ?? null,
+      myPersonalVersionId: personal?.id ?? null,
+      subscriptions: await Promise.all(subscriptions.map(async (item) => {
+        const preference = item.personalSkillSelections[0];
+        const effective = await this.resolveEffectiveVersion(item.id, capabilityId, userId);
+        const enterpriseVersion = await this.resolveEffectiveVersion(item.id, capabilityId);
+        return {
+          subscriptionId: item.id,
+          employeeId: item.employee.id,
+          employeeName: item.employee.name,
+          currentVersionId: item.skillVersionSelections[0]?.versionId ?? null,
+          enterpriseVersionId: enterpriseVersion?.id ?? null,
+          personalVersionId: preference?.versionId ?? null,
+          personalSelectionMode: preference ? (preference.versionId ? 'PINNED' : 'FOLLOW_ENTERPRISE') : 'AUTO',
+          effectiveVersionId: effective?.id ?? null,
+          effectiveVersionScope: effective?.scope ?? null,
+          canSelectPersonal: item.grants.length > 0,
+          selectedAt: item.skillVersionSelections[0]?.selectedAt?.toISOString() ?? null,
+        };
       })),
       canManage: ctx.role === 'ENTERPRISE_ADMIN',
       currentVersionId:

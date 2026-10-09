@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Activity,
@@ -499,10 +500,8 @@ export default function EmployeeDetailPage() {
                             <>
                               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                                 <span className="text-gtext-muted">
-                                  当前 v{skill.currentVersion.version} ·{' '}
-                                  {skill.currentVersion.scope === 'PLATFORM'
-                                    ? '平台'
-                                    : '企业'}
+                                  我使用 v{skill.currentVersion.version} ·{' '}
+                                  {skill.currentVersion.scope === 'PLATFORM' ? '平台' : skill.currentVersion.scope === 'PERSONAL' ? '个人副本' : '企业'}
                                 </span>
                                 {skill.upgradeAvailable && (
                                   <Badge className="border-gwarning/30 bg-gwarning/10 text-gwarning">
@@ -512,8 +511,8 @@ export default function EmployeeDetailPage() {
                               </div>
                               {isAdmin && skill.versions.length > 1 && (
                                 <select
-                                  aria-label={`选择 ${capability.name} 版本`}
-                                  value={skill.currentVersion.id}
+                                  aria-label={`选择 ${capability.name} 企业默认版本`}
+                                  value={skill.enterpriseVersion?.id ?? ''}
                                   onChange={(event) =>
                                     selectSkillVersion.mutate(
                                       {
@@ -525,7 +524,7 @@ export default function EmployeeDetailPage() {
                                       },
                                       {
                                         onSuccess: () =>
-                                          toast.success('技能版本已切换'),
+                                          toast.success('企业默认版本已切换，不影响成员的个人选择'),
                                         onError: (error) =>
                                           toast.error(
                                             error instanceof Error
@@ -537,7 +536,7 @@ export default function EmployeeDetailPage() {
                                   }
                                   className="h-9 w-full rounded-md border border-glassline bg-glass-1 px-3 text-xs text-gtext-primary focus:outline-none focus:ring-2 focus:ring-gbrand-ring"
                                 >
-                                  {skill.versions.map((version) => (
+                                  {skill.versions.filter((version) => version.status === 'PLATFORM_APPROVED' || version.status === 'ENTERPRISE_APPROVED').map((version) => (
                                     <option key={version.id} value={version.id}>
                                       v{version.version} ·{' '}
                                       {version.scope === 'PLATFORM'
@@ -547,6 +546,9 @@ export default function EmployeeDetailPage() {
                                   ))}
                                 </select>
                               )}
+                              <Link href={`/capabilities/${capability.id}?subscriptionId=${skillVersionsQuery.data!.subscriptionId}`} className="inline-flex text-xs text-gbrand-text hover:underline">
+                                选择我的使用版本（仅影响本人）
+                              </Link>
                               <div className="flex flex-wrap gap-2">
                                 <Button
                                   variant="glass"
@@ -559,7 +561,7 @@ export default function EmployeeDetailPage() {
                                 >
                                   <Eye className="h-4 w-4" /> 查看内容
                                 </Button>
-                                {isAdmin && (
+                                {isAdmin && skill.enterpriseVersion && (
                                   <Button
                                     variant="glass"
                                     size="sm"
@@ -572,8 +574,8 @@ export default function EmployeeDetailPage() {
                                               .subscriptionId,
                                           capabilityId: capability.id,
                                           parentVersionId:
-                                            skill.currentVersion!.id,
-                                          changeSummary: `基于 v${skill.currentVersion!.version} 创建`,
+                                            skill.enterpriseVersion!.id,
+                                          changeSummary: `基于 v${skill.enterpriseVersion!.version} 创建`,
                                         },
                                         {
                                           onSuccess: (version) =>

@@ -3,6 +3,7 @@ import type { EmployeeAvatarAsset } from './employee-avatar';
 export type { EmployeeAvatarAsset } from './employee-avatar';
 export * from './task.dto';
 export * from './client-task.dto';
+export * from './notification.dto';
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）

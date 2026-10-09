@@ -38,8 +38,9 @@ export interface IterableCapability {
   usage: { totalRounds: number; distinctUserCount: number };
   /** 管理员：待采纳的成员改动数。成员：自己那条待采纳时为 1 */
   pendingAdoptionCount: number;
-  /** 我自己的副本 id。有值时显示「我的副本已生效」 */
+  /** 我自己的已保存副本；是否使用由 myPersonalVersionActive 表示。 */
   myPersonalVersionId: string | null;
+  myPersonalVersionActive: boolean;
 }
 
 export interface IterableCapabilityList {
@@ -73,6 +74,7 @@ export interface VersionReviewRecord {
 export interface TimelineVersion {
   id: string;
   capabilityId: string;
+  ownerId?: string | null;
   scope: SkillVersionScope;
   enterpriseId: string | null;
   parentVersionId: string | null;
@@ -105,13 +107,21 @@ export interface VersionTimeline {
     subscriptionId: string;
     employeeId: string;
     employeeName: string;
+    /** 企业共享选择，不能用作本人实际生效版本。 */
     currentVersionId: string | null;
+    personalVersionId: string | null;
+    personalSelectionMode: 'FOLLOW_ENTERPRISE' | 'AUTO' | 'PINNED';
+    effectiveVersionId: string | null;
+    effectiveVersionScope: SkillVersionScope | null;
+    enterpriseVersionId: string | null;
+    canSelectPersonal: boolean;
     selectedAt: string | null;
   }>;
   canManage: boolean;
   currentVersionId: string | null;
   selectedAt: string | null;
   versions: TimelineVersion[];
+  myPersonalVersionId: string | null;
 }
 
 export function useVersionTimeline(capabilityId: string) {
@@ -177,7 +187,7 @@ export function useCapabilityExecutions(capabilityId: string, enabled = true) {
 }
 
 /**
- * 切换生效版本 —— 「回滚」在实现上就是选回旧版本。
+ * 管理员切换企业共享默认版本；不是个人选版。
  *
  * 成功后连带失效版本时间线与能力列表：列表上的 currentVersion 也变了。
  */
@@ -189,10 +199,20 @@ export function useSelectEffectiveVersion(capabilityId: string) {
         `/enterprise/subscriptions/${subscriptionId}/skills/${capabilityId}/select-version`,
         { versionId },
       ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
-      void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
-    },
+    onSuccess: () => invalidatePersonal(qc, capabilityId),
+  });
+}
+
+/** 仅切换本人在指定订阅下的使用版本；null 跟随企业并保留副本。 */
+export function useSelectPersonalVersion(capabilityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ subscriptionId, versionId }: { subscriptionId: string; versionId: string | null }) =>
+      api.post(
+        `/enterprise/subscriptions/${subscriptionId}/skills/${capabilityId}/select-personal-version`,
+        { versionId },
+      ),
+    onSuccess: () => invalidatePersonal(qc, capabilityId),
   });
 }
 
@@ -210,10 +230,7 @@ export function usePublishEnterpriseVersion(capabilityId: string) {
         `/enterprise/skill-versions/${versionId}/publish`,
         {},
       ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
-      void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
-    },
+    onSuccess: () => invalidatePersonal(qc, capabilityId),
   });
 }
 
@@ -249,10 +266,12 @@ export function usePersonalDiffs(capabilityId: string, enabled = true) {
 }
 
 /**
- * 个人副本相关的写操作，失效范围一致：改动列表 + 能力列表（待采纳数变了）。
+ * 选版/副本写操作同步刷新个人改动、时间线、能力列表与技能查询（含预览）。
  * 抽成一个函数，避免每个 mutation 各写一遍漏掉一处。
  */
 function invalidatePersonal(qc: ReturnType<typeof useQueryClient>, capabilityId: string) {
+  void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
+  void qc.invalidateQueries({ queryKey: ['skill-versions'] });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.personalDiffs(capabilityId) });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
 }
@@ -302,11 +321,7 @@ export function useAdoptPersonalVersions(capabilityId: string) {
         `/enterprise/capabilities/${capabilityId}/adopt`,
         payload,
       ),
-    onSuccess: () => {
-      invalidatePersonal(qc, capabilityId);
-      // 采纳会生成新企业版并切为生效 —— 时间线必须一起刷
-      void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
-    },
+    onSuccess: () => invalidatePersonal(qc, capabilityId),
   });
 }
 

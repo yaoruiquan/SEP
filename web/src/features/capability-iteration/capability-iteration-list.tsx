@@ -110,6 +110,8 @@ export function CapabilityIterationList() {
         </div>
       </div>
 
+      <p className="text-xs text-gtext-muted">个人版本按员工订阅分别设置，在详情查看</p>
+
       {visible.length === 0 ? (
         <div className="rounded-glass-lg border border-dashed border-glassline bg-glass-1 px-4 py-12 text-center">
           <Library className="mx-auto h-8 w-8 text-gtext-disabled" />
@@ -230,7 +232,9 @@ function PendingBoard({ items, canManage }: { items: IterableCapability[]; canMa
             <span className="shrink-0 text-xs text-gbrand-text">
               {canManage
                 ? `${item.pendingAdoptionCount} 位成员调整过 · 去采纳`
-                : '我的副本已生效 · 等待企业采纳'}
+                : item.myPersonalVersionActive
+                  ? '我的副本正在使用 · 等待企业采纳'
+                  : '我的副本已保存 · 等待企业采纳'}
             </span>
           </Link>
         ))}
@@ -249,7 +253,7 @@ function FlatHeader() {
       )}
     >
       <span>技能</span>
-      <span className="text-center">当前生效</span>
+      <span className="text-center">版本与副本</span>
       <span className="text-right">使用情况</span>
       <span className="text-right">待办</span>
       <span className="text-right">所属员工</span>
@@ -384,16 +388,20 @@ function CapabilityRow({
         {item.capability.name}
       </span>
 
-      <span className="flex justify-center">
-        {item.myPersonalVersionId ? (
-          <ScopeTag tone="personal">我的副本</ScopeTag>
-        ) : scope === 'ENTERPRISE' ? (
-          <ScopeTag tone="enterprise">企业版 {item.currentVersion?.version}</ScopeTag>
-        ) : scope === 'PLATFORM' ? (
-          <ScopeTag tone="platform">平台版 {item.currentVersion?.version}</ScopeTag>
+      <span className="flex min-w-0 flex-col items-center gap-1" title="个人使用版本按订阅分别设置，可在版本记录查看和切换">
+        {item.myPersonalVersionId && item.myPersonalVersionActive ? (
+          <ScopeTag tone="personal">副本正在使用</ScopeTag>
         ) : (
-          // 没有选版记录不等于不能用 —— 执行时兜底到最新平台审核通过版
-          <ScopeTag tone="platform">跟随平台版</ScopeTag>
+          <>
+            {scope === 'ENTERPRISE' ? (
+              <ScopeTag tone="enterprise">默认：企业版 {item.currentVersion?.version}</ScopeTag>
+            ) : scope === 'PLATFORM' ? (
+              <ScopeTag tone="platform">默认：平台版 {item.currentVersion?.version}</ScopeTag>
+            ) : (
+              <ScopeTag tone="platform">默认：平台版</ScopeTag>
+            )}
+            {item.myPersonalVersionId && <ScopeTag tone="saved">副本已保存</ScopeTag>}
+          </>
         )}
       </span>
 
@@ -449,7 +457,7 @@ function ScopeTag({
   tone,
   children,
 }: {
-  tone: 'personal' | 'enterprise' | 'platform';
+  tone: 'personal' | 'saved' | 'enterprise' | 'platform';
   children: React.ReactNode;
 }) {
   return (
@@ -457,6 +465,7 @@ function ScopeTag({
       className={cn(
         'truncate rounded-glass-pill border px-2.5 py-1 text-[11px] font-medium shadow-glass-sm',
         tone === 'personal' && 'border-gsuccess/40 bg-gsuccess/10 text-gsuccess',
+        tone === 'saved' && 'border-glassline bg-glass-2 text-gtext-muted',
         tone === 'enterprise' && 'border-glassline-brand bg-gbrand/10 text-gbrand-text',
         tone === 'platform' && 'border-glassline bg-glass-2 text-gtext-secondary',
       )}
@@ -527,7 +536,7 @@ function EmptyState() {
       <Library className="mx-auto h-6 w-6 text-gtext-disabled" />
       <p className="mt-3 text-sm font-medium text-gtext-secondary">技能库还是空的</p>
       <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-gtext-muted">
-        企业雇佣硅基员工后，员工带的技能会出现在这里。你可以创建自己的副本立即调整，
+        企业雇佣硅基员工后，员工带的技能会出现在这里。你可以创建并保存自己的副本，在版本记录按订阅选择使用，
         管理员采纳后成为企业统一版本，且不影响平台公共版本。
       </p>
     </div>

@@ -443,7 +443,7 @@ export class CapabilityService {
     let skillVersionId: string | null = null;
 
     // SKILL 类能力：解析本次执行该用的版本
-    // （个人副本 > 企业选版 > 员工模板默认 > 最新平台审核通过版）
+    // （本人显式选版/跟随企业 > 存量个人副本 > 企业默认 > 模板默认 > 平台最新）
     if (capability.type === 'SKILL' && ctx.subscriptionId) {
       const resolved = await this.skillVersionService.resolveEffectiveVersion(
         ctx.subscriptionId,

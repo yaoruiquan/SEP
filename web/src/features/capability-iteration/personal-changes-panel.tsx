@@ -27,7 +27,7 @@ import {
 /**
  * 「大家的改动」（管理员）/「我的副本」（成员）。
  *
- * 这是会议纪要2 §6.4 的落点：员工改自己的副本、改完立刻生效、**不提审**；
+ * 员工编辑自己的副本、**不提审**；保存不覆盖各订阅的显式选择。
  * 管理员天然可见并可逐条或一键采纳。所以这一屏刻意没有「提交审核」按钮 ——
  * 那正是会议明确否掉的设计。
  */
@@ -90,7 +90,7 @@ export function PersonalChangesPanel({
         baselineContent={data?.baseline?.content ?? ''}
         onCreate={() =>
           createVersion.mutate(undefined, {
-            onSuccess: () => toast.success('已创建我的副本', '改完即生效，不需要提交审核'),
+            onSuccess: () => toast.success('我的副本已保存', '新建副本会在本次授权订阅使用；已有副本不会自动切版，可在版本记录选择使用副本'),
             onError: (err) => toast.error('创建失败', (err as Error).message),
           })
         }
@@ -200,8 +200,9 @@ function MyCopyCard({
       <section className="rounded-glass-lg border border-glassline bg-glass-1 p-4">
         <h3 className="text-sm font-semibold text-gtext-primary">我的副本</h3>
         <p className="mt-1 text-[11px] leading-5 text-gtext-muted">
-          基于当前生效版本创建你自己的副本。改完**立刻对你本人生效**，不需要提交审核；
-          企业管理员能看到你改了什么，可以采纳进企业统一版本。
+          新建副本会在本次授权订阅使用，不影响其他订阅的个人选择。
+          使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本。
+          无需提交审核，企业管理员可采纳进企业统一版本。
         </p>
         <Button
           size="sm"
@@ -224,7 +225,7 @@ function MyCopyCard({
           <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold text-gtext-primary">
             我的副本
             <span className="rounded-glass-pill bg-gsuccess/15 px-1.5 py-0.5 text-[10px] font-medium text-gsuccess">
-              已生效
+              已保存
             </span>
           </h3>
           <p className="mt-1 text-[11px] text-gtext-muted">
@@ -256,7 +257,7 @@ function MyCopyCard({
             loading={discard.isPending}
             onClick={() =>
               discard.mutate(mine.id, {
-                onSuccess: () => toast.success('已弃用副本', '回落到企业生效版本'),
+                onSuccess: () => toast.success('已弃用副本', '需要保留副本但暂停使用时，请在版本记录选择跟随企业'),
                 onError: (err) => toast.error('弃用失败', (err as Error).message),
               })
             }
@@ -267,6 +268,11 @@ function MyCopyCard({
           </Button>
         </div>
       </div>
+
+      <p className="mt-2 text-[11px] leading-5 text-gtext-muted">
+        使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本。
+        保存不会覆盖已选的平台版、企业版或跟随企业设置。跟随企业仅暂停使用，不删除副本。
+      </p>
 
       {editing ? (
         <div className="mt-3 space-y-2">
@@ -293,7 +299,7 @@ function MyCopyCard({
                   { versionId: mine.id, content: draft, changeSummary: summary || undefined },
                   {
                     onSuccess: () => {
-                      toast.success('已保存', '下一句对话就会用上新内容');
+                      toast.success('已保存', '使用该副本时，保存后下一次执行采用新内容；可在版本记录选择使用副本');
                       setEditing(false);
                     },
                     onError: (err) => toast.error('保存失败', (err as Error).message),
@@ -302,7 +308,7 @@ function MyCopyCard({
               }
               className="h-7 px-2.5 text-[11px]"
             >
-              保存并生效
+              保存副本
             </Button>
             <Button
               size="sm"

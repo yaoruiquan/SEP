@@ -10,7 +10,10 @@ import {
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CapabilityService } from '../capability/capability.service';
-import { AdapterInput } from '../capability/adapters/adapter.interface';
+import {
+  type AdapterInput,
+  type CapabilityExecutionContext,
+} from '../capability/adapters/adapter.interface';
 import { DEFAULT_MODEL_ID } from 'shared';
 
 @Injectable()
@@ -53,6 +56,11 @@ export class DigitalEmployeeRunner {
       throw new NotFoundException(`Digital employee ${employeeId} not found`);
     }
 
+    const executionContext = await this.resolveExecutionContext(
+      employeeId,
+      userId,
+    );
+
     // Build Vercel AI SDK tools from bound capabilities.
     // 明确声明为 ToolSet 避免 TS 对 generateText 泛型做无限推断（OOM 来源）。
     const tools: ToolSet = {};
@@ -77,7 +85,11 @@ export class DigitalEmployeeRunner {
             sessionId,
             userId,
           };
-          const result = await this.capabilityService.execute(cap.id, input);
+          const result = await this.capabilityService.execute(
+            cap.id,
+            input,
+            executionContext,
+          );
           return result.success ? result.output : `Error: ${result.error}`;
         },
       };
@@ -117,6 +129,61 @@ export class DigitalEmployeeRunner {
       employeeId: employee.id,
       employeeName: employee.name,
     };
+  }
+
+  private async resolveExecutionContext(
+    employeeId: string,
+    userId?: string,
+  ): Promise<CapabilityExecutionContext> {
+    if (!userId) return {};
+
+    // 与 EnterpriseContextService 一致，按最早的成员关系定位企业。
+    // 此测试接口也供平台预览使用，无企业/有效授权订阅时保留无订阅执行。
+    const member = await this.prisma.enterpriseMember.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        enterpriseId: true,
+        role: true,
+        departmentId: true,
+      },
+    });
+    if (!member) return { userId };
+
+    const now = new Date();
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        enterpriseId: member.enterpriseId,
+        employeeId,
+        status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+        // 企业管理员沿用 SubscriptionEmployeeService 的免 Grant 语义。
+        // 普通成员（包括部门负责人）只接受未到期的直接或本部门授权。
+        ...(member.role === 'ENTERPRISE_ADMIN'
+          ? {}
+          : {
+              grants: {
+                some: {
+                  OR: [
+                    { memberId: member.id },
+                    ...(member.departmentId
+                      ? [{ departmentId: member.departmentId }]
+                      : []),
+                  ],
+                  AND: [
+                    { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+                  ],
+                },
+              },
+            }),
+      },
+      select: { id: true },
+    });
+
+    return subscription
+      ? { subscriptionId: subscription.id, userId }
+      : { userId };
   }
 
   /**

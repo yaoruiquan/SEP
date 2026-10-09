@@ -35,6 +35,7 @@ describe('SkillVersionService 使用记录与统计', () => {
       subscription: {
         findFirst: overrides.subscriptionFindFirst ?? jest.fn().mockResolvedValue({ id: 'sub-1' }),
         findMany: overrides.subscriptionFindMany ?? jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ enterpriseId: 'ent-1', employee: { bindings: [] } }),
       },
       toolExecution: {
         findMany: overrides.toolExecutionFindMany ?? jest.fn().mockResolvedValue([]),
@@ -46,8 +47,10 @@ describe('SkillVersionService 使用记录与统计', () => {
           jest.fn().mockResolvedValue({ id: 'cap-1', name: '电商运营', description: '' }),
       },
       skillVersion: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findMany: overrides.skillVersionFindMany ?? jest.fn().mockResolvedValue([]),
       },
+      memberSkillVersionSelection: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       subscriptionSkillVersion: {
         findUnique: overrides.subscriptionSkillVersionFindUnique ?? jest.fn().mockResolvedValue(null),
       },
@@ -381,7 +384,61 @@ describe('SkillVersionService 使用记录与统计', () => {
       expect(where.OR).toEqual([
         { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
         { scope: 'ENTERPRISE', enterpriseId: 'ent-1' },
+        { scope: 'PERSONAL', enterpriseId: 'ent-1', ownerId: 'u1' },
       ]);
+    });
+
+    it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] as const)(
+      '本人送审状态 %s 出现在时间线并保持选版独立', async (status) => {
+        const submitted = { id: 'submitted', version: '0.0.0-personal.test', scope: 'PERSONAL',
+          status, ownerId: 'user-1', submittedAt: new Date(), rejectionReason: status === 'ENTERPRISE_REJECTED' ? '补充说明' : null,
+          promotedVersions: [], reviews: [] };
+        const findMany = jest.fn().mockResolvedValue([submitted]);
+        const { service } = build({ skillVersionFindMany: findMany, context: { ...ADMIN_CTX, role: 'MEMBER' } });
+        const result = await service.listVersionTimeline('user-1', 'cap-1');
+        expect(findMany.mock.calls[0][0].where).toEqual({ capabilityId: 'cap-1', OR: [
+          { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+          { scope: 'ENTERPRISE', enterpriseId: 'ent-1' },
+          { scope: 'PERSONAL', enterpriseId: 'ent-1', ownerId: 'user-1' },
+        ] });
+        expect(result.versions[0]).toMatchObject({ id: 'submitted', status, ownerId: 'user-1', isCurrent: false,
+          rejectionReason: submitted.rejectionReason });
+        expect(result.currentVersionId).toBeNull();
+      },
+    );
+
+    it('普通成员只枚举授权且未过期的订阅，个人版本与企业默认分别返回', async () => {
+      const { service, prisma } = build({ context: { ...ADMIN_CTX, role: 'MEMBER' } });
+      prisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-b', employee: { id: 'employee-b', name: '员工B' },
+          grants: [{ id: 'grant-b' }], skillVersionSelections: [{ versionId: 'enterprise-v', selectedAt: new Date() }],
+          personalSkillSelections: [{ versionId: 'platform-old' }] },
+      ]);
+      jest.spyOn(service, 'resolveEffectiveVersion').mockImplementation(async (_sub, _cap, userId) => (
+        { id: userId ? 'platform-old' : 'enterprise-v', scope: userId ? 'PLATFORM' : 'ENTERPRISE' } as never
+      ));
+      const result = await service.listVersionTimeline('user-1', 'cap-1');
+      expect(prisma.subscription.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+        enterpriseId: 'ent-1', status: 'ACTIVE', OR: expect.any(Array), grants: { some: expect.anything() },
+      }) }));
+      expect(result.subscriptions[0]).toMatchObject({
+        subscriptionId: 'sub-b', currentVersionId: 'enterprise-v', enterpriseVersionId: 'enterprise-v',
+        personalVersionId: 'platform-old', personalSelectionMode: 'PINNED', effectiveVersionId: 'platform-old',
+        effectiveVersionScope: 'PLATFORM', canSelectPersonal: true,
+      });
+    });
+
+    it('管理员可管理未授权给自己的订阅，但不能个人切版', async () => {
+      const { service, prisma } = build();
+      prisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-b', employee: { id: 'employee-b', name: '员工B' },
+          grants: [], skillVersionSelections: [], personalSkillSelections: [] },
+      ]);
+      jest.spyOn(service, 'resolveEffectiveVersion').mockResolvedValue({ id: 'platform-fallback', scope: 'PLATFORM' } as never);
+      const result = await service.listVersionTimeline('admin-1', 'cap-1');
+      expect(prisma.subscription.findMany.mock.calls[0][0].where.grants).toBeUndefined();
+      expect(result.subscriptions[0]).toMatchObject({ canSelectPersonal: false, effectiveVersionId: 'platform-fallback',
+        enterpriseVersionId: 'platform-fallback', personalSelectionMode: 'AUTO', currentVersionId: null });
     });
 
     it('能力不存在时抛 NotFound', async () => {

@@ -14,16 +14,16 @@ export type UserRole = 'USER' | 'ADMIN';
 export type SkillVersionScope = 'PLATFORM' | 'ENTERPRISE' | 'PERSONAL';
 export type SkillVersionStatus =
   | 'DRAFT'
-  /** @deprecated 企业内提审流已下线，仅历史数据可能出现 */
+  /** 个人 Skill 显式送审：待企业管理员审核。 */
   | 'PENDING_ENTERPRISE_REVIEW'
   | 'ENTERPRISE_APPROVED'
   | 'PENDING_PLATFORM_REVIEW'
   | 'PLATFORM_APPROVED'
-  /** @deprecated 同 PENDING_ENTERPRISE_REVIEW */
+  /** 个人 Skill 企业审核驳回。 */
   | 'ENTERPRISE_REJECTED'
   | 'PLATFORM_REJECTED'
   | 'ARCHIVED'
-  /** 个人副本的唯一状态：存在即生效 */
+  /** 原有 Web 工作副本，区别于显式送审版本。 */
   | 'PERSONAL_ACTIVE';
 
 export interface SkillVersionSummary {
@@ -39,6 +39,38 @@ export interface SkillVersionSummary {
   createdAt: string;
   updatedAt: string;
   hasPlatformSubmission?: boolean;
+}
+
+export type EnterpriseSkillReviewStatus =
+  | 'PENDING_ENTERPRISE_REVIEW'
+  | 'ENTERPRISE_APPROVED'
+  | 'ENTERPRISE_REJECTED';
+
+export interface EnterpriseSkillVersionReviewItem {
+  id: string;
+  capabilityId: string;
+  parentVersionId: string | null;
+  enterpriseId: string | null;
+  ownerId: string | null;
+  scope: 'PERSONAL';
+  version: string;
+  status: EnterpriseSkillReviewStatus;
+  changeSummary: string | null;
+  submittedAt: string | null;
+  enterpriseReviewedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // 关联展示字段兼容后端先旧后新的滚动部署。
+  capability?: Pick<Capability, 'id' | 'name' | 'description'>;
+  owner?: { id: string; name: string | null; email: string } | null;
+}
+
+export interface EnterpriseSkillVersionReviewResponse {
+  total: number;
+  items: EnterpriseSkillVersionReviewItem[];
+  page: number;
+  limit: number;
 }
 
 export interface SkillVersionPreview extends SkillVersionSummary {
@@ -58,6 +90,8 @@ export interface SkillVersionPreview extends SkillVersionSummary {
 }
 
 export interface EmployeeSkillVersionItem {
+  /** 企业默认，与本人实际使用的 currentVersion 分离。 */
+  enterpriseVersion: SkillVersionSummary | null;
   capability: Pick<Capability, 'id' | 'name' | 'description' | 'type'>;
   currentVersion: SkillVersionSummary | null;
   versions: SkillVersionSummary[];

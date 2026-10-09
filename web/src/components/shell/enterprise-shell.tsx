@@ -104,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 叫「技能库」而不是会议给的「能力迭代」：决策 1 要求「减少技术化表达」，
       // 而「迭代」正是技术词；「技能库 / 知识库」在同一组里天然对称，一眼看得懂各是什么。
       { href: '/capabilities', label: nav.capabilities, icon: Library },
+      { href: '/skill-reviews', label: '技能审核', icon: ShieldCheck, adminOnly: true },
       // 知识库是企业的文档资产，与技能库并列
       { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
       //

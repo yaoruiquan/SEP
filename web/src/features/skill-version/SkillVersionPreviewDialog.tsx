@@ -51,7 +51,7 @@ export function SkillVersionPreviewDialog({
                 {query.data && !query.data.parentVersionId && !query.data.sourceVersionId && <Badge variant="glass-info">原始版本</Badge>}
               </div>
               <DialogDescription className="mt-1 text-gtext-muted">
-                {query.data ? `版本 ${query.data.version} · ${query.data.scope === 'PLATFORM' ? '平台版本' : '企业版本'}` : '正在加载版本内容'}
+                {query.data ? `版本 ${query.data.version} · ${query.data.scope === 'PLATFORM' ? '平台版本' : query.data.scope === 'PERSONAL' ? '个人版本' : '企业版本'}` : '正在加载版本内容'}
               </DialogDescription>
               {query.data && <p className="mt-2 max-w-3xl text-xs text-gtext-secondary">变更说明：{query.data.changeSummary || (!query.data.parentVersionId && !query.data.sourceVersionId ? '原始正文' : '未填写')}</p>}
             </div>

@@ -56,6 +56,11 @@ export const ReviewSkillVersionDtoSchema = z.object({
   }
 });
 
+export const SelectPersonalSkillVersionDtoSchema = z.object({
+  // null 是显式跟随企业，不等同于没有选版记录。
+  versionId: z.string().min(1).nullable(),
+});
+
 export const SelectSkillVersionDtoSchema = z.object({
   versionId: z.string().min(1),
 });
@@ -84,6 +89,7 @@ export type CreateEnterpriseSkillVersionDto = z.infer<
 >;
 export type UpdateSkillVersionDto = z.infer<typeof UpdateSkillVersionDtoSchema>;
 export type ReviewSkillVersionDto = z.infer<typeof ReviewSkillVersionDtoSchema>;
+export type SelectPersonalSkillVersionDto = z.infer<typeof SelectPersonalSkillVersionDtoSchema>;
 export type SelectSkillVersionDto = z.infer<typeof SelectSkillVersionDtoSchema>;
 export type CreatePlatformSkillVersionDto = z.infer<
   typeof CreatePlatformSkillVersionDtoSchema

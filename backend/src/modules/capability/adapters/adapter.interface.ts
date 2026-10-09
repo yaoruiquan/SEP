@@ -41,7 +41,7 @@ export interface AdapterConfig {
  * 执行上下文：决定「用哪个版本」需要知道「谁在用」。
  *
  * 版本解析顺序（见 SkillVersionService.resolveEffectiveVersion）：
- *   该成员的个人副本 → 企业选版 → 员工模板默认版 → 最新平台审核通过版
+ *   成员显式选版（含跟随企业）→ 存量个人副本 → 企业默认 → 模板默认 → 平台最新
  * 少传一个字段就少一层解析，会静默落到更下面的版本，所以两个都要传。
  */
 export interface CapabilityExecutionContext {

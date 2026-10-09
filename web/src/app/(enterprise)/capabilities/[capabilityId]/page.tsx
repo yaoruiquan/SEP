@@ -91,7 +91,7 @@ export default function CapabilityIterationDetailPage() {
         ))}
       </div>
 
-      {tab === 'versions' && <VersionTimelinePanel timeline={timeline} />}
+      {tab === 'versions' && <VersionTimelinePanel timeline={timeline} initialSubscriptionId={searchParams.get('subscriptionId') ?? undefined} />}
       {tab === 'changes' && (
         <PersonalChangesPanel capabilityId={capabilityId} currentUserId={currentUserId} />
       )}

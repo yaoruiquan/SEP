@@ -3,7 +3,7 @@ import type { EnterpriseContext } from '../enterprise/enterprise-context.service
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SubmitPersonalSkillVersionDtoSchema } from 'shared';
 import { Prisma } from '@prisma/client';
-import { PersonalSkillSubmissionService } from './personal-skill-submission.service';
+import { PERSONAL_SUBMISSION_SELECT, PersonalSkillSubmissionService } from './personal-skill-submission.service';
 
 describe('PersonalSkillSubmissionService', () => {
   const ctx: EnterpriseContext = {
@@ -19,6 +19,18 @@ describe('PersonalSkillSubmissionService', () => {
     status: 'PLATFORM_APPROVED', enterpriseId: null, ownerId: null,
   };
   const query = { status: 'PENDING_ENTERPRISE_REVIEW' as const, page: 2, limit: 10 };
+  const submissionSelect = {
+    id: true, capabilityId: true, parentVersionId: true, enterpriseId: true,
+    ownerId: true, scope: true, version: true, status: true, changeSummary: true,
+    submittedAt: true, enterpriseReviewedAt: true, rejectionReason: true,
+    createdAt: true, updatedAt: true,
+  };
+  const reviewSelect = {
+    ...submissionSelect,
+    capability: { select: { id: true, name: true, description: true } },
+    owner: { select: { id: true, name: true, email: true } },
+  };
+
 
   function build(context: EnterpriseContext = ctx) {
     const skillVersion = {
@@ -33,6 +45,8 @@ describe('PersonalSkillSubmissionService', () => {
       skillVersion,
       subscription: { findFirst: jest.fn().mockResolvedValue({ id: 'sub-1' }) },
       skillVersionReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
+      memberSkillVersionSelection: { upsert: jest.fn(), updateMany: jest.fn() },
+      subscriptionSkillVersion: { upsert: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation(async (operation) =>
@@ -46,6 +60,10 @@ describe('PersonalSkillSubmissionService', () => {
     return { service, prisma, enterpriseContext };
   }
 
+  it('keeps the shared receipt whitelist free of body and relation fields', () => {
+    expect(PERSONAL_SUBMISSION_SELECT).toEqual(submissionSelect);
+  });
+
   describe('submit', () => {
     it('preserves frontmatter, CRLF and trailing whitespace through validation and persistence', async () => {
       const { service, prisma } = build();
@@ -55,6 +73,7 @@ describe('PersonalSkillSubmissionService', () => {
       expect(result.content).toBe(dto.content);
       expect(prisma.skillVersion.upsert).toHaveBeenCalledWith(expect.objectContaining({
         update: {},
+        select: { ...submissionSelect, content: true },
         create: expect.objectContaining({
           content: dto.content, parentVersionId: parent.id, ownerId: 'user-1', createdById: 'user-1',
           enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', status: 'PENDING_ENTERPRISE_REVIEW',
@@ -206,7 +225,7 @@ describe('PersonalSkillSubmissionService', () => {
           { scope: 'PERSONAL', enterpriseId: 'ent-1', ownerId: 'user-1' },
         ],
       });
-      expect(select.content).toBeUndefined();
+      expect(select).toEqual(submissionSelect);
     });
   });
 
@@ -233,6 +252,21 @@ describe('PersonalSkillSubmissionService', () => {
       expect(prisma.skillVersion.count).toHaveBeenCalledWith({ where });
       expect(prisma.skillVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where, skip: 10, take: 10 }));
     });
+
+    it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] as const)(
+      'uses only the receipt and safe relation whitelist for %s queue items', async (status) => {
+        const { service, prisma } = build();
+        await service.reviews('admin-1', { ...query, status });
+        const where = {
+          enterpriseId: 'ent-1', scope: 'PERSONAL', submittedAt: { not: null }, status,
+        };
+        expect(prisma.skillVersion.count).toHaveBeenCalledWith({ where });
+        expect(prisma.skillVersion.findMany).toHaveBeenCalledWith({
+          where, select: reviewSelect,
+          orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }], skip: 10, take: 10,
+        });
+      },
+    );
 
     it('does not review a version outside the current enterprise or outside personal submissions', async () => {
       const { service, prisma } = build();
@@ -262,6 +296,99 @@ describe('PersonalSkillSubmissionService', () => {
         reviewerId: 'admin-1', comment: 'Review feedback',
       } });
     });
+
+    it.each(['APPROVE', 'REJECT'] as const)(
+      'persists submission → same-ID queue → %s → caller list without automatic selection', async (decision) => {
+        const { service, prisma } = build();
+        const capability = {
+          id: 'cap-1', name: 'Personal skill', description: 'Skill description',
+          config: { private: true }, content: 'must not expose capability body',
+        };
+        const owner = {
+          id: 'user-1', name: 'Submitter', email: 'submitter@example.com',
+          passwordHash: 'must not expose credentials', phone: 'private phone',
+        };
+        let saved: Record<string, unknown> | undefined;
+        // Apply Prisma select to an in-memory persisted row, including nested relations.
+        type Selection = { [field: string]: boolean | { select: Selection } };
+        const project = (row: Record<string, unknown>, select: Selection): Record<string, unknown> =>
+          Object.fromEntries(Object.entries(select).map(([field, selection]) => [
+            field, typeof selection === 'boolean' || row[field] == null
+              ? row[field]
+              : project(row[field] as Record<string, unknown>, selection.select),
+          ]));
+        const matches = (row: Record<string, unknown>, where: Record<string, unknown>): boolean =>
+          Object.entries(where).every(([field, value]) => {
+            if (field === 'OR') return (value as Record<string, unknown>[]).some((branch) => matches(row, branch));
+            if (value && typeof value === 'object' && 'not' in value) return row[field] != null;
+            return row[field] === value;
+          });
+        prisma.skillVersion.findUnique.mockImplementation(async ({ where, select }) => {
+          const row = where.id === parent.id ? parent : saved?.id === where.id ? saved : null;
+          return row && select ? project(row, select) : row;
+        });
+        prisma.skillVersion.upsert.mockImplementation(async ({ create, select }) => {
+          saved ??= {
+            ...create, createdAt: new Date(), updatedAt: new Date(),
+            enterpriseReviewedAt: null, rejectionReason: null, capability, owner,
+          };
+          return project(saved, select);
+        });
+        prisma.skillVersion.findMany.mockImplementation(async ({ where, select, skip = 0, take }) => {
+          const rows = saved && matches(saved, where) ? [saved] : [];
+          return rows.slice(skip, take == null ? undefined : skip + take).map((row) => project(row, select));
+        });
+        prisma.skillVersion.count.mockImplementation(async ({ where }) => saved && matches(saved, where) ? 1 : 0);
+        prisma.skillVersion.findFirst.mockImplementation(async ({ where }) => saved && matches(saved, where) ? saved : null);
+        prisma.skillVersion.updateMany.mockImplementation(async ({ where, data }) => {
+          if (!saved || !matches(saved, where)) return { count: 0 };
+          Object.assign(saved, data, { updatedAt: new Date() });
+          return { count: 1 };
+        });
+
+        const submitted = await service.submit('user-1', 'request-key-00001', dto);
+        expect(submitted).toMatchObject({ id: expect.stringMatching(/^psv_/), status: 'PENDING_ENTERPRISE_REVIEW', content: dto.content });
+        expect(Object.keys(submitted).sort()).toEqual([...Object.keys(submissionSelect), 'content'].sort());
+        const pending = await service.reviews('admin-1', { ...query, page: 1 });
+        expect(pending.total).toBe(1);
+        expect(pending.items).toEqual([expect.objectContaining({
+          id: submitted.id, status: 'PENDING_ENTERPRISE_REVIEW',
+          capability: { id: capability.id, name: capability.name, description: capability.description },
+          owner: { id: owner.id, name: owner.name, email: owner.email },
+        })]);
+        expect(Object.keys(pending.items[0]).sort()).toEqual(Object.keys(reviewSelect).sort());
+        await expect(service.list('user-1', 'cap-1', 'PENDING_ENTERPRISE_REVIEW'))
+          .resolves.toEqual([expect.objectContaining({ id: submitted.id, status: 'PENDING_ENTERPRISE_REVIEW' })]);
+
+        const status = decision === 'APPROVE' ? 'ENTERPRISE_APPROVED' : 'ENTERPRISE_REJECTED';
+        const rejectionReason = decision === 'REJECT' ? 'Please clarify the instructions' : null;
+        const receipt = await service.review('admin-1', submitted.id, {
+          decision, comment: 'Please clarify the instructions',
+        });
+        expect(receipt).toMatchObject({ id: submitted.id, scope: 'PERSONAL', status, rejectionReason, enterpriseReviewedAt: expect.any(Date) });
+        expect(Object.keys(receipt!).sort()).toEqual(Object.keys(submissionSelect).sort());
+        expect(prisma.skillVersion.findUnique).toHaveBeenLastCalledWith({
+          where: { id: submitted.id }, select: submissionSelect,
+        });
+        await expect(service.reviews('admin-1', { ...query, page: 1 }))
+          .resolves.toMatchObject({ total: 0, items: [] });
+        const reviewed = await service.reviews('admin-1', { ...query, status, page: 1 });
+        expect(reviewed.total).toBe(1);
+        expect(reviewed.items).toEqual([expect.objectContaining({ id: submitted.id, status, rejectionReason })]);
+        const ownList = await service.list('user-1', 'cap-1', status);
+        expect(ownList).toEqual([receipt]);
+        expect(Object.keys(ownList[0]).sort()).toEqual(Object.keys(submissionSelect).sort());
+        await expect(service.list('user-other', 'cap-1', status)).resolves.toEqual([]);
+        await expect(service.submit('user-1', 'request-key-00001', dto))
+          .resolves.toMatchObject({ id: submitted.id, status, rejectionReason, content: dto.content });
+        expect(prisma.skillVersion.upsert).toHaveBeenCalledTimes(1);
+        expect(prisma.skillVersionReview.create).toHaveBeenCalledTimes(1);
+        expect(prisma.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
+        expect(prisma.memberSkillVersionSelection.updateMany).not.toHaveBeenCalled();
+        expect(prisma.subscriptionSkillVersion.upsert).not.toHaveBeenCalled();
+        expect(prisma.subscriptionSkillVersion.updateMany).not.toHaveBeenCalled();
+      },
+    );
 
     it('rejects the losing reviewer when another transaction already changed pending status', async () => {
       const { service, prisma } = build();

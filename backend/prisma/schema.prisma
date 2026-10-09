@@ -254,6 +254,7 @@ model EnterpriseMember {
   updatedAt DateTime @updatedAt
 
   // Relations
+  personalSkillSelections MemberSkillVersionSelection[]
   grants               EmployeeGrant[]
   subscriptionRequests SubscriptionRequest[] @relation("SubscriptionRequestRequester")
   ledDepartments       Department[]          @relation("DepartmentLeader")
@@ -534,6 +535,7 @@ model Capability {
   toolExecutions            ToolExecution[]
   skillVersions             SkillVersion[]
   subscriptionSkillVersions SubscriptionSkillVersion[]
+  personalSkillSelections MemberSkillVersionSelection[]
   contributionRewards       ContributionRewardEvent[]
   capabilityInsights        CapabilityInsight[]
 
@@ -861,6 +863,7 @@ model SkillVersion {
 
   reviews             SkillVersionReview[]
   selections          SubscriptionSkillVersion[]
+  personalSelections  MemberSkillVersionSelection[]
   /// 本版本采纳了哪些个人副本（scope=ENTERPRISE 时有值）
   adoptedSources      SkillVersionAdoption[]      @relation("AdoptionTarget")
   /// 本个人副本被哪些企业版采纳过（scope=PERSONAL 时有值）
@@ -1122,6 +1125,7 @@ model Subscription {
   fromRequests           SubscriptionRequest[]
   subscriptionQuota      SubscriptionQuota?
   skillVersionSelections SubscriptionSkillVersion[]
+  personalSkillSelections MemberSkillVersionSelection[]
   clientTaskMirrors      ClientTaskMirror[]
 
   /// 人民币赠送余额（统一算力账本）。订阅时按员工配置生成快照。
@@ -1134,6 +1138,26 @@ model Subscription {
   @@unique([enterpriseId, employeeId])
   @@index([enterpriseId])
   @@map("subscriptions")
+}
+
+/// 成员自己的选版：空 versionId 明确跟随企业；无记录兼容存量个人副本。
+model MemberSkillVersionSelection {
+  id String @id @default(cuid())
+  memberId String
+  member EnterpriseMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  capabilityId String
+  capability Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  versionId String?
+  version SkillVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, subscriptionId, capabilityId])
+  @@index([subscriptionId, capabilityId])
+  @@index([versionId])
+  @@map("member_skill_version_selections")
 }
 
 model SubscriptionSkillVersion {

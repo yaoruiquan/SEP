@@ -41,6 +41,7 @@ describe('SkillVersionService 个人副本与采纳', () => {
       skillVersion: { create: o.skillVersionCreate ?? jest.fn().mockResolvedValue({ id: 'ent-v2', version: '1.2.0' }) },
       skillVersionAdoption: { createMany: o.adoptionCreateMany ?? jest.fn().mockResolvedValue({ count: 1 }) },
       subscription: { findMany: o.subscriptionFindMany ?? jest.fn().mockResolvedValue([{ id: 'sub-1' }]) },
+      memberSkillVersionSelection: { upsert: jest.fn().mockResolvedValue({}) },
       subscriptionSkillVersion: { upsert: o.subscriptionSkillVersionUpsert ?? jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
@@ -62,8 +63,9 @@ describe('SkillVersionService 个人副本与采纳', () => {
       subscription: {
         findFirst: o.subscriptionFindFirst ?? jest.fn().mockResolvedValue({ id: 'sub-1' }),
         findMany: o.subscriptionFindMany ?? jest.fn().mockResolvedValue([]),
-        findUnique: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({ enterpriseId: 'ent-1', employee: { bindings: [] } }),
       },
+      memberSkillVersionSelection: { findFirst: jest.fn().mockResolvedValue(null) },
       subscriptionSkillVersion: {
         findUnique: o.subscriptionSkillVersionFindUnique ?? jest.fn().mockResolvedValue(null),
       },
@@ -151,7 +153,7 @@ describe('SkillVersionService 个人副本与采纳', () => {
       // 第一次 findFirst（查已有副本）返回 null，之后 resolveEffectiveVersion 内部再查
       const findFirst = jest.fn().mockResolvedValue(null);
       const create = jest.fn().mockResolvedValue({ id: 'p-new' });
-      const { service } = build({
+      const { service, tx } = build({
         skillVersionFindFirst: findFirst,
         skillVersionCreate: create,
         subscriptionSkillVersionFindUnique: jest
@@ -160,6 +162,10 @@ describe('SkillVersionService 个人副本与采纳', () => {
       });
 
       await service.createPersonalVersion('u-staff', 'cap-1');
+      expect(tx.memberSkillVersionSelection.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { memberId_subscriptionId_capabilityId: { memberId: ADMIN_CTX.memberId, subscriptionId: 'sub-1', capabilityId: 'cap-1' } },
+        update: { versionId: 'p-new' },
+      }));
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -171,6 +177,20 @@ describe('SkillVersionService 个人副本与采纳', () => {
           }),
         }),
       );
+    });
+
+    it('新副本基于本人钉住的版本创建，不用企业默认覆盖基线', async () => {
+      const { service, prisma, tx } = build();
+      prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({
+        versionId: 'pinned-platform', version: {
+          id: 'pinned-platform', capabilityId: 'cap-1', scope: 'PLATFORM',
+          status: 'PLATFORM_APPROVED', content: '我选中的正文', version: '0.9.0',
+        },
+      });
+      await service.createPersonalVersion('u-staff', 'cap-1');
+      expect(tx.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        parentVersionId: 'pinned-platform', content: '我选中的正文',
+      }) }));
     });
 
     it('没有任何可用版本时报 404，而不是建一个空副本', async () => {
@@ -197,6 +217,17 @@ describe('SkillVersionService 个人副本与采纳', () => {
       await expect(
         service.updatePersonalVersion('u-other', 'p1', { content: 'x' }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('保存副本只更新正文，不覆盖其他订阅或本人已固定的版本选择', async () => {
+      const { service, prisma, tx } = build({
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', status: 'PERSONAL_ACTIVE' }),
+      });
+      await service.updatePersonalVersion('u-staff', 'p1', { content: '更新的正文' });
+      expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'p1' }, data: expect.objectContaining({ content: '更新的正文' }),
+      }));
+      expect(tx.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
     });
 
     it('归档的副本不能再编辑', async () => {

@@ -46,7 +46,7 @@ function createPrismaMock() {
     skillVersionReview: { create: jest.fn() },
     subscription: {
       findFirst: jest.fn(),
-      findUnique: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue({ enterpriseId: 'enterprise-1', employee: { bindings: [] } }),
       // publishEnterpriseVersion 在事务里查「哪些雇佣关系要切到新版」
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -58,6 +58,7 @@ function createPrismaMock() {
       // 「发布为平台版」要把员工模板钉着的默认版推到新版本，否则那个动作没有任何效果
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    memberSkillVersionSelection: { findFirst: jest.fn().mockResolvedValue(null) },
     subscriptionSkillVersion: {
       findUnique: jest.fn(),
       upsert: jest.fn(),
@@ -142,8 +143,10 @@ describe('SkillVersionService', () => {
     Object.assign(prisma.subscriptionSkillVersion, { findMany: jest.fn().mockResolvedValue([]) });
     const pending = { ...platformVersion, id: 'pending', scope: 'PERSONAL', status: 'PENDING_ENTERPRISE_REVIEW' };
     prisma.skillVersion.findMany.mockResolvedValue([pending, platformVersion]);
+    prisma.skillVersion.findFirst.mockResolvedValue(platformVersion);
     const result = await service.listEmployeeSkills('user-1', 'employee-1');
     expect(result.skills[0].currentVersion.id).toBe(platformVersion.id);
+    expect(result.skills[0].currentVersion).not.toHaveProperty('content');
     expect(result.skills[0].versions).toContain(pending);
     expect(result.skills[0].latestPublishedVersion.id).toBe(platformVersion.id);
     expect(prisma.skillVersion.findMany.mock.calls[0][0].where.OR).toContainEqual({

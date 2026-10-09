@@ -30,6 +30,7 @@ import {
   CreatePlatformSkillVersionDtoSchema,
   ReviewSkillVersionDtoSchema,
   SelectSkillVersionDtoSchema,
+  SelectPersonalSkillVersionDtoSchema,
   SkillVersionScopeSchema,
   SkillVersionStatusSchema,
   UpdateSkillVersionDtoSchema,
@@ -39,6 +40,7 @@ import {
   type SubmitPersonalSkillVersionDto,
   type PersonalSkillReviewQuery,
   type ReviewSkillVersionDto,
+  type SelectPersonalSkillVersionDto,
 } from 'shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { PersonalSkillSubmissionService } from './personal-skill-submission.service';
@@ -219,7 +221,7 @@ export class EnterpriseSkillVersionController {
   }
 
   @Post('subscriptions/:subscriptionId/skills/:capabilityId/select-version')
-  @ApiOperation({ summary: '企业管理员选择员工实际使用的技能版本' })
+  @ApiOperation({ summary: '企业管理员选择员工的企业默认技能版本' })
   selectVersion(
     @Request() req: AuthRequest,
     @Param('subscriptionId') subscriptionId: string,
@@ -233,6 +235,23 @@ export class EnterpriseSkillVersionController {
       capabilityId,
       dto.versionId,
     );
+  }
+
+  @Post('subscriptions/:subscriptionId/skills/:capabilityId/select-personal-version')
+  @ApiOperation({ summary: '选择本人使用的技能版本，或恢复跟随企业默认版本' })
+  @ApiBody({ schema: { type: 'object', required: ['versionId'], properties: {
+    versionId: { type: 'string', nullable: true, minLength: 1 },
+  } } })
+  @ApiResponse({ status: 201, description: '仅更新当前成员的选版，不改变企业默认' })
+  @ApiResponse({ status: 400, description: '版本不匹配、未审核或无权使用' })
+  @ApiResponse({ status: 403, description: '未获得有效订阅的使用授权' })
+  selectPersonalVersion(
+    @Request() req: AuthRequest,
+    @Param('subscriptionId') subscriptionId: string,
+    @Param('capabilityId') capabilityId: string,
+    @Body(new ZodValidationPipe(SelectPersonalSkillVersionDtoSchema)) dto: SelectPersonalSkillVersionDto,
+  ) {
+    return this.service.selectPersonalVersion(req.user.id, subscriptionId, capabilityId, dto.versionId);
   }
 
   @Post('skill-versions/:id/submit-platform-review')

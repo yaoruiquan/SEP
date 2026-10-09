@@ -105,7 +105,11 @@ export class PersonalSkillSubmissionService {
     };
     const [total, items] = await this.prisma.$transaction([
       this.prisma.skillVersion.count({ where }),
-      this.prisma.skillVersion.findMany({ where, select: PERSONAL_SUBMISSION_SELECT,
+      this.prisma.skillVersion.findMany({ where, select: {
+        ...PERSONAL_SUBMISSION_SELECT,
+        capability: { select: { id: true, name: true, description: true } },
+        owner: { select: { id: true, name: true, email: true } },
+      },
         orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }], skip: (query.page - 1) * query.limit, take: query.limit }),
     ]);
     return { total, items, page: query.page, limit: query.limit };
