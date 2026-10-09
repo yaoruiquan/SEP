@@ -62,6 +62,7 @@ model User {
   skillVersionReviews               SkillVersionReview[]       @relation("SkillVersionReviewer")
   rpaVersionReviews                 RpaVersionReview[]         @relation("RpaVersionReviewer")
   selectedSubscriptionSkillVersions SubscriptionSkillVersion[] @relation("SubscriptionSkillVersionSelector")
+  selectedEnterpriseSkillDefaults   EnterpriseSkillDefault[]   @relation("EnterpriseSkillDefaultSelector")
   contributionRewardEvents          ContributionRewardEvent[]  @relation("ContributionRewardRecipient")
   taskRuns                          TaskRun[]
   clientTaskMirrors                 ClientTaskMirror[]
@@ -155,6 +156,7 @@ model Enterprise {
   cartItems            CartItem[]
   subscriptionRequests SubscriptionRequest[]
   skillVersions        SkillVersion[]
+  skillDefaults        EnterpriseSkillDefault[]
   capabilities         Capability[]
   contributionRewards  ContributionRewardEvent[]
   taskRuns             TaskRun[]
@@ -535,6 +537,7 @@ model Capability {
   toolExecutions            ToolExecution[]
   skillVersions             SkillVersion[]
   subscriptionSkillVersions SubscriptionSkillVersion[]
+  enterpriseSkillDefaults   EnterpriseSkillDefault[]
   personalSkillSelections MemberSkillVersionSelection[]
   contributionRewards       ContributionRewardEvent[]
   capabilityInsights        CapabilityInsight[]
@@ -820,6 +823,12 @@ model SkillVersion {
   parentVersion   SkillVersion?  @relation("SkillVersionFork", fields: [parentVersionId], references: [id], onDelete: SetNull)
   forkedVersions  SkillVersion[] @relation("SkillVersionFork")
 
+  workingCopyId        String?
+  /// 快照审核所对应的工作副本 revision，不依赖事务内 createdAt 的时间顺序。
+  workingCopyUpdatedAt DateTime?
+  workingCopy         SkillVersion?  @relation("SkillWorkingCopySnapshots", fields: [workingCopyId], references: [id], onDelete: SetNull)
+  reviewSnapshots     SkillVersion[] @relation("SkillWorkingCopySnapshots")
+
   /// 企业版本提交平台时创建独立副本，不改变原企业版本归属。
   sourceVersionId  String?        @unique
   sourceVersion    SkillVersion?  @relation("SkillVersionPromotion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
@@ -863,6 +872,7 @@ model SkillVersion {
 
   reviews             SkillVersionReview[]
   selections          SubscriptionSkillVersion[]
+  enterpriseDefaults  EnterpriseSkillDefault[]
   personalSelections  MemberSkillVersionSelection[]
   /// 本版本采纳了哪些个人副本（scope=ENTERPRISE 时有值）
   adoptedSources      SkillVersionAdoption[]      @relation("AdoptionTarget")
@@ -876,6 +886,7 @@ model SkillVersion {
   @@index([capabilityId, status])
   @@index([enterpriseId, status])
   @@index([parentVersionId])
+  @@index([workingCopyId])
   /// resolveEffectiveVersion 每次执行都要查「这个成员对这个能力有没有个人副本」
   @@index([ownerId, capabilityId])
   @@map("skill_versions")
@@ -1158,6 +1169,26 @@ model MemberSkillVersionSelection {
   @@index([subscriptionId, capabilityId])
   @@index([versionId])
   @@map("member_skill_version_selections")
+}
+
+/// 企业技能默认独立于订阅存续，供当前订阅同步与新订阅继承。
+model EnterpriseSkillDefault {
+  id           String       @id @default(cuid())
+  enterpriseId String
+  enterprise   Enterprise   @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  capabilityId String
+  capability   Capability   @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  versionId    String
+  version      SkillVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  selectedById String
+  selectedBy   User         @relation("EnterpriseSkillDefaultSelector", fields: [selectedById], references: [id], onDelete: Restrict)
+  selectedAt   DateTime     @default(now())
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([enterpriseId, capabilityId])
+  @@index([versionId])
+  @@map("enterprise_skill_defaults")
 }
 
 model SubscriptionSkillVersion {

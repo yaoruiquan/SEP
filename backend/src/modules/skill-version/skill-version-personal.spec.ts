@@ -2,12 +2,12 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { SkillVersionService } from './skill-version.service';
 
 /**
- * 个人副本与采纳（会议纪要2 §6.4）。
+ * 个人副本与统一审核的兼容入口。
  *
  * 覆盖的都是「写错了不报错、只会静默给出错行为」的地方：
  * 版本解析优先级、幂等、待采纳判定、采纳后是否真的切了生效版本。
  */
-describe('SkillVersionService 个人副本与采纳', () => {
+describe('SkillVersionService 个人副本与审核', () => {
   const ADMIN_CTX: {
     enterpriseId: string;
     memberId: string;
@@ -22,44 +22,40 @@ describe('SkillVersionService 个人副本与采纳', () => {
 
   function build(o: {
     skillVersionFindFirst?: jest.Mock;
+    txSkillVersionFindFirst?: jest.Mock;
     skillVersionFindMany?: jest.Mock;
     skillVersionCreate?: jest.Mock;
     skillVersionUpdate?: jest.Mock;
     skillVersionDelete?: jest.Mock;
+    reviewSnapshotCount?: jest.Mock;
     adoptionCount?: jest.Mock;
-    adoptionCreateMany?: jest.Mock;
     subscriptionFindFirst?: jest.Mock;
     subscriptionFindMany?: jest.Mock;
-    subscriptionSkillVersionUpsert?: jest.Mock;
     subscriptionSkillVersionFindUnique?: jest.Mock;
-    notificationCreateMany?: jest.Mock;
-    memberFindMany?: jest.Mock;
-    enterpriseVersions?: Array<{ version: string }>;
     context?: typeof ADMIN_CTX;
   } = {}) {
     const tx = {
-      skillVersion: { create: o.skillVersionCreate ?? jest.fn().mockResolvedValue({ id: 'ent-v2', version: '1.2.0' }) },
-      skillVersionAdoption: { createMany: o.adoptionCreateMany ?? jest.fn().mockResolvedValue({ count: 1 }) },
+      skillVersion: {
+        create: o.skillVersionCreate ?? jest.fn().mockResolvedValue({ id: 'ent-v2', version: '1.2.0' }),
+        findFirst: o.txSkillVersionFindFirst ?? o.skillVersionFindFirst ?? jest.fn().mockResolvedValue(null),
+        update: o.skillVersionUpdate ?? jest.fn().mockResolvedValue({ id: 'p1' }),
+        delete: o.skillVersionDelete ?? jest.fn().mockResolvedValue({ id: 'p1' }),
+        count: o.reviewSnapshotCount ?? jest.fn().mockResolvedValue(0),
+      },
+      skillVersionAdoption: { count: o.adoptionCount ?? jest.fn().mockResolvedValue(0) },
       subscription: { findMany: o.subscriptionFindMany ?? jest.fn().mockResolvedValue([{ id: 'sub-1' }]) },
       memberSkillVersionSelection: { upsert: jest.fn().mockResolvedValue({}) },
-      subscriptionSkillVersion: { upsert: o.subscriptionSkillVersionUpsert ?? jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
       skillVersion: {
         findFirst: o.skillVersionFindFirst ?? jest.fn().mockResolvedValue(null),
-        // 采纳流程会查两次 findMany：先查 PERSONAL 来源，再查 ENTERPRISE 现有版本号。
-        // 用一个 mock 同时喂两者会让 nextSemver 读到没有 version 字段的对象。
-        findMany: jest.fn((args: { where?: { scope?: string } }) => {
-          if (args?.where?.scope === 'ENTERPRISE') {
-            return Promise.resolve(o.enterpriseVersions ?? [{ version: '1.1.0' }]);
-          }
-          return (o.skillVersionFindMany ?? jest.fn().mockResolvedValue([]))(args);
-        }),
+        findMany: o.skillVersionFindMany ?? jest.fn().mockResolvedValue([]),
         create: o.skillVersionCreate ?? jest.fn().mockResolvedValue({ id: 'p1' }),
-        update: o.skillVersionUpdate ?? jest.fn().mockResolvedValue({ id: 'p1' }),
-        delete: o.skillVersionDelete ?? jest.fn().mockResolvedValue({ id: 'p1' }),
+        update: jest.fn().mockResolvedValue({ id: 'p1' }),
+        delete: jest.fn().mockResolvedValue({ id: 'p1' }),
+        count: jest.fn().mockResolvedValue(0),
       },
-      skillVersionAdoption: { count: o.adoptionCount ?? jest.fn().mockResolvedValue(0) },
+      skillVersionAdoption: { count: jest.fn().mockResolvedValue(0) },
       subscription: {
         findFirst: o.subscriptionFindFirst ?? jest.fn().mockResolvedValue({ id: 'sub-1' }),
         findMany: o.subscriptionFindMany ?? jest.fn().mockResolvedValue([]),
@@ -70,8 +66,6 @@ describe('SkillVersionService 个人副本与采纳', () => {
         findUnique: o.subscriptionSkillVersionFindUnique ?? jest.fn().mockResolvedValue(null),
       },
       capability: { findUnique: jest.fn().mockResolvedValue({ name: '电商运营' }) },
-      enterpriseMember: { findMany: o.memberFindMany ?? jest.fn().mockResolvedValue([{ userId: 'u1' }]) },
-      notification: { createMany: o.notificationCreateMany ?? jest.fn().mockResolvedValue({ count: 1 }) },
       $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     };
     const enterpriseContext = {
@@ -80,8 +74,10 @@ describe('SkillVersionService 个人副本与采纳', () => {
         if (ctx.role !== 'ENTERPRISE_ADMIN') throw new ForbiddenException('仅企业管理员可执行此操作');
       }),
     };
-    const service = new SkillVersionService(prisma as never, enterpriseContext as never);
-    return { service, prisma, tx, enterpriseContext };
+    const defaults = { get: jest.fn().mockResolvedValue(null), lock: jest.fn(), set: jest.fn() };
+    const reviews = { reviewMany: jest.fn() };
+    const service = new SkillVersionService(prisma as never, enterpriseContext as never, defaults as never, reviews as never);
+    return { service, prisma, tx, enterpriseContext, defaults, reviews };
   }
 
   describe('resolveEffectiveVersion 的 PERSONAL 层', () => {
@@ -220,14 +216,99 @@ describe('SkillVersionService 个人副本与采纳', () => {
     });
 
     it('保存副本只更新正文，不覆盖其他订阅或本人已固定的版本选择', async () => {
-      const { service, prisma, tx } = build({
-        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', status: 'PERSONAL_ACTIVE' }),
+      const { service, prisma, tx, defaults } = build({
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
       });
       await service.updatePersonalVersion('u-staff', 'p1', { content: '更新的正文' });
-      expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
+        enterpriseId: 'ent-1', status: 'ACTIVE',
+        employee: { bindings: { some: { capabilityId: 'cap-1', enabled: true, capability: { type: 'SKILL' } } } },
+        OR: [{ endDate: null }, { endDate: { gt: expect.any(Date) } }],
+        grants: { some: { OR: [{ memberId: 'mem-admin' }],
+          AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] }] } },
+      } }));
+      expect(defaults.lock).toHaveBeenCalledWith(tx, 'ent-1', 'cap-1');
+      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(tx.skillVersion.findFirst.mock.invocationCallOrder[1]);
+      expect(tx.skillVersion.findFirst).toHaveBeenLastCalledWith({ where: {
+        id: 'p1', scope: 'PERSONAL', ownerId: 'u-staff', enterpriseId: 'ent-1', workingCopyId: null,
+      } });
+      expect(tx.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: 'p1' }, data: expect.objectContaining({ content: '更新的正文' }),
       }));
+      expect(prisma.skillVersion.update).not.toHaveBeenCalled();
       expect(tx.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
+    });
+
+    it.each(['MEMBER', 'ENTERPRISE_ADMIN'] as const)(
+      '%s 的本人副本仍存在但当前 grant 已失效时，不得保存正文', async (role) => {
+        const { service, prisma, tx } = build({
+          context: { ...ADMIN_CTX, role, departmentId: 'dept-1' },
+          skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
+          subscriptionFindFirst: jest.fn().mockResolvedValue(null),
+        });
+        await expect(service.updatePersonalVersion('u-staff', 'p1', { content: '不得写入', changeSummary: 'changed' }))
+          .rejects.toBeInstanceOf(ForbiddenException);
+        expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+          enterpriseId: 'ent-1', status: 'ACTIVE',
+          employee: { bindings: { some: { capabilityId: 'cap-1', enabled: true, capability: { type: 'SKILL' } } } },
+          OR: [{ endDate: null }, { endDate: { gt: expect.any(Date) } }],
+          grants: { some: { OR: [{ memberId: 'mem-admin' }, { departmentId: 'dept-1' }],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] }] } },
+        }) }));
+        expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+        expect(tx.skillVersion.update).not.toHaveBeenCalled();
+        expect(tx.memberSkillVersionSelection.upsert).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['MEMBER', 'ENTERPRISE_ADMIN'] as const)(
+      '%s 当前 grant 已失效时不能弃用本人副本', async (role) => {
+        const { service, prisma, tx, defaults } = build({
+          context: { ...ADMIN_CTX, role, departmentId: 'dept-1' },
+          skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
+          subscriptionFindFirst: jest.fn().mockResolvedValue(null),
+        });
+        await expect(service.discardPersonalVersion('u-staff', 'p1')).rejects.toBeInstanceOf(ForbiddenException);
+        expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
+          enterpriseId: 'ent-1', status: 'ACTIVE',
+          employee: { bindings: { some: { capabilityId: 'cap-1', enabled: true, capability: { type: 'SKILL' } } } },
+          OR: [{ endDate: null }, { endDate: { gt: expect.any(Date) } }],
+          grants: { some: { OR: [{ memberId: 'mem-admin' }, { departmentId: 'dept-1' }],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] }] } },
+        } }));
+        expect(defaults.lock).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(tx.skillVersion.count).not.toHaveBeenCalled();
+        expect(tx.skillVersion.update).not.toHaveBeenCalled();
+        expect(tx.skillVersion.delete).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['save', null, NotFoundException],
+      ['save', { id: 'p1', status: 'ARCHIVED' }, ConflictException],
+      ['discard', null, NotFoundException],
+      ['discard', { id: 'p1', status: 'ARCHIVED' }, ConflictException],
+    ] as const)('%s 在锁后发现副本不存在或已归档时不再写入 (%j)', async (operation, current, Exception) => {
+      const { service, prisma, tx, defaults } = build({
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
+        txSkillVersionFindFirst: jest.fn().mockResolvedValue(current),
+      });
+      const pending = operation === 'save'
+        ? service.updatePersonalVersion('u-staff', 'p1', { content: '不得写入' })
+        : service.discardPersonalVersion('u-staff', 'p1');
+      await expect(pending).rejects.toBeInstanceOf(Exception);
+      expect(defaults.lock).toHaveBeenCalledWith(tx, 'ent-1', 'cap-1');
+      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(tx.skillVersion.findFirst.mock.invocationCallOrder[0]);
+      expect(tx.skillVersion.findFirst).toHaveBeenCalledWith({ where: {
+        id: 'p1', scope: 'PERSONAL', ownerId: 'u-staff', enterpriseId: 'ent-1', workingCopyId: null,
+      } });
+      expect(tx.skillVersion.count).not.toHaveBeenCalled();
+      expect(tx.skillVersionAdoption.count).not.toHaveBeenCalled();
+      expect(tx.skillVersion.update).not.toHaveBeenCalled();
+      expect(tx.skillVersion.delete).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.delete).not.toHaveBeenCalled();
     });
 
     it('归档的副本不能再编辑', async () => {
@@ -243,7 +324,7 @@ describe('SkillVersionService 个人副本与采纳', () => {
       const del = jest.fn();
       const update = jest.fn().mockResolvedValue({ id: 'p1', status: 'ARCHIVED' });
       const { service } = build({
-        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', status: 'PERSONAL_ACTIVE' }),
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
         adoptionCount: jest.fn().mockResolvedValue(2),
         skillVersionDelete: del,
         skillVersionUpdate: update,
@@ -257,8 +338,8 @@ describe('SkillVersionService 个人副本与采纳', () => {
 
     it('从未被采纳的副本可以物理删除', async () => {
       const del = jest.fn().mockResolvedValue({ id: 'p1' });
-      const { service } = build({
-        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', status: 'PERSONAL_ACTIVE' }),
+      const { service, prisma, tx, defaults } = build({
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
         adoptionCount: jest.fn().mockResolvedValue(0),
         skillVersionDelete: del,
       });
@@ -267,6 +348,33 @@ describe('SkillVersionService 个人副本与采纳', () => {
         deleted: true,
       });
       expect(del).toHaveBeenCalled();
+      expect(defaults.lock).toHaveBeenCalledWith(tx, 'ent-1', 'cap-1');
+      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(tx.skillVersion.findFirst.mock.invocationCallOrder[1]);
+      expect(tx.skillVersion.count).toHaveBeenCalledWith({ where: { workingCopyId: 'p1' } });
+      expect(tx.skillVersionAdoption.count).toHaveBeenCalledWith({ where: { sourceVersionId: 'p1' } });
+      expect(tx.skillVersionAdoption.count.mock.invocationCallOrder[0]).toBeLessThan(del.mock.invocationCallOrder[0]);
+      expect(prisma.skillVersion.count).not.toHaveBeenCalled();
+      expect(prisma.skillVersionAdoption.count).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.delete).not.toHaveBeenCalled();
+    });
+
+    it('已有审核快照但未发布的工作副本弃用时归档，保留审核证据', async () => {
+      const { service, prisma, tx, defaults } = build({
+        skillVersionFindFirst: jest.fn().mockResolvedValue({ id: 'p1', capabilityId: 'cap-1', status: 'PERSONAL_ACTIVE' }),
+        reviewSnapshotCount: jest.fn().mockResolvedValue(1),
+      });
+      await service.discardPersonalVersion('u-staff', 'p1');
+      expect(defaults.lock).toHaveBeenCalledWith(tx, 'ent-1', 'cap-1');
+      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(tx.skillVersion.findFirst.mock.invocationCallOrder[1]);
+      expect(tx.skillVersion.findFirst.mock.invocationCallOrder[1]).toBeLessThan(tx.skillVersion.count.mock.invocationCallOrder[0]);
+      expect(tx.skillVersion.count).toHaveBeenCalledWith({ where: { workingCopyId: 'p1' } });
+      expect(tx.skillVersionAdoption.count).toHaveBeenCalledWith({ where: { sourceVersionId: 'p1' } });
+      expect(tx.skillVersionAdoption.count.mock.invocationCallOrder[0]).toBeLessThan(tx.skillVersion.update.mock.invocationCallOrder[0]);
+      expect(tx.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'ARCHIVED' } }));
+      expect(prisma.skillVersion.count).not.toHaveBeenCalled();
+      expect(prisma.skillVersionAdoption.count).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.delete).not.toHaveBeenCalled();
     });
   });
 
@@ -295,11 +403,12 @@ describe('SkillVersionService 个人副本与采纳', () => {
       expect(findMany.mock.calls[0][0].where.ownerId).toBeUndefined();
     });
 
-    it('采纳后又改了一次的副本重新标为待处理', async () => {
+    it('审核发布后又改了一次的副本重新标为待处理', async () => {
       const adoptedAt = new Date('2026-09-01T00:00:00Z');
       const findMany = jest.fn().mockResolvedValue([
         {
           id: 'p-stale',
+          status: 'PERSONAL_ACTIVE',
           owner: { id: 'u1', name: '甲', email: 'a@x' },
           parentVersion: null,
           changeSummary: null,
@@ -309,6 +418,7 @@ describe('SkillVersionService 个人副本与采纳', () => {
         },
         {
           id: 'p-clean',
+          status: 'PERSONAL_ACTIVE',
           owner: { id: 'u2', name: '乙', email: 'b@x' },
           parentVersion: null,
           changeSummary: null,
@@ -325,116 +435,121 @@ describe('SkillVersionService 个人副本与采纳', () => {
       expect(result.items.find((i) => i.id === 'p-stale')?.pending).toBe(true);
       expect(result.items.find((i) => i.id === 'p-clean')?.pending).toBe(false);
     });
+
+    it('客户端待审、通过、驳回记录进入同一改动列表，保留发布关联', async () => {
+      const updatedAt = new Date('2026-10-09T08:00:00.000Z');
+      const findMany = jest.fn().mockResolvedValue([
+        { id: 'client-pending', status: 'PENDING_ENTERPRISE_REVIEW', updatedAt, ownerId: 'u-staff',
+          content: '待审正文', submittedAt: updatedAt, adoptedInto: [], reviewSnapshots: [] },
+        { id: 'client-approved', status: 'ENTERPRISE_APPROVED', updatedAt, ownerId: 'u-staff',
+          enterpriseReviewedBy: { id: 'u-admin', name: 'Reviewer' },
+          content: '已发布正文', adoptedInto: [{ targetVersionId: 'enterprise-v2', adoptedAt: updatedAt }], reviewSnapshots: [] },
+        { id: 'client-rejected', status: 'ENTERPRISE_REJECTED', updatedAt, ownerId: 'u-staff',
+          enterpriseReviewedBy: { id: 'u-admin', name: null },
+          content: '驳回仍可自用', rejectionReason: '补充说明', adoptedInto: [], reviewSnapshots: [] },
+      ]);
+      const { service } = build({ skillVersionFindMany: findMany });
+      const result = await service.listPersonalDiffs('u-admin', 'cap-1');
+      expect(result.total).toBe(3);
+      expect(result.items).toMatchObject([
+        { id: 'client-pending', pending: true, canEdit: false, reviewStatus: 'PENDING_ENTERPRISE_REVIEW', reviewedBy: null },
+        { id: 'client-approved', pending: false, publishedVersionId: 'enterprise-v2', adopted: true,
+          reviewedBy: { id: 'u-admin', name: 'Reviewer' } },
+        { id: 'client-rejected', pending: false, rejectionReason: '补充说明',
+          reviewedBy: { id: 'u-admin', name: null } },
+      ]);
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+        scope: 'PERSONAL', enterpriseId: 'ent-1', workingCopyId: null,
+        status: { in: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] },
+      }) }));
+    });
+
+    it('差异基线使用企业持久默认，即使它已回退到较旧版本', async () => {
+      const { service, defaults, prisma } = build();
+      defaults.get.mockResolvedValue({ version: { id: 'enterprise-old', scope: 'ENTERPRISE',
+        version: '1.0.0', content: '回退后的企业正文' } } as never);
+      await expect(service.listPersonalDiffs('u-admin', 'cap-1')).resolves.toMatchObject({ baseline: {
+        id: 'enterprise-old', version: '1.0.0', content: '回退后的企业正文',
+      } });
+      expect(defaults.get).toHaveBeenCalledWith('ent-1', 'cap-1');
+      expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('先按派生审核状态分页，只读取本页个人正文', async () => {
+      const updatedAt = new Date('2026-10-09T08:00:00.000Z');
+      const rows = [
+        { id: 'web-copy', status: 'PERSONAL_ACTIVE', updatedAt, ownerId: 'other-user',
+          content: '第一页正文', adoptedInto: [], reviewSnapshots: [] },
+        { id: 'published', status: 'ENTERPRISE_APPROVED', updatedAt, ownerId: 'other-user',
+          content: '已发布正文', adoptedInto: [{ targetVersionId: 'enterprise-v2', adoptedAt: updatedAt }], reviewSnapshots: [] },
+        { id: 'client-pending', status: 'PENDING_ENTERPRISE_REVIEW', updatedAt, ownerId: 'other-user',
+          content: '第二页正文', adoptedInto: [], reviewSnapshots: [] },
+      ];
+      const findMany = jest.fn(async (args: { where: { id?: { in: string[] } }; select: { content?: boolean } }) => (
+        args.where.id ? rows.filter((row) => args.where.id!.in.includes(row.id)) : rows
+      ));
+      const { service } = build({ skillVersionFindMany: findMany });
+      const result = await service.listPersonalDiffs('u-admin', 'cap-1', 2, 1, 'PENDING_ENTERPRISE_REVIEW');
+      expect(result).toMatchObject({ total: 2, page: 2, limit: 1,
+        items: [{ id: 'client-pending', content: '第二页正文', reviewStatus: 'PENDING_ENTERPRISE_REVIEW' }] });
+      const queries = findMany.mock.calls.map(([args]) => args);
+      expect(queries[0].select.content).not.toBe(true);
+      const contentQueries = queries.filter((args) => args.select.content);
+      expect(contentQueries).toHaveLength(1);
+      expect(contentQueries[0].where.id).toEqual({ in: ['client-pending'] });
+    });
   });
 
-  describe('adoptPersonalVersions', () => {
-    const sources = [
-      {
-        id: 'p1',
-        content: '甲的正文',
-        changeSummary: '加了术语规范',
-        updatedAt: new Date('2026-09-01T00:00:00Z'),
-        owner: { id: 'u1', name: '甲总' },
+  describe('adoptPersonalVersions 兼容统一审核', () => {
+    it('旧多源入口委派统一审核并保留响应契约', async () => {
+      const { service, prisma, reviews } = build();
+      const reviewed = { version: { id: 'ent-v2' }, sources: [{ id: 'p1' }, { id: 'p2' }],
+        affectedSubscriptions: 2, batchId: 'review-batch' };
+      reviews.reviewMany.mockResolvedValue(reviewed);
+      await expect(service.adoptPersonalVersions('u-admin', 'cap-1', {
+        sourceVersionIds: ['p1', 'p2'], changeSummary: '审核两位成员的改动',
+        expectedVersions: { p1: '2026-10-09T00:00:00.000Z', p2: '2026-10-09T01:00:00.000Z' },
+        expectedMergedContent: '# Confirmed merged preview\r\n',
+      })).resolves.toEqual({ ...reviewed, adoptedCount: 2, conflicts: [] });
+      expect(reviews.reviewMany).toHaveBeenCalledWith('u-admin', ['p1', 'p2'],
+        { decision: 'APPROVE', comment: '审核两位成员的改动' },
+        { p1: '2026-10-09T00:00:00.000Z', p2: '2026-10-09T01:00:00.000Z' }, 'cap-1', '# Confirmed merged preview\r\n');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+    });
+
+    it('单来源兼容 expectedUpdatedAt 并保留空批次号', async () => {
+      const { service, reviews } = build();
+      reviews.reviewMany.mockResolvedValue({ sources: [{ id: 'p1' }], batchId: null, affectedSubscriptions: 1 });
+      await expect(service.adoptPersonalVersions('u-admin', 'cap-1', {
+        sourceVersionIds: ['p1'], expectedUpdatedAt: '2026-10-09T00:00:00.000Z',
+      })).resolves.toMatchObject({ adoptedCount: 1, batchId: null });
+      expect(reviews.reviewMany).toHaveBeenCalledWith('u-admin', ['p1'],
+        { decision: 'APPROVE', comment: undefined }, { p1: '2026-10-09T00:00:00.000Z' }, 'cap-1', undefined);
+    });
+
+    it('逐版本并发凭证优先于旧单来源凭证', async () => {
+      const { service, reviews } = build();
+      reviews.reviewMany.mockResolvedValue({ sources: [{ id: 'p1' }] });
+      await service.adoptPersonalVersions('u-admin', 'cap-1', {
+        sourceVersionIds: ['p1'], expectedUpdatedAt: 'old', expectedVersions: { p1: 'current' },
+      });
+      expect(reviews.reviewMany).toHaveBeenCalledWith('u-admin', ['p1'],
+        { decision: 'APPROVE', comment: undefined }, { p1: 'current' }, 'cap-1', undefined);
+    });
+
+    it.each([ForbiddenException, NotFoundException, ConflictException])(
+      '透传统一审核的权限、租户与并发错误 %p，不执行旧事务', async (Exception) => {
+        const { service, prisma, reviews } = build();
+        const error = new Exception('审核被拒绝');
+        reviews.reviewMany.mockRejectedValue(error);
+        await expect(service.adoptPersonalVersions('u-staff', 'cap-1', {
+          sourceVersionIds: ['p1'],
+        })).rejects.toBe(error);
+        expect(reviews.reviewMany).toHaveBeenCalledWith('u-staff', ['p1'],
+          { decision: 'APPROVE', comment: undefined }, {}, 'cap-1', undefined);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
       },
-      {
-        id: 'p2',
-        content: '乙的正文',
-        changeSummary: '补了话术',
-        updatedAt: new Date('2026-09-02T00:00:00Z'),
-        owner: { id: 'u2', name: '技术员' },
-      },
-    ];
-
-    it('普通成员不能采纳', async () => {
-      const { service } = build({ context: { ...ADMIN_CTX, role: 'MEMBER' } });
-      await expect(
-        service.adoptPersonalVersions('u-staff', 'cap-1', { sourceVersionIds: ['p1'] }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('传入的 id 有一个不属于本企业就整体拒绝', async () => {
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue([sources[0]]),
-      });
-      await expect(
-        service.adoptPersonalVersions('u-admin', 'cap-1', { sourceVersionIds: ['p1', 'p-alien'] }),
-      ).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('一键采纳多人：生成企业版、写全部采纳记录、带同一个批次号', async () => {
-      const create = jest.fn().mockResolvedValue({ id: 'ent-v2', version: '1.2.0' });
-      const createMany = jest.fn().mockResolvedValue({ count: 2 });
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue(sources),
-        skillVersionCreate: create,
-        adoptionCreateMany: createMany,
-      });
-
-      const result = await service.adoptPersonalVersions('u-admin', 'cap-1', {
-        sourceVersionIds: ['p1', 'p2'],
-      });
-
-      expect(result.adoptedCount).toBe(2);
-      expect(result.batchId).toBeTruthy();
-      // 最后更新的那条正文胜出
-      expect(create.mock.calls[0][0].data.content).toBe('乙的正文');
-      // 采纳直接生效，不再进审核流
-      expect(create.mock.calls[0][0].data.status).toBe('ENTERPRISE_APPROVED');
-      // 变更说明必须列出全部来源，否则采纳完无从追溯
-      expect(create.mock.calls[0][0].data.changeSummary).toContain('甲总');
-      expect(create.mock.calls[0][0].data.changeSummary).toContain('技术员');
-      const rows = createMany.mock.calls[0][0].data;
-      expect(rows).toHaveLength(2);
-      expect(new Set(rows.map((r: { batchId: string }) => r.batchId)).size).toBe(1);
-    });
-
-    it('逐条采纳（单个 id）不带批次号', async () => {
-      const create = jest.fn().mockResolvedValue({ id: 'ent-v2', version: '1.2.0' });
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue([sources[0]]),
-        skillVersionCreate: create,
-      });
-      const result = await service.adoptPersonalVersions('u-admin', 'cap-1', {
-        sourceVersionIds: ['p1'],
-      });
-      expect(result.batchId).toBeNull();
-      expect(create.mock.calls[0][0].data.content).toBe('甲的正文');
-    });
-
-    it('采纳后把生效版本切到新企业版 —— 不切等于什么都没发生', async () => {
-      const upsert = jest.fn().mockResolvedValue({});
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue([sources[0]]),
-        subscriptionFindMany: jest.fn().mockResolvedValue([{ id: 'sub-1' }, { id: 'sub-2' }]),
-        subscriptionSkillVersionUpsert: upsert,
-      });
-      const result = await service.adoptPersonalVersions('u-admin', 'cap-1', {
-        sourceVersionIds: ['p1'],
-      });
-      expect(result.affectedSubscriptions).toBe(2);
-      expect(upsert).toHaveBeenCalledTimes(2);
-    });
-
-    it('通知发送失败不影响采纳结果', async () => {
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue([sources[0]]),
-        notificationCreateMany: jest.fn().mockRejectedValue(new Error('通知服务挂了')),
-      });
-      await expect(
-        service.adoptPersonalVersions('u-admin', 'cap-1', { sourceVersionIds: ['p1'] }),
-      ).resolves.toMatchObject({ adoptedCount: 1 });
-    });
-
-    it('通知发给企业全体成员', async () => {
-      const createMany = jest.fn().mockResolvedValue({ count: 3 });
-      const { service } = build({
-        skillVersionFindMany: jest.fn().mockResolvedValue([sources[0]]),
-        memberFindMany: jest.fn().mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }]),
-        notificationCreateMany: createMany,
-      });
-      await service.adoptPersonalVersions('u-admin', 'cap-1', { sourceVersionIds: ['p1'] });
-      expect(createMany.mock.calls[0][0].data).toHaveLength(3);
-      expect(createMany.mock.calls[0][0].data[0].type).toBe('SKILL_VERSION_UPDATED');
-    });
+    );
   });
 });

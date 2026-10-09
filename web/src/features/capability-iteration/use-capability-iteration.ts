@@ -1,8 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { SkillVersionScope, SkillVersionStatus } from '@/lib/types';
+import type { EnterpriseSkillReviewStatus, SkillVersionScope, SkillVersionStatus } from '@/lib/types';
 
 /**
  * 「技能库」的数据层。
@@ -21,6 +21,14 @@ export const capabilityIterationKeys = {
   insights: (capabilityId: string) => ['capability-iteration', 'insights', capabilityId] as const,
 };
 
+const liveSkillQueryOptions = {
+  staleTime: 0,
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
+  refetchInterval: 30_000,
+  refetchIntervalInBackground: false,
+} as const;
+
 export interface IterableCapability {
   capability: { id: string; name: string; description: string };
   employees: Array<{
@@ -36,7 +44,7 @@ export interface IterableCapability {
   }>;
   currentVersion: { id: string; version: string; scope: SkillVersionScope } | null;
   usage: { totalRounds: number; distinctUserCount: number };
-  /** 管理员：待采纳的成员改动数。成员：自己那条待采纳时为 1 */
+  /** 待审核改动数；保留旧字段名以兼容接口。 */
   pendingAdoptionCount: number;
   /** 我自己的已保存副本；是否使用由 myPersonalVersionActive 表示。 */
   myPersonalVersionId: string | null;
@@ -59,6 +67,7 @@ export function useIterableCapabilities() {
   return useQuery({
     queryKey: capabilityIterationKeys.list(),
     queryFn: () => api.get<IterableCapabilityList>('/enterprise/capabilities'),
+    ...liveSkillQueryOptions,
   });
 }
 
@@ -100,8 +109,7 @@ export interface VersionTimeline {
   /**
    * 这个能力绑在哪几位员工身上，以及各自的选版。
    *
-   * 一个技能可能被多位员工带着 —— 切版是按订阅（雇佣关系）生效的，
-   * 所以管理员要先选「给哪位员工切」。后端 `listVersionTimeline` 恒返回此字段。
+   * 个人选版按订阅生效；企业默认切换对整个企业的该技能生效。
    */
   subscriptions: Array<{
     subscriptionId: string;
@@ -129,6 +137,7 @@ export function useVersionTimeline(capabilityId: string) {
     queryKey: capabilityIterationKeys.versions(capabilityId),
     queryFn: () => api.get<VersionTimeline>(`/enterprise/capabilities/${capabilityId}/versions`),
     enabled: Boolean(capabilityId),
+    ...liveSkillQueryOptions,
   });
 }
 
@@ -194,9 +203,9 @@ export function useCapabilityExecutions(capabilityId: string, enabled = true) {
 export function useSelectEffectiveVersion(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ subscriptionId, versionId }: { subscriptionId: string; versionId: string }) =>
+    mutationFn: ({ versionId }: { versionId: string }) =>
       api.post(
-        `/enterprise/subscriptions/${subscriptionId}/skills/${capabilityId}/select-version`,
+        `/enterprise/capabilities/${capabilityId}/default-version`,
         { versionId },
       ),
     onSuccess: () => invalidatePersonal(qc, capabilityId),
@@ -217,10 +226,7 @@ export function useSelectPersonalVersion(capabilityId: string) {
 }
 
 /**
- * 发布企业版草稿并生效。
- *
- * 取代了原先的「提交审核 → 通过/驳回」两个按钮 —— 会议否掉提审流后，
- * 管理员自建草稿再自审是纯仪式，批准人和提交人是同一个人。
+ * 兼容旧企业草稿发布接口；技能库个人改动使用统一审核接口。
  */
 export function usePublishEnterpriseVersion(capabilityId: string) {
   const qc = useQueryClient();
@@ -234,7 +240,7 @@ export function usePublishEnterpriseVersion(capabilityId: string) {
   });
 }
 
-// ──────────── 个人副本与采纳（会议纪要2 §6.4）────────────
+// 个人工作副本与客户端提交统一进入审核。
 
 export interface PersonalDiffItem {
   id: string;
@@ -245,8 +251,18 @@ export interface PersonalDiffItem {
   updatedAt: string;
   adopted: boolean;
   adoptedAt: string | null;
-  /** 从未采纳，或采纳后又改过 —— 两种都要管理员再看一眼 */
+  /** 当前内容是否可审核。 */
   pending: boolean;
+  status: SkillVersionStatus;
+  reviewStatus: EnterpriseSkillReviewStatus;
+  submittedAt: string | null;
+  enterpriseReviewedAt: string | null;
+  reviewedBy: { id: string; name: string | null } | null;
+  rejectionReason: string | null;
+  publishedVersionId: string | null;
+  isWorkingCopy: boolean;
+  canEdit: boolean;
+  isLegacyUnpublished: boolean;
 }
 
 export interface PersonalDiffList {
@@ -254,14 +270,22 @@ export interface PersonalDiffList {
   /** 对比基线：企业当前生效版本，没有企业版时是最新平台版 */
   baseline: { id: string; scope: SkillVersionScope; version: string; content: string } | null;
   items: PersonalDiffItem[];
+  total: number;
+  page: number;
+  limit: number;
+  myWorkingCopy: PersonalDiffItem | null;
 }
 
-export function usePersonalDiffs(capabilityId: string, enabled = true) {
+export function usePersonalDiffs(capabilityId: string, enabled = true, page = 1, status?: EnterpriseSkillReviewStatus) {
+  const params = new URLSearchParams({ page: String(page), limit: '20' });
+  if (status) params.set('status', status);
   return useQuery({
-    queryKey: capabilityIterationKeys.personalDiffs(capabilityId),
+    queryKey: [...capabilityIterationKeys.personalDiffs(capabilityId), { page, limit: 20, status }],
+    placeholderData: keepPreviousData,
     queryFn: () =>
-      api.get<PersonalDiffList>(`/enterprise/capabilities/${capabilityId}/personal-diffs`),
+      api.get<PersonalDiffList>(`/enterprise/capabilities/${capabilityId}/personal-diffs?${params.toString()}`),
     enabled: Boolean(capabilityId) && enabled,
+    ...liveSkillQueryOptions,
   });
 }
 
@@ -312,7 +336,7 @@ export function useDiscardPersonalVersion(capabilityId: string) {
   });
 }
 
-/** 采纳。一个 id 是逐条，多个 id 是一键 —— 会议两种都要，接口只有一个。 */
+/** 保留旧多来源接口兼容；统一审核面板不直接调用。 */
 export function useAdoptPersonalVersions(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({

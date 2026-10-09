@@ -15,6 +15,7 @@ describe('技能实际执行采用成员版本', () => {
       memberSkillVersionSelection: { findFirst: jest.fn(async ({ where }) => preferences.get(`${where.member.userId}:${where.subscriptionId}`) ?? null) },
       skillVersion: { findFirst: jest.fn(async ({ where }) => where.ownerId === 'user-1' ? personal : null) },
       subscriptionSkillVersion: { findUnique: jest.fn().mockResolvedValue({ version: enterprise }) },
+      enterpriseSkillDefault: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     const versions = new SkillVersionService(prisma as never, {} as never);
     const execute = jest.fn().mockResolvedValue({ success: true, output: 'result' });
@@ -39,9 +40,38 @@ describe('技能实际执行采用成员版本', () => {
     const { service, preferences, prisma, factory } = build();
     preferences.set('user-1:sub-a', { versionId: platform.id, version: platform });
     prisma.subscriptionSkillVersion.findUnique.mockResolvedValue({ version: { ...enterprise, id: 'enterprise-new', content: '新默认' } });
+    prisma.enterpriseSkillDefault.findUnique.mockResolvedValue({ version: { ...enterprise, id: 'enterprise-global', content: '企业全局默认' } });
     await service.execute('cap-1', { userMessage: '执行', sessionId: 'session' }, { subscriptionId: 'sub-a', userId: 'user-1' });
     expect(factory.create).toHaveBeenLastCalledWith(expect.objectContaining({ skillContent: platform.content, skillVersionId: platform.id }));
   });
+  it('跟随企业的真实执行优先使用全局默认而非旧订阅默认', async () => {
+    const { service, preferences, prisma, factory } = build();
+    preferences.set('user-1:sub-a', { versionId: null, version: null });
+    const reverted = { ...enterprise, id: 'enterprise-reverted', content: '回退后的企业默认正文' };
+    prisma.enterpriseSkillDefault.findUnique.mockResolvedValue({ version: reverted });
+    const result = await service.execute('cap-1', { userMessage: '执行', sessionId: 'session' }, {
+      subscriptionId: 'sub-a', userId: 'user-1',
+    });
+    expect(factory.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      skillContent: reverted.content, skillVersionId: reverted.id,
+    }));
+    expect(result.skillVersionId).toBe(reverted.id);
+    expect(prisma.subscriptionSkillVersion.findUnique).not.toHaveBeenCalled();
+  });
+  it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_REJECTED'])(
+    '本人显式选择的 %s 个人版本传入实际执行适配器', async (status) => {
+      const { service, prisma, factory } = build();
+      const saved = { ...personal, status, content: `个人保存正文: ${status}` };
+      prisma.memberSkillVersionSelection.findFirst.mockResolvedValue({ versionId: saved.id, version: saved } as never);
+      const result = await service.execute('cap-1', { userMessage: '执行', sessionId: 'session' }, {
+        subscriptionId: 'sub-a', userId: 'user-1',
+      });
+      expect(factory.create).toHaveBeenLastCalledWith(expect.objectContaining({
+        skillContent: saved.content, skillVersionId: saved.id,
+      }));
+      expect(result.skillVersionId).toBe(saved.id);
+    },
+  );
   it('显式跟随企业跳过已保存副本，而无偏好的存量用户仍使用副本', async () => {
     const { service, preferences, factory } = build();
     const input = { userMessage: '执行', sessionId: 'session' };

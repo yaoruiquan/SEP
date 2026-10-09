@@ -8,7 +8,6 @@ import {
   Clock,
   FileText,
   GitBranch,
-  GitFork,
   Pencil,
   RotateCcw,
   ShieldCheck,
@@ -21,21 +20,19 @@ import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import {
-  usePublishEnterpriseVersion,
   useSelectEffectiveVersion,
   useSelectPersonalVersion,
   type TimelineVersion,
   type VersionTimeline,
 } from './use-capability-iteration';
 import {
-  useCreateEnterpriseSkillVersion,
   useSubmitPlatformSkillReview,
 } from '@/features/skill-version/use-skill-version';
 
 /**
  * 版本时间线。
  *
- * 会议要求「采纳后保留版本记录，支持查看历史版本和回滚」。回滚在实现上就是
+ * 审核后保留版本记录，支持查看历史版本和回滚。回滚在实现上就是
  * 把生效版本选回旧的那一个 —— 不删不改历史，只改「现在用哪个」。
  */
 export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
@@ -46,8 +43,6 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
   const [expandedId, setExpandedId] = useState<string>();
   const selectVersion = useSelectEffectiveVersion(timeline.capability.id);
   const selectPersonal = useSelectPersonalVersion(timeline.capability.id);
-  const createVersion = useCreateEnterpriseSkillVersion();
-  const publishVersion = usePublishEnterpriseVersion(timeline.capability.id);
   const submitToPlatform = useSubmitPlatformSkillReview();
 
   const [selection, setSelection] = useState({ initialSubscriptionId, subscriptionId: initialSubscriptionId });
@@ -60,7 +55,8 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
     ?? timeline.subscriptions.find((item) => item.canSelectPersonal)
     ?? timeline.subscriptions.find((item) => item.subscriptionId === timeline.subscriptionId)
     ?? timeline.subscriptions[0];
-  const currentId = selectedSubscription ? selectedSubscription.enterpriseVersionId : timeline.currentVersionId;
+  const canEditPersonal = timeline.subscriptions.some((item) => item.canSelectPersonal);
+  const currentId = timeline.currentVersionId;
   const effectiveId = selectedSubscription?.effectiveVersionId;
   const selecting = selectVersion.isPending || selectPersonal.isPending;
   const effectiveVersion = timeline.versions.find((version) => version.id === effectiveId);
@@ -69,32 +65,15 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
     : effectiveId
       ? scopeLabel(selectedSubscription?.effectiveVersionScope ?? null)
       : '暂无可用版本';
-  const parentVersion = timeline.versions.find((version) => version.id === currentId) ?? timeline.versions.find((version) => version.status === 'PLATFORM_APPROVED');
-
-  const createDraft = () => {
-    if (!selectedSubscription || !parentVersion) return;
-    createVersion.mutate(
-      { subscriptionId: selectedSubscription.subscriptionId, capabilityId: timeline.capability.id, parentVersionId: parentVersion.id, changeSummary: `基于 v${parentVersion.version} 创建` },
-      {
-        onSuccess: (version) => { toast.success('企业版本草稿已创建'); window.location.href = `/skills/${version.id}/edit?returnTo=/capabilities/${timeline.capability.id}`; },
-        onError: (error) => toast.error(error instanceof Error ? error.message : '创建版本失败'),
-      },
-    );
-  };
 
   const setEffective = (version: TimelineVersion) => {
-    // 必须用**选中的**订阅，不能用 timeline.subscriptionId ——
-    // 后者只是后端授权校验时命中的第一条，切版按雇佣关系生效，
-    // 用错了就会「选了员工 B，切版切在员工 A 身上」，而界面上看不出来。
-    const targetSubscriptionId = selectedSubscription?.subscriptionId ?? timeline.subscriptionId;
+    if (!timeline.canManage || selecting) return;
     selectVersion.mutate(
-      { subscriptionId: targetSubscriptionId, versionId: version.id },
+      { versionId: version.id },
       {
         onSuccess: () =>
           toast.success(
-            selectedSubscription
-              ? `${selectedSubscription.employeeName} 的企业默认已切换到 ${versionLabel(version)}`
-              : `企业默认已切换到 ${versionLabel(version)}`,
+            `企业技能默认已切换到 ${versionLabel(version)}`,
           ),
         onError: (error) =>
           toast.error(error instanceof Error ? error.message : '切换版本失败'),
@@ -109,7 +88,6 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
       {
         onSuccess: () => toast.success(
           versionId === null ? '已跟随企业默认' : '个人使用版本已切换',
-          `${selectedSubscription.employeeName}：仅影响你在该订阅下的使用${versionId === null ? '，个人副本仍保留' : ''}`,
         ),
         onError: (error) => toast.error(error instanceof Error ? error.message : '个人选版失败'),
       },
@@ -138,10 +116,6 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
                     ? '跟随企业默认'
                     : '自动选择'}
               </p>
-              <p className="text-[11px] leading-5 text-gtext-muted">
-                仅影响你在 {selectedSubscription.employeeName} 订阅下的使用，不改变其他成员或其他订阅。
-                跟随企业会暂停使用个人副本，但不会删除副本。
-              </p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="glass" className="h-7 px-2.5 text-[11px]"
                   disabled={selecting || selectedSubscription.personalSelectionMode === 'FOLLOW_ENTERPRISE'}
@@ -158,23 +132,12 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
               </div>
             </>
           ) : (
-            <p className="text-xs text-gtext-muted">此订阅未授权给你，不能选择个人使用版本；管理权限不等于使用授权。</p>
+            <p className="text-xs text-gtext-muted">未获使用授权</p>
           )}
         </section>
       )}
-      {timeline.canManage && (
-        <p className="text-[11px] leading-5 text-gtext-muted">
-          企业默认是该订阅的共享设置，仅影响跟随默认的成员；不会覆盖成员的显式个人选择。
-        </p>
-      )}
       {timeline.versions.length === 0 && (
         <p className="rounded-glass-lg border border-dashed border-glassline px-4 py-8 text-center text-xs text-gtext-muted">这个技能还没有任何版本记录</p>
-      )}
-      {timeline.canManage && parentVersion && selectedSubscription && (
-        <div className="flex flex-wrap items-center gap-2 rounded-glass-lg border border-glassline-brand bg-gbrand/[0.05] px-3.5 py-3">
-          <span className="text-xs text-gtext-secondary">为 {selectedSubscription.employeeName} 创建企业版本</span>
-          <Button size="sm" variant="glass-primary" className="h-7 px-2.5 text-[11px]" onClick={createDraft} loading={createVersion.isPending}><GitFork className="h-3 w-3" /> 创建草稿</Button>
-        </div>
       )}
       <ol className="space-y-0">
       {timeline.versions.map((version, index) => {
@@ -188,11 +151,12 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
         const approved =
           (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
           (isEnterprise && version.status === 'ENTERPRISE_APPROVED');
-        const selectable = timeline.canManage && Boolean(selectedSubscription) && !isCurrent && approved;
-        const approvedPersonal = version.scope === 'PERSONAL' &&
-          version.status === 'ENTERPRISE_APPROVED' && Boolean(currentUserId) && version.ownerId === currentUserId;
+        const selectable = timeline.canManage && !isCurrent && approved;
+        const ownPersonal = version.scope === 'PERSONAL' && Boolean(currentUserId) &&
+          (version.ownerId === currentUserId || (!version.ownerId && version.id === timeline.myPersonalVersionId)) &&
+          ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'].includes(version.status);
         const personalSelectable = selectedSubscription?.canSelectPersonal &&
-          (approved || approvedPersonal || (version.id === timeline.myPersonalVersionId && version.scope === 'PERSONAL' && version.status === 'PERSONAL_ACTIVE'));
+          (approved || ownPersonal);
         const personallyPinned = selectedSubscription?.personalSelectionMode === 'PINNED' && selectedSubscription.personalVersionId === version.id;
 
         // 投稿到平台市场。
@@ -294,12 +258,8 @@ export function VersionTimelinePanel({ timeline, initialSubscriptionId }: {
                         {personallyPinned ? '已设为个人使用' : version.scope === 'PERSONAL' ? '使用此副本' : '设为个人使用'}
                       </Button>
                     )}
-                    {timeline.canManage && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
+                    {timeline.canManage && canEditPersonal && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
                       <Link href={`/skills/${version.id}/edit?returnTo=/capabilities/${timeline.capability.id}`} aria-label="编辑企业版本" className="grid h-7 w-7 place-items-center rounded-glass-md text-gtext-muted hover:bg-glass-3 hover:text-gtext-primary"><Pencil className="h-3.5 w-3.5" /></Link>
-                    )}
-                    {/* 会议否掉提审流：草稿由管理员一步发布，没有「提交审核 → 自己批准」 */}
-                    {timeline.canManage && isEnterprise && (version.status === 'DRAFT' || version.status === 'ENTERPRISE_REJECTED') && (
-                      <Button size="sm" variant="glass-primary" className="h-7 px-2 text-[11px]" onClick={() => publishVersion.mutate(version.id, { onSuccess: (result) => toast.success(`${versionLabel(version)} 已发布并生效`, `对 ${result.affectedSubscriptions} 个雇佣关系生效`), onError: (error) => toast.error(error instanceof Error ? error.message : '发布失败') })} loading={publishVersion.isPending}><ShieldCheck className="h-3 w-3" /> 发布并生效</Button>
                     )}
                     {selectable && (
                       <Button
