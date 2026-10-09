@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import type { ClientTaskMirrorEvent } from "@/features/task/use-client-task-mirrors";
 
-export type UsageSource = "client" | "web-conversation" | "web-task";
+export type UsageSource = "client" | "client-legacy" | "web-conversation" | "web-task";
 export interface UsageFilters {
   page?: number;
   limit?: number;
@@ -32,7 +32,7 @@ export interface EmployeeUsageList {
   limit: number;
   members?: Array<{ userId: string; userName: string | null }>;
   modelConsumption: { callCount: number; totalTokens: number; costCNY: number };
-  coverage: { legacyClientTaskCount: number };
+  coverage: { legacyClientTaskCount: number; readableLegacyClientTaskCount?: number };
 }
 export type EmployeeUsageDetail =
   | {
@@ -54,6 +54,21 @@ export type EmployeeUsageDetail =
           events: ClientTaskMirrorEvent[];
         }>;
       }>;
+    }
+  | {
+      source: "client-legacy";
+      recordId: string;
+      task: { id: string; clientTaskId: string; title: string | null };
+      run: {
+        clientRunId: string;
+        status: string;
+        queuedAt: string | null;
+        startedAt: string | null;
+        completedAt: string | null;
+        usedAt: string;
+        timeBasis: "legacy-started" | "legacy-input" | "legacy-queued" | "legacy-received";
+      };
+      events: ClientTaskMirrorEvent[];
     }
   | {
       source: "web-conversation" | "web-task";

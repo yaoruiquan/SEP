@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { EmployeeUsageBody } from '@/features/employee/employee-usage-records';
+import { ApiError } from '@/lib/api-client';
 import { useEmployeeUsageDetail } from '@/features/employee/use-employee-usage';
 import {
   useClientTaskMirror,
@@ -120,11 +121,27 @@ export function ClientTaskMirrorDetailView({ detail }: { detail: ClientTaskMirro
 function ScopedTaskDetail({ id, subscriptionId }: { id: string; subscriptionId: string }) {
   const query = useEmployeeUsageDetail(subscriptionId, { source: 'client', recordId: id }, 10000);
   if (query.isLoading) return <CenteredSpinner label="正在读取事件…" />;
+  if (query.isError && query.error instanceof ApiError && query.error.status === 404) {
+    return <LegacyScopedTaskDetail id={id} subscriptionId={subscriptionId} />;
+  }
   if (query.isError) return <div role="alert" className="space-y-2 py-3 text-sm text-gdanger">
     <p>事件读取失败，请稍后重试。记录可能不存在或没有访问权限。</p>
     <Button variant="glass" size="sm" onClick={() => void query.refetch()}><RefreshCw className="h-3.5 w-3.5" />重试详情</Button>
   </div>;
   return query.data?.source === 'client' ? <><h3 className="mb-3 break-words text-sm text-gtext-primary">{query.data.task.title}</h3><EmployeeUsageBody subscriptionId={subscriptionId} detail={query.data} showMonitorLink={false} /></> : null;
+}
+
+function LegacyScopedTaskDetail({ id, subscriptionId }: { id: string; subscriptionId: string }) {
+  const query = useEmployeeUsageDetail(subscriptionId, { source: 'client-legacy', recordId: id }, 10000);
+  if (query.isLoading) return <CenteredSpinner label="正在读取旧记录…" />;
+  if (query.isError) return <div role="alert" className="space-y-2 py-3 text-sm text-gdanger">
+    {query.error instanceof ApiError && query.error.status === 404 ? <>
+      <p>当前记录无法按单个员工读取。旧多员工编排不提供员工级正文。</p>
+      <Link className="inline-flex text-gbrand-text underline" href={`/tasks?${new URLSearchParams({ tab: 'monitoring', taskId: id })}`}>查看完整任务监控</Link>
+    </> : <p>事件读取失败，请稍后重试。记录可能不存在或没有访问权限。</p>}
+    <Button variant="glass" size="sm" onClick={() => void query.refetch()}><RefreshCw className="h-3.5 w-3.5" />重试详情</Button>
+  </div>;
+  return query.data?.source === 'client-legacy' ? <><h3 className="mb-3 break-words text-sm text-gtext-primary">{query.data.task.title}</h3><EmployeeUsageBody subscriptionId={subscriptionId} detail={query.data} showMonitorLink={false} /></> : null;
 }
 
 function FullTaskDetail({ id }: { id: string }) {

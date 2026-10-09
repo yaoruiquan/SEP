@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientTaskMirrorDetailView, ClientTaskMonitor } from './client-task-monitor';
 import { clientTaskMonitorDetailFixture, clientTaskMonitorOptionsFixture } from './client-task-monitor.fixture';
 import type { ClientTaskMirror, ClientTaskMirrorDetail, ClientTaskMirrorEvent, ClientTaskMirrorPage } from '../use-client-task-mirrors';
+import { ApiError } from '@/lib/api-client';
 import type { EmployeeUsageDetail } from '@/features/employee/use-employee-usage';
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), scopedDetail: vi.fn(), options: vi.fn(), refetch: vi.fn(), refetchOptions: vi.fn() }));
@@ -265,6 +266,38 @@ describe('client monitor', () => {
     expect(mocks.detail).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '重试详情' }));
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+  it('legacy employee links read only the same subscription legacy endpoint after verified 404', () => {
+    const legacy: EmployeeUsageDetail = {
+      source: 'client-legacy', recordId: task.id,
+      task: { id: task.id, clientTaskId: task.clientTaskId, title: task.title },
+      run: { clientRunId: 'legacy-run', status: 'COMPLETED', queuedAt: null,
+        startedAt: null, completedAt: null, usedAt: '2026-10-09T01:00:00Z', timeBasis: 'legacy-received' },
+      events: [event(1, 'model_output', '旧单员工正文')],
+    };
+    mocks.scopedDetail.mockImplementation((_subscription, record) => record.source === 'client'
+      ? { isError: true, error: new ApiError(404, 'unproven'), refetch: mocks.refetch }
+      : { data: legacy, refetch: mocks.refetch });
+    render(<ClientTaskMonitor taskId={task.id} subscriptionId="sub-1" />);
+    expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client-legacy', recordId: task.id }, 10000);
+    expect(screen.getByText('旧单员工正文')).toBeInTheDocument();
+    expect(screen.getByText(/按任务原始雇佣关系/)).toHaveTextContent('归属未核实');
+    expect(mocks.detail).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: '任务监控' })).not.toBeInTheDocument();
+  });
+  it('unsupported legacy arrangements explain coverage without automatically requesting full task bodies', () => {
+    mocks.scopedDetail.mockReturnValue({ isError: true, error: new ApiError(404, 'unproven'), refetch: mocks.refetch });
+    render(<ClientTaskMonitor taskId="legacy-arrangement" subscriptionId="sub-1" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('旧多员工编排不提供员工级正文');
+    expect(screen.getByRole('link', { name: '查看完整任务监控' })).toHaveAttribute('href', '/tasks?tab=monitoring&taskId=legacy-arrangement');
+    expect(mocks.detail).not.toHaveBeenCalled();
+  });
+  it.each([401, 403, 503])('scoped %s failures never switch to legacy or full task body endpoints', (status) => {
+    mocks.scopedDetail.mockReturnValue({ isError: true, error: new ApiError(status, 'denied'), refetch: mocks.refetch });
+    render(<ClientTaskMonitor taskId={task.id} subscriptionId="sub-1" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('没有访问权限');
+    expect(mocks.scopedDetail.mock.calls.every(call => call[1].source === 'client')).toBe(true);
+    expect(mocks.detail).not.toHaveBeenCalled();
   });
   it('navigation from full monitoring to an employee deep link never fetches new text without its scope', () => {
     const { rerender } = render(<ClientTaskMonitor taskId="full-task" />);

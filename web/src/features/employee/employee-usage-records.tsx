@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { assembleClientTaskContent } from "@/features/task/client-task-content";
+import { assembleClientTaskContent, type ClientTaskContent } from "@/features/task/client-task-content";
 import {
   useEmployeeUsageDetail,
   type EmployeeUsageDetail,
@@ -28,8 +28,15 @@ import {
 
 const SOURCE_LABELS = {
   client: "客户端任务",
+  "client-legacy": "旧客户端记录",
   "web-conversation": "Web 对话",
   "web-task": "Web 任务会话",
+};
+const TASK_TYPE_LABELS: Record<string, string> = {
+  conversation: "对话",
+  arrangement: "编排",
+  CHAT: "对话",
+  TASK: "任务",
 };
 const STATUS_LABELS: Record<string, string> = {
   QUEUED: "排队中",
@@ -90,10 +97,17 @@ export function EmployeeUsageRecords({
         data && (
           <>
             <p className="mb-4 text-xs leading-5 text-gtext-muted">
-              仅包含已核实归属的使用记录；旧客户端归属未核实任务{" "}
-              {data.coverage.legacyClientTaskCount}{" "}
-              项（全部时间）。无账单、混合归属或已删除的 Web
-              会话不在此列表内。任务级消费未知。
+              已核实记录与旧客户端单员工对话分开标注。旧客户端任务共{" "}
+              {data.coverage.legacyClientTaskCount} 项（全部时间），
+              {data.coverage.readableLegacyClientTaskCount === undefined
+                ? "当前服务版本尚未提供可读取旧记录的数量。"
+                : `其中 ${data.coverage.readableLegacyClientTaskCount} 项可在员工页读取，归属未核实。`}
+              旧多员工编排等其他历史记录请在{" "}
+              <Link className="text-gbrand-text underline" href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId })}`}>
+                客户端监控
+              </Link>
+              {" "}查看。无账单、混合归属或已删除的 Web 会话不在此列表内。
+              模型账单不代表已同步正文，任务级消费未知。历史记录可能早于当前日期范围。
             </p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left text-sm">
@@ -104,7 +118,7 @@ export function EmployeeUsageRecords({
                       "来源 / 类型",
                       "标题",
                       "状态",
-                      "使用时间（UTC+8）",
+                      "使用 / 接收时间（UTC+8）",
                       "",
                     ].map((label) => (
                       <th key={label} className="px-2 py-3 font-medium">
@@ -125,7 +139,8 @@ export function EmployeeUsageRecords({
                       <td className="px-2 py-3">
                         <div>{SOURCE_LABELS[record.source]}</div>
                         <div className="text-xs text-gtext-muted">
-                          {record.taskType}
+                          {TASK_TYPE_LABELS[record.taskType] ?? record.taskType}
+                          {record.source === "client-legacy" && " · 归属未核实"}
                         </div>
                       </td>
                       <td className="max-w-72 break-words px-2 py-3">
@@ -139,6 +154,13 @@ export function EmployeeUsageRecords({
                         title={record.timeBasis}
                       >
                         {usageTime(record.usedAt)}
+                        {record.source === "client-legacy" && (
+                          <div className="text-gtext-muted">
+                            {record.timeBasis === "legacy-received"
+                              ? "接收时间，执行时间未知"
+                              : "旧记录时间，来源未核实"}
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-3">
                         <Button
@@ -158,7 +180,7 @@ export function EmployeeUsageRecords({
             </div>
             {!data.items.length && (
               <p className="py-10 text-center text-sm text-gtext-muted">
-                当前筛选下暂无已核实使用记录
+                当前筛选下暂无可展示的使用记录
               </p>
             )}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
@@ -203,7 +225,7 @@ export function EmployeeUsageRecords({
             </DialogTitle>
             <DialogDescription>
               {selected &&
-                `${selected.userName || "未命名成员"} · ${SOURCE_LABELS[selected.source]} · ${usageTime(selected.usedAt)}`}
+                `${selected.userName || "未命名成员"} · ${SOURCE_LABELS[selected.source]} · ${selected.timeBasis === "legacy-received" ? "接收于 " : ""}${usageTime(selected.usedAt)}`}
             </DialogDescription>
           </DialogHeader>
           {detail.isLoading ? (
@@ -245,6 +267,35 @@ export function EmployeeUsageBody({
   showMonitorLink?: boolean;
 }) {
   const [runId, setRunId] = useState("");
+  if (detail.source === "client-legacy") {
+    const content = assembleClientTaskContent(detail.events);
+    return (
+      <div className="space-y-4">
+        <p className="rounded-md border border-border bg-muted/40 p-3 text-sm leading-6">
+          旧客户端记录 · 归属未核实。按任务原始雇佣关系展示单员工对话，
+          仅包含当前运行批次；不代表已核实的参与节点，任务级消费未知。
+          旧协议未保存时间来源，开始或入队时间可能由服务器补齐。
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-gtext-muted">
+            {STATUS_LABELS[detail.run.status] ?? detail.run.status} ·{" "}
+            {detail.run.timeBasis === "legacy-received" ? "接收于 " : "使用于 "}
+            {usageTime(detail.run.usedAt)}
+            {detail.run.timeBasis === "legacy-received" && "（执行时间未知）"}
+            {detail.run.completedAt && ` · 结束于 ${usageTime(detail.run.completedAt)}`}
+          </span>
+          {showMonitorLink && (
+            <Link className="inline-flex items-center gap-1 text-gbrand-text"
+              href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, taskId: detail.task.id })}`}>
+              <ExternalLink className="h-4 w-4" />任务监控
+            </Link>
+          )}
+        </div>
+        {!content.length && <p className="text-sm text-gtext-muted">该旧记录暂无已同步正文</p>}
+        <UsageContent items={content} />
+      </div>
+    );
+  }
   if (detail.source !== "client")
     return (
       <div className="divide-y divide-border">
@@ -335,26 +386,29 @@ export function EmployeeUsageBody({
                 该参与记录暂无已同步正文
               </p>
             )}
-            {content.map((item) => (
-              <div key={item.id} className="border-l-2 border-border py-3 pl-3">
-                <p className="mb-2 text-xs text-gtext-muted">
-                  {item.type === "user_input" ? "输入" : "输出"} ·{" "}
-                  {item.occurredAt
-                    ? `发生于 ${usageTime(item.occurredAt)}`
-                    : `接收于 ${usageTime(item.receivedAt)}`}
-                  {item.timeApproximate ? "（近似时间）" : ""}
-                  {item.incomplete
-                    ? ` · 正文不完整（${item.received}/${item.total} 片）`
-                    : ""}
-                </p>
-                <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
-                  {item.text || "无文本内容"}
-                </pre>
-              </div>
-            ))}
+            <UsageContent items={content} />
           </section>
         );
       })}
     </div>
   );
+}
+
+
+function UsageContent({ items }: { items: ClientTaskContent[] }) {
+  return items.map((item) => (
+    <div key={item.id} className="border-l-2 border-border py-3 pl-3">
+      <p className="mb-2 text-xs text-gtext-muted">
+        {item.type === "user_input" ? "输入" : "输出"} ·{" "}
+        {item.occurredAt
+          ? `发生于 ${usageTime(item.occurredAt)}`
+          : `接收于 ${usageTime(item.receivedAt)}`}
+        {item.timeApproximate ? "（近似时间）" : ""}
+        {item.incomplete ? ` · 正文不完整（${item.received}/${item.total} 片）` : ""}
+      </p>
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
+        {item.text || "无文本内容"}
+      </pre>
+    </div>
+  ));
 }

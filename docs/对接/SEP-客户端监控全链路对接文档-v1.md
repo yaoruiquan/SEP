@@ -3,6 +3,7 @@
 > 面向：Electron / 桌面客户端开发者
 > 适用环境：联调环境
 > 文档日期：2026-09-20
+> 修订日期：2026-10-09（监控来源请求头、旧记录员工范围读取）
 > API 根地址：`https://sep-dev.longdaoSEP.cn/api`
 
 本文只说明“客户端执行任务 → 云端保存任务镜像 → 企业 Web 查看监控”的完整链路。
@@ -97,6 +98,13 @@ Content-Type: application/json
 
    ```http
    Authorization: Bearer <accessToken>
+   ```
+
+   生产监控写操作（创建、状态、事件、心跳）还必须携带允许的 Web 来源。Electron 主进程使用 `config.SEP_WEB_ORIGIN`，不能假设 API 域名等于 Web 域名；由 URL.origin 规范化并生成如下请求头。后端 `CORS_ORIGIN` 必须包含该 Web 来源，无来源会在进入任务业务逻辑前返回 403。客户端认证端点的豁免不包含监控写接口。
+
+   ```http
+   Origin: https://sep-dev.longdaosep.cn
+   Referer: https://sep-dev.longdaosep.cn/
    ```
 
 3. `refreshToken` 只保存在 Electron 主进程的安全存储中，不交给 renderer，不写入普通日志。
@@ -628,7 +636,7 @@ Authorization: Bearer <accessToken>
 
 响应包含任务镜像和全部事件：
 
-这是任务级详情接口，不是员工范围正文接口。从员工使用记录进入监控，或在监控中选择某个雇佣关系时，Web 正文改用 `GET /subscriptions/:subscriptionId/usage-records/client/:recordId`，只读取该订阅已验证的参与执行及事件，不读取其他员工或任务汇总正文。两个范围使用独立缓存；管理员读取员工范围正文仍执行访问审计。
+这是任务级详情接口，不是员工范围正文接口。从员工使用记录进入监控，或在监控中选择某个雇佣关系时，Web 正文改用 `GET /subscriptions/:subscriptionId/usage-records/client/:recordId`，只读取该订阅已验证的参与执行及事件，不读取其他员工或任务汇总正文。两个范围使用独立缓存；管理员读取员工范围正文仍执行访问审计。已核实接口返回 404 时，可读取同订阅的 `GET /subscriptions/:subscriptionId/usage-records/client-legacy/:recordId`。该兼容接口仅接受没有任何 run/participation 的 v1 单员工 conversation，仅读当前运行批次的未关联输入输出，并明确标为归属未核实；旧多员工编排不能使用。401/403/503 不切换范围，不能自动获取完整任务正文。完整任务需要用户进入完整任务监控，并继续通过原有监控权限和正文审计。
 
 ```json
 {
@@ -676,6 +684,7 @@ Web 页面位置：
 
 ```text
 API_ROOT=https://sep-dev.longdaoSEP.cn/api
+SEP_WEB_ORIGIN=https://sep-dev.longdaosep.cn
 ACCESS_TOKEN=<accessToken>
 SUBSCRIPTION_ID=sub_xxx
 ```
@@ -685,6 +694,8 @@ SUBSCRIPTION_ID=sub_xxx
 ```bash
 curl -X POST "$API_ROOT/client/tasks" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "clientTaskId": "local-task-01JABC",
@@ -714,6 +725,8 @@ cloudMirrorId=cmirror_xxx
 ```bash
 curl -X PATCH "$API_ROOT/client/tasks/cmirror_xxx/status" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "status": "QUEUED",
@@ -728,6 +741,8 @@ curl -X PATCH "$API_ROOT/client/tasks/cmirror_xxx/status" \
 ```bash
 curl -X PATCH "$API_ROOT/client/tasks/cmirror_xxx/status" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "status": "RUNNING",
@@ -742,6 +757,8 @@ curl -X PATCH "$API_ROOT/client/tasks/cmirror_xxx/status" \
 ```bash
 curl -X POST "$API_ROOT/client/tasks/cmirror_xxx/events" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "sequence": 1,
@@ -758,6 +775,8 @@ curl -X POST "$API_ROOT/client/tasks/cmirror_xxx/events" \
 ```bash
 curl -X POST "$API_ROOT/client/tasks/cmirror_xxx/heartbeat" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "progress": 45,
@@ -772,6 +791,8 @@ curl -X POST "$API_ROOT/client/tasks/cmirror_xxx/heartbeat" \
 ```bash
 curl -X PATCH "$API_ROOT/client/tasks/cmirror_xxx/status" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Origin: $SEP_WEB_ORIGIN" \
+  -H "Referer: $SEP_WEB_ORIGIN/" \
   -H "Content-Type: application/json" \
   -d '{
     "status": "COMPLETED",

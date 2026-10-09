@@ -149,6 +149,25 @@ describe('CsrfGuard', () => {
     });
   });
 
+  describe.each([
+    ['POST', '/api/client/tasks'],
+    ['PATCH', '/api/client/tasks/mirror-1/status'],
+    ['POST', '/api/client/tasks/mirror-1/events'],
+    ['POST', '/api/client/tasks/mirror-1/heartbeat'],
+  ])('生产客户端监控 %s %s', (method, path) => {
+    it('允许配置的 Web 来源，同时不为 Bearer 监控请求绕过来源校验', () => {
+      const headers = { authorization: 'Bearer test-monitor-token' };
+      expect(() => guard.canActivate(createMockContext(method, path, headers)))
+        .toThrow('Missing Origin or Referer header');
+      expect(guard.canActivate(createMockContext(method, path, {
+        ...headers, origin: 'https://app.example.com', referer: 'https://app.example.com/',
+      }))).toBe(true);
+      expect(() => guard.canActivate(createMockContext(method, path, {
+        ...headers, origin: 'https://evil.com', referer: 'https://app.example.com/',
+      }))).toThrow(ForbiddenException);
+    });
+  });
+
   describe('开发环境', () => {
     beforeEach(() => {
       process.env.NODE_ENV = 'development';

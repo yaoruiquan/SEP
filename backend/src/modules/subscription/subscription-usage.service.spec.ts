@@ -52,6 +52,20 @@ describe('Subscription usage query contract', () => {
       false,
     );
   });
+  it('accepts the independent legacy list and detail source', () => {
+    expect(
+      SubscriptionUsageQueryDtoSchema.parse({ source: 'client-legacy' }).source,
+    ).toBe('client-legacy');
+    expect(
+      SubscriptionUsageRecordParamsSchema.parse({
+        source: 'client-legacy',
+        recordId: 'mirror',
+      }),
+    ).toEqual({
+      source: 'client-legacy',
+      recordId: 'mirror',
+    });
+  });
   it('validates detail source and identifier', () => {
     expect(
       SubscriptionUsageRecordParamsSchema.safeParse({
@@ -109,7 +123,7 @@ describe('SubscriptionUsageService', () => {
         .fn()
         .mockResolvedValueOnce([{ items: [], total: 0n }])
         .mockResolvedValueOnce([{ userId: 'u', userName: 'User' }])
-        .mockResolvedValueOnce([{ count: 1n }]),
+        .mockResolvedValueOnce([{ count: 1n, readableCount: 1n }]),
       clientTaskMirror: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'mirror',
@@ -296,11 +310,13 @@ describe('SubscriptionUsageService', () => {
     expect(period).toContain(
       'AND COALESCE(p."startedAt", r."startedAt", r."queuedAt") < ?',
     );
-    expect(period).toContain('OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?');
+    expect(period).toContain(
+      'OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?',
+    );
     expect(period).not.toContain('r."queuedAt") BETWEEN');
     for (const [call, count] of [
-      [listCall, 3],
-      [membersCall, 4],
+      [listCall, 4],
+      [membersCall, 5],
     ] as const) {
       for (const boundary of ['2026-10-08T16:00:00Z', '2026-10-09T16:00:00Z']) {
         expect(
@@ -374,20 +390,33 @@ describe('SubscriptionUsageService', () => {
   );
 
   it('excludes executions ending exactly at from while including starts and attributed events at from', async () => {
-    await service.list('sub', 'admin', query({ from: '2026-10-09', to: '2026-10-10' }));
-    for (const [index, options] of [[0, false], [1, true]] as const) {
-      const period = clientPeriodSql(prisma.$queryRaw.mock.calls[index], options);
-      expect(period).toContain('END) > ? OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?)');
+    await service.list(
+      'sub',
+      'admin',
+      query({ from: '2026-10-09', to: '2026-10-10' }),
+    );
+    for (const [index, options] of [
+      [0, false],
+      [1, true],
+    ] as const) {
+      const period = clientPeriodSql(
+        prisma.$queryRaw.mock.calls[index],
+        options,
+      );
+      expect(period).toContain(
+        'END) > ? OR COALESCE(p."startedAt", r."startedAt", r."queuedAt") >= ?)',
+      );
       expect(period).not.toContain('END) >= ?');
       expect(period).toContain('r."queuedAt") < ?');
       expect(period).toContain('e."occurredAt" >= ? AND e."occurredAt" < ?');
     }
   });
 
-  it('does not scan client events when no business period is selected', async () => {
+  it('does not scan v2 participation events when no business period is selected', async () => {
     await service.list('sub', 'admin', query());
     for (const call of prisma.$queryRaw.mock.calls.slice(0, 2)) {
-      expect(sqlText(call)).not.toContain('client_task_mirror_events');
+      expect(sqlText(call)).not.toContain('e."participationId" = p.id');
+      expect(sqlText(call)).toContain("e.type = 'user_input'");
     }
   });
 
@@ -451,7 +480,7 @@ describe('SubscriptionUsageService', () => {
       .mockReset()
       .mockResolvedValueOnce([{ items: [], total: 0n }])
       .mockResolvedValueOnce(members)
-      .mockResolvedValueOnce([{ count: 0n }]);
+      .mockResolvedValueOnce([{ count: 0n, readableCount: 0n }]);
     const result = await service.list(
       'sub',
       'admin',
@@ -491,7 +520,7 @@ describe('SubscriptionUsageService', () => {
             value instanceof Date &&
             value.getTime() === new Date(boundary).getTime(),
         ),
-      ).toHaveLength(boundary === '2026-10-08T16:00:00Z' ? 5 : 4);
+      ).toHaveLength(boundary === '2026-10-08T16:00:00Z' ? 6 : 5);
     }
     expect(sqlText([call])).not.toContain("AND s.source = 'TASK'");
     expect(sqlText([call])).toContain('b."userId" IS NOT NULL');
@@ -764,4 +793,515 @@ describe('SubscriptionUsageService', () => {
     ).toBe('u');
     expect(prisma.clientTaskMirrorEvent.findMany).not.toHaveBeenCalled();
   });
+
+  const normalizedSql = (call: any) => sqlText(call).replace(/\s+/g, ' ');
+  const legacyProof = (text: string) => {
+    const start = text.indexOf(
+      'm."enterpriseId" = ?',
+      text.indexOf('legacy_activity'),
+    );
+    return text.slice(
+      start,
+      text.indexOf('p."mirrorId" = m.id)', start) +
+        'p."mirrorId" = m.id)'.length,
+    );
+  };
+
+  it.each([
+    [undefined, true, true, true],
+    ['client', true, true, false],
+    ['client-legacy', false, true, false],
+    ['web-conversation', false, false, true],
+    ['web-task', false, false, true],
+  ])(
+    'selects %s sources before unified counting/pagination',
+    async (source, v2, legacy, web) => {
+      await service.list('sub', 'admin', query({ source, page: 2, limit: 3 }));
+      const call = prisma.$queryRaw.mock.calls[0];
+      const text = normalizedSql(call);
+      expect(text.includes("SELECT 'client'::text AS source")).toBe(v2);
+      expect(text.includes("SELECT 'client-legacy'::text AS source")).toBe(
+        legacy,
+      );
+      expect(text.includes('FROM conversation_sessions s')).toBe(web);
+      expect(text.match(/UNION ALL/g) ?? []).toHaveLength(
+        Number(v2) + Number(legacy) + Number(web) - 1,
+      );
+      expect(text).toContain('WITH records AS (');
+      expect(text).toContain('SELECT count(*) FROM records');
+      expect(text).toContain('LIMIT ? OFFSET ?');
+      expect(call[0].values.slice(-2)).toEqual([3, 3]);
+      // Source filtering remains unrelated to ledger consumption.
+      expect(
+        prisma.computeUsageRecord.aggregate.mock.calls[0][0].where,
+      ).toEqual({
+        enterpriseId: 'ent',
+        subscriptionId: 'sub',
+        employeeId: 'employee',
+});
+    },
+  );
+
+  it('shares all-time legacy eligibility across list, member options and readable coverage', async () => {
+    context.resolve.mockResolvedValue({ ...ctx, role: 'MEMBER' });
+    prisma.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce([{ items: [], total: 0n }])
+      .mockResolvedValueOnce([{ userId: 'u', userName: 'User' }])
+      .mockResolvedValueOnce([{ count: 7n, readableCount: 2n }]);
+    const result = await service.list(
+      'sub',
+      'u',
+      query({
+        source: 'client-legacy',
+        from: '2026-10-09',
+        to: '2026-10-10',
+      }),
+    );
+    const [list, members, coverage] =
+      prisma.$queryRaw.mock.calls.map(normalizedSql);
+    const proof = legacyProof(list);
+    expect(proof).toBe(legacyProof(members));
+    expect(coverage).toContain(proof);
+    expect(proof).toContain(
+      'm."enterpriseId" = ? AND m."subscriptionId" = ? AND m."userId" = ?',
+    );
+    expect(proof).toContain(
+      `m."protocolVersion" < 2 AND m."taskType" = 'conversation'`,
+    );
+    expect(proof).toContain(
+      'NOT EXISTS (SELECT 1 FROM client_task_mirror_runs r WHERE r."mirrorId" = m.id)',
+    );
+    expect(proof).toContain(
+      'NOT EXISTS (SELECT 1 FROM client_task_participations p WHERE p."mirrorId" = m.id)',
+    );
+    // Neither anti-join may narrow to a run/subscription/protocol and hide mixed data.
+    expect(proof).not.toMatch(
+      /r\."(?:subscriptionId|protocolVersion|clientRunId)"|p\."(?:subscriptionId|clientRunId)"/,
+    );
+    for (const index of [0, 1, 2]) {
+      expect(prisma.$queryRaw.mock.calls[index][0].values).toEqual(
+        expect.arrayContaining(['ent', 'sub', 'u']),
+      );
+    }
+    expect(coverage).not.toMatch(
+      /usedAt|startedAt|occurredAt|queuedAt|createdAt/,
+    );
+    expect(
+      prisma.$queryRaw.mock.calls[2][0].values.some((v) => v instanceof Date),
+    ).toBe(false);
+    expect(result.coverage).toMatchObject({
+      legacyClientTaskCount: 7,
+      readableLegacyClientTaskCount: 2,
+      legacyCountScope: 'subscription-and-user-all-time',
+    });
+    expect(result.coverage.limitations).toContain('legacy-time-provenance-unverified');
+    // Preserve the wider historical count, including old runs linked to this subscription.
+    expect(coverage).toContain(
+      'OR EXISTS (SELECT 1 FROM client_task_mirror_runs r',
+    );
+    expect(coverage).toContain(
+      'r."subscriptionId" = ? AND r."protocolVersion" < 2',
+    );
+  });
+
+  it('uses current null-participation input time and the same half-open legacy window for list/members', async () => {
+    await service.list(
+      'sub',
+      'admin',
+      query({ source: 'client-legacy', from: '2026-10-09', to: '2026-10-10' }),
+    );
+    for (const call of prisma.$queryRaw.mock.calls.slice(0, 2)) {
+      const text = normalizedSql(call);
+      expect(text).toContain('SELECT min(e."occurredAt") AS "inputAt"');
+      expect(text).toContain(
+        `e."mirrorId" = m.id AND e."clientRunId" = m."clientRunId" AND e."participationId" IS NULL AND e.type = 'user_input'`,
+      );
+      expect(text).toContain(
+        'COALESCE(m."startedAt", legacy_input."inputAt", m."queuedAt", m."createdAt") AS "usedAt"',
+      );
+      expect(text).toContain(
+        `WHEN m."startedAt" IS NOT NULL THEN 'legacy-started'`,
+      );
+      expect(text).toContain(
+        `WHEN legacy_input."inputAt" IS NOT NULL THEN 'legacy-input'`,
+      );
+      expect(text).toContain(
+        `WHEN m."queuedAt" IS NOT NULL THEN 'legacy-queued' ELSE 'legacy-received'`,
+      );
+      expect(text).toContain(
+        'legacy_activity."usedAt" >= ? AND legacy_activity."usedAt" < ?',
+      );
+      expect(call[0].values).toEqual(
+        expect.arrayContaining([
+          new Date('2026-10-08T16:00:00Z'),
+          new Date('2026-10-09T16:00:00Z'),
+        ]),
+      );
+      expect(text).not.toMatch(/lastHeartbeatAt|updatedAt|e\.message/);
+    }
+  });
+
+  const legacyMirror = {
+    id: 'mirror',
+    clientTaskId: 'old-task',
+    title: 'Old conversation',
+    userId: 'u',
+    clientRunId: 'current-run',
+    status: 'COMPLETED',
+    queuedAt: date,
+    startedAt: null,
+    completedAt: date,
+    createdAt: new Date('2026-10-09T08:00:00Z'),
+  };
+  const legacyEvent = (fields: Record<string, unknown> = {}) => ({
+    id: 'input',
+    participationId: null,
+    clientRunId: 'current-run',
+    sequence: 1,
+    type: 'user_input',
+    stepKey: null,
+    message: 'historical input',
+    progress: null,
+    occurredAt: date,
+    createdAt: legacyMirror.createdAt,
+    ...fields,
+  });
+
+  it('legacy detail reads only current-run null-participation input/output inside RepeatableRead', async () => {
+    prisma.clientTaskMirror.findFirst.mockResolvedValue(legacyMirror);
+    const input = legacyEvent({
+      occurredAt: null,
+      stepKey: 'content:v1:input:0:2',
+    });
+    const output = legacyEvent({
+      id: 'output',
+      sequence: 3,
+      type: 'model_output',
+      progress: 100,
+      message: 'historical output',
+      occurredAt: null,
+      stepKey: 'content:v1:output:0:2',
+    });
+    // Include another subscription's mirror sharing the run ID, plus foreign run/node/log events.
+    const stored = [
+      { mirrorId: 'mirror', event: input },
+      { mirrorId: 'mirror', event: output },
+      {
+        mirrorId: 'other-subscription-mirror',
+        event: legacyEvent({ message: 'other subscription secret' }),
+      },
+      {
+        mirrorId: 'mirror',
+        event: legacyEvent({
+          id: 'other-run', clientRunId: 'prior-run', message: 'other run secret',
+        }),
+      },
+      {
+        mirrorId: 'mirror',
+        event: legacyEvent({
+          id: 'node', participationId: 'foreign-node', message: 'node secret',
+        }),
+      },
+      {
+        mirrorId: 'mirror',
+        event: legacyEvent({ id: 'log', type: 'status', message: 'log secret' }),
+      },
+    ];
+    prisma.clientTaskMirrorEvent.findMany.mockImplementation(
+      async ({ where }) =>
+        stored
+          .filter(({ mirrorId, event: e }) =>
+            mirrorId === where.mirrorId &&
+            e.clientRunId === where.clientRunId &&
+            e.participationId === where.participationId &&
+            where.type.in.includes(e.type),
+          )
+          .map(({ event }) => event),
+    );
+    const result = await service.detail(
+      'sub',
+      'admin',
+      'client-legacy',
+      'mirror',
+    );
+    expect(prisma.clientTaskMirror.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'mirror',
+        enterpriseId: 'ent',
+        subscriptionId: 'sub',
+        protocolVersion: { lt: 2 },
+        taskType: 'conversation',
+        runs: { none: {} },
+        participations: { none: {} },
+      },
+      select: {
+        id: true,
+        clientTaskId: true,
+        title: true,
+        userId: true,
+        clientRunId: true,
+        status: true,
+        queuedAt: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
+    });
+    expect(prisma.clientTaskMirrorEvent.findMany.mock.calls[0][0]).toEqual({
+      where: {
+        mirrorId: 'mirror',
+        clientRunId: 'current-run',
+        participationId: null,
+        type: { in: ['user_input', 'model_output'] },
+      },
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        participationId: true,
+        clientRunId: true,
+        sequence: true,
+        type: true,
+        stepKey: true,
+        message: true,
+        progress: true,
+        occurredAt: true,
+        createdAt: true,
+      },
+    });
+    expect(result).toMatchObject({
+      source: 'client-legacy',
+      recordId: 'mirror',
+      task: {
+        id: 'mirror',
+        clientTaskId: 'old-task',
+        title: 'Old conversation',
+        userId: 'u',
+      },
+      run: {
+        clientRunId: 'current-run',
+        status: 'COMPLETED',
+        queuedAt: date.toISOString(),
+        startedAt: null,
+        completedAt: date.toISOString(),
+        usedAt: date.toISOString(),
+        timeBasis: 'legacy-queued',
+      },
+      events: [
+        {
+          id: 'input',
+          participationId: null,
+          occurredAt: null,
+          progress: null,
+          stepKey: 'content:v1:input:0:2',
+        },
+        {
+          id: 'output',
+          participationId: null,
+          occurredAt: null,
+          progress: 100,
+          sequence: 3,
+        },
+      ],
+      coverage: {
+        attribution: 'legacy-root-subscription-unverified',
+        currentRunOnly: true,
+        taskCost: 'unknown',
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/secret/);
+    expect(result).not.toHaveProperty('runs');
+    expect(prisma.clientTaskParticipation.findMany).not.toHaveBeenCalled();
+    expect(prisma.message.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.$transaction.mock.calls[0][1]).toEqual({
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(audit.record).toHaveBeenCalledWith({
+      actorId: 'admin',
+      enterpriseId: 'ent',
+      action: 'subscription.usage-record.read',
+      resourceType: 'subscription',
+      resourceId: 'sub',
+      metadata: { source: 'client-legacy', recordId: 'mirror' },
+    });
+  });
+
+  it.each([
+    {
+      startedAt: new Date('2026-01-04'),
+      inputAt: new Date('2026-01-03'),
+      queuedAt: new Date('2026-01-02'),
+      basis: 'legacy-started',
+      usedAt: '2026-01-04',
+    },
+    {
+      startedAt: null,
+      inputAt: new Date('2026-01-03'),
+      queuedAt: new Date('2026-01-02'),
+      basis: 'legacy-input',
+      usedAt: '2026-01-03',
+    },
+    {
+      startedAt: null,
+      inputAt: null,
+      queuedAt: new Date('2026-01-02'),
+      basis: 'legacy-queued',
+      usedAt: '2026-01-02',
+    },
+    {
+      startedAt: null,
+      inputAt: null,
+      queuedAt: null,
+      basis: 'legacy-received',
+      usedAt: '2026-01-05',
+    },
+  ])(
+    'legacy business time precedence $basis matches list SQL',
+    async ({ startedAt, inputAt, queuedAt, basis, usedAt }) => {
+      prisma.clientTaskMirror.findFirst.mockResolvedValue({
+        ...legacyMirror,
+        startedAt,
+        queuedAt,
+        createdAt: new Date('2026-01-05'),
+      });
+      prisma.clientTaskMirrorEvent.findMany.mockResolvedValue([
+        legacyEvent({
+          occurredAt: inputAt ? new Date(inputAt.getTime() + 60000) : null,
+        }),
+        legacyEvent({ id: 'earliest', sequence: 2, occurredAt: inputAt }),
+        legacyEvent({
+          id: 'output',
+          sequence: 3,
+          type: 'model_output',
+          occurredAt: new Date('2025-01-01'),
+        }),
+      ]);
+      const result = await service.detail(
+        'sub',
+        'admin',
+        'client-legacy',
+        'mirror',
+      );
+      if (result.source !== 'client-legacy')
+        throw new Error('unexpected detail source');
+      expect(result.run.timeBasis).toBe(basis);
+      expect(result.run.usedAt).toBe(new Date(usedAt).toISOString());
+      expect(result.events).toHaveLength(3);
+    },
+  );
+
+  it.each([
+    { id: 'other' },
+    { enterpriseId: 'foreign' },
+    { subscriptionId: 'other' },
+    { protocolVersion: 2 },
+    { taskType: 'arrangement' },
+    { runs: [{ protocolVersion: 1 }] },
+    { runs: [{ protocolVersion: 2 }] },
+    { participations: [{ subscriptionId: 'other' }] },
+    { userId: 'colleague' },
+  ])(
+    'legacy detail refuses ineligible mirror %j before reading any event',
+    async (override) => {
+      context.resolve.mockResolvedValue({ ...ctx, role: 'MEMBER' });
+      const candidate = {
+        ...legacyMirror,
+        enterpriseId: 'ent',
+        subscriptionId: 'sub',
+        protocolVersion: 1,
+        taskType: 'conversation',
+        runs: [],
+        participations: [],
+        ...override,
+      };
+      prisma.clientTaskMirror.findFirst.mockImplementation(
+        async ({ where }) => {
+          const eligible =
+            candidate.id === where.id &&
+            candidate.enterpriseId === where.enterpriseId &&
+            candidate.subscriptionId === where.subscriptionId &&
+            candidate.userId === where.userId &&
+            candidate.protocolVersion < where.protocolVersion.lt &&
+            candidate.taskType === where.taskType &&
+            where.runs.none &&
+            candidate.runs.length === 0 &&
+            where.participations.none &&
+            candidate.participations.length === 0;
+          return eligible ? candidate : null;
+        },
+      );
+      await expect(
+        service.detail('sub', 'u', 'client-legacy', 'mirror'),
+      ).rejects.toThrow(NotFoundException);
+      expect(
+        prisma.clientTaskMirror.findFirst.mock.calls[0][0].where.userId,
+      ).toBe('u');
+      expect(prisma.clientTaskMirrorEvent.findMany).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    },
+  );
+
+  it('checks legacy mirror eligibility and reads events on the same transaction client', async () => {
+    const tx = {
+      clientTaskMirror: { findFirst: jest.fn().mockResolvedValue(legacyMirror) },
+      clientTaskMirrorEvent: { findMany: jest.fn().mockResolvedValue([legacyEvent()]) },
+    };
+    prisma.$transaction.mockImplementation((read) => read(tx));
+    const result = await service.detail('sub', 'admin', 'client-legacy', 'mirror');
+    expect(result.source).toBe('client-legacy');
+    expect(tx.clientTaskMirror.findFirst).toHaveBeenCalledTimes(1);
+    expect(tx.clientTaskMirrorEvent.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.clientTaskMirror.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.clientTaskMirrorEvent.findMany.mock.invocationCallOrder[0],
+    );
+    expect(prisma.clientTaskMirror.findFirst).not.toHaveBeenCalled();
+    expect(prisma.clientTaskMirrorEvent.findMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: 'RepeatableRead' });
+  });
+
+  it('ordinary members read their own legacy body without administrator audit', async () => {
+    context.resolve.mockResolvedValue({ ...ctx, role: 'MEMBER' });
+    prisma.clientTaskMirror.findFirst.mockResolvedValue(legacyMirror);
+    const result = await service.detail('sub', 'u', 'client-legacy', 'mirror');
+    expect(result.source).toBe('client-legacy');
+    expect(
+      prisma.clientTaskMirror.findFirst.mock.calls[0][0].where.userId,
+    ).toBe('u');
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('legacy administrator body is withheld when audit fails', async () => {
+    prisma.clientTaskMirror.findFirst.mockResolvedValue(legacyMirror);
+    prisma.clientTaskMirrorEvent.findMany.mockResolvedValue([legacyEvent()]);
+    audit.record.mockRejectedValue(new Error('audit unavailable'));
+    await expect(
+      service.detail('sub', 'admin', 'client-legacy', 'mirror'),
+    ).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it.each([
+    { grant: null, status: 'ACTIVE', endDate: null },
+    { grant: { id: 'grant' }, status: 'PAUSED', endDate: null },
+    {
+      grant: { id: 'grant' },
+      status: 'ACTIVE',
+      endDate: new Date('2000-01-01'),
+    },
+  ])(
+    'legacy detail uses existing active grant/subscription policy: %j',
+    async ({ grant, ...fields }) => {
+      context.resolve.mockResolvedValue({ ...ctx, role: 'MEMBER' });
+      prisma.subscription.findFirst.mockResolvedValue({
+        ...subscription,
+        ...fields,
+      });
+      prisma.employeeGrant.findFirst.mockResolvedValue(grant);
+      await expect(
+        service.detail('sub', 'u', 'client-legacy', 'mirror'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.clientTaskMirrorEvent.findMany).not.toHaveBeenCalled();
+    },
+  );
 });

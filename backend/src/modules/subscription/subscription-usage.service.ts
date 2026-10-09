@@ -13,6 +13,7 @@ import {
   SubscriptionUsageListResponse,
   SubscriptionUsageDetailResponse,
   SubscriptionClientUsageDetail,
+  SubscriptionLegacyClientUsageDetail,
   SubscriptionModelConsumption,
 } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -110,6 +111,31 @@ export class SubscriptionUsageService {
     )`;
   }
 
+  // Legacy attribution is limited to a root conversation with no run/node data at all.
+  private legacyClientProof(scope: UsageScope): Prisma.Sql {
+    return Prisma.sql`m."enterpriseId" = ${scope.enterpriseId}
+      AND m."subscriptionId" = ${scope.subscriptionId}
+      ${scope.userId ? Prisma.sql`AND m."userId" = ${scope.userId}` : Prisma.empty}
+      AND m."protocolVersion" < 2 AND m."taskType" = 'conversation'
+      AND NOT EXISTS (SELECT 1 FROM client_task_mirror_runs r WHERE r."mirrorId" = m.id)
+      AND NOT EXISTS (SELECT 1 FROM client_task_participations p WHERE p."mirrorId" = m.id)`;
+  }
+
+  private legacyClientActivity(): Prisma.Sql {
+    return Prisma.sql`CROSS JOIN LATERAL (
+      SELECT min(e."occurredAt") AS "inputAt" FROM client_task_mirror_events e
+      WHERE e."mirrorId" = m.id AND e."clientRunId" = m."clientRunId"
+        AND e."participationId" IS NULL AND e.type = 'user_input'
+    ) legacy_input
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(m."startedAt", legacy_input."inputAt", m."queuedAt", m."createdAt") AS "usedAt",
+        CASE WHEN m."startedAt" IS NOT NULL THEN 'legacy-started'
+          WHEN legacy_input."inputAt" IS NOT NULL THEN 'legacy-input'
+          WHEN m."queuedAt" IS NOT NULL THEN 'legacy-queued'
+          ELSE 'legacy-received' END::text AS "timeBasis"
+    ) legacy_activity`;
+  }
+
   // Compare every bill, without time/user filters: an old conflicting bill also invalidates a session.
   private webProof(scope: UsageScope): Prisma.Sql {
     return Prisma.sql`
@@ -151,6 +177,15 @@ export class SubscriptionUsageService {
           ${scope.userId ? Prisma.sql`AND m."userId" = ${scope.userId}` : Prisma.empty}
           ${this.clientTimeFilter(query)}
         GROUP BY m.id, m.title, m."userId", u.name`;
+        const legacyClient = Prisma.sql`
+        SELECT 'client-legacy'::text AS source, m.id AS "recordId", m.title,
+          m."taskType", m.status, m."userId", u.name AS "userName",
+          legacy_activity."usedAt", legacy_activity."timeBasis"
+        FROM client_task_mirrors m
+        LEFT JOIN users u ON u.id = m."userId"
+        ${this.legacyClientActivity()}
+        WHERE ${this.legacyClientProof(scope)}
+          ${this.timeFilter(Prisma.sql`legacy_activity."usedAt"`, query)}`;
         const web = Prisma.sql`
         SELECT CASE WHEN s.source = 'TASK' THEN 'web-task' ELSE 'web-conversation' END::text AS source,
           s.id AS "recordId", s.title, s.source::text AS "taskType", s.status::text AS status,
@@ -169,10 +204,12 @@ export class SubscriptionUsageService {
           ${this.timeFilter(Prisma.sql`activity."usedAt"`, query)}`;
         const candidates =
           query.source === 'client'
-            ? client
-            : query.source
-              ? web
-              : Prisma.sql`${client} UNION ALL ${web}`;
+            ? Prisma.sql`${client} UNION ALL ${legacyClient}`
+            : query.source === 'client-legacy'
+              ? legacyClient
+              : query.source
+                ? web
+                : Prisma.sql`${client} UNION ALL ${legacyClient} UNION ALL ${web}`;
         const ordering =
           query.order === 'asc'
             ? Prisma.sql`"usedAt" ASC, source ASC, "recordId" ASC`
@@ -191,9 +228,11 @@ export class SubscriptionUsageService {
         const modelConsumption = await this.modelConsumption(tx, scope, query);
         const members = await this.memberOptions(tx, scope, query);
         const [legacy] = await tx.$queryRaw<
-          Array<{ count: bigint }>
+          Array<{ count: bigint; readableCount: bigint }>
         >(Prisma.sql`
-        SELECT count(*) FROM client_task_mirrors m
+        SELECT count(*) AS count,
+          count(*) FILTER (WHERE ${this.legacyClientProof(scope)}) AS "readableCount"
+        FROM client_task_mirrors m
         WHERE m."enterpriseId" = ${scope.enterpriseId}
           ${scope.userId ? Prisma.sql`AND m."userId" = ${scope.userId}` : Prisma.empty}
           AND ((m."subscriptionId" = ${id} AND m."protocolVersion" < 2)
@@ -216,10 +255,12 @@ export class SubscriptionUsageService {
           coverage: {
             preciseClientProtocolMin: 2,
             legacyClientTaskCount: Number(legacy.count),
+            readableLegacyClientTaskCount: Number(legacy.readableCount),
             legacyCountScope: 'subscription-and-user-all-time',
             web: 'strict-billing-session-owner-proof-only',
             limitations: [
               'legacy-client-attribution-unverified',
+              'legacy-time-provenance-unverified',
               'unbilled-mixed-or-deleted-web-sessions-excluded',
               'task-cost-unattributed',
             ],
@@ -250,6 +291,11 @@ export class SubscriptionUsageService {
           AND p."employeeId" = ${scope.employeeId} AND r."protocolVersion" >= 2
           ${optionsScope.userId ? Prisma.sql`AND m."userId" = ${optionsScope.userId}` : Prisma.empty}
           ${this.clientTimeFilter(query)}
+        UNION
+        SELECT m."userId" FROM client_task_mirrors m
+        ${this.legacyClientActivity()}
+        WHERE ${this.legacyClientProof(optionsScope)}
+          ${this.timeFilter(Prisma.sql`legacy_activity."usedAt"`, query)}
         UNION
         SELECT s."userId" FROM conversation_sessions s
         CROSS JOIN LATERAL (
@@ -319,6 +365,8 @@ export class SubscriptionUsageService {
         async (tx) => {
           if (source === 'client')
             return this.clientDetail(tx, scope, recordId);
+          if (source === 'client-legacy')
+            return this.legacyClientDetail(tx, scope, recordId);
           const [session] = await tx.$queryRaw<
             Array<{
               id: string;
@@ -372,6 +420,105 @@ export class SubscriptionUsageService {
       }
     }
     return result;
+  }
+
+  private async legacyClientDetail(
+    tx: Prisma.TransactionClient,
+    scope: UsageScope,
+    recordId: string,
+  ): Promise<SubscriptionLegacyClientUsageDetail> {
+    const mirror = await tx.clientTaskMirror.findFirst({
+      where: {
+        id: recordId,
+        enterpriseId: scope.enterpriseId,
+        subscriptionId: scope.subscriptionId,
+        ...(scope.userId ? { userId: scope.userId } : {}),
+        protocolVersion: { lt: 2 },
+        taskType: 'conversation',
+        runs: { none: {} },
+        participations: { none: {} },
+      },
+      select: {
+        id: true,
+        clientTaskId: true,
+        title: true,
+        userId: true,
+        clientRunId: true,
+        status: true,
+        queuedAt: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!mirror) throw new NotFoundException('使用记录不存在或无法核实归属');
+    const events = await tx.clientTaskMirrorEvent.findMany({
+      where: {
+        mirrorId: mirror.id,
+        clientRunId: mirror.clientRunId,
+        participationId: null,
+        type: { in: ['user_input', 'model_output'] },
+      },
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        participationId: true,
+        clientRunId: true,
+        sequence: true,
+        type: true,
+        stepKey: true,
+        message: true,
+        progress: true,
+        occurredAt: true,
+        createdAt: true,
+      },
+    });
+    const inputAt = events
+      .filter((e) => e.type === 'user_input' && e.occurredAt !== null)
+      .reduce<Date | null>(
+        (earliest, e) =>
+          !earliest || e.occurredAt < earliest ? e.occurredAt : earliest,
+        null,
+      );
+    const usedAt =
+      mirror.startedAt ?? inputAt ?? mirror.queuedAt ?? mirror.createdAt;
+    const timeBasis = mirror.startedAt
+      ? 'legacy-started'
+      : inputAt
+        ? 'legacy-input'
+        : mirror.queuedAt
+          ? 'legacy-queued'
+          : 'legacy-received';
+    return {
+      source: 'client-legacy',
+      recordId,
+      task: {
+        id: mirror.id,
+        clientTaskId: mirror.clientTaskId,
+        title: mirror.title,
+        userId: mirror.userId,
+      },
+      run: {
+        clientRunId: mirror.clientRunId,
+        status: mirror.status,
+        queuedAt: mirror.queuedAt?.toISOString() ?? null,
+        startedAt: mirror.startedAt?.toISOString() ?? null,
+        completedAt: mirror.completedAt?.toISOString() ?? null,
+        usedAt: usedAt.toISOString(),
+        timeBasis,
+      },
+      events: events.map((e) => ({
+        ...e,
+        participationId: null,
+        occurredAt: e.occurredAt?.toISOString() ?? null,
+        createdAt: e.createdAt.toISOString(),
+      })),
+      coverage: {
+        attribution: 'legacy-root-subscription-unverified',
+        currentRunOnly: true,
+        taskCost: 'unknown',
+      },
+    };
   }
 
   private async clientDetail(

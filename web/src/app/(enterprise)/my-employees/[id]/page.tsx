@@ -713,7 +713,8 @@ export default function EmployeeDetailPage() {
                 className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
               >
                 <option value="">全部来源</option>
-                <option value="client">客户端任务</option>
+                <option value="client">客户端（含旧记录）</option>
+                <option value="client-legacy">旧客户端记录</option>
                 <option value="web-conversation">Web 对话</option>
                 <option value="web-task">Web 任务会话</option>
               </select>

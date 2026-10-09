@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const SubscriptionUsageSourceSchema = z.enum([
   'client',
+  'client-legacy',
   'web-conversation',
   'web-task',
 ]);
@@ -57,6 +58,9 @@ export type SubscriptionUsageRecordParams = z.infer<
   typeof SubscriptionUsageRecordParamsSchema
 >;
 
+export type SubscriptionLegacyClientTimeBasis =
+  'legacy-started' | 'legacy-input' | 'legacy-queued' | 'legacy-received';
+
 export interface SubscriptionUsageRecord {
   source: SubscriptionUsageSource;
   recordId: string;
@@ -67,7 +71,9 @@ export interface SubscriptionUsageRecord {
   userName: string | null;
   usedAt: string;
   timeBasis:
-    'participation-start-or-run-queued' | 'last-message-or-session-created';
+    | 'participation-start-or-run-queued'
+    | 'last-message-or-session-created'
+    | SubscriptionLegacyClientTimeBasis;
 }
 
 export interface SubscriptionModelConsumption {
@@ -98,6 +104,7 @@ export interface SubscriptionUsageListResponse {
   coverage: {
     preciseClientProtocolMin: 2;
     legacyClientTaskCount: number;
+    readableLegacyClientTaskCount: number;
     legacyCountScope: 'subscription-and-user-all-time';
     web: 'strict-billing-session-owner-proof-only';
     limitations: string[];
@@ -150,6 +157,32 @@ export interface SubscriptionClientUsageDetail {
   };
 }
 
+export interface SubscriptionLegacyClientUsageDetail {
+  source: 'client-legacy';
+  recordId: string;
+  task: { id: string; clientTaskId: string; title: string; userId: string };
+  run: {
+    clientRunId: string;
+    status: string;
+    queuedAt: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    usedAt: string;
+    timeBasis: SubscriptionLegacyClientTimeBasis;
+  };
+  events: Array<
+    Omit<SubscriptionUsageEvent, 'participationId'> & {
+      participationId: null;
+      progress: number | null;
+    }
+  >;
+  coverage: {
+    attribution: 'legacy-root-subscription-unverified';
+    currentRunOnly: true;
+    taskCost: 'unknown';
+  };
+}
+
 export interface SubscriptionWebUsageDetail {
   source: 'web-conversation' | 'web-task';
   recordId: string;
@@ -171,4 +204,6 @@ export interface SubscriptionWebUsageDetail {
 }
 
 export type SubscriptionUsageDetailResponse =
-  SubscriptionClientUsageDetail | SubscriptionWebUsageDetail;
+  | SubscriptionClientUsageDetail
+  | SubscriptionLegacyClientUsageDetail
+  | SubscriptionWebUsageDetail;

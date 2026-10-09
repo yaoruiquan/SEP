@@ -3,7 +3,7 @@ import {
   Request, UseGuards, HttpCode, HttpStatus, Query, BadRequestException,
 } from '@nestjs/common';
 import {
-  ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
+  ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionService } from './subscription.service';
@@ -19,6 +19,7 @@ import {
   SubscriptionUsageQueryDtoSchema,
   SubscriptionUsageRecordParams,
   SubscriptionUsageRecordParamsSchema,
+  SubscriptionUsageSourceSchema,
 } from 'shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
@@ -41,8 +42,9 @@ export class SubscriptionController {
   }
 
   @Get(':id/usage-records/:source/:recordId')
-  @ApiOperation({ summary: '读取严格归属当前订阅的使用正文，不扩大个人聊天接口权限' })
-  @ApiResponse({ status: 200, description: '当前订阅参与节点或严格归属 Web 会话的正文' })
+  @ApiOperation({ summary: '按当前订阅授权范围读取使用正文，区分已核实与旧客户端记录' })
+  @ApiParam({ name: 'source', enum: SubscriptionUsageSourceSchema.options })
+  @ApiResponse({ status: 200, description: '已核实参与/Web 会话正文，或标为归属未核实的旧单员工对话正文' })
   @ApiResponse({ status: 400, description: '记录来源或标识不正确' })
   @ApiResponse({ status: 403, description: '无有效使用授权' })
   @ApiResponse({ status: 404, description: '记录不存在或无法核实归属' })

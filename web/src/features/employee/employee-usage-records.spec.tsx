@@ -66,6 +66,71 @@ beforeEach(() => {
 });
 
 describe("EmployeeUsageRecords", () => {
+  it("旧记录与已核实记录区分，并说明覆盖数量和日期范围", () => {
+    renderRecords({ data: {
+      ...data,
+      items: [{ ...record, source: "client-legacy", taskType: "conversation", timeBasis: "legacy-received" }],
+      coverage: { legacyClientTaskCount: 3, readableLegacyClientTaskCount: 2 },
+    } });
+    expect(screen.getByText("旧客户端记录")).toBeInTheDocument();
+    expect(screen.getByText("对话 · 归属未核实")).toBeInTheDocument();
+    expect(screen.getByText(/其中 2 项可在员工页读取/)).toBeInTheDocument();
+    expect(screen.getByText("接收时间，执行时间未知")).toBeInTheDocument();
+    expect(screen.getByText(/历史记录可能早于当前日期范围/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "客户端监控" })).toHaveAttribute(
+      "href", "/tasks?tab=monitoring&subscriptionId=sub-1",
+    );
+  });
+
+  it("旧记录正文只有一个运行批次，缺片和接收时间明确标注", () => {
+    const legacyRecord: EmployeeUsageRecord = {
+      ...record, source: "client-legacy", title: "历史对话", timeBasis: "legacy-received",
+    };
+    mocks.response = {
+      source: "client-legacy", recordId: record.recordId,
+      task: { id: record.recordId, clientTaskId: "task-1", title: "历史对话" },
+      run: {
+        clientRunId: "old-run", status: "COMPLETED", queuedAt: null,
+        startedAt: null, completedAt: null, usedAt: record.usedAt, timeBasis: "legacy-received",
+      },
+      events: [{
+        id: "legacy-1", clientRunId: "old-run", participationId: null,
+        sequence: 1, type: "model_output", stepKey: "content:v1:old:0:2",
+        message: "历史输出", progress: null, occurredAt: null, createdAt: record.usedAt,
+      }],
+    };
+    renderRecords({ data: { ...data, items: [legacyRecord] } });
+    fireEvent.click(screen.getByRole("button", { name: "查看 历史对话" }));
+    expect(mocks.detail).toHaveBeenLastCalledWith("sub-1", legacyRecord);
+    expect(screen.getByText(/按任务原始雇佣关系/)).toHaveTextContent("归属未核实");
+    expect(screen.queryByRole("combobox", { name: "运行批次" })).not.toBeInTheDocument();
+    expect(screen.getByText(/历史输出/)).toHaveTextContent("[缺失片段]");
+    expect(screen.getByText(/正文不完整/)).toHaveTextContent("接收于");
+    expect(screen.getByText(/已完成 · 接收于/)).toHaveTextContent("执行时间未知");
+    expect(screen.getByRole("link", { name: "任务监控" })).toHaveAttribute(
+      "href", "/tasks?tab=monitoring&subscriptionId=sub-1&taskId=mirror-1",
+    );
+  });
+
+  it("没有旧记录数量的新字段时不猜测可读数，空列表不等于没有消费", () => {
+    renderRecords({ data: { ...data, items: [], total: 0 } });
+    expect(screen.getByText(/当前服务版本尚未提供/)).toBeInTheDocument();
+    expect(screen.getByText("当前筛选下暂无可展示的使用记录")).toBeInTheDocument();
+    expect(screen.getByText(/模型账单不代表已同步正文/)).toBeInTheDocument();
+  });
+
+  it("旧记录无正文时显示同步状态，监控复用可关闭跳转", () => {
+    render(<EmployeeUsageBody subscriptionId="sub-1" showMonitorLink={false} detail={{
+      source: "client-legacy", recordId: "mirror-1",
+      task: { id: "mirror-1", clientTaskId: "task-1", title: "历史对话" },
+      run: { clientRunId: "run-1", status: "COMPLETED", queuedAt: record.usedAt,
+        startedAt: null, completedAt: null, usedAt: record.usedAt, timeBasis: "legacy-queued" },
+      events: [],
+    }} />);
+    expect(screen.getByText("该旧记录暂无已同步正文")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "任务监控" })).not.toBeInTheDocument();
+  });
+
   it("监控可复用订阅范围正文而不再生成循环跳转链接", () => {
     render(<EmployeeUsageBody subscriptionId="sub-1" showMonitorLink={false} detail={{
       source: "client", recordId: "mirror-1",

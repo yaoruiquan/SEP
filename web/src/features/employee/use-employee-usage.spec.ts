@@ -43,6 +43,20 @@ describe("employee usage filters", () => {
     expect(api.get).toHaveBeenCalledTimes(2);
   });
 
+  it("legacy details retain a separate source endpoint and cache identity", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    clients.push(client);
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+    vi.mocked(api.get).mockResolvedValue({ source: "client-legacy", events: [] });
+    const { result } = renderHook(() => useEmployeeUsageDetail("sub-1", {
+      source: "client-legacy", recordId: "mirror/a?b",
+    }), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.get).toHaveBeenCalledWith("/subscriptions/sub-1/usage-records/client-legacy/mirror%2Fa%3Fb");
+    expect(client.getQueryCache().getAll()[0].queryKey).toContain("client-legacy");
+    expect(usageQueryString({ source: "client-legacy" })).toBe("source=client-legacy");
+  });
+
   it("allows monitor details to retain polling without enabling it for other callers", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     clients.push(client);
