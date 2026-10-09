@@ -152,7 +152,7 @@ docker stop sep-backend sep-web 2>/dev/null || true
 
 ## 自动资源维护
 
-生产机使用 `maintenance-sep.sh` 定期清理可重建的 Docker BuildKit 缓存、已退出容器和 systemd journal。脚本带文件锁，支持磁盘阈值告警，并且不会执行 `docker system prune -a`、不会删除镜像卷，也不会触碰 PostgreSQL、Redis、Ollama、上传文件和员工包数据。
+生产机使用 `maintenance-sep.sh` 定期清理可重建的 Docker BuildKit 缓存和 systemd journal。脚本同时获取维护锁与 SEP 部署锁，部署期间跳过维护，支持磁盘阈值告警。不会执行 `docker system prune -a` 或全局容器清理，不删除镜像、数据卷、备份、已停止的回滚环境或暂时停用的 Ollama。
 
 在服务器首次安装（路径按实际 checkout 调整）：
 
@@ -167,7 +167,7 @@ systemctl enable --now sep-maintenance.timer
 systemctl list-timers sep-maintenance.timer
 ```
 
-默认每周日凌晨运行，保留 7 天构建缓存和 14 天 journal；维护日志每周轮转并保留 8 份。磁盘达到 75% 会记录告警，达到 85% 会额外回收全部可回收 BuildKit 缓存；清理后仍超过 85% 会以失败退出，交给人工处理。可通过 systemd override 调整：
+默认每周日凌晨运行，按 7 天窗口清理旧构建缓存，并设置 20 GB 缓存保留预算；保留 14 天 journal，维护日志每周轮转并保留 8 份。磁盘达到 75% 会记录告警，达到 85% 会解除缓存年龄筛选，但仍保留缓存预算；清理后仍超过 85% 会以失败退出，交给人工处理。预算不保证磁盘上的所有缓存立即降至 20 GB，仍受可回收范围及年龄筛选限制。可通过 systemd override 调整：
 
 ```bash
 systemctl edit sep-maintenance.service
@@ -178,6 +178,7 @@ systemctl edit sep-maintenance.service
 Environment=SEP_MAINTENANCE_WARN_PERCENT=75
 Environment=SEP_MAINTENANCE_CRITICAL_PERCENT=85
 Environment=SEP_BUILD_CACHE_AGE=168h
+Environment=SEP_BUILD_CACHE_KEEP_STORAGE=20GB
 Environment=SEP_JOURNAL_RETENTION=14d
 Environment=SEP_JOURNAL_MAX_SIZE=500M
 ```
@@ -191,6 +192,16 @@ tail -100 /var/log/sep-maintenance.log
 ```
 
 脚本只回收可重建缓存；旧发布镜像和备份不会自动删除，避免失去回滚版本或恢复点。定期仍需人工检查 `docker system df` 和备份保留策略。
+
+蓝绿发布前的缓存清理默认使用 48 小时窗口及相同的 20 GB 保留预算，可以用 `SEP_PRUNE_BUILDER_CACHE=false` 跳过。生产蓝绿环境和联调环境的前后端均配置 JSON 日志轮转（每份 20 MB，最多 5 份）；已有容器需重建后生效，仅修改 Compose 文件或 `docker restart` 不会更新日志驱动参数。
+
+人工删除历史 SEP 镜像时，必须保留当前 `active-color` 和 `previous-target` 容器实际引用的镜像，以及联调和共享服务镜像；先按明确版本列出候选，检查所有运行及停止容器引用，再执行不带 `--force` 的定向 `docker image rm`。不要用镜像年龄判断取代实际引用检查。
+
+### 暂停本地嵌入服务
+
+用户要求暂时停用知识嵌入时，使用 `docker stop sep-ollama`，并将容器重启策略设为 `unless-stopped`，避免宿主机重启后自动恢复已手动停止的服务。保留容器、模型卷和镜像；恢复使用 `docker start sep-ollama`。
+
+当前应用将嵌入服务作为生产 readiness 的必需依赖。因此停用期间 `/api/health/ready` 会如实返回 503、`checks.embedding=failed`；知识向量生成及语义检索暂不可用，现有发布/回滚脚本也会在 readiness 检查处阻止切换。普通 Web、认证、技能审核和模型网关仍可独立运行。不要将健康检查改为假成功；需要再次发布或回滚时先恢复嵌入服务，或另行实现明确的功能停用与降级契约。
 
 ## 蓝绿发布与回滚
 

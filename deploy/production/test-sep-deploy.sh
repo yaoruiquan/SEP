@@ -68,6 +68,11 @@ if [[ "${1:-}" == run ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == builder ]]; then
+  printf '%s\n' "$*" >> "$MOCK_DOCKER_CALLS"
+  exit 0
+fi
+
 if [[ "${1:-}" == inspect ]]; then
   printf '%s\n' healthy
   exit 0
@@ -91,6 +96,12 @@ source "$ROOT_DIR/deploy/production/sep-deploy.sh"
 [[ "$(color_target blue)" == sep-blue-web ]]
 [[ "$(target_color sep-green-web)" == green ]]
 [[ "$(target_backend sep-green-web)" == sep-green-backend ]]
+
+prune_build_cache
+grep -Fxq 'builder prune --all --force --filter until=48h --keep-storage 20GB' "$MOCK_DOCKER_CALLS"
+cache_calls_before=$(wc -l < "$MOCK_DOCKER_CALLS")
+SEP_PRUNE_BUILDER_CACHE=false prune_build_cache
+[[ "$(wc -l < "$MOCK_DOCKER_CALLS")" == "$cache_calls_before" ]]
 
 ensure_upload_volume_permissions sep-green-backend:test
 grep -Fq -- '--user 0:0' "$MOCK_DOCKER_CALLS"

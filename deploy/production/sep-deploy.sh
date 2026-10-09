@@ -462,8 +462,10 @@ prune_build_cache() {
     info "已跳过 Docker 构建缓存清理（SEP_PRUNE_BUILDER_CACHE != true）"
     return 0
   fi
-  info "清理未使用的 Docker 构建缓存..."
-  docker builder prune --all --force
+  info "清理较旧 Docker 构建缓存，保留近期缓存和存储预算..."
+  docker builder prune --all --force \
+    --filter "until=${SEP_BUILD_CACHE_AGE:-48h}" \
+    --keep-storage "${SEP_BUILD_CACHE_KEEP_STORAGE:-20GB}"
 }
 
 cmd_deploy_bluegreen() {

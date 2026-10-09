@@ -55,6 +55,11 @@ x-backend-environment: &backend-environment
 
 x-backend-defaults: &backend-defaults
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
   mem_limit: 512m
   environment: *backend-environment
   volumes:
@@ -71,6 +76,11 @@ x-backend-defaults: &backend-defaults
 
 x-web-defaults: &web-defaults
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
   mem_limit: 384m
   environment:
     NODE_ENV: production

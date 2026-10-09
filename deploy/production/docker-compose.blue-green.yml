@@ -63,6 +63,11 @@ x-backend-environment: &backend-environment
 
 x-backend-defaults: &backend-defaults
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
   # 这台机器与龙道 AI 中转、共享 postgres 同宿主。不设上限时 SEP 一旦内存泄漏会吃满
   # 整机内存，OOM killer 通常挑占用最大的进程杀 —— 很可能是中转或 postgres。
   mem_limit: 768m
@@ -81,6 +86,11 @@ x-backend-defaults: &backend-defaults
 
 x-web-defaults: &web-defaults
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
   mem_limit: 512m
   environment:
     NODE_ENV: production
