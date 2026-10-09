@@ -4,12 +4,15 @@ import { Reflector } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
 import { THROTTLER_SKIP, THROTTLER_LIMIT } from '@nestjs/throttler/dist/throttler.constants';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { Prisma } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientService } from './client.service';
 import { ClientController } from './client.controller';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   ClientTaskEventDtoSchema,
+  CreateClientTaskMirrorDtoSchema,
+  ClientTaskHeartbeatDtoSchema,
   ClientTaskMirrorQueryDtoSchema,
   UpdateClientTaskMirrorStatusDtoSchema,
 } from 'shared';
@@ -21,6 +24,7 @@ const makeRow = (overrides: Record<string, unknown> = {}) => ({
   modelId: null, clientVersion: null, status: 'QUEUED', progress: 0, lastSequence: 0,
   currentStep: null, activity: null, errorSummary: null, lastHeartbeatAt: null,
   startedAt: null, completedAt: null, createdAt, updatedAt: createdAt,
+  protocolVersion: 1, queuedAt: null,
   ...overrides,
 });
 const createBody = (overrides: Record<string, unknown> = {}) => ({
@@ -31,55 +35,124 @@ const createBody = (overrides: Record<string, unknown> = {}) => ({
 function fixture(role = 'MEMBER') {
   let rows: any[] = [];
   let events: any[] = [];
+  let runs: any[] = [];
+  let participations: any[] = [];
   const ctx = { enterpriseId: 'ent-1', memberId: 'member-1', departmentId: 'dept-1', role };
   const context = { resolve: jest.fn().mockResolvedValue(ctx) };
-  const matches = (row: any, where: any) => Object.entries(where ?? {}).every(([key, value]) =>
-    key === 'userId_clientTaskId'
-      ? row.userId === (value as any).userId && row.clientTaskId === (value as any).clientTaskId
-      : row[key] === value,
-  );
-  const withUser = (row: any, include: any) => !row ? null : ({
-    ...row, ...(include ? { user: { id: row.userId, name: row.userId === 'user-1' ? 'Alice' : null } } : {}),
+  const relation = (row: any, key: string) => key === 'user'
+    ? { id: row.userId, name: row.userId === 'user-1' ? 'Alice' : null }
+    : key === 'mirror' ? rows.find(item => item.id === row.mirrorId)
+    : key === 'run' ? runs.find(item => item.id === row.runId)
+    : key === 'runs' ? runs.filter(item => item.mirrorId === row.id)
+    : key === 'participations' ? participations.filter(item => row.clientTaskId ? item.mirrorId === row.id : item.runId === row.id)
+    : key === 'events' ? events.filter(item => row.executionId ? item.participationId === row.id : item.mirrorId === row.id)
+    : row[key];
+  const matches = (row: any, where: any): boolean => !!row && Object.entries(where ?? {}).every(([key, value]: [string, any]) => {
+    if (key === 'AND') return (Array.isArray(value) ? value : [value]).every(item => matches(row, item));
+    if (key === 'OR') return value.some((item: any) => matches(row, item));
+    if (key.includes('_')) return matches(row, value);
+    const actual = relation(row, key);
+    if (value === null || typeof value !== 'object' || value instanceof Date) return +actual === +value && actual instanceof Date || actual === value;
+    if ('some' in value) return actual.some((item: any) => matches(item, value.some));
+    if ('in' in value) return value.in.includes(actual);
+    if ('contains' in value) return value.mode === 'insensitive'
+      ? actual.toLowerCase().includes(value.contains.toLowerCase()) : actual.includes(value.contains);
+    if ('gte' in value || 'lt' in value) return actual != null && (!value.gte || actual >= value.gte) && (!value.lt || actual < value.lt);
+    return matches(actual, value);
   });
+  const findMany = (data: any[], args: any = {}): any[] => {
+    const order = Array.isArray(args.orderBy) ? args.orderBy : args.orderBy ? [args.orderBy] : [];
+    let result = data.filter(row => matches(row, args.where)).sort((a, b) => {
+      for (const spec of order) {
+        const [key, rule] = Object.entries(spec)[0] as [string, any];
+        const direction = typeof rule === 'string' ? rule : rule.sort;
+        if (a[key] == null && b[key] != null) return 1;
+        if (b[key] == null && a[key] != null) return -1;
+        const cmp = a[key] > b[key] ? 1 : a[key] < b[key] ? -1 : 0;
+        if (cmp) return direction === 'desc' ? -cmp : cmp;
+      }
+      return 0;
+    });
+    if (args.distinct) result = result.filter((row, i, all) => all.findIndex(other => args.distinct.every((key: string) => row[key] === other[key])) === i);
+    return result.slice(args.skip ?? 0, args.take === undefined ? undefined : (args.skip ?? 0) + args.take)
+      .map(row => project(row, args));
+  };
+  const project = (row: any, args: any = {}): any => {
+    if (!row) return null;
+    const output = args.select ? {} : { ...row };
+    for (const [key, spec] of Object.entries(args.select ?? args.include ?? {}) as [string, any][]) {
+      const value = relation(row, key);
+      output[key] = spec === true ? value : Array.isArray(value) ? findMany(value, spec) : project(value, spec);
+    }
+    return output;
+  };
+  const update = (data: any[], { where, data: changes }: any) => {
+    const row = data.find(row => matches(row, where));
+    if (!row) throw new Error('Missing fixture row');
+    Object.entries(changes).forEach(([key, value]) => { if (value !== undefined) row[key] = value; });
+    return { ...row };
+  };
   const prisma: any = {
-    subscription: { findFirst: jest.fn().mockResolvedValue({ id: 'sub-1' }) },
+    subscription: { findFirst: jest.fn(async ({ where }) => ({ id: where.id, name: `Subscription ${where.id}`,
+      employeeId: `employee-${where.id}`, employee: { name: `Employee ${where.id}` } })) },
     clientTaskMirror: {
-      findUnique: jest.fn(async ({ where, include }) => withUser(rows.find(row => matches(row, where)), include)),
-      findFirst: jest.fn(async ({ where, include }) => withUser(rows.find(row => matches(row, where)), include)),
-      findMany: jest.fn(async ({ where, include, skip = 0, take }) => rows
-        .filter(row => matches(row, where))
-        .sort((a, b) => +b.updatedAt - +a.updatedAt || b.id.localeCompare(a.id))
-        .slice(skip, skip + take).map(row => withUser(row, include))),
+      findUnique: jest.fn(async args => project(rows.find(row => matches(row, args.where)), args)),
+      findFirst: jest.fn(async args => project(rows.find(row => matches(row, args.where)), args)),
+      findMany: jest.fn(async args => findMany(rows, args)),
       count: jest.fn(async ({ where }) => rows.filter(row => matches(row, where)).length),
       create: jest.fn(async ({ data }) => {
         const row = makeRow(data);
         rows.push(row);
         return { ...row };
       }),
-      update: jest.fn(async ({ where, data }) => {
-        const row = rows.find(row => matches(row, where));
-        if (!row) throw new Error('Missing fixture row');
-        Object.entries(data).forEach(([key, value]) => { if (value !== undefined) row[key] = value; });
-        return { ...row };
+      update: jest.fn(async args => update(rows, args)),
+    },
+    clientTaskMirrorRun: {
+      findUnique: jest.fn(async args => project(runs.find(row => matches(row, args.where)), args)),
+      findMany: jest.fn(async args => findMany(runs, args)),
+      create: jest.fn(async ({ data }) => {
+        const row = { id: `run-${runs.length}`, createdAt, updatedAt: createdAt, ...data };
+        runs.push(row); return { ...row };
       }),
+      update: jest.fn(async args => update(runs, args)),
+    },
+    clientTaskParticipation: {
+      findUnique: jest.fn(async args => project(participations.find(row => matches(row, args.where)), args)),
+      findMany: jest.fn(async args => findMany(participations, args)),
+      create: jest.fn(async ({ data }) => {
+        const row: any = { id: `participation-${participations.length}`, status: 'QUEUED', nodeId: null,
+          title: null, modelId: null, createdAt, updatedAt: createdAt };
+        Object.entries(data).forEach(([key, value]) => { if (value !== undefined) row[key] = value; });
+        participations.push(row); return { ...row };
+      }),
+      update: jest.fn(async args => update(participations, args)),
     },
     clientTaskMirrorEvent: {
-      create: jest.fn(async ({ data }) => { const row = { id: `event-${events.length}`, ...data }; events.push(row); return row; }),
-      findMany: jest.fn(async ({ where }) => events.filter(row => matches(row, where)).sort((a, b) => a.sequence - b.sequence)),
+      create: jest.fn(async ({ data }) => { const row = { id: `event-${events.length}`, createdAt,
+        ...data, participationId: data.participationId ?? null,
+        participationMetadata: data.participationMetadata === Prisma.DbNull ? null : data.participationMetadata };
+        events.push(row); return row; }),
+      findUnique: jest.fn(async args => project(events.find(row => matches(row, args.where)), args)),
+      findFirst: jest.fn(async args => findMany(events, args)[0] ?? null),
+      findMany: jest.fn(async args => findMany(events, args)),
     },
   };
   prisma.$transaction = jest.fn(async (work: any) => {
     const originalRows = rows.map(row => ({ ...row }));
     const originalEvents = events.map(row => ({ ...row }));
+    const originalRuns = runs.map(row => ({ ...row }));
+    const originalParticipations = participations.map(row => ({ ...row }));
     try { return await work(prisma); } catch (error) {
       rows = originalRows;
       events = originalEvents;
+      runs = originalRuns;
+      participations = originalParticipations;
       throw error;
     }
   });
   const service = new ClientService(prisma, null!, null!, null!, context as any, null!, null!, null!, null!);
   return { service, prisma, context, ctx, seed: (...data: any[]) => rows.push(...data),
-    rows: () => rows, events: () => events };
+    rows: () => rows, events: () => events, runs: () => runs, participations: () => participations };
 }
 
 describe('Client task mirror permissions and pagination', () => {
@@ -115,8 +188,8 @@ describe('Client task mirror permissions and pagination', () => {
     expect(result[0].id).toBe('mirror-104');
     expect(result[0].user).toEqual({ id: 'user-1', name: 'Alice' });
     expect(f.prisma.clientTaskMirror.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: 100,
-      include: { user: { select: { id: true, name: true } } },
+      orderBy: [{ queuedAt: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }], take: 100,
+      include: expect.objectContaining({ user: { select: { id: true, name: true } } }),
     }));
   });
 
@@ -273,17 +346,18 @@ describe('Client task mirror create and run synchronization', () => {
     expect(detail.events.map(event => event.clientRunId)).toEqual(['run-1', 'run-2']);
   });
 
-  it('sequence watermark is global across runs and duplicates never write events or state', async () => {
+  it('sequence identity is per run, not a global watermark; persisted replays never write twice', async () => {
     const f = fixture();
     f.seed(makeRow({ clientRunId: 'run-2', lastSequence: 8, progress: 20 }));
     for (const clientRunId of ['run-1', 'run-2']) {
       const result = await f.service.eventTaskMirror('user-1', 'mirror-1', { clientRunId, sequence: 8, type: 'user_input', progress: 90 });
-      expect(result).toMatchObject({ duplicate: true, lastSequence: 8, progress: 20 });
+      expect(result).toMatchObject({ lastSequence: 8 });
+      expect(result).not.toHaveProperty('duplicate');
     }
     const body = { sequence: 9, clientRunId: 'run-2', type: 'model_output', message: 'text' };
     await f.service.eventTaskMirror('user-1', 'mirror-1', body);
     expect(await f.service.eventTaskMirror('user-1', 'mirror-1', body)).toMatchObject({ duplicate: true, lastSequence: 9 });
-    expect(f.events()).toHaveLength(1);
+    expect(f.events()).toHaveLength(3);
   });
 
   it('text chunks round-trip exactly including whitespace/newlines and ordering', async () => {
@@ -309,12 +383,13 @@ describe('Client task mirror create and run synchronization', () => {
     expect(f.prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 
-  it('event race retries observe updated watermark and do not write twice', async () => {
+  it('event race retries observe persisted identity and do not write twice', async () => {
     const f = fixture();
     f.seed(makeRow({ lastSequence: 1 }));
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'user_input' });
     f.prisma.$transaction.mockRejectedValueOnce({ code: 'P2034' });
     expect(await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'user_input' })).toMatchObject({ duplicate: true });
-    expect(f.events()).toEqual([]);
+    expect(f.events()).toHaveLength(1);
   });
 
   it('event/update failure rolls back archival watermark and does not swallow unexpected failures', async () => {
@@ -335,10 +410,220 @@ describe('Client task mirror create and run synchronization', () => {
   });
 });
 
+describe('Client task monitor v2 runs and participation', () => {
+  const v2 = (overrides: Record<string, unknown> = {}) => createBody({ protocolVersion: 2 as const,
+    queuedAt: '2026-10-08T08:00:00+08:00', ...overrides });
+  const participant = (overrides: Record<string, unknown> = {}) => ({ executionId: 'node-run-1',
+    subscriptionId: 'sub-1', nodeId: 'node-1', title: 'Node', modelId: 'model-1', ...overrides });
+
+  it('v2 freezes verified snapshots and replay never reselects or rewinds an old run', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING' });
+    await f.service.createTaskMirror('user-1', v2({ clientRunId: 'run-2', subscriptionId: 'sub-2' }));
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING', progress: 30 });
+    f.prisma.subscription.findFirst.mockResolvedValue(null);
+    const replay = await f.service.createTaskMirror('user-1', v2());
+    expect(replay).toMatchObject({ clientRunId: 'run-2', subscriptionId: 'sub-2', status: 'RUNNING', progress: 30 });
+    expect(f.prisma.subscription.findFirst).toHaveBeenCalledTimes(2);
+    expect(f.runs()).toHaveLength(2);
+    expect(f.runs()[0]).toMatchObject({ protocolVersion: 2, employeeId: 'employee-sub-1',
+      employeeName: 'Employee sub-1', subscriptionName: 'Subscription sub-1', queuedAt: createdAt });
+    await expect(f.service.createTaskMirror('user-1', v2({ subscriptionId: 'sub-2' }))).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('never backfills proof for a legacy run and does not accept participation without a proven run', async () => {
+    const f = fixture();
+    f.seed(makeRow());
+    await expect(f.service.createTaskMirror('user-1', v2())).rejects.toBeInstanceOf(ConflictException);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'node_started',
+      participation: participant() })).rejects.toBeInstanceOf(ConflictException);
+    expect(f.runs()).toEqual([]);
+    expect(f.participations()).toEqual([]);
+    expect(f.events()).toEqual([]);
+  });
+
+  it('historical proven status changes only the run, stale heartbeat and unknown old status are rejected', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    await f.service.createTaskMirror('user-1', v2({ clientRunId: 'run-2' }));
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING', progress: 40 });
+    const current = { ...f.rows()[0] };
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-1', status: 'COMPLETED',
+      progress: 100, completedAt: '2026-10-08T02:00:00Z' });
+    expect(f.runs()[0]).toMatchObject({ status: 'COMPLETED', completedAt: new Date('2026-10-08T02:00:00Z') });
+    expect(f.rows()[0]).toEqual(current);
+    await expect(f.service.heartbeatTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-1', progress: 0 })).rejects.toBeInstanceOf(ConflictException);
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { clientRunId: 'unproven', status: 'FAILED' })).rejects.toBeInstanceOf(ConflictException);
+    expect(await f.service.heartbeatTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-2' })).toMatchObject({ lastHeartbeatAt: expect.any(Date) });
+  });
+
+  it('admits participants once, reuses snapshots after revocation, and keeps repeated executions separate', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'node_started',
+      participation: participant({ status: 'RUNNING', startedAt: '2026-10-08T00:00:01Z' }) });
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 2, type: 'node_started',
+      participation: participant({ executionId: 'node-run-2', subscriptionId: 'sub-2', status: 'RUNNING' }) });
+    f.prisma.subscription.findFirst.mockResolvedValue(null);
+    const chunk = { sequence: 3, type: 'model_output', stepKey: 'content:v1:m:0:1', message: ' actual output ',
+      participation: participant({ status: 'COMPLETED', completedAt: '2026-10-08T01:00:00Z' }) };
+    await f.service.eventTaskMirror('user-1', 'mirror-1', chunk);
+    expect(await f.service.eventTaskMirror('user-1', 'mirror-1', chunk)).toMatchObject({ duplicate: true });
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 4, type: 'model_output', message: 'aggregate' });
+    expect(f.prisma.subscription.findFirst).toHaveBeenCalledTimes(3);
+    expect(f.participations()).toHaveLength(2);
+    expect(f.participations()[0]).toMatchObject({ status: 'COMPLETED', employeeName: 'Employee sub-1' });
+    expect(f.events()[2]).toMatchObject({ participationId: f.participations()[0].id });
+    expect(f.events()[3].participationId).toBeNull();
+    const detail = await f.service.getTaskMirror('user-1', 'mirror-1');
+    expect(detail.runs[0].participations).toHaveLength(2);
+    expect(detail.runs[0].participations[0].events.map(event => event.message)).toEqual([null, ' actual output ']);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 5, type: 'node_started',
+      participation: participant({ executionId: 'new-denied' }) })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 5, type: 'node_finished',
+      participation: participant({ subscriptionId: 'sub-2' }) })).rejects.toBeInstanceOf(ConflictException);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 5, type: 'node_finished',
+      participation: participant({ nodeId: 'another-node' }) })).rejects.toBeInstanceOf(ConflictException);
+    expect(f.events()).toHaveLength(4);
+  });
+
+  it('out-of-order chunks preserve content without rewinding progress, participant state, or diagnostic maximum', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    const finish = { sequence: 10, type: 'model_output', progress: 100, message: 'end',
+      participation: participant({ status: 'COMPLETED', completedAt: '2026-10-08T02:00:00Z' }) };
+    await f.service.eventTaskMirror('user-1', 'mirror-1', finish);
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 2, type: 'model_output', progress: 10, message: 'start',
+      participation: participant({ status: 'RUNNING', startedAt: '2026-10-08T01:00:00Z' }) });
+    expect(f.rows()[0]).toMatchObject({ progress: 100, lastSequence: 10 });
+    expect(f.participations()[0]).toMatchObject({ status: 'COMPLETED', lastSequence: 10,
+      startedAt: new Date('2026-10-08T01:00:00Z') });
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { ...finish, message: 'changed' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { ...finish,
+      participation: participant({ status: 'FAILED' }) })).rejects.toBeInstanceOf(ConflictException);
+    await f.service.createTaskMirror('user-1', v2({ clientRunId: 'run-2' }));
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'model_output', progress: 5 });
+    expect(f.rows()[0]).toMatchObject({ progress: 5, lastSequence: 10 });
+    expect(f.events()).toHaveLength(3);
+  });
+
+  it('participant admission and event insertion roll back together on failure', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2());
+    const error = new Error('write failed');
+    f.prisma.clientTaskMirrorEvent.create.mockRejectedValueOnce(error);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', { sequence: 1, type: 'node_started',
+      participation: participant() })).rejects.toBe(error);
+    expect(f.participations()).toEqual([]);
+    expect(f.events()).toEqual([]);
+  });
+
+  it('archives the admitted conversation first participation after revocation using only the run snapshot', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2({ modelId: 'admitted-model' }));
+    f.prisma.subscription.findFirst.mockResolvedValue(null);
+    const body = { clientRunId: 'run-1', sequence: 1, type: 'participation_status',
+      participation: { executionId: 'run-1', subscriptionId: 'sub-1', status: 'QUEUED' as const, modelId: 'changed-model' } };
+    await f.service.eventTaskMirror('user-1', 'mirror-1', body);
+    expect(f.prisma.subscription.findFirst).toHaveBeenCalledTimes(1);
+    expect(f.participations()[0]).toMatchObject({ executionId: 'run-1', subscriptionId: 'sub-1',
+      employeeId: 'employee-sub-1', employeeName: 'Employee sub-1', subscriptionName: 'Subscription sub-1',
+      modelId: 'admitted-model', status: 'QUEUED' });
+    expect(f.events()[0].participationId).toBe(f.participations()[0].id);
+    expect(await f.service.eventTaskMirror('user-1', 'mirror-1', body)).toMatchObject({ duplicate: true });
+  });
+
+  it.each([
+    { taskType: 'arrangement', executionId: 'run-1', subscriptionId: 'sub-1' },
+    { taskType: 'conversation', executionId: 'node-run-1', subscriptionId: 'sub-1' },
+    { taskType: 'conversation', executionId: 'run-1', subscriptionId: 'sub-2' },
+    { taskType: 'conversation', executionId: 'run-1', subscriptionId: 'sub-1', nodeId: 'node-1' },
+  ])('run admission does not authorize a new node or another subscription: %j', async ({ taskType, ...participation }) => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', v2({ taskType }));
+    f.prisma.subscription.findFirst.mockResolvedValue(null);
+    await expect(f.service.eventTaskMirror('user-1', 'mirror-1', {
+      sequence: 1, type: 'node_started', participation,
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(f.prisma.subscription.findFirst).toHaveBeenCalledTimes(2);
+    expect(f.participations()).toEqual([]);
+    expect(f.events()).toEqual([]);
+  });
+});
+
+describe('Client task monitor filtering, summaries and options', () => {
+  const query = (input: unknown) => ClientTaskMirrorQueryDtoSchema.parse(input);
+  const prepare = async (role = 'MEMBER') => {
+    const f = fixture(role);
+    await f.service.createTaskMirror('user-1', createBody({ protocolVersion: 2 as const, queuedAt: '2026-10-08T08:00:00+08:00' }));
+    for (const [sequence, executionId, subscriptionId] of [[1, 'execution-1', 'sub-2'], [2, 'execution-2', 'sub-2'], [3, 'execution-3', 'sub-1']] as const) {
+      await f.service.eventTaskMirror('user-1', 'mirror-1', { sequence, type: 'node_started',
+        participation: { executionId, subscriptionId, startedAt: '2026-10-08T08:30:00+08:00' } });
+    }
+    f.seed(makeRow({ id: 'legacy', subscriptionId: 'sub-2', status: 'FAILED', title: 'Legacy', taskType: 'workflow' }),
+      makeRow({ id: 'peer', userId: 'user-2', subscriptionId: 'sub-2', status: 'COMPLETED' }),
+      makeRow({ id: 'foreign', enterpriseId: 'ent-2', status: 'RUNNING' }));
+    return f;
+  };
+
+  it('subscription filter includes proven participation OR limited legacy, never a v2 root alone', async () => {
+    const f = await prepare();
+    const result: any[] = await f.service.listTaskMirrors('user-1', query({ subscriptionId: 'sub-2' })) as any[];
+    expect(result.map(row => row.id)).toEqual(['mirror-1', 'legacy']);
+    expect(result[0].subscriptionSummary).toEqual({ coverage: 'proven', legacySubscriptionId: null, subscriptions: [
+      { subscriptionId: 'sub-1', employeeId: 'employee-sub-1', employeeName: 'Employee sub-1', subscriptionName: 'Subscription sub-1', executionCount: 1 },
+      { subscriptionId: 'sub-2', employeeId: 'employee-sub-2', employeeName: 'Employee sub-2', subscriptionName: 'Subscription sub-2', executionCount: 2 },
+    ] });
+    expect(result[1].subscriptionSummary).toEqual({ coverage: 'limited', legacySubscriptionId: 'sub-2', subscriptions: [] });
+    expect(result[0]).not.toHaveProperty('events');
+    await f.service.createTaskMirror('user-1', createBody({ clientTaskId: 'unused', clientRunId: 'unused-run', protocolVersion: 2 as const, subscriptionId: 'sub-unused' }));
+    expect(await f.service.listTaskMirrors('user-1', query({ subscriptionId: 'sub-unused' }))).toEqual([]);
+  });
+
+  it('combines title/type/view/status filters and date-only execution ranges, not heartbeat time', async () => {
+    const f = await prepare();
+    expect((await f.service.listTaskMirrors('user-1', query({ q: 'lega', taskType: 'workflow', view: 'attention', statuses: 'FAILED' })) as any[])
+      .map(row => row.id)).toEqual(['legacy']);
+    expect(await f.service.listTaskMirrors('user-1', query({ view: 'active', statuses: 'FAILED' }))).toEqual([]);
+    await f.service.heartbeatTaskMirror('user-1', 'mirror-1', {});
+    const range = { subscriptionId: 'sub-2', from: '2026-10-08', to: '2026-10-09' };
+    expect((await f.service.listTaskMirrors('user-1', query(range)) as any[]).map(row => row.id)).toEqual(['mirror-1', 'legacy']);
+    expect(await f.service.listTaskMirrors('user-1', query({ ...range, from: '2026-10-09', to: '2026-10-10' }))).toEqual([]);
+    expect(await f.service.listTaskMirrors('user-1', query({ ...range, from: '2026-10-08T00:30:00Z', to: '2026-10-08T01:00:00Z' }))).toHaveLength(1);
+    expect(await f.service.listTaskMirrors('user-1', query({ ...range, from: '2026-10-07T23:00:00Z', to: '2026-10-08T00:30:00Z' }))).toHaveLength(1);
+  });
+
+  it('options ignore status/view/pagination but retain filters and owner/admin boundaries', async () => {
+    const f = await prepare();
+    const options = await f.service.getTaskMirrorFilterOptions('user-1', query({ view: 'active', statuses: 'RUNNING', page: 99, subscriptionId: 'sub-2' }));
+    expect(options).toMatchObject({ users: [{ id: 'user-1', name: 'Alice' }], taskTypes: ['conversation', 'workflow'],
+      counts: { active: 1, attention: 1, history: 2 } });
+    expect(options.subscriptions.map(sub => sub.subscriptionId)).toEqual(['sub-1', 'sub-2']);
+    await expect(f.service.listTaskMirrors('user-1', query({ userId: 'user-2' }))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(f.service.getTaskMirrorFilterOptions('user-1', query({ userId: 'user-2' }))).rejects.toBeInstanceOf(ForbiddenException);
+    const admin = await prepare('ENTERPRISE_ADMIN');
+    expect((await admin.service.listTaskMirrors('user-1', query({ userId: 'user-2' })) as any[]).map(row => row.id)).toEqual(['peer']);
+    expect((await admin.service.getTaskMirrorFilterOptions('user-1')).counts).toEqual({ active: 1, attention: 1, history: 3 });
+    expect((await admin.service.getTaskMirrorFilterOptions('user-1', query({ scope: 'mine' }))).users).toEqual([{ id: 'user-1', name: 'Alice' }]);
+  });
+
+  it.each(['queuedAt', 'startedAt', 'updatedAt'])('both %s sort directions have stable id ties and nulls last', async field => {
+    const f = fixture();
+    f.seed(makeRow({ id: 'b', [field]: createdAt }), makeRow({ id: 'a', [field]: createdAt }),
+      makeRow({ id: 'c', [field]: new Date('2026-10-09T00:00:00Z') }));
+    if (field !== 'updatedAt') f.seed(makeRow({ id: 'null', [field]: null }));
+    const asc: any[] = await f.service.listTaskMirrors('user-1', query({ sort: `${field}_asc` })) as any[];
+    const desc: any[] = await f.service.listTaskMirrors('user-1', query({ sort: `${field}_desc` })) as any[];
+    expect(asc.map(row => row.id)).toEqual(field === 'updatedAt' ? ['a', 'b', 'c'] : ['a', 'b', 'c', 'null']);
+    expect(desc.map(row => row.id)).toEqual(field === 'updatedAt' ? ['c', 'b', 'a'] : ['c', 'b', 'a', 'null']);
+  });
+});
+
 describe('Client task query/body validation and controller contract', () => {
   it('coerces valid pagination, preserves omitted pagination and strips hostile query fields', () => {
     const pipe = new ZodValidationPipe(ClientTaskMirrorQueryDtoSchema);
-    expect(pipe.transform({ scope: 'mine', userId: 'peer', enterpriseId: 'foreign' })).toEqual({ scope: 'mine' });
+    expect(pipe.transform({ scope: 'mine', userId: 'peer', enterpriseId: 'foreign' })).toEqual({ scope: 'mine', userId: 'peer' });
     expect(pipe.transform({ page: '2', limit: '100' })).toEqual({ page: 2, limit: 100 });
     expect(pipe.transform({})).toEqual({});
   });
@@ -356,12 +641,38 @@ describe('Client task query/body validation and controller contract', () => {
     expect(UpdateClientTaskMirrorStatusDtoSchema.safeParse({ status: 'RUNNING', clientRunId: '' }).success).toBe(false);
   });
 
+  it('validates protocol, participation state/times, status filters and date boundaries', () => {
+    expect(CreateClientTaskMirrorDtoSchema.safeParse(createBody({ protocolVersion: 1 })).success).toBe(false);
+    expect(CreateClientTaskMirrorDtoSchema.safeParse(createBody({ protocolVersion: 2, queuedAt: '2026-10-08T08:00:00+08:00' })).success).toBe(true);
+    expect(ClientTaskHeartbeatDtoSchema.safeParse({ clientRunId: '' }).success).toBe(false);
+    for (const input of [{ sort: 'updated' }, { statuses: 'RUNNING,unknown' }, { from: '2026-02-30' },
+      { from: '2026-10-09', to: '2026-10-08' }, { from: '2026-10-08T10:00:00' }]) {
+      expect(ClientTaskMirrorQueryDtoSchema.safeParse(input).success).toBe(false);
+    }
+    expect(ClientTaskMirrorQueryDtoSchema.parse({ statuses: 'RUNNING, PAUSED' }).statuses).toEqual(['RUNNING', 'PAUSED']);
+    for (const participation of [{ executionId: '', subscriptionId: 'sub-1' },
+      { executionId: 'exec', subscriptionId: 'sub-1', status: 'unknown' },
+      { executionId: 'exec', subscriptionId: 'sub-1', startedAt: 'yesterday' }]) {
+      expect(ClientTaskEventDtoSchema.safeParse({ sequence: 1, type: 'node', participation }).success).toBe(false);
+    }
+  });
+
+  it('filter options controller forwards validated query and registers its route before :id', async () => {
+    const service = { getTaskMirrorFilterOptions: jest.fn().mockResolvedValue({ counts: { history: 0 } }) };
+    const controller = new ClientController(service as any);
+    const query = ClientTaskMirrorQueryDtoSchema.parse({ subscriptionId: 'sub-1', statuses: 'FAILED' });
+    await controller.getTaskMirrorFilterOptions({ user: { id: 'user-1' } } as any, query);
+    expect(service.getTaskMirrorFilterOptions).toHaveBeenCalledWith('user-1', query);
+    const names = Object.getOwnPropertyNames(ClientController.prototype);
+    expect(names.indexOf('getTaskMirrorFilterOptions')).toBeLessThan(names.indexOf('getTaskMirror'));
+  });
+
   it('controller forwards only authenticated user and validated pagination', async () => {
     const service = { listTaskMirrors: jest.fn().mockResolvedValue({ items: [], total: 0, page: 2, limit: 50, hasNextPage: false }) };
     const controller = new ClientController(service as any);
     const query = new ZodValidationPipe(ClientTaskMirrorQueryDtoSchema).transform({ page: '2', userId: 'peer' });
     expect(await controller.listTaskMirrors({ user: { id: 'user-1' } } as any, query)).toMatchObject({ page: 2, items: [] });
-    expect(service.listTaskMirrors).toHaveBeenCalledWith('user-1', { page: 2 });
+    expect(service.listTaskMirrors).toHaveBeenCalledWith('user-1', { page: 2, userId: 'peer' });
   });
 });
 
@@ -369,7 +680,7 @@ describe('Client task query/body validation and controller contract', () => {
 describe('Task mirror route throttling', () => {
   const taskHandlers = [
     'createTaskMirror', 'updateTaskMirror', 'heartbeatTaskMirror',
-    'eventTaskMirror', 'listTaskMirrors', 'getTaskMirror',
+    'eventTaskMirror', 'listTaskMirrors', 'getTaskMirror', 'getTaskMirrorFilterOptions',
   ] as const;
   const options = () => [
     { name: 'default', ttl: 60000, limit: 100 },

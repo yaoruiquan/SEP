@@ -24,6 +24,7 @@ import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import * as bcrypt from 'bcrypt';
 import {
   ClientLoginDto,
@@ -812,58 +813,128 @@ export class ClientService {
       if (row && row.enterpriseId !== ctx.enterpriseId) {
         throw new ForbiddenException('Task belongs to another enterprise');
       }
-      // Re-authorize even for idempotent replay and subscription changes.
-      const now = new Date();
-      const sub = await tx.subscription.findFirst({
-        where: {
-          id: body.subscriptionId,
-          enterpriseId: ctx.enterpriseId,
-          status: 'ACTIVE',
-          OR: [{ endDate: null }, { endDate: { gt: now } }],
-          grants: { some: {
-            OR: [
-              { memberId: ctx.memberId },
-              ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
-            ],
-            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
-          } },
-        },
-        select: { id: true },
-      });
-      if (!sub) throw new ForbiddenException('Subscription unavailable');
+      const previousRun = row ? await tx.clientTaskMirrorRun.findUnique({
+        where: { mirrorId_clientRunId: { mirrorId: row.id, clientRunId: body.clientRunId } },
+      }) : null;
+      if (previousRun) {
+        if (previousRun.subscriptionId !== body.subscriptionId) {
+          throw new ConflictException('Run subscription is immutable');
+        }
+        // Replayed historical create must not select that run as the active run again.
+        return row!;
+      }
+      if (body.protocolVersion === 2 && row?.clientRunId === body.clientRunId && row.subscriptionId !== body.subscriptionId) {
+        throw new ConflictException('Run subscription is immutable');
+      }
+      if (body.protocolVersion === 2 && row?.clientRunId === body.clientRunId && row.protocolVersion !== 2) {
+        throw new ConflictException('Legacy run cannot be retroactively proven; create a new run');
+      }
+      const sub = await this.admitMonitorSubscription(tx, ctx, body.subscriptionId, body.protocolVersion === 2);
+      const queuedAt = body.queuedAt ? new Date(body.queuedAt) : new Date();
+      let mirror;
       if (!row) {
-        return tx.clientTaskMirror.create({
+        mirror = await tx.clientTaskMirror.create({
           data: {
             userId, enterpriseId: ctx.enterpriseId, subscriptionId: sub.id,
             clientTaskId: body.clientTaskId, clientRunId: body.clientRunId,
             title: body.title, taskType: body.taskType ?? 'conversation',
             modelId: body.modelId ?? null, clientVersion: body.clientVersion ?? null,
+            protocolVersion: body.protocolVersion ?? 1, queuedAt,
+          },
+        });
+      } else {
+        mirror = await tx.clientTaskMirror.update({
+          where: { id: row.id },
+          data: {
+            subscriptionId: sub.id, clientRunId: body.clientRunId, title: body.title,
+            taskType: body.taskType, modelId: body.modelId, clientVersion: body.clientVersion,
+            protocolVersion: body.protocolVersion ?? row.protocolVersion,
+            ...(row.clientRunId === body.clientRunId ? {} : { queuedAt, protocolVersion: body.protocolVersion ?? 1 }),
+            ...(row.clientRunId === body.clientRunId ? {} : {
+              status: 'QUEUED', progress: 0, currentStep: null, activity: null,
+              errorSummary: null, startedAt: null, completedAt: null, lastHeartbeatAt: null,
+            }),
+            // lastSequence is a diagnostic maximum, not an event admission boundary.
           },
         });
       }
-      return tx.clientTaskMirror.update({
-        where: { id: row.id },
-        data: {
-          subscriptionId: sub.id, clientRunId: body.clientRunId, title: body.title,
-          taskType: body.taskType, modelId: body.modelId, clientVersion: body.clientVersion,
-          ...(row.clientRunId === body.clientRunId ? {} : {
-            status: 'QUEUED', progress: 0, currentStep: null, activity: null,
-            errorSummary: null, startedAt: null, completedAt: null, lastHeartbeatAt: null,
-          }),
-          // lastSequence is task-wide and must never be reset on a new run.
-        },
-      });
+      if (body.protocolVersion === 2) {
+        await tx.clientTaskMirrorRun.create({ data: {
+          mirrorId: mirror.id, clientRunId: body.clientRunId, protocolVersion: 2,
+          ...this.monitorSubscriptionSnapshot(sub), taskType: mirror.taskType,
+          modelId: mirror.modelId, status: mirror.status, queuedAt: mirror.queuedAt ?? queuedAt,
+          startedAt: mirror.startedAt, completedAt: mirror.completedAt,
+        } });
+      }
+      return mirror;
     });
   }
 
-  private async taskMirrorReadWhere(userId: string, scope?: ClientTaskMirrorQueryDto['scope']) {
+  private async admitMonitorSubscription(
+    tx: Prisma.TransactionClient,
+    ctx: Awaited<ReturnType<EnterpriseContextService['resolve']>>,
+    subscriptionId: string,
+    snapshot: boolean,
+  ) {
+    const now = new Date();
+    const sub = await tx.subscription.findFirst({
+      where: {
+        id: subscriptionId, enterpriseId: ctx.enterpriseId, status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+        grants: { some: {
+          OR: [{ memberId: ctx.memberId }, ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : [])],
+          AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+        } },
+      },
+      select: snapshot ? { id: true, name: true, employeeId: true, employee: { select: { name: true } } } : { id: true },
+    });
+    if (!sub) throw new ForbiddenException('Subscription unavailable');
+    return sub;
+  }
+
+  private monitorSubscriptionSnapshot(sub: { id: string; name?: string | null; employeeId?: string; employee?: { name: string } }) {
+    // Never accept employee names/IDs from a client, or infer them from the current task subscription.
+    if (!sub.employeeId || !sub.employee) throw new ForbiddenException('Subscription snapshot unavailable');
+    return { subscriptionId: sub.id, employeeId: sub.employeeId, employeeName: sub.employee.name,
+      subscriptionName: sub.name ?? sub.employee.name };
+  }
+
+  private async taskMirrorReadWhere(userId: string, query: ClientTaskMirrorQueryDto = {}): Promise<Prisma.ClientTaskMirrorWhereInput> {
     const ctx = await this.enterpriseContext.resolve(userId);
-    if (scope === 'enterprise' && ctx.role !== 'ENTERPRISE_ADMIN') {
+    if (query.scope === 'enterprise' && ctx.role !== 'ENTERPRISE_ADMIN') {
       throw new ForbiddenException('Only enterprise admins may query enterprise tasks');
+    }
+    const ownOnly = query.scope === 'mine' || ctx.role !== 'ENTERPRISE_ADMIN';
+    if (ownOnly && query.userId && query.userId !== userId) {
+      throw new ForbiddenException('Cannot query another task owner');
+    }
+    const AND: Prisma.ClientTaskMirrorWhereInput[] = [];
+    if (query.subscriptionId) AND.push({ OR: [
+      { participations: { some: { subscriptionId: query.subscriptionId } } },
+      { protocolVersion: 1, subscriptionId: query.subscriptionId },
+    ] });
+    if (query.view === 'active') AND.push({ status: { in: ['QUEUED', 'RUNNING'] } });
+    if (query.view === 'attention') AND.push({ status: { in: ['WAITING_APPROVAL', 'PAUSED', 'FAILED'] } });
+    if (query.statuses) AND.push({ status: { in: query.statuses } });
+    if (query.from || query.to) {
+      const date = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00+08:00` : value);
+      const range = { ...(query.from ? { gte: date(query.from) } : {}), ...(query.to ? { lt: date(query.to) } : {}) };
+      // Use business execution/queue times, never heartbeat/updatedAt. Bind subscription and time to the same execution.
+      AND.push({ OR: [
+        { participations: { some: { ...(query.subscriptionId ? { subscriptionId: query.subscriptionId } : {}),
+          OR: [{ startedAt: range }, { startedAt: null, run: { queuedAt: range } }] } } },
+        ...(!query.subscriptionId ? [{ runs: { some: { queuedAt: range } } }] : []),
+        { protocolVersion: 1, ...(query.subscriptionId ? { subscriptionId: query.subscriptionId } : {}),
+          OR: [{ startedAt: range }, { startedAt: null, queuedAt: range },
+            { startedAt: null, queuedAt: null, createdAt: range }] },
+      ] });
     }
     return {
       enterpriseId: ctx.enterpriseId,
-      ...(scope === 'mine' || ctx.role !== 'ENTERPRISE_ADMIN' ? { userId } : {}),
+      ...(ownOnly ? { userId } : query.userId ? { userId: query.userId } : {}),
+      ...(query.taskType ? { taskType: query.taskType } : {}),
+      ...(query.q ? { title: { contains: query.q, mode: 'insensitive' } } : {}),
+      ...(AND.length ? { AND } : {}),
     };
   }
 
@@ -877,7 +948,9 @@ export class ClientService {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
-      if (body.clientRunId !== undefined && body.clientRunId !== row.clientRunId) {
+      const clientRunId = body.clientRunId ?? row.clientRunId;
+      const run = await tx.clientTaskMirrorRun.findUnique({ where: { mirrorId_clientRunId: { mirrorId: id, clientRunId } } });
+      if (clientRunId !== row.clientRunId && run?.protocolVersion !== 2) {
         throw new ConflictException('Stale client run');
       }
       const now = new Date();
@@ -887,9 +960,15 @@ export class ClientService {
       if (body.activity !== undefined) data.activity = body.activity;
       if (body.errorSummary !== undefined) data.errorSummary = body.errorSummary;
       if (body.startedAt !== undefined) data.startedAt = body.startedAt ? new Date(body.startedAt) : null;
-      else if (body.status === 'RUNNING' && !row.startedAt) data.startedAt = now;
+      else if (body.status === 'RUNNING' && !(run ?? row).startedAt) data.startedAt = now;
       if (body.completedAt !== undefined) data.completedAt = body.completedAt ? new Date(body.completedAt) : null;
-      else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(body.status)) data.completedAt = row.completedAt ?? now;
+      else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(body.status)) data.completedAt = (run ?? row).completedAt ?? now;
+      if (run) {
+        await tx.clientTaskMirrorRun.update({ where: { id: run.id }, data: {
+          status: body.status, startedAt: data.startedAt, completedAt: data.completedAt,
+        } });
+      }
+      if (clientRunId !== row.clientRunId) return row;
       return tx.clientTaskMirror.update({ where: { id }, data });
     });
   }
@@ -897,7 +976,10 @@ export class ClientService {
   async heartbeatTaskMirror(userId: string, id: string, body: ClientTaskHeartbeatDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
-      await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
+      const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
+      if (body.clientRunId !== undefined && body.clientRunId !== row.clientRunId) {
+        throw new ConflictException('Stale client run');
+      }
       return tx.clientTaskMirror.update({ where: { id }, data: {
         lastHeartbeatAt: new Date(), progress: body.progress, currentStep: body.currentStep,
         activity: body.activity, clientVersion: body.clientVersion,
@@ -909,28 +991,99 @@ export class ClientService {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
-      // The task watermark covers all runs, including delayed historical events.
-      if (body.sequence <= row.lastSequence) return { ...row, duplicate: true };
       const clientRunId = body.clientRunId ?? row.clientRunId;
-      await tx.clientTaskMirrorEvent.create({ data: {
+      const eventData = {
         mirrorId: id, clientRunId, sequence: body.sequence, type: body.type,
-        stepKey: body.stepKey, message: body.message, progress: body.progress,
+        stepKey: body.stepKey ?? null, message: body.message ?? null, progress: body.progress ?? null,
         occurredAt: body.occurredAt ? new Date(body.occurredAt) : null,
+        participationMetadata: body.participation ?? null,
+      };
+      const existing = await tx.clientTaskMirrorEvent.findUnique({
+        where: { mirrorId_clientRunId_sequence: { mirrorId: id, clientRunId, sequence: body.sequence } },
+      });
+      if (existing) {
+        const keys = ['type', 'stepKey', 'message', 'progress', 'occurredAt', 'participationMetadata'] as const;
+        if (keys.some(key => !isDeepStrictEqual(existing[key] ?? null, eventData[key]))) {
+          throw new ConflictException('Duplicate event payload differs');
+        }
+        return { ...row, duplicate: true };
+      }
+      const latestCurrentEvent = clientRunId === row.clientRunId ? await tx.clientTaskMirrorEvent.findFirst({
+        where: { mirrorId: id, clientRunId }, orderBy: { sequence: 'desc' }, select: { sequence: true },
+      }) : null;
+      let participationId: string | undefined;
+      if (body.participation) {
+        const run = await tx.clientTaskMirrorRun.findUnique({
+          where: { mirrorId_clientRunId: { mirrorId: id, clientRunId } },
+        });
+        if (run?.protocolVersion !== 2) throw new ConflictException('Participation requires a proven v2 run');
+        const input = body.participation;
+        let participant = await tx.clientTaskParticipation.findUnique({ where: {
+          mirrorId_clientRunId_executionId: { mirrorId: id, clientRunId, executionId: input.executionId },
+        } });
+        if (participant) {
+          if (participant.subscriptionId !== input.subscriptionId ||
+            (input.nodeId !== undefined && participant.nodeId !== input.nodeId)) {
+            throw new ConflictException('Execution attribution is immutable');
+          }
+          // Late chunks are archived, but cannot rewind a newer execution state.
+          participant = await tx.clientTaskParticipation.update({ where: { id: participant.id }, data: {
+            ...(body.sequence > participant.lastSequence ? { status: input.status, lastSequence: body.sequence } : {}),
+            ...(!participant.startedAt && input.startedAt ? { startedAt: new Date(input.startedAt) } : {}),
+            ...(!participant.completedAt && input.completedAt ? { completedAt: new Date(input.completedAt) } : {}),
+          } });
+        } else {
+          // The conversation itself was admitted with the run; a delayed first upload
+          // must not require a second grant. Arrangement nodes still need independent admission.
+          const isRunConversation = run.taskType === 'conversation' &&
+            input.executionId === clientRunId && input.nodeId === undefined &&
+            input.subscriptionId === run.subscriptionId;
+          const snapshot = isRunConversation ? {
+            subscriptionId: run.subscriptionId, employeeId: run.employeeId,
+            employeeName: run.employeeName, subscriptionName: run.subscriptionName,
+          } : this.monitorSubscriptionSnapshot(await this.admitMonitorSubscription(tx, ctx, input.subscriptionId, true));
+          participant = await tx.clientTaskParticipation.create({ data: {
+            mirrorId: id, clientRunId, runId: run.id, executionId: input.executionId,
+            ...snapshot, nodeId: input.nodeId, title: input.title,
+            modelId: isRunConversation ? run.modelId : input.modelId,
+            status: input.status, lastSequence: body.sequence,
+            startedAt: input.startedAt ? new Date(input.startedAt) : null,
+            completedAt: input.completedAt ? new Date(input.completedAt) : null,
+          } });
+        }
+        participationId = participant.id;
+      }
+      await tx.clientTaskMirrorEvent.create({ data: {
+        ...eventData, participationMetadata: body.participation ?? Prisma.DbNull, participationId,
       } });
       return tx.clientTaskMirror.update({ where: { id }, data: {
-        lastSequence: body.sequence,
+        lastSequence: Math.max(row.lastSequence, body.sequence),
         // Historical runs may archive text, but cannot mutate the active run's progress.
-        ...(clientRunId === row.clientRunId ? { progress: body.progress, lastHeartbeatAt: new Date() } : {}),
+        ...(clientRunId === row.clientRunId && body.sequence > (latestCurrentEvent?.sequence ?? 0)
+          ? { progress: body.progress, lastHeartbeatAt: new Date() } : {}),
       } });
     });
   }
 
   async listTaskMirrors(userId: string, query: ClientTaskMirrorQueryDto = {}) {
-    const where = await this.taskMirrorReadWhere(userId, query.scope);
-    const include = { user: { select: { id: true, name: true } } } as const;
-    const orderBy = [{ updatedAt: 'desc' }, { id: 'desc' }] as const;
+    const where = await this.taskMirrorReadWhere(userId, query);
+    const include = {
+      user: { select: { id: true, name: true } },
+      participations: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { subscriptionId: true, employeeId: true, employeeName: true, subscriptionName: true } },
+      runs: { select: { clientRunId: true } },
+      events: { select: { clientRunId: true }, distinct: ['clientRunId'] },
+    } satisfies Prisma.ClientTaskMirrorInclude;
+    const [field, direction] = (query.sort ?? 'queuedAt_desc').split('_');
+    const orderBy: Prisma.ClientTaskMirrorOrderByWithRelationInput[] = [
+      { [field]: { sort: direction as Prisma.SortOrder, nulls: 'last' } },
+      { id: direction as Prisma.SortOrder },
+    ];
+    // updatedAt is non-nullable, so Prisma does not accept a null ordering for it.
+    if (field === 'updatedAt') orderBy[0] = { updatedAt: direction as Prisma.SortOrder };
     if (query.page === undefined && query.limit === undefined) {
-      return this.prisma.clientTaskMirror.findMany({ where, include, orderBy: [...orderBy], take: 100 });
+      const rows = await this.prisma.clientTaskMirror.findMany({ where, include, orderBy, take: 100 });
+      return rows.map(row => this.taskMirrorSummary(row));
     }
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
@@ -939,22 +1092,68 @@ export class ClientService {
     return this.taskMirrorTransaction(async (tx) => {
       const total = await tx.clientTaskMirror.count({ where });
       const items = skip >= total ? [] : await tx.clientTaskMirror.findMany({
-        where, include, orderBy: [...orderBy], skip, take: limit,
+        where, include, orderBy, skip, take: limit,
       });
-      return { items, total, page, limit, hasNextPage: page * limit < total };
+      return { items: items.map(row => this.taskMirrorSummary(row)), total, page, limit, hasNextPage: page * limit < total };
+    });
+  }
+
+  private taskMirrorSummary<T extends {
+    protocolVersion: number; subscriptionId: string;
+    participations: Array<{ subscriptionId: string; employeeId: string; employeeName: string; subscriptionName: string }>;
+    runs: Array<{ clientRunId: string }>; events: Array<{ clientRunId: string }>;
+  }>(row: T) {
+    const { participations, runs, events, ...mirror } = row;
+    const subscriptions = new Map<string, (typeof participations)[number] & { executionCount: number }>();
+    for (const participant of participations) {
+      const entry = subscriptions.get(participant.subscriptionId);
+      if (entry) entry.executionCount += 1;
+      else subscriptions.set(participant.subscriptionId, { ...participant, executionCount: 1 });
+    }
+    const provenRuns = new Set(runs.map(run => run.clientRunId));
+    const limited = row.protocolVersion !== 2 || events.some(event => !provenRuns.has(event.clientRunId));
+    return { ...mirror, subscriptionSummary: {
+      coverage: limited ? 'limited' as const : 'proven' as const,
+      subscriptions: [...subscriptions.values()].sort((a, b) => a.subscriptionId.localeCompare(b.subscriptionId)),
+      legacySubscriptionId: row.protocolVersion !== 2 ? row.subscriptionId : null,
+    } };
+  }
+
+  async getTaskMirrorFilterOptions(userId: string, query: ClientTaskMirrorQueryDto = {}) {
+    const where = await this.taskMirrorReadWhere(userId, { ...query, view: undefined, statuses: undefined });
+    return this.taskMirrorTransaction(async tx => {
+      const users = await tx.clientTaskMirror.findMany({ where, distinct: ['userId'],
+        select: { user: { select: { id: true, name: true } } }, orderBy: { userId: 'asc' } });
+      const subscriptions = await tx.clientTaskParticipation.findMany({ where: { mirror: where },
+        distinct: ['subscriptionId'], orderBy: [{ subscriptionId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        select: { subscriptionId: true, employeeId: true, employeeName: true, subscriptionName: true } });
+      const taskTypes = await tx.clientTaskMirror.findMany({ where, distinct: ['taskType'],
+        select: { taskType: true }, orderBy: { taskType: 'asc' } });
+      const active = await tx.clientTaskMirror.count({ where: { AND: [where, { status: { in: ['QUEUED', 'RUNNING'] } }] } });
+      const attention = await tx.clientTaskMirror.count({ where: { AND: [where, { status: { in: ['WAITING_APPROVAL', 'PAUSED', 'FAILED'] } }] } });
+      const history = await tx.clientTaskMirror.count({ where });
+      return { users: users.map(row => row.user), subscriptions, taskTypes: taskTypes.map(row => row.taskType),
+        counts: { active, attention, history } };
     });
   }
 
   async getTaskMirror(userId: string, id: string) {
     const where = await this.taskMirrorReadWhere(userId);
-    const row = await this.prisma.clientTaskMirror.findFirst({
-      where: { ...where, id }, include: { user: { select: { id: true, name: true } } },
+    return this.taskMirrorTransaction(async tx => {
+      const row = await tx.clientTaskMirror.findFirst({
+        where: { ...where, id }, include: { user: { select: { id: true, name: true } } },
+      });
+      if (!row) throw new NotFoundException('Task not found');
+      const events = await tx.clientTaskMirrorEvent.findMany({
+        where: { mirrorId: row.id }, orderBy: [{ clientRunId: 'asc' }, { sequence: 'asc' }, { id: 'asc' }],
+      });
+      const runs = await tx.clientTaskMirrorRun.findMany({ where: { mirrorId: row.id },
+        orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }], include: { participations: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { events: { orderBy: [{ sequence: 'asc' }, { id: 'asc' }] } },
+        } } });
+      return { ...row, events, runs };
     });
-    if (!row) throw new NotFoundException('Task not found');
-    const events = await this.prisma.clientTaskMirrorEvent.findMany({
-      where: { mirrorId: row.id }, orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
-    });
-    return { ...row, events };
   }
 
   /** @deprecated Use listSubscriptions during client migration. */

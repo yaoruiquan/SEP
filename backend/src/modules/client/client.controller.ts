@@ -60,6 +60,7 @@ const mirrorResponseSchema: SchemaObject = {
     progress: { type: 'integer' }, lastSequence: { type: 'integer' },
     currentStep: { type: 'string', nullable: true }, activity: { type: 'string', nullable: true },
     errorSummary: { type: 'string', nullable: true }, clientVersion: { type: 'string', nullable: true },
+    protocolVersion: { type: 'integer' }, queuedAt: { type: 'string', format: 'date-time', nullable: true },
     lastHeartbeatAt: { type: 'string', format: 'date-time', nullable: true },
     startedAt: { type: 'string', format: 'date-time', nullable: true },
     completedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -73,6 +74,14 @@ const mirrorSummaryResponseSchema: SchemaObject = {
     ...mirrorResponseSchema.properties,
     user: { type: 'object', required: ['id', 'name'], properties: {
       id: { type: 'string' }, name: { type: 'string', nullable: true },
+    } },
+    subscriptionSummary: { type: 'object', required: ['coverage', 'subscriptions', 'legacySubscriptionId'], properties: {
+      coverage: { type: 'string', enum: ['proven', 'limited'] },
+      legacySubscriptionId: { type: 'string', nullable: true },
+      subscriptions: { type: 'array', items: { type: 'object', properties: {
+        subscriptionId: { type: 'string' }, employeeId: { type: 'string' }, employeeName: { type: 'string' },
+        subscriptionName: { type: 'string' }, executionCount: { type: 'integer' },
+      } } },
     } },
   },
 };
@@ -267,7 +276,7 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '幂等创建客户端任务云端镜像', description: '同 run 不重置状态；不同 run 重置执行状态但保留任务全局 lastSequence 和历史事件。每次重新验证订阅授权，禁止跨企业复用 clientTaskId。' })
+  @ApiOperation({ summary: '幂等创建客户端任务云端镜像', description: 'protocolVersion 可选，仅支持 2；queuedAt 为 ISO 时间。v2 首次准入验证订阅并保存不可变快照；已验证 run 重放不重新准入、不切回历史 run、不重置状态。旧协议保留授权验证；禁止跨企业复用任务 ID。' })
   @ApiResponse({ status: 201, description: '创建或更新后的镜像（相同任务保持 id）', schema: mirrorResponseSchema })
   @ApiResponse({ status: 400, description: 'Body 校验失败' })
   @ApiResponse({ status: 401, description: '未认证' })
@@ -285,7 +294,7 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '更新本人客户端任务状态', description: 'clientRunId 可选；省略时兼容当前 run，显式陈旧 run 返回 409。' })
+  @ApiOperation({ summary: '更新本人客户端任务状态', description: 'clientRunId 可选；省略时更新当前 run。已验证 v2 历史 run 可更新自身状态但不影响当前镜像；旧协议历史 run 返回 409。' })
   @ApiResponse({ status: 200, description: '更新后的镜像', schema: mirrorResponseSchema })
   @ApiResponse({ status: 400, description: 'Body 校验失败' })
   @ApiResponse({ status: 401, description: '未认证' })
@@ -305,7 +314,7 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '上报本人客户端任务心跳' })
+  @ApiOperation({ summary: '上报本人客户端任务心跳', description: 'clientRunId 可选；显式非当前 run 返回 409，不更新镜像。' })
   @ApiResponse({ status: 201, description: '更新后的镜像', schema: mirrorResponseSchema })
   @ApiResponse({ status: 400, description: 'Body 校验失败' })
   @ApiResponse({ status: 401, description: '未认证' })
@@ -325,7 +334,7 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '幂等上报本人客户端任务事件', description: 'clientRunId 可选，省略时归档当前 run；显式历史 run 不覆盖当前执行进度。sequence 必须按任务全局单调递增，重复返回 duplicate:true。message 每片最多 1000 字符，保留空白；长文本 stepKey=content:v1:<messageId>:<index>:<total>。' })
+  @ApiOperation({ summary: '幂等上报本人客户端任务事件', description: '按 mirrorId/clientRunId/sequence 去重，一致重放返回 duplicate:true，载荷冲突返回 409。迟到事件保存但不回退进度。v2 事件可含 participation={executionId,subscriptionId,nodeId?,title?,modelId?,status?,startedAt?,completedAt?}；首次准入验证授权并冻结归属，后续复用快照。节点内容片段使用相同归属，聚合内容不传 participation。message 每片最多 1000 字符，保留空白；stepKey=content:v1:<messageId>:<index>:<total>。' })
   @ApiResponse({ status: 201, description: '镜像；已确认的 sequence 返回 duplicate:true', schema: {
     ...mirrorResponseSchema, properties: { ...mirrorResponseSchema.properties, duplicate: { type: 'boolean' } },
   } })
@@ -347,10 +356,19 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '查询有权查看的客户端任务镜像', description: '管理员默认本企业全员；普通成员/部门负责人默认本人。无 page/limit 保留最近 100 条数组；提供任意分页参数返回分页对象，按 updatedAt desc、id desc 排序。' })
+  @ApiOperation({ summary: '查询有权查看的客户端任务镜像', description: '管理员默认本企业全员；普通成员/部门负责人默认本人。无 page/limit 返回最多 100 条数组，否则分页对象。默认 queuedAt_desc，id 同向稳定排序，空时间排最后。subscriptionSummary 仅含验证过的参与归属，旧数据标为 limited。' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: '正整数；分页时默认 1' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: '1–100；分页时默认 50' })
   @ApiQuery({ name: 'scope', required: false, enum: ['mine', 'enterprise'], description: 'mine 强制本人；enterprise 仅企业管理员；省略沿用角色范围' })
+  @ApiQuery({ name: 'subscriptionId', required: false, type: String })
+  @ApiQuery({ name: 'userId', required: false, type: String, description: '普通成员只能指定本人' })
+  @ApiQuery({ name: 'statuses', required: false, type: String, description: '监控状态枚举，逗号分隔' })
+  @ApiQuery({ name: 'view', required: false, enum: ['active', 'attention', 'history'] })
+  @ApiQuery({ name: 'taskType', required: false, type: String })
+  @ApiQuery({ name: 'from', required: false, type: String, description: '包含边界；ISO 带时区或 YYYY-MM-DD（UTC+8 零点）' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: '不包含边界；业务执行/排队时间，不使用心跳时间' })
+  @ApiQuery({ name: 'q', required: false, type: String, description: '标题，不区分大小写' })
+  @ApiQuery({ name: 'sort', required: false, enum: ['queuedAt_desc', 'queuedAt_asc', 'startedAt_desc', 'startedAt_asc', 'updatedAt_desc', 'updatedAt_asc'] })
   @ApiResponse({ status: 200, description: '兼容数组或分页对象，user 仅含 id/name', schema: { oneOf: [
     { type: 'array', items: mirrorSummaryResponseSchema },
     { type: 'object', required: ['items', 'total', 'page', 'limit', 'hasNextPage'], properties: {
@@ -369,19 +387,44 @@ export class ClientController {
     return this.clientService.listTaskMirrors(req.user.id, query);
   }
 
+  @Get('tasks/filter-options')
+  @SkipThrottle({ auth: true, chat: true })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '查询客户端监控筛选项与计数', description: '与列表同权限和筛选参数；忽略 view/statuses/page/limit/sort。active=QUEUED/RUNNING，attention=WAITING_APPROVAL/PAUSED/FAILED，history 为全部。订阅选项只来自已验证参与快照。' })
+  @ApiResponse({ status: 200, description: '{users:[{id,name}],subscriptions:[{subscriptionId,employeeId,employeeName,subscriptionName}],taskTypes:string[],counts:{active,attention,history}}' })
+  @ApiResponse({ status: 400, description: 'Query 校验失败' })
+  @ApiResponse({ status: 401, description: '未认证' })
+  @ApiResponse({ status: 403, description: '无企业或超出本人范围' })
+  @ApiResponse(taskRateLimitResponse)
+  async getTaskMirrorFilterOptions(
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Query(new ZodValidationPipe(ClientTaskMirrorQueryDtoSchema)) query: ClientTaskMirrorQueryDto,
+  ) {
+    return this.clientService.getTaskMirrorFilterOptions(req.user.id, query);
+  }
+
   @Get('tasks/:id')
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '查询客户端任务镜像详情', description: '与列表角色范围一致；返回镜像、创建人最小摘要与按 sequence 排序的完整 events。' })
+  @ApiOperation({ summary: '查询客户端任务镜像详情', description: '与列表角色范围一致；返回镜像、user、完整 events 和 runs；每个 run 包含 participations，每个 participation 包含 events。旧事件保留顶层但不推断员工归属。' })
   @ApiResponse({ status: 200, description: '{...mirror,user:{id,name},events}', schema: {
-    ...mirrorSummaryResponseSchema, required: [...mirrorSummaryResponseSchema.required, 'events'],
-    properties: { ...mirrorSummaryResponseSchema.properties, events: { type: 'array', items: {
+    ...mirrorResponseSchema, required: [...mirrorResponseSchema.required, 'user', 'events', 'runs'],
+    properties: { ...mirrorResponseSchema.properties, user: mirrorSummaryResponseSchema.properties.user,
+      runs: { type: 'array', items: { type: 'object', properties: {
+        id: { type: 'string' }, clientRunId: { type: 'string' }, subscriptionId: { type: 'string' },
+        employeeId: { type: 'string' }, employeeName: { type: 'string' }, subscriptionName: { type: 'string' },
+        participations: { type: 'array', items: { type: 'object', properties: {
+          executionId: { type: 'string' }, events: { type: 'array', items: { type: 'object' } },
+        } } },
+      } } }, events: { type: 'array', items: {
       type: 'object', properties: {
         id: { type: 'string' }, mirrorId: { type: 'string' }, clientRunId: { type: 'string' },
         sequence: { type: 'integer' }, type: { type: 'string' },
         stepKey: { type: 'string', nullable: true }, message: { type: 'string', nullable: true },
         progress: { type: 'integer', nullable: true }, occurredAt: { type: 'string', format: 'date-time', nullable: true },
+        participationId: { type: 'string', nullable: true }, participationMetadata: { type: 'object', nullable: true },
         createdAt: { type: 'string', format: 'date-time' },
       },
     } } },

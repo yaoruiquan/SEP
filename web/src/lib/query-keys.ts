@@ -58,7 +58,9 @@ export const qk = {
   taskRunEvents: (id: string) => ['task-runs', id, 'events'] as const,
   taskTemplates: ['task-runs', 'templates'] as const,
   clientTaskMirrors: ['client-task-mirrors'] as const,
-  clientTaskMirrorList: (params: { page: number; limit: number; scope?: 'mine' | 'enterprise' }) =>
+  clientTaskMirrorList: (params: { page: number; limit: number; scope?: 'mine' | 'enterprise'; subscriptionId?: string; userId?: string; statuses?: string; view?: 'active' | 'attention' | 'history'; taskType?: string; from?: string; to?: string; q?: string; sort?: string }) =>
     ['client-task-mirrors', 'list', params] as const,
+  clientTaskMirrorFilterOptions: (params: { scope?: 'mine' | 'enterprise'; subscriptionId?: string; userId?: string; taskType?: string; from?: string; to?: string; q?: string }) =>
+    ['client-task-mirrors', 'filter-options', params] as const,
   clientTaskMirror: (id: string) => ['client-task-mirrors', id] as const,
 };

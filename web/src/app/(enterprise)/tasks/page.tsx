@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { FolderOpen, History, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -78,6 +79,14 @@ const errorMessage = (error: unknown, fallback: string) =>
  * 亮起来。此前是两个组件互相替换，确认那一刻整屏跳变，看起来像跳到了另一个功能。
  */
 export default function TasksPage() {
+  return <Suspense fallback={<CenteredSpinner label="正在读取任务…" />}><TasksPageContent /></Suspense>;
+}
+
+function TasksPageContent() {
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const taskId = searchParams.get('taskId') || undefined;
+  const subscriptionId = searchParams.get('subscriptionId') || undefined;
   const enterprise = useAuthStore((state) => state.enterprise);
 
   const runsQuery = useTaskRuns({ limit: 50 });
@@ -98,7 +107,10 @@ export default function TasksPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('workspace');
+  const [activeTab, setActiveTab] = useState(urlTab === 'client' || urlTab === 'monitoring' ? 'monitoring' : 'workspace');
+  useEffect(() => {
+    if (urlTab === 'client' || urlTab === 'monitoring') setActiveTab('monitoring');
+  }, [urlTab, taskId]);
 
   const layoutTimer = useRef<number | undefined>(undefined);
 
@@ -558,7 +570,7 @@ export default function TasksPage() {
         )}
         </TabsContent>
         <TabsContent value="monitoring" className="m-0 flex min-h-0 flex-1 flex-col">
-          <ClientTaskMonitor />
+          <ClientTaskMonitor taskId={taskId} subscriptionId={subscriptionId} />
         </TabsContent>
       </Tabs>
 

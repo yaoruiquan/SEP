@@ -3246,6 +3246,8 @@ model ClientTaskMirror {
   activity       String?
   errorSummary   String?
   clientVersion  String?
+  protocolVersion Int     @default(1)
+  queuedAt       DateTime?
   lastSequence   Int      @default(0)
   lastHeartbeatAt DateTime?
   startedAt      DateTime?
@@ -3257,11 +3259,67 @@ model ClientTaskMirror {
   enterprise Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: SetNull)
   subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   events ClientTaskMirrorEvent[]
+  runs ClientTaskMirrorRun[]
+  participations ClientTaskParticipation[]
 
   @@unique([userId, clientTaskId])
   @@index([enterpriseId, status, updatedAt])
   @@index([subscriptionId, updatedAt])
+  @@index([enterpriseId, queuedAt, id])
   @@map("client_task_mirrors")
+}
+
+model ClientTaskMirrorRun {
+  id               String   @id @default(cuid())
+  mirrorId         String
+  clientRunId      String
+  protocolVersion  Int
+  subscriptionId   String
+  employeeId       String
+  employeeName     String
+  subscriptionName String
+  taskType         String
+  modelId          String?
+  status           String   @default("QUEUED")
+  queuedAt         DateTime
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  mirror           ClientTaskMirror @relation(fields: [mirrorId], references: [id], onDelete: Cascade)
+  participations   ClientTaskParticipation[]
+
+  @@unique([mirrorId, clientRunId])
+  @@index([subscriptionId, queuedAt])
+  @@map("client_task_mirror_runs")
+}
+
+model ClientTaskParticipation {
+  id               String   @id @default(cuid())
+  mirrorId         String
+  clientRunId      String
+  runId            String
+  executionId      String
+  subscriptionId   String
+  employeeId       String
+  employeeName     String
+  subscriptionName String
+  nodeId           String?
+  title            String?
+  modelId          String?
+  status           String   @default("QUEUED")
+  lastSequence     Int      @default(0)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  mirror           ClientTaskMirror @relation(fields: [mirrorId], references: [id], onDelete: Cascade)
+  run              ClientTaskMirrorRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  events           ClientTaskMirrorEvent[]
+
+  @@unique([mirrorId, clientRunId, executionId])
+  @@index([subscriptionId, startedAt])
+  @@map("client_task_participations")
 }
 
 model ClientTaskMirrorEvent {
@@ -3275,9 +3333,13 @@ model ClientTaskMirrorEvent {
   progress    Int?
   occurredAt  DateTime?
   createdAt   DateTime @default(now())
+  participationId String?
+  participationMetadata Json?
   mirror ClientTaskMirror @relation(fields: [mirrorId], references: [id], onDelete: Cascade)
+  participation ClientTaskParticipation? @relation(fields: [participationId], references: [id], onDelete: SetNull)
 
   @@unique([mirrorId, clientRunId, sequence])
   @@index([mirrorId, createdAt])
+  @@index([participationId, sequence])
   @@map("client_task_mirror_events")
 }
