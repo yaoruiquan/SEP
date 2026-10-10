@@ -94,8 +94,8 @@ export class SubscriptionUsageService {
     const start = Prisma.sql`COALESCE(p."startedAt", r."startedAt", r."queuedAt")`;
     // Missing completion is ongoing only for nonterminal executions, never heartbeat-derived.
     const end = Prisma.sql`COALESCE(p."completedAt", r."completedAt",
-      CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED')
-        AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED')
+      CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED')
+        AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED')
         THEN CURRENT_TIMESTAMP ELSE ${start} END)`;
     // End equality is not overlap, but an instantaneous/fallback start at from is still usage.
     return Prisma.sql`AND (

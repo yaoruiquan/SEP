@@ -269,6 +269,11 @@ export function buildPipeline(item: ContributionCapability, ctx: PipelineContext
       ]
     : [draftStage(item, ctx), validateStage(item), platformStage(item, ctx), marketStage(item)];
 
+  // SKILL 的正文投稿、企业授权和平台申请已迁移到客户端/运营监控；Web 只读历史流程。
+  if (item.type === 'SKILL') {
+    for (const stage of stages) stage.ctas = [];
+  }
+
   const blockedIndex = stages.findIndex((stage) => stage.state === 'blocked');
   const activeIndex = stages.findIndex((stage) => stage.state === 'active');
   const waitingIndex = stages.findIndex((stage) => stage.state === 'waiting');

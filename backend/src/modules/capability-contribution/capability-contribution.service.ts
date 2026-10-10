@@ -11,11 +11,9 @@ import {
   CapabilityType,
   ContributionPlatformStatus,
   Prisma,
-  SkillVersionScope,
   SkillVersionStatus,
   RpaVersionStatus,
 } from "@prisma/client";
-import matter from "gray-matter";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "../enterprise/enterprise-context.service";
 import type {
@@ -27,12 +25,6 @@ import type {
 } from "shared";
 import { SkillPackageService } from "../skill-package/skill-package.service";
 import { RpaPackageService } from "../rpa-package/rpa-package.service";
-import {
-  PLATFORM_PROMOTION_SOURCE_SELECT,
-  buildPlatformPromotion,
-  platformPromotionSummary,
-} from "../skill-version/promote-to-platform";
-import { nextSemver } from "../skill-version/skill-version-numbering";
 import {
   AUTHOR_VERSION_SELECT,
   CONTRIBUTION_CAPABILITY_SELECT,
@@ -458,12 +450,12 @@ export class CapabilityContributionService {
   }
 
   async create(userId: string, dto: ContributionCapabilityCreateDto) {
-    const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    if (dto.type === "skill" && !dto.skillConfig) {
-      throw new BadRequestException(
-        "Skill 能力必须提供正文模板或上传 SKILL 包",
-      );
+    // 运营首次创建走 CapabilityService；贡献入口不再生产 SKILL 正文。
+    // 也拦截混合配置，避免直接调用 service 时借其他类型创建技能正文。
+    if (dto.type === "skill" || dto.skillConfig) {
+      throw new ForbiddenException("SKILL 首次创建仅支持运营后台，已有技能请通过客户端修改");
     }
+    const ctx = await this.enterpriseContext.resolveOrNull(userId);
     if (dto.type === "agent" && !dto.agentConfig) {
       throw new BadRequestException("Agent 能力必须提供执行平台配置");
     }
@@ -471,23 +463,12 @@ export class CapabilityContributionService {
       throw new BadRequestException("RPA 能力必须上传 ZIP 包并填写平台说明");
     }
 
-    // 正文来源在这里收敛成一份：上传路径按 sha256 重新解包，在线编写路径剥
-    // frontmatter。后面写 SkillConfig 与首版 SkillVersion 都用这一份，
-    // 两处不会漂移。
     const rpa = dto.rpaConfig
       ? await this.resolveRpaSource(
           dto.rpaConfig.packageSha256,
           dto.rpaConfig.packageFilename,
         )
       : null;
-    const skill = dto.skillConfig
-      ? await this.resolveSkillSource({
-          body: dto.skillConfig.template,
-          packageSha256: dto.skillConfig.packageSha256,
-          packageFilename: dto.skillConfig.packageFilename,
-        })
-      : null;
-
     return this.prisma.capability.create({
       data: {
         name: dto.name,
@@ -499,29 +480,6 @@ export class CapabilityContributionService {
         outputSchema: dto.outputSchema,
         contributorId: userId,
         enterpriseId: ctx?.enterpriseId ?? null,
-        ...(skill &&
-          dto.skillConfig && {
-            skillConfig: {
-              create: {
-                template: skill.content,
-                modelId: dto.skillConfig.modelId,
-                temperature: dto.skillConfig.temperature,
-                maxTokens: dto.skillConfig.maxTokens,
-              },
-            },
-            skillVersions: {
-              create: {
-                scope: ctx ? "ENTERPRISE" : "PLATFORM",
-                enterpriseId: ctx?.enterpriseId ?? null,
-                version: "1.0.0",
-                content: skill.content,
-                changeSummary: "初始版本",
-                status: "DRAFT",
-                createdById: userId,
-                ...skill.packageFields,
-              },
-            },
-          }),
         ...(rpa &&
           dto.rpaConfig && {
             rpaConfig: {
@@ -857,6 +815,9 @@ export class CapabilityContributionService {
 
   async requestPlatformReview(userId: string, capabilityId: string) {
     const capability = await this.getOwnedCapability(userId, capabilityId);
+    if (capability.type === "SKILL") {
+      throw new ForbiddenException("SKILL 已停用主动投稿平台，请由平台运营选择版本审核");
+    }
     if (
       capability.enterpriseId &&
       capability.enterpriseReviewStatus !== "APPROVED"
@@ -895,27 +856,7 @@ export class CapabilityContributionService {
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      // 企业路径这一步只是「发起申请」（REQUESTED），要等企业管理员授权才真的进平台，
-      // 所以这里不该动任何版本。以前会把 scope=ENTERPRISE 那几行直接改成
-      // PENDING_PLATFORM_REVIEW，于是运营的待审列表里出现一批点通过必然 404 的行
-      // —— reviewPlatformVersion 只认 scope=PLATFORM。改到 authorizePlatformSubmission
-      // 那步去建平台副本。
-      if (capability.type === "SKILL" && directPlatformSubmission) {
-        await tx.skillVersion.updateMany({
-          where: {
-            capabilityId: capability.id,
-            scope: "PLATFORM",
-            status: { in: ["DRAFT", "PLATFORM_REJECTED"] },
-          },
-          data: {
-            status: "PENDING_PLATFORM_REVIEW",
-            submittedAt,
-            validationResult: validation,
-            validatedAt: submittedAt,
-            rejectionReason: null,
-          },
-        });
-      } else if (capability.type === "RPA" && directPlatformSubmission) {
+      if (capability.type === "RPA" && directPlatformSubmission) {
         await tx.rpaVersion.updateMany({
           where: {
             capabilityId: capability.id,
@@ -954,6 +895,9 @@ export class CapabilityContributionService {
       where: { id: capabilityId, enterpriseId: ctx.enterpriseId },
     });
     if (!capability) throw new NotFoundException("能力不存在");
+    if (capability.type === "SKILL") {
+      throw new ForbiddenException("SKILL 已停用企业授权投稿，请由平台运营选择版本审核");
+    }
     if (
       capability.enterpriseReviewStatus !== "APPROVED" ||
       capability.platformReviewStatus !== "REQUESTED"
@@ -973,9 +917,7 @@ export class CapabilityContributionService {
         },
         select: CONTRIBUTION_CAPABILITY_SELECT,
       });
-      if (capability.type === "SKILL") {
-        await this.promoteLatestEnterpriseVersion(tx, capability.id, userId);
-      } else if (capability.type === "RPA") {
+      if (capability.type === "RPA") {
         await tx.rpaVersion.updateMany({
           where: {
             capabilityId: capability.id,
@@ -995,80 +937,6 @@ export class CapabilityContributionService {
       `企业已授权能力「${capability.name}」投稿平台，请及时审核。`,
     );
     return result;
-  }
-
-  /**
-   * 把企业最新的已审核版本复制成平台待审版本。
-   *
-   * 两处和以前不同，都是原来那套写法留下的坑：
-   *   - **复制而不是原地改**：企业那行保持 ENTERPRISE_APPROVED 继续在本企业生效，
-   *     平台审核作用在 scope=PLATFORM 的副本上。原地改会让企业版本在自家界面上
-   *     显示成「待平台审核」，而且运营点通过会 404。
-   *   - **只投最新一版**：原来 updateMany 把该企业所有 ENTERPRISE_APPROVED 版本
-   *     一起翻牌，一个改过 9 版的技能会产生 9 条待审记录。投稿投的是当前这一版。
-   */
-  private async promoteLatestEnterpriseVersion(
-    tx: Prisma.TransactionClient,
-    capabilityId: string,
-    actorId: string,
-  ) {
-    const source = await tx.skillVersion.findFirst({
-      where: {
-        capabilityId,
-        scope: "ENTERPRISE",
-        status: { in: ["ENTERPRISE_APPROVED", "PLATFORM_REJECTED"] },
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        ...PLATFORM_PROMOTION_SOURCE_SELECT,
-        enterprise: { select: { name: true } },
-      },
-    });
-    if (!source) return null;
-
-    // 重新投稿（上一轮被驳回）会撞 sourceVersionId 的唯一索引。同一份正文没必要
-    // 再复制一份，把上次那条退回待审即可 —— 驳回理由一起清掉，否则界面会同时显示
-    // 「待平台审核」和上一轮的驳回原因。
-    const existing = await tx.skillVersion.findUnique({
-      where: { sourceVersionId: source.id },
-      select: { id: true },
-    });
-    if (existing) {
-      return tx.skillVersion.update({
-        where: { id: existing.id },
-        data: {
-          status: "PENDING_PLATFORM_REVIEW",
-          submittedAt: new Date(),
-          rejectionReason: null,
-        },
-      });
-    }
-
-    const siblings = await tx.skillVersion.findMany({
-      where: { capabilityId, scope: "PLATFORM", enterpriseId: null },
-      select: { version: true },
-    });
-    const platformParent = await tx.skillVersion.findFirst({
-      where: { capabilityId, scope: "PLATFORM", status: "PLATFORM_APPROVED" },
-      orderBy: { createdAt: "desc" },
-      select: { id: true },
-    });
-
-    return tx.skillVersion.create({
-      data: buildPlatformPromotion({
-        source,
-        version: nextSemver(siblings.map((row) => row.version)),
-        platformParentId: platformParent?.id ?? null,
-        status: "PENDING_PLATFORM_REVIEW",
-        actorId,
-        changeSummary: platformPromotionSummary({
-          enterpriseName: source.enterprise?.name ?? null,
-          sourceVersion: source.version,
-          sourceSummary: source.changeSummary,
-        }),
-        now: new Date(),
-      }),
-    });
   }
 
   async reviewPlatform(
@@ -1217,98 +1085,18 @@ export class CapabilityContributionService {
     return result;
   }
 
-  /**
-   * 作者发布新版本。
-   *
-   * 公开能力不再被冻结：从前这里对 MARKET_PUBLIC 直接抛 Conflict，提示「请从
-   * 当前公开版本创建新的企业迭代」，但那条路径没有任何入口 —— 能力一旦通过
-   * 平台审核，作者就再也改不动了。现在公开能力照常派生新版本，父版本回落到
-   * 当前公开版本，后续走版本级审核（submitVersion）而不是能力级审核。
-   */
+  /** 旧 Web 迭代入口保留路由，但不再接受正文或包替换。 */
   async createSkillVersion(
     userId: string,
     capabilityId: string,
-    dto: ContributionVersionCreateDto,
+    _dto: ContributionVersionCreateDto,
   ) {
     const capability = await this.getOwnedCapability(userId, capabilityId);
     if (capability.type !== "SKILL")
       throw new BadRequestException("只有 Skill 支持版本迭代");
-
-    const ctx = await this.enterpriseContext.resolveOrNull(userId);
-    const scope: SkillVersionScope = ctx ? "ENTERPRISE" : "PLATFORM";
-    const enterpriseId = ctx?.enterpriseId ?? null;
-
-    const parent = await this.resolveParentVersion(
-      capabilityId,
-      dto.parentVersionId,
-      scope,
-      enterpriseId,
-    );
-    const skill = await this.resolveSkillSource({
-      body: dto.content,
-      packageSha256: dto.packageSha256,
-      packageFilename: dto.packageFilename,
-    });
-    const siblings = await this.prisma.skillVersion.findMany({
-      where: { capabilityId, scope, enterpriseId },
-      select: { version: true },
-    });
-
-    return this.prisma.skillVersion.create({
-      data: {
-        capabilityId,
-        scope,
-        enterpriseId,
-        parentVersionId: parent?.id,
-        version: nextSemver(siblings.map((row) => row.version)),
-        content: skill.content,
-        changeSummary: dto.changeSummary,
-        status: "DRAFT",
-        createdById: userId,
-        ...skill.packageFields,
-      },
-      select: AUTHOR_VERSION_SELECT,
-    });
+    throw new ForbiddenException("SKILL Web 版本创建已停用，请通过客户端提交修改");
   }
 
-  /**
-   * 父版本：显式指定 > 本作用域最新 > 当前公开版本。
-   * 最后那一档是公开能力迭代的入口 —— 企业作者第一次改公开能力时，
-   * 本企业还没有任何版本，父版本只能是平台上那个已公开的。
-   */
-  private async resolveParentVersion(
-    capabilityId: string,
-    parentVersionId: string | undefined,
-    scope: SkillVersionScope,
-    enterpriseId: string | null,
-  ) {
-    if (parentVersionId) {
-      const explicit = await this.prisma.skillVersion.findFirst({
-        where: {
-          id: parentVersionId,
-          capabilityId,
-          scope: { not: "PERSONAL" },
-        },
-        select: { id: true },
-      });
-      if (!explicit) throw new BadRequestException("父版本与能力不匹配");
-      return explicit;
-    }
-    return (
-      (await this.prisma.skillVersion.findFirst({
-        where: { capabilityId, scope, enterpriseId },
-        select: { id: true },
-        orderBy: { createdAt: "desc" },
-      })) ??
-      (await this.prisma.skillVersion.findFirst({
-        where: { capabilityId, scope: "PLATFORM", status: "PLATFORM_APPROVED" },
-        select: { id: true },
-        orderBy: { createdAt: "desc" },
-      }))
-    );
-  }
-
-  /** 作者查看自己某个版本的正文。企业侧那个 preview 要求订阅授权，贡献场景永远拿不到。 */
   async getVersionForAuthor(userId: string, versionId: string) {
     const version = await this.prisma.skillVersion.findFirst({
       where: {
@@ -1464,7 +1252,7 @@ export class CapabilityContributionService {
       await this.security?.assertReviewable(version.packageSha256, "SKILL");
     }
     const approved = dto.decision === "APPROVE";
-    const { updated, platformVersion } = await this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.skillVersion.update({
         where: { id: version.id },
         data: {
@@ -1484,10 +1272,8 @@ export class CapabilityContributionService {
           comment: dto.comment,
         },
       });
-      const platformVersion = approved && version.capability.visibility === "MARKET_PUBLIC"
-        ? await this.promoteLatestEnterpriseVersion(tx, version.capabilityId, userId)
-        : null;
-      return { updated, platformVersion };
+      // 企业审核只记录企业结果；平台是否选审由运营独立决定。
+      return updated;
     });
     await this.safeNotify({
       userId: version.createdById,
@@ -1503,12 +1289,6 @@ export class CapabilityContributionService {
       relatedId: version.id,
       actionUrl: `/contributions/${version.capabilityId}`,
     });
-    if (platformVersion) {
-      await this.notifyPlatformReviewers(
-        version.capabilityId,
-        `公开能力「${version.capability.name}」的新版本已通过企业审核，现待平台审核。`,
-      );
-    }
     return updated;
   }
 
@@ -1593,80 +1373,20 @@ export class CapabilityContributionService {
     return result;
   }
 
-  /** 编辑草稿正文。上传来的版本不给改文字 —— 包才是它的正文来源，要改就换包。 */
+  /** 历史贡献正文保持只读；不接受正文改写或包替换。 */
   async updateVersion(
     userId: string,
     versionId: string,
-    dto: ContributionVersionUpdateDto,
+    _dto: ContributionVersionUpdateDto,
   ) {
-    const version = await this.getEditableVersion(userId, versionId);
-    if (version.packageKey) {
-      throw new ConflictException(
-        "这个版本的正文来自上传的包，请上传新版本替代",
-      );
-    }
-    return this.prisma.skillVersion.update({
-      where: { id: version.id },
-      data: {
-        content: matter(dto.content).content.trimStart(),
-        ...(dto.changeSummary !== undefined && {
-          changeSummary: dto.changeSummary,
-        }),
-      },
-      select: { ...AUTHOR_VERSION_SELECT, content: true },
-    });
+    await this.getEditableVersion(userId, versionId);
+    throw new ForbiddenException("SKILL Web 正文编辑已停用，请通过客户端提交修改");
   }
 
-  /**
-   * 作者提交版本审核，按作用域分流：企业版本先过企业管理员，个人版本直投平台。
-   * 与能力级审核不同 —— 能力级只管首次发布，后续迭代都走这里。
-   */
+  /** 客户端完整正文提交走独立接口，旧贡献草稿不再从 Web 发布。 */
   async submitVersion(userId: string, versionId: string) {
-    const version = await this.getEditableVersion(userId, versionId);
-    if (version.packageSha256) {
-      await this.security?.assertReviewable(version.packageSha256, "SKILL");
-    }
-    if (!version.changeSummary?.trim()) {
-      throw new BadRequestException("请先填写本版本的变更说明");
-    }
-    const validation = this.validator.validateSkill(version.content);
-    if (!validation.valid) {
-      throw new BadRequestException({
-        message: "自动校验未通过，暂不能提交审核",
-        validation,
-      });
-    }
-    const submittedAt = new Date();
-    const result = await this.prisma.skillVersion.update({
-      where: { id: version.id },
-      data: {
-        status:
-          version.scope === "ENTERPRISE"
-            ? "PENDING_ENTERPRISE_REVIEW"
-            : "PENDING_PLATFORM_REVIEW",
-        submittedAt,
-        rejectionReason: null,
-        validationResult: validation,
-        validatedAt: submittedAt,
-      },
-      select: AUTHOR_VERSION_SELECT,
-    });
-    const message = `Skill「${version.version}」的新版本已提交${
-      version.scope === "ENTERPRISE" ? "企业" : "平台"
-    }审核，请及时处理。`;
-    if (version.scope === "ENTERPRISE") {
-      await this.notifyEnterpriseReviewers(
-        version.enterpriseId,
-        version.capabilityId,
-        message,
-      );
-    } else {
-      await this.notifyPlatformReviewers(
-        version.capabilityId,
-        message,
-      );
-    }
-    return result;
+    await this.getEditableVersion(userId, versionId);
+    throw new ForbiddenException("SKILL Web 版本提交已停用，请通过客户端提交修改");
   }
 
   /** 作者名下、且处于可编辑状态（草稿或被驳回）的版本。 */
@@ -2221,30 +1941,6 @@ export class CapabilityContributionService {
       filename: filename ?? stored.filename,
       fileCount: stored.fileCount,
       totalBytes: stored.totalBytes,
-    };
-  }
-
-  private async resolveSkillSource(source: {
-    /** 在线编写的正文。创建能力时叫 template，发布版本时叫 content。 */
-    body?: string;
-    packageSha256?: string;
-    packageFilename?: string;
-  }) {
-    if (source.packageSha256) {
-      const stored = await this.skillPackage.read(source.packageSha256);
-      return {
-        content: stored.content,
-        packageFields: {
-          packageKey: stored.key,
-          packageSha256: stored.sha256,
-          packageFileCount: stored.fileCount,
-          packageFilename: source.packageFilename ?? null,
-        },
-      };
-    }
-    return {
-      content: matter(source.body ?? "").content.trimStart(),
-      packageFields: {},
     };
   }
 

@@ -167,15 +167,8 @@ export class CapabilityInsightService {
     });
   }
 
-  /**
-   * 采纳建议 → 生成新的企业版本。
-   *
-   * 不直接把模型的输出写成正文：`content` 由前端带上来，管理员可以在建议基础上
-   * 再改。会议原话是「管理员选择采纳或拒绝」—— 采纳的是判断，不是模型的措辞。
-   *
-   * 采纳后同样不走审核流（那是 T2.5 摘掉的东西），直接生效并切版。
-   */
-  async adopt(userId: string, insightId: string, dto: AdoptInsightDto) {
+  /** 旧采纳入口只保留权限和记录校验，不再从 Web 正文生成企业版本。 */
+  async adopt(userId: string, insightId: string, _dto: AdoptInsightDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertEnterpriseAdmin(ctx);
 
@@ -186,26 +179,7 @@ export class CapabilityInsightService {
     if (insight.status !== 'PENDING') {
       throw new ConflictException('该建议已处理过');
     }
-
-    const version = await this.skillVersions.createEnterpriseVersionFromContent(
-      userId,
-      ctx.enterpriseId,
-      insight.capabilityId,
-      dto.content,
-      dto.changeSummary?.trim() || `采纳 AI 迭代建议（${insight.scope === 'ALL' ? '全员分析' : '单成员分析'}）`,
-    );
-
-    await this.prisma.capabilityInsight.update({
-      where: { id: insight.id },
-      data: {
-        status: 'ADOPTED',
-        adoptedVersionId: version.id,
-        adoptedById: userId,
-        resolvedAt: new Date(),
-      },
-    });
-
-    return { insightId: insight.id, version };
+    throw new ForbiddenException('AI 建议正文采纳已停用，请通过客户端修改技能并提交企业审核');
   }
 
   /** 拒绝建议。留痕而不删除 —— 同一个现象被反复建议时能看出「已经拒过一次」。 */

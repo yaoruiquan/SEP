@@ -109,7 +109,7 @@ export class CapabilityContributionController {
   @ApiOperation({
     summary: '上传 SKILL 包（zip，须含 SKILL.md）',
     description:
-      '返回 sha256 与解析结果。创建能力时只回传 sha256，正文由服务端按哈希重新解包提取。',
+      '共享上传供运营首次创建和客户端使用，返回 sha256 与解析结果；上传本身不创建或替换技能版本。',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -201,18 +201,18 @@ export class CapabilityContributionController {
   }
 
   @Patch('versions/:versionId')
-  @ApiOperation({ summary: '编辑草稿版本正文（仅在线编写的版本）' })
-  @ApiResponse({ status: 409, description: '版本状态不可编辑，或正文来自上传的包' })
+  @ApiOperation({ summary: '编辑草稿版本正文（已停用）' })
+  @ApiResponse({ status: 403, description: 'SKILL Web 正文编辑已停用，请通过客户端提交修改' })
   updateVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string, @Body(new ZodValidationPipe(ContributionVersionUpdateDtoSchema)) dto: ContributionVersionUpdateDto) {
     return this.service.updateVersion(req.user.id, versionId, dto);
   }
 
   @Post('versions/:versionId/submit')
   @ApiOperation({
-    summary: '提交版本审核',
-    description: '企业版本先过企业管理员；已公开能力的企业版本通过后自动生成平台待审版本。个人版本直投平台。',
+    summary: '提交版本审核（已停用）',
+    description: '旧 Web 贡献版本提交已停用，请通过客户端提交修改；历史版本仍可读取。',
   })
-  @ApiResponse({ status: 400, description: '缺变更说明，或自动校验未通过' })
+  @ApiResponse({ status: 403, description: 'SKILL Web 版本提交已停用' })
   submitVersion(@Request() req: AuthRequest, @Param('versionId') versionId: string) {
     return this.service.submitVersion(req.user.id, versionId);
   }
@@ -267,7 +267,8 @@ export class CapabilityContributionController {
   detail(@Request() req: AuthRequest, @Param('id') id: string) { return this.service.getOne(req.user.id, id); }
 
   @Post()
-  @ApiOperation({ summary: '创建企业私有能力草稿' })
+  @ApiOperation({ summary: '创建非 SKILL 能力贡献草稿' })
+  @ApiResponse({ status: 403, description: 'SKILL 首次创建仅支持运营后台' })
   @ApiResponse({ status: 201, description: '能力草稿已创建' })
   create(@Request() req: AuthRequest, @Body(new ZodValidationPipe(ContributionCapabilityCreateDtoSchema)) dto: ContributionCapabilityCreateDto) {
     return this.service.create(req.user.id, dto);
@@ -290,11 +291,13 @@ export class CapabilityContributionController {
   }
 
   @Post(':id/request-platform-review')
-  @ApiOperation({ summary: '申请企业管理员授权平台投稿' })
+  @ApiOperation({ summary: '申请企业管理员授权平台投稿（SKILL 已停用）' })
+  @ApiResponse({ status: 403, description: 'SKILL 平台投稿由平台运营独立选审' })
   requestPlatform(@Request() req: AuthRequest, @Param('id') id: string) { return this.service.requestPlatformReview(req.user.id, id); }
 
   @Post(':id/authorize-platform-submission')
-  @ApiOperation({ summary: '企业管理员授权平台投稿' })
+  @ApiOperation({ summary: '企业管理员授权平台投稿（SKILL 已停用）' })
+  @ApiResponse({ status: 403, description: 'SKILL 企业授权投稿已停用' })
   authorizePlatform(@Request() req: AuthRequest, @Param('id') id: string) { return this.service.authorizePlatformSubmission(req.user.id, id); }
 
   @Post(':id/platform-review')
@@ -305,10 +308,10 @@ export class CapabilityContributionController {
 
   @Post(':id/versions')
   @ApiOperation({
-    summary: '发布 Skill 新版本草稿',
-    description: '正文来源与创建能力同规则：上传包只送 sha256，或直接送在线编写的 content。',
+    summary: '发布 Skill 新版本草稿（已停用）',
+    description: 'Web 正文和包迭代已停用，请通过客户端提交修改。',
   })
-  @ApiResponse({ status: 201, description: '新版本草稿已创建' })
+  @ApiResponse({ status: 403, description: 'SKILL Web 版本创建已停用' })
   createVersion(@Request() req: AuthRequest, @Param('id') id: string, @Body(new ZodValidationPipe(ContributionVersionCreateDtoSchema)) dto: ContributionVersionCreateDto) {
     return this.service.createSkillVersion(req.user.id, id, dto);
   }

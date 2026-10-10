@@ -3,8 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, uploadForm } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
-import type { RpaPackageParseResult, SkillPackageParseResult } from '../../../../backend/src/shared';
-import type { ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage, ContributionVersionDiff } from '@/lib/types';
+import { ContributionCapabilityCreateDtoSchema, type RpaPackageParseResult } from '../../../../backend/src/shared';
+import type { CapabilityType, ContributionCapability, ContributionCapabilityDetail, ContributionOverview, ContributionRewardEvent, ContributionUsage, ContributionVersionDiff } from '@/lib/types';
 
 /** 作者版本详情 = 列表里的版本摘要 + 正文。 */
 export type AuthorVersionDetail = ContributionCapabilityDetail['skillVersions'][number] & {
@@ -39,15 +39,15 @@ function invalidate(qc: ReturnType<typeof useQueryClient>) {
 export function useCreateContribution() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post<ContributionCapability>('/contributions', body),
+    mutationFn: (body: Record<string, unknown>) => {
+      if (String(body.type).toUpperCase() === 'SKILL') throw new Error('SKILL 首次创建仅在运营后台提供');
+      return api.post<ContributionCapability>('/contributions', ContributionCapabilityCreateDtoSchema.parse(body));
+    },
     onSuccess: () => invalidate(qc),
   });
 }
 
-/**
- * 上传 Skill ZIP 包，并拿回服务端解析结果。
- * 创建能力时只回传 sha256 —— 正文由服务端按哈希重新解包，客户端改不动它。
- */
+/** RPA 仍沿用服务端 ZIP 校验与贡献流程。 */
 export function useUploadRpaPackage() {
   return useMutation({
     mutationFn: (file: File) => {
@@ -60,25 +60,21 @@ export function useUploadRpaPackage() {
 
 export function useUploadSkillPackage() {
   return useMutation({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append('file', file);
-      return uploadForm<SkillPackageParseResult>('/contributions/skill-package', form);
-    },
+    mutationFn: async (_file: File) => { throw new Error('已有 SKILL 包请通过客户端上传'); },
   });
 }
 
-/** 发布新版本。Skill 版本正文来自服务端已校验的 ZIP 包。 */
+/** 旧入口兼容：SKILL Web 写入已关闭。 */
 export function useCreateVersion(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: {
+    mutationFn: async (_body: {
       changeSummary: string;
       parentVersionId?: string;
       content?: string;
       packageSha256?: string;
       packageFilename?: string;
-    }) => api.post(`/contributions/${capabilityId}/versions`, body),
+    }) => { throw new Error('SKILL 新版本请通过客户端上传'); },
     onSuccess: () => {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(capabilityId) });
@@ -86,11 +82,11 @@ export function useCreateVersion(capabilityId: string) {
   });
 }
 
-/** 提交版本审核。企业版本先过企业管理员，个人版本直投平台 —— 分流在服务端。 */
+/** 旧 SKILL 投稿 hook 保留类型兼容，但不发送请求。 */
 export function useSubmitVersion(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (versionId: string) => api.post(`/contributions/versions/${versionId}/submit`),
+    mutationFn: async (_versionId: string) => { throw new Error('SKILL 版本请通过客户端提交企业审核'); },
     onSuccess: () => {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(capabilityId) });
@@ -116,15 +112,13 @@ export function useAuthorVersion(versionId: string) {
   });
 }
 
-/** 编辑草稿正文。上传来的版本服务端会拒 —— 包才是它的正文来源。 */
+/** 旧编辑 hook 只返回客户端维护提示，不写正文。 */
 export function useUpdateVersion(capabilityId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { versionId: string; content: string; changeSummary?: string }) =>
-      api.patch(`/contributions/versions/${data.versionId}`, {
-        content: data.content,
-        changeSummary: data.changeSummary,
-      }),
+    mutationFn: async (_data: { versionId: string; content: string; changeSummary?: string }) => {
+      throw new Error('已有 SKILL 正文请通过客户端修改');
+    },
     onSuccess: (_data, variables) => {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(capabilityId) });
@@ -135,10 +129,13 @@ export function useUpdateVersion(capabilityId: string) {
   });
 }
 
-export function useContributionAction(action: 'submit-enterprise-review' | 'request-platform-review' | 'authorize-platform-submission') {
+export function useContributionAction(action: 'submit-enterprise-review' | 'request-platform-review' | 'authorize-platform-submission', type: CapabilityType) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post<ContributionCapability>(`/contributions/${id}/${action}`),
+    mutationFn: (id: string) => {
+      if (type === 'SKILL') throw new Error('SKILL 不再通过贡献中心投稿或授权');
+      return api.post<ContributionCapability>(`/contributions/${id}/${action}`);
+    },
     onSuccess: (_data, id) => {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(id) });
@@ -146,10 +143,13 @@ export function useContributionAction(action: 'submit-enterprise-review' | 'requ
   });
 }
 
-export function useReviewContribution(stage: 'enterprise' | 'platform') {
+export function useReviewContribution(stage: 'enterprise' | 'platform', type: CapabilityType) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { id: string; decision: 'APPROVE' | 'REJECT'; comment?: string }) => api.post<ContributionCapability>(`/contributions/${data.id}/${stage}-review`, { decision: data.decision, comment: data.comment }),
+    mutationFn: (data: { id: string; decision: 'APPROVE' | 'REJECT'; comment?: string }) => {
+      if (type === 'SKILL') throw new Error('SKILL 请在技能版本审核中处理');
+      return api.post<ContributionCapability>(`/contributions/${data.id}/${stage}-review`, { decision: data.decision, comment: data.comment });
+    },
     onSuccess: (_data, variables) => {
       invalidate(qc);
       void qc.invalidateQueries({ queryKey: qk.contribution(variables.id) });

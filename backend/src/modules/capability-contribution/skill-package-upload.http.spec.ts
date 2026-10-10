@@ -14,6 +14,7 @@ import { CapabilityContributionController } from "./capability-contribution.cont
 import { CapabilityContributionService } from "./capability-contribution.service";
 import { CapabilityValidatorService } from "./capability-validator.service";
 import { RpaPackageService } from "../rpa-package/rpa-package.service";
+import { PackageSecurityService } from "./package-security.service";
 
 /**
  * HTTP 层测试：覆盖 multipart 装配（FileInterceptor + memoryStorage）与
@@ -33,6 +34,7 @@ function zipBuffer(entries: Array<[string, string]>) {
 describe("POST /contributions/skill-package", () => {
   let app: INestApplication;
   let root: string;
+  const security = { scanSkill: jest.fn().mockResolvedValue(undefined) };
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "sep-skill-http-"));
@@ -49,11 +51,16 @@ describe("POST /contributions/skill-package", () => {
         { provide: CapabilityContributionService, useValue: {} },
         { provide: PrismaService, useValue: {} },
         { provide: EnterpriseContextService, useValue: {} },
+        { provide: PackageSecurityService, useValue: security },
       ],
     })
       // 只验上传管线，认证在别处已有覆盖
       .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
+      .useValue({ canActivate: (context: any) => {
+        const req = context.switchToHttp().getRequest();
+        req.user = { id: 'upload-user', role: req.headers['x-test-role'] ?? 'USER' };
+        return true;
+      } })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -63,6 +70,25 @@ describe("POST /contributions/skill-package", () => {
   afterAll(async () => {
     await app?.close();
     await rm(root, { recursive: true, force: true });
+  });
+
+  beforeEach(() => security.scanSkill.mockClear());
+
+  it.each([
+    { role: 'ADMIN', userAgent: 'SEP-Web', label: 'platform admin initial creation' },
+    { role: 'USER', userAgent: 'SEP-Client', label: 'client upload' },
+  ])('preserves shared upload and security scanning for $label', async ({ role, userAgent }) => {
+    const res = await request(app.getHttpServer())
+      .post('/contributions/skill-package')
+      .set('x-test-role', role)
+      .set('User-Agent', userAgent)
+      .attach('file', zipBuffer([['SKILL.md', SKILL_BODY]]), 'initial.zip')
+      .expect(201);
+
+    expect(security.scanSkill).toHaveBeenCalledWith(expect.objectContaining({
+      sha256: res.body.sha256, content: SKILL_BODY,
+    }));
+    expect(res.body.validation.valid).toBe(true);
   });
 
   it("返回 sha256、包统计、正文与校验结论", async () => {

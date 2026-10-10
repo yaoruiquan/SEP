@@ -165,9 +165,6 @@ function SummaryBar({
           </span>
           个技能，还没有人调整过
         </span>
-        <span className="text-gtext-disabled">
-          · {canManage ? '成员改完会自动出现在这里，等你审核' : '你可以创建自己的副本随时调整'}
-        </span>
       </div>
     );
   }
@@ -230,9 +227,7 @@ function PendingBoard({ items, canManage }: { items: IterableCapability[]; canMa
             <span className="shrink-0 text-xs text-gbrand-text">
               {canManage
                 ? `${item.pendingAdoptionCount} 条改动 · 去审核`
-                : item.myPersonalVersionActive
-                  ? '我的副本正在使用 · 等待企业审核'
-                  : '我的副本已保存 · 等待企业审核'}
+                : '个人提交 · 等待企业审核'}
             </span>
           </Link>
         ))}
@@ -251,7 +246,7 @@ function FlatHeader() {
       )}
     >
       <span>技能</span>
-      <span className="text-center">版本与副本</span>
+      <span className="text-center">企业启用版本</span>
       <span className="text-right">使用情况</span>
       <span className="text-right">待办</span>
       <span className="text-right">所属员工</span>
@@ -402,19 +397,12 @@ function CapabilityRow({
       </span>
 
       <span className="flex min-w-0 flex-col items-center gap-1">
-        {item.myPersonalVersionId && item.myPersonalVersionActive ? (
-          <ScopeTag tone="personal">副本正在使用</ScopeTag>
+        {scope === 'ENTERPRISE' ? (
+          <ScopeTag tone="enterprise">已启用：企业版 {item.currentVersion?.version}</ScopeTag>
+        ) : scope === 'PLATFORM' ? (
+          <ScopeTag tone="platform">已启用：平台版 {item.currentVersion?.version}</ScopeTag>
         ) : (
-          <>
-            {scope === 'ENTERPRISE' ? (
-              <ScopeTag tone="enterprise">默认：企业版 {item.currentVersion?.version}</ScopeTag>
-            ) : scope === 'PLATFORM' ? (
-              <ScopeTag tone="platform">默认：平台版 {item.currentVersion?.version}</ScopeTag>
-            ) : (
-              <ScopeTag tone="platform">暂无默认版本</ScopeTag>
-            )}
-            {item.myPersonalVersionId && <ScopeTag tone="saved">副本已保存</ScopeTag>}
-          </>
+          <ScopeTag tone="platform">暂无启用版本</ScopeTag>
         )}
       </span>
 

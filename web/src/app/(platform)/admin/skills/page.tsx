@@ -1,195 +1,110 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Building2, CheckSquare, ChevronDown, ChevronRight, FileCheck2, Layers } from 'lucide-react';
+import { ArrowLeft, ChevronDown, RotateCcw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
-import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
-import {
-  groupAdminVersions,
-  type AdminVersionRow,
-  type CapabilityGroup,
-} from '@/features/skill-version/group-admin-versions';
-import { useAdminSkillVersions } from '@/features/skill-version/use-skill-version';
-import { common } from '@/locales/zh-CN';
+import { ENTERPRISE_REVIEW_LABELS, SOURCE_LABELS, currentUsageLabel, enterpriseReviewLabel, platformProcessingLabel, type MonitorFilters } from './monitor';
+import { useSkillMonitor } from './use-skill-monitor';
 
-/**
- * 三个页签对应三个问题,标签就照着问题写：
- *   - 待审核：有人投稿了，等我批
- *   - 企业改动：各家企业自己改成了什么样，我要不要收回平台（**没有投稿也在这里**）
- *   - 全部：翻档案
- *
- * 第二个页签原来叫「企业提交」，是错的：它查的是 `scope=ENTERPRISE`，而投稿会复制成
- * `scope=PLATFORM` 的副本落到第一个页签。实测这一栏 11 行里 0 行是提交过来的。
- */
-const TABS = [
-  { key: 'PENDING', label: common.status.pendingReview, filter: { status: 'PENDING_PLATFORM_REVIEW' } as const },
-  { key: 'ENTERPRISE', label: '企业改动', filter: { scope: 'ENTERPRISE' } as const },
-  { key: 'ALL', label: '全部', filter: undefined },
-] as const;
-
-type TabKey = (typeof TABS)[number]['key'];
-
-const TAB_HINT: Record<TabKey, string> = {
-  PENDING: '企业投稿和平台自建草稿提交上来的版本，等你通过或驳回。',
-  ENTERPRISE: '各家企业在本企业范围内改出来的版本。企业没有投稿，平台也可以直接采纳。',
-  ALL: '平台版与企业版全量（个人副本不进审核列表）。',
-};
+const emptyDraft = { search: '', enterpriseName: '', ownerName: '', createdFrom: '', createdTo: '' };
+const platformOptions = { NOT_SUBMITTED: '未收录', PENDING_REVIEW: '待审', APPROVED: '已通过', REJECTED: '已驳回' };
 
 export default function AdminSkillsPage() {
-  const [tab, setTab] = useState<TabKey>('PENDING');
-  const active = TABS.find((item) => item.key === tab)!;
-  const query = useAdminSkillVersions(active.filter);
-  const groups = useMemo(() => groupAdminVersions(query.data?.items ?? []), [query.data]);
-  const truncated = query.data ? query.data.total > query.data.items.length : false;
-
+  const [filters, setFilters] = useState<MonitorFilters>({});
+  const [draft, setDraft] = useState(emptyDraft);
+  const [timeError, setTimeError] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const query = useSkillMonitor(filters, page, limit);
+  const total = query.data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const change = (key: keyof MonitorFilters, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value || undefined }));
+    setPage(1);
+  };
+  useEffect(() => {
+    const search = draft.search.trim() || undefined;
+    const enterpriseName = draft.enterpriseName.trim() || undefined;
+    const ownerName = draft.ownerName.trim() || undefined;
+    if (search === filters.search && enterpriseName === filters.enterpriseName && ownerName === filters.ownerName) return;
+    const timer = window.setTimeout(() => {
+      setFilters((current) => ({ ...current, search, enterpriseName, ownerName }));
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [draft.search, draft.enterpriseName, draft.ownerName, filters.search, filters.enterpriseName, filters.ownerName]);
+  const changeDate = (key: 'createdFrom' | 'createdTo', value: string) => {
+    const next = { ...draft, [key]: value };
+    setDraft(next);
+    if (next.createdFrom && next.createdTo && next.createdFrom > next.createdTo) {
+      setTimeError('开始时间不能晚于结束时间');
+      return;
+    }
+    setTimeError('');
+    setFilters((current) => ({ ...current,
+      createdFrom: next.createdFrom ? new Date(next.createdFrom).toISOString() : undefined,
+      createdTo: next.createdTo ? new Date(next.createdTo).toISOString() : undefined }));
+    setPage(1);
+  };
+  const advancedCount = [filters.enterpriseReviewStatus, filters.enterpriseName, filters.ownerName, filters.createdFrom, filters.createdTo].filter(Boolean).length;
   return (
-    <div className="w-full min-w-0 space-y-5 p-6">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="w-full min-w-0 space-y-5 p-4 sm:p-6">
+      <Link href="/admin/capabilities" className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary"><ArrowLeft className="h-4 w-4" />返回硅基能力</Link>
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <CheckSquare className="h-5 w-5 text-gbrand-text" />
-            <h1 className="text-2xl font-semibold text-gtext-primary">技能审核</h1>
-          </div>
-          <p className="mt-1 text-sm text-gtext-muted">
-            {TAB_HINT[tab]}
-            {truncated && (
-              <span className="text-gwarning">
-                {' '}
-                共 {query.data!.total} 个版本，当前只显示最近 {query.data!.items.length} 个。
-              </span>
-            )}
-          </p>
+          <h1 className="text-2xl font-semibold text-gtext-primary">技能监控</h1>
+          <p className="mt-1 text-sm text-gtext-muted">共 {total} 个版本</p>
         </div>
-        <div className="flex gap-2">
-          {TABS.map((item) => (
-            <Button
-              key={item.key}
-              size="sm"
-              variant={tab === item.key ? 'glass-primary' : 'glass'}
-              onClick={() => setTab(item.key)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
+        <Link href="/admin/capabilities/new" className="rounded-md border border-glassline px-4 py-2 text-sm text-gtext-primary hover:bg-glass-1">首次创建技能</Link>
       </header>
-
-      {query.isLoading ? (
-        <Card className="overflow-hidden">
-          <CenteredSpinner label="加载技能版本..." />
-        </Card>
-      ) : groups.length ? (
-        <div className="space-y-5">
-          {groups.map((group) => (
-            <section key={group.key} className="space-y-2">
-              <div className="flex items-center gap-2 px-1">
-                {group.isPlatform ? (
-                  <Layers className="h-4 w-4 text-gtext-muted" />
-                ) : (
-                  <Building2 className="h-4 w-4 text-gtext-muted" />
-                )}
-                <h2 className="text-sm font-medium text-gtext-primary">{group.name}</h2>
-                <span className="text-xs text-gtext-muted">
-                  {group.capabilities.length} 个技能 · {group.versionCount} 个版本
-                </span>
-              </div>
-              <Card className="overflow-hidden">
-                <div className="divide-y divide-glassline">
-                  {group.capabilities.map((capability) => (
-                    <CapabilityRow key={capability.capabilityId} group={capability} />
-                  ))}
-                </div>
-              </Card>
-            </section>
-          ))}
+      <section aria-label="监控筛选" className="space-y-4 border-y border-glassline py-5">
+        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_minmax(140px,1fr)_minmax(160px,1fr)_auto]">
+          <label className="min-w-0 space-y-1 text-sm text-gtext-secondary">搜索<div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" /><Input aria-label="搜索技能" maxLength={200} value={draft.search} onChange={(event) => setDraft((current) => ({ ...current, search: event.target.value }))} placeholder="技能名称、提交人或企业名称" className="pl-9" /></div></label>
+          <Filter label="来源" value={filters.scope ?? ''} options={SOURCE_LABELS} onChange={(value) => change('scope', value)} />
+          <Filter label="平台收录状态" value={filters.platformProcessingStatus ?? ''} options={platformOptions} onChange={(value) => change('platformProcessingStatus', value)} />
+          <Button type="button" variant="ghost" className="justify-self-start" onClick={() => { setDraft(emptyDraft); setTimeError(''); setFilters({}); setPage(1); }}><RotateCcw className="h-4 w-4" />重置</Button>
         </div>
-      ) : (
-        <Card className="overflow-hidden">
-          <EmptyState title="暂无技能版本" description={TAB_HINT[tab]} />
-        </Card>
-      )}
+        <details className="group border-t border-glassline pt-3">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-2 text-sm text-gtext-secondary"><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />高级筛选{advancedCount > 0 && <span className="text-xs text-gbrand-text">· {advancedCount}</span>}</summary>
+          <div className="mt-4 grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <Filter label="企业审核" value={filters.enterpriseReviewStatus ?? ''} options={ENTERPRISE_REVIEW_LABELS} onChange={(value) => change('enterpriseReviewStatus', value)} />
+            {([['enterpriseName', '企业名称'], ['ownerName', '提交人']] as const).map(([key, label]) => <label key={key} className="min-w-0 space-y-1 text-sm text-gtext-secondary">{label}<Input maxLength={200} value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} placeholder={label} /></label>)}
+            {(['createdFrom', 'createdTo'] as const).map((key) => <label key={key} className="min-w-0 space-y-1 text-sm text-gtext-secondary">{key === 'createdFrom' ? '创建开始时间' : '创建结束时间'}<Input type="datetime-local" value={draft[key]} onChange={(event) => changeDate(key, event.target.value)} /></label>)}
+          </div>
+          {timeError && <p role="alert" className="mt-3 text-sm text-gdanger">{timeError}</p>}
+        </details>
+      </section>
+      <section aria-label="监控版本" className="min-w-0 border-b border-glassline">
+        {query.isLoading ? <CenteredSpinner label="加载技能版本..." /> : query.isError ? (
+          <div role="alert" className="space-y-3 p-6 text-sm text-gdanger">加载失败：{query.error instanceof Error ? query.error.message : '请稍后重试'}<div><Button variant="glass" onClick={() => void query.refetch()}>重试</Button></div></div>
+        ) : query.data?.items.length ? (
+          <div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm">
+            <caption className="sr-only">技能版本监控，每行是一个来源版本</caption>
+            <thead className="border-b border-glassline bg-glass-1 text-gtext-muted"><tr>{['技能 / 版本', '来源 / 归属', '企业审核', '平台收录', '当前使用', '创建 / 更新时间', '操作'].map((label) => <th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead>
+            <tbody className="divide-y divide-glassline">{query.data.items.map((row) => (
+              <tr key={row.id} className="text-gtext-secondary">
+                <td className="px-4 py-4"><p className="font-medium text-gtext-primary">{row.capability.name}</p><p className="mt-1 text-xs">v{row.version}</p><p className="mt-1 max-w-xs break-all text-xs text-gtext-muted">{row.capability.id}</p></td>
+                <td className="px-4 py-4"><Badge variant="glass-info">{SOURCE_LABELS[row.scope]}</Badge><p className="mt-2">{row.enterprise?.name ?? '无企业归属'}</p><p className="mt-1 text-xs">{row.owner?.name || row.owner?.email || row.ownerId || row.createdBy?.name || row.createdBy?.id || '所有者未标注'}</p></td>
+                <td className="px-4 py-4">{enterpriseReviewLabel(row)}</td><td className="px-4 py-4">{platformProcessingLabel(row)}</td>
+                <td className="px-4 py-4">{currentUsageLabel(row)}</td>
+                <td className="px-4 py-4 whitespace-nowrap"><p>{new Date(row.createdAt).toLocaleString('zh-CN')}</p><p className="mt-1 text-xs text-gtext-muted">更新 {new Date(row.updatedAt).toLocaleString('zh-CN')}</p></td>
+                <td className="px-4 py-4"><Link className="text-gbrand-text hover:underline" href={`/admin/skills/${row.id}`}>查看来源与处理</Link></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <EmptyState title="暂无匹配版本" description="调整筛选可查看其他来源、审核状态及历史版本。" />}
+      </section>
+      <nav aria-label="技能版本分页" className="flex flex-wrap items-center justify-between gap-3 text-sm text-gtext-secondary">
+        <div className="flex items-center gap-3"><span>共 {total} 个版本 · 第 {page} / {pages} 页</span><label>每页 <select aria-label="每页条数" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }} className="rounded border border-glassline bg-glass-1 px-2 py-1">{[20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select> 条</label></div>
+        <div className="flex gap-2"><Button variant="glass" disabled={page <= 1 || query.isFetching} onClick={() => setPage((current) => current - 1)}>上一页</Button><Button variant="glass" disabled={page >= pages || query.isFetching || query.isError} onClick={() => setPage((current) => current + 1)}>下一页</Button></div>
+      </nav>
     </div>
   );
 }
-
-function CapabilityRow({ group }: { group: CapabilityGroup }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div>
-      <VersionLine row={group.latest} capabilityName={group.capabilityName} highlight />
-      {group.older.length > 0 && (
-        <div className="border-t border-glassline/60 bg-glass-1/40">
-          <button
-            onClick={() => setExpanded((value) => !value)}
-            className="flex w-full items-center gap-2 px-5 py-2 text-xs text-gtext-muted transition-colors hover:text-gtext-secondary"
-          >
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform ${expanded ? '' : '-rotate-90'}`}
-            />
-            {group.older.length} 个更早的版本
-          </button>
-          {expanded && (
-            <div className="divide-y divide-glassline/60">
-              {group.older.map((row) => (
-                <VersionLine key={row.id} row={row} capabilityName={group.capabilityName} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VersionLine({
-  row,
-  capabilityName,
-  highlight = false,
-}: {
-  row: AdminVersionRow;
-  capabilityName: string;
-  highlight?: boolean;
-}) {
-  const status = SKILL_VERSION_STATUS[row.status];
-  // 「原始版本」只在真的没有上游时成立。采纳产生的版本以前也落在这里 ——
-  // 后端漏写 parentVersionId，一条「采纳 XX 的改动」被标成原始正文。
-  const isOriginal = !row.parentVersionId && !row.sourceVersionId;
-  return (
-    <Link
-      href={`/admin/skills/${row.id}`}
-      className={`flex items-center gap-4 px-5 transition-colors hover:bg-glass-1 ${
-        highlight ? 'py-4' : 'py-3 pl-11'
-      }`}
-    >
-      {highlight && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gbrand/15 text-gbrand-text">
-          <FileCheck2 className="h-5 w-5" />
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          {highlight && (
-            <span className="font-medium text-gtext-primary">{capabilityName}</span>
-          )}
-          <span className={highlight ? 'text-xs text-gtext-muted' : 'text-sm text-gtext-secondary'}>
-            {row.scope === 'PLATFORM' ? '平台版' : '企业版'} v{row.version}
-          </span>
-          <Badge className={status.className}>{status.label}</Badge>
-          {row.sourceVersionId && <Badge variant="glass-info">来自企业版本</Badge>}
-          {isOriginal && <Badge variant="glass-info">原始版本</Badge>}
-        </div>
-        <p className="mt-1 truncate text-sm text-gtext-secondary">
-          {row.changeSummary || (isOriginal ? '技能原始正文，后续版本从此版本派生' : '未填写变更说明')}
-        </p>
-      </div>
-      <span className="shrink-0 text-xs text-gtext-muted">
-        {new Date(row.updatedAt).toLocaleDateString('zh-CN')}
-      </span>
-      <ChevronRight className="h-5 w-5 shrink-0 text-gtext-muted" />
-    </Link>
-  );
+function Filter({ label, value, options, onChange }: { label: string; value: string; options: Record<string, string>; onChange: (value: string) => void }) {
+  return <label className="space-y-1 text-sm text-gtext-secondary">{label}<select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="block h-10 w-full rounded-md border border-glassline bg-glass-1 px-3 text-gtext-primary"><option value="">全部</option>{Object.entries(options).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>;
 }

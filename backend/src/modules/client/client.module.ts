@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { ClientController } from './client.controller';
 import { ClientService } from './client.service';
+import { SkillVersionModule } from '../skill-version/skill-version.module';
 import { SettingModule } from '../setting/setting.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
@@ -21,6 +22,7 @@ import { SubscriptionRequestModule } from '../subscription-request/subscription-
       }),
     }),
     SettingModule,
+    SkillVersionModule,
     PrismaModule,
     AuthModule,
     ComputeCreditModule,

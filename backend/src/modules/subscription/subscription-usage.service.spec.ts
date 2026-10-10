@@ -335,7 +335,7 @@ describe('SubscriptionUsageService', () => {
     const period = clientPeriodSql(prisma.$queryRaw.mock.calls[0]);
     expect(period).toBe(clientPeriodSql(prisma.$queryRaw.mock.calls[1], true));
     expect(period).toContain(
-      "CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED') THEN CURRENT_TIMESTAMP ELSE COALESCE(p.\"startedAt\", r.\"startedAt\", r.\"queuedAt\") END) > ?",
+      "CASE WHEN p.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED') AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED') THEN CURRENT_TIMESTAMP ELSE COALESCE(p.\"startedAt\", r.\"startedAt\", r.\"queuedAt\") END) > ?",
     );
     expect(period).not.toMatch(/IS NULL|updatedAt|lastHeartbeatAt|infinity/);
   });

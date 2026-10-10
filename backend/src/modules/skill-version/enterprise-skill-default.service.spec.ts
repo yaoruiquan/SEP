@@ -10,7 +10,11 @@ describe('EnterpriseSkillDefaultService', () => {
     };
     const tx = {
       $executeRaw: jest.fn().mockResolvedValue(1),
-      enterpriseSkillDefault: { upsert: jest.fn().mockResolvedValue({ id: 'default-1' }) },
+      enterpriseSkillDefault: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'default-1' }),
+      },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
       subscription: { findMany: jest.fn().mockResolvedValue([{ id: 'sub-1' }, { id: 'sub-2' }]) },
       subscriptionSkillVersion: { upsert: jest.fn().mockResolvedValue({ id: 'selection-1' }) },
       memberSkillVersionSelection: { upsert: jest.fn(), updateMany: jest.fn() },
@@ -100,6 +104,32 @@ describe('EnterpriseSkillDefaultService', () => {
   });
 
   describe('set', () => {
+    it('records the actor, time and before/after version in the same transaction', async () => {
+      const { service, tx } = build();
+      tx.enterpriseSkillDefault.findUnique.mockResolvedValue({ versionId: 'version-1' });
+      await service.set(tx as never, 'ent-1', 'cap-1', 'version-2', 'admin-1');
+      expect(tx.auditLog.create).toHaveBeenCalledWith({ data: {
+        actorId: 'admin-1', enterpriseId: 'ent-1', action: 'SKILL_VERSION_ENABLED',
+        resourceType: 'capability', resourceId: 'cap-1',
+        metadata: { previousVersionId: 'version-1', versionId: 'version-2', selectedAt: now.toISOString(), affectedSubscriptions: 2 },
+      } });
+    });
+
+    it('does not invent a switch when enabling the same version again', async () => {
+      const { service, tx } = build();
+      tx.enterpriseSkillDefault.findUnique.mockResolvedValue({ versionId: 'version-2' });
+      await service.set(tx as never, 'ent-1', 'cap-1', 'version-2', 'admin-1');
+      expect(tx.auditLog.create).not.toHaveBeenCalled();
+      expect(tx.subscriptionSkillVersion.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates an audit failure so the caller rolls back the entire switch', async () => {
+      const { service, tx } = build();
+      const failure = new Error('audit unavailable');
+      tx.auditLog.create.mockRejectedValue(failure);
+      await expect(service.set(tx as never, 'ent-1', 'cap-1', 'version-2', 'admin-1')).rejects.toBe(failure);
+    });
+
     it('persists the enterprise default and synchronizes all eligible subscription selections', async () => {
       const { service, tx } = build();
       await expect(service.set(tx as never, 'ent-1', 'cap-1', 'version-2', 'admin-1'))

@@ -63,7 +63,7 @@ export const ReviewSkillVersionDtoSchema = z.object({
 });
 
 export const SelectPersonalSkillVersionDtoSchema = z.object({
-  // null 是显式跟随企业，不等同于没有选版记录。
+  // 保留旧请求结构；个人 PIN 和 null/FOLLOW 写入均返回停用错误。
   versionId: z.string().min(1).nullable(),
 });
 
@@ -76,7 +76,7 @@ export const CreatePlatformSkillVersionDtoSchema = z.object({
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
-/** 旧 Web 审核入口兼容 DTO；多条来源必须通过修订及合并冲突校验。 */
+/** 保留旧请求结构；服务仅允许单条原文审核，拒绝多来源和正文覆盖。 */
 export const AdoptPersonalVersionsDtoSchema = z.object({
   sourceVersionIds: z
     .array(z.string().min(1))
@@ -102,20 +102,40 @@ export type AdoptPersonalVersionsDto = z.infer<
   typeof AdoptPersonalVersionsDtoSchema
 >;
 
-/**
- * 平台主动采纳一个企业版本（运营侧发起）。
- *
- * 会议纪要2 §6 的三层阶梯里，最上面那一级写的是「采纳与否由平台自己决定
- * （数据本身都在平台）」。此前只有企业管理员能发起（submitPlatformReview），
- * 运营在企业版本列表里看得到却动不了 —— 这个 DTO 补的是那条缺失的入口。
- */
-export const AdoptEnterpriseVersionDtoSchema = z.object({
-  /**
-   * DRAFT   = 收成待审草稿，再走一遍现有的通过/驳回；
-   * PUBLISH = 直接落成平台版并成为平台默认，跳过审核。
-   */
-  mode: z.enum(['DRAFT', 'PUBLISH']),
-  changeSummary: z.string().trim().max(2000).optional(),
-});
+/** 运营全量版本监控；企业审核与平台处理独立筛选。 */
+export const AdminSkillVersionQuerySchema = z.object({
+  scope: SkillVersionScopeSchema.optional(),
+  status: SkillVersionStatusSchema.optional(),
+  enterpriseId: z.string().min(1).max(128).optional(),
+  ownerId: z.string().min(1).max(128).optional(),
+  enterpriseName: z.string().trim().max(200).optional(),
+  ownerName: z.string().trim().max(200).optional(),
+  capabilityId: z.string().min(1).max(128).optional(),
+  enterpriseStatus: SkillVersionStatusSchema.optional(),
+  enterpriseReviewStatus: z.enum(['NOT_SUBMITTED', 'PENDING', 'APPROVED', 'REJECTED']).optional(),
+  platformProcessingStatus: z.enum(['NOT_SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'REJECTED']).optional(),
+  platformStatus: z.enum([
+    'NOT_SELECTED', 'DRAFT', 'PENDING_PLATFORM_REVIEW', 'PLATFORM_APPROVED', 'PLATFORM_REJECTED', 'ARCHIVED',
+  ]).optional(),
+  search: z.string().trim().max(200).optional(),
+  generationType: z.enum(['CLIENT_SUBMISSION', 'LEGACY_WORKING_COPY', 'REVIEW_SNAPSHOT', 'ENTERPRISE_VERSION', 'PLATFORM_CREATED', 'PLATFORM_SELECTED']).optional(),
+  createdFrom: z.string().datetime({ offset: true }).optional(),
+  createdTo: z.string().datetime({ offset: true }).optional(),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+}).refine((value) => !value.createdFrom || !value.createdTo || new Date(value.createdFrom) <= new Date(value.createdTo),
+  { path: ['createdTo'], message: '结束时间不能早于开始时间' });
+export type AdminSkillVersionQuery = z.infer<typeof AdminSkillVersionQuerySchema>;
 
+export const SubmitAdminPlatformReviewDtoSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
+export type SubmitAdminPlatformReviewDto = z.infer<typeof SubmitAdminPlatformReviewDtoSchema>;
+
+/** 保留旧请求名；选择任意个人／企业来源均须进入平台审核。 */
+export const AdoptEnterpriseVersionDtoSchema = z.object({
+  mode: z.literal('DRAFT').default('DRAFT'),
+  changeSummary: z.string().trim().max(2000).optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
 export type AdoptEnterpriseVersionDto = z.infer<typeof AdoptEnterpriseVersionDtoSchema>;

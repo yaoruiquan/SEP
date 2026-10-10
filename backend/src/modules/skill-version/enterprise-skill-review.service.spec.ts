@@ -106,6 +106,20 @@ describe('EnterpriseSkillReviewService', () => {
     expect(defaults.set).not.toHaveBeenCalled();
   }
 
+  it('rejects multi-source review before opening a transaction', async () => {
+    const { service, prisma } = build();
+    await expect(service.reviewMany('admin-1', ['client-1', 'client-2'], { decision: 'APPROVE' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Web body override even for a single source', async () => {
+    const { service, prisma } = build();
+    await expect(service.reviewMany('admin-1', ['client-1'], { decision: 'APPROVE' }, {}, 'cap-1', 'edited body'))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(now);
   });
@@ -298,20 +312,6 @@ describe('EnterpriseSkillReviewService', () => {
       expect(defaults.lock).not.toHaveBeenCalled();
     });
 
-    it('rejects a batch containing a source outside the current enterprise', async () => {
-      const { service, tx, defaults } = build([source(), source({ id: 'other-1', enterpriseId: 'ent-2' })]);
-      await expect(service.reviewMany('admin-1', ['client-1', 'other-1'], { decision: 'APPROVE' }, {}, 'cap-1', source().content))
-        .rejects.toBeInstanceOf(NotFoundException);
-      expectNoWrites(tx, defaults);
-    });
-
-    it('rejects a batch containing another skill', async () => {
-      const { service, tx, defaults } = build([source(), source({ id: 'other-1', capabilityId: 'cap-2' })]);
-      await expect(service.reviewMany('admin-1', ['client-1', 'other-1'], { decision: 'APPROVE' }, {}, 'cap-1', source().content))
-        .rejects.toBeInstanceOf(NotFoundException);
-      expectNoWrites(tx, defaults);
-    });
-
     it('enforces the capability supplied by the caller', async () => {
       const { service, tx, defaults } = build();
       await expect(service.reviewMany('admin-1', ['client-1'], { decision: 'APPROVE' }, {}, 'cap-2'))
@@ -368,73 +368,6 @@ describe('EnterpriseSkillReviewService', () => {
   });
 
   describe('batch transactions', () => {
-    it('merges nonconflicting client and Web changes into one default with snapshot-based provenance', async () => {
-      const rows = [
-        source({ id: 'web-z', status: 'PERSONAL_ACTIVE', content: 'FIRST\nsecond\nthird', submittedAt: null }),
-        source({ id: 'client-a', content: 'first\nsecond\nTHIRD', ownerId: 'member-2' }),
-      ];
-      const { service, tx, defaults } = build(rows);
-      const result = await service.reviewMany('admin-1', ['web-z', 'client-a'], { decision: 'APPROVE' }, {
-        'web-z': editedAt.toISOString(),
-      }, 'cap-1', 'FIRST\nsecond\nTHIRD');
-      expect(result.version).toEqual(expect.objectContaining({ content: 'FIRST\nsecond\nTHIRD' }));
-      expect(result.affectedSubscriptions).toBe(2);
-      expect(result.batchId).toEqual(expect.any(String));
-      expect(tx.skillVersionReview.create).toHaveBeenCalledTimes(2);
-      expect(tx.skillVersionAdoption.createMany).toHaveBeenCalledWith({ data: [
-        { sourceVersionId: 'snapshot-web-z', targetVersionId: 'enterprise-new', adoptedById: 'admin-1', batchId: result.batchId },
-        { sourceVersionId: 'client-a', targetVersionId: 'enterprise-new', adoptedById: 'admin-1', batchId: result.batchId },
-      ] });
-      expect(defaults.set).toHaveBeenCalledTimes(1);
-      const query = tx.$queryRaw.mock.calls[0][0] as Prisma.Sql;
-      expect(query.values).toEqual(['client-a', 'web-z']);
-      expect(query.sql).toContain('ORDER BY id FOR UPDATE');
-      expect(defaults.lock.mock.invocationCallOrder[0]).toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]);
-      const enterpriseData = tx.skillVersion.create.mock.calls.find(([{ data }]) => data.scope === 'ENTERPRISE')![0].data;
-      expect(enterpriseData).not.toHaveProperty('packageKey');
-    });
-
-    it.each([undefined, ''])('returns HTTP 409 before writes when a batch lacks confirmed final content (%j)', async (expectedMergedContent) => {
-      const rows = [source({ id: 'a', content: 'FIRST\nsecond\nthird' }), source({ id: 'b', content: 'first\nsecond\nTHIRD' })];
-      const { service, tx, defaults, prisma } = build(rows);
-      const review = service.reviewMany('admin-1', ['a', 'b'], { decision: 'APPROVE' }, {}, 'cap-1', expectedMergedContent);
-      await expect(review).rejects.toBeInstanceOf(ConflictException);
-      await expect(review).rejects.toMatchObject({ status: 409, message: expect.stringContaining('必须先确认') });
-      expectNoWrites(tx, defaults);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-      expect(prisma.notification.createMany).not.toHaveBeenCalled();
-    });
-
-    it.each(['Different content', 'FIRST\nsecond\nTHIRD\n', 'FIRST\r\nsecond\r\nTHIRD'])('returns HTTP 409 before writes when confirmed content differs from the exact merge (%j)', async (expectedMergedContent) => {
-      const rows = [source({ id: 'a', content: 'FIRST\nsecond\nthird' }), source({ id: 'b', content: 'first\nsecond\nTHIRD' })];
-      const { service, tx, defaults, prisma, events } = build(rows);
-      const review = service.reviewMany('admin-1', ['a', 'b'], { decision: 'APPROVE' }, {}, 'cap-1', expectedMergedContent);
-      await expect(review).rejects.toBeInstanceOf(ConflictException);
-      await expect(review).rejects.toMatchObject({ status: 409, message: expect.stringContaining('与预览不一致') });
-      expectNoWrites(tx, defaults);
-      expect(events).toEqual(['transaction:start', 'transaction:rollback']);
-      expect(prisma.notification.createMany).not.toHaveBeenCalled();
-    });
-
-    it.each(['Unrelated preview', 'FIRST-A\nFIRST-B\nsecond\nthird'])('prioritizes merge conflicts over confirmed-content comparison and refuses all writes (%j)', async (expectedMergedContent) => {
-      const rows = [source({ id: 'a', content: 'FIRST-A\nsecond\nthird' }), source({ id: 'b', content: 'FIRST-B\nsecond\nthird' })];
-      const { service, tx, defaults, prisma, events } = build(rows);
-      const review = service.reviewMany('admin-1', ['a', 'b'], { decision: 'APPROVE' }, {}, 'cap-1', expectedMergedContent);
-      await expect(review).rejects.toBeInstanceOf(ConflictException);
-      await expect(review).rejects.toMatchObject({ status: 409, message: expect.stringContaining('合并冲突') });
-      expectNoWrites(tx, defaults);
-      expect(events).toEqual(['transaction:start', 'transaction:rollback']);
-      expect(prisma.notification.createMany).not.toHaveBeenCalled();
-    });
-
-    it('rejects a stale copy in a batch without partially approving other sources', async () => {
-      const rows = [source(), source({ id: 'web-1', status: 'PERSONAL_ACTIVE' })];
-      const { service, tx, defaults } = build(rows);
-      await expect(service.reviewMany('admin-1', ['client-1', 'web-1'], { decision: 'APPROVE' }, {
-        'web-1': '2026-10-09T06:00:00.000Z',
-      }, 'cap-1', source().content)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('副本已更新') });
-      expectNoWrites(tx, defaults);
-    });
 
     it('does not support batch rejection', async () => {
       const { service, prisma } = build([source({ id: 'a' }), source({ id: 'b' })]);
@@ -478,6 +411,15 @@ describe('EnterpriseSkillReviewService', () => {
   });
 
   describe('personalReviewState', () => {
+    it('does not treat an operations source snapshot as enterprise approval', () => {
+      const row = source({ status: 'PERSONAL_ACTIVE', reviewSnapshots: [{
+        status: 'PERSONAL_ACTIVE', createdAt: now, workingCopyUpdatedAt: editedAt,
+        enterpriseReviewedAt: null, rejectionReason: null, adoptedInto: [],
+      }] });
+      expect(personalReviewState(row)).toMatchObject({ pending: true, reviewStatus: 'PENDING_ENTERPRISE_REVIEW',
+        publishedVersionId: null, reviewedBy: null });
+    });
+
     it('selects reviewer identity on both roots and snapshots along with the source revision', () => {
       expect(PERSONAL_REVIEW_RELATIONS.enterpriseReviewedBy).toEqual({ select: { id: true, name: true } });
       expect(PERSONAL_REVIEW_RELATIONS.reviewSnapshots.select).toEqual(expect.objectContaining({

@@ -4,8 +4,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api-client';
 import {
-  capabilityIterationKeys, useCreatePersonalVersion, useSelectEffectiveVersion,
-  useSelectPersonalVersion, useUpdatePersonalVersion,
+  capabilityIterationKeys, useSelectEffectiveVersion,
   useIterableCapabilities, usePersonalDiffs, useVersionTimeline,
 } from './use-capability-iteration';
 
@@ -25,29 +24,8 @@ function expectInvalidated(invalidate: ReturnType<typeof setup>['invalidate']) {
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.get).mockResolvedValue({}); vi.mocked(api.post).mockResolvedValue({}); vi.mocked(api.patch).mockResolvedValue({}); });
 afterEach(cleanup);
 
-describe('个人选版 mutation 契约', () => {
-  it.each([null, 'platform', 'enterprise', 'mine'])('向指定订阅发送 versionId=%s 并刷新所有关联查询', async (versionId) => {
-    const { wrapper, invalidate, client } = setup();
-    const { result } = renderHook(() => useSelectPersonalVersion('cap'), { wrapper });
-    await act(async () => { await result.current.mutateAsync({ subscriptionId: 'sub-b', versionId }); });
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/subscriptions/sub-b/skills/cap/select-personal-version', { versionId });
-    expectInvalidated(invalidate);
-    client.clear();
-  });
-
-  it('失败不更新查询，允许重试', async () => {
-    vi.mocked(api.post).mockRejectedValueOnce(new Error('无使用授权'));
-    const { wrapper, invalidate, client } = setup();
-    const { result } = renderHook(() => useSelectPersonalVersion('cap'), { wrapper });
-    await act(async () => {
-      await expect(result.current.mutateAsync({ subscriptionId: 'sub', versionId: null })).rejects.toThrow('无使用授权');
-    });
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(invalidate).not.toHaveBeenCalled();
-    client.clear();
-  });
-
-  it('企业默认使用技能级接口，无需订阅并刷新所有关联查询', async () => {
+describe('企业启用 mutation 契约', () => {
+  it('企业启用使用技能级接口，无需订阅并刷新所有关联查询', async () => {
     const { wrapper, invalidate, client } = setup();
     const { result } = renderHook(() => useSelectEffectiveVersion('cap'), { wrapper });
     await act(async () => { await result.current.mutateAsync({ versionId: 'enterprise' }); });
@@ -56,7 +34,7 @@ describe('个人选版 mutation 契约', () => {
     client.clear();
   });
 
-  it('企业默认切换失败不更新查询或回退到订阅接口', async () => {
+  it('企业启用切换失败不更新查询或回退到订阅接口', async () => {
     vi.mocked(api.post).mockRejectedValueOnce(new Error('无管理权限'));
     const { wrapper, invalidate, client } = setup();
     const { result } = renderHook(() => useSelectEffectiveVersion('cap'), { wrapper });
@@ -68,24 +46,7 @@ describe('个人选版 mutation 契约', () => {
     client.clear();
   });
 
-  it('编辑副本仅 PATCH 正文，不隐式发送选版，并刷新预览/时间线', async () => {
-    const { wrapper, invalidate, client } = setup();
-    const { result } = renderHook(() => useUpdatePersonalVersion('cap'), { wrapper });
-    await act(async () => { await result.current.mutateAsync({ versionId: 'mine', content: 'new', changeSummary: '说明' }); });
-    expect(api.patch).toHaveBeenCalledExactlyOnceWith('/enterprise/personal-versions/mine', { content: 'new', changeSummary: '说明' });
-    expect(api.post).not.toHaveBeenCalled();
-    expectInvalidated(invalidate);
-    client.clear();
-  });
 
-  it('创建/获取副本由后端决定是否激活，不另发个人选版', async () => {
-    const { wrapper, invalidate, client } = setup();
-    const { result } = renderHook(() => useCreatePersonalVersion('cap'), { wrapper });
-    await act(async () => { await result.current.mutateAsync(); });
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/capabilities/cap/personal-version', {});
-    expectInvalidated(invalidate);
-    client.clear();
-  });
 });
 
 describe('技能库跨端刷新', () => {

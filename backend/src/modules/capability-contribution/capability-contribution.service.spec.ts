@@ -35,17 +35,23 @@ describe('CapabilityContributionService', () => {
     skillVersionReview: { create: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
     employeeCapabilityBinding: { updateMany: jest.fn() },
     agentConfig: { findUnique: jest.fn() },
+    rPAConfig: { findUnique: jest.fn() },
+    rpaVersion: { updateMany: jest.fn(), findMany: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
   const validator = new CapabilityValidatorService();
   const skillPackage = { read: jest.fn(), store: jest.fn(), resolveStoredPath: jest.fn() };
+  const rpaPackage = { read: jest.fn() };
   const service = new CapabilityContributionService(
     prisma as never,
     enterpriseContext as never,
     validator,
     skillPackage as never,
+    undefined,
+    undefined,
+    rpaPackage as never,
   );
 
   beforeEach(() => {
@@ -62,83 +68,58 @@ describe('CapabilityContributionService', () => {
     prisma.contributionRewardEvent.createMany.mockResolvedValue({ count: 1 });
   });
 
-  it('automatically binds an enterprise member contribution to the resolved enterprise', async () => {
-    await service.create('user-1', {
-      name: '销售分析',
-      description: '分析销售数据',
-      type: 'skill',
-      industry: ['零售'],
-      position: ['数据分析'],
-      inputSchema: {},
-      outputSchema: {},
-      skillConfig: { template: '分析 {{data}}', modelId: 'model-1', temperature: 0.2, maxTokens: 512 },
-    });
+  it.each([
+    { label: 'enterprise member', ctx: { enterpriseId: 'enterprise-1', role: 'MEMBER' } },
+    { label: 'enterprise admin', ctx: { enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' } },
+    { label: 'individual contributor', ctx: null },
+    { label: 'platform admin contribution context', ctx: { enterpriseId: null, role: 'PLATFORM_ADMIN' } },
+  ])('rejects SKILL contribution creation for $label before reading packages or writing', async ({ ctx }) => {
+    enterpriseContext.resolveOrNull.mockResolvedValue(ctx);
+    for (const skillConfig of [{ template: '# 新正文' }, { packageSha256: 'a'.repeat(64) }]) {
+      await expect(service.create('user-1', {
+        name: '销售分析', description: '分析销售数据', type: 'skill',
+        industry: [], position: [], inputSchema: {}, outputSchema: {}, skillConfig,
+      })).rejects.toBeInstanceOf(ForbiddenException);
+    }
+    expect(skillPackage.read).not.toHaveBeenCalled();
+    expect(prisma.capability.create).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+  });
 
+  it('rejects skillConfig hidden inside another capability type when called directly', async () => {
+    await expect(service.create('user-1', {
+      name: '混合配置', description: '混合配置不能创建正文', type: 'agent',
+      industry: [], position: [], inputSchema: {}, outputSchema: {},
+      agentConfig: { platform: 'coze', botId: 'bot-1' }, skillConfig: { template: '隐藏正文' },
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.capability.create).not.toHaveBeenCalled();
+  });
+
+  it('still creates AGENT contributions in the resolved enterprise', async () => {
+    await service.create('user-1', {
+      name: '分析 Agent', description: '企业分析能力', type: 'agent',
+      industry: [], position: [], inputSchema: {}, outputSchema: {},
+      agentConfig: { platform: 'coze', botId: 'bot-1' },
+    });
     expect(prisma.capability.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ contributorId: 'user-1', enterpriseId: 'enterprise-1' }),
+      data: expect.objectContaining({ type: 'AGENT', contributorId: 'user-1', enterpriseId: 'enterprise-1',
+        agentConfig: { create: expect.objectContaining({ platform: 'COZE', botId: 'bot-1' }) } }),
     }));
   });
 
-  it('takes the first version body from the uploaded package, not from the client', async () => {
-    // 客户端同时送来 packageSha256 与一段正文。DTO 层本就二选一，这里额外
-    // 确认服务端只认按 sha256 重读的那份 —— 否则可以拿 A 包的哈希配 B 包的
-    // 正文，绕过上传时跑过的自动校验。
-    skillPackage.read.mockResolvedValue({
-      key: 'skills/aa.zip',
-      sha256: 'a'.repeat(64),
-      fileCount: 3,
-      totalBytes: 2048,
-      content: '# 角色\n包里的正文',
-      suggested: { name: null, description: null },
-    });
-
+  it('still creates RPA contributions from the stored package', async () => {
+    rpaPackage.read.mockResolvedValue({ key: 'rpa/aa.zip', sha256: 'a'.repeat(64), fileCount: 2, totalBytes: 100 });
     await service.create('user-1', {
-      name: '竞品周报',
-      description: '生成竞品周报',
-      type: 'skill',
-      industry: [],
-      position: [],
-      inputSchema: {},
-      outputSchema: {},
-      skillConfig: {
-        packageSha256: 'a'.repeat(64),
-        packageFilename: '竞品周报.zip',
-        template: '客户端伪造的正文，不应被采纳',
-      },
-    } as never);
-
-    expect(skillPackage.read).toHaveBeenCalledWith('a'.repeat(64));
-    const { data } = prisma.capability.create.mock.calls[0][0];
-    expect(data.skillVersions.create).toMatchObject({
-      content: '# 角色\n包里的正文',
-      version: '1.0.0',
-      status: 'DRAFT',
-      packageKey: 'skills/aa.zip',
-      packageSha256: 'a'.repeat(64),
-      packageFileCount: 3,
-      packageFilename: '竞品周报.zip',
+      name: '报表流程', description: '报表流程包创建', type: 'rpa',
+      industry: [], position: [], inputSchema: {}, outputSchema: {},
+      rpaConfig: { platform: 'yingdao', executionMode: 'download', packageSha256: 'a'.repeat(64),
+        packageFilename: 'report.zip', configDoc: '使用前请先配置报表目录和浏览器环境' },
     });
-    // SkillConfig.template 与首版正文同源，两处不会漂移
-    expect(data.skillConfig.create.template).toBe('# 角色\n包里的正文');
-  });
-
-  it('keeps hand-written drafts free of package fields', async () => {
-    await service.create('user-1', {
-      name: '手写能力',
-      description: '在线编写的正文',
-      type: 'skill',
-      industry: [],
-      position: [],
-      inputSchema: {},
-      outputSchema: {},
-      skillConfig: { template: '---\nname: x\n---\n# 角色\n手写正文' },
-    });
-
-    expect(skillPackage.read).not.toHaveBeenCalled();
-    const { data } = prisma.capability.create.mock.calls[0][0];
-    // frontmatter 被剥掉，正文从第一个标题开始
-    expect(data.skillVersions.create.content).toBe('# 角色\n手写正文');
-    expect(data.skillVersions.create.packageKey).toBeUndefined();
+    expect(rpaPackage.read).toHaveBeenCalledWith('a'.repeat(64));
+    expect(prisma.capability.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ type: 'RPA', enterpriseId: 'enterprise-1',
+        rpaVersions: { create: expect.objectContaining({ status: 'DRAFT', packageKey: 'rpa/aa.zip' }) } }),
+    }));
   });
 
   it('lets an enterprise admin inspect another member contribution in the same enterprise', async () => {
@@ -182,21 +163,35 @@ describe('CapabilityContributionService', () => {
     expect(prisma.skillVersion.update).not.toHaveBeenCalled();
   });
 
-  it('refuses a personal submission as an explicit contribution parent', async () => {
-    prisma.skillVersion.findFirst.mockImplementation(async ({ where }) =>
-      where.scope?.not === 'PERSONAL' ? null : { id: 'personal-1' });
-    prisma.skillVersion.findMany.mockResolvedValue([]);
-
-    await expect(service.createSkillVersion('user-1', 'cap-1', {
-      parentVersionId: 'personal-1', content: 'A new contribution body', changeSummary: 'New version',
-    })).rejects.toBeInstanceOf(BadRequestException);
-
+  it.each(['ENTERPRISE_PRIVATE', 'MARKET_PUBLIC'])('rejects body and package iteration of %s SKILL', async (visibility) => {
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, visibility });
+    for (const dto of [
+      { content: '新正文', changeSummary: '正文修改', parentVersionId: 'personal-1' },
+      { packageSha256: 'a'.repeat(64), changeSummary: '包替换' },
+    ]) {
+      await expect(service.createSkillVersion('user-1', 'cap-1', dto)).rejects.toBeInstanceOf(ForbiddenException);
+    }
+    expect(prisma.skillVersion.findFirst).not.toHaveBeenCalled();
     expect(prisma.skillVersion.create).not.toHaveBeenCalled();
     expect(skillPackage.read).not.toHaveBeenCalled();
   });
 
-  it.each(['PLATFORM', 'ENTERPRISE'])('preserves author preview access to %s contribution versions', async (scope) => {
-    const version = { id: 'version-2', scope, status: 'DRAFT', content: 'Author draft' };
+  it('keeps iteration ownership and capability type validation', async () => {
+    prisma.capability.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...capability, type: 'RPA' });
+    const dto = { content: '新正文', changeSummary: '修改' };
+    await expect(service.createSkillVersion('other-user', 'cap-1', dto)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.createSkillVersion('user-1', 'cap-1', dto)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it.each([
+    ['PLATFORM', 'PLATFORM_APPROVED'],
+    ['PLATFORM', 'PENDING_PLATFORM_REVIEW'],
+    ['PLATFORM', 'PLATFORM_REJECTED'],
+    ['ENTERPRISE', 'ENTERPRISE_APPROVED'],
+    ['ENTERPRISE', 'ENTERPRISE_REJECTED'],
+    ['ENTERPRISE', 'DRAFT'],
+  ])('preserves author preview access to historical %s / %s versions', async (scope, status) => {
+    const version = { id: 'version-2', scope, status, content: 'Historical body' };
     prisma.skillVersion.findFirst.mockResolvedValue(version);
 
     await expect(service.getVersionForAuthor('user-1', version.id)).resolves.toEqual(version);
@@ -272,169 +267,22 @@ describe('CapabilityContributionService', () => {
     }));
   });
 
-  it('validates a personal PLATFORM draft before direct platform submission', async () => {
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseId: null,
-      enterpriseReviewStatus: 'NOT_SUBMITTED',
-      platformReviewStatus: 'NOT_SUBMITTED',
-    });
-    prisma.skillVersion.findFirst.mockResolvedValue({ content: '# 角色\n验收助手\n# 输入\n页面截图\n# 步骤\n检查页面\n# 输出\n验收报告' });
-
-    await service.requestPlatformReview('user-1', 'cap-1');
-
-    expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        capabilityId: 'cap-1',
-        status: { in: ['DRAFT', 'ENTERPRISE_REJECTED', 'ENTERPRISE_APPROVED', 'PLATFORM_REJECTED'] },
-      }),
-    }));
-    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: 'user-1' }),
-    }));
-    expect(prisma.skillVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ scope: 'PLATFORM', status: { in: ['DRAFT', 'PLATFORM_REJECTED'] } }),
-    }));
-  });
-
-  it('keeps personal Skill iterations in the PLATFORM scope', async () => {
-    enterpriseContext.resolveOrNull.mockResolvedValue(null);
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseId: null,
-      visibility: 'ENTERPRISE_PRIVATE',
-      type: 'SKILL',
-    });
-    // 父版本回落：先查本作用域最新的版本
-    prisma.skillVersion.findFirst.mockResolvedValue({ id: 'version-1' });
-    prisma.skillVersion.findMany.mockResolvedValue([{ version: '1.0.0' }]);
-    prisma.skillVersion.create.mockResolvedValue({
-      id: 'version-2',
-      capabilityId: 'cap-1',
-      scope: 'PLATFORM',
-      enterpriseId: null,
-      parentVersionId: 'version-1',
-      version: '1.0.1',
-      changeSummary: '补充输出示例',
-      status: 'DRAFT',
-      createdAt: new Date(),
-    });
-
-    await service.createSkillVersion('user-1', 'cap-1', {
-      content: '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告',
-      changeSummary: '补充输出示例',
-    });
-
-    expect(prisma.skillVersion.findMany).toHaveBeenCalledWith({
-      where: { capabilityId: 'cap-1', scope: 'PLATFORM', enterpriseId: null },
-      select: { version: true },
-    });
-    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        capabilityId: 'cap-1', scope: 'PLATFORM', enterpriseId: null, status: 'DRAFT',
-        // 版本号走统一的 semver 规则，不再是 `1.0.${count}`
-        version: '1.0.1', parentVersionId: 'version-1',
-      }),
-    }));
-  });
-
-  it('lets the author iterate a capability that is already public', async () => {
-    // 从前这里直接抛 Conflict —— 能力一旦公开，作者就再也发不出新版本。
-    enterpriseContext.resolveOrNull.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'MEMBER' });
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      visibility: 'MARKET_PUBLIC',
-      platformReviewStatus: 'APPROVED',
-      type: 'SKILL',
-    });
-    // 本企业还没有任何版本，父版本回落到当前公开的平台版本
-    prisma.skillVersion.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 'public-version' });
-    prisma.skillVersion.findMany.mockResolvedValue([]);
-    prisma.skillVersion.create.mockResolvedValue({ id: 'version-3' });
-
-    await service.createSkillVersion('user-1', 'cap-1', {
-      content: '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告',
-      changeSummary: '公开后的第一次迭代',
-    });
-
-    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        scope: 'ENTERPRISE',
-        parentVersionId: 'public-version',
-        // 本企业第一个版本，从 1.0.0 起
-        version: '1.0.0',
-        status: 'DRAFT',
-      }),
-    }));
-  });
-
-  it('routes version submission by scope and gates it on validation', async () => {
-    const validBody = '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告';
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'version-2', scope: 'PLATFORM', status: 'DRAFT',
-      changeSummary: '补充输出示例', content: validBody,
-    });
-    prisma.skillVersion.update.mockResolvedValue({ id: 'version-2' });
-
-    await service.submitVersion('user-1', 'version-2');
-
-    // 个人版本直投平台
-    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'version-2' },
-      data: expect.objectContaining({ status: 'PENDING_PLATFORM_REVIEW', rejectionReason: null }),
-    }));
-  });
-
-  it('sends enterprise-scope versions to the enterprise reviewer first', async () => {
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'version-2', scope: 'ENTERPRISE', status: 'ENTERPRISE_REJECTED',
-      changeSummary: '按驳回意见补充边界条件',
-      content: '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告',
-    });
-    prisma.skillVersion.update.mockResolvedValue({ id: 'version-2' });
-
-    await service.submitVersion('user-1', 'version-2');
-
-    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'PENDING_ENTERPRISE_REVIEW' }),
-    }));
-  });
-
-  it('refuses to submit a version whose body fails validation', async () => {
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'version-2', scope: 'PLATFORM', status: 'DRAFT',
-      changeSummary: '改了点东西', content: '# 角色\n只有角色一段',
-    });
-
-    await expect(service.submitVersion('user-1', 'version-2')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+  it.each(['ENTERPRISE', 'PLATFORM'])('rejects editing and submitting historical %s Web drafts', async (scope) => {
+    for (const status of ['DRAFT', 'ENTERPRISE_REJECTED', 'PLATFORM_REJECTED']) {
+      for (const packageKey of [null, 'skills/aa.zip']) {
+        prisma.skillVersion.findFirst.mockResolvedValue({
+          id: 'version-2', scope, status, packageKey,
+          content: '旧正文', changeSummary: '旧说明',
+        });
+        await expect(service.updateVersion('user-1', 'version-2', { content: '新正文' }))
+          .rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.submitVersion('user-1', 'version-2'))
+          .rejects.toBeInstanceOf(ForbiddenException);
+      }
+    }
     expect(prisma.skillVersion.update).not.toHaveBeenCalled();
-  });
-
-  it('refuses to submit a version without a change summary', async () => {
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'version-2', scope: 'PLATFORM', status: 'DRAFT',
-      changeSummary: '   ',
-      content: '# 角色\n验收助手\n# 输入\n页面\n# 步骤\n检查\n# 输出\n报告',
-    });
-
-    await expect(service.submitVersion('user-1', 'version-2')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-  });
-
-  it('refuses to rewrite the body of a version that came from a package', async () => {
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      id: 'version-2', scope: 'PLATFORM', status: 'DRAFT',
-      packageKey: 'skills/aa.zip', content: '包里的正文',
-    });
-
-    await expect(
-      service.updateVersion('user-1', 'version-2', { content: 'x'.repeat(30) }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.skillVersionReview.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('refuses to touch a version that is already under review', async () => {
@@ -464,123 +312,63 @@ describe('CapabilityContributionService', () => {
     }));
   });
 
-  it('requires enterprise approval before the creator can request platform review', async () => {
-    prisma.capability.findFirst.mockResolvedValue({ ...capability, enterpriseReviewStatus: 'PENDING' });
-    await expect(service.requestPlatformReview('user-1', 'cap-1')).rejects.toBeInstanceOf(ConflictException);
+  it.each([null, 'enterprise-1'])('rejects new SKILL platform requests with enterpriseId=%s', async (enterpriseId) => {
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, enterpriseId, enterpriseReviewStatus: 'APPROVED' });
+    await expect(service.requestPlatformReview('user-1', 'cap-1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.capability.update).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.updateMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('leaves enterprise versions alone while the request only waits for authorization', async () => {
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseReviewStatus: 'APPROVED',
-    });
-    prisma.skillVersion.findFirst.mockResolvedValue({
-      content: '# 角色\n验收助手\n# 输入\n页面截图\n# 步骤\n检查页面\n# 输出\n验收报告',
-    });
+  it.each(['REQUESTED', 'REJECTED'])('rejects SKILL authorization of historical %s requests without altering history', async (platformReviewStatus) => {
+    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, enterpriseReviewStatus: 'APPROVED', platformReviewStatus });
+    await expect(service.authorizePlatformSubmission('admin-1', 'cap-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.capability.update).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 
+  it('still enforces ownership and enterprise context for platform submission', async () => {
+    prisma.capability.findFirst.mockResolvedValue(null);
+    await expect(service.requestPlatformReview('other-user', 'cap-1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.authorizePlatformSubmission('other-admin', 'cap-1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.capability.findFirst).toHaveBeenLastCalledWith({
+      where: { id: 'cap-1', enterpriseId: 'enterprise-1' },
+    });
+  });
+
+  it.each(['RPA', 'AGENT'])('preserves %s enterprise platform request and authorization', async (type) => {
+    prisma.rPAConfig.findUnique.mockResolvedValue({ platform: 'YINGDAO', executionMode: 'DOWNLOAD',
+      packageSha256: 'a'.repeat(64), configDoc: '使用前请配置报表目录和浏览器环境' });
+    prisma.agentConfig.findUnique.mockResolvedValue({ platform: 'COZE', botId: 'bot-1' });
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, type, enterpriseReviewStatus: 'APPROVED' });
     await service.requestPlatformReview('user-1', 'cap-1');
-
-    // 这一步只是「发起申请」（REQUESTED），要等企业管理员授权才真的进平台队列。
-    // 以前这里就把 scope=ENTERPRISE 的版本改成 PENDING_PLATFORM_REVIEW，于是运营的
-    // 待审列表里出现一批点通过必然 404 的行 —— reviewPlatformVersion 只认 PLATFORM。
     expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ platformReviewStatus: 'REQUESTED' }),
     }));
-    expect(prisma.skillVersion.updateMany).not.toHaveBeenCalled();
-    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
-  });
-
-  it('authorizes without a platform copy when the enterprise has no eligible version', async () => {
-    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseReviewStatus: 'APPROVED',
-      platformReviewStatus: 'REQUESTED',
-    });
-    prisma.skillVersion.findFirst.mockResolvedValue(null);
-
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, type, enterpriseReviewStatus: 'APPROVED', platformReviewStatus: 'REQUESTED' });
     await service.authorizePlatformSubmission('admin-1', 'cap-1');
-
-    expect(prisma.capability.update).toHaveBeenCalled();
-    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
-  });
-
-  it('lets an enterprise admin authorize the creator request into the platform queue', async () => {
-    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseReviewStatus: 'APPROVED',
-      platformReviewStatus: 'REQUESTED',
-    });
-
-    prisma.skillVersion.findFirst
-      .mockResolvedValueOnce({
-        id: 'ent-v3',
-        capabilityId: 'cap-1',
-        version: '1.0.3',
-        content: '# 正文',
-        changeSummary: '加术语表',
-        status: 'ENTERPRISE_APPROVED',
-        parentVersionId: 'ent-v2',
-        packageKey: null,
-        packageSha256: null,
-        packageFileCount: null,
-        packageFilename: null,
-        enterprise: { name: '示例科技有限公司' },
-      })
-      .mockResolvedValueOnce(null);
-    prisma.skillVersion.findUnique.mockResolvedValue(null);
-    prisma.skillVersion.findMany.mockResolvedValue([]);
-
-    await service.authorizePlatformSubmission('admin-1', 'cap-1');
-
-    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.capability.update).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({ platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: 'admin-1' }),
     }));
-    // 投稿要复制成平台副本，而不是把企业那行的状态改掉 —— 原地改会让企业版在自家
-    // 界面上显示成「待平台审核」，运营点通过还会 404（只认 scope=PLATFORM）。
-    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        scope: 'PLATFORM',
-        sourceVersionId: 'ent-v3',
-        status: 'PENDING_PLATFORM_REVIEW',
-        content: '# 正文',
-      }),
+    if (type === 'RPA') expect(prisma.rpaVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'PENDING_PLATFORM_REVIEW' }),
     }));
-    expect(prisma.skillVersion.updateMany).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
   });
 
-  it('re-queues the existing platform copy when a rejected contribution is submitted again', async () => {
-    enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
-    prisma.capability.findFirst.mockResolvedValue({
-      ...capability,
-      enterpriseReviewStatus: 'APPROVED',
-      platformReviewStatus: 'REQUESTED',
-    });
-    prisma.skillVersion.findFirst.mockResolvedValueOnce({
-      id: 'ent-v3',
-      capabilityId: 'cap-1',
-      version: '1.0.3',
-      content: '# 正文',
-      changeSummary: null,
-      status: 'PLATFORM_REJECTED',
-      parentVersionId: null,
-      packageKey: null,
-      packageSha256: null,
-      packageFileCount: null,
-      packageFilename: null,
-      enterprise: { name: '示例科技有限公司' },
-    });
-    // 上一轮驳回时已经建过副本，sourceVersionId 是唯一索引，不能再建第二份
-    prisma.skillVersion.findUnique.mockResolvedValue({ id: 'platform-copy' });
-
-    await service.authorizePlatformSubmission('admin-1', 'cap-1');
-
-    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
-    expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'platform-copy' },
-      data: expect.objectContaining({ status: 'PENDING_PLATFORM_REVIEW', rejectionReason: null }),
+  it('preserves individual RPA direct platform submission', async () => {
+    prisma.capability.findFirst.mockResolvedValue({ ...capability, type: 'RPA', enterpriseId: null });
+    prisma.rPAConfig.findUnique.mockResolvedValue({ platform: 'YINGDAO', executionMode: 'DOWNLOAD',
+      packageSha256: 'a'.repeat(64), configDoc: '使用前请配置报表目录和浏览器环境' });
+    await service.requestPlatformReview('user-1', 'cap-1');
+    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ platformReviewStatus: 'PENDING_REVIEW', platformSubmittedById: 'user-1' }),
+    }));
+    expect(prisma.rpaVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'PENDING_PLATFORM_REVIEW' }),
     }));
   });
 
@@ -721,58 +509,30 @@ describe('CapabilityContributionService', () => {
     });
   });
 
-  it('sends an enterprise-approved version of a public capability to platform review as a separate copy', async () => {
+  it.each(['MARKET_PUBLIC', 'ENTERPRISE_PRIVATE'])('records enterprise approval for %s without platform promotion or notification', async (visibility) => {
     enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
-    const reviewTarget = {
-      id: 'enterprise-v2',
-      capabilityId: 'cap-1',
-      status: 'PENDING_ENTERPRISE_REVIEW',
-      createdById: 'user-1',
-      version: '1.1.0',
-      capability: { name: '销售分析', visibility: 'MARKET_PUBLIC' },
-    };
-    const approvedSource = {
-      id: 'enterprise-v2',
-      capabilityId: 'cap-1',
-      enterpriseId: 'enterprise-1',
-      scope: 'ENTERPRISE',
-      version: '1.1.0',
-      content: '# 新版正文',
-      changeSummary: '补充边界处理',
-      status: 'ENTERPRISE_APPROVED',
-      parentVersionId: 'enterprise-v1',
-      packageKey: 'skills/new.zip',
-      packageSha256: 'a'.repeat(64),
-      packageFileCount: 3,
-      packageFilename: 'sales-analysis.zip',
-      enterprise: { name: '示例企业' },
-    };
-    prisma.skillVersion.findFirst
-      .mockResolvedValueOnce(reviewTarget)
-      .mockResolvedValueOnce(approvedSource)
-      .mockResolvedValueOnce({ id: 'platform-v1' });
-    prisma.skillVersion.findUnique.mockResolvedValue(null);
-    prisma.skillVersion.findMany.mockResolvedValue([{ version: '1.0.0' }]);
-    prisma.skillVersion.create.mockResolvedValue({ id: 'platform-v2' });
-
-    await service.reviewEnterpriseVersion('admin-1', 'enterprise-v2', { decision: 'APPROVE' });
-
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      id: 'enterprise-v2', capabilityId: 'cap-1', status: 'PENDING_ENTERPRISE_REVIEW',
+      createdById: 'user-1', version: '1.1.0', capability: { name: '销售分析', visibility },
+    });
+    prisma.skillVersion.update.mockResolvedValue({ id: 'enterprise-v2', status: 'ENTERPRISE_APPROVED' });
+    const notifications = { create: jest.fn(), createBatch: jest.fn() };
+    const reviewService = new CapabilityContributionService(
+      prisma as never, enterpriseContext as never, validator, skillPackage as never, undefined, notifications as never,
+    );
+    await reviewService.reviewEnterpriseVersion('admin-1', 'enterprise-v2', { decision: 'APPROVE' });
+    expect(prisma.skillVersion.update).toHaveBeenCalledTimes(1);
     expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'enterprise-v2' },
-      data: expect.objectContaining({ status: 'ENTERPRISE_APPROVED' }),
+      where: { id: 'enterprise-v2' }, data: expect.objectContaining({ status: 'ENTERPRISE_APPROVED' }),
     }));
-    expect(prisma.skillVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        capabilityId: 'cap-1',
-        scope: 'PLATFORM',
-        sourceVersionId: 'enterprise-v2',
-        parentVersionId: 'platform-v1',
-        version: '1.0.1',
-        status: 'PENDING_PLATFORM_REVIEW',
-        content: '# 新版正文',
-        packageKey: 'skills/new.zip',
-      }),
-    }));
+    expect(prisma.skillVersionReview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ versionId: 'enterprise-v2', actorType: 'ENTERPRISE', decision: 'APPROVE' }),
+    });
+    expect(prisma.skillVersion.create).not.toHaveBeenCalled();
+    expect(prisma.skillVersion.findUnique).not.toHaveBeenCalled();
+    expect(prisma.capability.update).not.toHaveBeenCalled();
+    expect(notifications.createBatch).not.toHaveBeenCalled();
+    expect(notifications.create).toHaveBeenCalledTimes(1);
   });
 
   it('records a platform approval without issuing a duplicate capability reward', async () => {

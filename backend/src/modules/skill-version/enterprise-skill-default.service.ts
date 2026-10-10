@@ -22,6 +22,10 @@ export class EnterpriseSkillDefaultService {
   ): Promise<{ affectedSubscriptions: number }> {
     const now = new Date();
     const selection = { versionId, selectedById: userId, selectedAt: now };
+    const previous = await tx.enterpriseSkillDefault.findUnique({
+      where: { enterpriseId_capabilityId: { enterpriseId, capabilityId } },
+      select: { versionId: true },
+    });
 
     await tx.enterpriseSkillDefault.upsert({
       where: { enterpriseId_capabilityId: { enterpriseId, capabilityId } },
@@ -47,6 +51,15 @@ export class EnterpriseSkillDefaultService {
         create: { subscriptionId: subscription.id, capabilityId, ...selection },
         update: selection,
       });
+    }
+
+    if (previous?.versionId !== versionId) {
+      await tx.auditLog.create({ data: {
+        actorId: userId, enterpriseId, action: 'SKILL_VERSION_ENABLED',
+        resourceType: 'capability', resourceId: capabilityId,
+        metadata: { previousVersionId: previous?.versionId ?? null, versionId,
+          selectedAt: now.toISOString(), affectedSubscriptions: subscriptions.length },
+      } });
     }
 
     return { affectedSubscriptions: subscriptions.length };

@@ -154,9 +154,9 @@ describe('版本迭代', () => {
     expect(previewProps.at(-1)?.source).toBe('author');
   });
 
-  it('作者能发布新版本', () => {
+  it('作者不能从 Web 发布新版本', () => {
     renderVersions();
-    expect(screen.getByRole('button', { name: /发布新版本/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /发布新版本/ })).not.toBeInTheDocument();
   });
 
   it('上传来的版本给下载包、不给行内编辑', () => {
@@ -173,24 +173,22 @@ describe('版本迭代', () => {
     expect(screen.getByText(/周报\.zip/)).toBeInTheDocument();
   });
 
-  it('新版本入口要求上传 SKILL ZIP 包', () => {
+  it('没有 SKILL 上传、正文编辑或提交入口', () => {
     renderVersions();
-    fireEvent.click(screen.getByRole('button', { name: /发布新版本/ }));
-
-    expect(screen.getByText('点击选择 SKILL ZIP 包')).toBeInTheDocument();
-    expect(document.querySelector('input[type="file"][accept=".zip,application/zip"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /编辑|提交审核|发布新版本/ })).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).not.toBeInTheDocument();
+    expect(submitVersion).not.toHaveBeenCalled();
   });
 
-  it('平台驳回的版本仍可返工并重新提交', () => {
-    // 从前 reworkable 只认 DRAFT / ENTERPRISE_REJECTED，平台驳回后个人贡献者无路可走
+  it('平台驳回历史仍显示原因，但不能 Web 返工或投稿', () => {
     detail = baseDetail([
       version({ status: 'PLATFORM_REJECTED', rejectionReason: '缺少边界条件' }),
     ]);
     renderVersions();
 
     expect(screen.getByText(/驳回原因：缺少边界条件/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /提交审核/ }));
-    expect(submitVersion).toHaveBeenCalledWith('v1', expect.anything());
+    expect(screen.queryByRole('button', { name: /提交审核|编辑|发布新版本/ })).not.toBeInTheDocument();
+    expect(submitVersion).not.toHaveBeenCalled();
   });
 
   it('审核中的版本不给提交按钮', () => {
@@ -199,13 +197,20 @@ describe('版本迭代', () => {
     expect(screen.queryByRole('button', { name: /提交审核/ })).not.toBeInTheDocument();
   });
 
-  it('已公开的能力说明继续迭代会替换公开版本', () => {
+  it('已公开的历史版本也不能从 Web 继续迭代', () => {
     detail = baseDetail([version({ status: 'PLATFORM_APPROVED' })], {
       visibility: 'MARKET_PUBLIC',
     });
     renderVersions();
-    expect(screen.getByText(/继续迭代会派生新版本/)).toBeInTheDocument();
-    // 公开不再等于冻结
-    expect(screen.getByRole('button', { name: /发布新版本/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /发布新版本|编辑|提交审核/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/客户端维护/)).toBeInTheDocument();
+  });
+
+  it('企业驳回记录保留差异与审核历史', () => {
+    detail = baseDetail([version({ status: 'ENTERPRISE_REJECTED', parentVersionId: 'parent-1', rejectionReason: '缺少异常数据处理' })]);
+    renderVersions();
+    fireEvent.click(screen.getByRole('button', { name: /查看变更/ }));
+    expect(screen.getAllByText(/缺少异常数据处理/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /提交审核|编辑/ })).not.toBeInTheDocument();
   });
 });

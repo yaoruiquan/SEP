@@ -1,0 +1,105 @@
+import type { SkillVersionPreview, SkillVersionScope, SkillVersionStatus, SkillVersionSummary } from '@/lib/types';
+
+export const SOURCE_LABELS: Record<SkillVersionScope, string> = {
+  PERSONAL: '个人来源', ENTERPRISE: '企业来源', PLATFORM: '平台来源',
+};
+export const ENTERPRISE_REVIEW_LABELS = {
+  NOT_SUBMITTED: '未提交企业审核', PENDING: '企业待审', APPROVED: '企业通过', REJECTED: '企业驳回',
+};
+export const PLATFORM_PROCESSING_LABELS = {
+  NOT_SUBMITTED: '未收录', PENDING_REVIEW: '平台待审', APPROVED: '平台通过', REJECTED: '平台驳回',
+};
+export const GENERATION_TYPE_LABELS = {
+  CLIENT_SUBMISSION: '客户端提交', LEGACY_WORKING_COPY: '历史副本', REVIEW_SNAPSHOT: '审核快照',
+  ENTERPRISE_VERSION: '审核生成企业版', PLATFORM_CREATED: '运营创建', PLATFORM_SELECTED: '平台收录',
+};
+export interface MonitorClassifications {
+  ownerId?: string | null;
+  owner?: { id: string; name: string | null; email?: string } | null;
+  enterpriseReviewStatus?: keyof typeof ENTERPRISE_REVIEW_LABELS;
+  platformProcessingStatus?: keyof typeof PLATFORM_PROCESSING_LABELS;
+  promotedVersions?: SkillVersionSummary[];
+  reviewSnapshots?: (SkillVersionSummary & { workingCopyUpdatedAt?: string | null; promotedVersions?: SkillVersionSummary[] })[];
+  createdBy?: { id: string; name: string | null } | null;
+  sourceVersion?: SkillVersionSummary & { owner?: { id: string; name: string | null } | null; workingCopy?: SkillVersionSummary | null } | null;
+  isWorkingCopy?: boolean;
+  workingCopyId?: string | null;
+  generationType?: keyof typeof GENERATION_TYPE_LABELS;
+  isEnterpriseCurrent?: boolean;
+  enterpriseDefaultCount?: number;
+  isPlatformLatest?: boolean;
+  isMarketPublic?: boolean;
+  defaultBindingCount?: number;
+  marketBindingCount?: number;
+}
+export type MonitorRow = SkillVersionSummary & MonitorClassifications & {
+  capability: { id: string; name: string; description: string };
+  enterprise?: { id: string; name: string } | null;
+};
+export type MonitorDetail = SkillVersionPreview & MonitorClassifications & {
+  packageKey?: string | null;
+  packageSha256?: string | null;
+  packageFileCount?: number | null;
+  packageFilename?: string | null;
+  reviews?: { id: string; actorType: string; decision: string; comment: string | null; createdAt: string; reviewer: { id: string; name: string | null } }[];
+};
+export function canSelectSource(row: MonitorDetail) {
+  if (row.scope === 'PLATFORM') return false;
+  if (!promotedVersion(row)) return true;
+  return Boolean(row.isWorkingCopy && !row.reviewSnapshots?.some((snapshot) => snapshot.workingCopyUpdatedAt === row.updatedAt && snapshot.promotedVersions?.length));
+}
+export interface MonitorFilters {
+  search?: string;
+  enterpriseName?: string;
+  ownerName?: string;
+  scope?: SkillVersionScope;
+  status?: SkillVersionStatus;
+  enterpriseReviewStatus?: keyof typeof ENTERPRISE_REVIEW_LABELS;
+  platformProcessingStatus?: keyof typeof PLATFORM_PROCESSING_LABELS;
+  enterpriseId?: string;
+  ownerId?: string;
+  capabilityId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  generationType?: keyof typeof GENERATION_TYPE_LABELS;
+}
+export function promotedVersion(row: MonitorClassifications) {
+  return row.promotedVersions?.[0] ?? row.reviewSnapshots?.find((snapshot) => snapshot.promotedVersions?.length)?.promotedVersions?.[0];
+}
+export function creationMethodLabel(row: MonitorRow | MonitorDetail) {
+  if (row.generationType) return GENERATION_TYPE_LABELS[row.generationType] ?? row.generationType;
+  if (row.workingCopyId) return '审核快照';
+  if (row.scope === 'PLATFORM') return row.sourceVersionId ? '平台收录' : '运营创建';
+  if (row.scope === 'PERSONAL') return row.isWorkingCopy || row.workingCopyId ? '历史副本' : '客户端提交';
+  return row.sourceVersionId ? '审核生成' : '历史企业版本';
+}
+export function currentUsageLabel(row: MonitorRow | MonitorDetail) {
+  const labels: string[] = [];
+  if (row.isEnterpriseCurrent) labels.push('企业已启用');
+  if (row.scope === 'PLATFORM' && row.isPlatformLatest) labels.push(row.isMarketPublic ? '平台已发布' : '平台当前版本');
+  if (row.status === 'ARCHIVED' || (row.scope === 'PLATFORM' && row.status === 'PLATFORM_APPROVED' && row.isPlatformLatest === false) || (row.scope === 'ENTERPRISE' && row.status === 'ENTERPRISE_APPROVED' && row.isEnterpriseCurrent === false)) labels.push('历史版本');
+  if (labels.length) return labels.join(' · ');
+  return row.isEnterpriseCurrent !== undefined || row.isPlatformLatest !== undefined ? '未在使用' : '使用状态未标注';
+}
+export function monitorQuery(filters: MonitorFilters, page: number, limit: number) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
+  return params.toString();
+}
+
+// 分类优先使用服务端独立字段；旧响应中的版本状态只作为展示兼容，不用于本地筛选。
+export function enterpriseReviewLabel(row: MonitorRow | MonitorDetail) {
+  if (row.enterpriseReviewStatus) return ENTERPRISE_REVIEW_LABELS[row.enterpriseReviewStatus] ?? row.enterpriseReviewStatus;
+  if (row.status === 'PENDING_ENTERPRISE_REVIEW') return ENTERPRISE_REVIEW_LABELS.PENDING;
+  if (row.status === 'ENTERPRISE_APPROVED') return ENTERPRISE_REVIEW_LABELS.APPROVED;
+  if (row.status === 'ENTERPRISE_REJECTED') return ENTERPRISE_REVIEW_LABELS.REJECTED;
+  return '企业审核未标注';
+}
+export function platformProcessingLabel(row: MonitorRow | MonitorDetail) {
+  if (row.platformProcessingStatus) return PLATFORM_PROCESSING_LABELS[row.platformProcessingStatus] ?? row.platformProcessingStatus;
+  const status = row.scope === 'PLATFORM' ? row.status : promotedVersion(row)?.status;
+  if (status === 'PENDING_PLATFORM_REVIEW') return PLATFORM_PROCESSING_LABELS.PENDING_REVIEW;
+  if (status === 'PLATFORM_APPROVED') return PLATFORM_PROCESSING_LABELS.APPROVED;
+  if (status === 'PLATFORM_REJECTED') return PLATFORM_PROCESSING_LABELS.REJECTED;
+  return row.scope === 'PLATFORM' ? '平台处理未标注' : '收录状态未标注';
+}

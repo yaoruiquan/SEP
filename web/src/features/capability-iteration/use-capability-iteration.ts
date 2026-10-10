@@ -46,7 +46,7 @@ export interface IterableCapability {
   usage: { totalRounds: number; distinctUserCount: number };
   /** 待审核改动数；保留旧字段名以兼容接口。 */
   pendingAdoptionCount: number;
-  /** 我自己的已保存副本；是否使用由 myPersonalVersionActive 表示。 */
+  /** 历史个人工作副本 ID，仅供来源追溯。 */
   myPersonalVersionId: string | null;
   myPersonalVersionActive: boolean;
 }
@@ -84,6 +84,8 @@ export interface TimelineVersion {
   id: string;
   capabilityId: string;
   ownerId?: string | null;
+  /** 后端依据真实工作副本关系返回，不能按状态推断来源。 */
+  isWorkingCopy?: boolean;
   scope: SkillVersionScope;
   enterpriseId: string | null;
   parentVersionId: string | null;
@@ -109,13 +111,13 @@ export interface VersionTimeline {
   /**
    * 这个能力绑在哪几位员工身上，以及各自的选版。
    *
-   * 个人选版按订阅生效；企业默认切换对整个企业的该技能生效。
+   * 正式执行统一跟随企业当前启用版本，个人选版字段仅保留历史兼容。
    */
   subscriptions: Array<{
     subscriptionId: string;
     employeeId: string;
     employeeName: string;
-    /** 企业共享选择，不能用作本人实际生效版本。 */
+    /** 企业当前启用版本。 */
     currentVersionId: string | null;
     personalVersionId: string | null;
     personalSelectionMode: 'FOLLOW_ENTERPRISE' | 'AUTO' | 'PINNED';
@@ -208,39 +210,9 @@ export function useSelectEffectiveVersion(capabilityId: string) {
         `/enterprise/capabilities/${capabilityId}/default-version`,
         { versionId },
       ),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
+    onSuccess: () => invalidateSkillViews(qc, capabilityId),
   });
 }
-
-/** 仅切换本人在指定订阅下的使用版本；null 跟随企业并保留副本。 */
-export function useSelectPersonalVersion(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ subscriptionId, versionId }: { subscriptionId: string; versionId: string | null }) =>
-      api.post(
-        `/enterprise/subscriptions/${subscriptionId}/skills/${capabilityId}/select-personal-version`,
-        { versionId },
-      ),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
-}
-
-/**
- * 兼容旧企业草稿发布接口；技能库个人改动使用统一审核接口。
- */
-export function usePublishEnterpriseVersion(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (versionId: string) =>
-      api.post<{ affectedSubscriptions: number }>(
-        `/enterprise/skill-versions/${versionId}/publish`,
-        {},
-      ),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
-}
-
-// 个人工作副本与客户端提交统一进入审核。
 
 export interface PersonalDiffItem {
   id: string;
@@ -290,63 +262,14 @@ export function usePersonalDiffs(capabilityId: string, enabled = true, page = 1,
 }
 
 /**
- * 选版/副本写操作同步刷新个人改动、时间线、能力列表与技能查询（含预览）。
+ * 启用版本后同步刷新个人改动、时间线、能力列表与技能查询（含预览）。
  * 抽成一个函数，避免每个 mutation 各写一遍漏掉一处。
  */
-function invalidatePersonal(qc: ReturnType<typeof useQueryClient>, capabilityId: string) {
+function invalidateSkillViews(qc: ReturnType<typeof useQueryClient>, capabilityId: string) {
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
   void qc.invalidateQueries({ queryKey: ['skill-versions'] });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.personalDiffs(capabilityId) });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
-}
-
-export function useCreatePersonalVersion(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      api.post<{ id: string; content: string }>(
-        `/enterprise/capabilities/${capabilityId}/personal-version`,
-        {},
-      ),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
-}
-
-export function useUpdatePersonalVersion(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      versionId,
-      content,
-      changeSummary,
-    }: {
-      versionId: string;
-      content: string;
-      changeSummary?: string;
-    }) => api.patch(`/enterprise/personal-versions/${versionId}`, { content, changeSummary }),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
-}
-
-export function useDiscardPersonalVersion(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (versionId: string) => api.delete(`/enterprise/personal-versions/${versionId}`),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
-}
-
-/** 保留旧多来源接口兼容；统一审核面板不直接调用。 */
-export function useAdoptPersonalVersions(capabilityId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: { sourceVersionIds: string[]; changeSummary?: string }) =>
-      api.post<{ adoptedCount: number; affectedSubscriptions: number }>(
-        `/enterprise/capabilities/${capabilityId}/adopt`,
-        payload,
-      ),
-    onSuccess: () => invalidatePersonal(qc, capabilityId),
-  });
 }
 
 // ──────────── 智能沉淀建议（会议纪要2 §6.5）────────────
@@ -404,21 +327,9 @@ export function useResolveInsight(capabilityId: string) {
     void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
     void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
   };
-  const adopt = useMutation({
-    mutationFn: ({
-      insightId,
-      content,
-      changeSummary,
-    }: {
-      insightId: string;
-      content: string;
-      changeSummary?: string;
-    }) => api.post(`/enterprise/insights/${insightId}/adopt`, { content, changeSummary }),
-    onSuccess: invalidate,
-  });
   const dismiss = useMutation({
     mutationFn: (insightId: string) => api.post(`/enterprise/insights/${insightId}/dismiss`, {}),
     onSuccess: invalidate,
   });
-  return { adopt, dismiss };
+  return { dismiss };
 }

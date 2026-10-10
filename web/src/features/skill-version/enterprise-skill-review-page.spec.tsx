@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
 import { toast } from '@/components/ui/toast';
-import type { EnterpriseSkillVersionReviewItem } from '@/lib/types';
+import type { EnterpriseReviewItem } from './use-skill-version';
 import EnterpriseSkillReviewPage from './enterprise-skill-review-page';
 
 vi.mock('@/lib/api-client', async (importOriginal) => ({
@@ -15,7 +15,7 @@ vi.mock('@/components/ui/toast', () => ({ toast: { success: vi.fn(), error: vi.f
 vi.mock('@/features/chat/markdown', () => ({ Markdown: ({ content }: { content: string }) => <p>{content}</p> }));
 
 const versionId = 'psv_0533f3eb6fe840bcfc6df73d605fb315fc68d0e1cad82332d8218e141ba2257e';
-const item: EnterpriseSkillVersionReviewItem = {
+const item: EnterpriseReviewItem = {
   id: versionId, capabilityId: 'cmszr2p7e009g7qr52xbo0o1x', parentVersionId: 'platform-v1',
   enterpriseId: 'demo-ent-shuyi', ownerId: 'submitter', scope: 'PERSONAL', version: '0.0.0-personal.digest',
   status: 'PENDING_ENTERPRISE_REVIEW', changeSummary: '调整输入说明',
@@ -26,7 +26,7 @@ const item: EnterpriseSkillVersionReviewItem = {
 };
 let clients: QueryClient[] = [];
 let total: number;
-let rows: EnterpriseSkillVersionReviewItem[];
+let rows: EnterpriseReviewItem[];
 
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -65,6 +65,19 @@ afterEach(() => {
 });
 
 describe('企业个人 Skill 审核闭环页面', () => {
+  it.each([
+    [false, '客户端提交'], [true, '历史 Web 副本'], [undefined, '个人提交'],
+  ] as const)('来源字段%s可靠标记为%s，审核始终只有单一原始版本', async (isWorkingCopy, label) => {
+    rows = [{ ...item, isWorkingCopy }];
+    setup();
+    await waitForQueue();
+    expect(screen.getByText(`来源：${label}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledExactlyOnceWith(
+      `/enterprise/skill-versions/${versionId}/review`,
+      { decision: 'APPROVE', ...(isWorkingCopy ? { expectedUpdatedAt: item.updatedAt } : {}) },
+    ));
+  });
   it('默认查询企业个人待审队列，显示客户端回执ID、提交人、变更与状态', async () => {
     setup();
     await waitForQueue();
@@ -101,7 +114,7 @@ describe('企业个人 Skill 审核闭环页面', () => {
     fireEvent.click(screen.getByRole('button', { name: '已通过' }));
     await waitFor(() => expect(queueCalls().at(-1)).toBe('/enterprise/skill-version-reviews?status=ENTERPRISE_APPROVED&page=1&limit=20'));
     await screen.findByText('企业已通过');
-    expect(screen.queryByRole('button', { name: '通过' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '通过并启用' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '驳回' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看内容' })).toBeInTheDocument();
   });
@@ -132,9 +145,9 @@ describe('企业个人 Skill 审核闭环页面', () => {
   it('通过使用同一版本ID和企业审核接口，刷新版本及时间线，不触发选版', async () => {
     const { invalidate } = setup();
     await waitForQueue();
-    fireEvent.click(screen.getByRole('button', { name: '通过' }));
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledExactlyOnceWith(`/enterprise/skill-versions/${versionId}/review`, { decision: 'APPROVE', comment: undefined }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('审核已通过', expect.any(String)));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('审核通过并启用', expect.any(String)));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-versions'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['capability-iteration'] });
     expect(queueCalls().length).toBeGreaterThan(1);
@@ -153,7 +166,7 @@ describe('企业个人 Skill 审核闭环页面', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认驳回' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledExactlyOnceWith(`/enterprise/skill-versions/${versionId}/review`, { decision: 'REJECT', comment: '请补充异常处理说明' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(toast.success).toHaveBeenCalledWith('已驳回个人版本', expect.any(String));
+    expect(toast.success).toHaveBeenCalledWith('已驳回个人版本', undefined);
   });
 
   it('审核进行中禁止重复通过/驳回操作', async () => {
@@ -161,8 +174,8 @@ describe('企业个人 Skill 审核闭环页面', () => {
     vi.mocked(api.post).mockImplementation(() => new Promise((done) => { resolve = done; }) as never);
     setup();
     await waitForQueue();
-    fireEvent.click(screen.getByRole('button', { name: '通过' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '通过' })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '通过并启用' })).toBeDisabled());
     expect(screen.getByRole('button', { name: '驳回' })).toBeDisabled();
     expect(api.post).toHaveBeenCalledTimes(1);
     await act(async () => resolve(item));
@@ -180,7 +193,7 @@ describe('企业个人 Skill 审核闭环页面', () => {
     vi.mocked(api.post).mockRejectedValue(new ApiError(409, '已审核'));
     setup();
     await waitForQueue();
-    fireEvent.click(screen.getByRole('button', { name: '通过' }));
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('该版本已审核', expect.any(String)));
     await waitFor(() => expect(queueCalls().length).toBeGreaterThan(1));
     expect(api.post).toHaveBeenCalledTimes(1);
@@ -206,14 +219,14 @@ describe('企业个人 Skill 审核闭环页面', () => {
     await screen.findByText('企业已驳回');
     expect(screen.getByText('驳回原因：补充格式说明')).toBeInTheDocument();
     expect(screen.getByText('审核时间')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '通过' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '通过并启用' })).not.toBeInTheDocument();
   });
 
-  it('空队列不伪造记录，说明平台投稿和工作副本不在此列', async () => {
+  it('空队列不伪造记录，显示个人提交和历史副本空态', async () => {
     rows = [];
     total = 0;
     setup();
     await screen.findByText('暂无符合条件的审核记录');
-    expect(screen.getByText('这里只展示本企业的个人送审版本，不包含平台投稿或普通工作副本。')).toBeInTheDocument();
+    expect(screen.getByText('暂无符合筛选条件的个人提交或历史 Web 副本。')).toBeInTheDocument();
   });
 });

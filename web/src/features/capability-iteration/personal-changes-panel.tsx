@@ -3,9 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   Check,
-  FilePenLine,
   GitCompare,
-  Trash2,
   UserRound,
   X,
   ChevronLeft,
@@ -19,12 +17,9 @@ import { useReviewEnterprisePersonalSkillVersion } from '@/features/skill-versio
 import type { EnterpriseSkillReviewStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { diffLines } from './diff-lines';
+import { personalSourceLabel } from './version-source';
 import {
-  useCreatePersonalVersion,
-  useDiscardPersonalVersion,
   usePersonalDiffs,
-  useUpdatePersonalVersion,
-  useVersionTimeline,
   type PersonalDiffItem,
 } from './use-capability-iteration';
 
@@ -39,9 +34,6 @@ export function PersonalChangesPanel({
   const [filters, setFilters] = useState<{ status: 'ALL' | EnterpriseSkillReviewStatus; page: number }>({ status: 'ALL', page: 1 });
   const { data, isLoading, isError, error, refetch, isFetching, isPlaceholderData } = usePersonalDiffs(capabilityId, true, filters.page,
     filters.status === 'ALL' ? undefined : filters.status);
-  const createVersion = useCreatePersonalVersion(capabilityId);
-  const timeline = useVersionTimeline(capabilityId);
-  const canEditPersonal = !timeline.isError && Boolean(timeline.data?.subscriptions.some((item) => item.canSelectPersonal));
   const review = useReviewEnterprisePersonalSkillVersion();
   const [preview, setPreview] = useState<{ item: PersonalDiffItem; baseline: string } | null>(null);
   const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | null>(null);
@@ -63,7 +55,7 @@ export function PersonalChangesPanel({
   const items = data?.items ?? [];
   const mine = data?.myWorkingCopy !== undefined ? data.myWorkingCopy ?? undefined
     : items.find((item) => item.owner?.id === currentUserId && item.isWorkingCopy);
-  const visibleItems = canManage ? items : items.filter((item) => item.owner?.id === currentUserId && item.id !== mine?.id);
+  const visibleItems = canManage ? items : items.filter((item) => item.owner?.id === currentUserId);
   const total = data?.total ?? items.length;
   const pageCount = Math.max(1, Math.ceil(total / (data?.limit ?? 20)));
   const currentPage = data?.page ?? filters.page;
@@ -86,8 +78,8 @@ export function PersonalChangesPanel({
       },
       {
         onSuccess: (result) => {
-          toast.success(decision === 'APPROVE' ? '审核通过' : '已驳回',
-            result.publishedVersionId ? '企业版本已发布并设为企业默认' : undefined);
+          toast.success(decision === 'APPROVE' ? '审核通过并启用' : '已驳回',
+            result.publishedVersionId ? '企业版本已生成并自动启用' : undefined);
           setPreview(null);
           setDecision(null);
         },
@@ -105,20 +97,13 @@ export function PersonalChangesPanel({
 
   return (
     <div className="space-y-4">
-      <MyCopyCard
-        key={mine?.id ?? 'new-copy'}
-        capabilityId={capabilityId}
-        mine={mine}
-        canEditPersonal={canEditPersonal}
-        baselineContent={data?.baseline?.content ?? ''}
-        onCreate={() =>
-          canEditPersonal && createVersion.mutate(undefined, {
-            onSuccess: () => toast.success('我的副本已保存'),
-            onError: (err) => toast.error('创建失败', (err as Error).message),
-          })
-        }
-        creating={createVersion.isPending}
-      />
+      {mine && !visibleItems.some((item) => item.id === mine.id) && (canManage || mine.owner?.id === currentUserId) && (
+        <section aria-label="历史 Web 副本">
+          <ChangeCard item={mine} baselineContent={data?.baseline?.content ?? ''} canManage={canManage}
+            reviewing={review.isPending || Boolean(isPlaceholderData)}
+            onPreview={() => { setPreview({ item: { ...mine }, baseline: data?.baseline?.content ?? '' }); setDecision(null); setComment(''); }} />
+        </section>
+      )}
 
       {(canManage || total > 0 || filters.status !== 'ALL' || filters.page > 1) && (
         <section>
@@ -178,7 +163,7 @@ export function PersonalChangesPanel({
           <DialogContent glass className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
             <DialogHeader>
               <DialogTitle>审核预览 · {preview.item.owner?.name ?? '我的改动'}</DialogTitle>
-              <DialogDescription>{preview.item.isWorkingCopy ? 'Web 工作副本' : '客户端提交'} · {reviewLabel(preview.item)}</DialogDescription>
+              <DialogDescription>{personalSourceLabel(preview.item)} · {reviewLabel(preview.item)}</DialogDescription>
             </DialogHeader>
             <ReviewMetadata item={preview.item} />
             <section aria-label="正文差异">
@@ -193,7 +178,7 @@ export function PersonalChangesPanel({
             {canManage && (preview.item.pending || preview.item.isLegacyUnpublished) && !decision && (
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="glass-primary" disabled={previewChanged || review.isPending} onClick={() => setDecision('APPROVE')}>
-                  <Check className="h-4 w-4" />{preview.item.isLegacyUnpublished ? '发布为企业版' : '审核通过'}
+                  <Check className="h-4 w-4" />{preview.item.isLegacyUnpublished ? '通过并启用' : '审核通过'}
                 </Button>
                 {!preview.item.isLegacyUnpublished && <Button size="sm" variant="glass" disabled={previewChanged || review.isPending} onClick={() => setDecision('REJECT')}>
                   <X className="h-4 w-4" />驳回
@@ -203,7 +188,7 @@ export function PersonalChangesPanel({
             {decision && (
               <div className="space-y-3 border-t border-glassline pt-3">
                 <p className="text-xs text-gtext-secondary">{decision === 'APPROVE'
-                  ? '确认将预览内容发布为企业版本并设为企业默认？'
+                  ? '确认通过并启用此版本？'
                   : '确认驳回这份改动？'}</p>
                 <label className="block text-xs text-gtext-secondary">
                   {decision === 'REJECT' ? '驳回原因（必填）' : '审核意见（选填）'}
@@ -214,7 +199,7 @@ export function PersonalChangesPanel({
                   <Button size="sm" variant="glass-primary" loading={review.isPending}
                     disabled={previewChanged || (decision === 'REJECT' && !comment.trim())} onClick={confirmReview}>
                     {decision === 'APPROVE' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                    {decision === 'APPROVE' ? '确认通过并发布' : '确认驳回'}
+                    {decision === 'APPROVE' ? '确认通过并启用' : '确认驳回'}
                   </Button>
                   <Button size="sm" variant="glass" disabled={review.isPending} onClick={() => setDecision(null)}>返回预览</Button>
                 </div>
@@ -224,159 +209,6 @@ export function PersonalChangesPanel({
         )}
       </Dialog>
     </div>
-  );
-}
-
-/** 我的副本：没有就给创建入口，有就能直接编辑。编辑没有「提交」这一步。 */
-function MyCopyCard({
-  capabilityId,
-  mine,
-  canEditPersonal,
-  baselineContent,
-  onCreate,
-  creating,
-}: {
-  capabilityId: string;
-  mine: PersonalDiffItem | undefined;
-  canEditPersonal: boolean;
-  baselineContent: string;
-  onCreate: () => void;
-  creating: boolean;
-}) {
-  const update = useUpdatePersonalVersion(capabilityId);
-  const discard = useDiscardPersonalVersion(capabilityId);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [summary, setSummary] = useState('');
-  const canEdit = canEditPersonal && Boolean(mine?.canEdit);
-
-  if (!mine) {
-    return (
-      <section className="rounded-glass-lg border border-glassline bg-glass-1 p-4">
-        <h3 className="text-sm font-semibold text-gtext-primary">我的副本</h3>
-        {!canEditPersonal && <p className="mt-1 text-xs text-gtext-muted">只读</p>}
-        <Button
-          size="sm"
-          variant="glass-primary"
-          loading={creating}
-          disabled={!canEditPersonal}
-          onClick={onCreate}
-          className="mt-3 h-7 px-2.5 text-[11px]"
-        >
-          <FilePenLine className="h-3 w-3" />
-          创建我的副本
-        </Button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="rounded-glass-lg border border-gsuccess/35 bg-gsuccess/[0.05] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold text-gtext-primary">
-            我的副本
-            <span className="rounded-glass-pill bg-gsuccess/15 px-1.5 py-0.5 text-[10px] font-medium text-gsuccess">
-              已保存
-            </span>
-          </h3>
-          <p className="mt-1 text-[11px] text-gtext-muted">
-            {mine.basedOn
-              ? `基于 ${scopeLabel(mine.basedOn.scope)} ${mine.basedOn.version}`
-              : '基于当前生效版本'}
-            {' · '}{reviewLabel(mine)}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {(!editing || !canEdit) && mine.canEdit && (
-            <Button
-              size="sm"
-              variant="glass"
-              disabled={!canEdit}
-              onClick={() => {
-                setDraft(mine.content);
-                setSummary(mine.changeSummary ?? '');
-                setEditing(true);
-              }}
-              className="h-7 px-2.5 text-[11px]"
-            >
-              <FilePenLine className="h-3 w-3" />
-              编辑
-            </Button>
-          )}
-          {mine.canEdit && <Button
-            size="sm"
-            variant="glass"
-            loading={discard.isPending}
-            disabled={!canEdit}
-            onClick={() =>
-              discard.mutate(mine.id, {
-                onSuccess: () => toast.success('已弃用副本'),
-                onError: (err) => toast.error('弃用失败', (err as Error).message),
-              })
-            }
-            className="h-7 px-2.5 text-[11px] text-gdanger"
-          >
-            <Trash2 className="h-3 w-3" />
-            弃用
-          </Button>}
-        </div>
-      </div>
-
-      {!canEdit && <p className="mt-2 text-xs text-gtext-muted">只读</p>}
-      {mine.rejectionReason && <p className="mt-2 break-words text-xs text-gdanger">驳回原因：{mine.rejectionReason}</p>}
-      <ReviewMetadata item={mine} />
-
-      {editing && canEdit ? (
-        <div className="mt-3 space-y-2">
-          <Textarea
-            glass
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="min-h-[280px] resize-y font-mono text-[11px] leading-5"
-          />
-          <Textarea
-            glass
-            value={summary}
-            onChange={(event) => setSummary(event.target.value)}
-            placeholder="改动摘要（选填）"
-            className="min-h-16 resize-y text-xs"
-          />
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="glass-primary"
-              loading={update.isPending}
-              onClick={() =>
-                update.mutate(
-                  { versionId: mine.id, content: draft, changeSummary: summary || undefined },
-                  {
-                    onSuccess: () => {
-                      toast.success('已保存');
-                      setEditing(false);
-                    },
-                    onError: (err) => toast.error('保存失败', (err as Error).message),
-                  },
-                )
-              }
-              className="h-7 px-2.5 text-[11px]"
-            >
-              保存副本
-            </Button>
-            <Button
-              size="sm"
-              variant="glass"
-              onClick={() => setEditing(false)}
-              className="h-7 px-2.5 text-[11px]"
-            >
-              取消
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <DiffView baseline={baselineContent} current={mine.content} />
-      )}
-    </section>
   );
 }
 
@@ -403,7 +235,7 @@ function ChangeCard({
           <UserRound className="h-3.5 w-3.5 text-gtext-muted" />
           {item.owner?.name ?? '未知成员'}
         </span>
-        <span className="text-[11px] text-gtext-muted">{item.isWorkingCopy ? 'Web 工作副本' : '客户端提交'}</span>
+        <span className="text-[11px] text-gtext-muted">{personalSourceLabel(item)}</span>
         <span className={cn('rounded-glass-pill px-1.5 py-0.5 text-[10px]',
           item.reviewStatus === 'ENTERPRISE_REJECTED' ? 'bg-gdanger/10 text-gdanger'
             : item.pending || item.isLegacyUnpublished ? 'bg-gbrand/15 text-gbrand-text' : 'bg-gsuccess/10 text-gsuccess')}>

@@ -74,7 +74,7 @@ describe('PersonalChangesPanel', () => {
     expect(screen.getByText('普通成员')).toBeInTheDocument();
   });
 
-  it('普通成员不把自己的副本重复显示在大家的改动中', () => {
+  it('普通成员可在提交记录查看自己的历史副本，不重复显示', () => {
     usePersonalDiffs.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -100,36 +100,8 @@ describe('PersonalChangesPanel', () => {
 
     render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
 
-    expect(screen.queryByText('普通成员')).not.toBeInTheDocument();
-    expect(screen.getByText('我的副本')).toBeInTheDocument();
-  });
-
-  it('副本已保存不代表已使用，不显示解释性使用提示', () => {
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByText('已保存')).toBeInTheDocument();
-    expect(screen.queryByText('已生效')).not.toBeInTheDocument();
-    expect(screen.queryByText(/使用该副本时，保存后下一次执行采用新内容/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/保存不会覆盖已选的平台版/)).not.toBeInTheDocument();
-  });
-
-  it('保存只编辑正文，成功提示不声称所有订阅立即切到副本', () => {
-    updatePersonal.mockImplementation((_payload, options) => options.onSuccess());
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '更新正文' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存副本' }));
-    expect(updatePersonal).toHaveBeenCalledWith({ versionId: 'admin-copy', content: '更新正文', changeSummary: '管理员自己的改动' }, expect.any(Object));
-    expect(success).toHaveBeenCalledWith('已保存');
-    expect(screen.queryByRole('button', { name: '保存并生效' })).not.toBeInTheDocument();
-  });
-
-  it('创建成功只报告保存结果，不显示使用提示', () => {
-    usePersonalDiffs.mockReturnValue({ isLoading: false, isError: false, data: { canManage: false, baseline: null, items: [] } });
-    createPersonal.mockImplementation((_payload, options) => options.onSuccess());
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-    expect(screen.queryByText(/新建副本会在本次授权订阅使用/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '创建我的副本' }));
-    expect(success).toHaveBeenCalledWith('我的副本已保存');
+    expect(screen.getByText('普通成员')).toBeInTheDocument();
+    expect(screen.getByText('历史 Web 副本')).toBeInTheDocument();
   });
 
   it('工作副本必须先预览正文与差异，再确认审核并传预览时间戳', () => {
@@ -141,8 +113,9 @@ describe('PersonalChangesPanel', () => {
     expect(dialog.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
     expect(dialog.getByRole('region', { name: '正文差异' })).toHaveTextContent('member change');
     fireEvent.click(dialog.getByRole('button', { name: '审核通过' }));
+    expect(dialog.getByText('确认通过并启用此版本？')).toBeInTheDocument();
     expect(review).not.toHaveBeenCalled();
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并发布' }));
+    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
     expect(review).toHaveBeenCalledWith({ id: 'member-copy', decision: 'APPROVE', comment: undefined, expectedUpdatedAt: '2026-09-08T00:00:00.000Z' }, expect.any(Object));
   });
 
@@ -172,8 +145,8 @@ describe('PersonalChangesPanel', () => {
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
     expect(dialog.getByRole('alert')).toHaveTextContent('重新预览');
-    expect(dialog.getByRole('button', { name: '确认通过并发布' })).toBeDisabled();
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并发布' }));
+    expect(dialog.getByRole('button', { name: '确认通过并启用' })).toBeDisabled();
+    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
     expect(review).not.toHaveBeenCalled();
   });
 
@@ -191,8 +164,8 @@ describe('PersonalChangesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '预览并审核' }));
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.queryByRole('button', { name: '驳回' })).not.toBeInTheDocument();
-    fireEvent.click(dialog.getByRole('button', { name: '发布为企业版' }));
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并发布' }));
+    fireEvent.click(dialog.getByRole('button', { name: '通过并启用' }));
+    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
     expect(review).toHaveBeenCalledWith({ id: 'member-copy', decision: 'APPROVE', comment: undefined }, expect.any(Object));
   });
 
@@ -202,7 +175,7 @@ describe('PersonalChangesPanel', () => {
     query.data.items = [{ ...query.data.items[1], ...reviewFields(false), reviewStatus: 'ENTERPRISE_REJECTED', rejectionReason: '描述不完整', pending: false }];
     render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
     expect(screen.getByText('驳回原因：描述不完整')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '创建我的副本' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建我的副本' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '预览正文' }));
     expect(screen.queryByRole('button', { name: '审核通过' })).not.toBeInTheDocument();
@@ -214,32 +187,32 @@ describe('PersonalChangesPanel', () => {
     render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
     fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
     fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
-    fireEvent.click(screen.getByRole('button', { name: '确认通过并发布' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
     expect(refetch).toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('翻页使用后端总数与独立工作副本，改动不在当前页仍可编辑', () => {
+  it('翻页使用后端总数与独立工作副本，历史副本不在当前页仍可只读预览', () => {
     const query = usePersonalDiffs();
     const workingCopy = query.data.items[0];
     query.data = { ...query.data, myWorkingCopy: workingCopy, items: [query.data.items[1]], total: 41, page: 1, limit: 20 };
     render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
     expect(screen.getByText('共 41 条 · 第 1 / 3 页')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 2, undefined);
     fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ENTERPRISE_REJECTED' } });
     expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 1, 'ENTERPRISE_REJECTED');
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    expect(screen.getAllByRole('textbox')[0]).toHaveValue('admin change');
+    expect(screen.getByRole('region', { name: '历史 Web 副本' })).toHaveTextContent('管理员自己的改动');
   });
 
   it('独立myWorkingCopy明确为空时不从分页记录推断工作副本', () => {
     const query = usePersonalDiffs();
     query.data.myWorkingCopy = null;
     render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByRole('button', { name: '创建我的副本' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '历史 Web 副本' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建我的副本' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
   });
 
@@ -254,46 +227,6 @@ describe('PersonalChangesPanel', () => {
     expect(screen.getByText('暂无符合条件的改动')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ALL' } });
     expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 1, undefined);
-  });
-
-  it.each([{ subscriptions: [] }, { subscriptions: [{ canSelectPersonal: false }] }])('无有效授权$subscriptions时管理员不能创建或编辑，但仍可审核', ({ subscriptions }) => {
-    useVersionTimeline.mockReturnValue({ data: { subscriptions }, isError: false });
-    const query = usePersonalDiffs();
-    const { rerender } = render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByRole('button', { name: '编辑' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '弃用' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    expect(screen.queryByRole('button', { name: '保存副本' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
-    fireEvent.click(screen.getByRole('button', { name: '确认通过并发布' }));
-    expect(review).toHaveBeenCalledWith(expect.objectContaining({ id: 'member-copy', decision: 'APPROVE' }), expect.any(Object));
-    query.data.myWorkingCopy = null;
-    rerender(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByRole('button', { name: '创建我的副本' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '创建我的副本' }));
-    expect(createPersonal).not.toHaveBeenCalled();
-    expect(updatePersonal).not.toHaveBeenCalled();
-  });
-
-  it('编辑期间授权撤销立即回到只读正文，不能继续保存', () => {
-    const { rerender } = render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    expect(screen.getByRole('button', { name: '保存副本' })).toBeEnabled();
-    useVersionTimeline.mockReturnValue({ data: { subscriptions: [{ canSelectPersonal: false }] }, isError: false });
-    rerender(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.queryByRole('button', { name: '保存副本' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑' })).toBeDisabled();
-    expect(updatePersonal).not.toHaveBeenCalled();
-  });
-
-  it('有使用授权也不能编辑canEdit=false的工作副本', () => {
-    const query = usePersonalDiffs();
-    query.data.items[0].canEdit = false;
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByText('只读')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '弃用' })).not.toBeInTheDocument();
   });
 
   it.each(['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])('客户端%s记录及正文预览展示审核人与审核时间', (reviewStatus) => {
@@ -317,7 +250,7 @@ describe('PersonalChangesPanel', () => {
     expect(dialog.queryByRole('button', { name: '审核通过' })).not.toBeInTheDocument();
   });
 
-  it.each(['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])('成员自己的%s工作副本展示审核人且仍可编辑', (reviewStatus) => {
+  it.each(['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])('成员自己的%s历史工作副本展示审核人且不可编辑', (reviewStatus) => {
     const query = usePersonalDiffs();
     const reviewedAt = '2026-10-09T08:48:26.730Z';
     const workingCopy = query.data.items[1];
@@ -334,7 +267,7 @@ describe('PersonalChangesPanel', () => {
 
     expect(screen.getByText('审核人：审核管理员')).toBeInTheDocument();
     expect(screen.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
     if (reviewStatus === 'ENTERPRISE_REJECTED') expect(screen.getByText('驳回原因：请补充内容')).toBeInTheDocument();
   });
 
@@ -364,4 +297,31 @@ describe('PersonalChangesPanel', () => {
     expect(screen.queryByText(/^审核人：/)).not.toBeInTheDocument();
     expect(screen.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
   });
+  it('永久关闭Web副本创建、编辑、弃用入口，不再调用旧写hooks', () => {
+    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
+    expect(screen.queryByRole('button', { name: /创建我的副本|编辑|弃用|保存副本/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(createPersonal).not.toHaveBeenCalled();
+    expect(updatePersonal).not.toHaveBeenCalled();
+    expect(useVersionTimeline).not.toHaveBeenCalled();
+  });
+  it('成员不能看到其他成员私有正文或独立工作副本', () => {
+    const query = usePersonalDiffs();
+    query.data.canManage = false;
+    query.data.myWorkingCopy = query.data.items[0];
+    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
+    expect(screen.queryByText('管理员自己的改动')).not.toBeInTheDocument();
+    expect(screen.getByText('成员改动')).toBeVisible();
+  });
+  it('通过审核提示自动启用，仅调用审核接口而非正文写入', () => {
+    review.mockImplementation((_payload, options) => options.onSuccess({ publishedVersionId: 'enterprise-new' }));
+    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
+    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
+    expect(success).toHaveBeenCalledWith('审核通过并启用', '企业版本已生成并自动启用');
+    expect(createPersonal).not.toHaveBeenCalled();
+    expect(updatePersonal).not.toHaveBeenCalled();
+  });
+
 });

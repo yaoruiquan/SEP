@@ -1,3 +1,4 @@
+import { SkillVersionService } from '../skill-version/skill-version.service';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ClientService } from './client.service';
@@ -18,6 +19,7 @@ describe('ClientService', () => {
   let sessions: any;
   let allowanceQuery: any;
   let personalWallet: any;
+  let skillVersions: { resolveEffectiveVersion: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -33,6 +35,7 @@ describe('ClientService', () => {
     jwt = { sign: jest.fn().mockReturnValue('access-token'), verify: jest.fn() };
     allowanceQuery = { getOne: jest.fn() };
     personalWallet = { getView: jest.fn() };
+    skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
         sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
@@ -48,6 +51,7 @@ describe('ClientService', () => {
     const module = await Test.createTestingModule({
       providers: [
         ClientService,
+        { provide: SkillVersionService, useValue: skillVersions },
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
@@ -326,5 +330,33 @@ describe('ClientService', () => {
     expect(listed.template.avatar).toBe(expected.avatarAsset.portraitUrl);
     expect(runtime.employee).not.toHaveProperty('systemPrompt');
     expect(runtime.employee).not.toHaveProperty('bindings');
+  });
+
+  it('uses the shared enterprise resolver for runtime and omits skills without an approved version', async () => {
+    prisma.subscription.findFirst.mockResolvedValue({
+      id: 'sub-1', templateVersion: '1.0.0', config: null,
+      employee: {
+        id: 'emp-1', name: 'Employee', avatar: null, version: '1.0.0',
+        systemPrompt: 'instructions', modelId: 'model-1', maxSteps: 10,
+        bindings: [
+          { capability: { id: 'cap-1', name: 'Skill', description: null },
+            defaultSkillVersion: { id: 'obsolete-template', content: 'obsolete' } },
+          { capability: { id: 'cap-2', name: 'Unapproved', description: null } },
+        ],
+      },
+      skillVersionSelections: [{ capabilityId: 'cap-1', version: { id: 'obsolete-selection' } }],
+    });
+    prisma.platformModel.findMany.mockResolvedValue([]);
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
+    skillVersions.resolveEffectiveVersion.mockImplementation(async (_subscriptionId, capabilityId) =>
+      capabilityId === 'cap-1' ? { id: 'enterprise-enabled', version: '2.0.0', content: 'exact enabled content' } : null);
+
+    const result = await service.getRuntime('user-1', 'sub-1');
+
+    expect(result.runtime.skills).toEqual([{ capabilityId: 'cap-1', name: 'Skill', description: null,
+      versionId: 'enterprise-enabled', version: '2.0.0', content: 'exact enabled content' }]);
+    expect(skillVersions.resolveEffectiveVersion.mock.calls).toEqual([['sub-1', 'cap-1'], ['sub-1', 'cap-2']]);
+    expect(prisma.subscription.findFirst.mock.calls[0][0].include.employee.select.bindings.where)
+      .toEqual({ enabled: true, capability: { type: 'SKILL' } });
   });
 });

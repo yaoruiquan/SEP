@@ -25,14 +25,19 @@ import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { SkillVersionScope, SkillVersionStatus, UserRole } from '@prisma/client';
 import {
   AdoptEnterpriseVersionDtoSchema,
+  AdminSkillVersionQuerySchema,
+  type AdminSkillVersionQuery,
+  type AdoptEnterpriseVersionDto,
+  type CreatePlatformSkillVersionDto,
+  SubmitAdminPlatformReviewDtoSchema,
+  type SubmitAdminPlatformReviewDto,
   AdoptPersonalVersionsDtoSchema,
   CreateEnterpriseSkillVersionDtoSchema,
   CreatePlatformSkillVersionDtoSchema,
   ReviewSkillVersionDtoSchema,
+  SkillVersionStatusSchema,
   SelectSkillVersionDtoSchema,
   SelectPersonalSkillVersionDtoSchema,
-  SkillVersionScopeSchema,
-  SkillVersionStatusSchema,
   UpdateSkillVersionDtoSchema,
   SubmitPersonalSkillVersionDtoSchema,
   SkillSubmissionKeySchema,
@@ -109,7 +114,7 @@ export class EnterpriseSkillVersionController {
     decision: { type: 'string', enum: ['APPROVE', 'REJECT'] }, comment: { type: 'string', maxLength: 2000 },
     expectedUpdatedAt: { type: 'string', format: 'date-time', description: '审核Web工作副本必填，传预览时updatedAt' },
   } } })
-  @ApiResponse({ status: 201, description: '审核结果及publishedVersionId；通过后更新企业默认，不覆盖成员明确选版' })
+  @ApiResponse({ status: 201, description: '审核结果及publishedVersionId；通过后自动启用，正式执行忽略历史个人选版' })
   @ApiResponse({ status: 400, description: '驳回必须填写 comment' })
   @ApiResponse({ status: 403, description: '仅企业管理员可审核' })
   @ApiResponse({ status: 404, description: '个人送审版本不存在或跨企业' })
@@ -181,7 +186,8 @@ export class EnterpriseSkillVersionController {
   }
 
   @Post('subscriptions/:subscriptionId/skill-versions')
-  @ApiOperation({ summary: '基于可用版本创建企业私有技能版本' })
+  @ApiOperation({ summary: '已停用：Web 创建企业技能草稿' })
+  @ApiResponse({ status: 403, description: '请通过客户端修改并上传技能' })
   createEnterpriseVersion(
     @Request() req: AuthRequest,
     @Param('subscriptionId') subscriptionId: string,
@@ -195,7 +201,8 @@ export class EnterpriseSkillVersionController {
   }
 
   @Patch('skill-versions/:id')
-  @ApiOperation({ summary: '编辑企业技能草稿正文' })
+  @ApiOperation({ summary: '已停用：Web 编辑企业技能正文' })
+  @ApiResponse({ status: 403, description: '请通过客户端修改并上传技能' })
   updateEnterpriseVersion(
     @Request() req: AuthRequest,
     @Param('id') id: string,
@@ -210,20 +217,17 @@ export class EnterpriseSkillVersionController {
 
   @Post('skill-versions/:id/publish')
   @ApiOperation({
-    summary: '发布企业版草稿并设为企业默认',
-    description:
-      '发布后更新企业及有效订阅默认并通知成员；明确选版的成员保持原选择。保存个人副本不会调用此接口或自动发布。',
+    summary: '已停用：Web 草稿直接发布',
   })
-  @ApiResponse({ status: 201, description: '发布后的版本 + 影响的雇佣关系数' })
-  @ApiResponse({ status: 409, description: '只有草稿可以发布' })
+  @ApiResponse({ status: 403, description: '客户端提交须经企业审核通过，不能直接发布 Web 草稿' })
   publishEnterpriseVersion(@Request() req: AuthRequest, @Param('id') id: string) {
     return this.service.publishEnterpriseVersion(req.user.id, id);
   }
 
   @Post('capabilities/:capabilityId/default-version')
-  @ApiOperation({ summary: '企业管理员设置企业技能默认版本，包括切回历史版本' })
+  @ApiOperation({ summary: '企业管理员启用技能版本，包括历史已通过版本' })
   @ApiBody({ schema: { type: 'object', required: ['versionId'], properties: { versionId: { type: 'string' } } } })
-  @ApiResponse({ status: 201, description: '企业默认已更新，不覆盖成员显式选版' })
+  @ApiResponse({ status: 201, description: '企业默认已更新，正式执行统一跟随企业启用版本' })
   @ApiResponse({ status: 400, description: '版本未发布或与技能不匹配' })
   @ApiResponse({ status: 403, description: '仅企业管理员可以设置默认' })
   @ApiResponse({ status: 404, description: '本企业技能不存在' })
@@ -237,7 +241,7 @@ export class EnterpriseSkillVersionController {
 
   @Post('subscriptions/:subscriptionId/skills/:capabilityId/select-version')
   @ApiOperation({ summary: '兼容旧接口：设置企业全局技能默认版本' })
-  @ApiResponse({ status: 201, description: '企业默认及有效订阅默认已更新，成员选版不变' })
+  @ApiResponse({ status: 201, description: '企业默认及有效订阅默认已更新，正式执行统一跟随企业启用版本' })
   selectVersion(
     @Request() req: AuthRequest,
     @Param('subscriptionId') subscriptionId: string,
@@ -254,13 +258,11 @@ export class EnterpriseSkillVersionController {
   }
 
   @Post('subscriptions/:subscriptionId/skills/:capabilityId/select-personal-version')
-  @ApiOperation({ summary: '选择本人使用的技能版本，或恢复跟随企业默认版本' })
+  @ApiOperation({ summary: '旧个人选版接口已停用，正式执行统一跟随企业启用' })
   @ApiBody({ schema: { type: 'object', required: ['versionId'], properties: {
     versionId: { type: 'string', nullable: true, minLength: 1 },
   } } })
-  @ApiResponse({ status: 201, description: '仅更新当前成员的选版，不改变企业默认' })
-  @ApiResponse({ status: 400, description: '版本不匹配、已归档或无权使用；本人待审或驳回版本仍可选用' })
-  @ApiResponse({ status: 403, description: '未获得有效订阅的使用授权' })
+  @ApiResponse({ status: 403, description: '个人选版已停用，不修改历史偏好记录' })
   selectPersonalVersion(
     @Request() req: AuthRequest,
     @Param('subscriptionId') subscriptionId: string,
@@ -271,13 +273,14 @@ export class EnterpriseSkillVersionController {
   }
 
   @Post('skill-versions/:id/submit-platform-review')
-  @ApiOperation({ summary: '将企业审核通过版本提交平台审核' })
+  @ApiOperation({ summary: '已停用：企业主动投稿平台' })
+  @ApiResponse({ status: 403, description: '平台运营自主选择来源审核' })
   submitPlatformReview(@Request() req: AuthRequest, @Param('id') id: string) {
     return this.service.submitPlatformReview(req.user.id, id);
   }
 
   @Get('capabilities')
-  @ApiOperation({ summary: '技能库列表：本企业可见技能、企业默认及本人使用状态' })
+  @ApiOperation({ summary: '技能库列表：本企业可见技能及企业启用状态' })
   @ApiResponse({ status: 200, description: '能力列表，含使用人数与调用轮次' })
   listIterableCapabilities(@Request() req: AuthRequest) {
     return this.service.listIterableCapabilities(req.user.id);
@@ -323,15 +326,13 @@ export class EnterpriseSkillVersionController {
     return this.service.getExecutionDetails(req.user.id, capabilityId, limit, cursor);
   }
 
-  // ──────────── 员工个人副本与采纳（会议纪要2 §6.4）────────────
+  // 历史个人副本只读与统一审核
 
   @Post('capabilities/:capabilityId/personal-version')
   @ApiOperation({
-    summary: '创建我的技能副本',
-    description: '基于当前生效版本创建个人副本，直接生效，不需要提交审核。已有副本时返回它。',
+    summary: '已停用：Web 创建个人技能副本',
   })
-  @ApiResponse({ status: 201, description: '个人副本（含正文）' })
-  @ApiResponse({ status: 403, description: '未获得该技能的使用授权' })
+  @ApiResponse({ status: 403, description: '请通过客户端修改并上传技能' })
   createPersonalVersion(
     @Request() req: AuthRequest,
     @Param('capabilityId') capabilityId: string,
@@ -340,9 +341,8 @@ export class EnterpriseSkillVersionController {
   }
 
   @Patch('personal-versions/:id')
-  @ApiOperation({ summary: '保存本人技能工作副本；本人选版决定是否用于执行' })
-  @ApiResponse({ status: 200, description: '更新后的个人副本' })
-  @ApiResponse({ status: 404, description: '副本不存在或不属于当前用户' })
+  @ApiOperation({ summary: '已停用：Web 保存个人技能工作副本' })
+  @ApiResponse({ status: 403, description: '历史副本只读，请通过客户端提交新的修改' })
   updatePersonalVersion(
     @Request() req: AuthRequest,
     @Param('id') id: string,
@@ -357,9 +357,9 @@ export class EnterpriseSkillVersionController {
 
   @Delete('personal-versions/:id')
   @ApiOperation({
-    summary: '弃用我的技能副本',
-    description: '弃用个人副本；已有审核快照或发布关联时归档而不删除，保留审核与来源证据。',
+    summary: '已停用：Web 弃用个人技能副本',
   })
+  @ApiResponse({ status: 403, description: '历史副本保留为只读审计记录' })
   discardPersonalVersion(@Request() req: AuthRequest, @Param('id') id: string) {
     return this.service.discardPersonalVersion(req.user.id, id);
   }
@@ -385,11 +385,12 @@ export class EnterpriseSkillVersionController {
   @ApiOperation({
     summary: '审核成员改动（旧Web兼容入口）',
     description:
-      '复用统一审核；Web工作副本须提交预览修订时间，多来源须传入确认后的expectedMergedContent，修订变化或合并冲突返回409。',
+      '仅允许单条原文审核；历史工作副本须提交预览修订时间；多来源或正文覆盖返回400。',
   })
   @ApiResponse({ status: 201, description: '新企业版本 + 审核条数（兼容adoptedCount字段）+ 影响的雇佣关系数' })
   @ApiResponse({ status: 403, description: '仅企业管理员可审核' })
-  @ApiResponse({ status: 409, description: '已审核、修订变化、最终正文不匹配或合并冲突' })
+  @ApiResponse({ status: 400, description: '不支持多来源合并或正文覆盖' })
+  @ApiResponse({ status: 409, description: '已审核或预览修订已变化' })
   adoptPersonalVersions(
     @Request() req: AuthRequest,
     @Param('capabilityId') capabilityId: string,
@@ -412,79 +413,78 @@ export class AdminSkillVersionController {
   constructor(private readonly service: SkillVersionService) {}
 
   @Get()
-  @ApiOperation({ summary: '分页查询平台和企业提交的技能版本' })
+  @ApiOperation({ summary: '分页监控个人、企业和平台全部技能版本' })
   @ApiQuery({ name: 'status', required: false, enum: SkillVersionStatus })
   @ApiQuery({ name: 'scope', required: false, enum: SkillVersionScope })
+  @ApiQuery({ name: 'enterpriseId', required: false, type: String })
+  @ApiQuery({ name: 'ownerId', required: false, type: String })
+  @ApiQuery({ name: 'capabilityId', required: false, type: String })
+  @ApiQuery({ name: 'enterpriseStatus', required: false, enum: SkillVersionStatus })
+  @ApiQuery({ name: 'enterpriseReviewStatus', required: false, enum: ['NOT_SUBMITTED', 'PENDING', 'APPROVED', 'REJECTED'] })
+  @ApiQuery({ name: 'platformProcessingStatus', required: false, enum: ['NOT_SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'REJECTED'] })
+  @ApiQuery({ name: 'platformStatus', required: false, enum: ['NOT_SELECTED', 'DRAFT', 'PENDING_PLATFORM_REVIEW', 'PLATFORM_APPROVED', 'PLATFORM_REJECTED', 'ARCHIVED'] })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'generationType', required: false, enum: ['CLIENT_SUBMISSION', 'LEGACY_WORKING_COPY', 'REVIEW_SNAPSHOT', 'ENTERPRISE_VERSION', 'PLATFORM_CREATED', 'PLATFORM_SELECTED'] })
+  @ApiQuery({ name: 'createdFrom', required: false, type: String, description: '含时区 ISO 8601 创建时间下界（含）' })
+  @ApiQuery({ name: 'createdTo', required: false, type: String, description: '含时区 ISO 8601 创建时间上界（含）' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  list(
-    @Query('status') rawStatus?: string,
-    @Query('scope') rawScope?: string,
-    @Query('page') rawPage = '1',
-    @Query('limit') rawLimit = '20',
-  ) {
-    const status = rawStatus ? SkillVersionStatusSchema.parse(rawStatus) : undefined;
-    const scope = rawScope ? SkillVersionScopeSchema.parse(rawScope) : undefined;
-    const page = Math.max(Number.parseInt(rawPage, 10) || 1, 1);
-    const limit = Math.min(Math.max(Number.parseInt(rawLimit, 10) || 20, 1), 100);
-    return this.service.listAdminVersions({ status, scope, page, limit });
+  @ApiResponse({ status: 200, description: '稳定排序的分页记录，含归属、来源及平台处理历史' })
+  @ApiResponse({ status: 400, description: '筛选或分页参数无效' })
+  @ApiResponse({ status: 403, description: '仅平台管理员可访问' })
+  list(@Query(new ZodValidationPipe(AdminSkillVersionQuerySchema)) filters: AdminSkillVersionQuery) {
+    return this.service.listAdminVersions(filters);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: '获取技能版本正文、来源和审核历史' })
-  getOne(@Param('id') id: string) {
-    return this.service.getAdminVersion(id);
-  }
+  @ApiOperation({ summary: '获取技能版本正文、包、来源和审核历史' })
+  @ApiResponse({ status: 200, description: '管理员版本详情' })
+  @ApiResponse({ status: 404, description: '技能版本不存在' })
+  getOne(@Param('id') id: string) { return this.service.getAdminVersion(id); }
 
   @Post('capabilities/:capabilityId')
-  @ApiOperation({ summary: '创建新的平台技能草稿版本' })
-  createPlatformVersion(
-    @Request() req: AuthRequest,
-    @Param('capabilityId') capabilityId: string,
-    @Body() body: unknown,
-  ) {
-    return this.service.createPlatformVersion(
-      req.user.id,
-      capabilityId,
-      CreatePlatformSkillVersionDtoSchema.parse(body),
-    );
+  @ApiOperation({ summary: '首次创建平台技能正文并进入待审，禁止已有正文改写' })
+  @ApiResponse({ status: 201, description: '平台待审版本' })
+  @ApiResponse({ status: 400, description: '正文或能力类型无效' })
+  @ApiResponse({ status: 404, description: '技能不存在' })
+  @ApiResponse({ status: 409, description: '已有版本不能通过 Web 修改正文' })
+  createPlatformVersion(@Request() req: AuthRequest, @Param('capabilityId') capabilityId: string,
+    @Body(new ZodValidationPipe(CreatePlatformSkillVersionDtoSchema)) body: CreatePlatformSkillVersionDto) {
+    return this.service.createPlatformVersion(req.user.id, capabilityId, body);
   }
 
   @Post(':id/submit-review')
-  @ApiOperation({ summary: '提交平台技能草稿审核' })
-  submitReview(@Param('id') id: string) {
-    return this.service.submitAdminPlatformReview(id);
+  @ApiOperation({ summary: '重用平台草稿或驳回记录并再次提交审核' })
+  @ApiResponse({ status: 201, description: '平台待审版本，不修改历史审核记录' })
+  @ApiResponse({ status: 400, description: '正文或技能包未通过校验' })
+  @ApiResponse({ status: 404, description: '技能版本不存在' })
+  @ApiBody({ schema: { type: 'object', properties: { expectedUpdatedAt: { type: 'string', format: 'date-time' } } } })
+  @ApiResponse({ status: 409, description: '当前版本状态不能送审或预览已过期' })
+  submitReview(@Param('id') id: string,
+    @Body(new ZodValidationPipe(SubmitAdminPlatformReviewDtoSchema)) body: SubmitAdminPlatformReviewDto) {
+    return this.service.submitAdminPlatformReview(id, body);
   }
 
   @Post(':id/adopt')
-  @ApiOperation({
-    summary: '平台主动采纳企业版本',
-    description:
-      '不等企业投稿：运营在企业版本列表里直接把某一版收进平台。mode=DRAFT 收成待审草稿再走审核，' +
-      'mode=PUBLISH 直接发布为平台版并成为员工模板的默认版。企业原版不受影响，同一个企业版本只能收一次。',
-  })
-  @ApiResponse({ status: 201, description: '新建的平台版本（含正文）' })
-  @ApiResponse({ status: 404, description: '企业技能版本不存在' })
-  @ApiResponse({ status: 409, description: '已归档，或该企业版本已被收录/投稿过' })
-  adopt(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.service.adoptEnterpriseVersion(
-      req.user.id,
-      id,
-      AdoptEnterpriseVersionDtoSchema.parse(body),
-    );
+  @ApiOperation({ summary: '选定个人或企业来源，复制为平台待审版本',
+    description: '接受个人、待审、驳回及历史来源。mode 仅允许 DRAFT（默认），所有市场发布必须平台审核。私有能力复制为独立平台能力；重复选择返回已有处理记录。' })
+  @ApiResponse({ status: 201, description: '平台待审版本或已存在的平台处理记录（含正文）' })
+  @ApiResponse({ status: 400, description: '不能绕过审核，或所选正文／包无效' })
+  @ApiResponse({ status: 404, description: '来源技能版本不存在' })
+  @ApiResponse({ status: 409, description: '预览已过期，请重新预览来源' })
+  adopt(@Request() req: AuthRequest, @Param('id') id: string,
+    @Body(new ZodValidationPipe(AdoptEnterpriseVersionDtoSchema)) body: AdoptEnterpriseVersionDto) {
+    return this.service.adoptEnterpriseVersion(req.user.id, id, body);
   }
 
   @Post(':id/review')
-  @ApiOperation({ summary: '平台审核技能版本' })
-  review(
-    @Request() req: AuthRequest,
-    @Param('id') id: string,
-    @Body() body: unknown,
-  ) {
-    return this.service.reviewPlatformVersion(
-      req.user.id,
-      id,
-      ReviewSkillVersionDtoSchema.parse(body),
-    );
+  @ApiOperation({ summary: '审核精确选定的平台版本，通过后公开平台技能' })
+  @ApiResponse({ status: 201, description: '审核结果，只发布选定版本并推进平台绑定' })
+  @ApiResponse({ status: 400, description: '缺少驳回原因或正文／包校验失败' })
+  @ApiResponse({ status: 404, description: '技能版本不存在' })
+  @ApiResponse({ status: 409, description: '版本已审核或预览过期' })
+  review(@Request() req: AuthRequest, @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReviewSkillVersionDtoSchema)) body: ReviewSkillVersionDto) {
+    return this.service.reviewPlatformVersion(req.user.id, id, body);
   }
 }

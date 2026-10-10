@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   FileText,
   Eye,
-  GitFork,
   KeyRound,
   Pencil,
   Check,
@@ -44,9 +43,7 @@ import { EmployeeUsageRecords } from "@/features/employee/employee-usage-records
 import type { CapabilityType, SubscriptionStatus } from "@/lib/types";
 import { SkillVersionPreviewDialog } from "@/features/skill-version/SkillVersionPreviewDialog";
 import {
-  useCreateEnterpriseSkillVersion,
   useEmployeeSkillVersions,
-  useSelectSkillVersion,
 } from "@/features/skill-version/use-skill-version";
 
 const STATUS_META: Record<SubscriptionStatus, { label: string; tone: string }> =
@@ -138,8 +135,6 @@ export default function EmployeeDetailPage() {
   };
   const employee = employeeQuery.data;
   const skillVersionsQuery = useEmployeeSkillVersions(employeeId);
-  const createSkillVersion = useCreateEnterpriseSkillVersion();
-  const selectSkillVersion = useSelectSkillVersion(employeeId);
   const consumption = usageQuery.data?.modelConsumption;
   const activeName = subscription?.name || subscription?.employee?.name || "";
 
@@ -515,6 +510,8 @@ export default function EmployeeDetailPage() {
                   const skill = skillVersionsQuery.data?.skills.find(
                     (item) => item.capability.id === capability.id,
                   );
+                  const sharedVersion = skill?.enterpriseVersion ?? skill?.currentVersion;
+                  const enabledVersion = sharedVersion?.scope !== "PERSONAL" ? sharedVersion : null;
                   const meta = CAPABILITY_META[
                     capability.type as CapabilityType
                   ] ?? {
@@ -556,132 +553,43 @@ export default function EmployeeDetailPage() {
                               title="技能版本加载失败"
                               onRetry={() => void skillVersionsQuery.refetch()}
                             />
-                          ) : skill?.currentVersion ? (
+                          ) : enabledVersion ? (
                             <>
                               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                                 <span className="text-gtext-muted">
-                                  我使用 v{skill.currentVersion.version} ·{" "}
-                                  {skill.currentVersion.scope === "PLATFORM"
+                                  企业当前启用 v{enabledVersion.version} ·{" "}
+                                  {enabledVersion.scope === "PLATFORM"
                                     ? "平台"
-                                    : skill.currentVersion.scope === "PERSONAL"
-                                      ? "个人副本"
-                                      : "企业"}
+                                    : "企业"}
                                 </span>
-                                {skill.upgradeAvailable && (
+                                {skill?.upgradeAvailable && (
                                   <Badge className="border-gwarning/30 bg-gwarning/10 text-gwarning">
                                     有新版本
                                   </Badge>
                                 )}
                               </div>
-                              {isAdmin && skill.versions.length > 1 && (
-                                <select
-                                  aria-label={`选择 ${capability.name} 企业默认版本`}
-                                  value={skill.enterpriseVersion?.id ?? ""}
-                                  onChange={(event) =>
-                                    selectSkillVersion.mutate(
-                                      {
-                                        subscriptionId:
-                                          skillVersionsQuery.data!
-                                            .subscriptionId,
-                                        capabilityId: capability.id,
-                                        versionId: event.target.value,
-                                      },
-                                      {
-                                        onSuccess: () =>
-                                          toast.success(
-                                            "企业默认版本已切换，不影响成员的个人选择",
-                                          ),
-                                        onError: (error) =>
-                                          toast.error(
-                                            error instanceof Error
-                                              ? error.message
-                                              : "版本切换失败",
-                                          ),
-                                      },
-                                    )
-                                  }
-                                  className="h-9 w-full rounded-md border border-glassline bg-glass-1 px-3 text-xs text-gtext-primary focus:outline-none focus:ring-2 focus:ring-gbrand-ring"
-                                >
-                                  {skill.versions
-                                    .filter(
-                                      (version) =>
-                                        version.status ===
-                                          "PLATFORM_APPROVED" ||
-                                        version.status ===
-                                          "ENTERPRISE_APPROVED",
-                                    )
-                                    .map((version) => (
-                                      <option
-                                        key={version.id}
-                                        value={version.id}
-                                      >
-                                        v{version.version} ·{" "}
-                                        {version.scope === "PLATFORM"
-                                          ? "平台"
-                                          : "企业"}
-                                      </option>
-                                    ))}
-                                </select>
-                              )}
-                              <Link
-                                href={`/capabilities/${capability.id}?subscriptionId=${skillVersionsQuery.data!.subscriptionId}`}
-                                className="inline-flex text-xs text-gbrand-text hover:underline"
-                              >
-                                选择我的使用版本（仅影响本人）
-                              </Link>
                               <div className="flex flex-wrap gap-2">
                                 <Button
                                   variant="glass"
                                   size="sm"
                                   onClick={() =>
                                     setPreviewVersionId(
-                                      skill.currentVersion!.id,
+                                      enabledVersion.id,
                                     )
                                   }
                                 >
                                   <Eye className="h-4 w-4" /> 查看内容
                                 </Button>
-                                {isAdmin && skill.enterpriseVersion && (
-                                  <Button
-                                    variant="glass"
-                                    size="sm"
-                                    loading={createSkillVersion.isPending}
-                                    onClick={() =>
-                                      createSkillVersion.mutate(
-                                        {
-                                          subscriptionId:
-                                            skillVersionsQuery.data!
-                                              .subscriptionId,
-                                          capabilityId: capability.id,
-                                          parentVersionId:
-                                            skill.enterpriseVersion!.id,
-                                          changeSummary: `基于 v${skill.enterpriseVersion!.version} 创建`,
-                                        },
-                                        {
-                                          onSuccess: (version) =>
-                                            router.push(
-                                              `/skills/${version.id}/edit`,
-                                            ),
-                                          onError: (error) =>
-                                            toast.error(
-                                              error instanceof Error
-                                                ? error.message
-                                                : "创建版本失败",
-                                            ),
-                                        },
-                                      )
-                                    }
-                                  >
-                                    <GitFork className="h-4 w-4" /> 创建企业版本
-                                  </Button>
-                                )}
                               </div>
                             </>
                           ) : (
                             <p className="text-xs text-gtext-muted">
-                              暂无可预览版本
+                              暂无启用版本
                             </p>
                           )}
+                          <Link href={`/capabilities/${capability.id}`} className="inline-flex text-xs text-gbrand-text hover:underline">
+                            查看版本与审核历史
+                          </Link>
                         </div>
                       )}
                     </div>

@@ -23,6 +23,7 @@ import { MailService } from '../mail/mail.service';
 import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-query.service';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
+import { SkillVersionService } from '../skill-version/skill-version.service';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import * as bcrypt from 'bcrypt';
@@ -134,6 +135,7 @@ export class ClientService {
     private readonly allowanceQuery: MemberAllowanceQueryService,
     private readonly personalWallet: PersonalWalletService,
     private readonly subscriptionRequests: SubscriptionRequestService,
+    private readonly skillVersions: SkillVersionService,
     @Optional() private readonly risk?: AuthRiskService,
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
@@ -747,17 +749,13 @@ export class ClientService {
             maxSteps: true,
             version: true,
             bindings: {
-              where: { capability: { type: 'SKILL' } },
+              where: { enabled: true, capability: { type: 'SKILL' } },
               orderBy: { priority: 'asc' },
               select: {
                 capability: { select: { id: true, name: true, description: true } },
-                defaultSkillVersion: { select: { id: true, version: true, status: true, content: true } },
               },
             },
           },
-        },
-        skillVersionSelections: {
-          select: { capabilityId: true, version: { select: { id: true, version: true, status: true, content: true } } },
         },
       },
     });
@@ -772,12 +770,14 @@ export class ClientService {
     const models = enabledModels.map((m) => m.modelId);
     const allowedModels = modelConfig?.allowedChatModels?.length
       ? models.filter((id) => modelConfig.allowedChatModels.includes(id)) : models;
-    const selected = new Map(subscription.skillVersionSelections.map((s) => [s.capabilityId, s.version]));
-    const skills = subscription.employee.bindings.flatMap((binding) => {
-      const version = selected.get(binding.capability.id) ?? binding.defaultSkillVersion;
-      if (!version || !['PLATFORM_APPROVED', 'ENTERPRISE_APPROVED'].includes(version.status)) return [];
-      return [{ capabilityId: binding.capability.id, name: binding.capability.name, description: binding.capability.description, versionId: version.id, version: version.version, content: version.content }];
-    });
+    const resolvedSkills = await Promise.all(subscription.employee.bindings.map(async (binding) => {
+      const version = await this.skillVersions.resolveEffectiveVersion(subscription.id, binding.capability.id);
+      if (!version) return null;
+      return { capabilityId: binding.capability.id, name: binding.capability.name,
+        description: binding.capability.description, versionId: version.id,
+        version: version.version, content: version.content };
+    }));
+    const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => skill !== null);
     return {
       manifestVersion: 1,
       subscriptionId: subscription.id,

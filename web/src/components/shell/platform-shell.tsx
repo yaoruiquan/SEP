@@ -26,11 +26,10 @@ interface NavGroup {
  * 这一版删掉了三个入口：
  *   · 「审核中心」—— 员工审核在员工管理已有完整闭环（待审核 tab + 详情页通过/驳回），
  *     能力审核并入能力管理；它调的还是只改 status 的错端点，审投稿会把数据改坏
- *   · 「能力审核」—— 本身不做决定，只是个跳转列表，两个队列的计数移到能力管理页头
+ *   · 「能力审核」—— 本身不做决定，只是个跳转列表，技能统一从能力管理进入监控
  *   · 「模型管理」—— 与「系统设置 → 模型管理」是同一套 hook 的两份实现
  *
- * 「投稿审核」`/admin/contributions` 和「版本审核」`/admin/skills` 刻意不进导航：
- * 它们是能力管理的下钻队列，从能力管理页头的待办徽章进，避免侧栏再堆两个审核入口。
+ * 技能监控是硅基能力的子页面，不单独增加一级导航；非技能投稿仍从能力行进入。
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -42,7 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: '内容',
     links: [
       { href: '/admin/employees', label: '硅基员工', icon: Users },
-      { href: '/admin/capabilities', label: '硅基能力', icon: ShieldCheck },
+      { href: '/admin/capabilities', label: '硅基能力', icon: ShieldCheck, activePaths: ['/admin/skills', '/admin/contributions'] },
     ],
   },
   {
@@ -75,9 +74,9 @@ const CRUMBS: CrumbMap = {
       g.links.map((l) => [l.href.replace(/^\/admin\/?/, ''), l.label] as const),
     ).filter(([seg]) => seg !== ''),
   ),
-  // 能力管理的两个下钻队列
+  // 能力管理的下钻页面
   contributions: '投稿审核',
-  skills: '版本审核',
+  skills: '技能监控',
   'auth-users': '认证中心',
   new: '新建',
   edit: '编辑',

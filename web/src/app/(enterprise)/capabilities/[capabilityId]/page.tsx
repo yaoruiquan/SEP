@@ -24,7 +24,7 @@ type Tab = 'versions' | 'changes' | 'usage' | 'insights';
  */
 const TABS: Array<{ key: Tab; label: string; icon: React.ElementType; adminLabel?: string }> = [
   { key: 'versions', label: '版本', icon: ListTree },
-  { key: 'changes', label: '我的副本', adminLabel: '大家的改动', icon: GitCompare },
+  { key: 'changes', label: '我的提交', adminLabel: '大家的改动', icon: GitCompare },
   { key: 'usage', label: '使用', icon: Users },
   { key: 'insights', label: '迭代建议', icon: Sparkles },
 ];
@@ -91,7 +91,7 @@ export default function CapabilityIterationDetailPage() {
         ))}
       </div>
 
-      {tab === 'versions' && <VersionTimelinePanel timeline={timeline} initialSubscriptionId={searchParams.get('subscriptionId') ?? undefined} />}
+      {tab === 'versions' && <VersionTimelinePanel timeline={timeline} />}
       {tab === 'changes' && (
         <PersonalChangesPanel capabilityId={capabilityId} currentUserId={currentUserId} />
       )}

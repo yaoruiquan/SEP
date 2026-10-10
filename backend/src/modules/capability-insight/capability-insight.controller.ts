@@ -59,10 +59,10 @@ export class CapabilityInsightController {
 
   @Post('insights/:id/adopt')
   @ApiOperation({
-    summary: '采纳建议',
-    description: '基于管理员确认后的正文生成新企业版本并切为生效。不走审核流 —— 采纳动作本身就是管理员做的。',
+    summary: '采纳建议（已停用）',
+    description: '请通过客户端修改技能并提交企业审核；分析、查看与拒绝建议仍可使用。',
   })
-  @ApiResponse({ status: 201, description: '新企业版本' })
+  @ApiResponse({ status: 403, description: 'Web 正文采纳已停用' })
   @ApiResponse({ status: 409, description: '该建议已处理过' })
   adopt(@Request() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.service.adopt(req.user.id, id, AdoptInsightDtoSchema.parse(body));

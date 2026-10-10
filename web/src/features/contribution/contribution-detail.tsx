@@ -42,10 +42,11 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
   const hasEnterprise = Boolean(useAuthStore((s) => s.enterprise));
   const currentUserId = useAuthStore((s) => s.user?.id);
   const isContributor = currentUserId === contribution.contributor.id;
-  const submitEnterprise = useContributionAction('submit-enterprise-review');
-  const requestPlatform = useContributionAction('request-platform-review');
-  const authorizePlatform = useContributionAction('authorize-platform-submission');
-  const enterpriseReview = useReviewContribution('enterprise');
+  const canWriteSkill = contribution.type !== 'SKILL';
+  const submitEnterprise = useContributionAction('submit-enterprise-review', contribution.type);
+  const requestPlatform = useContributionAction('request-platform-review', contribution.type);
+  const authorizePlatform = useContributionAction('authorize-platform-submission', contribution.type);
+  const enterpriseReview = useReviewContribution('enterprise', contribution.type);
   const state = currentContributionState(contribution);
   const loading = submitEnterprise.isPending || requestPlatform.isPending || authorizePlatform.isPending || enterpriseReview.isPending;
 
@@ -90,6 +91,7 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
   };
 
   const onStageAction = (action: StageAction) => {
+    if (contribution.type === 'SKILL') return;
     if (action === 'submit-enterprise') return run(submitEnterprise, '已提交企业审核');
     if (action === 'request-platform') return run(requestPlatform, hasEnterprise ? '已申请公开投稿，等待企业管理员授权' : '已提交平台审核');
     if (action === 'authorize-platform') return run(authorizePlatform, '已授权提交平台审核');
@@ -108,7 +110,7 @@ function ContributionDetailContent({ contribution, onBack }: { contribution: Con
     </header>
     <main className="min-h-0 flex-1 overflow-y-auto scroll-thin px-6 py-7 xl:px-10"><div className="mx-auto max-w-5xl">
       {view === 'pipeline' && <PipelineView model={model} loading={loading} onAction={onStageAction} />}
-      {view === 'versions' && <VersionView contribution={contribution} isContributor={isContributor} onPreview={setPreviewVersionId} onEdit={setEditVersionId} onPublish={() => setPublishOpen(true)} />}
+      {view === 'versions' && <VersionView contribution={contribution} isContributor={isContributor} canWrite={canWriteSkill} onPreview={setPreviewVersionId} onEdit={setEditVersionId} onPublish={() => setPublishOpen(true)} />}
       {view === 'usage' && <UsageView query={usage} />}
       {view === 'profile' && <ProfileView contribution={contribution} onDownloadRpa={downloadRpa} rpaDownloading={rpaDownloading} />}
       {view === 'rewards' && <RewardsView contribution={contribution} />}
@@ -160,7 +162,7 @@ function ProfileRow({ label, value }: { label: string; value: string }) { return
 
 function RewardsView({ contribution }: { contribution: ContributionCapabilityDetail }) { const points = contribution.contributionRewards.reduce((sum, item) => sum + item.points, 0); return <section className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Contribution reward</p><h3 className="mt-1 text-lg font-semibold text-gtext-primary">贡献奖励</h3><p className="mt-1 text-sm text-gtext-secondary">奖励将在审核与市场采用节点达成后持续累积。</p><div className="mt-6 flex items-end justify-between rounded-glass-lg border border-gwarning/25 bg-gwarning/[0.08] px-5 py-6"><div><p className="text-4xl font-semibold text-gtext-primary">{points}</p><p className="mt-2 text-sm text-gtext-muted">累计待确认积分</p></div><Trophy className="h-7 w-7 text-gwarning" /></div><div className="mt-6 divide-y divide-glassline border-y border-glassline">{contribution.contributionRewards.length ? contribution.contributionRewards.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 py-4"><div><p className="text-sm font-medium text-gtext-primary">{item.eventType}</p><p className="mt-1 text-xs text-gtext-muted">{new Date(item.createdAt).toLocaleDateString('zh-CN')}</p></div><span className="font-semibold text-gsuccess">+{item.points} 积分</span></div>) : <div className="flex items-center gap-2 py-6 text-sm text-gtext-muted"><LockKeyhole className="h-4 w-4" />审核通过后记录奖励事件</div>}</div></section>; }
 
-function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish }: { contribution: ContributionCapabilityDetail; isContributor: boolean; onPreview: (id: string) => void; onEdit: (id: string) => void; onPublish: () => void }) {
+function VersionView({ contribution, isContributor, canWrite, onPreview, onEdit, onPublish }: { contribution: ContributionCapabilityDetail; isContributor: boolean; canWrite: boolean; onPreview: (id: string) => void; onEdit: (id: string) => void; onPublish: () => void }) {
   const versions = contribution.skillVersions;
   const submit = useSubmitVersion(contribution.id);
   const [submittingId, setSubmittingId] = useState('');
@@ -196,14 +198,14 @@ function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gbrand-text">Skill versions</p>
           <h3 className="mt-1 text-lg font-semibold text-gtext-primary">版本迭代</h3>
           <p className="mt-1 text-sm text-gtext-secondary">
-            {contribution.visibility === 'MARKET_PUBLIC'
+            {contribution.type === 'SKILL' ? 'SKILL 正文与版本由客户端维护；这里仅查看已上传记录、差异和审核状态。' : contribution.visibility === 'MARKET_PUBLIC'
               ? '能力已公开。继续迭代会派生新版本，审核通过后替换当前公开版本。'
               : '在这里查看 Skill 的版本路线、审核状态和正文。'}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gtext-muted">{versions.length} 个版本</span>
-          {isContributor && (
+          {isContributor && canWrite && (
             <Button variant="glass-primary" size="sm" onClick={onPublish}>
               <Plus className="h-4 w-4" />
               发布新版本
@@ -218,7 +220,7 @@ function VersionView({ contribution, isContributor, onPreview, onEdit, onPublish
               key={version.id}
               version={version}
               latest={index === 0}
-              isContributor={isContributor}
+              isContributor={isContributor && canWrite}
               submitting={submittingId === version.id}
               downloading={downloadingId === version.id}
               onDownload={() => downloadVersion(version.id)}

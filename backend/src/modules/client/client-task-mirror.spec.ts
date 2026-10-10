@@ -150,7 +150,7 @@ function fixture(role = 'MEMBER') {
       throw error;
     }
   });
-  const service = new ClientService(prisma, null!, null!, null!, context as any, null!, null!, null!, null!);
+  const service = new ClientService(prisma, null!, null!, null!, context as any, null!, null!, null!, null!, null!);
   return { service, prisma, context, ctx, seed: (...data: any[]) => rows.push(...data),
     rows: () => rows, events: () => events, runs: () => runs, participations: () => participations };
 }

@@ -9,7 +9,7 @@ function capability(overrides: Partial<ContributionCapability> = {}): Contributi
     id: 'cap_1',
     name: '研发周报洞察 Skill',
     description: '把研发团队的周报整理成结构化洞察',
-    type: 'SKILL',
+    type: 'RPA',
     industry: ['软件研发'],
     position: ['研发管理'],
     status: 'DRAFT',
@@ -180,5 +180,26 @@ describe('boardLane', () => {
       asContributor,
     );
     expect(boardLane(model)).toBe('market');
+  });
+});
+
+describe('SKILL 历史流程只读', () => {
+  it.each([
+    {},
+    { enterpriseReviewStatus: 'PENDING' },
+    { enterpriseReviewStatus: 'REJECTED', enterpriseRejectionReason: '历史驳回' },
+    { enterpriseReviewStatus: 'APPROVED' },
+    { enterpriseReviewStatus: 'APPROVED', platformReviewStatus: 'REQUESTED' },
+    { enterpriseReviewStatus: 'APPROVED', platformReviewStatus: 'REJECTED' },
+    { enterpriseId: null, enterprise: null },
+  ] as Partial<ContributionCapability>[])('移除所有角色的投稿/授权/审核动作，保留流程状态 %j', (overrides) => {
+    for (const context of [asContributor, asAdmin]) {
+      const item = capability({ validatedAt: '2026-08-25T09:04:53.000Z', ...overrides, type: 'SKILL' });
+      const model = buildPipeline(item, { ...context, hasEnterprise: overrides.enterpriseId !== null });
+      expect(model.stages.every((stage) => stage.ctas.length === 0)).toBe(true);
+      expect(model.ballInCourt).toBe(false);
+      expect(model.total).toBe(overrides.enterpriseId === null ? 4 : 6);
+      if (item.enterpriseRejectionReason) expect(model.current.rejection).toBe(item.enterpriseRejectionReason);
+    }
   });
 });

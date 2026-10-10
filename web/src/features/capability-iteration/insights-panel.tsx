@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Loader2, Sparkles, Users, X } from 'lucide-react';
+import { Loader2, Sparkles, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import {
@@ -19,8 +18,7 @@ import {
  * 迭代建议（会议纪要2 §6.5）。
  *
  * 两个入口都要有：对全部使用者一键分析、针对单个成员分析。
- * 采纳时把建议合进正文由**管理员确认后**提交 —— 模型的输出不是最终答案，
- * 直接写进生效正文出错时没人拦得住。
+ * 建议只读，正文修改由客户端上传后进入企业审核。
  */
 export function InsightsPanel({
   capabilityId,
@@ -67,10 +65,6 @@ export function InsightsPanel({
     <div className="space-y-4">
       <section className="rounded-glass-lg border border-glassline bg-glass-1 p-4">
         <h3 className="text-sm font-semibold text-gtext-primary">生成迭代建议</h3>
-        <p className="mt-1 text-[11px] leading-5 text-gtext-muted">
-          从成员的使用记录与个人改动里提取「值得升级进企业统一版本」的共性改进点。
-          建议不会自动生效，需要你确认后采纳。
-        </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -131,7 +125,6 @@ export function InsightsPanel({
               key={insight.id}
               capabilityId={capabilityId}
               insight={insight}
-              baselineContent={diffs?.baseline?.content ?? ''}
             />
           ))}
         </div>
@@ -143,15 +136,11 @@ export function InsightsPanel({
 function InsightCard({
   capabilityId,
   insight,
-  baselineContent,
 }: {
   capabilityId: string;
   insight: CapabilityInsight;
-  baselineContent: string;
 }) {
-  const { adopt, dismiss } = useResolveInsight(capabilityId);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
+  const { dismiss } = useResolveInsight(capabilityId);
 
   const statusMeta = {
     PENDING: { label: '待处理', className: 'bg-gbrand/15 text-gbrand-text' },
@@ -196,62 +185,7 @@ function InsightCard({
 
       {insight.status === 'PENDING' && insight.findings.length > 0 && (
         <div className="mt-3">
-          {editing ? (
-            <div className="space-y-2">
-              <p className="text-[11px] text-gtext-muted">
-                在当前生效正文上按建议修改，确认后生成新的企业版本并立即生效。
-              </p>
-              <Textarea
-                glass
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="min-h-[280px] resize-y font-mono text-[11px] leading-5"
-              />
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="glass-primary"
-                  loading={adopt.isPending}
-                  onClick={() =>
-                    adopt.mutate(
-                      { insightId: insight.id, content: draft },
-                      {
-                        onSuccess: () => {
-                          toast.success('已采纳', '生成新企业版本并对全部雇佣关系生效');
-                          setEditing(false);
-                        },
-                        onError: (err) => toast.error('采纳失败', (err as Error).message),
-                      },
-                    )
-                  }
-                  className="h-7 px-2.5 text-[11px]"
-                >
-                  <Check className="h-3 w-3" />
-                  确认采纳并生效
-                </Button>
-                <Button
-                  size="sm"
-                  variant="glass"
-                  onClick={() => setEditing(false)}
-                  className="h-7 px-2.5 text-[11px]"
-                >
-                  取消
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="glass-primary"
-                onClick={() => {
-                  setDraft(baselineContent);
-                  setEditing(true);
-                }}
-                className="h-7 px-2.5 text-[11px]"
-              >
-                采纳（编辑正文）
-              </Button>
+          <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 variant="glass"
@@ -267,8 +201,7 @@ function InsightCard({
                 <X className="h-3 w-3" />
                 拒绝
               </Button>
-            </div>
-          )}
+          </div>
         </div>
       )}
     </div>

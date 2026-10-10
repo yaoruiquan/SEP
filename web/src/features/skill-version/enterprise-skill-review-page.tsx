@@ -13,13 +13,14 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
+import { personalSourceLabel } from '@/features/capability-iteration/version-source';
 import { ApiError } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
-import type { EnterpriseSkillReviewStatus, EnterpriseSkillVersionReviewItem } from '@/lib/types';
+import type { EnterpriseSkillReviewStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { SkillVersionPreviewDialog } from './SkillVersionPreviewDialog';
 import { SKILL_VERSION_STATUS } from './status';
-import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion } from './use-skill-version';
+import { type EnterpriseReviewItem, useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion } from './use-skill-version';
 
 const FILTERS: Array<{ status: EnterpriseSkillReviewStatus; label: string }> = [
   { status: 'PENDING_ENTERPRISE_REVIEW', label: '待审核' },
@@ -39,7 +40,7 @@ export default function EnterpriseSkillReviewPage() {
   const [capabilityInput, setCapabilityInput] = useState('');
   const [capabilityId, setCapabilityId] = useState('');
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [rejectItem, setRejectItem] = useState<EnterpriseSkillVersionReviewItem | null>(null);
+  const [rejectItem, setRejectItem] = useState<EnterpriseReviewItem | null>(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
   const query = useEnterpriseSkillVersionReviews({
@@ -53,11 +54,12 @@ export default function EnterpriseSkillReviewPage() {
       setReasonError(validated.error.issues[0]?.message ?? '请检查审核信息');
       return;
     }
-    review.mutate({ id, ...validated.data }, {
+    const item = query.data?.items.find((candidate) => candidate.id === id);
+    review.mutate({ id, ...validated.data, ...(item?.isWorkingCopy ? { expectedUpdatedAt: item.updatedAt } : {}) }, {
       onSuccess: () => {
         setRejectItem(null);
-        toast.success(decision === 'APPROVE' ? '审核已通过' : '已驳回个人版本',
-          decision === 'APPROVE' ? '提交人可自行选用该版本，不会覆盖企业默认。' : '提交人可查询原因，修改后重新送审。');
+        toast.success(decision === 'APPROVE' ? '审核通过并启用' : '已驳回个人版本',
+          decision === 'APPROVE' ? '企业版本已生成并自动启用。' : undefined);
       },
       onError: (error) => {
         if (error instanceof ApiError && error.status === 409) {
@@ -92,7 +94,7 @@ export default function EnterpriseSkillReviewPage() {
   const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / 20));
   return (
     <PageFrame className="min-w-0">
-      <PageHero title="技能审核" description="客户端与 Web 的个人送审版本共用同一企业队列。通过后由提交人自主选用，不影响企业默认版本。"
+      <PageHero title="技能审核"
         actions={<Button variant="glass" onClick={() => void query.refetch()} disabled={query.isFetching}>
           <RefreshCw className={cn('h-4 w-4', query.isFetching && 'animate-spin')} />刷新
         </Button>} />
@@ -126,7 +128,7 @@ export default function EnterpriseSkillReviewPage() {
             onRetry={() => void query.refetch()} />
         ) : !query.data?.items.length ? (
           <EmptyState icon={<ShieldCheck className="h-10 w-10" />} title="暂无符合条件的审核记录"
-            description="这里只展示本企业的个人送审版本，不包含平台投稿或普通工作副本。" />
+            description="暂无符合筛选条件的个人提交或历史 Web 副本。" />
         ) : (
           <ul className="divide-y divide-border">
             {query.data.items.map((item) => {
@@ -140,6 +142,7 @@ export default function EnterpriseSkillReviewPage() {
                         <Badge className={meta.className}>{meta.label}</Badge>
                         <Badge variant="glass">个人版本</Badge>
                       </div>
+                      <p className="text-xs text-gtext-muted">来源：{personalSourceLabel(item)}</p>
                       <p className="break-all text-xs text-gtext-muted">技能 ID：{item.capabilityId}</p>
                       <dl className="grid gap-3 text-sm sm:grid-cols-2">
                         <div className="min-w-0"><dt className="text-xs text-gtext-muted">提交人</dt>
@@ -158,7 +161,7 @@ export default function EnterpriseSkillReviewPage() {
                       <Button size="sm" variant="glass" onClick={() => setPreviewId(item.id)}><FileText className="h-4 w-4" />查看内容</Button>
                       {item.status === 'PENDING_ENTERPRISE_REVIEW' && <>
                         <Button size="sm" variant="glass-primary" disabled={review.isPending}
-                          onClick={() => submitReview(item.id, 'APPROVE')}><Check className="h-4 w-4" />通过</Button>
+                          onClick={() => submitReview(item.id, 'APPROVE')}><Check className="h-4 w-4" />通过并启用</Button>
                         <Button size="sm" variant="glass-danger" disabled={review.isPending}
                           onClick={() => { setRejectItem(item); setReason(''); setReasonError(''); }}><X className="h-4 w-4" />驳回</Button>
                       </>}
@@ -183,7 +186,7 @@ export default function EnterpriseSkillReviewPage() {
         <DialogContent glass className="max-w-lg">
           <DialogHeader>
             <DialogTitle>驳回个人 Skill 版本</DialogTitle>
-            <DialogDescription>请说明需要修改什么。提交人会在客户端或 Web 查询到这个原因。</DialogDescription>
+            <DialogDescription>确认驳回此版本？</DialogDescription>
           </DialogHeader>
           <label className="space-y-2 text-sm text-gtext-secondary" htmlFor="skill-review-reason">
             驳回原因

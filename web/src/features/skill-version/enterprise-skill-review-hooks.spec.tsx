@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api-client';
-import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion, useSelectSkillVersion } from './use-skill-version';
+import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion } from './use-skill-version';
 
 vi.mock('@/lib/api-client', () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 const clients: QueryClient[] = [];
@@ -16,19 +16,6 @@ function setup() {
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.get).mockResolvedValue({ total: 0, items: [], page: 1, limit: 20 }); vi.mocked(api.post).mockResolvedValue({ id: 'v' }); });
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
-
-describe('旧订阅选版兼容', () => {
-  it('原useSelectSkillVersion保留订阅接口及缓存刷新', async () => {
-    const { wrapper, invalidate } = setup();
-    const { result } = renderHook(() => useSelectSkillVersion('employee'), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({ subscriptionId: 'sub', capabilityId: 'cap', versionId: 'enterprise' });
-    });
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/subscriptions/sub/skills/cap/select-version', { versionId: 'enterprise' });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-versions', 'employee', 'employee'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['capability-iteration'] });
-  });
-});
 
 describe('企业个人技能审核 hooks', () => {
   it('查询传递状态、技能ID及分页，按企业隔离缓存并配置前台轮询', async () => {
@@ -62,6 +49,17 @@ describe('企业个人技能审核 hooks', () => {
     expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/skill-versions/v/review', { decision: 'REJECT', comment: '原因' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-versions'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['capability-iteration'] });
+  });
+  it('single-source review按一个原始版本ID审核，不传正文或合并来源', async () => {
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useReviewEnterprisePersonalSkillVersion(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'client-source', decision: 'APPROVE', comment: '确认原始内容' });
+    });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/enterprise/skill-versions/client-source/review', {
+      decision: 'APPROVE', comment: '确认原始内容',
+    });
+    expect(api.post).not.toHaveBeenCalledWith(expect.stringContaining('/adopt'), expect.anything());
   });
   it('共享schema拒绝空原因，未发网络请求或成功缓存失效', async () => {
     const { wrapper, invalidate } = setup();

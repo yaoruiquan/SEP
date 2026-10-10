@@ -37,7 +37,6 @@ import {
   useDeleteCapability,
   type AdminCapabilityRow,
 } from '@/features/admin/use-admin';
-import { useUnifiedCapabilityReviewQueue } from '@/features/contribution/use-contribution-admin';
 import { CAPABILITY_TYPE_META, cn } from '@/lib/utils';
 import { common } from '@/locales/zh-CN';
 
@@ -49,7 +48,7 @@ import { common } from '@/locales/zh-CN';
  *     只改 `status` 不改 `platformReviewStatus`，审企业投稿会让投稿永远卡在队列里
  *   · 「能力审核」（`/admin/capability-review`）—— 只是个跳转列表，本身不做决定
  *
- * 保留下来的是它们唯一有价值的东西：两个队列的**待办计数**，放在页头。
+ * 技能全量版本从页头的技能监控入口查看；非技能投稿保留行内详情入口。
  *
  * 审核路径按来源分流，不是偷懒，是两条链路的语义不同：
  *   · 平台自有能力（enterpriseId 为空）→ 行内通过/驳回就够，本来就是运营自己建的
@@ -85,13 +84,12 @@ export default function CapabilitiesPage() {
   const [deleting, setDeleting] = useState<AdminCapabilityRow | null>(null);
 
   const query = useAllCapabilities(status === 'ALL' ? undefined : status);
-  const reviewQueue = useUnifiedCapabilityReviewQueue('ALL');
   const approve = useApproveCapability();
   const reject = useRejectCapability();
   const remove = useDeleteCapability();
 
-  const items = query.data?.items ?? [];
   const visible = useMemo(() => {
+    const items = query.data?.items ?? [];
     const kw = keyword.trim().toLowerCase();
     if (!kw) return items;
     return items.filter(
@@ -100,11 +98,7 @@ export default function CapabilitiesPage() {
         cap.description?.toLowerCase().includes(kw) ||
         cap.enterprise?.name.toLowerCase().includes(kw),
     );
-  }, [items, keyword]);
-
-  const queueItems = reviewQueue.data?.items ?? [];
-  const contributionCount = queueItems.filter((i) => i.kind === 'CAPABILITY').length;
-  const versionCount = queueItems.filter((i) => i.kind === 'SKILL_VERSION').length;
+  }, [query.data?.items, keyword]);
 
   const handleApprove = (cap: AdminCapabilityRow) => {
     approve.mutate(
@@ -152,22 +146,11 @@ export default function CapabilitiesPage() {
           <h1 className="mt-1 text-2xl font-semibold text-gtext-primary">能力管理</h1>
           <p className="mt-1 max-w-2xl text-sm text-gtext-muted">
             审核通过的能力会成为平台公共能力，可绑定到硅基员工 —— 用户在员工市场买到的是
-            带着这些能力的员工，平台没有单独的能力市场。企业投稿和 Skill 版本申请在右侧两个队列里处理。
+            带着这些能力的员工，平台没有单独的能力市场。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <QueueChip
-            href="/admin/contributions"
-            icon={<Building2 className="h-3.5 w-3.5" />}
-            label="投稿待审"
-            count={contributionCount}
-          />
-          <QueueChip
-            href="/admin/skills"
-            icon={<FileCode2 className="h-3.5 w-3.5" />}
-            label="版本待审"
-            count={versionCount}
-          />
+          <Link href="/admin/skills"><Button variant="glass" size="sm"><FileCode2 className="h-4 w-4" />技能监控</Button></Link>
           <Link href="/admin/capabilities/new">
             <Button size="sm">+ 新建能力</Button>
           </Link>
@@ -374,7 +357,6 @@ export default function CapabilitiesPage() {
     </div>
   );
 }
-
 /**
  * 「已绑定员工」列。
  *
@@ -422,33 +404,5 @@ function BoundEmployees({ cap }: { cap: AdminCapabilityRow }) {
         </span>
       )}
     </div>
-  );
-}
-
-function QueueChip({
-  href,
-  icon,
-  label,
-  count,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-        count > 0
-          ? 'border-gwarning/30 bg-gwarning/10 text-gwarning hover:bg-gwarning/15'
-          : 'border-glassline bg-glass-2 text-fg-muted hover:bg-muted/50',
-      )}
-    >
-      {icon}
-      {label}
-      <span className="font-semibold">{count}</span>
-    </Link>
   );
 }

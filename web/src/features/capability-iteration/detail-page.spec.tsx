@@ -65,7 +65,7 @@ describe('无授权技能详情的局部错误边界', () => {
   it('usage返回403只显示局部权限状态，企业历史及改动面板仍可访问', async () => {
     vi.mocked(api.get).mockRejectedValue(new ApiError(403, '无使用授权'));
     renderDetail();
-    expect(screen.getByText('企业版 1.0.0')).toBeVisible();
+    expect(screen.getAllByText('企业版 1.0.0')).toHaveLength(2);
     expect(api.get).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '使用' }));
     expect(await screen.findByText('暂无使用记录查看权限')).toBeVisible();
@@ -73,10 +73,10 @@ describe('无授权技能详情的局部错误边界', () => {
     expect(screen.getByRole('heading', { name: '未授权企业技能' })).toBeVisible();
     expect(screen.queryByText('无使用授权')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '版本' }));
-    expect(screen.getByText('企业版 1.0.0')).toBeVisible();
+    expect(screen.getAllByText('企业版 1.0.0')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: /设为个人使用|跟随企业/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '大家的改动' }));
-    expect(screen.getByRole('button', { name: '创建我的副本' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '创建我的副本' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '审核状态' })).toBeEnabled();
     expect(screen.getByRole('heading', { name: '未授权企业技能' })).toBeVisible();
   });

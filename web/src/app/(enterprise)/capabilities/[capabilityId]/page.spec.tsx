@@ -64,7 +64,7 @@ describe('技能库详情页宽度', () => {
     expectFullWidth(container);
     for (const [label, panel] of [
       ['版本', '版本面板'],
-      [canManage ? '大家的改动' : '我的副本', '副本面板'],
+      [canManage ? '大家的改动' : '我的提交', '副本面板'],
       ['使用', '使用面板'],
       ['迭代建议', '建议面板'],
     ]) {

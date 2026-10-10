@@ -5,31 +5,39 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   Prisma,
-  SkillReviewActorType,
-  SkillReviewDecision,
   SkillVersionScope,
   SkillVersionStatus,
 } from '@prisma/client';
-import matter from 'gray-matter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { EnterpriseSkillDefaultService } from './enterprise-skill-default.service';
 import { EnterpriseSkillReviewService, PERSONAL_REVIEW_RELATIONS, personalReviewState } from './enterprise-skill-review.service';
 import {
-  PLATFORM_PROMOTION_SOURCE_SELECT,
   buildPlatformPromotion,
   platformPromotionSummary,
+  validatePlatformSource,
+  isPlatformWorkingCopy,
+  platformMonitorClassifications,
+  readAdminEnterpriseReviewStates,
 } from './promote-to-platform';
+import { CapabilityValidatorService } from '../capability-contribution/capability-validator.service';
+import { PackageSecurityService } from '../capability-contribution/package-security.service';
+import { SkillPackageService } from '../skill-package/skill-package.service';
+import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { SettingService } from '../setting/setting.service';
 import { nextSemver } from './skill-version-numbering';
 import type {
   AdoptEnterpriseVersionDto,
+  AdminSkillVersionQuery,
   AdoptPersonalVersionsDto,
   CreateEnterpriseSkillVersionDto,
   CreatePlatformSkillVersionDto,
   ReviewSkillVersionDto,
+  SubmitAdminPlatformReviewDto,
   UpdateSkillVersionDto,
 } from 'shared';
 
@@ -40,6 +48,8 @@ const VERSION_SUMMARY_SELECT = {
   enterpriseId: true,
   parentVersionId: true,
   sourceVersionId: true,
+  workingCopyId: true,
+  workingCopyUpdatedAt: true,
   version: true,
   changeSummary: true,
   status: true,
@@ -61,6 +71,11 @@ export class SkillVersionService {
     private readonly enterpriseContext: EnterpriseContextService,
     private readonly defaults: EnterpriseSkillDefaultService = new EnterpriseSkillDefaultService(prisma),
     private readonly personalReviews: EnterpriseSkillReviewService = new EnterpriseSkillReviewService(prisma, enterpriseContext, defaults),
+    private readonly platformValidator: CapabilityValidatorService = new CapabilityValidatorService(),
+    private readonly platformSecurity: PackageSecurityService = new PackageSecurityService(prisma, platformValidator),
+    @Optional() private readonly platformPackages?: SkillPackageService,
+    private readonly platformWallet: PersonalWalletService = new PersonalWalletService(prisma),
+    @Optional() private readonly platformSettings?: SettingService,
   ) {}
 
   async listEmployeeSkills(userId: string, employeeId: string) {
@@ -227,77 +242,19 @@ export class SkillVersionService {
   }
 
   async createEnterpriseVersion(
-    userId: string,
-    subscriptionId: string,
-    dto: CreateEnterpriseSkillVersionDto,
+    _userId: string,
+    _subscriptionId: string,
+    _dto: CreateEnterpriseSkillVersionDto,
   ) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    const subscription = await this.getGrantedSubscriptionById(
-      ctx.enterpriseId,
-      ctx.memberId,
-      ctx.departmentId,
-      subscriptionId,
-    );
-    await this.assertCapabilityBound(subscription.employeeId, dto.capabilityId);
-
-    const parent = await this.prisma.skillVersion.findUnique({
-      where: { id: dto.parentVersionId },
-    });
-    if (!parent || parent.capabilityId !== dto.capabilityId) {
-      throw new BadRequestException('父版本与技能不匹配');
-    }
-    const parentVisible =
-      (parent.scope === 'PLATFORM' && parent.status === 'PLATFORM_APPROVED') ||
-      (parent.scope === 'ENTERPRISE' && parent.enterpriseId === ctx.enterpriseId);
-    if (!parentVisible) throw new NotFoundException('父版本不存在或不可访问');
-
-    return this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, ctx.enterpriseId, dto.capabilityId);
-      const existing = await tx.skillVersion.findMany({ where: {
-        capabilityId: dto.capabilityId, scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId,
-      }, select: { version: true } });
-      return tx.skillVersion.create({
-      data: {
-        capabilityId: dto.capabilityId,
-        enterpriseId: ctx.enterpriseId,
-        scope: 'ENTERPRISE',
-        parentVersionId: parent.id,
-        version: nextSemver(existing.map((row) => row.version)),
-        content: parent.content,
-        changeSummary: dto.changeSummary,
-        createdById: userId,
-      },
-      select: { ...VERSION_SUMMARY_SELECT, content: true },
-      });
-    });
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
   async updateEnterpriseVersion(
-    userId: string,
-    versionId: string,
-    dto: UpdateSkillVersionDto,
+    _userId: string,
+    _versionId: string,
+    _dto: UpdateSkillVersionDto,
   ) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    this.enterpriseContext.assertEnterpriseAdmin(ctx);
-    const version = await this.getOwnedEnterpriseVersion(userId, versionId);
-    return this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, ctx.enterpriseId, version.capabilityId);
-      const current = await tx.skillVersion.findFirst({ where: {
-        id: version.id, enterpriseId: ctx.enterpriseId, scope: 'ENTERPRISE',
-      } });
-      if (!current) throw new NotFoundException('技能版本不存在');
-      if (current.status !== 'DRAFT' && current.status !== 'ENTERPRISE_REJECTED') {
-        throw new ConflictException('只有草稿或被驳回版本可以编辑');
-      }
-      return tx.skillVersion.update({
-        where: { id: current.id },
-        data: {
-          content: this.stripFrontmatter(dto.content),
-          changeSummary: dto.changeSummary,
-        },
-        select: { ...VERSION_SUMMARY_SELECT, content: true },
-      });
-    });
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
   async selectVersion(
@@ -344,137 +301,50 @@ export class SkillVersionService {
     return { capabilityId, versionId, version };
   }
 
-  /** 个人选择只更新本成员，绝不能写 SubscriptionSkillVersion 企业默认。 */
+  /** 兼容旧路由并拒绝写入，保留历史个人偏好供审计。 */
   async selectPersonalVersion(
-    userId: string,
-    subscriptionId: string,
-    capabilityId: string,
-    versionId: string | null,
+    _userId: string,
+    _subscriptionId: string,
+    _capabilityId: string,
+    _versionId: string | null,
   ) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    const subscription = await this.getGrantedSubscriptionById(
-      ctx.enterpriseId, ctx.memberId, ctx.departmentId, subscriptionId,
-    );
-    await this.assertCapabilityBound(subscription.employeeId, capabilityId);
-    if (versionId !== null) {
-      const version = await this.prisma.skillVersion.findUnique({ where: { id: versionId } });
-      if (!version || version.capabilityId !== capabilityId ||
-          !this.isSelectableVersion(version, ctx.enterpriseId, userId)) {
-        throw new BadRequestException('所选版本与技能不匹配、已归档或无权使用');
-      }
-    }
-    return this.prisma.memberSkillVersionSelection.upsert({
-      where: { memberId_subscriptionId_capabilityId: {
-        memberId: ctx.memberId, subscriptionId, capabilityId,
-      } },
-      create: { memberId: ctx.memberId, subscriptionId, capabilityId, versionId },
-      update: { versionId },
-    });
+    throw new ForbiddenException('个人选版已停用，正式执行统一跟随企业启用版本');
   }
 
-  private isSelectableVersion(
-    version: { scope: SkillVersionScope; status: SkillVersionStatus; enterpriseId: string | null; ownerId: string | null },
-    enterpriseId: string,
-    userId?: string,
-  ) {
-    return (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
-      (version.scope === 'ENTERPRISE' && version.enterpriseId === enterpriseId && version.status === 'ENTERPRISE_APPROVED') ||
-      (userId !== undefined && version.scope === 'PERSONAL' && version.enterpriseId === enterpriseId &&
-        version.ownerId === userId &&
-        ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'].includes(version.status));
-  }
-
-  /**
-   * 实际执行：本人显式选版 > 存量个人副本 > 企业默认 > 模板默认 > 平台最新。
-   * 显式 versionId=null 表示跟随企业，跳过副本但保留其内容。
-   * 没有个人记录时保留旧副本优先行为；没有使用者时只解析企业默认。
-   * 身份按订阅所属企业反查，不使用用户可能在别家企业的上下文。
-   */
-  async resolveEffectiveVersion(subscriptionId: string, capabilityId: string, userId?: string) {
+  /** 正式执行统一跟随企业启用版本，历史个人选择和工作副本仅供审计。 */
+  async resolveEffectiveVersion(subscriptionId: string, capabilityId: string, _userId?: string) {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
       select: {
         enterpriseId: true,
         employee: { select: { bindings: {
-          where: { capabilityId }, select: { defaultSkillVersion: true }, take: 1,
+          where: { capabilityId, enabled: true }, select: { defaultSkillVersion: true }, take: 1,
         } } },
       },
     });
-    if (userId && subscription) {
-      const preference = await this.prisma.memberSkillVersionSelection.findFirst({
-        where: { subscriptionId, capabilityId, member: { userId, enterpriseId: subscription.enterpriseId } },
-        include: { version: true },
-      });
-      if (preference) {
-        if (preference.version && preference.version.capabilityId === capabilityId &&
-            this.isSelectableVersion(preference.version, subscription.enterpriseId, userId)) {
-          return preference.version;
-        }
-        // 显式跟随或已失效的版本，安全回落企业，不恢复此前副本。
-      } else {
-        const personal = await this.prisma.skillVersion.findFirst({
-          where: { capabilityId, enterpriseId: subscription.enterpriseId,
-            scope: 'PERSONAL', ownerId: userId, status: 'PERSONAL_ACTIVE' },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (personal) return personal;
-      }
-    }
-    const enterpriseDefault = subscription ? await this.defaults.get(subscription.enterpriseId, capabilityId) : null;
-    if (enterpriseDefault) return enterpriseDefault.version;
+    if (!subscription) return null;
+    const approved = (version: { capabilityId: string; scope: string; status: string; enterpriseId?: string | null } | null | undefined) =>
+      version?.capabilityId === capabilityId && (
+        (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
+        (version.scope === 'ENTERPRISE' && version.status === 'ENTERPRISE_APPROVED' && version.enterpriseId === subscription.enterpriseId)
+      );
+    const enterpriseDefault = await this.defaults.get(subscription.enterpriseId, capabilityId);
+    if (approved(enterpriseDefault?.version)) return enterpriseDefault!.version;
     const selection = await this.prisma.subscriptionSkillVersion.findUnique({
       where: { subscriptionId_capabilityId: { subscriptionId, capabilityId } },
       include: { version: true },
     });
-    if (selection) return selection.version;
-    const defaultVersion = subscription?.employee.bindings[0]?.defaultSkillVersion;
-    if (defaultVersion?.status === 'PLATFORM_APPROVED') return defaultVersion;
+    if (approved(selection?.version)) return selection!.version;
+    const defaultVersion = subscription.employee.bindings[0]?.defaultSkillVersion;
+    if (approved(defaultVersion)) return defaultVersion!;
     return this.prisma.skillVersion.findFirst({
       where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
-  async submitPlatformReview(userId: string, versionId: string) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    this.enterpriseContext.assertEnterpriseAdmin(ctx);
-    const version = await this.prisma.skillVersion.findFirst({
-      where: {
-        id: versionId,
-        scope: 'ENTERPRISE',
-        enterpriseId: ctx.enterpriseId,
-      },
-      select: {
-        ...PLATFORM_PROMOTION_SOURCE_SELECT,
-        enterprise: { select: { name: true } },
-      },
-    });
-    if (!version) throw new NotFoundException('技能版本不存在');
-    if (version.status !== 'ENTERPRISE_APPROVED') {
-      throw new ConflictException('只有企业审核通过的版本可以提交平台');
-    }
-    const existing = await this.prisma.skillVersion.findUnique({
-      where: { sourceVersionId: version.id },
-      select: { id: true },
-    });
-    if (existing) throw new ConflictException('该企业版本已提交平台审核');
-
-    return this.prisma.skillVersion.create({
-      data: buildPlatformPromotion({
-        source: version,
-        version: await this.nextVersion(version.capabilityId, 'PLATFORM'),
-        platformParentId: await this.latestPlatformVersionId(version.capabilityId),
-        status: 'PENDING_PLATFORM_REVIEW',
-        actorId: userId,
-        changeSummary: platformPromotionSummary({
-          enterpriseName: version.enterprise?.name ?? null,
-          sourceVersion: version.version,
-          sourceSummary: version.changeSummary,
-        }),
-        now: new Date(),
-      }),
-      select: VERSION_SUMMARY_SELECT,
-    });
+  async submitPlatformReview(_userId: string, _versionId: string) {
+    throw new ForbiddenException('企业投稿平台已停用，版本由平台运营自主选审');
   }
 
   /** 平台谱系的当前头部：新平台版的父版本就挂在它下面。 */
@@ -487,252 +357,401 @@ export class SkillVersionService {
     return latest?.id ?? null;
   }
 
-  async listAdminVersions(filters: {
-    status?: SkillVersionStatus;
-    scope?: SkillVersionScope;
-    page: number;
-    limit: number;
-  }) {
-    if (filters.scope === 'PERSONAL') {
-      throw new BadRequestException('个人副本不进平台审核列表');
+  async listAdminVersions(filters: AdminSkillVersionQuery) {
+    const and: Prisma.SkillVersionWhereInput[] = [{ capability: { type: 'SKILL' } }];
+    if (filters.scope) and.push({ scope: filters.scope });
+    if (filters.status) and.push({ status: filters.status });
+    if (filters.createdFrom || filters.createdTo) and.push({ createdAt: {
+      ...(filters.createdFrom ? { gte: new Date(filters.createdFrom) } : {}),
+      ...(filters.createdTo ? { lte: new Date(filters.createdTo) } : {}),
+    } });
+    if (filters.generationType) {
+      const workingCopy: Prisma.SkillVersionWhereInput = { scope: 'PERSONAL', workingCopyId: null, workingCopyUpdatedAt: null,
+        OR: [{ status: 'PERSONAL_ACTIVE' }, { status: 'DRAFT', submittedAt: null }] };
+      const generation: Record<NonNullable<AdminSkillVersionQuery['generationType']>, Prisma.SkillVersionWhereInput> = {
+        CLIENT_SUBMISSION: { scope: 'PERSONAL', workingCopyId: null, NOT: workingCopy },
+        LEGACY_WORKING_COPY: workingCopy,
+        REVIEW_SNAPSHOT: { workingCopyId: { not: null } },
+        ENTERPRISE_VERSION: { scope: 'ENTERPRISE', workingCopyId: null },
+        PLATFORM_CREATED: { scope: 'PLATFORM', sourceVersionId: null },
+        PLATFORM_SELECTED: { scope: 'PLATFORM', sourceVersionId: { not: null } },
+      };
+      and.push(generation[filters.generationType]);
     }
-    const where = {
-      ...(filters.status ? { status: filters.status } : {}),
-      // 个人副本永远不是审核材料：它对本人立即生效、不上行，运营也不该逐个成员看。
-      // 不排掉的话「全部」页会被每个成员的副本淹掉。
-      ...(filters.scope
-        ? { scope: filters.scope }
-        : { scope: { in: [SkillVersionScope.PLATFORM, SkillVersionScope.ENTERPRISE] } }),
-    };
-    const [total, items] = await Promise.all([
-      this.prisma.skillVersion.count({ where }),
-      this.prisma.skillVersion.findMany({
-        where,
-        select: {
-          ...VERSION_SUMMARY_SELECT,
-          capability: { select: { id: true, name: true, description: true } },
-          enterprise: { select: { id: true, name: true } },
-          // 企业投稿创建的是 scope=PLATFORM 版本，自身 enterpriseId 为空，
-          // 来源企业要顺 sourceVersionId 回查，否则「来源企业」一栏永远是空的。
-          sourceVersion: { select: { enterprise: { select: { id: true, name: true } } } },
-        },
-        orderBy: { updatedAt: 'desc' },
-        skip: (filters.page - 1) * filters.limit,
-        take: filters.limit,
-      }),
-    ]);
-    return {
-      total,
-      page: filters.page,
-      limit: filters.limit,
-      items: items.map(({ sourceVersion, ...item }) => ({
+    for (const field of ['enterpriseId', 'ownerId', 'capabilityId'] as const) {
+      const value = filters[field];
+      if (value) and.push({ OR: [{ [field]: value }, { sourceVersion: { [field]: value } }] });
+    }
+    if (filters.enterpriseName) and.push({ OR: [
+      { enterprise: { name: { contains: filters.enterpriseName, mode: 'insensitive' } } },
+      { sourceVersion: { enterprise: { name: { contains: filters.enterpriseName, mode: 'insensitive' } } } },
+    ] });
+    if (filters.ownerName) and.push({ OR: [
+      { owner: { name: { contains: filters.ownerName, mode: 'insensitive' } } },
+      { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } },
+      { sourceVersion: { owner: { name: { contains: filters.ownerName, mode: 'insensitive' } } } },
+      { sourceVersion: { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } } },
+    ] });
+    if (filters.enterpriseStatus) and.push({ OR: [
+      { scope: { in: ['PERSONAL', 'ENTERPRISE'] }, status: filters.enterpriseStatus },
+      { scope: 'PLATFORM', sourceVersion: { status: filters.enterpriseStatus } },
+    ] });
+    const platformStatus = filters.platformStatus ?? (filters.platformProcessingStatus === 'NOT_SUBMITTED' ? 'NOT_SELECTED'
+      : filters.platformProcessingStatus === 'PENDING_REVIEW' ? 'PENDING_PLATFORM_REVIEW'
+      : filters.platformProcessingStatus === 'APPROVED' ? 'PLATFORM_APPROVED'
+      : filters.platformProcessingStatus === 'REJECTED' ? 'PLATFORM_REJECTED' : undefined);
+    if (platformStatus) {
+      const processing = platformStatus === 'NOT_SELECTED' ? undefined : { status: platformStatus };
+      and.push(processing ? { OR: [
+        { scope: 'PLATFORM', ...processing },
+        { promotedVersions: { some: processing } },
+        { reviewSnapshots: { some: { promotedVersions: { some: processing } } } },
+      ] } : { OR: [
+        { scope: { not: 'PLATFORM' }, promotedVersions: { none: {} },
+          reviewSnapshots: { none: { promotedVersions: { some: {} } } } },
+        ...(filters.platformProcessingStatus === 'NOT_SUBMITTED' ? [{ scope: SkillVersionScope.PLATFORM,
+          status: { in: [SkillVersionStatus.DRAFT, SkillVersionStatus.ARCHIVED] } }] : []),
+      ] });
+    }
+    if (filters.search) and.push({ OR: [
+      { capability: { name: { contains: filters.search, mode: 'insensitive' } } },
+      { enterprise: { name: { contains: filters.search, mode: 'insensitive' } } },
+      { owner: { name: { contains: filters.search, mode: 'insensitive' } } },
+      { createdBy: { name: { contains: filters.search, mode: 'insensitive' } } },
+      { sourceVersion: { enterprise: { name: { contains: filters.search, mode: 'insensitive' } } } },
+      { sourceVersion: { owner: { name: { contains: filters.search, mode: 'insensitive' } } } },
+      { sourceVersion: { createdBy: { name: { contains: filters.search, mode: 'insensitive' } } } },
+    ] });
+    const where: Prisma.SkillVersionWhereInput = { AND: and };
+    return this.prisma.$transaction(async (tx) => {
+      if (filters.enterpriseReviewStatus) {
+        const status: Prisma.EnumSkillVersionStatusFilter = filters.enterpriseReviewStatus === 'NOT_SUBMITTED'
+          ? { notIn: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] }
+          : { equals: filters.enterpriseReviewStatus === 'PENDING' ? 'PENDING_ENTERPRISE_REVIEW'
+            : filters.enterpriseReviewStatus === 'APPROVED' ? 'ENTERPRISE_APPROVED' : 'ENTERPRISE_REJECTED' };
+        const normalized = await readAdminEnterpriseReviewStates(tx, { status: filters.enterpriseReviewStatus });
+        const ids = normalized.map((row) => row.id);
+        and.push({ OR: [
+          { scope: { in: ['PERSONAL', 'ENTERPRISE'] }, status },
+          { scope: 'PLATFORM', sourceVersion: { status } },
+          { scope: 'PERSONAL', id: { in: ids } },
+          { scope: 'PLATFORM', sourceVersionId: { in: ids } },
+          ...(filters.enterpriseReviewStatus === 'NOT_SUBMITTED' ? [{ scope: SkillVersionScope.PLATFORM, sourceVersionId: null }] : []),
+        ] });
+      }
+      const [total, items] = await Promise.all([
+        tx.skillVersion.count({ where }),
+        tx.skillVersion.findMany({
+          where,
+          select: {
+            ...VERSION_SUMMARY_SELECT,
+            owner: { select: { id: true, name: true } },
+            createdBy: { select: { id: true, name: true } },
+            capability: { select: { id: true, name: true, description: true, enterpriseId: true, visibility: true,
+              platformReviewStatus: true, status: true,
+              _count: { select: { bindings: { where: { enabled: true, employee: { status: 'APPROVED' } } } } },
+            } },
+            _count: { select: { enterpriseDefaults: true, defaultBindings: true } },
+            enterprise: { select: { id: true, name: true } },
+            sourceVersion: { select: { ...VERSION_SUMMARY_SELECT,
+              owner: { select: { id: true, name: true } },
+              createdBy: { select: { id: true, name: true } },
+              enterprise: { select: { id: true, name: true } },
+            } },
+            promotedVersions: { select: VERSION_SUMMARY_SELECT },
+            reviewSnapshots: { select: { ...VERSION_SUMMARY_SELECT,
+              promotedVersions: { select: VERSION_SUMMARY_SELECT },
+            }, where: { promotedVersions: { some: {} } }, take: 1,
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: (filters.page - 1) * filters.limit,
+          take: filters.limit,
+        }),
+      ]);
+      const reviewStates = await readAdminEnterpriseReviewStates(tx, { ids: [...new Set(items.flatMap((item) =>
+        item.scope === 'PLATFORM' ? item.sourceVersion ? [item.sourceVersion.id] : [] : [item.id]))] });
+      const reviewStateById = new Map(reviewStates.map((row) => [row.id, row]));
+      const latest = items.length ? await tx.skillVersion.findMany({ where: {
+        capabilityId: { in: [...new Set(items.map((item) => item.capabilityId))] }, scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      }, select: { id: true, capabilityId: true }, distinct: ['capabilityId'],
+        orderBy: [{ capabilityId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }] }) : [];
+      const latestIds = new Set(latest.map((row) => row.id));
+      return { total, page: filters.page, limit: filters.limit, items: items.map((item) => {
+        const state = reviewStateById.get(item.scope === 'PLATFORM' ? item.sourceVersionId ?? '' : item.id);
+        return ({
         ...item,
-        enterprise: item.enterprise ?? sourceVersion?.enterprise ?? null,
-      })),
-    };
+        isWorkingCopy: isPlatformWorkingCopy(item),
+        ...platformMonitorClassifications(item, state?.enterpriseReviewStatus),
+        ...(state ? { enterpriseReviewedAt: state.enterpriseReviewedAt,
+          ...(item.scope !== 'PLATFORM' ? { rejectionReason: state.rejectionReason } : {}),
+          ...(item.sourceVersion ? { sourceVersion: { ...item.sourceVersion, ...state, id: item.sourceVersion.id } } : {}),
+        } : {}),
+        isEnterpriseCurrent: item._count.enterpriseDefaults > 0,
+        enterpriseDefaultCount: item._count.enterpriseDefaults,
+        isPlatformLatest: latestIds.has(item.id),
+        defaultBindingCount: item._count.defaultBindings,
+        marketBindingCount: item.capability._count.bindings,
+        isMarketPublic: item.capability.visibility === 'MARKET_PUBLIC' && item.capability.platformReviewStatus === 'APPROVED' && item.capability.status === 'APPROVED',
+        enterprise: item.enterprise ?? item.sourceVersion?.enterprise ?? null,
+        owner: item.owner ?? item.sourceVersion?.owner ?? null,
+      }); }) };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async getAdminVersion(versionId: string) {
     const version = await this.prisma.skillVersion.findUnique({
       where: { id: versionId },
       select: {
-        ...VERSION_SUMMARY_SELECT,
-        content: true,
-        rejectionReason: true,
-        capability: { select: { id: true, name: true, description: true } },
+        ...VERSION_SUMMARY_SELECT, content: true, validationResult: true, validatedAt: true,
+        packageKey: true, packageSha256: true, packageFileCount: true, packageFilename: true,
+        owner: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+        capability: { select: { id: true, name: true, description: true, type: true, enterpriseId: true, visibility: true,
+          platformReviewStatus: true, status: true,
+          _count: { select: { bindings: { where: { enabled: true, employee: { status: 'APPROVED' } } } } },
+        } },
+        _count: { select: { enterpriseDefaults: true, defaultBindings: true } },
         enterprise: { select: { id: true, name: true } },
         parentVersion: { select: VERSION_SUMMARY_SELECT },
-        sourceVersion: {
-          select: { ...VERSION_SUMMARY_SELECT, enterprise: { select: { id: true, name: true } } },
-        },
-        // 企业版本看「有没有被平台收录过」靠这个反查：sourceVersionId 是唯一索引，
-        // 所以这里最多一条。没有它，界面只能把已采纳过的版本再摆一个可点的采纳按钮。
+        sourceVersion: { select: { ...VERSION_SUMMARY_SELECT,
+          owner: { select: { id: true, name: true } }, createdBy: { select: { id: true, name: true } },
+          enterprise: { select: { id: true, name: true } },
+          workingCopy: { select: VERSION_SUMMARY_SELECT },
+        } },
         promotedVersions: { select: VERSION_SUMMARY_SELECT },
-        reviews: {
-          select: {
-            id: true,
-            actorType: true,
-            decision: true,
-            comment: true,
-            createdAt: true,
-            reviewer: { select: { id: true, name: true, email: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
+        reviewSnapshots: { select: { ...VERSION_SUMMARY_SELECT, promotedVersions: { select: VERSION_SUMMARY_SELECT } },
+          where: { promotedVersions: { some: {} } }, take: 1, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+        reviews: { select: { id: true, actorType: true, decision: true, comment: true, createdAt: true,
+          reviewer: { select: { id: true, name: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
       },
     });
-    if (!version) throw new NotFoundException('技能版本不存在');
-    return {
-      ...version,
-      // 企业投稿创建的是 scope=PLATFORM 版本，自身 enterpriseId 为空，
-      // 来源企业要顺 sourceVersionId 回查 —— 与列表口径保持一致。
+    if (!version || version.capability.type !== 'SKILL') throw new NotFoundException('技能版本不存在');
+    const [state] = await readAdminEnterpriseReviewStates(this.prisma, {
+      ids: version.scope === 'PLATFORM' ? version.sourceVersionId ? [version.sourceVersionId] : [] : [version.id],
+    });
+    const latest = await this.prisma.skillVersion.findFirst({ where: { capabilityId: version.capabilityId,
+      scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    return { ...version, isWorkingCopy: isPlatformWorkingCopy(version), ...platformMonitorClassifications(version, state?.enterpriseReviewStatus),
+      ...(state ? { enterpriseReviewedAt: state.enterpriseReviewedAt,
+        ...(version.scope !== 'PLATFORM' ? { rejectionReason: state.rejectionReason } : {}),
+        ...(version.sourceVersion ? { sourceVersion: { ...version.sourceVersion, ...state, id: version.sourceVersion.id } } : {}),
+      } : {}),
+      isEnterpriseCurrent: version._count.enterpriseDefaults > 0, enterpriseDefaultCount: version._count.enterpriseDefaults,
+      isPlatformLatest: latest?.id === version.id, defaultBindingCount: version._count.defaultBindings,
+      marketBindingCount: version.capability._count.bindings,
+      isMarketPublic: version.capability.visibility === 'MARKET_PUBLIC' && version.capability.platformReviewStatus === 'APPROVED' && version.capability.status === 'APPROVED',
       enterprise: version.enterprise ?? version.sourceVersion?.enterprise ?? null,
-    };
+      owner: version.owner ?? version.sourceVersion?.owner ?? null };
   }
 
-  async createPlatformVersion(
-    userId: string,
-    capabilityId: string,
-    dto: CreatePlatformSkillVersionDto,
-  ) {
-    const capability = await this.prisma.capability.findUnique({
-      where: { id: capabilityId },
-      select: { id: true, type: true },
-    });
-    if (!capability) throw new NotFoundException('技能不存在');
-    if (capability.type !== 'SKILL') throw new BadRequestException('只有 SKILL 支持版本');
-    const version = await this.nextVersion(capabilityId, 'PLATFORM');
-    return this.prisma.skillVersion.create({
-      data: {
-        capabilityId,
-        scope: 'PLATFORM',
-        version,
-        content: dto.content,
-        changeSummary: dto.changeSummary,
-        createdById: userId,
-      },
-      select: { ...VERSION_SUMMARY_SELECT, content: true },
-    });
-  }
-
-  async submitAdminPlatformReview(versionId: string) {
-    const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: 'PLATFORM' },
-    });
-    if (!version) throw new NotFoundException('技能版本不存在');
-    if (version.status !== 'DRAFT' && version.status !== 'PLATFORM_REJECTED') {
-      throw new ConflictException('当前状态不能提交平台审核');
-    }
-    return this.prisma.skillVersion.update({
-      where: { id: version.id },
-      data: {
-        status: 'PENDING_PLATFORM_REVIEW',
-        submittedAt: new Date(),
-        rejectionReason: null,
-      },
-      select: VERSION_SUMMARY_SELECT,
-    });
-  }
-
-  async reviewPlatformVersion(
-    userId: string,
-    versionId: string,
-    dto: ReviewSkillVersionDto,
-  ) {
-    const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: 'PLATFORM' },
-    });
-    if (!version) throw new NotFoundException('技能版本不存在');
-    if (version.status !== 'PENDING_PLATFORM_REVIEW') {
-      throw new ConflictException('只有待平台审核版本可以审核');
-    }
-    const approved = dto.decision === 'APPROVE';
+  async createPlatformVersion(userId: string, capabilityId: string, dto: CreatePlatformSkillVersionDto) {
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.skillVersion.update({
-        where: { id: version.id },
-        data: {
-          status: approved ? 'PLATFORM_APPROVED' : 'PLATFORM_REJECTED',
-          platformReviewedById: userId,
-          platformReviewedAt: new Date(),
-          rejectionReason: approved ? null : dto.comment,
-        },
-        select: VERSION_SUMMARY_SELECT,
-      });
-      await tx.skillVersionReview.create({
-        data: {
-          versionId: version.id,
-          actorType: 'PLATFORM',
-          decision: dto.decision,
-          reviewerId: userId,
-          comment: dto.comment,
-        },
-      });
-      // 审核通过要真的改变什么。以前批完只改状态，绑定还钉在旧平台版上，
-      // 于是企业投稿→运营通过全程走完，谁都没看出技能变了。
+      await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${capabilityId} FOR UPDATE`;
+      const capability = await tx.capability.findUnique({ where: { id: capabilityId } });
+      if (!capability) throw new NotFoundException('技能不存在');
+      if (capability.type !== 'SKILL') throw new BadRequestException('只有 SKILL 支持版本');
+      if (capability.enterpriseId) throw new BadRequestException('私有企业技能须选择来源并复制为平台技能');
+      if (await tx.skillVersion.count({ where: { capabilityId } })) {
+        throw new ConflictException('仅允许首次创建技能正文，已有技能须选择客户端来源版本');
+      }
+      const validation = await validatePlatformSource({ content: dto.content,
+        packageKey: null, packageSha256: null, packageFileCount: null, packageFilename: null },
+      this.platformValidator, this.platformSecurity, this.platformPackages);
+      const now = new Date();
+      return tx.skillVersion.create({ data: {
+        capabilityId, scope: 'PLATFORM', version: '1.0.0', content: dto.content,
+        changeSummary: dto.changeSummary, createdById: userId,
+        status: 'PENDING_PLATFORM_REVIEW', submittedAt: now,
+        validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now,
+      }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
+    });
+  }
+
+  async submitAdminPlatformReview(versionId: string, dto: SubmitAdminPlatformReviewDto = {}) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${versionId} FOR UPDATE`;
+      const version = await tx.skillVersion.findFirst({ where: { id: versionId, scope: 'PLATFORM' } });
+      if (!version) throw new NotFoundException('技能版本不存在');
+      if (dto.expectedUpdatedAt && new Date(dto.expectedUpdatedAt).getTime() !== version.updatedAt.getTime()) {
+        throw new ConflictException('版本已更新，请重新预览后送审');
+      }
+      if (version.status !== 'DRAFT' && version.status !== 'PLATFORM_REJECTED') {
+        throw new ConflictException('当前状态不能提交平台审核');
+      }
+      const validation = await validatePlatformSource(version, this.platformValidator, this.platformSecurity, this.platformPackages);
+      return tx.skillVersion.update({ where: { id: version.id }, data: {
+        status: 'PENDING_PLATFORM_REVIEW', submittedAt: new Date(), rejectionReason: null,
+        validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: new Date(),
+      }, select: VERSION_SUMMARY_SELECT });
+    });
+  }
+
+  async reviewPlatformVersion(userId: string, versionId: string, dto: ReviewSkillVersionDto) {
+    if (dto.decision === 'REJECT' && !dto.comment?.trim()) throw new BadRequestException('驳回时必须填写原因');
+    return this.prisma.$transaction(async (tx) => {
+      // 与来源采纳相同锁顺序：Capability -> SkillVersion，避免审核／采纳死锁。
+      const ref = await tx.skillVersion.findUnique({ where: { id: versionId }, select: { capabilityId: true } });
+      if (!ref) throw new NotFoundException('技能版本不存在');
+      await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${ref.capabilityId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${versionId} FOR UPDATE`;
+      const version = await tx.skillVersion.findFirst({ where: { id: versionId, scope: 'PLATFORM' }, include: {
+        capability: true, sourceVersion: { select: { capability: { select: { id: true, contributorId: true, enterpriseId: true } } } },
+      } });
+      if (!version) throw new NotFoundException('技能版本不存在');
+      if (version.status !== 'PENDING_PLATFORM_REVIEW') throw new ConflictException('只有待平台审核版本可以审核');
+      if (dto.expectedUpdatedAt && new Date(dto.expectedUpdatedAt).getTime() !== version.updatedAt.getTime()) {
+        throw new ConflictException('版本已更新，请重新预览后审核');
+      }
+      if (version.capability.type !== 'SKILL') throw new BadRequestException('只有 SKILL 支持版本');
+      const approved = dto.decision === 'APPROVE';
+      if (approved && version.capability.enterpriseId && version.capability.visibility !== 'MARKET_PUBLIC') {
+        throw new ConflictException('历史私有能力平台副本须重新选择来源，复制为独立平台技能');
+      }
+      const validation = approved ? await validatePlatformSource(version, this.platformValidator, this.platformSecurity, this.platformPackages) : null;
+      const now = new Date();
+      const updated = await tx.skillVersion.update({ where: { id: version.id }, data: {
+        status: approved ? 'PLATFORM_APPROVED' : 'PLATFORM_REJECTED',
+        platformReviewedById: userId, platformReviewedAt: now, rejectionReason: approved ? null : dto.comment,
+        ...(validation ? { validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now } : {}),
+      }, select: VERSION_SUMMARY_SELECT });
+      await tx.skillVersionReview.create({ data: { versionId: version.id, actorType: 'PLATFORM',
+        decision: dto.decision, reviewerId: userId, comment: dto.comment } });
       if (approved) {
+        await tx.capability.update({ where: { id: version.capabilityId }, data: {
+          status: 'APPROVED', visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED',
+          platformRejectionReason: null, approvedAt: now,
+        } });
+        // 读取和执行兼容旧 SkillConfig；正文／包始终取精确通过的这一版。
+        await tx.skillConfig.upsert({ where: { capabilityId: version.capabilityId },
+          create: { capabilityId: version.capabilityId, template: version.content }, update: { template: version.content } });
         await this.advancePlatformBindingDefaults(tx, version.capabilityId, version.id);
+        // Keep the old capability-level origin and wallet relatedId across independent platform copies.
+        let origin = version.sourceVersion?.capability ?? version.capability;
+        if (origin.id === version.capabilityId) {
+          const mapping = await tx.skillVersion.findFirst({ where: { capabilityId: version.capabilityId, scope: 'PLATFORM',
+            sourceVersion: { capabilityId: { not: version.capabilityId } } },
+            select: { sourceVersion: { select: { capability: { select: { id: true, contributorId: true, enterpriseId: true } } } } },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+          origin = mapping?.sourceVersion?.capability ?? origin;
+        }
+        const configured = Number(await this.platformSettings?.getEffectiveValue('CONTRIBUTION_PLATFORM_REWARD_CNY') ?? '50');
+        const amount = new Prisma.Decimal(Number.isFinite(configured) && configured > 0 ? configured : 50);
+        const dedupeKey = `platform-approved:${origin.id}`;
+        const reward = await tx.contributionRewardEvent.createMany({ data: [{
+          recipientId: origin.contributorId, enterpriseId: origin.enterpriseId, capabilityId: origin.id,
+          versionId: version.id, eventType: 'PLATFORM_APPROVED', points: 50, amount,
+          status: 'AVAILABLE', settledAt: now, dedupeKey,
+          metadata: { reviewerId: userId, amountCNY: amount.toString(), platformCapabilityId: version.capabilityId },
+        }], skipDuplicates: true });
+        if (reward.count === 1) await this.platformWallet.creditContributionRewardInTx(
+          tx, origin.contributorId, amount, dedupeKey, `平台审核通过奖励 ¥${amount.toFixed(2)}`,
+        );
+      } else if (version.capability.visibility !== 'MARKET_PUBLIC') {
+        await tx.capability.update({ where: { id: version.capabilityId }, data: {
+          platformReviewStatus: 'REJECTED', platformRejectionReason: dto.comment,
+        } });
       }
       return updated;
     });
   }
 
-  /**
-   * 平台主动采纳一个企业版本 —— 不用等企业投稿。
-   *
-   * 会议纪要2 §6 的三层阶梯里，最上面那一级写的是「采纳与否由平台自己决定
-   * （数据本身都在平台）」。在此之前唯一的上行入口是企业管理员的
-   * `submitPlatformReview`，运营在 `scope=ENTERPRISE` 列表里看得到每家企业改成了
-   * 什么样，却一个动作都做不了。这个方法就是那条缺失的入口。
-   *
-   * 和投稿一样复制成独立的 PLATFORM 版本，而不是把企业那行改掉：企业原版的归属、
-   * 生效状态、后续迭代都不受影响，`sourceVersionId` 记住「这一版从哪家企业来」。
-   * 该字段是唯一索引，所以同一个企业版本只能被收录一次 —— 企业已经投过稿的版本
-   * 也会因此被挡住，不会出现同一份正文在平台侧进两遍。
-   */
-  async adoptEnterpriseVersion(
-    userId: string,
-    versionId: string,
-    dto: AdoptEnterpriseVersionDto,
-  ) {
-    const source = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: 'ENTERPRISE' },
-      select: {
-        ...PLATFORM_PROMOTION_SOURCE_SELECT,
-        enterprise: { select: { name: true } },
-      },
-    });
-    if (!source) throw new NotFoundException('企业技能版本不存在');
-    // 归档意味着企业自己已经弃用它，平台再收录就是把别人扔掉的东西端上市场。
-    // 其余状态（含草稿）都放行 —— 运营看的是正文，不是企业内部走到哪一步了。
-    if (source.status === 'ARCHIVED') {
-      throw new ConflictException('已归档的企业版本不能采纳');
-    }
-
-    const existing = await this.prisma.skillVersion.findUnique({
-      where: { sourceVersionId: source.id },
-      select: { version: true, status: true },
-    });
-    if (existing) {
-      throw new ConflictException(`该企业版本已收录为平台版 v${existing.version}`);
-    }
-
-    const publish = dto.mode === 'PUBLISH';
-    const now = new Date();
-    const data = buildPlatformPromotion({
-      source,
-      version: await this.nextVersion(source.capabilityId, 'PLATFORM'),
-      platformParentId: await this.latestPlatformVersionId(source.capabilityId),
-      status: publish ? 'PLATFORM_APPROVED' : 'PENDING_PLATFORM_REVIEW',
-      actorId: userId,
-      changeSummary: platformPromotionSummary({
-        enterpriseName: source.enterprise?.name ?? null,
-        sourceVersion: source.version,
-        sourceSummary: source.changeSummary,
-        override: dto.changeSummary,
-      }),
-      now,
-    });
-
+  /** 选择来源只复制待审版本；不修改源审核、归属或企业启用。 */
+  async adoptEnterpriseVersion(userId: string, versionId: string, dto: AdoptEnterpriseVersionDto) {
+    if (dto.mode && dto.mode !== 'DRAFT') throw new BadRequestException('选定来源必须经过平台审核，不能直接发布');
     return this.prisma.$transaction(async (tx) => {
-      const created = await tx.skillVersion.create({
-        data,
-        select: { ...VERSION_SUMMARY_SELECT, content: true },
-      });
-
-      if (publish) {
-        // 直接发布也要留一行审核记录：没有它，「谁把这一版放进平台的」在详情页查不到。
-        await tx.skillVersionReview.create({
-          data: {
-            versionId: created.id,
-            actorType: SkillReviewActorType.PLATFORM,
-            decision: SkillReviewDecision.APPROVE,
-            reviewerId: userId,
-            comment: dto.changeSummary?.trim() || '平台主动采纳企业版本，直接发布',
-          },
-        });
-        await this.advancePlatformBindingDefaults(tx, source.capabilityId, created.id);
+      const ref = await tx.skillVersion.findUnique({ where: { id: versionId }, select: { capabilityId: true } });
+      if (!ref) throw new NotFoundException('来源技能版本不存在');
+      // 源能力行锁串行化同技能首次映射，无需额外 schema 或独立映射表。
+      await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${ref.capabilityId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${versionId} FOR UPDATE`;
+      const source = await tx.skillVersion.findUnique({ where: { id: versionId },
+        include: { enterprise: true, capability: { include: { skillConfig: true } } } });
+      if (!source || source.capability.type !== 'SKILL') throw new NotFoundException('来源技能版本不存在');
+      if (source.scope === 'PLATFORM') throw new BadRequestException('平台版本请直接使用平台审核流程');
+      if (dto.expectedUpdatedAt && new Date(dto.expectedUpdatedAt).getTime() !== source.updatedAt.getTime()) {
+        throw new ConflictException('来源已更新，请重新预览后选择');
       }
-
+      const privateSource = source.capability.visibility !== 'MARKET_PUBLIC';
+      let selected = source;
+      const isWorkingCopy = isPlatformWorkingCopy(source);
+      let freezeSource = isWorkingCopy;
+      // 旧版私有投稿占用 sourceVersionId：保留旧行及其绑定，新增独立来源快照。
+      // 不移动原平台行，否则原企业的历史默认引用会跨到另一 Capability。
+      if (!isWorkingCopy) {
+        const existing = await tx.skillVersion.findUnique({ where: { sourceVersionId: source.id }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
+        if (existing) {
+          if (!privateSource || existing.capabilityId !== source.capabilityId) return existing;
+          freezeSource = true;
+        }
+      }
+      if (freezeSource) {
+        const snapshot = await tx.skillVersion.findFirst({ where: {
+          workingCopyId: source.id, workingCopyUpdatedAt: source.updatedAt,
+          promotedVersions: { some: {} },
+        }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+        if (snapshot) {
+          const existing = await tx.skillVersion.findUnique({ where: { sourceVersionId: snapshot.id }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
+          if (existing && (!privateSource || existing.capabilityId !== source.capabilityId)) return existing;
+        }
+      }
+      const validation = await validatePlatformSource(source, this.platformValidator, this.platformSecurity, this.platformPackages);
+      const now = new Date();
+      if (freezeSource) {
+        // 平台快照保持原企业审核信息，不伪造企业审核状态。
+        const snapshot = await tx.skillVersion.create({ data: {
+          capabilityId: source.capabilityId, scope: source.scope, enterpriseId: source.enterpriseId,
+          ownerId: source.ownerId, createdById: source.createdById, version: source.version,
+          content: source.content, changeSummary: source.changeSummary, parentVersionId: source.parentVersionId,
+          workingCopyId: source.id, workingCopyUpdatedAt: source.updatedAt, status: source.status,
+          enterpriseReviewedById: source.enterpriseReviewedById, enterpriseReviewedAt: source.enterpriseReviewedAt,
+          rejectionReason: source.rejectionReason,
+          packageKey: source.packageKey, packageSha256: source.packageSha256,
+          packageFileCount: source.packageFileCount, packageFilename: source.packageFilename,
+        } });
+        selected = { ...source, ...snapshot };
+      }
+      let platformCapabilityId = source.capabilityId;
+      if (privateSource) {
+        const mapped = await tx.skillVersion.findFirst({ where: {
+          scope: 'PLATFORM', sourceVersion: { capabilityId: source.capabilityId },
+          capabilityId: { not: source.capabilityId }, capability: { enterpriseId: null, type: 'SKILL' },
+        }, select: { capabilityId: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+        if (mapped) platformCapabilityId = mapped.capabilityId;
+        else {
+          const capability = await tx.capability.create({ data: {
+            name: source.capability.name, description: source.capability.description, type: 'SKILL',
+            industry: source.capability.industry, position: source.capability.position,
+            inputSchema: source.capability.inputSchema as Prisma.InputJsonValue,
+            outputSchema: source.capability.outputSchema as Prisma.InputJsonValue,
+            contributorId: source.capability.contributorId, enterpriseId: null,
+            visibility: 'ENTERPRISE_PRIVATE', status: 'PENDING', platformReviewStatus: 'PENDING_REVIEW',
+            platformSubmittedById: userId, platformSubmittedAt: now,
+            skillConfig: { create: { template: selected.content,
+              ...(source.capability.skillConfig ? {
+                modelId: source.capability.skillConfig.modelId, temperature: source.capability.skillConfig.temperature,
+                maxTokens: source.capability.skillConfig.maxTokens,
+              } : {}),
+            } },
+            // 不复制企业 metadata，避免内部扩展配置进入市场。
+          }, select: { id: true } });
+          platformCapabilityId = capability.id;
+        }
+      }
+      if (platformCapabilityId !== source.capabilityId) {
+        await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${platformCapabilityId} FOR UPDATE`;
+      }
+      const siblings = await tx.skillVersion.findMany({ where: { capabilityId: platformCapabilityId, scope: 'PLATFORM' }, select: { version: true } });
+      const parent = await tx.skillVersion.findFirst({ where: { capabilityId: platformCapabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+        select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+      const created = await tx.skillVersion.create({ data: {
+        ...buildPlatformPromotion({ source: selected, platformCapabilityId,
+          version: nextSemver(siblings.map((row) => row.version)), platformParentId: parent?.id ?? null,
+          status: 'PENDING_PLATFORM_REVIEW', actorId: userId, now,
+          changeSummary: platformPromotionSummary({ enterpriseName: source.enterprise?.name ?? null,
+            sourceVersion: source.version, sourceSummary: source.changeSummary, override: dto.changeSummary }),
+        }), validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now,
+      }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
       return created;
     });
   }
@@ -765,103 +784,22 @@ export class SkillVersionService {
   }
 
 
-  // ────────────────── 本人工作副本与统一企业审核 ──────────────────
-  //
-  // 会议明确否掉了「普通员工上传+提审」：员工改自己的副本，改完立刻对他本人生效，
-  // 管理员可预览并审核；审批统一委派到 EnterpriseSkillReviewService。
+  // 历史 Web 工作副本只读；客户端提交仍由统一企业审核服务处理。
 
-  /**
-   * 员工基于当前生效版本创建自己的副本。
-   *
-   * 幂等：已有副本时直接返回它，不再建第二条 —— 一人一能力只该有一个副本，
-   * 否则 resolveEffectiveVersion 得靠 createdAt 猜「哪个才是我现在用的」。
-   */
-  async createPersonalVersion(userId: string, capabilityId: string) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    const subscription = await this.assertCapabilityVisible(ctx, capabilityId);
-
-    const existing = await this.prisma.skillVersion.findFirst({
-      where: { capabilityId, enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', ownerId: userId, status: 'PERSONAL_ACTIVE' },
-      select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
-    });
-    if (existing) return existing;
-
-    // 副本的起点是「我现在实际在用的那一版」，不是平台原版 ——
-    // 否则员工一建副本就把企业的定制丢了。
-    const base = await this.resolveEffectiveVersion(subscription.id, capabilityId, userId);
-    if (!base) throw new NotFoundException('该技能还没有可用版本，无法创建副本');
-
-    return this.prisma.$transaction(async (tx) => {
-      const version = await tx.skillVersion.create({
-        data: {
-          capabilityId,
-          enterpriseId: ctx.enterpriseId,
-          scope: 'PERSONAL',
-          status: 'PERSONAL_ACTIVE',
-          ownerId: userId,
-          parentVersionId: base.id,
-          // 个人副本不参与 semver 序列，版本号只记「基于哪一版」，
-          // 让界面能说出「我的副本（基于 企业版 1.1.0）」
-          version: base.version,
-          content: base.content,
-          createdById: userId,
-        },
-        select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
-      });
-      await tx.memberSkillVersionSelection.upsert({
-        where: { memberId_subscriptionId_capabilityId: {
-          memberId: ctx.memberId, subscriptionId: subscription.id, capabilityId,
-        } },
-        create: { memberId: ctx.memberId, subscriptionId: subscription.id, capabilityId, versionId: version.id },
-        update: { versionId: version.id },
-      });
-      return version;
-    });
+  async createPersonalVersion(_userId: string, _capabilityId: string) {
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
-  /** 保存本人副本。正在使用此副本的执行下一次即采用新正文，不覆盖其他显式选版。 */
   async updatePersonalVersion(
-    userId: string,
-    versionId: string,
-    dto: UpdateSkillVersionDto,
+    _userId: string,
+    _versionId: string,
+    _dto: UpdateSkillVersionDto,
   ) {
-    const version = await this.getOwnedPersonalVersion(userId, versionId);
-    const ctx = await this.enterpriseContext.resolve(userId);
-    await this.assertCapabilityGrant(ctx.enterpriseId, ctx.memberId, ctx.departmentId, version.capabilityId);
-    return this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, ctx.enterpriseId, version.capabilityId);
-      const current = await this.getOwnedPersonalVersion(userId, versionId, tx);
-      return tx.skillVersion.update({
-        where: { id: current.id },
-        data: { content: dto.content, changeSummary: dto.changeSummary },
-        select: { ...VERSION_SUMMARY_SELECT, content: true, ownerId: true },
-      });
-    });
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
-  /**
-   * 弃用个人副本，回落到企业版。
-   *
-   * 已审核或发布的副本归档保留来源。与审核共用企业技能事务锁，
-   * 仅仍无审核快照或发布关联的副本允许物理删除。
-   */
-  async discardPersonalVersion(userId: string, versionId: string) {
-    const version = await this.getOwnedPersonalVersion(userId, versionId);
-    const ctx = await this.enterpriseContext.resolve(userId);
-    await this.assertCapabilityGrant(ctx.enterpriseId, ctx.memberId, ctx.departmentId, version.capabilityId);
-    return this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, ctx.enterpriseId, version.capabilityId);
-      const current = await this.getOwnedPersonalVersion(userId, versionId, tx);
-      const reviewed = await tx.skillVersion.count({ where: { workingCopyId: current.id } });
-      const adopted = await tx.skillVersionAdoption.count({ where: { sourceVersionId: current.id } });
-      if (adopted > 0 || reviewed > 0) {
-        return tx.skillVersion.update({
-          where: { id: current.id }, data: { status: 'ARCHIVED' }, select: VERSION_SUMMARY_SELECT,
-        });
-      }
-      await tx.skillVersion.delete({ where: { id: current.id } });
-      return { id: current.id, deleted: true };
-    });
+  async discardPersonalVersion(_userId: string, _versionId: string) {
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
   /**
@@ -910,7 +848,7 @@ export class SkillVersionService {
         id: version.id, owner: version.owner, basedOn: version.parentVersion,
         changeSummary: version.changeSummary, updatedAt: version.updatedAt,
         status: version.status, submittedAt: version.submittedAt, ...state,
-        canEdit: state.isWorkingCopy && version.ownerId === userId,
+        canEdit: false,
         adopted: Boolean(state.publishedVersionId), adoptedAt: state.enterpriseReviewedAt,
       };
     });
@@ -982,7 +920,7 @@ export class SkillVersionService {
           category: 'SYSTEM',
           severity: 'INFO',
           title: `${capability.name} 更新了能力`,
-          message: `企业技能默认已更新为 ${version}，已明确选择个人或历史版本的成员不受影响。`,
+          message: `企业技能已启用 ${version}，正式执行统一跟随企业启用版本。`,
           relatedType: 'capability',
           relatedId: capabilityId,
         })),
@@ -995,112 +933,20 @@ export class SkillVersionService {
     }
   }
 
-  /**
-   * 直接用给定正文创建一个已生效的企业版本，并切为所有相关雇佣关系的生效版本。
-   *
-   * 采纳个人改动（adoptPersonalVersions）与采纳 AI 建议（CapabilityInsightService.adopt）
-   * 都要做这件事。抽出来是因为「创建版本」和「切生效」必须同一个事务 ——
-   * 分开写过一次就会出现「版本建了但没生效」，界面上看不出来。
-   *
-   * 调用方负责授权校验（两个入口都已 assertEnterpriseAdmin）。
-   */
+  /** 停用旧 Web/AI 正文生产入口，不影响客户端提交审核。 */
   async createEnterpriseVersionFromContent(
-    userId: string,
-    enterpriseId: string,
-    capabilityId: string,
-    content: string,
-    changeSummary: string,
+    _userId: string,
+    _enterpriseId: string,
+    _capabilityId: string,
+    _content: string,
+    _changeSummary: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, enterpriseId, capabilityId);
-      const [current, existing] = await Promise.all([
-        this.defaults.get(enterpriseId, capabilityId, tx),
-        tx.skillVersion.findMany({ where: { capabilityId, scope: 'ENTERPRISE', enterpriseId }, select: { version: true } }),
-      ]);
-      const baseline = current?.version ?? await tx.skillVersion.findFirst({
-        where: { capabilityId, scope: 'ENTERPRISE', enterpriseId, status: 'ENTERPRISE_APPROVED' },
-        orderBy: { createdAt: 'desc' }, select: { id: true },
-      }) ?? await tx.skillVersion.findFirst({
-        where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-        orderBy: { createdAt: 'desc' }, select: { id: true },
-      });
-      const created = await tx.skillVersion.create({
-        data: {
-          capabilityId,
-          enterpriseId,
-          scope: 'ENTERPRISE',
-          status: 'ENTERPRISE_APPROVED',
-          parentVersionId: baseline?.id,
-          version: nextSemver(existing.map((row) => row.version)),
-          content: this.stripFrontmatter(content),
-          changeSummary,
-          createdById: userId,
-          enterpriseReviewedById: userId,
-          enterpriseReviewedAt: new Date(),
-        },
-        select: { ...VERSION_SUMMARY_SELECT, content: true },
-      });
-
-      await this.defaults.set(tx, enterpriseId, capabilityId, created.id, userId);
-      return created;
-    });
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
-  /**
-   * 管理员把自己的企业版草稿直接发布并生效。
-   *
-   * 取代了「提交审核 → 自己批准」这两步 —— 会议否掉提审流之后，管理员自己建的草稿
-   * 再走一遍自审是纯仪式：批准人和提交人是同一个人。管理员编辑企业版是会议 §6.3
-   * 明确要的能力（*企业可以在本企业范围内编辑优化*），与个人副本那条路径并行存在。
-   */
-  async publishEnterpriseVersion(userId: string, versionId: string) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    this.enterpriseContext.assertEnterpriseAdmin(ctx);
-
-    const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId },
-      select: { id: true, capabilityId: true, status: true, version: true },
-    });
-    if (!version) throw new NotFoundException('企业版本不存在');
-    // PENDING_ENTERPRISE_REVIEW 也放进来：提审流删掉之后，存量卡在「待企业审核」的
-    // 版本没有别的出路，不接受它们等于把那些数据永久锁死在界面上。
-    const publishable = ['DRAFT', 'ENTERPRISE_REJECTED', 'PENDING_ENTERPRISE_REVIEW'];
-    if (!publishable.includes(version.status)) {
-      throw new ConflictException('只有草稿可以发布');
-    }
-
-    const published = await this.prisma.$transaction(async (tx) => {
-      await this.defaults.lock(tx, ctx.enterpriseId, version.capabilityId);
-      const claimed = await tx.skillVersion.updateMany({
-        where: { id: version.id, scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId,
-          status: { in: ['DRAFT', 'ENTERPRISE_REJECTED', 'PENDING_ENTERPRISE_REVIEW'] } },
-        data: { status: 'ENTERPRISE_APPROVED', enterpriseReviewedById: userId,
-          enterpriseReviewedAt: new Date(), rejectionReason: null },
-      });
-      if (claimed.count !== 1) throw new ConflictException('该企业版本已发布，不能重复发布');
-      const updated = await tx.skillVersion.update({
-        where: { id: version.id },
-        data: {
-          status: 'ENTERPRISE_APPROVED',
-          enterpriseReviewedById: userId,
-          enterpriseReviewedAt: new Date(),
-          rejectionReason: null,
-        },
-        select: VERSION_SUMMARY_SELECT,
-      });
-
-      await tx.skillVersionReview.create({ data: { versionId: version.id, actorType: 'ENTERPRISE',
-        decision: 'APPROVE', reviewerId: userId, comment: '发布企业版本' } });
-      const { affectedSubscriptions } = await this.defaults.set(tx, ctx.enterpriseId, version.capabilityId, version.id, userId);
-      return { version: updated, affectedSubscriptions };
-    });
-
-    await this.notifySkillVersionUpdated(
-      ctx.enterpriseId,
-      version.capabilityId,
-      version.version,
-    );
-    return published;
+  /** 停用管理员 Web 草稿直接发布；只可启用已通过版本。 */
+  async publishEnterpriseVersion(_userId: string, _versionId: string) {
+    throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
   }
 
   /**
@@ -1133,28 +979,6 @@ export class SkillVersionService {
     });
   }
 
-  /** 个人副本的归属校验。只有本人能改自己的副本，管理员也不能代改。 */
-  private async getOwnedPersonalVersion(userId: string, versionId: string, db: Prisma.TransactionClient = this.prisma) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    const version = await db.skillVersion.findFirst({
-      where: { id: versionId, scope: 'PERSONAL', ownerId: userId, enterpriseId: ctx.enterpriseId, workingCopyId: null },
-    });
-    if (!version) throw new NotFoundException('个人副本不存在');
-    if (version.status !== 'PERSONAL_ACTIVE') {
-      throw new ConflictException('该副本已归档，不能再编辑');
-    }
-    return version;
-  }
-
-  private async getOwnedEnterpriseVersion(userId: string, versionId: string) {
-    const ctx = await this.enterpriseContext.resolve(userId);
-    const version = await this.prisma.skillVersion.findFirst({
-      where: { id: versionId, enterpriseId: ctx.enterpriseId, scope: 'ENTERPRISE' },
-    });
-    if (!version) throw new NotFoundException('技能版本不存在');
-    return version;
-  }
-
   private async getGrantedSubscription(
     enterpriseId: string,
     memberId: string,
@@ -1165,26 +989,6 @@ export class SkillVersionService {
       where: {
         enterpriseId,
         employeeId,
-        status: 'ACTIVE',
-        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
-        grants: { some: this.activeGrantWhere(memberId, departmentId) },
-      },
-      select: { id: true, employeeId: true, enterpriseId: true },
-    });
-    if (!subscription) throw new ForbiddenException('当前成员未获得该员工的使用授权');
-    return subscription;
-  }
-
-  private async getGrantedSubscriptionById(
-    enterpriseId: string,
-    memberId: string,
-    departmentId: string | null,
-    subscriptionId: string,
-  ) {
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        id: subscriptionId,
-        enterpriseId,
         status: 'ACTIVE',
         OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
         grants: { some: this.activeGrantWhere(memberId, departmentId) },
@@ -1255,10 +1059,6 @@ export class SkillVersionService {
       select: { version: true },
     });
     return nextSemver(versions.map((row) => row.version));
-  }
-
-  private stripFrontmatter(content: string) {
-    return matter(content).content.trimStart();
   }
 
   // ────────────────── 使用记录与统计 ──────────────────
@@ -1516,14 +1316,6 @@ export class SkillVersionService {
       if (version.ownerId === userId && version.status === 'PERSONAL_ACTIVE') myVersionMap.set(version.capabilityId, version.id);
     }
 
-    const personalSelections = await this.prisma.memberSkillVersionSelection.findMany({
-      where: { memberId: ctx.memberId, subscriptionId: { in: subscriptions.map((item) => item.id) }, capabilityId: { in: capabilityIds } },
-      select: { subscriptionId: true, capabilityId: true, versionId: true },
-    });
-    const preferenceMap = new Map(personalSelections.map((selection) => [
-      `${selection.subscriptionId}:${selection.capabilityId}`, selection,
-    ]));
-
     const items = [...byCapability.values()].map((entry) => ({
       capability: entry.capability,
       employees: entry.employees,
@@ -1536,12 +1328,9 @@ export class SkillVersionService {
       pendingAdoptionCount: ctx.role === 'ENTERPRISE_ADMIN'
         ? pendingMap.get(entry.capability.id) ?? 0
         : myPendingMap.get(entry.capability.id) ?? 0,
-      /// 已保存的本人副本；是否在授权订阅使用要结合个人偏好，不能仅看存在。
+      // 保留历史副本入口，但正式执行不再使用个人偏好。
       myPersonalVersionId: myVersionMap.get(entry.capability.id) ?? null,
-      myPersonalVersionActive: myVersionMap.has(entry.capability.id) && entry.employees.some((employee) => {
-        const preference = preferenceMap.get(`${employee.subscriptionId}:${entry.capability.id}`);
-        return !preference || preference.versionId === myVersionMap.get(entry.capability.id);
-      }),
+      myPersonalVersionActive: false,
     }));
 
     return {
@@ -1567,7 +1356,7 @@ export class SkillVersionService {
     const ctx = await this.enterpriseContext.resolve(userId);
     const subscription = await this.assertCapabilityReadable(ctx, capabilityId);
 
-    const [capability, versions, selection, subscriptions, personal, enterpriseDefault] = await Promise.all([
+    const [capability, versions, selection, subscriptions, enterpriseDefault] = await Promise.all([
       this.prisma.capability.findUnique({
         where: { id: capabilityId },
         select: { id: true, name: true, description: true },
@@ -1581,7 +1370,7 @@ export class SkillVersionService {
             // 只显示已通过的版本会让「我提交的那版去哪了」无从回答
             { scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId,
               ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { status: 'ENTERPRISE_APPROVED' }) },
-            // 本人送审/已审版本可在时间线跟踪结果及选用；不混入其他成员个人记录。
+            // 本人送审/已审版本只读跟踪；不混入其他成员个人记录。
             { scope: 'PERSONAL', enterpriseId: ctx.enterpriseId, ownerId: userId },
           ],
         },
@@ -1623,17 +1412,12 @@ export class SkillVersionService {
         select: {
           id: true,
           grants: { where: this.activeGrantWhere(ctx.memberId, ctx.departmentId), select: { id: true }, take: 1 },
-          personalSkillSelections: { where: { memberId: ctx.memberId, capabilityId }, select: { versionId: true } },
           employee: { select: { id: true, name: true } },
           skillVersionSelections: {
             where: { capabilityId },
             select: { versionId: true, selectedAt: true },
           },
         },
-      }),
-      this.prisma.skillVersion.findFirst({
-        where: { capabilityId, scope: 'PERSONAL', status: 'PERSONAL_ACTIVE', ownerId: userId, enterpriseId: ctx.enterpriseId },
-        select: { id: true }, orderBy: { createdAt: 'desc' },
       }),
       this.defaults.get(ctx.enterpriseId, capabilityId),
     ]);
@@ -1645,10 +1429,8 @@ export class SkillVersionService {
     return {
       capability,
       subscriptionId: subscription.id,
-      myPersonalVersionId: personal?.id ?? null,
+      myPersonalVersionId: null,
       subscriptions: await Promise.all(subscriptions.map(async (item) => {
-        const preference = item.personalSkillSelections[0];
-        const effective = await this.resolveEffectiveVersion(item.id, capabilityId, userId);
         const enterpriseVersion = await this.resolveEffectiveVersion(item.id, capabilityId);
         return {
           subscriptionId: item.id,
@@ -1656,11 +1438,11 @@ export class SkillVersionService {
           employeeName: item.employee.name,
           currentVersionId: enterpriseVersion?.id ?? null,
           enterpriseVersionId: enterpriseVersion?.id ?? null,
-          personalVersionId: preference?.versionId ?? null,
-          personalSelectionMode: preference ? (preference.versionId ? 'PINNED' : 'FOLLOW_ENTERPRISE') : 'AUTO',
-          effectiveVersionId: effective?.id ?? null,
-          effectiveVersionScope: effective?.scope ?? null,
-          canSelectPersonal: item.grants.length > 0,
+          personalVersionId: null,
+          personalSelectionMode: 'FOLLOW_ENTERPRISE',
+          effectiveVersionId: enterpriseVersion?.id ?? null,
+          effectiveVersionScope: enterpriseVersion?.scope ?? null,
+          canSelectPersonal: false,
           selectedAt: (enterpriseDefault?.selectedAt ?? item.skillVersionSelections[0]?.selectedAt)?.toISOString() ?? null,
         };
       })),
@@ -1670,6 +1452,7 @@ export class SkillVersionService {
       versions: versions.map(({ promotedVersions, ...version }) => ({
         ...version,
         hasPlatformSubmission: promotedVersions.length > 0,
+        isWorkingCopy: version.scope === 'PERSONAL' && !version.submittedAt && !version.workingCopyId && !version.workingCopyUpdatedAt,
         isCurrent: version.id === currentVersionId,
       })),
     };

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
-import { Loader2, Upload, File, CheckCircle, XCircle } from 'lucide-react';
-import { adminApi } from '@/features/admin/admin-api';
+import { Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { api, uploadForm } from '@/lib/api-client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const INDUSTRIES = ['电商', '跨境电商', '金融', '教育', '医疗', '通用'];
@@ -39,7 +39,6 @@ type UploadMetadata = {
 export function SkillForm({ onCancel }: { onCancel: () => void }) {
   const router = useRouter();
   const qc = useQueryClient();
-  const [file, setFile] = useState<File | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState<UploadMetadata | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -47,7 +46,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<SkillFormValues>({
@@ -57,10 +56,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: SkillFormValues & UploadMetadata) => {
-      const res = await fetch('/api/capabilities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      return api.post<{ id: string }>('/capabilities', {
           type: 'skill',
           name: data.name,
           description: data.description,
@@ -73,28 +69,19 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
             sha256: data.sha256,
             fileCount: data.fileCount,
             totalSize: data.totalSize,
+            filename: data.filename,
           },
-          skillConfig: {
-            template: data.content,
-            modelId: 'gpt-4o-mini',
-            temperature: 0.7,
-            maxTokens: 2000,
-          },
-        }),
+          skillConfig: { template: data.content, modelId: 'gpt-4o-mini', temperature: 0.7, maxTokens: 2000 },
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || '创建失败');
-      }
-      return res.json();
     },
     onSuccess: () => {
-      toast.success('创建成功', 'SKILL 能力已创建');
+      toast.success('创建成功', '技能已进入平台待审，审核通过后才会公开');
       qc.invalidateQueries({ queryKey: ['capabilities'] });
-      router.push('/admin/capabilities');
+      void qc.invalidateQueries({ queryKey: ['skill-versions'] });
+      router.push('/admin/skills');
     },
-    onError: (err: any) => {
-      toast.error('创建失败', err.message);
+    onError: (err) => {
+      toast.error('创建失败', err instanceof Error ? err.message : '请稍后重试');
     },
   });
 
@@ -102,14 +89,12 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (!selectedFile.name.endsWith('.zip')) {
+    if (!selectedFile.name.toLowerCase().endsWith('.zip')) {
       setUploadError('只支持 .zip 文件');
-      setFile(null);
       setUploadMetadata(null);
       return;
     }
 
-    setFile(selectedFile);
     setUploadError(null);
     setUploadMetadata(null);
 
@@ -119,23 +104,13 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const res = await fetch('/api/admin/capabilities/upload-skill', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || '上传失败');
-      }
-
-      const metadata: UploadMetadata = await res.json();
+      const metadata = await uploadForm<UploadMetadata>('/admin/capabilities/upload-skill', formData);
       setUploadMetadata(metadata);
       toast.success('上传成功', `已验证 SKILL.md，文件数: ${metadata.fileCount}`);
-    } catch (err: any) {
-      setUploadError(err.message);
-      setFile(null);
-      toast.error('上传失败', err.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '请稍后重试';
+      setUploadError(message);
+      toast.error('上传失败', message);
     } finally {
       setIsUploading(false);
     }
@@ -157,8 +132,8 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
     });
   };
 
-  const selectedIndustry = watch('industry') || [];
-  const selectedPosition = watch('position') || [];
+  const selectedIndustry = useWatch({ control, name: 'industry' }) || [];
+  const selectedPosition = useWatch({ control, name: 'position' }) || [];
 
   const toggleIndustry = (ind: string) => {
     const current = selectedIndustry.includes(ind);
@@ -185,7 +160,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
                 type="file"
                 accept=".zip"
                 onChange={handleFileChange}
-                disabled={isUploading}
+                disabled={isUploading || createMutation.isPending}
                 className="flex-1"
               />
               {isUploading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
@@ -195,10 +170,10 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
             {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
             {uploadMetadata && (
               <div className="text-sm text-muted-foreground space-y-1 bg-muted/30 p-3 rounded">
-                <p>✅ 文件: {uploadMetadata.filename}</p>
-                <p>✅ 文件数: {uploadMetadata.fileCount}</p>
-                <p>✅ 大小: {(uploadMetadata.totalSize / 1024).toFixed(2)} KB</p>
-                <p>✅ SHA256: {uploadMetadata.sha256.slice(0, 16)}...</p>
+                <p>文件: {uploadMetadata.filename}</p>
+                <p>文件数: {uploadMetadata.fileCount}</p>
+                <p>大小: {(uploadMetadata.totalSize / 1024).toFixed(2)} KB</p>
+                <p>SHA256: {uploadMetadata.sha256.slice(0, 16)}...</p>
               </div>
             )}
           </div>
@@ -270,12 +245,12 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
       </Card>
 
       <div className="flex gap-3">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting || createMutation.isPending}>
           取消
         </Button>
-        <Button type="submit" disabled={isSubmitting || !uploadMetadata}>
-          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          创建能力
+        <Button type="submit" disabled={isSubmitting || isUploading || createMutation.isPending || !uploadMetadata}>
+          {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          创建并进入平台待审
         </Button>
       </div>
     </form>

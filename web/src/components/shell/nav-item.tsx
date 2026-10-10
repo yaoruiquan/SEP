@@ -11,6 +11,7 @@ export interface NavLink {
   icon: LucideIcon;
   exact?: boolean;
   collapsed?: boolean;
+  activePaths?: string[];
 }
 
 /**
@@ -21,9 +22,10 @@ export interface NavLink {
  *
  * Active 态使用主题令牌：品牌色浅底、左侧标记与强调文字。
  */
-export function NavItem({ href, label, icon: Icon, exact, collapsed }: NavLink) {
+export function NavItem({ href, label, icon: Icon, exact, collapsed, activePaths }: NavLink) {
   const pathname = usePathname();
-  const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + '/');
+  const active = (exact ? pathname === href : pathname === href || pathname.startsWith(href + '/'))
+    || activePaths?.some((path) => pathname === path || pathname.startsWith(path + '/'));
 
   return (
     <Link

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContributionCreateDialog } from './contribution-create-dialog';
-import type { RpaPackageParseResult, SkillPackageParseResult } from '../../../../backend/src/shared';
+import type { RpaPackageParseResult } from '../../../../backend/src/shared';
 
 beforeAll(() => {
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -32,21 +32,6 @@ vi.mock('@/lib/auth-store', () => ({
     selector({ enterprise: { id: 'e1', name: '示例企业' } }),
 }));
 
-const PARSED: SkillPackageParseResult = {
-  sha256: 'a'.repeat(64),
-  filename: '竞品周报.zip',
-  fileCount: 3,
-  totalBytes: 4096,
-  content: '# 角色\n你是竞品分析助手。\n# 输入\n竞品列表\n# 步骤\n1. 收集\n# 输出\n周报',
-  suggested: { name: '竞品周报生成器', description: '每周汇总竞品动态并输出周报' },
-  validation: {
-    valid: true,
-    checks: [{ code: 'CONTENT_LENGTH', passed: true, message: 'Skill 正文至少需要 20 个字符' }],
-    issues: [],
-    warnings: [],
-  },
-};
-
 const RPA_PARSED: RpaPackageParseResult = {
   sha256: 'c'.repeat(64),
   filename: 'invoice-rpa.zip',
@@ -69,16 +54,6 @@ function goToContentStep() {
   fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
 }
 
-async function uploadSkillZip(result: SkillPackageParseResult = PARSED) {
-  uploadMutation.mockImplementation((_file: File, options: { onSuccess: (value: SkillPackageParseResult) => void }) => {
-    options.onSuccess(result);
-  });
-  const input = document.querySelector('input[type="file"][accept=".zip,application/zip"]') as HTMLInputElement;
-  fireEvent.change(input, { target: { files: [new File(['zip bytes'], 'weekly.zip', { type: 'application/zip' })] } });
-  await waitFor(() => expect(uploadMutation).toHaveBeenCalledTimes(1));
-  await waitFor(() => expect(screen.getByRole('button', { name: /下一步/ })).not.toBeDisabled());
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -96,31 +71,26 @@ describe('创建能力贡献', () => {
     uploadRpaMutation.mockResolvedValue(RPA_PARSED);
   });
 
-  it('Skill 第二步只提供服务端校验的 SKILL ZIP 上传', () => {
+  it('无 SKILL 创建选项和上传入口，默认进入 RPA 内容', () => {
     renderDialog();
+    expect(screen.queryByRole('button', { name: /^Skill/i })).not.toBeInTheDocument();
     goToContentStep();
-
-    expect(screen.getByText('上传 SKILL ZIP 包')).toBeInTheDocument();
-    expect(screen.getByText('点击选择 SKILL ZIP 包')).toBeInTheDocument();
+    expect(screen.queryByText('点击选择 SKILL ZIP 包')).not.toBeInTheDocument();
+    expect(screen.getByText('点击选择 RPA ZIP 包')).toBeInTheDocument();
     expect(document.querySelector('input[type="file"][accept=".zip,application/zip"]')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /下一步/ })).toBeDisabled();
+    expect(uploadMutation).not.toHaveBeenCalled();
+    expect(createMutation).not.toHaveBeenCalled();
   });
 
-  it('上传 Skill ZIP 并通过服务端校验后，创建草稿只提交包哈希和文件名', async () => {
+  it('RPA 缺少包或使用说明时不能创建', () => {
     renderDialog();
     goToContentStep();
-    await uploadSkillZip();
-
-    expect(screen.getByRole('button', { name: /下一步/ })).not.toBeDisabled();
-
+    fireEvent.change(screen.getByPlaceholderText(/账号\/环境要求/), { target: { value: '完整的使用与环境说明已经填写' } });
+    expect(screen.getByRole('button', { name: /下一步/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /创建草稿/ })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
-
-    const [body] = createMutation.mock.calls[0] as [Record<string, unknown>];
-    expect(body.skillConfig).toEqual({ packageSha256: 'a'.repeat(64), packageFilename: '竞品周报.zip' });
-    expect(JSON.stringify(body)).not.toContain('你是竞品分析助手');
-    expect(JSON.stringify(body)).not.toContain('template');
+    expect(screen.queryByRole('button', { name: /创建草稿/ })).not.toBeInTheDocument();
+    expect(createMutation).not.toHaveBeenCalled();
   });
 
   it('RPA 保留自己的 ZIP 上传流程', async () => {
@@ -145,7 +115,10 @@ describe('创建能力贡献', () => {
     fireEvent.change(screen.getByPlaceholderText(/说明它解决什么问题/), { target: { value: '自动处理发票并生成归档结果' } });
     fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
 
-    const [body] = createMutation.mock.calls[0] as [{ rpaConfig: Record<string, unknown> }];
+    const [body] = createMutation.mock.calls[0] as [{ type: string; skillConfig?: unknown; rpaConfig: Record<string, unknown> }];
+    expect(body.type).toBe('rpa');
+    expect(body.skillConfig).toBeUndefined();
+    expect(uploadMutation).not.toHaveBeenCalled();
     expect(body.rpaConfig).toMatchObject({ packageSha256: 'c'.repeat(64), packageFilename: 'invoice-rpa.zip' });
   });
 });

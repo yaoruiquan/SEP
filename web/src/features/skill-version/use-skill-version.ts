@@ -7,6 +7,7 @@ import type { AdminVersionRow } from './group-admin-versions';
 import type {
   EmployeeSkillVersionsResponse,
   EnterpriseSkillReviewStatus,
+  EnterpriseSkillVersionReviewItem,
   EnterpriseSkillVersionReviewResult,
   EnterpriseSkillVersionReviewResponse,
   SkillVersionPreview,
@@ -69,6 +70,8 @@ export function useEnterpriseSkillVersions() {
   });
 }
 
+export type EnterpriseReviewItem = EnterpriseSkillVersionReviewItem & { isWorkingCopy?: boolean };
+
 export function useEnterpriseSkillVersionReviews(filters: {
   enterpriseId: string | null;
   status: EnterpriseSkillReviewStatus;
@@ -81,7 +84,7 @@ export function useEnterpriseSkillVersionReviews(filters: {
   if (capabilityId) params.set('capabilityId', capabilityId);
   return useQuery({
     queryKey: [...skillVersionKeys.reviews(enterpriseId), { status, capabilityId, page, limit }],
-    queryFn: () => api.get<EnterpriseSkillVersionReviewResponse>(
+    queryFn: () => api.get<Omit<EnterpriseSkillVersionReviewResponse, 'items'> & { items: EnterpriseReviewItem[] }>(
       `/enterprise/skill-version-reviews?${params.toString()}`,
     ),
     enabled: enabled && Boolean(enterpriseId),
@@ -112,98 +115,6 @@ export function useReviewEnterprisePersonalSkillVersion() {
         qc.invalidateQueries({ queryKey: ['skill-versions'] }),
         qc.invalidateQueries({ queryKey: ['capability-iteration'] }),
       ]);
-    },
-  });
-}
-
-export function useCreateEnterpriseSkillVersion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: {
-      subscriptionId: string;
-      capabilityId: string;
-      parentVersionId: string;
-      changeSummary?: string;
-    }) =>
-      api.post<SkillVersionPreview>(
-        `/enterprise/subscriptions/${data.subscriptionId}/skill-versions`,
-        {
-          capabilityId: data.capabilityId,
-          parentVersionId: data.parentVersionId,
-          changeSummary: data.changeSummary,
-        },
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['skill-versions'] }),
-  });
-}
-
-export function useUpdateEnterpriseSkillVersion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { id: string; content: string; changeSummary?: string }) =>
-      api.patch<SkillVersionPreview>(`/enterprise/skill-versions/${data.id}`, {
-        content: data.content,
-        changeSummary: data.changeSummary,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['skill-versions'] }),
-  });
-}
-
-/**
- * 发布企业版草稿并立即生效。
- *
- * 企业管理员自建企业草稿不走「提交审核 → 通过/驳回」两步；个人显式送审仍单独审核。
- * 管理员自建草稿再自审是纯仪式（批准人和提交人是同一个人）。后端那两个端点已删除。
- */
-export function usePublishEnterpriseSkillVersion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post<{ affectedSubscriptions: number }>(
-        `/enterprise/skill-versions/${id}/publish`,
-        {},
-      ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['skill-versions'] });
-      void qc.invalidateQueries({ queryKey: ['capability-iteration'] });
-    },
-  });
-}
-
-export function useSelectSkillVersion(employeeId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: {
-      subscriptionId: string;
-      capabilityId: string;
-      versionId: string;
-    }) =>
-      api.post(
-        `/enterprise/subscriptions/${data.subscriptionId}/skills/${data.capabilityId}/select-version`,
-        { versionId: data.versionId },
-      ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: skillVersionKeys.employee(employeeId) });
-      void qc.invalidateQueries({ queryKey: ['capability-iteration'] });
-    },
-  });
-}
-
-/**
- * 把企业版本投稿到平台市场。只有 ENTERPRISE_APPROVED 的版本能投，一份只能投一次
- * （后端靠 sourceVersionId 的唯一约束兜底）。
- *
- * 除了 skill-versions，还要失效 capability-iteration —— 技能库的版本时间线读的是
- * 后者，不一起失效的话按钮点完不会变成「已投稿」。
- */
-export function useSubmitPlatformSkillReview() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post(`/enterprise/skill-versions/${id}/submit-platform-review`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['skill-versions'] });
-      qc.invalidateQueries({ queryKey: ['capability-iteration'] });
     },
   });
 }

@@ -8,8 +8,9 @@ import {
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CapabilityService } from './capability.service';
-import { CapabilityUploadDto } from 'shared';
+import { CapabilityService, CapabilityCreateDto, CapabilityCreateDtoSchema } from './capability.service';
+import { CapabilityUploadDto, CapabilityUploadDtoSchema } from 'shared';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { existsSync, statSync } from 'fs';
 import { SkillPackageService } from '../skill-package/skill-package.service';
 
@@ -88,13 +89,15 @@ export class CapabilityController {
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Upload a new capability (Contributor / Admin)' })
+  @ApiOperation({ summary: 'Upload a new capability (SKILL: Admin only)' })
   @ApiResponse({ status: 201, description: 'Capability created, pending review' })
+  @ApiResponse({ status: 400, description: 'Invalid capability or package metadata' })
+  @ApiResponse({ status: 403, description: 'SKILL creation requires Admin role' })
   async create(
-    @Body() dto: CapabilityUploadDto,
+    @Body(new ZodValidationPipe(CapabilityCreateDtoSchema)) dto: CapabilityCreateDto,
     @Request() req: { user: { id: string; role: string } },
   ) {
-    return this.capabilityService.create(req.user.id, dto);
+    return this.capabilityService.create(req.user.id, dto, req.user.role);
   }
 
   @Patch(':id')
@@ -102,9 +105,10 @@ export class CapabilityController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update capability (owner or Admin)' })
   @ApiResponse({ status: 200, description: 'Capability updated' })
+  @ApiResponse({ status: 400, description: 'Invalid parameters or capability type change' })
   async update(
     @Param('id') id: string,
-    @Body() dto: Partial<CapabilityUploadDto>,
+    @Body(new ZodValidationPipe(CapabilityUploadDtoSchema.partial())) dto: Partial<CapabilityUploadDto>,
     @Request() req: { user: { id: string; role: string } },
   ) {
     return this.capabilityService.update(id, req.user.id, req.user.role, dto);
@@ -131,6 +135,7 @@ export class CapabilityController {
   @ApiOperation({ summary: 'Approve capability (Admin only)' })
   @ApiResponse({ status: 200, description: 'Capability approved' })
   @ApiResponse({ status: 403, description: 'Admin role required' })
+  @ApiResponse({ status: 409, description: 'SKILL requires exactly one pending platform version; use version review otherwise' })
   async approve(
     @Param('id') id: string,
     @Request() req: { user: { id: string; role: string } },
@@ -144,6 +149,8 @@ export class CapabilityController {
   @ApiOperation({ summary: 'Reject capability (Admin only)' })
   @ApiResponse({ status: 200, description: 'Capability rejected' })
   @ApiResponse({ status: 403, description: 'Admin role required' })
+  @ApiResponse({ status: 400, description: 'SKILL rejection requires a reason' })
+  @ApiResponse({ status: 409, description: 'SKILL requires exactly one pending platform version; use version review otherwise' })
   async reject(
     @Param('id') id: string,
     @Body('reason') reason: string,

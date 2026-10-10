@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
+  ConflictException,
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,7 +14,8 @@ import {
   AdapterExecutionResult,
   type CapabilityExecutionContext,
 } from './adapters/adapter.interface';
-import { CapabilityUploadDto } from 'shared';
+import { CapabilityUploadDto, CapabilityUploadDtoSchema, SkillPackageSha256Schema } from 'shared';
+import { z } from 'zod';
 import matter from 'gray-matter';
 import { PackageSecurityService } from '../capability-contribution/package-security.service';
 
@@ -20,6 +23,32 @@ import { PackageSecurityService } from '../capability-contribution/package-secur
 const APPROVED = 'APPROVED' as const;
 const REJECTED = 'REJECTED' as const;
 const ADMIN_ROLE = 'ADMIN';
+const PACKAGE_METADATA_KEYS = ['zipPath', 'sha256', 'fileCount', 'totalSize', 'filename'] as const;
+
+const SkillPackageMetadataSchema = z.object({
+  zipPath: z.string().min(1),
+  sha256: SkillPackageSha256Schema,
+  fileCount: z.number().int().positive(),
+  totalSize: z.number().int().positive(),
+  filename: z.string().min(1).optional(),
+}).refine((metadata) => metadata.zipPath === `skills/${metadata.sha256}.zip`, {
+  message: '技能包路径必须与 sha256 一致',
+});
+
+// 共享上传 DTO 尚未声明运营首次创建携带的包信息，不能让 Zod 将其剥离。
+export const CapabilityCreateDtoSchema = CapabilityUploadDtoSchema.extend({
+  metadata: z.record(z.unknown()).optional(),
+  skillConfig: CapabilityUploadDtoSchema.shape.skillConfig.unwrap().extend({
+    metadata: SkillPackageMetadataSchema.optional(),
+  }).optional(),
+}).superRefine((dto, ctx) => {
+  if ((dto.type === 'skill') !== Boolean(dto.skillConfig)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['skillConfig'],
+      message: 'SKILL 必须提供 skillConfig，其他类型不得提供 skillConfig' });
+  }
+});
+
+export type CapabilityCreateDto = z.infer<typeof CapabilityCreateDtoSchema>;
 
 // Include shape reused across queries
 // ⚠️ 安全:永不返回 agentConfig.apiKey(Coze PAT / Dify 密钥),只返回平台/botId 等非敏感字段
@@ -132,7 +161,35 @@ export class CapabilityService {
 
   // ──────────────── Write (Contributor) ────────────────
 
-  async create(contributorId: string, dto: CapabilityUploadDto & { metadata?: any }) {
+  async create(contributorId: string, dto: CapabilityCreateDto, requesterRole?: string) {
+    if (dto.type === 'skill' && requesterRole !== ADMIN_ROLE) {
+      throw new ForbiddenException('SKILL 首次创建仅限平台运营 ADMIN');
+    }
+    const parsed = CapabilityCreateDtoSchema.safeParse(dto);
+    if (!parsed.success) throw new BadRequestException('能力创建参数无效');
+    dto = parsed.data;
+    const nestedPackage = dto.skillConfig?.metadata;
+    const metadata = dto.metadata;
+    const hasLegacyPackage = dto.type === 'skill' && metadata &&
+      PACKAGE_METADATA_KEYS.some((key) => key in metadata);
+    const legacyPackage = hasLegacyPackage ? SkillPackageMetadataSchema.safeParse(metadata) : null;
+    if (legacyPackage && !legacyPackage.success) {
+      throw new BadRequestException('技能包信息不完整或无效');
+    }
+    if (nestedPackage && legacyPackage?.success &&
+      PACKAGE_METADATA_KEYS.some((key) => nestedPackage[key] !== legacyPackage.data[key])) {
+      throw new BadRequestException('技能包元数据不一致');
+    }
+    const packageMetadata = nestedPackage ?? (legacyPackage?.success ? legacyPackage.data : undefined);
+    let skillContent: string | undefined;
+    if (dto.skillConfig) {
+      try {
+        skillContent = matter(dto.skillConfig.template).content.trimStart();
+      } catch {
+        throw new BadRequestException('SKILL.md frontmatter 格式无效');
+      }
+    }
+    const submittedAt = new Date();
     const typeMap: Record<string, string> = {
       agent: 'AGENT', rpa: 'RPA', skill: 'SKILL', 'ai-app': 'AI_APP',
     };
@@ -147,7 +204,14 @@ export class CapabilityService {
         inputSchema: dto.inputSchema,
         outputSchema: dto.outputSchema,
         contributorId,
-        metadata: dto.metadata || null,
+        metadata: dto.type === 'skill'
+          ? { ...dto.metadata, ...packageMetadata, source: 'ADMIN_CREATED' }
+          : (dto.metadata as any) || null,
+        ...(dto.type === 'skill' && {
+          platformReviewStatus: 'PENDING_REVIEW',
+          platformSubmittedById: contributorId,
+          platformSubmittedAt: submittedAt,
+        }),
         // Type-specific config sub-records
         ...(dto.agentConfig && {
           agentConfig: {
@@ -183,11 +247,17 @@ export class CapabilityService {
             create: {
               scope: 'PLATFORM',
               version: '1.0.0',
-              content: matter(dto.skillConfig.template).content.trimStart(),
+              content: skillContent!,
               status: 'PENDING_PLATFORM_REVIEW',
-              submittedAt: new Date(),
+              submittedAt,
               createdById: contributorId,
               changeSummary: '初始版本',
+              ...(packageMetadata && {
+                packageKey: packageMetadata.zipPath,
+                packageSha256: packageMetadata.sha256,
+                packageFileCount: packageMetadata.fileCount,
+                packageFilename: packageMetadata.filename,
+              }),
             },
           },
         }),
@@ -213,6 +283,9 @@ export class CapabilityService {
     const typeMap: Record<string, string> = {
       agent: 'AGENT', rpa: 'RPA', skill: 'SKILL', 'ai-app': 'AI_APP',
     };
+    if (dto.type && typeMap[dto.type] !== cap.type) {
+      throw new BadRequestException('能力类型不可修改，请创建新的能力');
+    }
     return this.prisma.capability.update({
       where: { id },
       data: {
@@ -241,6 +314,10 @@ export class CapabilityService {
   async approve(id: string, requesterId: string, requesterRole: string) {
     if (requesterRole !== ADMIN_ROLE) throw new ForbiddenException('Admin role required');
     const cap = await this.findOneInternal(id);
+    if (cap.type === 'SKILL') {
+      await this.reviewSkillVersion(cap.id, requesterId, 'APPROVE');
+      return this.findOneInternal(cap.id);
+    }
     await this.prisma.$transaction(async (tx) => {
       const reviewedAt = new Date();
       await tx.capability.update({
@@ -280,6 +357,10 @@ export class CapabilityService {
   async reject(id: string, requesterId: string, requesterRole: string, reason?: string) {
     if (requesterRole !== ADMIN_ROLE) throw new ForbiddenException('Admin role required');
     const cap = await this.findOneInternal(id);
+    if (cap.type === 'SKILL') {
+      await this.reviewSkillVersion(cap.id, requesterId, 'REJECT', reason);
+      return this.findOneInternal(cap.id);
+    }
     await this.prisma.$transaction(async (tx) => {
       const reviewedAt = new Date();
       await tx.capability.update({
@@ -318,6 +399,22 @@ export class CapabilityService {
       });
     });
     return this.findOneInternal(cap.id);
+  }
+
+  private async reviewSkillVersion(id: string, requesterId: string, decision: 'APPROVE' | 'REJECT', comment?: string) {
+    const versions = await this.prisma.skillVersion.findMany({
+      where: { capabilityId: id, scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW' },
+      select: { id: true, updatedAt: true },
+      take: 2,
+    });
+    if (versions.length !== 1) {
+      throw new ConflictException('能力没有唯一的待平台审核版本，请到版本审核页面选择具体版本');
+    }
+    await this.skillVersionService.reviewPlatformVersion(requesterId, versions[0].id, {
+      decision,
+      ...(comment !== undefined && { comment }),
+      expectedUpdatedAt: versions[0].updatedAt.toISOString(),
+    });
   }
 
   async findOneForDownload(id: string, userId: string, userRole: string) {
@@ -443,17 +540,17 @@ export class CapabilityService {
     let skillVersionId: string | null = null;
 
     // SKILL 类能力：解析本次执行该用的版本
-    // （本人显式选版/跟随企业 > 存量个人副本 > 企业默认 > 模板默认 > 平台最新）
+    // （企业启用 > 有效订阅默认 > 模板默认 > 已通过平台最新）
     if (capability.type === 'SKILL' && ctx.subscriptionId) {
       const resolved = await this.skillVersionService.resolveEffectiveVersion(
         ctx.subscriptionId,
         capabilityId,
-        ctx.userId,
       );
-      if (resolved) {
-        skillContent = resolved.content;
-        skillVersionId = resolved.id;
+      if (!resolved) {
+        throw new NotFoundException('No approved skill version available for this subscription');
       }
+      skillContent = resolved.content;
+      skillVersionId = resolved.id;
     }
 
     const config = {

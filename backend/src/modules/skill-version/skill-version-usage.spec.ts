@@ -566,7 +566,7 @@ describe('SkillVersionService 使用记录与统计', () => {
     });
 
     it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] as const)(
-      '本人送审状态 %s 出现在时间线并保持选版独立', async (status) => {
+      '本人送审状态 %s 出现在只读时间线但不成为启用版本', async (status) => {
         const submitted = { id: 'submitted', version: '0.0.0-personal.test', scope: 'PERSONAL',
           status, ownerId: 'user-1', submittedAt: new Date(), rejectionReason: status === 'ENTERPRISE_REJECTED' ? '补充说明' : null,
           promotedVersions: [], reviews: [] };
@@ -584,7 +584,7 @@ describe('SkillVersionService 使用记录与统计', () => {
       },
     );
 
-    it('普通成员只枚举授权且未过期的订阅，个人版本与企业默认分别返回', async () => {
+    it('普通成员只枚举授权且未过期的订阅，忽略历史 PIN 并统一跟随企业启用', async () => {
       const { service, prisma } = build({ context: { ...ADMIN_CTX, role: 'MEMBER' } });
       prisma.subscription.findMany.mockResolvedValue([
         { id: 'sub-b', employee: { id: 'employee-b', name: '员工B' },
@@ -600,8 +600,8 @@ describe('SkillVersionService 使用记录与统计', () => {
       }) }));
       expect(result.subscriptions[0]).toMatchObject({
         subscriptionId: 'sub-b', currentVersionId: 'enterprise-v', enterpriseVersionId: 'enterprise-v',
-        personalVersionId: 'platform-old', personalSelectionMode: 'PINNED', effectiveVersionId: 'platform-old',
-        effectiveVersionScope: 'PLATFORM', canSelectPersonal: true,
+        personalVersionId: null, personalSelectionMode: 'FOLLOW_ENTERPRISE', effectiveVersionId: 'enterprise-v',
+        effectiveVersionScope: 'ENTERPRISE', canSelectPersonal: false,
       });
     });
 
@@ -615,7 +615,7 @@ describe('SkillVersionService 使用记录与统计', () => {
       const result = await service.listVersionTimeline('admin-1', 'cap-1');
       expect(prisma.subscription.findMany.mock.calls[0][0].where.grants).toBeUndefined();
       expect(result.subscriptions[0]).toMatchObject({ canSelectPersonal: false, effectiveVersionId: 'platform-fallback',
-        enterpriseVersionId: 'platform-fallback', personalSelectionMode: 'AUTO', currentVersionId: 'platform-fallback' });
+        enterpriseVersionId: 'platform-fallback', personalSelectionMode: 'FOLLOW_ENTERPRISE', currentVersionId: 'platform-fallback' });
     });
 
     it('能力不存在时抛 NotFound', async () => {

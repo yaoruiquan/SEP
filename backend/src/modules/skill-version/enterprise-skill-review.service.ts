@@ -1,17 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
 import type { ReviewSkillVersionDto } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { EnterpriseSkillDefaultService } from './enterprise-skill-default.service';
-import { mergePersonalEdits } from './merge-personal-edits';
 import { nextSemver } from './skill-version-numbering';
 
 export const PERSONAL_REVIEW_RELATIONS = {
   enterpriseReviewedBy: { select: { id: true, name: true } },
   adoptedInto: { select: { targetVersionId: true, adoptedAt: true }, orderBy: { adoptedAt: 'desc' as const }, take: 1 },
   reviewSnapshots: {
+    where: { status: { in: ['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] } },
     orderBy: { createdAt: 'desc' as const }, take: 1,
     select: {
       id: true, status: true, createdAt: true, workingCopyUpdatedAt: true, enterpriseReviewedAt: true, rejectionReason: true,
@@ -19,7 +18,7 @@ export const PERSONAL_REVIEW_RELATIONS = {
       adoptedInto: { select: { targetVersionId: true, adoptedAt: true }, take: 1 },
     },
   },
-} as const;
+} satisfies Prisma.SkillVersionInclude;
 
 type ReviewStateSource = {
   status: string; updatedAt: Date; submittedAt?: Date | null;
@@ -34,7 +33,9 @@ type ReviewStateSource = {
 };
 
 export function personalReviewState(row: ReviewStateSource) {
-  const snapshot = row.reviewSnapshots?.[0];
+  // 运营固定的来源快照不代表企业已审，不能抢占企业审核结果。
+  const snapshot = row.reviewSnapshots?.find((item) =>
+    item.status === 'ENTERPRISE_APPROVED' || item.status === 'ENTERPRISE_REJECTED');
   const adoption = row.adoptedInto?.[0];
   const isWorkingCopy = row.status === 'PERSONAL_ACTIVE';
   const reviewedWorkingCopy = isWorkingCopy && (
@@ -82,7 +83,7 @@ export class EnterpriseSkillReviewService {
     const ctx = await this.context.resolve(userId);
     this.context.assertEnterpriseAdmin(ctx);
     if (new Set(ids).size !== ids.length || ids.length === 0) throw new BadRequestException('审核来源不能重复或为空');
-    if (ids.length > 1 && !expectedMergedContent) throw new ConflictException('批量审核必须先确认最终合并正文，请逐条审核或提交预览正文');
+    if (ids.length !== 1 || expectedMergedContent !== undefined) throw new BadRequestException('请逐条审核客户端原始版本，Web 不支持合并或修改正文');
     if (dto.decision === 'REJECT' && (!dto.comment?.trim() || ids.length !== 1)) {
       throw new BadRequestException('驳回单条改动时必须填写原因');
     }
@@ -111,20 +112,7 @@ export class EnterpriseSkillReviewService {
         }
       }
       const baseline = await this.defaults.get(ctx.enterpriseId, skillId, tx);
-      const baselineVersion = baseline?.version ?? (sources.length > 1
-        ? await tx.skillVersion.findFirst({ where: { capabilityId: skillId,
-          scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId, status: 'ENTERPRISE_APPROVED' },
-          orderBy: { createdAt: 'desc' } }) ?? await tx.skillVersion.findFirst({
-          where: { capabilityId: skillId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-          orderBy: { createdAt: 'desc' } }) : null);
-      const merged = sources.length === 1 ? { content: sources[0].content, conflicts: [] } : mergePersonalEdits(
-        baselineVersion?.content ?? sources[0].content,
-        sources.map((source) => ({ label: source.owner?.name ?? '成员', content: source.content })),
-      );
-      if (merged.conflicts.length) throw new ConflictException('多人改动存在合并冲突，请逐条审核或解决冲突后重新提交');
-      if (sources.length > 1 && merged.content !== expectedMergedContent) {
-        throw new ConflictException('最终合并正文与预览不一致，请重新预览或逐条审核');
-      }
+      const baselineVersion = baseline?.version;
       const now = new Date();
       const status = dto.decision === 'APPROVE' ? 'ENTERPRISE_APPROVED' : 'ENTERPRISE_REJECTED';
       const snapshots = [];
@@ -152,7 +140,7 @@ export class EnterpriseSkillReviewService {
       }
       let version = null;
       let affectedSubscriptions = 0;
-      const batchId = ids.length > 1 ? randomUUID() : null;
+      const batchId = null;
       if (dto.decision === 'APPROVE') {
         const existing = await tx.skillVersion.findMany({ where: {
           capabilityId: skillId, enterpriseId: ctx.enterpriseId, scope: 'ENTERPRISE',
@@ -160,11 +148,11 @@ export class EnterpriseSkillReviewService {
         version = await tx.skillVersion.create({ data: {
           capabilityId: skillId, enterpriseId: ctx.enterpriseId, scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED',
           parentVersionId: baselineVersion?.id ?? sources[0].parentVersionId,
-          version: nextSemver(existing.map((row) => row.version)), content: merged.content,
+          version: nextSemver(existing.map((row) => row.version)), content: sources[0].content,
           changeSummary: sources.map((row) => row.changeSummary ?? `审核 ${row.owner?.name ?? '成员'} 的改动`).join('；'),
           createdById: userId, enterpriseReviewedById: userId, enterpriseReviewedAt: now,
-          ...(sources.length === 1 ? { packageKey: sources[0].packageKey, packageSha256: sources[0].packageSha256,
-            packageFileCount: sources[0].packageFileCount, packageFilename: sources[0].packageFilename } : {}),
+          packageKey: sources[0].packageKey, packageSha256: sources[0].packageSha256,
+          packageFileCount: sources[0].packageFileCount, packageFilename: sources[0].packageFilename,
         } });
         await tx.skillVersionAdoption.createMany({ data: snapshots.map((source) => ({
           sourceVersionId: source.id, targetVersionId: version!.id, adoptedById: userId, batchId,
@@ -189,7 +177,7 @@ export class EnterpriseSkillReviewService {
       const members = await this.prisma.enterpriseMember.findMany({ where: { enterpriseId }, select: { userId: true } });
       if (members.length) await this.prisma.notification.createMany({ data: members.map(({ userId }) => ({
         userId, type: 'SKILL_VERSION_UPDATED', category: 'SYSTEM', severity: 'INFO', title: '技能企业版本已更新',
-        message: `技能已审核发布为企业版本 ${version}，已明确选版的成员不受默认变化影响。`,
+        message: `技能已审核通过并启用企业版本 ${version}，正式执行统一跟随企业启用版本。`,
         relatedType: 'capability', relatedId: capabilityId,
       })) });
     } catch (error) { this.logger.warn(`技能发布通知失败: ${error instanceof Error ? error.message : 'unknown'}`); }
