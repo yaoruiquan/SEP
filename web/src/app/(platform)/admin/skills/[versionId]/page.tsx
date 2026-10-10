@@ -13,7 +13,8 @@ import { toast } from '@/components/ui/toast';
 import { Markdown } from '@/features/chat/markdown';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 import { useMonitorDetail, useMonitorReview, useSelectSkillSource, useSubmitMonitorReview } from '../use-skill-monitor';
-import { SOURCE_LABELS, canSelectSource, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, platformProcessingLabel, promotedVersion } from '../monitor';
+import { VERSION_TYPE_LABELS, canSelectSource, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, platformProcessingLabel, promotedVersion } from '../monitor';
+import { EnterprisePublishedVersions, VersionAttribution } from '../version-attribution';
 
 export default function AdminSkillVersionDetailPage() {
   const { versionId = '' } = useParams<{ versionId: string }>();
@@ -83,12 +84,17 @@ export default function AdminSkillVersionDetailPage() {
             <Badge className={status.className}>{status.label}</Badge>
           </div>
           <p className="mt-1 text-sm text-gtext-muted">
-            版本 v{version.version} · {SOURCE_LABELS[version.scope]}
+            版本 v{version.version} · {VERSION_TYPE_LABELS[version.scope]}
             {version.enterprise ? ` · 来源企业：${version.enterprise.name}` : ''}
           </p>
         </div>
       </header>
-      <section aria-label="版本分类" className="grid gap-3 border-y border-glassline py-4 text-sm text-gtext-secondary sm:grid-cols-3"><p>来源：{SOURCE_LABELS[version.scope]}<br />所有者：{version.owner?.name || version.owner?.email || version.ownerId || version.createdBy?.name || version.createdBy?.id || '未标注'}</p><p>企业审核：{enterpriseReviewLabel(version)}<br />平台处理：{platformProcessingLabel(version)}</p><p>产生方式：{creationMethodLabel(version)}<br />当前使用：{currentUsageLabel(version)}</p></section>
+      <section aria-label="版本分类" className="grid gap-3 border-y border-glassline py-4 text-sm text-gtext-secondary sm:grid-cols-3"><p>版本类型：{VERSION_TYPE_LABELS[version.scope]}<br />产生方式：{creationMethodLabel(version)}</p><p>企业审核：{enterpriseReviewLabel(version)}<br />平台处理：{platformProcessingLabel(version)}</p><p>当前使用：{currentUsageLabel(version)}</p></section>
+      <section aria-label="版本归属" className="grid min-w-0 gap-4 border-b border-glassline pb-4 sm:grid-cols-3">
+        <VersionAttribution version={version} />
+        <div><h2 className="mb-2 text-xs text-gtext-muted">对应企业版本</h2><EnterprisePublishedVersions version={version} /></div>
+        <div className="min-w-0 break-all text-xs text-gtext-muted"><p>技能 ID：{version.capabilityId}</p><p className="mt-2">版本 ID：{version.id}</p></div>
+      </section>
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section aria-label="只读正文" className="min-h-[70vh] min-w-0">
           <Tabs value={tab} onValueChange={setTab} className="min-w-0">
@@ -125,7 +131,7 @@ export default function AdminSkillVersionDetailPage() {
                   </dd>
                 </div>
               )}
-              {version.sourceVersion && <div><dt className="text-gtext-muted">原始来源版本</dt><dd className="mt-1 break-all"><Link href={`/admin/skills/${version.sourceVersion.id}`} className="text-gbrand-text hover:underline">{SOURCE_LABELS[version.sourceVersion.scope]} v{version.sourceVersion.version}</Link><p className="mt-1 text-xs text-gtext-muted">技能 ID：{version.sourceVersion.capabilityId}</p><p className="mt-1 text-xs text-gtext-muted">版本 ID：{version.sourceVersion.id}</p></dd></div>}
+              {version.sourceVersion && <div><dt className="text-gtext-muted">原始来源版本</dt><dd className="mt-1 break-all"><Link href={`/admin/skills/${version.sourceVersion.id}`} className="text-gbrand-text hover:underline">{VERSION_TYPE_LABELS[version.sourceVersion.scope]} v{version.sourceVersion.version}</Link><p className="mt-1 text-xs text-gtext-muted">技能 ID：{version.sourceVersion.capabilityId}</p><p className="mt-1 text-xs text-gtext-muted">版本 ID：{version.sourceVersion.id}</p></dd></div>}
               <div><dt className="text-gtext-muted">包信息</dt><dd className="mt-1 break-all text-gtext-secondary">{version.packageKey ? <><p>{version.packageFilename || version.packageKey}</p><p>文件数：{version.packageFileCount ?? '未标注'}</p><p className="mt-1 font-mono text-xs">SHA256：{version.packageSha256 || '未标注'}</p></> : '无包记录'}</dd></div>
               {version.enterpriseDefaultCount !== undefined && <div><dt className="text-gtext-muted">启用与市场绑定</dt><dd className="mt-1 text-gtext-secondary">企业启用：{version.enterpriseDefaultCount} 家<br />版本绑定：{version.defaultBindingCount ?? 0} 个<br />市场员工绑定：{version.marketBindingCount ?? 0} 个</dd></div>}
               {version.rejectionReason && <div><dt className="text-gtext-muted">驳回原因</dt><dd className="mt-1 break-words text-gdanger">{version.rejectionReason}</dd></div>}

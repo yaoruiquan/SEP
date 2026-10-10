@@ -30,6 +30,7 @@ import { SkillPackageService } from '../skill-package/skill-package.service';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SettingService } from '../setting/setting.service';
 import { nextSemver } from './skill-version-numbering';
+import { readAdminVersionLineages } from './skill-version-admin-lineage';
 import type {
   AdoptEnterpriseVersionDto,
   AdminSkillVersionQuery,
@@ -391,6 +392,10 @@ export class SkillVersionService {
       { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } },
       { sourceVersion: { owner: { name: { contains: filters.ownerName, mode: 'insensitive' } } } },
       { sourceVersion: { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } } },
+      { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } } } } },
+      { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: filters.ownerName, mode: 'insensitive' } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: filters.ownerName, mode: 'insensitive' } } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: filters.ownerName, mode: 'insensitive' } } } } } } },
     ] });
     if (filters.enterpriseStatus) and.push({ OR: [
       { scope: { in: ['PERSONAL', 'ENTERPRISE'] }, status: filters.enterpriseStatus },
@@ -421,6 +426,10 @@ export class SkillVersionService {
       { sourceVersion: { enterprise: { name: { contains: filters.search, mode: 'insensitive' } } } },
       { sourceVersion: { owner: { name: { contains: filters.search, mode: 'insensitive' } } } },
       { sourceVersion: { createdBy: { name: { contains: filters.search, mode: 'insensitive' } } } },
+      { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: filters.search, mode: 'insensitive' } } } } } },
+      { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: filters.search, mode: 'insensitive' } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: filters.search, mode: 'insensitive' } } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: filters.search, mode: 'insensitive' } } } } } } },
     ] });
     const where: Prisma.SkillVersionWhereInput = { AND: and };
     return this.prisma.$transaction(async (tx) => {
@@ -477,10 +486,12 @@ export class SkillVersionService {
       }, select: { id: true, capabilityId: true }, distinct: ['capabilityId'],
         orderBy: [{ capabilityId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }] }) : [];
       const latestIds = new Set(latest.map((row) => row.id));
+      const lineages = await readAdminVersionLineages(tx, items.map((item) => item.id));
       return { total, page: filters.page, limit: filters.limit, items: items.map((item) => {
         const state = reviewStateById.get(item.scope === 'PLATFORM' ? item.sourceVersionId ?? '' : item.id);
         return ({
         ...item,
+        ...lineages.get(item.id)!,
         isWorkingCopy: isPlatformWorkingCopy(item),
         ...platformMonitorClassifications(item, state?.enterpriseReviewStatus),
         ...(state ? { enterpriseReviewedAt: state.enterpriseReviewedAt,
@@ -532,7 +543,8 @@ export class SkillVersionService {
     });
     const latest = await this.prisma.skillVersion.findFirst({ where: { capabilityId: version.capabilityId,
       scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
-    return { ...version, isWorkingCopy: isPlatformWorkingCopy(version), ...platformMonitorClassifications(version, state?.enterpriseReviewStatus),
+    const lineages = await readAdminVersionLineages(this.prisma, [version.id]);
+    return { ...version, ...lineages.get(version.id)!, isWorkingCopy: isPlatformWorkingCopy(version), ...platformMonitorClassifications(version, state?.enterpriseReviewStatus),
       ...(state ? { enterpriseReviewedAt: state.enterpriseReviewedAt,
         ...(version.scope !== 'PLATFORM' ? { rejectionReason: state.rejectionReason } : {}),
         ...(version.sourceVersion ? { sourceVersion: { ...version.sourceVersion, ...state, id: version.sourceVersion.id } } : {}),

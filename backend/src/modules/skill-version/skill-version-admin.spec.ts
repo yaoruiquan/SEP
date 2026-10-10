@@ -31,6 +31,51 @@ const source = {
   _count: { enterpriseDefaults: 0, defaultBindings: 0 },
 };
 
+const member = { id: 'member', name: 'Member' };
+const admin = { id: 'admin', name: 'Admin' };
+const reviewer = { id: 'reviewer', name: 'Reviewer' };
+const enterprisePublication = { id: 'enterprise-published', version: '1.2.0', isEnterpriseCurrent: true };
+const adoption = {
+  adoptedAt: time, adoptedBy: reviewer,
+  targetVersion: { ...enterprisePublication, scope: 'ENTERPRISE', enterpriseReviewedBy: reviewer,
+    _count: { enterpriseDefaults: 1 } },
+};
+const personalLineage = {
+  ...source, id: 'personal', scope: 'PERSONAL', status: 'ENTERPRISE_APPROVED', ownerId: member.id,
+  owner: member, createdBy: member, enterpriseReviewedBy: reviewer,
+  adoptedSources: [], adoptedInto: [adoption], reviewSnapshots: [], sourceVersion: null, workingCopy: null,
+};
+const enterpriseLineage = {
+  ...source, id: enterprisePublication.id, version: enterprisePublication.version, status: 'ENTERPRISE_APPROVED',
+  capability: { ...capability, _count: { bindings: 0 } }, createdBy: admin, enterpriseReviewedBy: reviewer,
+  adoptedSources: [{ adoptedBy: reviewer, sourceVersion: personalLineage }], adoptedInto: [],
+  sourceVersion: null, workingCopy: null, _count: { enterpriseDefaults: 1, defaultBindings: 0 },
+};
+const enterpriseSnapshot = {
+  id: 'review-snapshot', status: 'ENTERPRISE_APPROVED', createdAt: time, workingCopyUpdatedAt: time,
+  enterpriseReviewedAt: time, enterpriseReviewedBy: reviewer, adoptedInto: [adoption],
+  reviews: [{ id: 'enterprise-audit' }], promotedVersions: [],
+};
+const workingCopyLineage = {
+  ...personalLineage, status: 'PERSONAL_ACTIVE', submittedAt: null, adoptedInto: [],
+  enterpriseReviewedBy: null, reviewSnapshots: [enterpriseSnapshot],
+};
+const publishedLineage = {
+  originalSubmitters: [member], enterprisePublisher: reviewer, enterprisePublishedVersions: [enterprisePublication],
+};
+const unpublishedLineage = {
+  originalSubmitters: [member], enterprisePublisher: null, enterprisePublishedVersions: [],
+};
+
+function monitorRow<T extends Record<string, unknown>>(row: T) {
+  return { capability: { ...capability, _count: { bindings: 0 } }, ...row };
+}
+
+function lineageFields(row: Record<string, unknown>) {
+  return { originalSubmitters: row.originalSubmitters, enterprisePublisher: row.enterprisePublisher,
+    enterprisePublishedVersions: row.enterprisePublishedVersions };
+}
+
 function setup() {
   const prisma = {
     skillVersion: {
@@ -429,6 +474,158 @@ describe('Selected skill package security', () => {
   });
 });
 
+describe('Admin monitor lineage', () => {
+  const later = new Date(time.getTime() + 60_000);
+  const earlier = new Date(time.getTime() - 60_000);
+  const cases = [
+    { name: 'ordinary member behind an administrator-created enterprise version',
+      row: enterpriseLineage, expected: publishedLineage },
+    { name: 'administrator personal submission without inventing an enterprise publisher',
+      row: { ...personalLineage, createdBy: admin, owner: admin, ownerId: admin.id, enterpriseReviewedBy: null, adoptedInto: [] },
+      expected: { ...unpublishedLineage, originalSubmitters: [admin] } },
+    { name: 'personal creator even when a historical owner is missing',
+      row: { ...personalLineage, owner: null, ownerId: null }, expected: publishedLineage },
+    { name: 'personal creator rather than a different owner',
+      row: { ...personalLineage, owner: admin, ownerId: admin.id }, expected: publishedLineage },
+    { name: 'platform enterprise source rather than platform administrator',
+      row: { ...personalLineage, id: 'platform-enterprise', scope: 'PLATFORM', createdBy: admin,
+        sourceVersionId: enterpriseLineage.id, sourceVersion: enterpriseLineage }, expected: publishedLineage },
+    { name: 'platform personal source',
+      row: { ...personalLineage, id: 'platform-personal', scope: 'PLATFORM', createdBy: admin,
+        sourceVersionId: personalLineage.id, sourceVersion: personalLineage }, expected: publishedLineage },
+    { name: 'platform with no source may use its own creator, but not an enterprise publisher',
+      row: { ...personalLineage, id: 'platform-native', scope: 'PLATFORM', createdBy: admin },
+      expected: { ...unpublishedLineage, originalSubmitters: [admin] } },
+    { name: 'historical platform with a missing source relation does not guess its author',
+      row: { ...personalLineage, scope: 'PLATFORM', createdBy: admin, sourceVersionId: 'missing', sourceVersion: null },
+      expected: { ...unpublishedLineage, originalSubmitters: [] } },
+    { name: 'historical enterprise without adoption or reviewer retains only its own version',
+      row: { ...enterpriseLineage, adoptedSources: [], enterpriseReviewedBy: null },
+      expected: { originalSubmitters: [], enterprisePublisher: null, enterprisePublishedVersions: [enterprisePublication] } },
+    { name: 'multiple adopted authors deduplicated by id including unnamed users',
+      row: { ...enterpriseLineage, adoptedSources: [
+        ...enterpriseLineage.adoptedSources, ...enterpriseLineage.adoptedSources,
+        { adoptedBy: reviewer, sourceVersion: { createdBy: { id: 'member-2', name: null } } },
+      ] }, expected: { ...publishedLineage, originalSubmitters: [member, { id: 'member-2', name: null }] } },
+    { name: 'multiple enterprise publications deduplicated by id with independent current flags',
+      row: { ...personalLineage, adoptedInto: [adoption, adoption, { ...adoption, targetVersion: {
+        ...adoption.targetVersion, id: 'older-enterprise', version: '1.1.0', _count: { enterpriseDefaults: 0 },
+      } }] }, expected: { ...publishedLineage, enterprisePublishedVersions: [enterprisePublication,
+        { id: 'older-enterprise', version: '1.1.0', isEnterpriseCurrent: false }] } },
+    { name: 'matching working-copy revision even if snapshot creation predates the edit transaction',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, createdAt: earlier }] },
+      expected: publishedLineage },
+    { name: 'edited working copy cannot reuse stale reviewer, adoption or snapshot',
+      row: { ...workingCopyLineage, updatedAt: later, enterpriseReviewedBy: reviewer, adoptedInto: [adoption] },
+      expected: unpublishedLineage },
+    { name: 'historical snapshot without revision compatible by creation time',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, workingCopyUpdatedAt: null, createdAt: later }] },
+      expected: publishedLineage },
+    { name: 'historical snapshot predating the working-copy edit',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, workingCopyUpdatedAt: null, createdAt: earlier }] },
+      expected: unpublishedLineage },
+    { name: 'explicit snapshot revision mismatch cannot fall back to newer creation time',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, workingCopyUpdatedAt: earlier, createdAt: later }] },
+      expected: unpublishedLineage },
+    { name: 'rejected working-copy snapshot retains the enterprise reviewer, not a publication',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, status: 'ENTERPRISE_REJECTED', adoptedInto: [] }] },
+      expected: { ...unpublishedLineage, enterprisePublisher: reviewer } },
+    { name: 'rejected explicit personal version retains the enterprise reviewer',
+      row: { ...personalLineage, status: 'ENTERPRISE_REJECTED', adoptedInto: [] },
+      expected: { ...unpublishedLineage, enterprisePublisher: reviewer } },
+    { name: 'platform promotion snapshot with copied reviewer is not enterprise-review evidence',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, adoptedInto: [], reviews: [],
+        promotedVersions: [{ id: 'platform-promotion' }] }] }, expected: unpublishedLineage },
+    { name: 'legacy direct adoption without snapshots is usable only before another edit',
+      row: { ...workingCopyLineage, reviewSnapshots: [], adoptedInto: [adoption] }, expected: publishedLineage },
+    { name: 'legacy adoption predating a working-copy edit',
+      row: { ...workingCopyLineage, updatedAt: later, reviewSnapshots: [], adoptedInto: [adoption] },
+      expected: unpublishedLineage },
+    { name: 'working copy without historical associations clears copied reviewer',
+      row: { ...workingCopyLineage, enterpriseReviewedBy: reviewer, reviewSnapshots: [] }, expected: unpublishedLineage },
+    { name: 'legacy DRAFT working copy uses the same revision gate',
+      row: { ...workingCopyLineage, status: 'DRAFT' }, expected: publishedLineage },
+    { name: 'edited legacy DRAFT working copy clears its old review',
+      row: { ...workingCopyLineage, status: 'DRAFT', updatedAt: later, enterpriseReviewedBy: reviewer },
+      expected: unpublishedLineage },
+    { name: 'platform frozen personal source follows the frozen revision rather than later origin edits',
+      row: { ...personalLineage, id: 'platform-frozen', scope: 'PLATFORM', createdBy: admin,
+        sourceVersionId: 'frozen-personal', sourceVersion: { ...workingCopyLineage, id: 'frozen-personal',
+          workingCopyId: workingCopyLineage.id, workingCopyUpdatedAt: time, createdAt: time,
+          workingCopy: { ...workingCopyLineage, updatedAt: later } } }, expected: publishedLineage },
+    { name: 'frozen personal source cannot inherit a review that happened after the platform freeze',
+      row: { ...personalLineage, id: 'platform-before-review', scope: 'PLATFORM', createdBy: admin,
+        sourceVersionId: 'frozen-personal', sourceVersion: { ...workingCopyLineage, id: 'frozen-personal',
+          workingCopyId: workingCopyLineage.id, workingCopyUpdatedAt: time, createdAt: time,
+          workingCopy: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, createdAt: later }] } } },
+      expected: unpublishedLineage },
+    { name: 'platform frozen DRAFT source follows matching enterprise snapshot',
+      row: { ...personalLineage, id: 'platform-frozen-draft', scope: 'PLATFORM', createdBy: admin,
+        sourceVersionId: 'frozen-draft', sourceVersion: { ...workingCopyLineage, id: 'frozen-draft', status: 'DRAFT',
+          workingCopyId: workingCopyLineage.id, workingCopyUpdatedAt: time, createdAt: time,
+          workingCopy: workingCopyLineage } }, expected: publishedLineage },
+    { name: 'historical genuine enterprise review without audit/adoption keeps only reviewer',
+      row: { ...workingCopyLineage, reviewSnapshots: [{ ...enterpriseSnapshot, adoptedInto: [], reviews: [] }] },
+      expected: { ...unpublishedLineage, enterprisePublisher: reviewer } },
+    { name: 'enterprise publication actor from adoption is valid when reviewer is missing',
+      row: { ...enterpriseLineage, enterpriseReviewedBy: null }, expected: publishedLineage },
+  ];
+
+  it.each(cases)('returns identical list/detail lineage for $name', async ({ row, expected }) => {
+    const { prisma, service } = setup();
+    const resultRow = monitorRow(row);
+    prisma.skillVersion.findMany.mockImplementation(({ select, where }) => {
+      if (select.adoptedSources) return Promise.resolve(where.id.in.includes(row.id) ? [resultRow] : []);
+      return Promise.resolve(select.capability ? [resultRow] : []);
+    });
+    prisma.skillVersion.findUnique.mockResolvedValue(resultRow);
+    prisma.skillVersion.count.mockResolvedValue(1);
+    const list = await service.listAdminVersions({ page: 1, limit: 20 });
+    const detail = await service.getAdminVersion(row.id);
+    expect(lineageFields(list.items[0])).toEqual(expected);
+    expect(lineageFields(detail)).toEqual(expected);
+    expect(lineageFields(list.items[0])).toEqual(lineageFields(detail));
+  });
+
+  it('loads lineage for the entire page in one batch instead of one query per row', async () => {
+    const { prisma, service } = setup();
+    const rows = [monitorRow(enterpriseLineage), monitorRow(personalLineage),
+      monitorRow({ ...personalLineage, id: 'platform', scope: 'PLATFORM', sourceVersionId: enterpriseLineage.id,
+        sourceVersion: enterpriseLineage })];
+    prisma.skillVersion.findMany.mockImplementation(({ select }) => Promise.resolve(select.adoptedSources || select.capability ? rows : []));
+    const result = await service.listAdminVersions({ page: 1, limit: 20 });
+    expect(result.items.map(lineageFields)).toEqual([publishedLineage, publishedLineage, publishedLineage]);
+    expect(prisma.skillVersion.findMany).toHaveBeenCalledTimes(3);
+    const lineageQuery = prisma.skillVersion.findMany.mock.calls[2][0];
+    expect(lineageQuery.where).toEqual({ id: { in: [enterpriseLineage.id, personalLineage.id, 'platform'] } });
+    expect(lineageQuery.select).toMatchObject({ adoptedSources: expect.anything(), adoptedInto: expect.anything(),
+      enterpriseReviewedBy: expect.anything(), sourceVersion: expect.anything(), workingCopy: expect.anything(),
+      reviewSnapshots: { where: { status: { in: ['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] } } } });
+  });
+
+  it('batches unresolved platform source chains and follows them to original submitters', async () => {
+    const { prisma, service } = setup();
+    const middle = { ...personalLineage, id: 'middle-platform', scope: 'PLATFORM', createdBy: admin,
+      sourceVersionId: enterpriseLineage.id, sourceVersion: null };
+    const root = monitorRow({ ...middle, id: 'root-platform', sourceVersionId: middle.id, sourceVersion: middle });
+    prisma.skillVersion.findUnique.mockResolvedValue(root);
+    prisma.skillVersion.findMany.mockImplementation(({ where }) => Promise.resolve(
+      where.id.in.includes(root.id) ? [root] : [enterpriseLineage]));
+    expect(lineageFields(await service.getAdminVersion(root.id))).toEqual(publishedLineage);
+    expect(prisma.skillVersion.findMany).toHaveBeenCalledTimes(2);
+    expect(prisma.skillVersion.findMany.mock.calls[1][0].where).toEqual({ id: { in: [enterpriseLineage.id] } });
+  });
+
+  it('does not loop or invent authors for a cyclic historical platform source chain', async () => {
+    const { prisma, service } = setup();
+    const root = monitorRow({ ...personalLineage, scope: 'PLATFORM', sourceVersionId: personalLineage.id });
+    prisma.skillVersion.findUnique.mockResolvedValue(root);
+    prisma.skillVersion.findMany.mockResolvedValue([root]);
+    expect(lineageFields(await service.getAdminVersion(personalLineage.id))).toEqual({ ...unpublishedLineage, originalSubmitters: [] });
+    expect(prisma.skillVersion.findMany).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('Admin monitor contract', () => {
   it.each(Object.values(SkillVersionStatus))('monitors every state including personal %s with stable pagination', async (status) => {
     const { prisma, service } = setup();
@@ -489,6 +686,10 @@ describe('Admin monitor contract', () => {
       { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } },
       { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } },
       { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } },
+      { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } } } },
+      { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } } } } },
     ] },
   ])('filters direct and selected-source $field before counting and pagination', async ({ field, matches }) => {
     const { prisma, service } = setup();
@@ -500,7 +701,7 @@ describe('Admin monitor contract', () => {
     expect(result).toMatchObject({ total: 17, page: 3, limit: 5 });
   });
 
-  it('searches skill, direct enterprise/owner/creator and selected-source enterprise/owner/creator names', async () => {
+  it('searches skill, direct/selected-source names and adopted original creators/owners with an exact where', async () => {
     const { prisma, service } = setup();
     await service.listAdminVersions(AdminSkillVersionQuerySchema.parse({ search: '  Name  ' }));
     const where = { AND: [{ capability: { type: 'SKILL' } }, { OR: [
@@ -511,6 +712,10 @@ describe('Admin monitor contract', () => {
       { sourceVersion: { enterprise: { name: { contains: 'Name', mode: 'insensitive' } } } },
       { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } },
       { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } },
+      { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } } } },
+      { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { createdBy: { name: { contains: 'Name', mode: 'insensitive' } } } } } } },
+      { sourceVersion: { adoptedSources: { some: { sourceVersion: { owner: { name: { contains: 'Name', mode: 'insensitive' } } } } } } },
     ] }] };
     expect(prisma.skillVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where, skip: 0, take: 20 }));
     expect(prisma.skillVersion.count).toHaveBeenCalledWith({ where });

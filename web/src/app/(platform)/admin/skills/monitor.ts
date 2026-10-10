@@ -1,7 +1,7 @@
 import type { SkillVersionPreview, SkillVersionScope, SkillVersionStatus, SkillVersionSummary } from '@/lib/types';
 
-export const SOURCE_LABELS: Record<SkillVersionScope, string> = {
-  PERSONAL: '个人来源', ENTERPRISE: '企业来源', PLATFORM: '平台来源',
+export const VERSION_TYPE_LABELS: Record<SkillVersionScope, string> = {
+  PERSONAL: '个人提交', ENTERPRISE: '企业发布版', PLATFORM: '平台版本',
 };
 export const ENTERPRISE_REVIEW_LABELS = {
   NOT_SUBMITTED: '未提交企业审核', PENDING: '企业待审', APPROVED: '企业通过', REJECTED: '企业驳回',
@@ -14,6 +14,9 @@ export const GENERATION_TYPE_LABELS = {
   ENTERPRISE_VERSION: '审核生成企业版', PLATFORM_CREATED: '运营创建', PLATFORM_SELECTED: '平台收录',
 };
 export interface MonitorClassifications {
+  originalSubmitters?: { id: string; name: string | null }[];
+  enterprisePublisher?: { id: string; name: string | null } | null;
+  enterprisePublishedVersions?: { id: string; version: string; isEnterpriseCurrent: boolean }[];
   ownerId?: string | null;
   owner?: { id: string; name: string | null; email?: string } | null;
   enterpriseReviewStatus?: keyof typeof ENTERPRISE_REVIEW_LABELS;
@@ -31,6 +34,17 @@ export interface MonitorClassifications {
   isMarketPublic?: boolean;
   defaultBindingCount?: number;
   marketBindingCount?: number;
+}
+export function originalSubmitterLabel(row: MonitorRow | MonitorDetail) {
+  if (row.originalSubmitters) return row.originalSubmitters.map((person) => person.name || person.id).join('、') || '未标注';
+  // 旧接口只兼容个人记录，不把企业发布版的创建人当作原提交人。
+  if (row.scope === 'PERSONAL') return row.createdBy?.name || row.createdBy?.id || row.owner?.name || row.ownerId || '未标注';
+  return '未标注';
+}
+export function enterpriseVersionEmptyLabel(row: MonitorRow | MonitorDetail) {
+  if (!row.enterprisePublishedVersions) return '未标注';
+  return row.enterpriseReviewStatus === 'APPROVED' || row.status === 'ENTERPRISE_APPROVED'
+    ? '未关联企业发布版' : '尚无企业发布版';
 }
 export type MonitorRow = SkillVersionSummary & MonitorClassifications & {
   capability: { id: string; name: string; description: string };

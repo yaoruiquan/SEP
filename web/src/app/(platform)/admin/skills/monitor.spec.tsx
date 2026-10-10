@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdminSkillsPage from './page';
 import DetailPage from './[versionId]/page';
-import { canSelectSource, creationMethodLabel, currentUsageLabel, monitorQuery, type MonitorDetail } from './monitor';
+import { canSelectSource, creationMethodLabel, currentUsageLabel, monitorQuery, originalSubmitterLabel, type MonitorDetail } from './monitor';
 
 const { get, post, push, toastError } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), push: vi.fn(), toastError: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ api: { get, post } }));
@@ -42,8 +42,10 @@ describe('monitor 列表', () => {
     const row = screen.getByRole('row', { name: /来源技能/ });
     expect(within(row).getByText('企业待审')).toBeInTheDocument();
     expect(within(row).getByText('未收录')).toBeInTheDocument();
-    for (const label of ['来源', '企业审核', '平台收录状态']) expect(screen.getByLabelText(label)).toHaveValue('');
-    expect(screen.getByLabelText('来源').querySelectorAll('option')).toHaveLength(4);
+    for (const label of ['版本类型', '企业审核', '平台收录状态']) expect(screen.getByLabelText(label)).toHaveValue('');
+    const typeFilter = screen.getByLabelText('版本类型');
+    expect(Array.from(typeFilter.querySelectorAll('option'), (option) => option.textContent)).toEqual(['全部', '个人提交', '企业发布版', '平台版本']);
+    expect(screen.queryByLabelText('来源')).not.toBeInTheDocument();
     expect(screen.getByText('高级筛选').closest('details')).not.toHaveAttribute('open');
     expect(screen.queryByLabelText('版本状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('产生方式')).not.toBeInTheDocument();
@@ -57,7 +59,7 @@ describe('monitor 列表', () => {
     await screen.findByText('来源技能');
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/admin/skill-versions?page=2&limit=20'));
-    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'ENTERPRISE' } });
+    fireEvent.change(screen.getByLabelText('版本类型'), { target: { value: 'ENTERPRISE' } });
     fireEvent.click(screen.getByText('高级筛选'));
     fireEvent.change(screen.getByLabelText('企业审核'), { target: { value: 'REJECTED' } });
     fireEvent.change(screen.getByLabelText('平台收录状态'), { target: { value: 'PENDING_REVIEW' } });
@@ -84,6 +86,38 @@ describe('monitor 列表', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('开始时间不能晚于结束时间');
     expect(get).toHaveBeenCalledTimes(count);
   });
+  it('企业发布版分别显示成员原提交人和管理员审核发布人，并链接对应版本', async () => {
+    get.mockResolvedValue({ items: [version({
+      scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED', ownerId: null, owner: null,
+      enterpriseReviewStatus: 'APPROVED', createdBy: { id: 'admin-1', name: '审核管理员' },
+      originalSubmitters: [{ id: 'member-1', name: '原修改成员' }, { id: 'member-2', name: '另一成员' }],
+      enterprisePublisher: { id: 'admin-1', name: '审核管理员' },
+      enterprisePublishedVersions: [{ id: 'enterprise-1', version: '1.0.2', isEnterpriseCurrent: true }],
+    })], total: 1, page: 1, limit: 20 });
+    mount(<AdminSkillsPage />);
+    const row = await screen.findByRole('row', { name: /来源技能/ });
+    expect(within(row).getByText('原修改成员、另一成员')).toBeInTheDocument();
+    expect(within(row).getByText('审核管理员')).toBeInTheDocument();
+    expect(within(row).getByText('原提交人')).toBeInTheDocument();
+    expect(within(row).getByText('审核发布人')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: '企业发布版 v1.0.2' })).toHaveAttribute('href', '/admin/skills/enterprise-1');
+    expect(within(row).getByText('企业已启用')).toBeInTheDocument();
+    expect(within(row).getByText('技能 ID：private-cap')).toBeInTheDocument();
+    expect(within(row).getByText('版本 ID：source-1')).toBeInTheDocument();
+  });
+  it('已通过个人提交显示独立的企业发布版，历史缺关联不推断已发布', async () => {
+    get.mockResolvedValue({ items: [version({
+      enterpriseReviewStatus: 'APPROVED', status: 'ENTERPRISE_APPROVED',
+      originalSubmitters: [{ id: 'member-1', name: '原修改成员' }],
+      enterprisePublisher: { id: 'admin-1', name: '审核管理员' }, enterprisePublishedVersions: [],
+    })], total: 1, page: 1, limit: 20 });
+    mount(<AdminSkillsPage />);
+    const row = await screen.findByRole('row', { name: /来源技能/ });
+    expect(within(row).getByText('个人提交')).toBeInTheDocument();
+    expect(within(row).getByText('企业通过')).toBeInTheDocument();
+    expect(within(row).getByText('未关联企业发布版')).toBeInTheDocument();
+    expect(within(row).queryByRole('link', { name: /企业发布版 v/ })).not.toBeInTheDocument();
+  });
   it('快速输入只发送最终搜索，重置取消尚未执行的搜索', async () => {
     mount(<AdminSkillsPage />);
     await screen.findByText('来源技能');
@@ -109,6 +143,27 @@ describe('monitor 列表', () => {
 });
 
 describe('monitor 详情选审', () => {
+  it('平台详情追溯原提交人和对应企业发布版，不把平台创建人当作提交人', async () => {
+    get.mockResolvedValue(version({
+      scope: 'PLATFORM', status: 'PLATFORM_APPROVED', sourceVersionId: 'enterprise-1',
+      createdBy: { id: 'platform-admin', name: '平台运营人员' },
+      originalSubmitters: [{ id: 'member-1', name: '原修改成员' }],
+      enterprisePublisher: { id: 'enterprise-admin', name: '企业审核管理员' },
+      enterprisePublishedVersions: [
+        { id: 'enterprise-1', version: '1.0.2', isEnterpriseCurrent: false },
+        { id: 'enterprise-2', version: '1.0.3', isEnterpriseCurrent: true },
+      ],
+    }));
+    mount(<DetailPage />);
+    const attribution = await screen.findByRole('region', { name: '版本归属' });
+    expect(within(attribution).getByText('原修改成员')).toBeInTheDocument();
+    expect(within(attribution).getByText('企业审核管理员')).toBeInTheDocument();
+    expect(within(attribution).queryByText('平台运营人员')).not.toBeInTheDocument();
+    expect(within(attribution).getByRole('link', { name: '企业发布版 v1.0.2' })).toHaveAttribute('href', '/admin/skills/enterprise-1');
+    expect(within(attribution).getByRole('link', { name: '企业发布版 v1.0.3' })).toHaveAttribute('href', '/admin/skills/enterprise-2');
+    expect(within(attribution).getByText('历史版本')).toBeInTheDocument();
+    expect(within(attribution).getByText('企业已启用')).toBeInTheDocument();
+  });
   it.each(['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_REJECTED', 'ARCHIVED'] as const)('来源 %s 只读，收录固定 DRAFT 并刷新列表/详情后导航', async (status) => {
     get.mockResolvedValue(version({ status }));
     post.mockResolvedValue(version({ id: 'platform-1', scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW' }));
@@ -128,7 +183,7 @@ describe('monitor 详情选审', () => {
     post.mockResolvedValue({});
     mount(<DetailPage />);
     await screen.findByRole('button', { name: '审核通过并发布' });
-    expect(screen.getByRole('link', { name: /个人来源 v/ })).toHaveAttribute('href', '/admin/skills/source-1');
+    expect(screen.getByRole('link', { name: /个人提交 v/ })).toHaveAttribute('href', '/admin/skills/source-1');
     expect(screen.getByText('原始包.zip')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '驳回' }));
     expect(post).not.toHaveBeenCalled();
@@ -169,6 +224,13 @@ describe('monitor 详情选审', () => {
 });
 
 describe('monitor 展示兼容', () => {
+  it('历史企业版缺来源不冒用管理员，规范化空来源也不使用创建人兜底', () => {
+    const admin = { id: 'admin-1', name: '审核管理员' };
+    expect(originalSubmitterLabel(version({ scope: 'ENTERPRISE', createdBy: admin }))).toBe('未标注');
+    expect(originalSubmitterLabel(version({ createdBy: admin, originalSubmitters: [] }))).toBe('未标注');
+    expect(originalSubmitterLabel(version({ createdBy: admin }))).toBe('审核管理员');
+    expect(originalSubmitterLabel(version({ originalSubmitters: [{ id: 'deleted-name', name: null }] }))).toBe('deleted-name');
+  });
   it('产生方式独立于审核状态，当前发布不能由通过推断', () => {
     expect(creationMethodLabel(version({ isWorkingCopy: true }))).toBe('历史副本');
     expect(creationMethodLabel(version({ scope: 'ENTERPRISE', sourceVersionId: 'source' }))).toBe('审核生成');
