@@ -34,7 +34,7 @@ export function CapabilityStats({ summary }: CapabilityStatsProps) {
     },
     {
       icon: Users,
-      label: '待审核',
+      label: '待审核提交',
       value: summary.pendingAdoptionTotal,
       description: summary.pendingAdoptionTotal > 0 ? '需要处理' : '暂无待办',
       highlight: summary.pendingAdoptionTotal > 0,

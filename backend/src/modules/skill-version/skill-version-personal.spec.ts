@@ -169,6 +169,7 @@ describe('SkillVersionService 个人副本与审核', () => {
     it('差异基线使用企业持久默认，即使它已回退到较旧版本', async () => {
       const { service, defaults, prisma } = build();
       defaults.get.mockResolvedValue({ version: { id: 'enterprise-old', scope: 'ENTERPRISE',
+        capabilityId: 'cap-1', enterpriseId: 'ent-1', status: 'ENTERPRISE_APPROVED',
         version: '1.0.0', content: '回退后的企业正文' } } as never);
       await expect(service.listPersonalDiffs('u-admin', 'cap-1')).resolves.toMatchObject({ baseline: {
         id: 'enterprise-old', version: '1.0.0', content: '回退后的企业正文',

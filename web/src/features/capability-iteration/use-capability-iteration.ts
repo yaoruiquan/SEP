@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { EnterpriseSkillReviewStatus, SkillVersionScope, SkillVersionStatus } from '@/lib/types';
+import { useAuthStore } from '@/lib/auth-store';
 
 /**
  * 「技能库」的数据层。
@@ -18,6 +19,7 @@ export const capabilityIterationKeys = {
   executions: (capabilityId: string) => ['capability-iteration', 'executions', capabilityId] as const,
   personalDiffs: (capabilityId: string) =>
     ['capability-iteration', 'personal-diffs', capabilityId] as const,
+  submissions: (capabilityId: string) => ['capability-iteration', 'submissions', capabilityId] as const,
   insights: (capabilityId: string) => ['capability-iteration', 'insights', capabilityId] as const,
 };
 
@@ -64,8 +66,9 @@ export interface IterableCapabilityList {
 }
 
 export function useIterableCapabilities() {
+  const identity = useSkillIdentity();
   return useQuery({
-    queryKey: capabilityIterationKeys.list(),
+    queryKey: [...capabilityIterationKeys.list(), identity],
     queryFn: () => api.get<IterableCapabilityList>('/enterprise/capabilities'),
     ...liveSkillQueryOptions,
   });
@@ -78,6 +81,9 @@ export interface VersionReviewRecord {
   comment: string | null;
   createdAt: string;
   reviewer: { id: string; name: string | null };
+  versionId?: string;
+  version?: string;
+  publishedVersion?: PublishedSkillVersion | null;
 }
 
 export interface TimelineVersion {
@@ -103,6 +109,7 @@ export interface TimelineVersion {
   hasPlatformSubmission: boolean;
   /** 是否为企业当前选定的生效版本 */
   isCurrent: boolean;
+  sourceSubmissionId?: string | null;
 }
 
 export interface VersionTimeline {
@@ -132,11 +139,15 @@ export interface VersionTimeline {
   selectedAt: string | null;
   versions: TimelineVersion[];
   myPersonalVersionId: string | null;
+  effectiveVersionState?: 'EXPLICIT' | 'AUTOMATIC' | 'MIXED' | 'NONE';
+  effectiveVersion?: PublishedSkillVersion | null;
+  pendingTotal?: number;
 }
 
 export function useVersionTimeline(capabilityId: string) {
+  const identity = useSkillIdentity();
   return useQuery({
-    queryKey: capabilityIterationKeys.versions(capabilityId),
+    queryKey: [...capabilityIterationKeys.versions(capabilityId), identity],
     queryFn: () => api.get<VersionTimeline>(`/enterprise/capabilities/${capabilityId}/versions`),
     enabled: Boolean(capabilityId),
     ...liveSkillQueryOptions,
@@ -232,6 +243,7 @@ export interface PersonalDiffItem {
   reviewedBy: { id: string; name: string | null } | null;
   rejectionReason: string | null;
   publishedVersionId: string | null;
+  publishedVersion?: PublishedSkillVersion | null;
   isWorkingCopy: boolean;
   canEdit: boolean;
   isLegacyUnpublished: boolean;
@@ -246,19 +258,53 @@ export interface PersonalDiffList {
   page: number;
   limit: number;
   myWorkingCopy: PersonalDiffItem | null;
+  pendingTotal?: number;
+}
+
+export interface PublishedSkillVersion {
+  id: string;
+  scope: SkillVersionScope;
+  version: string;
+  isCurrent?: boolean;
+}
+
+export interface SkillSubmissionDetail {
+  canManage: boolean;
+  item: PersonalDiffItem & { version: string };
+  source: (PublishedSkillVersion & { content: string }) | null;
+  sourceState: 'AVAILABLE' | 'UNREADABLE' | 'NONE';
+  currentBaseline: (PublishedSkillVersion & { content: string }) | null;
+  currentBaselineState: 'EXPLICIT' | 'AUTOMATIC' | 'MIXED' | 'NONE';
+  reviews: VersionReviewRecord[];
+}
+
+export function useSkillSubmissionDetail(capabilityId: string, submissionId: string | null) {
+  const identity = useSkillIdentity();
+  return useQuery({
+    queryKey: [...capabilityIterationKeys.submissions(capabilityId), identity, submissionId],
+    queryFn: () => api.get<SkillSubmissionDetail>(`/enterprise/capabilities/${capabilityId}/submissions/${submissionId}`),
+    enabled: Boolean(capabilityId && submissionId),
+    retry: false,
+    ...liveSkillQueryOptions,
+  });
 }
 
 export function usePersonalDiffs(capabilityId: string, enabled = true, page = 1, status?: EnterpriseSkillReviewStatus) {
+  const identity = useSkillIdentity();
   const params = new URLSearchParams({ page: String(page), limit: '20' });
   if (status) params.set('status', status);
   return useQuery({
-    queryKey: [...capabilityIterationKeys.personalDiffs(capabilityId), { page, limit: 20, status }],
-    placeholderData: keepPreviousData,
+    queryKey: [...capabilityIterationKeys.personalDiffs(capabilityId), { page, limit: 20, status }, identity],
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey.at(-1) === identity ? keepPreviousData(previous) : undefined,
     queryFn: () =>
       api.get<PersonalDiffList>(`/enterprise/capabilities/${capabilityId}/personal-diffs?${params.toString()}`),
     enabled: Boolean(capabilityId) && enabled,
     ...liveSkillQueryOptions,
   });
+}
+
+export function useSkillIdentity() {
+  return useAuthStore((state) => [state.enterprise?.id, state.user?.id, state.roleInEnterprise].join(':'));
 }
 
 /**
@@ -269,6 +315,7 @@ function invalidateSkillViews(qc: ReturnType<typeof useQueryClient>, capabilityI
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.versions(capabilityId) });
   void qc.invalidateQueries({ queryKey: ['skill-versions'] });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.personalDiffs(capabilityId) });
+  void qc.invalidateQueries({ queryKey: capabilityIterationKeys.submissions(capabilityId) });
   void qc.invalidateQueries({ queryKey: capabilityIterationKeys.list() });
 }
 

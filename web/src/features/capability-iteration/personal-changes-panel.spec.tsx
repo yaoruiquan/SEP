@@ -1,327 +1,128 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PersonalChangesPanel } from './personal-changes-panel';
+import type { PersonalDiffItem, SkillSubmissionDetail } from './use-capability-iteration';
 
-const { usePersonalDiffs, useVersionTimeline, updatePersonal, createPersonal, success, review, refetch } = vi.hoisted(() => ({ usePersonalDiffs: vi.fn(), useVersionTimeline: vi.fn(), updatePersonal: vi.fn(), createPersonal: vi.fn(), success: vi.fn(), review: vi.fn(), refetch: vi.fn() }));
-
-vi.mock('@/components/ui/toast', () => ({ toast: { success, error: vi.fn() } }));
-vi.mock('@/features/skill-version/use-skill-version', () => ({
-  useReviewEnterprisePersonalSkillVersion: () => ({ isPending: false, mutate: review }),
-}));
-
-vi.mock('./use-capability-iteration', () => ({
-  usePersonalDiffs,
-  useVersionTimeline,
-  useCreatePersonalVersion: () => ({ isPending: false, mutate: createPersonal }),
-  useDiscardPersonalVersion: () => ({ isPending: false, mutate: vi.fn() }),
-  useUpdatePersonalVersion: () => ({ isPending: false, mutate: updatePersonal }),
-}));
-
-function reviewFields(isWorkingCopy = true) {
-  return {
-    status: isWorkingCopy ? 'PERSONAL_ACTIVE' : 'PENDING_ENTERPRISE_REVIEW',
-    reviewStatus: 'PENDING_ENTERPRISE_REVIEW', submittedAt: isWorkingCopy ? null : '2026-10-08T08:48:26.730Z',
-    enterpriseReviewedAt: null, reviewedBy: null, rejectionReason: null, publishedVersionId: null,
-    isWorkingCopy, canEdit: isWorkingCopy, isLegacyUnpublished: false,
-  };
+const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), review: vi.fn(), refetch: vi.fn(), success: vi.fn(), pending: false }));
+vi.mock('@/components/ui/toast', () => ({ toast: { success: mocks.success, error: vi.fn() } }));
+vi.mock('@/features/skill-version/use-skill-version', () => ({ useReviewEnterprisePersonalSkillVersion: () => ({ mutate: mocks.review, isPending: mocks.pending }) }));
+vi.mock('./use-capability-iteration', () => ({ usePersonalDiffs: mocks.list, useSkillSubmissionDetail: mocks.detail, useSkillIdentity: () => 'enterprise:admin:ENTERPRISE_ADMIN' }));
+function item(id = 'submission'): PersonalDiffItem {
+  return { id, owner: { id: 'member', name: '普通成员', email: 'member@example.test' }, basedOn: { id: 'source', scope: 'PLATFORM', version: '1.0.0' },
+    changeSummary: '\n完善需求分析\n完整说明', content: 'member change', updatedAt: '2026-10-09T00:00:00Z', adopted: false, adoptedAt: null,
+    pending: true, status: 'PENDING_ENTERPRISE_REVIEW', reviewStatus: 'PENDING_ENTERPRISE_REVIEW', submittedAt: '2026-10-08T00:00:00Z',
+    enterpriseReviewedAt: null, reviewedBy: null, rejectionReason: null, publishedVersionId: null, isWorkingCopy: false, canEdit: false, isLegacyUnpublished: false };
 }
+let detail: SkillSubmissionDetail;
+beforeEach(() => {
+  vi.clearAllMocks(); mocks.pending = false;
+  const submission = item();
+  detail = { canManage: true, item: { ...submission, version: '0.0.0-personal.very-long-hash' },
+    source: { id: 'source', scope: 'PLATFORM', version: '1.0.0', content: 'original content' }, sourceState: 'AVAILABLE',
+    currentBaseline: { id: 'current', scope: 'ENTERPRISE', version: '1.0.0', content: 'current content' }, currentBaselineState: 'EXPLICIT', reviews: [] };
+  mocks.list.mockReturnValue({ data: { canManage: true, items: [submission], total: 1, page: 1, limit: 20 }, refetch: mocks.refetch });
+  mocks.detail.mockImplementation(() => ({ data: detail, refetch: mocks.refetch, isFetching: false }));
+  mocks.refetch.mockImplementation(async () => ({ data: detail, isError: false }));
+});
+function open() { render(<PersonalChangesPanel capabilityId="cap" currentUserId="admin" />); fireEvent.click(screen.getByRole('button', { name: '审核' })); }
+function tab(name: string) { fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0, ctrlKey: false }); }
 
-describe('PersonalChangesPanel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    useVersionTimeline.mockReturnValue({ data: { subscriptions: [{ canSelectPersonal: true }] }, isError: false });
-    usePersonalDiffs.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      refetch,
-      data: {
-        canManage: true,
-        baseline: { id: 'base', scope: 'ENTERPRISE', version: '1.0.0', content: 'base' },
-        items: [
-          {
-            id: 'admin-copy',
-            owner: { id: 'admin', name: '企业管理员', email: 'admin@example.com' },
-            basedOn: null,
-            changeSummary: '管理员自己的改动',
-            content: 'admin change',
-            updatedAt: '2026-09-08T00:00:00.000Z',
-            adopted: false,
-            adoptedAt: null,
-            pending: true,
-            ...reviewFields(),
-          },
-          {
-            id: 'member-copy',
-            owner: { id: 'member', name: '普通成员', email: 'member@example.com' },
-            basedOn: null,
-            changeSummary: '成员改动',
-            content: 'member change',
-            updatedAt: '2026-09-08T00:00:00.000Z',
-            adopted: false,
-            adoptedAt: null,
-            pending: true,
-            ...reviewFields(),
-          },
-        ],
-      },
-    });
+describe('提交与审核', () => {
+  it('主标题使用首个非空说明，不出现内部版本；管理员自己的提交与其他人同列', () => {
+    mocks.list.mockReturnValue({ data: { canManage: true, items: [item(), { ...item('self'), owner: { id: 'admin', name: '管理员', email: '' } }], total: 2 } });
+    render(<PersonalChangesPanel capabilityId="cap" currentUserId="admin" />);
+    expect(screen.getAllByRole('heading', { name: '完善需求分析' })).toHaveLength(2);
+    expect(screen.getByText('管理员')).toBeVisible(); expect(screen.getByText('普通成员')).toBeVisible();
+    expect(screen.queryByText(/0\.0\.0-personal/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /创建|编辑|弃用|保存/ })).not.toBeInTheDocument();
   });
-
-  it('企业管理员的副本也显示在大家的改动中', () => {
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-
-    expect(screen.getByText('企业管理员')).toBeInTheDocument();
-    expect(screen.getByText('普通成员')).toBeInTheDocument();
+  it('成员列表仅显示本人，已通过记录只有查看入口', () => {
+    mocks.list.mockReturnValue({ data: { canManage: false, items: [item(), { ...item('other'), owner: { id: 'admin', name: '其他人', email: '' } }], total: 1 } });
+    render(<PersonalChangesPanel capabilityId="cap" currentUserId="member" />);
+    expect(screen.queryByText('其他人')).not.toBeInTheDocument(); expect(screen.getByRole('button', { name: '查看详情' })).toBeVisible();
+    detail.canManage = false;
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.queryByRole('button', { name: '通过并启用' })).not.toBeInTheDocument();
   });
-
-  it('普通成员可在提交记录查看自己的历史副本，不重复显示', () => {
-    usePersonalDiffs.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      data: {
-        canManage: false,
-        baseline: null,
-        items: [
-          {
-            id: 'member-copy',
-            owner: { id: 'member', name: '普通成员', email: 'member@example.com' },
-            basedOn: null,
-            changeSummary: null,
-            content: 'member change',
-            updatedAt: '2026-09-08T00:00:00.000Z',
-            adopted: false,
-            adoptedAt: null,
-            pending: true,
-            ...reviewFields(),
-          },
-        ],
-      },
-    });
-
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-
-    expect(screen.getByText('普通成员')).toBeInTheDocument();
-    expect(screen.getByText('历史 Web 副本')).toBeInTheDocument();
+  it('默认以固定来源比较，可切换当前版本，完整正文独立展示', () => {
+    open();
+    expect(screen.getByRole('region', { name: '正文差异' })).toHaveTextContent('original content');
+    expect(screen.getByRole('region', { name: '正文差异' })).toHaveTextContent('member change');
+    expect(screen.getByText(/不会自动合并差异/)).toBeVisible();
+    fireEvent.change(screen.getByRole('combobox', { name: '对比对象' }), { target: { value: 'current' } });
+    expect(screen.getByRole('region', { name: '正文差异' })).toHaveTextContent('current content');
+    tab('完整内容'); expect(screen.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
   });
-
-  it('工作副本必须先预览正文与差异，再确认审核并传预览时间戳', () => {
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.queryByRole('button', { name: '一键审核' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '审核通过' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
-    expect(dialog.getByRole('region', { name: '正文差异' })).toHaveTextContent('member change');
-    fireEvent.click(dialog.getByRole('button', { name: '审核通过' }));
-    expect(dialog.getByText('确认通过并启用此版本？')).toBeInTheDocument();
-    expect(review).not.toHaveBeenCalled();
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
-    expect(review).toHaveBeenCalledWith({ id: 'member-copy', decision: 'APPROVE', comment: undefined, expectedUpdatedAt: '2026-09-08T00:00:00.000Z' }, expect.any(Object));
+  it('未记录来源不会将全部正文伪装成新增，仍可查看全文', () => {
+    detail.source = null; detail.sourceState = 'NONE'; open();
+    expect(screen.getByText('此提交未记录来源版本，无法展示历史差异')).toBeVisible();
+    expect(screen.queryByRole('region', { name: '正文差异' })).not.toBeInTheDocument();
+    tab('完整内容'); expect(screen.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
   });
-
-  it('客户端提交审核不发工作副本时间戳，驳回必须填写原因', () => {
-    const query = usePersonalDiffs();
-    Object.assign(query.data.items[1], reviewFields(false));
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByText('客户端提交')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    const dialog = within(screen.getByRole('dialog'));
-    fireEvent.click(dialog.getByRole('button', { name: '驳回' }));
-    expect(dialog.getByRole('button', { name: '确认驳回' })).toBeDisabled();
-    fireEvent.change(dialog.getByRole('textbox', { name: '驳回原因' }), { target: { value: '   ' } });
-    expect(dialog.getByRole('button', { name: '确认驳回' })).toBeDisabled();
-    fireEvent.change(dialog.getByRole('textbox', { name: '驳回原因' }), { target: { value: ' 请补充描述 ' } });
-    fireEvent.click(dialog.getByRole('button', { name: '确认驳回' }));
-    expect(review).toHaveBeenCalledWith({ id: 'member-copy', decision: 'REJECT', comment: '请补充描述' }, expect.any(Object));
-  });
-
-  it('轮询发现工作副本变化时不悄悄替换预览，禁止旧预览发布', () => {
-    const { rerender } = render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
-    const query = usePersonalDiffs();
-    query.data.items[1] = { ...query.data.items[1], updatedAt: '2026-10-09T00:00:00Z', content: '更新后的正文' };
-    rerender(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByRole('region', { name: '完整正文' })).toHaveTextContent('member change');
-    expect(dialog.getByRole('alert')).toHaveTextContent('重新预览');
-    expect(dialog.getByRole('button', { name: '确认通过并启用' })).toBeDisabled();
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
-    expect(review).not.toHaveBeenCalled();
-  });
-
-  it('筛选历史通过未发布，可显式补发布但不能再次驳回', () => {
-    const query = usePersonalDiffs();
-    Object.assign(query.data.items[1], reviewFields(false), {
-      reviewStatus: 'ENTERPRISE_APPROVED', status: 'ENTERPRISE_APPROVED', pending: false, isLegacyUnpublished: true,
-    });
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    query.data.items = [query.data.items[1]];
-    fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ENTERPRISE_APPROVED' } });
-    expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 1, 'ENTERPRISE_APPROVED');
-    expect(screen.queryByText('企业管理员')).not.toBeInTheDocument();
-    expect(screen.getByText('历史通过未发布', { selector: 'span' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '预览并审核' }));
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.queryByRole('button', { name: '驳回' })).not.toBeInTheDocument();
-    fireEvent.click(dialog.getByRole('button', { name: '通过并启用' }));
-    fireEvent.click(dialog.getByRole('button', { name: '确认通过并启用' }));
-    expect(review).toHaveBeenCalledWith({ id: 'member-copy', decision: 'APPROVE', comment: undefined }, expect.any(Object));
-  });
-
-  it('普通成员可查看本人客户端记录与驳回原因，但不能审核且不把快照当可编辑副本', () => {
-    const query = usePersonalDiffs();
-    query.data.canManage = false;
-    query.data.items = [{ ...query.data.items[1], ...reviewFields(false), reviewStatus: 'ENTERPRISE_REJECTED', rejectionReason: '描述不完整', pending: false }];
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-    expect(screen.getByText('驳回原因：描述不完整')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '创建我的副本' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '预览正文' }));
-    expect(screen.queryByRole('button', { name: '审核通过' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '驳回' })).not.toBeInTheDocument();
-  });
-
-  it('服务端返回并发冲突时关闭旧预览并刷新列表', () => {
-    review.mockImplementation((_payload, options) => options.onError(Object.assign(new Error('内容已变化，请重新预览'), { status: 409 })));
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
+  it('确认通过后客户端提交不发送可变副本时间戳，并留在详情等待刷新结果', async () => {
+    mocks.review.mockImplementation((_payload, options) => options.onSuccess()); open();
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' })); expect(mocks.review).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
-    expect(refetch).toHaveBeenCalled();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.review).toHaveBeenCalledWith({ id: 'submission', decision: 'APPROVE', comment: undefined }, expect.any(Object));
+    await waitFor(() => expect(mocks.refetch).toHaveBeenCalled()); expect(screen.getByRole('dialog')).toBeVisible();
+    expect(mocks.success).toHaveBeenCalledWith('审核通过并启用');
   });
-
-  it('翻页使用后端总数与独立工作副本，历史副本不在当前页仍可只读预览', () => {
-    const query = usePersonalDiffs();
-    const workingCopy = query.data.items[0];
-    query.data = { ...query.data, myWorkingCopy: workingCopy, items: [query.data.items[1]], total: 41, page: 1, limit: 20 };
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.getByText('共 41 条 · 第 1 / 3 页')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
-    expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 2, undefined);
-    fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ENTERPRISE_REJECTED' } });
-    expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 1, 'ENTERPRISE_REJECTED');
-    expect(screen.getByRole('region', { name: '历史 Web 副本' })).toHaveTextContent('管理员自己的改动');
+  it('历史工作副本发送预览修订时间，遗留通过未发布可走相同审核入口', () => {
+    detail.item.isWorkingCopy = true; detail.item.isLegacyUnpublished = true; detail.item.pending = false; open();
+    fireEvent.click(screen.getByRole('button', { name: '通过并启用' })); fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
+    expect(mocks.review).toHaveBeenCalledWith(expect.objectContaining({ expectedUpdatedAt: detail.item.updatedAt }), expect.any(Object));
   });
-
-  it('独立myWorkingCopy明确为空时不从分页记录推断工作副本', () => {
-    const query = usePersonalDiffs();
-    query.data.myWorkingCopy = null;
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.queryByRole('region', { name: '历史 Web 副本' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '创建我的副本' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
+  it('驳回原因必填，不允许仅空格', () => {
+    open(); fireEvent.click(screen.getByRole('button', { name: '驳回' }));
+    expect(screen.getByRole('button', { name: '确认驳回' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: '驳回原因' }), { target: { value: '  请补充边界  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认驳回' }));
+    expect(mocks.review).toHaveBeenCalledWith({ id: 'submission', decision: 'REJECT', comment: '请补充边界' }, expect.any(Object));
   });
-
-  it('成员筛选结果为空时保留筛选入口以便返回全部', () => {
-    const query = usePersonalDiffs();
-    query.data.canManage = false;
-    query.data.items = [query.data.items[1]];
-    const { rerender } = render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-    fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ENTERPRISE_REJECTED' } });
-    query.data = { ...query.data, items: [], total: 0, myWorkingCopy: null };
-    rerender(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-    expect(screen.getByText('暂无符合条件的改动')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'ALL' } });
-    expect(usePersonalDiffs).toHaveBeenLastCalledWith('cap-1', true, 1, undefined);
+  it('轮询发现变化必须重新预览，不能批准旧正文', () => {
+    open(); const original = detail;
+    detail = { ...original, item: { ...original.item, content: 'new content', updatedAt: '2026-10-10T00:00:00Z' } };
+    fireEvent.click(screen.getByRole('tab', { name: '内容差异' }));
+    // Force a local render so the refreshed query mock becomes visible.
+    fireEvent.change(screen.getByRole('combobox', { name: '对比对象' }), { target: { value: 'current' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('请刷新并重新预览后审核');
+    expect(screen.getByRole('button', { name: '通过并启用' })).toBeDisabled(); expect(mocks.review).not.toHaveBeenCalled();
   });
-
-  it.each(['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])('客户端%s记录及正文预览展示审核人与审核时间', (reviewStatus) => {
-    const query = usePersonalDiffs();
-    const reviewedAt = '2026-10-09T08:48:26.730Z';
-    query.data.items = [{
-      ...query.data.items[1], ...reviewFields(false), reviewStatus,
-      pending: false, reviewedBy: { id: 'reviewer-1', name: '审核管理员' },
-      enterpriseReviewedAt: reviewedAt,
-      rejectionReason: reviewStatus === 'ENTERPRISE_REJECTED' ? '请补充内容' : null,
-    }];
-
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-
-    expect(screen.getByText('审核人：审核管理员')).toBeInTheDocument();
-    expect(screen.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '预览正文' }));
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByText('审核人：审核管理员')).toBeInTheDocument();
-    expect(dialog.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
-    expect(dialog.queryByRole('button', { name: '审核通过' })).not.toBeInTheDocument();
+  it('409冲突刷新最新详情且不关闭，审批期间禁用重复提交', () => {
+    mocks.review.mockImplementation((_payload, options) => options.onError(Object.assign(new Error('版本冲突'), { status: 409 })));
+    open(); fireEvent.click(screen.getByRole('button', { name: '通过并启用' })); fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
+    expect(mocks.refetch).toHaveBeenCalled(); expect(screen.getByRole('dialog')).toBeVisible();
   });
-
-  it.each(['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'])('成员自己的%s历史工作副本展示审核人且不可编辑', (reviewStatus) => {
-    const query = usePersonalDiffs();
-    const reviewedAt = '2026-10-09T08:48:26.730Z';
-    const workingCopy = query.data.items[1];
-    query.data.canManage = false;
-    query.data.items = [];
-    query.data.myWorkingCopy = {
-      ...workingCopy,
-      reviewStatus, pending: false, reviewedBy: { id: 'reviewer-1', name: '审核管理员' },
-      enterpriseReviewedAt: reviewedAt,
-      rejectionReason: reviewStatus === 'ENTERPRISE_REJECTED' ? '请补充内容' : null,
-    };
-
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-
-    expect(screen.getByText('审核人：审核管理员')).toBeInTheDocument();
-    expect(screen.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
-    if (reviewStatus === 'ENTERPRISE_REJECTED') expect(screen.getByText('驳回原因：请补充内容')).toBeInTheDocument();
+  it('处理记录展示真实审核人意见，发布版本为可定位链接而非ID', () => {
+    detail.item.pending = false; detail.item.reviewStatus = 'ENTERPRISE_APPROVED';
+    detail.item.publishedVersion = { id: 'released', scope: 'ENTERPRISE', version: '2.0.0', isCurrent: false };
+    detail.reviews = [{ id: 'review', actorType: 'ENTERPRISE', decision: 'APPROVE', comment: '审核确认', reviewer: { id: 'reviewer', name: '审核管理员' }, createdAt: '2026-10-09T00:00:00Z' }];
+    open(); tab('处理记录');
+    expect(screen.getByText('审核管理员')).toBeVisible(); expect(screen.getByText('审核确认')).toBeVisible();
+    expect(screen.getByRole('link', { name: '企业版 2.0.0' })).toHaveAttribute('href', '/capabilities/cap?tab=versions&release=released');
+    expect(screen.queryByRole('button', { name: '通过并启用' })).not.toBeInTheDocument();
   });
-
-  it('审核人姓名为空时显示成员ID，不混用提交人姓名', () => {
-    const query = usePersonalDiffs();
-    query.data.items = [{
-      ...query.data.items[1], ...reviewFields(false), reviewStatus: 'ENTERPRISE_APPROVED',
-      pending: false, reviewedBy: { id: 'reviewer-1', name: null },
-    }];
-
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-
-    expect(screen.getByText('审核人：reviewer-1')).toBeInTheDocument();
-    expect(screen.queryByText('审核人：普通成员')).not.toBeInTheDocument();
+  it('历史副本的每次审核显示真实快照修订和对应发布版', () => {
+    detail.item.isWorkingCopy = true;
+    detail.reviews = [{ id: 'review-snapshot', versionId: 'snapshot', version: '0.0.0-snapshot.1', actorType: 'ENTERPRISE', decision: 'APPROVE',
+      comment: '确认修订', reviewer: { id: 'admin', name: '管理员' }, createdAt: '2026-10-09T00:00:00Z',
+      publishedVersion: { id: 'old-release', scope: 'ENTERPRISE', version: '1.0.1' } }];
+    open(); tab('处理记录');
+    expect(screen.getByText('0.0.0-snapshot.1')).toBeVisible();
+    expect(screen.getByRole('link', { name: '企业版 1.0.1' })).toHaveAttribute('href', '/capabilities/cap?tab=versions&release=old-release');
   });
-
-  it('历史记录没有审核人时只显示已有审核时间', () => {
-    const query = usePersonalDiffs();
-    const reviewedAt = '2026-10-09T08:48:26.730Z';
-    query.data.items = [{
-      ...query.data.items[1], ...reviewFields(false), reviewStatus: 'ENTERPRISE_APPROVED',
-      pending: false, enterpriseReviewedAt: reviewedAt, reviewedBy: null,
-    }];
-
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-
-    expect(screen.queryByText(/^审核人：/)).not.toBeInTheDocument();
-    expect(screen.getByText(`审核时间：${new Date(reviewedAt).toLocaleString('zh-CN')}`)).toBeInTheDocument();
+  it('分页及状态深链接交由服务端查询，切换状态重置页码', () => {
+    const navigate = vi.fn(); mocks.list.mockReturnValue({ data: { canManage: true, items: [], total: 41, page: 2, limit: 20 } });
+    render(<PersonalChangesPanel capabilityId="cap" currentUserId="admin" initialPage={2} initialStatus="pending" onNavigate={navigate} />);
+    expect(mocks.list).toHaveBeenLastCalledWith('cap', true, 2, 'PENDING_ENTERPRISE_REVIEW');
+    fireEvent.click(screen.getByRole('button', { name: '下一页' })); expect(navigate).toHaveBeenLastCalledWith({ status: 'pending', page: '3' });
+    fireEvent.change(screen.getByRole('combobox', { name: '审核状态' }), { target: { value: 'approved' } });
+    expect(navigate).toHaveBeenLastCalledWith({ status: 'approved', page: null });
   });
-  it('永久关闭Web副本创建、编辑、弃用入口，不再调用旧写hooks', () => {
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    expect(screen.queryByRole('button', { name: /创建我的副本|编辑|弃用|保存副本/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(createPersonal).not.toHaveBeenCalled();
-    expect(updatePersonal).not.toHaveBeenCalled();
-    expect(useVersionTimeline).not.toHaveBeenCalled();
+  it('直接打开其他页提交需要单独授权查询，错误不会展示旧正文', () => {
+    mocks.detail.mockReturnValue({ isError: true, error: new Error('无权访问'), refetch: mocks.refetch });
+    render(<PersonalChangesPanel capabilityId="cap" currentUserId="member" submissionId="private" onNavigate={vi.fn()} />);
+    expect(mocks.detail).toHaveBeenCalledWith('cap', 'private'); expect(screen.getByRole('alert')).toHaveTextContent('无权访问');
+    expect(within(screen.getByRole('dialog')).queryByText('member change')).not.toBeInTheDocument();
   });
-  it('成员不能看到其他成员私有正文或独立工作副本', () => {
-    const query = usePersonalDiffs();
-    query.data.canManage = false;
-    query.data.myWorkingCopy = query.data.items[0];
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="member" />);
-    expect(screen.queryByText('管理员自己的改动')).not.toBeInTheDocument();
-    expect(screen.getByText('成员改动')).toBeVisible();
-  });
-  it('通过审核提示自动启用，仅调用审核接口而非正文写入', () => {
-    review.mockImplementation((_payload, options) => options.onSuccess({ publishedVersionId: 'enterprise-new' }));
-    render(<PersonalChangesPanel capabilityId="cap-1" currentUserId="admin" />);
-    fireEvent.click(screen.getAllByRole('button', { name: '预览并审核' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: '审核通过' }));
-    fireEvent.click(screen.getByRole('button', { name: '确认通过并启用' }));
-    expect(success).toHaveBeenCalledWith('审核通过并启用', '企业版本已生成并自动启用');
-    expect(createPersonal).not.toHaveBeenCalled();
-    expect(updatePersonal).not.toHaveBeenCalled();
-  });
-
 });

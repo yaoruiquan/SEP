@@ -292,7 +292,7 @@ export class EnterpriseSkillVersionController {
   @SkipThrottle({ auth: true, chat: true })
   @Throttle(SKILL_READ_THROTTLE)
   @ApiOperation({ summary: '版本时间线：平台版与企业版混排，标出当前生效版本' })
-  @ApiResponse({ status: 200, description: '版本列表，含审核历史' })
+  @ApiResponse({ status: 200, description: '保留版本集合，补充 effectiveVersionState、effectiveVersion、pendingTotal 与隐私感知的 sourceSubmissionId' })
   @ApiResponse({ status: 403, description: '未获得该技能的使用授权' })
   listVersionTimeline(
     @Request() req: AuthRequest,
@@ -368,10 +368,10 @@ export class EnterpriseSkillVersionController {
 
   @Get('capabilities/:capabilityId/personal-diffs')
   @ApiOperation({
-    summary: '大家的改动',
-    description: '管理员看本企业全部成员的个人副本；普通成员只看自己的。含与企业生效版本的对比基线。',
+    summary: '提交与审核',
+    description: '管理员看本企业全部成员的个人副本；普通成员只看自己的。待审优先全局排序后分页；无统一有效版本时对比基线为空。',
   })
-  @ApiResponse({ status: 200, description: '个人副本列表 + 对比基线' })
+  @ApiResponse({ status: 200, description: '个人副本列表、对比基线、pendingTotal；每项 publishedVersion 含 id、scope、version、isCurrent' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, enum: ['PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] })
@@ -381,6 +381,23 @@ export class EnterpriseSkillVersionController {
     @Query(new ZodValidationPipe(PersonalSkillDiffQuerySchema)) query: PersonalSkillDiffQuery,
   ) {
     return this.service.listPersonalDiffs(req.user.id, capabilityId, query.page, query.limit, query.status);
+  }
+
+  @Get('capabilities/:capabilityId/submissions/:id')
+  @SkipThrottle({ auth: true, chat: true })
+  @Throttle(SKILL_READ_THROTTLE)
+  @ApiOperation({ summary: '只读提交详情、授权来源正文与完整企业审核记录' })
+  @ApiParam({ name: 'capabilityId', description: '技能能力 ID' })
+  @ApiParam({ name: 'id', description: '根 PERSONAL 提交 ID，不接受审核快照 ID' })
+  @ApiResponse({ status: 200, description: 'canManage、item、source、sourceState、currentBaseline、currentBaselineState、reviews；reviews 含真实 versionId/version/changeSummary、修订时间及可读取的 Adoption publishedVersion；成员仅可读取本人提交' })
+  @ApiResponse({ status: 403, description: '未获得该技能的读取授权' })
+  @ApiResponse({ status: 404, description: '技能、提交不存在或提交不在当前成员可读范围' })
+  getSubmissionDetail(
+    @Request() req: AuthRequest,
+    @Param('capabilityId') capabilityId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.getSubmissionDetail(req.user.id, capabilityId, id);
   }
 
   @Post('capabilities/:capabilityId/adopt')

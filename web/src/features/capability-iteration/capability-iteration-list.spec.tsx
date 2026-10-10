@@ -28,6 +28,11 @@ const skillRow = () => within(screen.getByRole('link', { name: /测试技能\s*(
 beforeEach(() => { vi.clearAllMocks(); mockData(data()); });
 
 describe('CapabilityIterationList 副本使用状态', () => {
+  it.each([true, false])('待审核提交入口携带待审筛选，管理员=%s', (canManage) => {
+    mockData(data(false, canManage)); render(<CapabilityIterationList />);
+    expect(screen.getByRole('heading', { name: canManage ? /^待审核提交/ : /^我的待审核提交/ })).toBeVisible();
+    expect(screen.getAllByRole('link').find((link) => link.getAttribute('href')?.includes('tab=changes'))).toHaveAttribute('href', '/capabilities/cap?tab=changes&status=pending');
+  });
   it.each(['ENTERPRISE', 'PLATFORM', null] as const)('基线 %s 标明默认版本，分组和平铺不显示使用说明', (scope) => {
     const value = data();
     value.items[0].currentVersion = scope ? { id: 'baseline', version: '1.0.0', scope } : null;

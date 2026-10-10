@@ -1,96 +1,103 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { VersionTimelinePanel } from './version-timeline-panel';
 import type { TimelineVersion, VersionTimeline } from './use-capability-iteration';
 
-const mocks = vi.hoisted(() => ({ enterprise: vi.fn(), enterprisePending: false, preview: vi.fn(), success: vi.fn() }));
-vi.mock('./use-capability-iteration', () => ({
-  useSelectEffectiveVersion: () => ({ mutate: mocks.enterprise, isPending: mocks.enterprisePending }),
-}));
+const mocks = vi.hoisted(() => ({ enterprise: vi.fn(), pending: false, preview: vi.fn(), success: vi.fn() }));
+vi.mock('./use-capability-iteration', () => ({ useSelectEffectiveVersion: () => ({ mutate: mocks.enterprise, isPending: mocks.pending }) }));
 vi.mock('@/components/ui/toast', () => ({ toast: { success: mocks.success, error: vi.fn() } }));
 vi.mock('@/features/skill-version/SkillVersionPreviewDialog', () => ({
-  SkillVersionPreviewDialog: (props: { versionId: string; source: string }) => {
-    mocks.preview(props);
-    return <div role="dialog">正文预览 {props.versionId}</div>;
-  },
+  SkillVersionPreviewDialog: (props: { versionId: string; source: string; details?: ReactNode }) => { mocks.preview(props); return <div role="dialog">正文预览 {props.versionId}{props.details}</div>; },
 }));
-function version(id: string, scope: TimelineVersion['scope'], status: TimelineVersion['status'], isWorkingCopy?: boolean): TimelineVersion {
-  return {
-    id, capabilityId: 'cap', scope, status, isWorkingCopy, ownerId: 'me', enterpriseId: null,
-    version: '1.0.0', parentVersionId: null, sourceVersionId: null, changeSummary: '变更说明',
-    createdAt: '2026-10-09T00:00:00Z', updatedAt: '2026-10-09T00:00:00Z',
-    createdBy: { id: 'me', name: '提交人' }, enterpriseReviewedBy: null, enterpriseReviewedAt: null,
-    rejectionReason: null, reviews: [], hasPlatformSubmission: false, isCurrent: id === 'enterprise',
-  };
+function version(id: string, scope: TimelineVersion['scope'], status: TimelineVersion['status']): TimelineVersion {
+  return { id, capabilityId: 'cap', scope, status, ownerId: 'me', enterpriseId: null, version: '1.0.0',
+    parentVersionId: null, sourceVersionId: null, changeSummary: `变更 ${id}`, sourceSubmissionId: null,
+    createdAt: '2026-10-09T00:00:00Z', updatedAt: '2026-10-09T00:00:00Z', createdBy: { id: 'me', name: '提交人' },
+    enterpriseReviewedBy: null, enterpriseReviewedAt: null, rejectionReason: null, reviews: [], hasPlatformSubmission: false, isCurrent: id === 'enterprise' };
 }
 function timeline(canManage = true): VersionTimeline {
-  return {
-    capability: { id: 'cap', name: '测试技能', description: '' }, canManage,
-    currentVersionId: 'enterprise', selectedAt: null, myPersonalVersionId: 'working', subscriptionId: '', subscriptions: [],
-    versions: [version('platform', 'PLATFORM', 'PLATFORM_APPROVED'),
-      version('enterprise', 'ENTERPRISE', 'ENTERPRISE_APPROVED'),
-      version('client', 'PERSONAL', 'PENDING_ENTERPRISE_REVIEW', false),
-      version('working', 'PERSONAL', 'PERSONAL_ACTIVE', true),
-      version('draft', 'ENTERPRISE', 'DRAFT'), version('archived', 'PLATFORM', 'ARCHIVED'),
-      version('personal-approved', 'PERSONAL', 'ENTERPRISE_APPROVED', false)],
-  };
+  return { capability: { id: 'cap', name: '测试技能', description: '' }, canManage, currentVersionId: 'enterprise',
+    selectedAt: null, myPersonalVersionId: 'working', subscriptionId: '', subscriptions: [],
+    versions: [version('platform', 'PLATFORM', 'PLATFORM_APPROVED'), version('enterprise', 'ENTERPRISE', 'ENTERPRISE_APPROVED'),
+      version('client', 'PERSONAL', 'PENDING_ENTERPRISE_REVIEW'), version('working', 'PERSONAL', 'PERSONAL_ACTIVE'),
+      version('draft', 'ENTERPRISE', 'DRAFT'), version('archived', 'PLATFORM', 'ARCHIVED'), version('personal-approved', 'PERSONAL', 'ENTERPRISE_APPROVED')] };
 }
 const row = (index: number) => within(screen.getAllByRole('listitem')[index]);
-beforeEach(() => { vi.clearAllMocks(); mocks.enterprisePending = false; });
+beforeEach(() => { vi.clearAllMocks(); mocks.pending = false; });
 
-describe('企业技能启用时间线', () => {
-  it('仅管理员可启用非当前的已通过企业或平台版，个人通过记录不能启用', () => {
+describe('发布版本', () => {
+  it('只保留正式通过的平台与企业版本，当前置顶，不承载审核流水', () => {
     const data = timeline();
-    data.versions.push(version('old-enterprise', 'ENTERPRISE', 'ENTERPRISE_APPROVED'));
+    data.versions[1].reviews = [{ id: 'review', actorType: 'ENTERPRISE', decision: 'APPROVE', comment: '私有审核意见', createdAt: '2026-10-09T00:00:00Z', reviewer: { id: 'admin', name: '审核人' } }];
     render(<VersionTimelinePanel timeline={data} />);
-    expect(row(1).getByText('已启用')).toBeVisible();
-    expect(row(1).queryByRole('button', { name: '启用' })).not.toBeInTheDocument();
-    for (const index of [2, 3, 4, 5, 6]) expect(row(index).queryByRole('button', { name: '启用' })).not.toBeInTheDocument();
-    fireEvent.click(row(0).getByRole('button', { name: '启用' }));
-    expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
-    const callbacks = mocks.enterprise.mock.calls[0][1];
-    callbacks.onSuccess();
-    expect(mocks.success).toHaveBeenCalledWith('已启用 平台版 1.0.0');
-    fireEvent.click(row(7).getByRole('button', { name: '启用' }));
-    expect(mocks.enterprise).toHaveBeenLastCalledWith({ versionId: 'old-enterprise' }, expect.any(Object));
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(row(0).getByText('企业版 1.0.0')).toBeVisible();
+    expect(row(1).getByText('平台版 1.0.0')).toBeVisible();
+    expect(screen.queryByText('私有审核意见')).not.toBeInTheDocument();
+    expect(screen.queryByText(/客户端提交|历史 Web 副本|个人提交/)).not.toBeInTheDocument();
   });
-  it('普通成员只读，仍可预览正文与审核历史', () => {
-    const data = timeline(false);
-    data.versions[1].reviews = [{ id: 'review', actorType: 'ENTERPRISE', decision: 'APPROVE', comment: '已确认',
-      createdAt: '2026-10-09T00:00:00Z', reviewer: { id: 'admin', name: '审核人' } }];
-    render(<VersionTimelinePanel timeline={data} />);
+  it('启用经过二次确认，仅管理员可操作其他正式版本', () => {
+    render(<VersionTimelinePanel timeline={timeline()} />);
+    expect(row(0).queryByRole('button', { name: '启用' })).not.toBeInTheDocument();
+    fireEvent.click(row(1).getByRole('button', { name: '启用' }));
+    expect(mocks.enterprise).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveTextContent('历史发布版本和审核结果保持不变');
+    fireEvent.click(screen.getByRole('button', { name: '确认启用' }));
+    expect(mocks.enterprise).toHaveBeenCalledWith({ versionId: 'platform' }, expect.any(Object));
+    mocks.enterprise.mock.calls[0][1].onSuccess();
+    expect(mocks.success).toHaveBeenCalledWith('已启用 平台版 1.0.0');
+  });
+  it('成员只读但可预览内容，缺省来源不生成他人提交链接', () => {
+    render(<VersionTimelinePanel timeline={timeline(false)} />);
     expect(screen.queryByRole('button', { name: '启用' })).not.toBeInTheDocument();
-    fireEvent.click(row(1).getByRole('button', { name: '展开' }));
-    expect(row(1).getByText('审核人')).toBeVisible();
-    expect(row(1).getByText('已确认')).toBeVisible();
-    fireEvent.click(row(1).getByRole('button', { name: '查看内容' }));
+    expect(screen.queryByRole('link', { name: '来源提交' })).not.toBeInTheDocument();
+    fireEvent.click(row(0).getByRole('button', { name: '查看详情' }));
     expect(mocks.preview).toHaveBeenLastCalledWith(expect.objectContaining({ versionId: 'enterprise', source: 'enterprise' }));
   });
-  it('可靠区分客户端和历史 Web 来源；字段缺失仅显示个人提交', () => {
-    const data = timeline();
-    data.versions.push(version('unknown', 'PERSONAL', 'PERSONAL_ACTIVE'));
+  it('来源筛选和授权来源深链接可定位具体提交', () => {
+    const data = timeline(); data.versions[1].sourceSubmissionId = 'submission';
     render(<VersionTimelinePanel timeline={data} />);
-    expect(row(2).getByText('客户端提交 1.0.0')).toBeVisible();
-    expect(row(3).getByText('历史 Web 副本 1.0.0')).toBeVisible();
-    expect(row(7).getByText('个人提交 1.0.0')).toBeVisible();
+    expect(screen.getByRole('link', { name: '来源提交' })).toHaveAttribute('href', '/capabilities/cap?tab=changes&submission=submission');
+    fireEvent.change(screen.getByRole('combobox', { name: '版本来源' }), { target: { value: 'PLATFORM' } });
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.queryByText('企业版 1.0.0')).not.toBeInTheDocument();
   });
-  it('历史 PIN 不影响企业当前启用展示，不暴露个人或正文写入口', () => {
+  it('发布详情保留真实发布时间与授权来源提交入口', () => {
     const data = timeline();
-    data.subscriptions = [{ subscriptionId: 'sub', employeeId: 'employee', employeeName: '员工', currentVersionId: 'enterprise',
-      enterpriseVersionId: 'enterprise', personalVersionId: 'working', personalSelectionMode: 'PINNED',
-      effectiveVersionId: 'working', effectiveVersionScope: 'PERSONAL', canSelectPersonal: true, selectedAt: null }];
-    render(<VersionTimelinePanel timeline={data} />);
-    expect(screen.getByRole('region', { name: '企业当前启用' })).toHaveTextContent('企业版 1.0.0');
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^(设为个人使用|使用此副本|使用我的副本|跟随企业|投稿到平台|创建|编辑)$/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: '编辑企业版本' })).not.toBeInTheDocument();
+    data.versions[1].sourceSubmissionId = 'submission';
+    data.versions[1].enterpriseReviewedAt = '2026-10-10T01:00:00Z';
+    const navigate = vi.fn();
+    render(<VersionTimelinePanel timeline={data} releaseId="enterprise" onNavigate={navigate} />);
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText(/发布时间/)).toBeVisible();
+    fireEvent.click(dialog.getByRole('link', { name: '来源提交' }));
+    expect(navigate).toHaveBeenCalledWith({ tab: 'changes', submission: 'submission', release: null });
   });
-  it('启用请求进行中不可重复提交', () => {
-    mocks.enterprisePending = true;
-    render(<VersionTimelinePanel timeline={timeline()} />);
-    const button = row(0).getByRole('button', { name: '启用' });
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
-    expect(mocks.enterprise).not.toHaveBeenCalled();
+  it('深链接只能预览正式版本，切换URL后不残留旧弹窗', () => {
+    const navigate = vi.fn(); const data = timeline();
+    const view = render(<VersionTimelinePanel timeline={data} releaseId="platform" onNavigate={navigate} />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('platform');
+    view.rerender(<VersionTimelinePanel timeline={data} releaseId={null} onNavigate={navigate} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    view.rerender(<VersionTimelinePanel timeline={data} releaseId="client" onNavigate={navigate} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('不存在或当前不可查看');
+  });
+  it('来源筛选可从URL恢复并在导航时保留', () => {
+    const navigate = vi.fn();
+    const view = render(<VersionTimelinePanel timeline={timeline()} sourceFilter="PLATFORM" onNavigate={navigate} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('平台版 1.0.0')).toBeVisible();
+    fireEvent.change(screen.getByRole('combobox', { name: '版本来源' }), { target: { value: 'ENTERPRISE' } });
+    expect(navigate).toHaveBeenCalledWith({ source: 'ENTERPRISE' });
+    view.rerender(<VersionTimelinePanel timeline={timeline()} sourceFilter="ENTERPRISE" onNavigate={navigate} />);
+    expect(screen.getByText('企业版 1.0.0')).toBeVisible();
+    expect(screen.queryByText('平台版 1.0.0')).not.toBeInTheDocument();
+  });
+  it('进行中禁用启用，列表没有个人选版或正文修改入口', () => {
+    mocks.pending = true; render(<VersionTimelinePanel timeline={timeline()} />);
+    expect(screen.getByRole('button', { name: '启用' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /设为个人使用|使用我的副本|创建|编辑/ })).not.toBeInTheDocument();
   });
 });

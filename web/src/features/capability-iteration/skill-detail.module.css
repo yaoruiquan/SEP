@@ -1,0 +1,242 @@
+.page {
+  --skill-accent: var(--gbrand-text);
+  --skill-positive: var(--gsuccess);
+}
+
+.description {
+  max-width: 80ch;
+  color: var(--gtext-secondary);
+}
+
+.currentSummary {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.currentIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--skill-positive, var(--gsuccess));
+  background: rgb(var(--gsuccess-rgb) / 0.09);
+}
+
+.tabs {
+  gap: 6px;
+  padding: 4px 0;
+  background: transparent;
+  border: 0;
+}
+
+.tab {
+  min-height: 40px;
+  border-radius: 8px;
+  color: var(--gtext-secondary);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.tab:hover {
+  background: var(--glass-1);
+  color: var(--gtext-primary);
+}
+
+.tab[data-state='active'] {
+  color: var(--skill-accent, var(--gbrand-text));
+  background: rgb(var(--gbrand-rgb) / 0.09);
+  box-shadow: none;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 50%;
+  background: rgb(var(--gbrand-rgb) / 0.10);
+  color: var(--gbrand-text);
+  font-size: 10px;
+}
+
+.select {
+  height: 36px;
+  min-width: 88px;
+  padding: 0 28px 0 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background-color: var(--glass-2);
+  color: var(--gtext-primary);
+  font-size: 12px;
+  transition: border-color 160ms ease;
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--gbrand-ring);
+  outline-offset: 2px;
+}
+
+.tableHeading {
+  padding: 4px 20px 8px;
+  color: var(--gtext-secondary);
+  font-size: 11px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  padding: 20px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--glass-1);
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.row:hover {
+  background: var(--glass-2);
+  border-color: var(--glass-border);
+}
+
+.currentRow {
+  border-color: rgb(var(--gsuccess-rgb) / 0.18);
+  background: var(--glass-2);
+}
+
+.currentRow:hover {
+  border-color: rgb(var(--gsuccess-rgb) / 0.28);
+}
+
+.versionIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--gbrand-text);
+  background: rgb(var(--gbrand-rgb) / 0.08);
+}
+
+.enterpriseIcon {
+  color: var(--gsuccess);
+  background: rgb(var(--gsuccess-rgb) / 0.09);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  gap: 5px;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--gtext-secondary);
+  background: rgb(var(--gbg-raised-rgb) / 0.5);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.positive {
+  color: var(--gsuccess);
+  background: rgb(var(--gsuccess-rgb) / 0.09);
+}
+
+.mobileStatus {
+  display: none;
+}
+
+.pending {
+  color: var(--gwarning);
+  background: rgb(var(--gwarning-rgb) / 0.10);
+}
+
+.rejected {
+  color: var(--gdanger);
+  background: rgb(var(--gdanger-rgb) / 0.08);
+}
+
+.action {
+  height: 32px;
+  border-radius: 8px;
+  border-color: var(--glass-border);
+  background: var(--glass-2);
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.action:hover {
+  background: var(--glass-3);
+  box-shadow: none;
+}
+
+.enable {
+  color: var(--gbrand-text);
+  border-color: rgb(var(--gbrand-rgb) / 0.14);
+  background: rgb(var(--gbrand-rgb) / 0.07);
+}
+
+.enable:hover {
+  background: rgb(var(--gbrand-rgb) / 0.12);
+}
+
+.sourceLink {
+  width: 100%;
+  justify-content: flex-end;
+  color: var(--gtext-secondary);
+}
+
+.sourceLink:hover {
+  color: var(--gbrand-text);
+}
+
+.dialogHeader {
+  background: var(--glass-1);
+}
+
+@media (max-width: 1023px) {
+  .mobileStatus {
+    display: inline-flex;
+  }
+
+  .desktopStatus {
+    display: none;
+  }
+
+  .row {
+    padding: 16px;
+  }
+
+  .sourceLink {
+    width: auto;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 639px) {
+  .tabs {
+    gap: 2px;
+  }
+
+  .tab {
+    min-width: 0;
+    padding-left: 7px;
+    padding-right: 7px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab, .select, .row {
+    transition: none;
+  }
+}

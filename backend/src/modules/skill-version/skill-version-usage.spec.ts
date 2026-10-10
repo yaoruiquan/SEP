@@ -509,9 +509,12 @@ describe('SkillVersionService 使用记录与统计', () => {
         versionId: 'enterprise-old', selectedAt,
       }) });
       defaults.get.mockResolvedValue({ versionId: 'enterprise-new', selectedAt,
-        version: { id: 'enterprise-new', scope: 'ENTERPRISE', version: '1.1.0' } } as never);
+        version: { id: 'enterprise-new', capabilityId: 'cap-1', enterpriseId: 'ent-1',
+          scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED', version: '1.1.0' } } as never);
       const result = await service.listVersionTimeline('user-1', 'cap-1');
       expect(result.currentVersionId).toBe('enterprise-new');
+      expect(result.effectiveVersionState).toBe('EXPLICIT');
+      expect(result.effectiveVersion).toEqual({ id: 'enterprise-new', scope: 'ENTERPRISE', version: '1.1.0' });
       expect(result.selectedAt).toBe(selectedAt.toISOString());
       expect(result.versions.map((version) => [version.id, version.isCurrent])).toEqual([
         ['enterprise-new', true], ['enterprise-old', false],
@@ -519,22 +522,39 @@ describe('SkillVersionService 使用记录与统计', () => {
       expect(defaults.get).toHaveBeenCalledWith('ent-1', 'cap-1');
     });
 
-    it('标出当前生效版本，其余为 false', async () => {
-      const { service } = build({
+    it('不同订阅实际使用不同版本时返回 MIXED，不把首条选版冒充企业当前版本', async () => {
+      const selectedAt = new Date('2026-08-28T00:00:00.000Z');
+      const enterpriseVersion = { id: 'sv-ent', capabilityId: 'cap-1', enterpriseId: 'ent-1',
+        scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED', version: '1.1.0' };
+      const platformVersion = { id: 'sv-plat', capabilityId: 'cap-1', enterpriseId: null,
+        scope: 'PLATFORM', status: 'PLATFORM_APPROVED', version: '1.0.0' };
+      const { service, prisma } = build({
         skillVersionFindMany: jest.fn().mockResolvedValue([
           { id: 'sv-ent', version: '1.1.0', scope: 'ENTERPRISE', promotedVersions: [], reviews: [] },
           { id: 'sv-plat', version: '1.0.0', scope: 'PLATFORM', promotedVersions: [], reviews: [] },
         ]),
-        subscriptionSkillVersionFindUnique: jest
-          .fn()
-          .mockResolvedValue({ versionId: 'sv-ent', selectedAt: new Date('2026-08-28T00:00:00.000Z') }),
+        subscriptionFindMany: jest.fn().mockResolvedValue([
+          { id: 'sub-1', employee: { id: 'employee-1', name: '员工1' },
+            skillVersionSelections: [{ versionId: 'sv-ent', selectedAt }] },
+          { id: 'sub-2', employee: { id: 'employee-2', name: '员工2' }, skillVersionSelections: [] },
+        ]),
+        subscriptionSkillVersionFindUnique: jest.fn().mockImplementation(async ({ where }) =>
+          where.subscriptionId_capabilityId.subscriptionId === 'sub-1'
+            ? { versionId: 'sv-ent', selectedAt, version: enterpriseVersion } : null),
       });
+      prisma.subscription.findUnique.mockResolvedValue({ enterpriseId: 'ent-1',
+        employee: { bindings: [{ defaultSkillVersion: platformVersion }] } });
 
       const result = await service.listVersionTimeline('u1', 'cap-1');
 
-      expect(result.currentVersionId).toBe('sv-ent');
+      expect(result.effectiveVersionState).toBe('MIXED');
+      expect(result.effectiveVersion).toBeNull();
+      expect(result.currentVersionId).toBeNull();
+      expect(result.selectedAt).toBeNull();
+      expect(result.subscriptions.map((item) => [item.subscriptionId, item.currentVersionId, item.selectedAt]))
+        .toEqual([['sub-1', 'sv-ent', selectedAt.toISOString()], ['sub-2', 'sv-plat', null]]);
       expect(result.versions.map((v) => [v.id, v.isCurrent])).toEqual([
-        ['sv-ent', true],
+        ['sv-ent', false],
         ['sv-plat', false],
       ]);
     });

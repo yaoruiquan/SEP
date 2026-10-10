@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import { useAuthStore } from '@/lib/auth-store';
 import { ReviewSkillVersionDtoSchema, type ReviewSkillVersionDto } from '../../../../backend/src/shared/skill-version.dto';
 import type { AdminVersionRow } from './group-admin-versions';
 import type {
@@ -47,8 +48,9 @@ export const previewPathFor = (source: PreviewSource, versionId: string) =>
   PREVIEW_PATH[source](versionId);
 
 export function useSkillVersionPreview(versionId: string, source: PreviewSource = 'enterprise') {
+  const identity = useAuthStore((state) => [state.enterprise?.id, state.user?.id, state.roleInEnterprise].join(':'));
   return useQuery({
-    queryKey: skillVersionKeys.preview(versionId, source),
+    queryKey: [...skillVersionKeys.preview(versionId, source), identity],
     queryFn: () => api.get<SkillVersionPreview>(PREVIEW_PATH[source](versionId)),
     enabled: Boolean(versionId),
   });

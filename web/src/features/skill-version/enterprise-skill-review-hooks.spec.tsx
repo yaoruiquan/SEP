@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api-client';
-import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion } from './use-skill-version';
+import { useAuthStore } from '@/lib/auth-store';
+import { useEnterpriseSkillVersionReviews, useReviewEnterprisePersonalSkillVersion, useSkillVersionPreview } from './use-skill-version';
 
 vi.mock('@/lib/api-client', () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 const clients: QueryClient[] = [];
@@ -15,9 +16,20 @@ function setup() {
   return { client, wrapper, invalidate };
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.get).mockResolvedValue({ total: 0, items: [], page: 1, limit: 20 }); vi.mocked(api.post).mockResolvedValue({ id: 'v' }); });
-afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
+afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); useAuthStore.setState({ user: null, enterprise: null, roleInEnterprise: null }); });
 
 describe('企业个人技能审核 hooks', () => {
+  it('角色变化不复用先前授权的正文预览缓存', async () => {
+    const { wrapper, client } = setup();
+    useAuthStore.setState({ enterprise: { id: 'ent', name: '企业' }, roleInEnterprise: 'ENTERPRISE_ADMIN' });
+    vi.mocked(api.get).mockResolvedValueOnce({ content: '管理员可查看的正文' }).mockReturnValueOnce(new Promise(() => {}));
+    const { result } = renderHook(() => useSkillVersionPreview('personal-version'), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    act(() => { useAuthStore.setState({ roleInEnterprise: 'MEMBER' }); });
+    expect(result.current.data).toBeUndefined();
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(client.getQueryCache().getAll().map((query) => query.queryKey.at(-1))).toEqual(['ent::ENTERPRISE_ADMIN', 'ent::MEMBER']);
+  });
   it('查询传递状态、技能ID及分页，按企业隔离缓存并配置前台轮询', async () => {
     const { client, wrapper } = setup();
     const { result } = renderHook(() => useEnterpriseSkillVersionReviews({ enterpriseId: 'ent', status: 'ENTERPRISE_REJECTED', capabilityId: 'cap', page: 3, limit: 100 }), { wrapper });

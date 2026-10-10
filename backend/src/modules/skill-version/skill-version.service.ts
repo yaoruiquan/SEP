@@ -74,6 +74,22 @@ type PlatformRelease = Prisma.SkillVersionGetPayload<{ include: {
   sourceVersion: { select: { capability: { select: { id: true; contributorId: true; enterpriseId: true } } } };
 } }>;
 
+const PERSONAL_DIFF_SELECT = {
+  ...VERSION_SUMMARY_SELECT,
+  owner: { select: { id: true, name: true, email: true } },
+  parentVersion: { select: { id: true, scope: true, version: true } },
+  ...PERSONAL_REVIEW_RELATIONS,
+} satisfies Prisma.SkillVersionSelect;
+
+const ENTERPRISE_REVIEW_SELECT = {
+  id: true, versionId: true, actorType: true, decision: true, comment: true, createdAt: true,
+  reviewer: { select: { id: true, name: true } },
+} satisfies Prisma.SkillVersionReviewSelect;
+
+type PersonalDiffSource = Prisma.SkillVersionGetPayload<{ select: typeof PERSONAL_DIFF_SELECT }>;
+type EffectiveVersionState = 'EXPLICIT' | 'AUTOMATIC' | 'MIXED' | 'NONE';
+type CapabilityReadContext = { enterpriseId: string; memberId: string; departmentId: string | null; role: string };
+
 @Injectable()
 export class SkillVersionService {
   private readonly logger = new Logger(SkillVersionService.name);
@@ -914,15 +930,8 @@ export class SkillVersionService {
     await this.assertCapabilityReadable(ctx, capabilityId);
     const canManage = ctx.role === 'ENTERPRISE_ADMIN';
 
-    const [baseline, versions] = await Promise.all([
-      // 基线是企业当前生效版本；没有企业版才退到最新平台版。
-      // diff 要有比较对象，否则「他改了什么」只能靠人读全文。
-      //
-      // ⚠️ 不能用一条 findFirst + orderBy scope 解决：Postgres 按枚举**声明顺序**
-      // 排序，而 SkillVersionScope 的声明是 PLATFORM 在前，`asc` 会把平台版排在
-      // 企业版之前 —— 结果是采纳完之后 diff 仍然拿平台原版当基线，
-      // 把企业已有的定制显示成成员的改动。
-      this.resolveEnterpriseBaseline(ctx.enterpriseId, capabilityId),
+    const [effective, versions] = await Promise.all([
+      this.readCapabilityEffectiveState(ctx, capabilityId),
       this.prisma.skillVersion.findMany({
         where: {
           capabilityId,
@@ -932,27 +941,21 @@ export class SkillVersionService {
           enterpriseId: ctx.enterpriseId,
           ...(canManage ? {} : { ownerId: userId }),
         },
-        select: {
-          ...VERSION_SUMMARY_SELECT,
-          ownerId: true,
-          owner: { select: { id: true, name: true, email: true } },
-          parentVersion: { select: { id: true, scope: true, version: true } },
-          ...PERSONAL_REVIEW_RELATIONS,
-        },
+        select: PERSONAL_DIFF_SELECT,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
 
-    const mapped = versions.map((version) => {
-      const state = personalReviewState(version);
-      return {
-        id: version.id, owner: version.owner, basedOn: version.parentVersion,
-        changeSummary: version.changeSummary, updatedAt: version.updatedAt,
-        status: version.status, submittedAt: version.submittedAt, ...state,
-        canEdit: false,
-        adopted: Boolean(state.publishedVersionId), adoptedAt: state.enterpriseReviewedAt,
-      };
-    });
+    const summaries = versions.map((version) => this.personalDiffItem(version));
+    const publishedVersions = await this.readPublishedVersions(ctx.enterpriseId, capabilityId,
+      summaries.map((row) => row.publishedVersionId));
+    const statusRank = (row: typeof summaries[number]) => row.pending ? 0 : row.reviewStatus === 'ENTERPRISE_APPROVED' ? 1 : 2;
+    const mapped = summaries.map((row) => ({ ...row,
+      publishedVersion: this.publishedVersionMetadata(publishedVersions.get(row.publishedVersionId ?? ''), effective.version?.id),
+    })).sort((a, b) => statusRank(a) - statusRank(b)
+      || (b.submittedAt ?? b.updatedAt).getTime() - (a.submittedAt ?? a.updatedAt).getTime()
+      || b.updatedAt.getTime() - a.updatedAt.getTime() || b.id.localeCompare(a.id));
+    const pendingTotal = mapped.filter((row) => row.pending).length;
     const filtered = status ? mapped.filter((row) => row.reviewStatus === status) : mapped;
     const pageItems = filtered.slice((page - 1) * limit, page * limit);
     const myWorkingCopy = mapped.find((row) => row.canEdit) ?? null;
@@ -969,12 +972,101 @@ export class SkillVersionService {
     };
     return {
       canManage,
-      baseline: baseline
-        ? { id: baseline.id, scope: baseline.scope, version: baseline.version, content: baseline.content }
+      baseline: effective.version
+        ? { id: effective.version.id, scope: effective.version.scope, version: effective.version.version, content: effective.version.content }
         : null,
       myWorkingCopy: myWorkingCopy ? withBody(myWorkingCopy) : null,
-      total: filtered.length, page, limit,
+      total: filtered.length, pendingTotal, page, limit,
       items: pageItems.flatMap((row) => { const item = withBody(row); return item ? [item] : []; }),
+    };
+  }
+
+  private personalDiffItem(version: PersonalDiffSource) {
+    const state = personalReviewState(version);
+    return {
+      id: version.id, owner: version.owner, basedOn: version.parentVersion,
+      changeSummary: version.changeSummary, updatedAt: version.updatedAt,
+      status: version.status, submittedAt: version.submittedAt, ...state,
+      canEdit: false, adopted: Boolean(state.publishedVersionId), adoptedAt: state.enterpriseReviewedAt,
+    };
+  }
+
+  private async readPublishedVersions(enterpriseId: string, capabilityId: string, ids: Array<string | null>) {
+    const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+    const versions = uniqueIds.length ? await this.prisma.skillVersion.findMany({ where: {
+      id: { in: uniqueIds }, capabilityId, enterpriseId, scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED',
+    }, select: { id: true, scope: true, version: true } }) : [];
+    return new Map(versions.map((version) => [version.id, version]));
+  }
+
+  private publishedVersionMetadata(
+    version: { id: string; scope: SkillVersionScope; version: string } | undefined, currentId?: string,
+  ) {
+    return version ? { id: version.id, scope: version.scope, version: version.version, isCurrent: version.id === currentId } : null;
+  }
+
+  async getSubmissionDetail(userId: string, capabilityId: string, id: string) {
+    const ctx = await this.enterpriseContext.resolve(userId);
+    await this.assertCapabilityReadable(ctx, capabilityId);
+    const canManage = ctx.role === 'ENTERPRISE_ADMIN';
+    const snapshotWhere: Prisma.SkillVersionWhereInput = {
+      capabilityId, enterpriseId: ctx.enterpriseId, scope: 'PERSONAL',
+      ...(canManage ? {} : { ownerId: userId }),
+      status: { in: ['ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] },
+    };
+    const submission = await this.prisma.skillVersion.findFirst({ where: {
+      id, capabilityId, enterpriseId: ctx.enterpriseId, scope: 'PERSONAL', workingCopyId: null,
+      status: { in: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] },
+      ...(canManage ? {} : { ownerId: userId }),
+    }, select: {
+      ...PERSONAL_DIFF_SELECT, content: true,
+      reviews: { where: { actorType: 'ENTERPRISE' }, select: ENTERPRISE_REVIEW_SELECT },
+      reviewSnapshots: {
+        where: snapshotWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { ...PERSONAL_DIFF_SELECT,
+          reviews: { where: { actorType: 'ENTERPRISE' }, select: ENTERPRISE_REVIEW_SELECT },
+        },
+      },
+    } });
+    if (!submission) throw new NotFoundException('提交不存在');
+
+    // Only enterprise review snapshots participate in the root state or history.
+    const snapshots = submission.reviewSnapshots.filter((snapshot) => snapshot.workingCopyId === submission.id
+      && snapshot.enterpriseId === ctx.enterpriseId && snapshot.capabilityId === capabilityId
+      && snapshot.scope === 'PERSONAL' && snapshot.ownerId === submission.ownerId
+      && (snapshot.status === 'ENTERPRISE_APPROVED' || snapshot.status === 'ENTERPRISE_REJECTED'));
+    const item = this.personalDiffItem({ ...submission, reviewSnapshots: snapshots });
+    const [source, effective, publishedVersions] = await Promise.all([
+      submission.parentVersionId ? this.prisma.skillVersion.findFirst({ where: {
+        id: submission.parentVersionId, capabilityId, OR: [
+          { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+          { scope: 'ENTERPRISE', enterpriseId: ctx.enterpriseId, status: 'ENTERPRISE_APPROVED' },
+          { scope: 'PERSONAL', enterpriseId: ctx.enterpriseId, ...(canManage ? {} : { ownerId: userId }) },
+        ],
+      }, select: { id: true, scope: true, version: true, content: true } }) : null,
+      this.readCapabilityEffectiveState(ctx, capabilityId),
+      this.readPublishedVersions(ctx.enterpriseId, capabilityId, [item.publishedVersionId,
+        ...[submission, ...snapshots].flatMap((version) => version.adoptedInto.map((adoption) => adoption.targetVersionId))]),
+    ]);
+    const reviews = [submission, ...snapshots].flatMap((version) => version.reviews
+      .filter((review) => review.actorType === 'ENTERPRISE' && review.versionId === version.id)
+      .map((review) => ({ ...review, version: version.version, changeSummary: version.changeSummary,
+        workingCopyUpdatedAt: version.workingCopyId ? version.workingCopyUpdatedAt : null,
+        publishedVersion: review.decision === 'APPROVE'
+          ? this.publishedVersionMetadata(publishedVersions.get(version.adoptedInto[0]?.targetVersionId ?? ''), effective.version?.id)
+          : null,
+      })))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+    return {
+      canManage,
+      item: { ...item, version: submission.version, content: submission.content,
+        publishedVersion: this.publishedVersionMetadata(publishedVersions.get(item.publishedVersionId ?? ''), effective.version?.id) },
+      source: source ? { id: source.id, scope: source.scope, version: source.version, content: source.content } : null,
+      sourceState: submission.parentVersionId ? source ? 'AVAILABLE' : 'UNREADABLE' : 'NONE',
+      currentBaseline: effective.version ? { id: effective.version.id, scope: effective.version.scope,
+        version: effective.version.version, content: effective.version.content } : null,
+      currentBaselineState: effective.state,
+      reviews,
     };
   }
 
@@ -1048,36 +1140,6 @@ export class SkillVersionService {
   /** 停用管理员 Web 草稿直接发布；只可启用已通过版本。 */
   async publishEnterpriseVersion(_userId: string, _versionId: string) {
     throw new ForbiddenException('Web 技能正文修改已停用，请通过客户端修改并提交审核');
-  }
-
-  /**
-   * diff 的比较基线：企业已通过的最新版本，没有就退到最新平台版。
-   *
-   * 与 resolveEffectiveVersion 的区别：那个按订阅解析「这条雇佣关系用哪版」，
-   * 这个回答「本企业的公共基准是什么」—— 个人改动应该对着企业基准比，
-   * 而不是对着某一条订阅的选版比。
-   */
-  private async resolveEnterpriseBaseline(enterpriseId: string, capabilityId: string) {
-    const current = await this.defaults.get(enterpriseId, capabilityId);
-    if (current) return { id: current.version.id, scope: current.version.scope,
-      version: current.version.version, content: current.version.content };
-    const enterpriseVersion = await this.prisma.skillVersion.findFirst({
-      where: {
-        capabilityId,
-        scope: 'ENTERPRISE',
-        enterpriseId,
-        status: 'ENTERPRISE_APPROVED',
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, scope: true, version: true, content: true },
-    });
-    if (enterpriseVersion) return enterpriseVersion;
-
-    return this.prisma.skillVersion.findFirst({
-      where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: PLATFORM_RELEASE_ORDER,
-      select: { id: true, scope: true, version: true, content: true },
-    });
   }
 
   private async getGrantedSubscription(
@@ -1447,8 +1509,99 @@ export class SkillVersionService {
     };
   }
 
+  private isApprovedEffectiveVersion(
+    version: { capabilityId: string; scope: string; status: string; enterpriseId: string | null } | null | undefined,
+    enterpriseId: string, capabilityId: string,
+  ) {
+    return version?.capabilityId === capabilityId && (
+      (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
+      (version.scope === 'ENTERPRISE' && version.status === 'ENTERPRISE_APPROVED' && version.enterpriseId === enterpriseId)
+    );
+  }
+
+  private async readCapabilityEffectiveState(ctx: CapabilityReadContext, capabilityId: string) {
+    const [current, subscriptions] = await Promise.all([
+      this.defaults.get(ctx.enterpriseId, capabilityId),
+      this.prisma.subscription.findMany({ where: {
+        enterpriseId: ctx.enterpriseId, status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
+        ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) } }),
+        employee: { bindings: { some: { capabilityId, enabled: true, capability: { type: 'SKILL' } } } },
+      }, select: {
+        id: true, employee: { select: { id: true, name: true } },
+        skillVersionSelections: { where: { capabilityId }, select: { versionId: true, selectedAt: true } },
+      } }),
+    ]);
+    const explicitDefault = current && this.isApprovedEffectiveVersion(current.version, ctx.enterpriseId, capabilityId) ? current : null;
+    const resolved = await Promise.all(subscriptions.map(async (subscription) => {
+      const version = explicitDefault?.version ?? await this.resolveEffectiveVersion(subscription.id, capabilityId);
+      const selection = subscription.skillVersionSelections.find((item) => item.versionId === version?.id);
+      const selectedAt = version ? explicitDefault?.selectedAt ?? selection?.selectedAt ?? null : null;
+      return { ...subscription, version, selectedAt,
+        state: (version ? explicitDefault || selection ? 'EXPLICIT' : 'AUTOMATIC' : 'NONE') as EffectiveVersionState };
+    }));
+    if (explicitDefault) return { state: 'EXPLICIT' as EffectiveVersionState,
+      version: explicitDefault.version, selectedAt: explicitDefault.selectedAt, subscriptions: resolved };
+    if (!resolved.length) {
+      const fallback = await this.prisma.skillVersion.findFirst({ where: {
+        capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      }, orderBy: PLATFORM_RELEASE_ORDER });
+      return { state: (fallback ? 'AUTOMATIC' : 'NONE') as EffectiveVersionState,
+        version: fallback, selectedAt: null, subscriptions: resolved };
+    }
+    // Aggregate every visible subscription; never use the authorization probe as a company default.
+    const ids = new Set(resolved.map((row) => row.version?.id ?? null));
+    if (ids.size > 1) return { state: 'MIXED' as EffectiveVersionState, version: null, selectedAt: null, subscriptions: resolved };
+    const version = resolved[0].version;
+    const allExplicit = resolved.every((row) => row.state === 'EXPLICIT');
+    const dates = new Set(resolved.map((row) => row.selectedAt?.getTime() ?? null));
+    return { state: (version ? allExplicit ? 'EXPLICIT' : 'AUTOMATIC' : 'NONE') as EffectiveVersionState,
+      version, selectedAt: allExplicit && dates.size === 1 ? resolved[0].selectedAt : null, subscriptions: resolved };
+  }
+
+  private async pendingSubmissionTotal(ctx: CapabilityReadContext, userId: string, capabilityId: string) {
+    const roots = await this.prisma.skillVersion.findMany({ where: {
+      enterpriseId: ctx.enterpriseId, capabilityId, scope: 'PERSONAL', workingCopyId: null,
+      status: { in: ['PERSONAL_ACTIVE', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED'] },
+      ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : { ownerId: userId }),
+    }, select: PERSONAL_DIFF_SELECT });
+    return roots.filter((row) => row.scope === 'PERSONAL' && !row.workingCopyId && personalReviewState(row).pending).length;
+  }
+
+  private async readSourceSubmissionIds(ctx: CapabilityReadContext, userId: string, capabilityId: string, ids: string[]) {
+    if (!ids.length) return new Map<string, string>();
+    // Count all real sources before applying visibility, or a member's subset can look canonical.
+    const ownership = { enterpriseId: ctx.enterpriseId, capabilityId, scope: 'PERSONAL' as const };
+    const sources = await this.prisma.skillVersionAdoption.findMany({ where: {
+      targetVersionId: { in: ids }, targetVersion: { enterpriseId: ctx.enterpriseId, capabilityId,
+        scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED' }, sourceVersion: ownership,
+    }, select: { targetVersionId: true, sourceVersion: { select: {
+      id: true, enterpriseId: true, capabilityId: true, scope: true, ownerId: true, workingCopyId: true,
+      workingCopy: { select: { id: true, enterpriseId: true, capabilityId: true, scope: true, ownerId: true, workingCopyId: true } },
+    } } }, orderBy: [{ adoptedAt: 'asc' }, { id: 'asc' }] });
+    const grouped = new Map<string, Set<string>>();
+    const unreadableTargets = new Set<string>();
+    for (const adoption of sources) {
+      const source = adoption.sourceVersion;
+      const root = source.workingCopyId ? source.workingCopy : source;
+      const readable = (row: typeof root) => row && row.enterpriseId === ctx.enterpriseId
+        && row.capabilityId === capabilityId && row.scope === 'PERSONAL'
+        && (ctx.role === 'ENTERPRISE_ADMIN' || row.ownerId === userId);
+      if (!root || root.workingCopyId || root.ownerId !== source.ownerId || !readable(source) || !readable(root)) {
+        unreadableTargets.add(adoption.targetVersionId);
+        continue;
+      }
+      const links = grouped.get(adoption.targetVersionId) ?? new Set<string>();
+      links.add(root.id);
+      grouped.set(adoption.targetVersionId, links);
+    }
+    // Legacy multi-source adoptions have no single canonical source submission.
+    return new Map([...grouped].flatMap(([id, links]) => links.size === 1 && !unreadableTargets.has(id)
+      ? [[id, [...links][0]] as const] : []));
+  }
+
   /**
-   * 版本时间线：这个能力在本企业可见的全部版本，标出当前生效的那个。
+   * 版本时间线：保留旧集合，独立返回真实默认与执行回落的聚合状态。
    *
    * 平台版与企业版混排、按创建时间倒序 —— 用户要的是「我改过几版、现在用哪版、
    * 能退回哪版」，而不是两个分开的列表。
@@ -1457,7 +1610,7 @@ export class SkillVersionService {
     const ctx = await this.enterpriseContext.resolve(userId);
     const subscription = await this.assertCapabilityReadable(ctx, capabilityId);
 
-    const [capability, versions, selection, subscriptions, enterpriseDefault] = await Promise.all([
+    const [capability, versions, effective, pendingTotal] = await Promise.all([
       this.prisma.capability.findUnique({
         where: { id: capabilityId },
         select: { id: true, name: true, description: true },
@@ -1482,6 +1635,7 @@ export class SkillVersionService {
           enterpriseReviewedAt: true,
           rejectionReason: true,
           reviews: {
+            where: { actorType: 'ENTERPRISE' },
             select: {
               id: true,
               actorType: true,
@@ -1496,43 +1650,21 @@ export class SkillVersionService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.subscriptionSkillVersion.findUnique({
-        where: { subscriptionId_capabilityId: { subscriptionId: subscription.id, capabilityId } },
-        select: { versionId: true, selectedAt: true },
-      }),
-      this.prisma.subscription.findMany({
-        where: {
-          enterpriseId: ctx.enterpriseId,
-          status: 'ACTIVE',
-          OR: [{ endDate: null }, { endDate: { gt: new Date() } }],
-          ...(ctx.role === 'ENTERPRISE_ADMIN' ? {} : {
-            grants: { some: this.activeGrantWhere(ctx.memberId, ctx.departmentId) },
-          }),
-          employee: { bindings: { some: { capabilityId, enabled: true, capability: { type: 'SKILL' } } } },
-        },
-        select: {
-          id: true,
-          grants: { where: this.activeGrantWhere(ctx.memberId, ctx.departmentId), select: { id: true }, take: 1 },
-          employee: { select: { id: true, name: true } },
-          skillVersionSelections: {
-            where: { capabilityId },
-            select: { versionId: true, selectedAt: true },
-          },
-        },
-      }),
-      this.defaults.get(ctx.enterpriseId, capabilityId),
+      this.readCapabilityEffectiveState(ctx, capabilityId),
+      this.pendingSubmissionTotal(ctx, userId, capabilityId),
     ]);
 
     if (!capability) throw new NotFoundException('能力不存在');
-    const currentVersionId = enterpriseDefault?.versionId ?? selection?.versionId ?? null;
-    const selectedAt = enterpriseDefault?.selectedAt ?? selection?.selectedAt ?? null;
+    const currentVersionId = effective.version?.id ?? null;
+    const sourceIds = await this.readSourceSubmissionIds(ctx, userId, capabilityId,
+      versions.filter((version) => version.scope === 'ENTERPRISE' && version.status === 'ENTERPRISE_APPROVED').map((version) => version.id));
 
     return {
       capability,
       subscriptionId: subscription.id,
       myPersonalVersionId: null,
-      subscriptions: await Promise.all(subscriptions.map(async (item) => {
-        const enterpriseVersion = await this.resolveEffectiveVersion(item.id, capabilityId);
+      subscriptions: effective.subscriptions.map((item) => {
+        const enterpriseVersion = item.version;
         return {
           subscriptionId: item.id,
           employeeId: item.employee.id,
@@ -1544,17 +1676,21 @@ export class SkillVersionService {
           effectiveVersionId: enterpriseVersion?.id ?? null,
           effectiveVersionScope: enterpriseVersion?.scope ?? null,
           canSelectPersonal: false,
-          selectedAt: (enterpriseDefault?.selectedAt ?? item.skillVersionSelections[0]?.selectedAt)?.toISOString() ?? null,
+          selectedAt: item.selectedAt?.toISOString() ?? null,
         };
-      })),
+      }),
       canManage: ctx.role === 'ENTERPRISE_ADMIN',
       currentVersionId,
-      selectedAt: selectedAt?.toISOString() ?? null,
+      selectedAt: effective.selectedAt?.toISOString() ?? null,
+      effectiveVersionState: effective.state,
+      effectiveVersion: effective.version ? { id: effective.version.id, scope: effective.version.scope, version: effective.version.version } : null,
+      pendingTotal,
       versions: versions.map(({ promotedVersions, ...version }) => ({
         ...version,
         hasPlatformSubmission: promotedVersions.length > 0,
         isWorkingCopy: version.scope === 'PERSONAL' && !version.submittedAt && !version.workingCopyId && !version.workingCopyUpdatedAt,
         isCurrent: version.id === currentVersionId,
+        sourceSubmissionId: sourceIds.get(version.id) ?? null,
       })),
     };
   }

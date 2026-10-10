@@ -173,7 +173,7 @@ function SummaryBar({
     { label: '个技能', value: summary.capabilityCount },
     { label: '个已调整', value: summary.customizedCount },
     {
-      label: canManage ? '条改动待审核' : '条我的改动待审核',
+      label: canManage ? '条提交待审核' : '条我的提交待审核',
       value: summary.pendingAdoptionTotal,
       highlight: summary.pendingAdoptionTotal > 0,
     },
@@ -207,18 +207,18 @@ function SummaryBar({
 function PendingBoard({ items, canManage }: { items: IterableCapability[]; canManage: boolean }) {
   return (
     <div className="rounded-glass-lg border border-glassline-brand bg-gbrand/[0.06] p-4 shadow-glass-sm">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gbrand-text">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gbrand-text">
         <Inbox className="h-4 w-4" />
-        {canManage ? '待你处理' : '我的改动'}
+        {canManage ? '待审核提交' : '我的待审核提交'}
         <span className="ml-auto rounded-glass-pill bg-gbrand/20 px-2 py-0.5 text-xs font-medium">
           {items.length} 项
         </span>
-      </div>
+      </h2>
       <div className="space-y-2">
         {items.map((item) => (
           <Link
             key={item.capability.id}
-            href={`/capabilities/${item.capability.id}?tab=changes`}
+            href={`/capabilities/${item.capability.id}?tab=changes&status=pending`}
             className="flex items-center justify-between gap-3 rounded-glass-md border border-glassline bg-glass-1 px-3 py-2.5 text-sm shadow-glass-sm transition-all hover:bg-glass-2 hover:shadow-glass-md"
           >
             <span className="min-w-0 truncate font-medium text-gtext-primary">
@@ -226,7 +226,7 @@ function PendingBoard({ items, canManage }: { items: IterableCapability[]; canMa
             </span>
             <span className="shrink-0 text-xs text-gbrand-text">
               {canManage
-                ? `${item.pendingAdoptionCount} 条改动 · 去审核`
+                ? `${item.pendingAdoptionCount} 条提交 · 去审核`
                 : '个人提交 · 等待企业审核'}
             </span>
           </Link>

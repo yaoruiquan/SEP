@@ -1,232 +1,124 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  Check,
-  ChevronDown,
-  CircleDot,
-  Clock,
-  FileText,
-  GitBranch,
-  ShieldCheck,
-} from 'lucide-react';
+import Link from 'next/link';
+import { Check, FileText, ArrowUpRight, Building2, Layers3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
-import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
-import { cn } from '@/lib/utils';
-import {
-  useSelectEffectiveVersion,
-  type TimelineVersion,
-  type VersionTimeline,
-} from './use-capability-iteration';
 import { SkillVersionPreviewDialog } from '@/features/skill-version/SkillVersionPreviewDialog';
-import { skillVersionLabel as versionLabel } from './version-source';
+import { cn } from '@/lib/utils';
+import { useSelectEffectiveVersion, type TimelineVersion, type VersionTimeline } from './use-capability-iteration';
+import { skillVersionLabel } from './version-source';
+import styles from './skill-detail.module.css';
 
-/**
- * 版本时间线。
- *
- * 审核后保留版本记录，支持查看历史版本和回滚。回滚在实现上就是
- * 把生效版本选回旧的那一个 —— 不删不改历史，只改「现在用哪个」。
- */
-export function VersionTimelinePanel({ timeline }: { timeline: VersionTimeline }) {
-  const [expandedId, setExpandedId] = useState<string>();
-  const [previewId, setPreviewId] = useState<string>();
+export type DetailNavigation = (patch: Record<string, string | null>) => void;
+
+export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavigate }: {
+  timeline: VersionTimeline;
+  releaseId?: string | null;
+  sourceFilter?: string | null;
+  onNavigate?: DetailNavigation;
+}) {
+  const [localSource, setSource] = useState('ALL');
+  const source = onNavigate ? (sourceFilter === 'ENTERPRISE' || sourceFilter === 'PLATFORM' ? sourceFilter : 'ALL') : localSource;
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<TimelineVersion | null>(null);
   const selectVersion = useSelectEffectiveVersion(timeline.capability.id);
-  const currentId = timeline.currentVersionId;
-  const selecting = selectVersion.isPending;
-  const currentVersion = timeline.versions.find((version) => version.id === currentId);
-
-  const setEffective = (version: TimelineVersion) => {
-    if (!timeline.canManage || selecting) return;
-    selectVersion.mutate(
-      { versionId: version.id },
-      {
-        onSuccess: () =>
-          toast.success(
-            `已启用 ${versionLabel(version)}`,
-          ),
-        onError: (error) =>
-          toast.error(error instanceof Error ? error.message : '启用失败'),
-      },
-    );
+  const currentId = timeline.effectiveVersion?.id ?? timeline.currentVersionId;
+  const releases = timeline.versions.filter(isPublishedVersion).sort((a, b) =>
+    Number(b.id === currentId) - Number(a.id === currentId)
+    || new Date(b.enterpriseReviewedAt ?? b.createdAt).getTime() - new Date(a.enterpriseReviewedAt ?? a.createdAt).getTime()
+    || a.id.localeCompare(b.id));
+  const visible = releases.filter((version) => source === 'ALL' || version.scope === source);
+  const openId = onNavigate ? releaseId : previewId;
+  const selectedRelease = releases.find((version) => version.id === openId);
+  const closePreview = () => { setPreviewId(null); onNavigate?.({ release: null }); };
+  const enable = () => {
+    if (!candidate || !timeline.canManage || selectVersion.isPending) return;
+    // Polling may remove a release or make it current while confirmation is open.
+    if (!releases.some((version) => version.id === candidate.id) || candidate.id === currentId) {
+      setCandidate(null);
+      return;
+    }
+    selectVersion.mutate({ versionId: candidate.id }, {
+      onSuccess: () => { toast.success(`已启用 ${skillVersionLabel(candidate)}`); setCandidate(null); },
+      onError: (error) => toast.error(error.message || '启用失败'),
+    });
   };
 
   return (
-    <div className="space-y-4">
-      <section className="space-y-2 rounded-glass-lg border border-glassline bg-glass-1 px-3.5 py-3" aria-label="企业当前启用">
-        <h3 className="text-sm font-semibold text-gtext-primary">企业当前启用</h3>
-        <p className="text-xs text-gtext-secondary">{currentVersion ? versionLabel(currentVersion) : currentId ? '已启用版本未在当前列表中' : '暂无启用版本'}</p>
-      </section>
-      {timeline.versions.length === 0 && (
-        <p className="rounded-glass-lg border border-dashed border-glassline px-4 py-8 text-center text-xs text-gtext-muted">这个技能还没有任何版本记录</p>
-      )}
-      <ol className="space-y-0">
-      {timeline.versions.map((version, index) => {
-        const status = version.status === 'PERSONAL_ACTIVE'
-          ? { ...SKILL_VERSION_STATUS[version.status], label: '历史记录 · 已保存' }
-          : SKILL_VERSION_STATUS[version.status];
-        const expanded = expandedId === version.id;
-        const isEnterprise = version.scope === 'ENTERPRISE';
-        const isCurrent = version.id === currentId;
-        const approved =
-          (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED') ||
-          (isEnterprise && version.status === 'ENTERPRISE_APPROVED');
-        const selectable = timeline.canManage && !isCurrent && approved;
-        return (
-          <li key={version.id} className="relative flex gap-3">
-            {index !== timeline.versions.length - 1 && (
-              <span className="absolute left-[15px] top-8 h-[calc(100%-1.5rem)] w-px bg-glassline" aria-hidden />
-            )}
-
-            <span
-              className={cn(
-                'relative z-10 mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2',
-                isCurrent
-                  ? 'border-gsuccess bg-gsuccess text-white'
-                  : isEnterprise
-                    ? 'border-glassline-brand bg-gbrand/10 text-gbrand-text'
-                    : 'border-glassline bg-glass-2 text-gtext-muted',
-              )}
-            >
-              {isCurrent ? (
-                <Check className="h-4 w-4" strokeWidth={3} />
-              ) : isEnterprise ? (
-                <GitBranch className="h-3.5 w-3.5" />
-              ) : (
-                <CircleDot className="h-3.5 w-3.5" />
-              )}
-            </span>
-
-            <div className="min-w-0 flex-1 pb-4">
-              <div
-                className={cn(
-                  'rounded-glass-lg border px-3.5 py-3 transition-colors',
-                  isCurrent
-                    ? 'border-gsuccess/40 bg-gsuccess/[0.06]'
-                    : 'border-glassline bg-glass-1',
-                )}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(expanded ? undefined : version.id)}
-                    className="min-w-0 flex-1 text-left"
-                    aria-expanded={expanded}
-                  >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <p className="text-sm font-semibold text-gtext-primary">{versionLabel(version)}</p>
-                      <span
-                        className={cn(
-                          'rounded-glass-pill border px-1.5 py-0.5 text-[10px] font-medium',
-                          status.className,
-                        )}
-                      >
-                        {status.label}
-                      </span>
-                      {isCurrent && (
-                        <span className="rounded-glass-pill bg-gsuccess px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          已启用
-                        </span>
-                      )}
-                      {version.hasPlatformSubmission && (
-                        <span className="inline-flex items-center gap-1 rounded-glass-pill border border-glassline bg-glass-2 px-1.5 py-0.5 text-[10px] text-gtext-muted">
-                          <ShieldCheck className="h-2.5 w-2.5" />
-                          历史平台记录
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="mt-1 text-[11px] text-gtext-muted">
-                      {version.createdBy.name ?? '未知'} 创建 ·{' '}
-                      {new Date(version.createdAt).toLocaleString('zh-CN', { hour12: false })}
-                    </p>
-
-                    {version.changeSummary && (
-                      <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-gtext-secondary">
-                        {version.changeSummary}
-                      </p>
-                    )}
-                  </button>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button size="sm" variant="glass" className="h-7 px-2.5 text-[11px]" onClick={() => setPreviewId(version.id)}>
-                      <FileText className="h-3 w-3" />查看内容
-                    </Button>
-                    {selectable && (
-                      <Button
-                        size="sm"
-                        variant="glass"
-                        className="h-7 px-2.5 text-[11px]"
-                        onClick={() => setEffective(version)}
-                        disabled={selecting}
-                      >
-                        <Check className="h-3 w-3" />
-                        启用
-                      </Button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setExpandedId(expanded ? undefined : version.id)}
-                      aria-label={expanded ? '收起' : '展开'}
-                      className="grid h-7 w-7 place-items-center rounded-glass-md text-gtext-muted transition-colors hover:bg-glass-3 hover:text-gtext-primary"
-                    >
-                      <ChevronDown className={cn('h-4 w-4 transition-transform', expanded && 'rotate-180')} />
-                    </button>
-                  </div>
-                </div>
-
-                {expanded && (
-                  <div className="mt-3 space-y-2.5 border-t border-glassline pt-3">
-                    {version.rejectionReason && (
-                      <p className="rounded-glass-md border border-gdanger/25 bg-gdanger/[0.06] px-2.5 py-2 text-[11px] leading-5 text-gdanger">
-                        驳回原因：{version.rejectionReason}
-                      </p>
-                    )}
-
-                    {version.reviews.length > 0 ? (
-                      <div>
-                        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-gtext-muted">
-                          <Clock className="h-3 w-3" />
-                          审核历史
-                        </p>
-                        <div className="mt-1.5 space-y-1.5">
-                          {version.reviews.map((review) => (
-                            <div
-                              key={review.id}
-                              className="rounded-glass-md border border-glassline bg-glass-2 px-2.5 py-1.5"
-                            >
-                              <div className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-                                <span className="font-medium text-gtext-primary">
-                                  {review.actorType === 'ENTERPRISE' ? '企业' : '平台'}
-                                  {review.decision === 'APPROVE' ? '通过' : '驳回'}
-                                </span>
-                                <span className="text-gtext-muted">{review.reviewer.name ?? '未知'}</span>
-                                <span className="ml-auto tabular-nums text-gtext-muted">
-                                  {new Date(review.createdAt).toLocaleString('zh-CN', { hour12: false })}
-                                </span>
-                              </div>
-                              {review.comment && (
-                                <p className="mt-1 text-[11px] leading-5 text-gtext-secondary">{review.comment}</p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="flex items-center gap-1.5 text-[11px] text-gtext-muted">
-                        <FileText className="h-3 w-3" />
-                        还没有审核记录
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+    <section aria-label="发布版本" className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-gtext-muted">来源
+          <select aria-label="版本来源" value={source} onChange={(event) => {
+            setSource(event.target.value); onNavigate?.({ source: event.target.value === 'ALL' ? null : event.target.value });
+          }}
+            className={styles.select}>
+            <option value="ALL">全部</option><option value="ENTERPRISE">企业</option><option value="PLATFORM">平台</option>
+          </select>
+        </label>
+        <span className="text-xs tabular-nums text-gtext-muted">共 {visible.length} 个版本</span>
+      </div>
+      <div className={`${styles.tableHeading} hidden grid-cols-[170px_minmax(0,1fr)_145px_95px_190px] gap-4 lg:grid`} aria-hidden>
+        <span>版本</span><span>更新说明</span><span>发布 / 创建时间</span><span>状态</span><span className="text-right">操作</span>
+      </div>
+      {!visible.length && <p className="py-12 text-center text-sm text-gtext-muted">{releases.length ? '暂无此来源的发布版本' : '暂无发布版本'}</p>}
+      <ol className={styles.rows}>
+        {visible.map((version) => {
+          const current = version.id === currentId;
+          return <li key={version.id} data-release-id={version.id}
+            className={cn(styles.row, 'grid min-w-0 gap-4 lg:grid-cols-[170px_minmax(0,1fr)_145px_95px_190px] lg:items-center', current && styles.currentRow)}>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-gtext-primary">
+              <span className={cn(styles.versionIcon, version.scope === 'ENTERPRISE' && styles.enterpriseIcon)}>{version.scope === 'ENTERPRISE' ? <Building2 className="h-4 w-4" /> : <Layers3 className="h-4 w-4" />}</span>
+              {skillVersionLabel(version)}
+              <span className={cn(styles.status, styles.mobileStatus, current && styles.positive, 'font-normal')}>{current ? '当前启用' : '可启用'}</span>
             </div>
-          </li>
-        );
-      })}
+            <p className="min-w-0 break-words text-xs leading-5 text-gtext-secondary">{version.changeSummary || '未填写更新说明'}</p>
+            <div className="text-[11px] leading-5 text-gtext-muted"><span className="block">{version.enterpriseReviewedAt ? '发布时间' : '创建时间'}</span>
+              <time>{formatDate(version.enterpriseReviewedAt ?? version.createdAt)}</time></div>
+            <span className={cn(styles.status, styles.desktopStatus, current && styles.positive)}>{current && <span className="h-1.5 w-1.5 rounded-full bg-gsuccess" />}{current ? '当前启用' : '可启用'}</span>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <Button size="sm" variant="glass" className={styles.action} onClick={() => {
+                setPreviewId(version.id); onNavigate?.({ release: version.id });
+              }}><FileText className="h-3.5 w-3.5" />查看详情</Button>
+              {timeline.canManage && !current && <Button size="sm" variant="glass" className={cn(styles.action, styles.enable)}
+                disabled={selectVersion.isPending} onClick={() => setCandidate(version)}><Check className="h-3.5 w-3.5" />启用</Button>}
+              {version.sourceSubmissionId && <Link className={`${styles.sourceLink} inline-flex items-center gap-1 text-xs transition-colors`}
+                href={`/capabilities/${timeline.capability.id}?tab=changes&submission=${encodeURIComponent(version.sourceSubmissionId)}`}
+                onClick={onNavigate ? (event) => { event.preventDefault(); onNavigate({ tab: 'changes', submission: version.sourceSubmissionId!, release: null }); } : undefined}>
+                来源提交<ArrowUpRight className="h-3 w-3" />
+              </Link>}
+            </div>
+          </li>;
+        })}
       </ol>
-      {previewId && <SkillVersionPreviewDialog versionId={previewId} source="enterprise" open onOpenChange={(open) => { if (!open) setPreviewId(undefined); }} />}
-    </div>
+      {openId && !selectedRelease && <p role="status" className="text-sm text-gtext-muted">该发布版本不存在或当前不可查看</p>}
+      {selectedRelease && <SkillVersionPreviewDialog key={selectedRelease.id} versionId={selectedRelease.id} source="enterprise" open onOpenChange={(open) => { if (!open) closePreview(); }}
+        details={<div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gtext-muted">
+          <span>{selectedRelease.enterpriseReviewedAt ? '发布时间' : '创建时间'}：{formatDate(selectedRelease.enterpriseReviewedAt ?? selectedRelease.createdAt)}</span>
+          {selectedRelease.sourceSubmissionId && <Link className="inline-flex items-center gap-1 text-gbrand-text hover:underline"
+            href={`/capabilities/${timeline.capability.id}?tab=changes&submission=${encodeURIComponent(selectedRelease.sourceSubmissionId)}`}
+            onClick={onNavigate ? (event) => { event.preventDefault(); onNavigate({ tab: 'changes', submission: selectedRelease.sourceSubmissionId!, release: null }); } : undefined}>
+            来源提交<ArrowUpRight className="h-3 w-3" /></Link>}
+        </div>} />}
+      <Dialog open={Boolean(candidate)} onOpenChange={(open) => { if (!open && !selectVersion.isPending) setCandidate(null); }}>
+        <DialogContent glass className="w-[calc(100%-24px)]" onEscapeKeyDown={(event) => { if (selectVersion.isPending) event.preventDefault(); }} onInteractOutside={(event) => { if (selectVersion.isPending) event.preventDefault(); }}>
+          <DialogHeader><DialogTitle className="tracking-normal">确认启用 {candidate && skillVersionLabel(candidate)}？</DialogTitle>
+            <DialogDescription>将切换本企业所有相关员工的技能执行版本。历史发布版本和审核结果保持不变。</DialogDescription></DialogHeader>
+          <div className="flex justify-end gap-2"><Button variant="glass" disabled={selectVersion.isPending} onClick={() => setCandidate(null)}>取消</Button>
+            <Button variant="glass-primary" disabled={selectVersion.isPending || candidate?.id === currentId} onClick={enable}><Check className="h-4 w-4" />{selectVersion.isPending ? '启用中...' : '确认启用'}</Button></div>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
+}
+
+export function isPublishedVersion(version: TimelineVersion) {
+  return (version.scope === 'PLATFORM' && version.status === 'PLATFORM_APPROVED')
+    || (version.scope === 'ENTERPRISE' && version.status === 'ENTERPRISE_APPROVED');
+}
+
+export function formatDate(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
