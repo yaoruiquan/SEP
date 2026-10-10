@@ -31,6 +31,44 @@ export interface CreateOrderResponse {
   items: OrderItem[];
 }
 
+type BalancePaymentResponse = Omit<Order, "items">;
+
+type OrderApiResponse = Omit<Order, "totalAmount" | "items"> & {
+  totalAmount: string | number;
+  items: (Omit<OrderItem, "unitPrice" | "subtotal" | "employeeAvatar"> & {
+    unitPrice: string | number;
+    employee: { avatar: string | null } | null;
+  })[];
+};
+
+function parseAmount(value: string | number): number {
+  if (
+    (typeof value !== "number" && typeof value !== "string") ||
+    (typeof value === "string" && value.trim() === "") ||
+    !Number.isFinite(Number(value))
+  ) {
+    throw new Error("订单金额数据异常，请重新查询");
+  }
+  return Number(value);
+}
+
+function normalizeOrder(order: OrderApiResponse): Order {
+  return {
+    ...order,
+    totalAmount: parseAmount(order.totalAmount),
+    items: order.items.map((item) => {
+      const unitPrice = parseAmount(item.unitPrice);
+      return {
+        ...item,
+        unitPrice,
+        employeeAvatar: item.employee?.avatar ?? null,
+        // Use the purchased snapshot, never the employee's current price.
+        subtotal: unitPrice * (item.periodMonths / 12) * item.quantity,
+      };
+    }),
+  };
+}
+
 export interface CreateDirectOrderDto {
   employeeId: string;
   periodMonths?: number;
@@ -68,7 +106,7 @@ async function createOrder(body?: {
     const err = await res.json();
     throw new Error(err.message || "Failed to create order");
   }
-  return res.json();
+  return normalizeOrder(await res.json());
 }
 
 async function createDirectOrder(
@@ -87,7 +125,7 @@ async function createDirectOrder(
     const err = await res.json();
     throw new Error(err.message || "Failed to create direct order");
   }
-  return res.json();
+  return normalizeOrder(await res.json());
 }
 
 async function createAlipayPayment(
@@ -137,7 +175,7 @@ async function fetchOrder(orderId: string): Promise<Order> {
     const err = await res.json();
     throw new Error(err.message || "Failed to fetch order");
   }
-  return res.json();
+  return normalizeOrder(await res.json());
 }
 
 async function fetchOrders(): Promise<Order[]> {
@@ -149,7 +187,8 @@ async function fetchOrders(): Promise<Order[]> {
     const err = await res.json();
     throw new Error(err.message || "Failed to fetch orders");
   }
-  return res.json();
+  const data: { orders: OrderApiResponse[] } = await res.json();
+  return data.orders.map(normalizeOrder);
 }
 
 // ── Hooks ──────────────────────────────────────────────────────────────────
@@ -174,7 +213,7 @@ export function usePayOrderWithBalance() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (orderId: string): Promise<Order> => {
+    mutationFn: async (orderId: string): Promise<BalancePaymentResponse> => {
       const token = authAccessor.getToken();
       const res = await fetch(`${API_BASE}/payment/balance/pay`, {
         method: "POST",
@@ -188,7 +227,8 @@ export function usePayOrderWithBalance() {
         const err = await res.json();
         throw new Error(err.message || "Failed to pay order with balance");
       }
-      return res.json();
+      const payment = await res.json();
+      return { ...payment, totalAmount: parseAmount(payment.totalAmount) };
     },
     onSuccess: (_, orderId) => {
       queryClient.invalidateQueries({ queryKey: ["order", orderId] });

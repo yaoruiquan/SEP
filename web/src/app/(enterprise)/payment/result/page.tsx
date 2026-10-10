@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, XCircle, Loader2, ArrowRight } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, ArrowRight, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { usePollingOrder, useReconcileOrder } from '@/features/order/use-order';
@@ -12,7 +12,7 @@ export default function PaymentResultPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
 
-  const { data: order, isLoading } = usePollingOrder(orderId);
+  const { data: order, isLoading, isError, error, refetch, isFetching } = usePollingOrder(orderId);
   const reconcile = useReconcileOrder();
 
   // 兜底对账：订单仍为 PENDING 时，每 5 秒主动向支付宝核对一次真实交易状态。
@@ -40,6 +40,25 @@ export default function PaymentResultPage() {
               <XCircle className="h-12 w-12 text-destructive" />
               <p className="text-sm text-gtext-secondary">缺少订单号</p>
               <Button onClick={() => router.push('/orders')}>返回订单列表</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isError && !order) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <Card className="glass-card w-full max-w-md">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center gap-4">
+              <XCircle className="h-12 w-12 text-destructive" />
+              <p className="text-sm text-gtext-secondary">{error.message}</p>
+              <Button onClick={() => void refetch()} disabled={isFetching}>
+                <RotateCw className="mr-2 h-4 w-4" />
+                重新查询
+              </Button>
             </div>
           </CardContent>
         </Card>

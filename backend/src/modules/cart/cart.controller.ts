@@ -17,6 +17,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CartService } from './cart.service';
 import { AddToCartDto, UpdateCartItemDto } from './dto/cart.dto';
@@ -29,6 +30,7 @@ import { EnterpriseContextService } from '../enterprise/enterprise-context.servi
 
 @ApiTags('Cart')
 @Controller('cart')
+@SkipThrottle({ auth: true, chat: true })
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class CartController {
