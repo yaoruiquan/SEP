@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 
 export interface WebSocketMessage<T = any> {
@@ -15,8 +15,20 @@ interface UseWebSocketOptions {
   reconnectInterval?: number;
   heartbeatInterval?: number;
   maxReconnectAttempts?: number;
+  authenticationTimeout?: number;
 }
 
+type Timer = ReturnType<typeof setTimeout>;
+
+const DEFAULT_AUTHENTICATION_TIMEOUT = 10_000;
+
+/**
+ * 带首条消息认证、心跳和有界重连的 WebSocket。
+ *
+ * `WebSocket.onopen` 只表示握手完成，业务连接必须等服务端返回
+ * `connected` 后才算成功。所有回调都带 connection generation，避免旧
+ * 连接晚到的 onclose/onmessage 影响已经建立的新连接。
+ */
 export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   const {
     onMessage,
@@ -26,21 +38,47 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     reconnectInterval = 3000,
     heartbeatInterval = 30000,
     maxReconnectAttempts = 10,
+    authenticationTimeout = DEFAULT_AUTHENTICATION_TIMEOUT,
   } = options;
 
-  const { token } = useAuthStore();
+  const token = useAuthStore((state) => state.token);
   const [isConnected, setIsConnected] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const heartbeatTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const shouldReconnectRef = useRef(true);
+  const generationRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
+  const shouldReconnectRef = useRef(false);
+  const reconnectTimerRef = useRef<Timer | null>(null);
+  const authTimerRef = useRef<Timer | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPongAtRef = useRef(0);
+  const authenticatedGenerationRef = useRef<number | null>(null);
+  const openConnectionRef = useRef<(generation: number) => void>(() => undefined);
 
-  const clearTimers = useCallback(() => {
+  const onMessageRef = useRef(onMessage);
+  const onConnectRef = useRef(onConnect);
+  const onDisconnectRef = useRef(onDisconnect);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onConnectRef.current = onConnect;
+    onDisconnectRef.current = onDisconnect;
+    onErrorRef.current = onError;
+  }, [onMessage, onConnect, onDisconnect, onError]);
+
+  const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const clearConnectionTimers = useCallback(() => {
+    if (authTimerRef.current) {
+      clearTimeout(authTimerRef.current);
+      authTimerRef.current = null;
     }
     if (heartbeatTimerRef.current) {
       clearInterval(heartbeatTimerRef.current);
@@ -48,128 +86,192 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     }
   }, []);
 
-  const sendHeartbeat = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
-    }
-  }, []);
+  const clearAllTimers = useCallback(() => {
+    clearReconnectTimer();
+    clearConnectionTimers();
+  }, [clearConnectionTimers, clearReconnectTimer]);
 
-  const startHeartbeat = useCallback(() => {
-    clearTimers();
-    heartbeatTimerRef.current = setInterval(sendHeartbeat, heartbeatInterval);
-  }, [sendHeartbeat, heartbeatInterval, clearTimers]);
-
-  const disconnect = useCallback(() => {
-    shouldReconnectRef.current = false;
-    clearTimers();
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setIsConnected(false);
-  }, [clearTimers]);
-
-  const connect = useCallback(() => {
-    // URL 为空或未登录不连接
-    if (!url || !token) {
+  const scheduleReconnect = useCallback((generation: number) => {
+    if (!shouldReconnectRef.current || generation !== generationRef.current) return;
+    if (reconnectAttemptRef.current >= maxReconnectAttempts) {
+      console.warn(`[WebSocket] Gave up reconnecting to ${url} after ${maxReconnectAttempts} attempts`);
       return;
     }
 
-    // 已有连接则先关闭
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    const attempt = reconnectAttemptRef.current + 1;
+    reconnectAttemptRef.current = attempt;
+    setReconnectCount(attempt);
+    const delay = Math.min(reconnectInterval * Math.pow(1.5, attempt - 1), 30_000);
+
+    clearReconnectTimer();
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (!shouldReconnectRef.current || generation !== generationRef.current) return;
+      openConnectionRef.current(generation);
+    }, delay);
+  }, [clearReconnectTimer, maxReconnectAttempts, reconnectInterval, url]);
+
+  const openConnection = useCallback((generation: number) => {
+    if (!url || !token || !shouldReconnectRef.current || generation !== generationRef.current) {
+      return;
     }
 
+    let socket: WebSocket;
     try {
-      // 浏览器 WebSocket 不支持自定义 Authorization header，连接建立后立即发送一次认证消息，避免令牌出现在 URL/代理日志中。
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('[WebSocket] Connected');
-        setIsConnected(true);
-        setReconnectCount(0);
-        startHeartbeat();
-        ws.send(JSON.stringify({ type: 'auth', token }));
-        onConnect?.();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data) as WebSocketMessage;
-
-          // 忽略 pong 消息
-          if (message.type === 'pong') {
-            return;
-          }
-
-          onMessage?.(message);
-        } catch (error) {
-          console.error('[WebSocket] Failed to parse message:', error);
-        }
-      };
-
-      ws.onerror = (error) => {
-        // 连接失败是暂时状态（后端未就绪），用 warn 而非 error 避免误报
-        console.warn('[WebSocket] Connection error (will retry):', url);
-        onError?.(error);
-      };
-
-      ws.onclose = () => {
-        console.log('[WebSocket] Disconnected');
-        setIsConnected(false);
-        clearTimers();
-        onDisconnect?.();
-
-        // 自动重连（指数退避，最多 maxReconnectAttempts 次）
-        if (shouldReconnectRef.current && reconnectCount < maxReconnectAttempts) {
-          const attempt = reconnectCount + 1;
-          const delay = Math.min(reconnectInterval * Math.pow(1.5, reconnectCount), 30000);
-          console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms... (${attempt}/${maxReconnectAttempts})`);
-          reconnectTimerRef.current = setTimeout(() => {
-            setReconnectCount((prev) => prev + 1);
-          }, delay);
-        } else if (!shouldReconnectRef.current) {
-          // 主动断开，不输出任何内容
-        } else {
-          console.warn(`[WebSocket] Gave up reconnecting to ${url} after ${maxReconnectAttempts} attempts`);
-        }
-      };
-    } catch (error) {
-      console.error('[WebSocket] Connection error:', error);
+      socket = new WebSocket(url);
+    } catch {
+      scheduleReconnect(generation);
+      return;
     }
-  }, [
-    url,
-    token,
-    reconnectInterval,
-    maxReconnectAttempts,
-    reconnectCount,
-    onConnect,
-    onDisconnect,
-    onError,
-    onMessage,
-    startHeartbeat,
-    clearTimers,
-  ]);
+    wsRef.current = socket;
+    authenticatedGenerationRef.current = null;
+    setIsConnected(false);
+    authTimerRef.current = setTimeout(() => {
+      if (generation !== generationRef.current || wsRef.current !== socket) return;
+      socket.close(4008, 'Authentication timeout');
+    }, authenticationTimeout);
 
-  // 连接和清理
+    socket.onopen = () => {
+      if (generation !== generationRef.current || wsRef.current !== socket) {
+        socket.close();
+        return;
+      }
+
+      socket.send(JSON.stringify({ type: 'auth', token }));
+      if (authTimerRef.current) clearTimeout(authTimerRef.current);
+      authTimerRef.current = setTimeout(() => {
+        if (generation !== generationRef.current || wsRef.current !== socket) return;
+        console.warn('[WebSocket] Authentication timed out');
+        socket.close(4008, 'Authentication timeout');
+      }, authenticationTimeout);
+    };
+
+    socket.onmessage = (event) => {
+      if (generation !== generationRef.current || wsRef.current !== socket) return;
+
+      let input: unknown;
+      try {
+        input = JSON.parse(event.data);
+      } catch (error) {
+        console.error('[WebSocket] Failed to parse message:', error);
+        return;
+      }
+      if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        !('type' in input) || typeof input.type !== 'string') return;
+      const message = input as WebSocketMessage;
+      if (message.type !== 'connected' && authenticatedGenerationRef.current !== generation) return;
+
+      if (message.type === 'pong') {
+        lastPongAtRef.current = Date.now();
+        return;
+      }
+
+      if (message.type === 'connected') {
+        if (authTimerRef.current) {
+          clearTimeout(authTimerRef.current);
+          authTimerRef.current = null;
+        }
+        if (authenticatedGenerationRef.current !== generation) {
+          authenticatedGenerationRef.current = generation;
+          reconnectAttemptRef.current = 0;
+          setReconnectCount(0);
+          setIsConnected(true);
+          lastPongAtRef.current = Date.now();
+          heartbeatTimerRef.current = setInterval(() => {
+            if (generation !== generationRef.current || wsRef.current !== socket) return;
+            if (Date.now() - lastPongAtRef.current > heartbeatInterval * 2) {
+              console.warn('[WebSocket] Heartbeat timed out');
+              socket.close(4001, 'Heartbeat timeout');
+              return;
+            }
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+            }
+          }, heartbeatInterval);
+          onConnectRef.current?.();
+        }
+      }
+
+      onMessageRef.current?.(message);
+    };
+
+    socket.onerror = (error) => {
+      if (generation !== generationRef.current || wsRef.current !== socket) return;
+      console.warn('[WebSocket] Connection error (will retry):', url);
+      onErrorRef.current?.(error);
+    };
+
+    socket.onclose = () => {
+      if (generation !== generationRef.current || wsRef.current !== socket) return;
+
+      const wasAuthenticated = authenticatedGenerationRef.current === generation;
+      wsRef.current = null;
+      authenticatedGenerationRef.current = null;
+      clearConnectionTimers();
+      setIsConnected(false);
+      if (wasAuthenticated) onDisconnectRef.current?.();
+      scheduleReconnect(generation);
+    };
+  }, [authenticationTimeout, clearConnectionTimers, heartbeatInterval, scheduleReconnect, token, url]);
+
   useEffect(() => {
+    openConnectionRef.current = openConnection;
+  }, [openConnection]);
+
+  const disconnect = useCallback(() => {
+    shouldReconnectRef.current = false;
+    generationRef.current += 1;
+    clearAllTimers();
+    const socket = wsRef.current;
+    wsRef.current = null;
+    authenticatedGenerationRef.current = null;
+    setIsConnected(false);
+    if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Client disconnect');
+  }, [clearAllTimers]);
+
+  const reconnect = useCallback(() => {
     shouldReconnectRef.current = true;
-    connect();
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    reconnectAttemptRef.current = 0;
+    setReconnectCount(0);
+    clearAllTimers();
+    const socket = wsRef.current;
+    wsRef.current = null;
+    authenticatedGenerationRef.current = null;
+    setIsConnected(false);
+    if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Reconnect');
+    openConnectionRef.current(generation);
+  }, [clearAllTimers]);
+
+  useEffect(() => {
+    shouldReconnectRef.current = Boolean(url && token);
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    reconnectAttemptRef.current = 0;
+    setReconnectCount(0);
+    clearAllTimers();
+
+    const previousSocket = wsRef.current;
+    wsRef.current = null;
+    authenticatedGenerationRef.current = null;
+    setIsConnected(false);
+    if (previousSocket && previousSocket.readyState !== WebSocket.CLOSED) {
+      previousSocket.close(1000, 'Connection replaced');
+    }
+
+    if (shouldReconnectRef.current) openConnection(generation);
 
     return () => {
       shouldReconnectRef.current = false;
-      disconnect();
+      generationRef.current += 1;
+      clearAllTimers();
+      const socket = wsRef.current;
+      wsRef.current = null;
+      authenticatedGenerationRef.current = null;
+      if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Component unmount');
     };
-  }, [connect, disconnect]);
-
-  // 重连效果：reconnectCount 变化时触发重连
-  useEffect(() => {
-    if (reconnectCount > 0) {
-      connect();
-    }
-  }, [reconnectCount, connect]);
+  }, [clearAllTimers, openConnection, token, url]);
 
   const send = useCallback((message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -179,22 +281,5 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     }
   }, []);
 
-  // 连接和清理
-  useEffect(() => {
-    shouldReconnectRef.current = true;
-    connect();
-
-    return () => {
-      shouldReconnectRef.current = false;
-      disconnect();
-    };
-  }, [connect, disconnect]);
-
-  return {
-    isConnected,
-    reconnectCount,
-    send,
-    disconnect,
-    reconnect: connect,
-  };
+  return { isConnected, reconnectCount, send, disconnect, reconnect };
 }

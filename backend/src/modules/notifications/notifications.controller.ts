@@ -13,7 +13,6 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
-import { NotificationsGateway } from './notifications.gateway';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   NotificationCategoryQuerySchema,
@@ -31,7 +30,6 @@ import type {
 export class NotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,
-    private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   @Get()
@@ -77,10 +75,6 @@ export class NotificationsController {
   async markAsRead(@Param('id') id: string, @Request() req) {
     const userId = req.user.id;
     await this.notificationsService.markAsRead(id, userId);
-
-    // 推送未读数更新
-    const unreadCount = await this.notificationsService.countUnread(userId);
-    await this.notificationsGateway.pushUnreadCount(userId, unreadCount);
   }
 
   @Post('read-all')
@@ -96,10 +90,6 @@ export class NotificationsController {
   ) {
     const userId = req.user.id;
     await this.notificationsService.markAllAsRead(userId, query.category);
-
-    // 推送未读数更新
-    const unreadCount = await this.notificationsService.countUnread(userId);
-    await this.notificationsGateway.pushUnreadCount(userId, unreadCount);
   }
 
   @Delete('clear-read')
@@ -125,9 +115,5 @@ export class NotificationsController {
   async delete(@Param('id') id: string, @Request() req) {
     const userId = req.user.id;
     await this.notificationsService.delete(id, userId);
-
-    // 推送未读数更新
-    const unreadCount = await this.notificationsService.countUnread(userId);
-    await this.notificationsGateway.pushUnreadCount(userId, unreadCount);
   }
 }

@@ -9,6 +9,7 @@ describe('NotificationsService', () => {
     prisma = {
       notification: {
         create: jest.fn(),
+        createManyAndReturn: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -103,6 +104,80 @@ describe('NotificationsService', () => {
     );
   });
 
+  it('批量创建后推送包含真实持久化字段，并按用户发送未读数', async () => {
+    const gateway = {
+      pushToUser: jest.fn().mockResolvedValue(undefined),
+      pushUnreadCount: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new NotificationsService(prisma, gateway as never);
+    prisma.notification.createManyAndReturn.mockResolvedValue([
+      {
+        id: 'notification-1',
+        userId: 'user-1',
+        type: 'INFO',
+        title: '通知 1',
+        message: '消息 1',
+        read: false,
+        category: 'SYSTEM',
+        severity: 'INFO',
+        createdAt: new Date('2026-10-10T00:00:00.000Z'),
+      },
+      {
+        id: 'notification-2',
+        userId: 'user-2',
+        type: 'INFO',
+        title: '通知 2',
+        message: '消息 2',
+        read: false,
+        category: 'SYSTEM',
+        severity: 'INFO',
+        createdAt: new Date('2026-10-10T00:00:01.000Z'),
+      },
+    ]);
+    prisma.notification.count.mockResolvedValue(1);
+
+    const result = await service.createBatch(['user-1', 'user-2'], {
+      type: 'INFO',
+      title: '批量通知',
+      message: '请查看',
+    });
+
+    expect(result).toEqual({ count: 2 });
+    expect(prisma.notification.createManyAndReturn).toHaveBeenCalledTimes(1);
+    expect(gateway.pushToUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ id: 'notification-1', read: false, createdAt: expect.any(Date) }),
+    );
+    expect(gateway.pushToUser).toHaveBeenCalledWith(
+      'user-2',
+      expect.objectContaining({ id: 'notification-2', read: false, createdAt: expect.any(Date) }),
+    );
+    expect(gateway.pushUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('批量通知已落库时，单个用户的实时推送失败不影响其他用户', async () => {
+    const gateway = {
+      pushToUser: jest.fn()
+        .mockRejectedValueOnce(new Error('socket closed'))
+        .mockResolvedValueOnce(undefined),
+      pushUnreadCount: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new NotificationsService(prisma, gateway as never);
+    prisma.notification.createManyAndReturn.mockResolvedValue([
+      { id: 'notification-1', userId: 'user-1', type: 'INFO', read: false, category: 'SYSTEM', severity: 'INFO' },
+      { id: 'notification-2', userId: 'user-2', type: 'INFO', read: false, category: 'SYSTEM', severity: 'INFO' },
+    ]);
+
+    await expect(service.createBatch(['user-1', 'user-2'], {
+      type: 'INFO',
+      title: '批量通知',
+      message: '请查看',
+    })).resolves.toEqual({ count: 2 });
+
+    expect(gateway.pushToUser).toHaveBeenCalledTimes(2);
+    expect(gateway.pushUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
   it('按用量分类统计、已读和清理，不影响其他类别', async () => {
     const usageTypes = [
       'ALLOWANCE_WARNING',
@@ -147,4 +222,32 @@ describe('NotificationsService', () => {
       service.findByUser('user-1', 20, 0, 'UNKNOWN' as never),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('批量接收人去重并跳过空值，空批次不写库', async () => {
+    const notification = { type: 'INFO' as const, title: '通知', message: '消息' };
+    await expect(service.createBatch(['', '  '], notification)).resolves.toEqual({ count: 0 });
+    expect(prisma.notification.createManyAndReturn).not.toHaveBeenCalled();
+    prisma.notification.createManyAndReturn.mockResolvedValue([]);
+    await service.createBatch(['user-1', 'user-1', ''], notification);
+    expect(prisma.notification.createManyAndReturn).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ userId: 'user-1' })],
+    });
+  });
+
+  it.each(['markAsRead', 'markAllAsRead', 'delete', 'clearRead'] as const)(
+    '%s 写入成功后计数故障不改变成功结果，写入故障仍抛出', async (operation) => {
+      const gateway = { pushUnreadCount: jest.fn().mockResolvedValue(undefined) };
+      service = new NotificationsService(prisma, gateway as never);
+      prisma.notification.count.mockRejectedValue(new Error('count unavailable'));
+      const mutate = () => operation === 'markAsRead' || operation === 'delete'
+        ? service[operation]('notification-1', 'user-1')
+        : service[operation]('user-1');
+      await expect(mutate()).resolves.toEqual({ count: 0 });
+      const error = new Error('write unavailable');
+      prisma.notification.updateMany.mockRejectedValue(error);
+      prisma.notification.deleteMany.mockRejectedValue(error);
+      await expect(mutate()).rejects.toBe(error);
+      expect(prisma.notification.count).toHaveBeenCalledTimes(1);
+    },
+  );
 });

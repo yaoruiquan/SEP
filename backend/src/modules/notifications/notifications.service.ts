@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
 import type { NotificationCategory } from 'shared';
@@ -42,6 +42,8 @@ export interface CreateNotificationDto {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService, @Optional() @Inject(forwardRef(() => NotificationsGateway)) private readonly gateway?: NotificationsGateway) {}
 
   /**
@@ -51,8 +53,7 @@ export class NotificationsService {
     const created = await this.prisma.notification.create({
       data: this.enrich(dto),
     });
-    await this.gateway?.pushToUser(dto.userId, { ...created, category: created.category ?? TYPE_CATEGORY[created.type], severity: created.severity ?? this.resolveSeverity(created.type) });
-    if (this.gateway) await this.gateway.pushUnreadCount(dto.userId, await this.countUnread(dto.userId));
+    await this.publishNotification(dto.userId, created);
     return created;
   }
 
@@ -60,16 +61,55 @@ export class NotificationsService {
    * 批量创建通知（给多个用户）
    */
   async createBatch(userIds: string[], notification: Omit<CreateNotificationDto, 'userId'>) {
-    const result = await this.prisma.notification.createMany({
-      data: userIds.map((userId) => this.enrich({ userId, ...notification })),
+    const recipients = [...new Set(userIds.filter((userId) => userId.trim()))];
+    if (recipients.length === 0) return { count: 0 };
+
+    const created = await this.prisma.notification.createManyAndReturn({
+      data: recipients.map((userId) => this.enrich({ userId, ...notification })),
     });
     if (this.gateway) {
-      await Promise.all(userIds.map(async (userId) => {
-        await this.gateway!.pushToUser(userId, { ...notification, userId, category: notification.category ?? TYPE_CATEGORY[notification.type], severity: notification.severity ?? this.resolveSeverity(notification.type) });
-        await this.gateway!.pushUnreadCount(userId, await this.countUnread(userId));
-      }));
+      const recordsByUser = new Map<string, typeof created>();
+      for (const record of created) {
+        const records = recordsByUser.get(record.userId) ?? [];
+        records.push(record);
+        recordsByUser.set(record.userId, records);
+      }
+      await Promise.all(
+        [...recordsByUser.entries()].map(async ([userId, records]) => {
+          await Promise.all(records.map((record) => this.publishNotification(userId, record, false)));
+          await this.publishUnreadCount(userId);
+        }),
+      );
     }
-    return result;
+    return { count: created.length };
+  }
+
+  private async publishNotification(userId: string, notification: { userId: string; type: NotificationType; category?: string; severity?: string; [key: string]: unknown }, includeUnreadCount = true) {
+    if (!this.gateway) return;
+    const payload = {
+      ...notification,
+      category: notification.category ?? TYPE_CATEGORY[notification.type],
+      severity: notification.severity ?? this.resolveSeverity(notification.type),
+    };
+    try {
+      await this.gateway.pushToUser(userId, payload);
+    } catch (error) {
+      this.logger.warn(`Failed to push notification for userId=${userId}: ${this.formatError(error)}`);
+    }
+    if (includeUnreadCount) await this.publishUnreadCount(userId);
+  }
+
+  private async publishUnreadCount(userId: string) {
+    if (!this.gateway) return;
+    try {
+      await this.gateway.pushUnreadCount(userId, await this.countUnread(userId));
+    } catch (error) {
+      this.logger.warn(`Failed to push unread count for userId=${userId}: ${this.formatError(error)}`);
+    }
+  }
+
+  private formatError(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 
   /**
@@ -116,38 +156,46 @@ export class NotificationsService {
    * 标记单条通知为已读
    */
   async markAsRead(id: string, userId: string) {
-    return this.prisma.notification.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: { id, userId },
       data: { read: true },
     });
+    await this.publishUnreadCount(userId);
+    return result;
   }
 
   /**
    * 标记所有通知为已读
    */
   async markAllAsRead(userId: string, category?: NotificationCategory) {
-    return this.prisma.notification.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: this.buildWhere(userId, category, true),
       data: { read: true },
     });
+    await this.publishUnreadCount(userId);
+    return result;
   }
 
   /**
    * 删除通知
    */
   async delete(id: string, userId: string) {
-    return this.prisma.notification.deleteMany({
+    const result = await this.prisma.notification.deleteMany({
       where: { id, userId },
     });
+    await this.publishUnreadCount(userId);
+    return result;
   }
 
   /**
    * 清空所有已读通知
    */
   async clearRead(userId: string, category?: NotificationCategory) {
-    return this.prisma.notification.deleteMany({
+    const result = await this.prisma.notification.deleteMany({
       where: this.buildWhere(userId, category, false, true),
     });
+    await this.publishUnreadCount(userId);
+    return result;
   }
 
   private buildWhere(

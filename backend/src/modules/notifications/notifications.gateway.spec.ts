@@ -21,6 +21,10 @@ function createConfig(origin = '') {
   } as any;
 }
 
+function createAuthService(user: { id: string } | null = { id: 'user-1' }) {
+  return { validateUser: jest.fn().mockResolvedValue(user) } as any;
+}
+
 async function flushMessageHandler() {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
@@ -35,6 +39,7 @@ describe('NotificationsGateway', () => {
       jwtService as any,
       notificationsService as any,
       createConfig(),
+      createAuthService(),
     );
     const client = createClient();
 
@@ -72,6 +77,7 @@ describe('NotificationsGateway', () => {
       jwtService as any,
       notificationsService as any,
       createConfig(),
+      createAuthService(),
     );
     const client = createClient();
 
@@ -88,11 +94,124 @@ describe('NotificationsGateway', () => {
       { verify: jest.fn() } as any,
       { countUnread: jest.fn() } as any,
       createConfig('https://sep.example.com'),
+      createAuthService(),
     );
     const client = createClient();
 
     await gateway.handleConnection(client, { headers: { origin: 'https://evil.example.com' } });
 
     expect(client.close).toHaveBeenCalledWith(1008, 'Origin not allowed');
+  });
+
+  it('拒绝 sub 类型错误或非 ACTIVE 用户，且不会查询未读数', async () => {
+    const jwtService = { verify: jest.fn().mockReturnValue({ sub: 123, type: 'access' }) };
+    const notificationsService = { countUnread: jest.fn() };
+    const authService = createAuthService();
+    const gateway = new NotificationsGateway(
+      jwtService as any,
+      notificationsService as any,
+      createConfig(),
+      authService as any,
+    );
+    const client = createClient();
+
+    await gateway.handleConnection(client, { headers: {} });
+    client.emit('message', Buffer.from(JSON.stringify({ type: 'auth', token: 'jwt-token' })));
+    await flushMessageHandler();
+
+    expect(client.close).toHaveBeenCalledWith(1008, 'Invalid token');
+    expect(authService.validateUser).not.toHaveBeenCalled();
+    expect(notificationsService.countUnread).not.toHaveBeenCalled();
+
+    const inactiveGateway = new NotificationsGateway(
+      { verify: jest.fn().mockReturnValue({ sub: 'inactive-user', type: 'access' }) } as any,
+      notificationsService as any,
+      createConfig(),
+      createAuthService(null) as any,
+    );
+    const inactiveClient = createClient();
+    await inactiveGateway.handleConnection(inactiveClient, { headers: {} });
+    inactiveClient.emit('message', Buffer.from(JSON.stringify({ type: 'auth', token: 'jwt-token' })));
+    await flushMessageHandler();
+
+    expect(inactiveClient.close).toHaveBeenCalledWith(1008, 'Invalid token');
+    expect(notificationsService.countUnread).not.toHaveBeenCalled();
+  });
+
+  it('未读数初始化失败返回内部错误，而不是伪装成无效令牌', async () => {
+    const gateway = new NotificationsGateway(
+      { verify: jest.fn().mockReturnValue({ sub: 'user-1', type: 'access' }) } as any,
+      { countUnread: jest.fn().mockRejectedValue(new Error('database unavailable')) } as any,
+      createConfig(),
+      createAuthService(),
+    );
+    const client = createClient();
+
+    await gateway.handleConnection(client, { headers: {} });
+    client.emit('message', Buffer.from(JSON.stringify({ type: 'auth', token: 'jwt-token' })));
+    await flushMessageHandler();
+
+    expect(client.close).toHaveBeenCalledWith(1011, 'Internal error');
+  });
+
+  it.each(['disconnect', 'timeout'])('认证查询等待期间 %s 后不登记旧连接', async (reason) => {
+    let resolveCount!: (count: number) => void;
+    const count = new Promise<number>((resolve) => { resolveCount = resolve; });
+    const gateway = new NotificationsGateway(
+      { verify: jest.fn().mockReturnValue({ sub: 'user-1', type: 'access' }) } as any,
+      { countUnread: jest.fn().mockReturnValue(count) } as any,
+      createConfig(),
+      createAuthService(),
+    );
+    const client = createClient();
+    jest.useFakeTimers();
+    try {
+      await gateway.handleConnection(client, { headers: {} });
+      client.emit('message', Buffer.from(JSON.stringify({ type: 'auth', token: 'jwt-token' })));
+      await Promise.resolve();
+      if (reason === 'disconnect') gateway.handleDisconnect(client);
+      else jest.advanceTimersByTime(5000);
+      resolveCount(3);
+      await Promise.resolve();
+      await gateway.pushToUser('user-1', { id: 'late' });
+      expect(client.send).not.toHaveBeenCalled();
+      expect(client.userId).toBeUndefined();
+    } finally {
+      gateway.handleDisconnect(client);
+      jest.useRealTimers();
+    }
+  });
+
+  it.each(['null', '[]', '123', '"auth"'])('拒绝非对象消息 %s 而不抛异步异常', async (raw) => {
+    const gateway = new NotificationsGateway(
+      { verify: jest.fn() } as any,
+      { countUnread: jest.fn() } as any,
+      createConfig(),
+      createAuthService(),
+    );
+    const client = createClient();
+    await gateway.handleConnection(client, { headers: {} });
+    client.emit('message', Buffer.from(raw));
+    await flushMessageHandler();
+    expect(client.close).toHaveBeenCalledWith(1008, 'Invalid message');
+  });
+
+  it('单个连接发送异常不阻止同用户其他连接收到推送', async () => {
+    const gateway = new NotificationsGateway(
+      { verify: jest.fn().mockReturnValue({ sub: 'user-1', type: 'access' }) } as any,
+      { countUnread: jest.fn().mockResolvedValue(0) } as any,
+      createConfig(),
+      createAuthService(),
+    );
+    const clients = [createClient(), createClient()];
+    for (const client of clients) {
+      await gateway.handleConnection(client, { headers: {} });
+      client.emit('message', Buffer.from(JSON.stringify({ type: 'auth', token: 'jwt-token' })));
+      await flushMessageHandler();
+    }
+    clients[0].send.mockImplementation(() => { throw new Error('closed socket'); });
+    await expect(gateway.pushToUser('user-1', { id: 'notification-1' })).resolves.toBeUndefined();
+    expect(clients[1].send).toHaveBeenCalledTimes(2);
+    clients.forEach((client) => gateway.handleDisconnect(client));
   });
 });

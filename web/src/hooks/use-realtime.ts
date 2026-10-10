@@ -69,14 +69,12 @@ export function useNotifications(onNotification?: (notification: NotificationMes
         break;
       }
       case 'connected':
-        // 连接成功，刷新未读数
-        queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+        // 连接期间可能错过通知、已读和删除事件，恢复时补偿整个通知查询前缀。
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
         break;
       case 'unread_count':
-        // 后端主动推送未读数变化，直接更新缓存
-        queryClient.setQueryData(['notifications', 'unread-count'], {
-          count: (message.data as { count: number }).count,
-        });
+        // 多设备已读/删除也会触发计数事件；列表和分类 count 均通过 HTTP 补偿。
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
         break;
       default:
         break;

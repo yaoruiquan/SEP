@@ -6,15 +6,18 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
-import { Server, WebSocket } from 'ws';
+import { RawData, Server, WebSocket } from 'ws';
 import { JwtService } from '@nestjs/jwt';
 import { forwardRef, Inject } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { ConfigService } from '@nestjs/config';
+import { AuthService } from '../auth/auth.service';
 
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: string;
   authTimer?: NodeJS.Timeout;
+  authenticating?: boolean;
+  closed?: boolean;
 }
 
 interface NotificationWebSocketJwtPayload {
@@ -42,6 +45,7 @@ export class NotificationsGateway
     private readonly jwtService: JwtService,
     @Inject(forwardRef(() => NotificationsService)) private readonly notificationsService: NotificationsService,
     private readonly config: ConfigService,
+    private readonly authService: AuthService,
   ) {}
 
   afterInit() {
@@ -50,12 +54,13 @@ export class NotificationsGateway
 
   async handleConnection(client: AuthenticatedWebSocket, req: any) {
     try {
+      client.closed = false;
       const origin = req.headers.origin as string | undefined;
       const allowed = (this.config.get<string>('CORS_ORIGIN') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
       // 浏览器连接会带 Origin；Electron/Node 原生客户端通常不会带 Origin，
       // 但仍必须在连接建立后 5 秒内通过 JWT 认证。
       if (allowed.length > 0 && origin && !allowed.includes(origin)) {
-        client.close(1008, 'Origin not allowed');
+        this.closeClient(client, 1008, 'Origin not allowed');
         return;
       }
       client.authTimer = setTimeout(
@@ -63,34 +68,7 @@ export class NotificationsGateway
         5000,
       );
       client.on('message', async (raw) => {
-        try {
-          const message = JSON.parse(raw.toString()) as { type?: string; token?: string };
-
-          if (client.userId) {
-            if (message.type === 'ping') this.handlePing(client);
-            return;
-          }
-
-          if (message.type !== 'auth' || !message.token) {
-            return this.closeClient(client, 1008, 'Authentication required');
-          }
-          const payload = this.jwtService.verify<NotificationWebSocketJwtPayload>(
-            message.token,
-            { secret: this.jwtSecret },
-          );
-          if (payload.type !== 'access' || !payload.sub) {
-            return this.closeClient(client, 1008, 'Invalid token');
-          }
-          const userId = payload.sub;
-          this.clearAuthTimer(client);
-          client.userId = userId;
-          const clients = this.clients.get(userId) ?? new Set<AuthenticatedWebSocket>();
-          clients.add(client); this.clients.set(userId, clients);
-          const unreadCount = await this.notificationsService.countUnread(userId);
-          this.sendToClient(client, { type: 'connected', data: { unreadCount }, timestamp: Date.now() });
-        } catch {
-          this.closeClient(client, 1008, 'Invalid token');
-        }
+        await this.handleMessage(client, raw);
       });
     } catch (error) {
       this.logger.error('Connection error:', error);
@@ -98,7 +76,75 @@ export class NotificationsGateway
     }
   }
 
+  private async handleMessage(client: AuthenticatedWebSocket, raw: RawData) {
+    if (client.closed || client.readyState !== WebSocket.OPEN) return;
+    let input: unknown;
+    try {
+      input = JSON.parse(raw.toString());
+    } catch {
+      this.closeClient(client, 1008, 'Invalid message');
+      return;
+    }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      this.closeClient(client, 1008, 'Invalid message');
+      return;
+    }
+    const message = input as { type?: unknown; token?: unknown };
+
+    if (client.userId) {
+      if (message.type === 'ping') this.handlePing(client);
+      return;
+    }
+
+    if (client.authenticating) return;
+    if (message.type !== 'auth' || typeof message.token !== 'string' || !message.token) {
+      this.closeClient(client, 1008, 'Authentication required');
+      return;
+    }
+
+    let payload: NotificationWebSocketJwtPayload;
+    try {
+      payload = this.jwtService.verify<NotificationWebSocketJwtPayload>(message.token, {
+        secret: this.jwtSecret,
+      });
+    } catch {
+      this.closeClient(client, 1008, 'Invalid token');
+      return;
+    }
+
+    if (payload?.type !== 'access' || typeof payload.sub !== 'string' || !payload.sub.trim()) {
+      this.closeClient(client, 1008, 'Invalid token');
+      return;
+    }
+
+    client.authenticating = true;
+    try {
+      const user = await this.authService.validateUser(payload.sub);
+      if (client.closed || client.readyState !== WebSocket.OPEN) return;
+      if (!user) {
+        this.closeClient(client, 1008, 'Invalid token');
+        return;
+      }
+
+      const unreadCount = await this.notificationsService.countUnread(user.id);
+      if (client.closed || client.readyState !== WebSocket.OPEN) return;
+      this.clearAuthTimer(client);
+      client.userId = user.id;
+      const clients = this.clients.get(user.id) ?? new Set<AuthenticatedWebSocket>();
+      clients.add(client);
+      this.clients.set(user.id, clients);
+      this.sendToClient(client, { type: 'connected', data: { unreadCount }, timestamp: Date.now() });
+    } catch (error) {
+      if (client.closed || client.readyState !== WebSocket.OPEN) return;
+      this.logger.error('Notification WebSocket authentication initialization failed:', error);
+      this.closeClient(client, 1011, 'Internal error');
+    } finally {
+      client.authenticating = false;
+    }
+  }
+
   handleDisconnect(client: AuthenticatedWebSocket) {
+    client.closed = true;
     this.clearAuthTimer(client);
     const userId = client.userId;
     if (userId) {
@@ -111,6 +157,7 @@ export class NotificationsGateway
       }
       this.logger.log(`Client disconnected: userId=${userId}`);
     }
+    client.userId = undefined;
   }
 
   /**
@@ -161,9 +208,17 @@ export class NotificationsGateway
     });
   }
 
-  private sendToClient(client: WebSocket, message: any) {
+  private sendToClient(client: AuthenticatedWebSocket, message: any) {
+    if (client.closed) return;
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
+      try {
+        client.send(JSON.stringify(message), (error) => {
+          if (error) this.closeClient(client, 1011, 'Internal error');
+        });
+      } catch {
+        this.logger.warn('Notification WebSocket send failed');
+        this.closeClient(client, 1011, 'Internal error');
+      }
     }
   }
 
@@ -175,8 +230,13 @@ export class NotificationsGateway
   }
 
   private closeClient(client: AuthenticatedWebSocket, code: number, reason: string) {
-    this.clearAuthTimer(client);
-    client.close(code, reason);
+    if (client.closed) return;
+    this.handleDisconnect(client);
+    try {
+      client.close(code, reason);
+    } catch {
+      this.logger.warn('Notification WebSocket close failed');
+    }
   }
 
   private get jwtSecret(): string {
