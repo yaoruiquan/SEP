@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { AdoptEnterpriseVersionDtoSchema, ReviewSkillVersionDtoSchema } from '../../../../../../backend/src/shared/skill-version.dto';
+import { AdoptEnterpriseVersionDtoSchema, CreatePlatformSkillVersionDtoSchema, ReviewSkillVersionDtoSchema } from '../../../../../../backend/src/shared/skill-version.dto';
 import { monitorQuery, type MonitorDetail, type MonitorFilters, type MonitorRow } from './monitor';
 
 export function useSkillMonitor(filters: MonitorFilters, page: number, limit: number) {
@@ -22,6 +22,25 @@ export function useMonitorDetail(id: string) {
     queryKey: ['skill-versions', 'preview', 'admin', id],
     queryFn: () => api.get<MonitorDetail>(`/admin/skill-versions/${encodeURIComponent(id)}`),
     enabled: Boolean(id), staleTime: 0, retry: false,
+  });
+}
+export function usePublishSkillVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, expectedUpdatedAt, expectedPlatformVersionId, changeSummary }: {
+      id: string; expectedUpdatedAt: string; expectedPlatformVersionId: string | null; changeSummary?: string;
+    }) => api.post<MonitorDetail>(`/admin/skill-versions/${encodeURIComponent(id)}/publish`, {
+      expectedUpdatedAt,
+      expectedPlatformVersionId,
+      ...CreatePlatformSkillVersionDtoSchema.pick({ changeSummary: true }).parse({ changeSummary }),
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['skill-versions'] }),
+        qc.invalidateQueries({ queryKey: ['capabilities'] }),
+        qc.invalidateQueries({ queryKey: ['admin'] }),
+      ]);
+    },
   });
 }
 export function useSelectSkillSource() {

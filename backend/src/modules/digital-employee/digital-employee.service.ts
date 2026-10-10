@@ -288,7 +288,11 @@ export class DigitalEmployeeService {
         status: 'PLATFORM_APPROVED',
       },
       select: { id: true, capabilityId: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
     });
     const defaults = new Map<string, string>();
     for (const version of versions) {

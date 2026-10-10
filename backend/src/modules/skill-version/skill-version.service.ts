@@ -39,6 +39,7 @@ import type {
   CreatePlatformSkillVersionDto,
   ReviewSkillVersionDto,
   SubmitAdminPlatformReviewDto,
+  PublishPlatformSkillVersionDto,
   UpdateSkillVersionDto,
 } from 'shared';
 
@@ -62,6 +63,16 @@ const VERSION_SUMMARY_SELECT = {
   createdAt: true,
   updatedAt: true,
 } as const;
+
+const PLATFORM_RELEASE_ORDER = [
+  { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+  { createdAt: 'desc' }, { id: 'desc' },
+] satisfies Prisma.SkillVersionOrderByWithRelationInput[];
+
+type PlatformRelease = Prisma.SkillVersionGetPayload<{ include: {
+  capability: true;
+  sourceVersion: { select: { capability: { select: { id: true; contributorId: true; enterpriseId: true } } } };
+} }>;
 
 @Injectable()
 export class SkillVersionService {
@@ -119,7 +130,7 @@ export class SkillVersionService {
           ],
         },
         select: VERSION_SUMMARY_SELECT,
-        orderBy: { createdAt: 'desc' },
+        orderBy: PLATFORM_RELEASE_ORDER,
       }),
       this.prisma.subscriptionSkillVersion.findMany({
         where: { subscriptionId: subscription.id },
@@ -340,7 +351,7 @@ export class SkillVersionService {
     if (approved(defaultVersion)) return defaultVersion!;
     return this.prisma.skillVersion.findFirst({
       where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: PLATFORM_RELEASE_ORDER,
     });
   }
 
@@ -352,7 +363,7 @@ export class SkillVersionService {
   private async latestPlatformVersionId(capabilityId: string) {
     const latest = await this.prisma.skillVersion.findFirst({
       where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: { createdAt: 'desc' },
+      orderBy: PLATFORM_RELEASE_ORDER,
       select: { id: true },
     });
     return latest?.id ?? null;
@@ -484,7 +495,7 @@ export class SkillVersionService {
       const latest = items.length ? await tx.skillVersion.findMany({ where: {
         capabilityId: { in: [...new Set(items.map((item) => item.capabilityId))] }, scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
       }, select: { id: true, capabilityId: true }, distinct: ['capabilityId'],
-        orderBy: [{ capabilityId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }] }) : [];
+        orderBy: [{ capabilityId: 'asc' as const }, ...PLATFORM_RELEASE_ORDER] }) : [];
       const latestIds = new Set(latest.map((row) => row.id));
       const lineages = await readAdminVersionLineages(tx, items.map((item) => item.id));
       return { total, page: filters.page, limit: filters.limit, items: items.map((item) => {
@@ -542,9 +553,21 @@ export class SkillVersionService {
       ids: version.scope === 'PLATFORM' ? version.sourceVersionId ? [version.sourceVersionId] : [] : [version.id],
     });
     const latest = await this.prisma.skillVersion.findFirst({ where: { capabilityId: version.capabilityId,
-      scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+      scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, select: { id: true }, orderBy: PLATFORM_RELEASE_ORDER });
+    let platformCapabilityId = version.capabilityId;
+    if (version.scope !== 'PLATFORM' && version.capability.visibility !== 'MARKET_PUBLIC') {
+      const mapping = await this.prisma.skillVersion.findFirst({ where: {
+        scope: 'PLATFORM', sourceVersion: { capabilityId: version.capabilityId },
+        capabilityId: { not: version.capabilityId }, capability: { enterpriseId: null, type: 'SKILL' },
+      }, select: { capabilityId: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+      platformCapabilityId = mapping?.capabilityId ?? '';
+    }
+    const currentPlatformVersion = platformCapabilityId ? await this.prisma.skillVersion.findFirst({
+      where: { capabilityId: platformCapabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      select: { id: true, capabilityId: true, version: true, content: true, updatedAt: true }, orderBy: PLATFORM_RELEASE_ORDER,
+    }) : null;
     const lineages = await readAdminVersionLineages(this.prisma, [version.id]);
-    return { ...version, ...lineages.get(version.id)!, isWorkingCopy: isPlatformWorkingCopy(version), ...platformMonitorClassifications(version, state?.enterpriseReviewStatus),
+    return { ...version, currentPlatformVersion, ...lineages.get(version.id)!, isWorkingCopy: isPlatformWorkingCopy(version), ...platformMonitorClassifications(version, state?.enterpriseReviewStatus),
       ...(state ? { enterpriseReviewedAt: state.enterpriseReviewedAt,
         ...(version.scope !== 'PLATFORM' ? { rejectionReason: state.rejectionReason } : {}),
         ...(version.sourceVersion ? { sourceVersion: { ...version.sourceVersion, ...state, id: version.sourceVersion.id } } : {}),
@@ -630,35 +653,7 @@ export class SkillVersionService {
       await tx.skillVersionReview.create({ data: { versionId: version.id, actorType: 'PLATFORM',
         decision: dto.decision, reviewerId: userId, comment: dto.comment } });
       if (approved) {
-        await tx.capability.update({ where: { id: version.capabilityId }, data: {
-          status: 'APPROVED', visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED',
-          platformRejectionReason: null, approvedAt: now,
-        } });
-        // 读取和执行兼容旧 SkillConfig；正文／包始终取精确通过的这一版。
-        await tx.skillConfig.upsert({ where: { capabilityId: version.capabilityId },
-          create: { capabilityId: version.capabilityId, template: version.content }, update: { template: version.content } });
-        await this.advancePlatformBindingDefaults(tx, version.capabilityId, version.id);
-        // Keep the old capability-level origin and wallet relatedId across independent platform copies.
-        let origin = version.sourceVersion?.capability ?? version.capability;
-        if (origin.id === version.capabilityId) {
-          const mapping = await tx.skillVersion.findFirst({ where: { capabilityId: version.capabilityId, scope: 'PLATFORM',
-            sourceVersion: { capabilityId: { not: version.capabilityId } } },
-            select: { sourceVersion: { select: { capability: { select: { id: true, contributorId: true, enterpriseId: true } } } } },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
-          origin = mapping?.sourceVersion?.capability ?? origin;
-        }
-        const configured = Number(await this.platformSettings?.getEffectiveValue('CONTRIBUTION_PLATFORM_REWARD_CNY') ?? '50');
-        const amount = new Prisma.Decimal(Number.isFinite(configured) && configured > 0 ? configured : 50);
-        const dedupeKey = `platform-approved:${origin.id}`;
-        const reward = await tx.contributionRewardEvent.createMany({ data: [{
-          recipientId: origin.contributorId, enterpriseId: origin.enterpriseId, capabilityId: origin.id,
-          versionId: version.id, eventType: 'PLATFORM_APPROVED', points: 50, amount,
-          status: 'AVAILABLE', settledAt: now, dedupeKey,
-          metadata: { reviewerId: userId, amountCNY: amount.toString(), platformCapabilityId: version.capabilityId },
-        }], skipDuplicates: true });
-        if (reward.count === 1) await this.platformWallet.creditContributionRewardInTx(
-          tx, origin.contributorId, amount, dedupeKey, `平台审核通过奖励 ¥${amount.toFixed(2)}`,
-        );
+        await this.applyPlatformRelease(tx, version, userId, now);
       } else if (version.capability.visibility !== 'MARKET_PUBLIC') {
         await tx.capability.update({ where: { id: version.capabilityId }, data: {
           platformReviewStatus: 'REJECTED', platformRejectionReason: dto.comment,
@@ -668,10 +663,74 @@ export class SkillVersionService {
     });
   }
 
-  /** 选择来源只复制待审版本；不修改源审核、归属或企业启用。 */
+  async publishPlatformVersion(userId: string, versionId: string, dto: PublishPlatformSkillVersionDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const ref = await tx.skillVersion.findUnique({ where: { id: versionId }, select: { capabilityId: true } });
+      if (!ref) throw new NotFoundException('来源技能版本不存在');
+      await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${ref.capabilityId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${versionId} FOR UPDATE`;
+      const source = await tx.skillVersion.findUnique({ where: { id: versionId }, include: { capability: true } });
+      if (!source || source.capability.type !== 'SKILL') throw new NotFoundException('来源技能版本不存在');
+      if (source.scope === 'PLATFORM' && source.status === 'PLATFORM_APPROVED') return tx.skillVersion.findUniqueOrThrow({
+        where: { id: source.id }, select: { ...VERSION_SUMMARY_SELECT, content: true },
+      });
+      const expectedTime = new Date(dto.expectedUpdatedAt).getTime();
+      if (!Number.isFinite(expectedTime) || expectedTime !== source.updatedAt.getTime()) {
+        throw new ConflictException('来源已更新，请重新预览后发布');
+      }
+      if (source.scope === 'PLATFORM' && source.status === 'ARCHIVED') throw new BadRequestException('归档平台版本不可直接发布');
+      const selected = source.scope === 'PLATFORM' ? source : await this.selectPlatformSourceInTx(tx, userId, versionId, {
+        mode: 'DRAFT', expectedUpdatedAt: dto.expectedUpdatedAt, changeSummary: dto.changeSummary,
+      });
+      if (selected.capabilityId !== source.capabilityId) {
+        await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${selected.capabilityId} FOR UPDATE`;
+      }
+      if (selected.id !== source.id) await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${selected.id} FOR UPDATE`;
+      const version = await tx.skillVersion.findFirst({ where: { id: selected.id, scope: 'PLATFORM' }, include: {
+        capability: true, sourceVersion: { select: { capability: { select: { id: true, contributorId: true, enterpriseId: true } } } },
+      } });
+      if (!version) throw new NotFoundException('平台技能版本不存在');
+      // An idempotent retry must not reapply an older release over the current head.
+      if (version.status === 'PLATFORM_APPROVED') return tx.skillVersion.findUniqueOrThrow({
+        where: { id: version.id }, select: { ...VERSION_SUMMARY_SELECT, content: true },
+      });
+      if (!['DRAFT', 'PENDING_PLATFORM_REVIEW', 'PLATFORM_REJECTED'].includes(version.status)) {
+        throw new BadRequestException('当前平台版本不可发布');
+      }
+      if (version.capability.enterpriseId && version.capability.visibility !== 'MARKET_PUBLIC') {
+        throw new ConflictException('历史私有平台副本须重新选择个人或企业来源，复制为独立平台技能');
+      }
+      const head = await tx.skillVersion.findFirst({ where: {
+        capabilityId: version.capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      }, select: { id: true }, orderBy: PLATFORM_RELEASE_ORDER });
+      if ((head?.id ?? null) !== dto.expectedPlatformVersionId) {
+        throw new ConflictException('当前平台版本已变化，请重新预览后发布');
+      }
+      const validation = await validatePlatformSource(version, this.platformValidator, this.platformSecurity, this.platformPackages);
+      const siblings = await tx.skillVersion.findMany({ where: {
+        capabilityId: version.capabilityId, scope: 'PLATFORM', id: { not: version.id },
+      }, select: { version: true } });
+      const now = new Date();
+      const updated = await tx.skillVersion.update({ where: { id: version.id }, data: {
+        status: 'PLATFORM_APPROVED', version: nextSemver(siblings.map((row) => row.version)), parentVersionId: head?.id ?? null,
+        platformReviewedById: userId, platformReviewedAt: now, rejectionReason: null,
+        validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now,
+        ...(dto.changeSummary?.trim() ? { changeSummary: dto.changeSummary.trim() } : {}),
+      }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
+      await tx.skillVersionReview.create({ data: { versionId: version.id, actorType: 'PLATFORM', decision: 'APPROVE',
+        reviewerId: userId, comment: dto.changeSummary?.trim() || '预览确认后发布为平台版本' } });
+      await this.applyPlatformRelease(tx, version, userId, now);
+      return updated;
+    }, { timeout: 30_000 });
+  }
+
+  /** 旧接口兼容：选择来源只复制待审版本，不修改企业启用。 */
   async adoptEnterpriseVersion(userId: string, versionId: string, dto: AdoptEnterpriseVersionDto) {
     if (dto.mode && dto.mode !== 'DRAFT') throw new BadRequestException('选定来源必须经过平台审核，不能直接发布');
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.selectPlatformSourceInTx(tx, userId, versionId, dto));
+  }
+
+  private async selectPlatformSourceInTx(tx: Prisma.TransactionClient, userId: string, versionId: string, dto: AdoptEnterpriseVersionDto) {
       const ref = await tx.skillVersion.findUnique({ where: { id: versionId }, select: { capabilityId: true } });
       if (!ref) throw new NotFoundException('来源技能版本不存在');
       // 源能力行锁串行化同技能首次映射，无需额外 schema 或独立映射表。
@@ -755,7 +814,7 @@ export class SkillVersionService {
       }
       const siblings = await tx.skillVersion.findMany({ where: { capabilityId: platformCapabilityId, scope: 'PLATFORM' }, select: { version: true } });
       const parent = await tx.skillVersion.findFirst({ where: { capabilityId: platformCapabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-        select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+        select: { id: true }, orderBy: PLATFORM_RELEASE_ORDER });
       const created = await tx.skillVersion.create({ data: {
         ...buildPlatformPromotion({ source: selected, platformCapabilityId,
           version: nextSemver(siblings.map((row) => row.version)), platformParentId: parent?.id ?? null,
@@ -765,7 +824,37 @@ export class SkillVersionService {
         }), validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now,
       }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
       return created;
-    });
+  }
+
+  private async applyPlatformRelease(tx: Prisma.TransactionClient, version: PlatformRelease, userId: string, now: Date) {
+    await tx.capability.update({ where: { id: version.capabilityId }, data: {
+      status: 'APPROVED', visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED',
+      platformRejectionReason: null, approvedAt: now,
+    } });
+    await tx.skillConfig.upsert({ where: { capabilityId: version.capabilityId },
+      create: { capabilityId: version.capabilityId, template: version.content }, update: { template: version.content } });
+    await this.advancePlatformBindingDefaults(tx, version.capabilityId, version.id);
+    // Independent platform copies retain the original capability's reward identity.
+    let origin = version.sourceVersion?.capability ?? version.capability;
+    if (origin.id === version.capabilityId) {
+      const mapping = await tx.skillVersion.findFirst({ where: { capabilityId: version.capabilityId, scope: 'PLATFORM',
+        sourceVersion: { capabilityId: { not: version.capabilityId } } },
+        select: { sourceVersion: { select: { capability: { select: { id: true, contributorId: true, enterpriseId: true } } } } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+      origin = mapping?.sourceVersion?.capability ?? origin;
+    }
+    const configured = Number(await this.platformSettings?.getEffectiveValue('CONTRIBUTION_PLATFORM_REWARD_CNY') ?? '50');
+    const amount = new Prisma.Decimal(Number.isFinite(configured) && configured > 0 ? configured : 50);
+    const dedupeKey = `platform-approved:${origin.id}`;
+    const reward = await tx.contributionRewardEvent.createMany({ data: [{
+      recipientId: origin.contributorId, enterpriseId: origin.enterpriseId, capabilityId: origin.id,
+      versionId: version.id, eventType: 'PLATFORM_APPROVED', points: 50, amount,
+      status: 'AVAILABLE', settledAt: now, dedupeKey,
+      metadata: { reviewerId: userId, amountCNY: amount.toString(), platformCapabilityId: version.capabilityId },
+    }], skipDuplicates: true });
+    if (reward.count === 1) await this.platformWallet.creditContributionRewardInTx(
+      tx, origin.contributorId, amount, dedupeKey, `平台审核通过奖励 ¥${amount.toFixed(2)}`,
+    );
   }
 
   /**
@@ -986,7 +1075,7 @@ export class SkillVersionService {
 
     return this.prisma.skillVersion.findFirst({
       where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-      orderBy: { createdAt: 'desc' },
+      orderBy: PLATFORM_RELEASE_ORDER,
       select: { id: true, scope: true, version: true, content: true },
     });
   }

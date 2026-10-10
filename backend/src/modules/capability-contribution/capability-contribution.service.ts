@@ -1457,7 +1457,11 @@ export class CapabilityContributionService {
           contributor: { select: { id: true, name: true } },
           skillVersions: {
             where: { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
-            orderBy: { createdAt: 'desc' },
+            orderBy: [
+              { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+              { id: 'desc' },
+            ],
             take: 1,
             select: { id: true, version: true, packageSha256: true, packageFilename: true },
           },
@@ -1503,7 +1507,15 @@ export class CapabilityContributionService {
           employeeId, capabilityId,
           priority: priority ?? 0,
           defaultSkillVersionId: capability.type === 'SKILL'
-            ? (await this.prisma.skillVersion.findFirst({ where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' }, orderBy: { createdAt: 'desc' }, select: { id: true } }))?.id
+            ? (await this.prisma.skillVersion.findFirst({
+                where: { capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+                orderBy: [
+                  { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+                  { createdAt: 'desc' },
+                  { id: 'desc' },
+                ],
+                select: { id: true },
+              }))?.id
             : undefined,
         },
         include: { capability: { select: { id: true, name: true, type: true, description: true } } },

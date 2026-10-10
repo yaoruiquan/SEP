@@ -939,12 +939,30 @@ export class AdminService {
             orderBy: { createdAt: 'asc' },
             select: { employee: { select: { id: true, name: true } } },
           },
+          skillVersions: {
+            where: { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+            orderBy: [
+              { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+              { id: 'desc' },
+            ],
+            take: 1,
+            select: { id: true, version: true, platformReviewedAt: true },
+          },
         },
       }),
       this.prisma.capability.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    return {
+      items: items.map(({ skillVersions, ...capability }) => ({
+        ...capability,
+        currentPlatformVersion: capability.type === 'SKILL' ? skillVersions[0] ?? null : null,
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /**
@@ -1052,6 +1070,9 @@ export class AdminService {
     });
 
     if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.type === 'SKILL') {
+      throw new BadRequestException('技能不能使用通用能力审核，请前往技能监控选择精确版本并发布为平台版本');
+    }
     if (capability.status !== 'PENDING') {
       throw new BadRequestException('只能审核待审核状态的能力');
     }
@@ -1071,36 +1092,6 @@ export class AdminService {
           }),
         },
       });
-      if (capability.type === 'SKILL') {
-        const versions = await tx.skillVersion.findMany({
-          where: {
-            capabilityId,
-            scope: 'PLATFORM',
-            status: { in: ['DRAFT', 'PENDING_PLATFORM_REVIEW'] },
-          },
-          select: { id: true },
-        });
-        if (versions.length > 0) {
-          await tx.skillVersion.updateMany({
-            where: { id: { in: versions.map(({ id }) => id) } },
-            data: {
-              status: 'PLATFORM_APPROVED',
-              platformReviewedById: operatorId,
-              platformReviewedAt: reviewedAt,
-              rejectionReason: null,
-            },
-          });
-          await tx.skillVersionReview.createMany({
-            data: versions.map(({ id }) => ({
-              versionId: id,
-              actorType: 'PLATFORM',
-              decision: 'APPROVE',
-              reviewerId: operatorId,
-              comment: note,
-            })),
-          });
-        }
-      }
       if (isContributionSubmission) {
         const dedupeKey = `platform-approved:${capability.id}`;
         const existingReward = await tx.contributionRewardEvent.findUnique({ where: { dedupeKey }, select: { id: true } });
@@ -1123,12 +1114,14 @@ export class AdminService {
     });
 
     if (!capability) throw new NotFoundException('能力不存在');
+    if (capability.type === 'SKILL') {
+      throw new BadRequestException('技能不能使用通用能力审核，请前往技能监控选择精确版本处理');
+    }
     if (capability.status !== 'PENDING') {
       throw new BadRequestException('只能审核待审核状态的能力');
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const reviewedAt = new Date();
       const isContributionSubmission = capability.platformReviewStatus === 'PENDING_REVIEW';
       const updated = await tx.capability.update({
         where: { id: capabilityId },
@@ -1141,36 +1134,6 @@ export class AdminService {
           }),
         },
       });
-      if (capability.type === 'SKILL') {
-        const versions = await tx.skillVersion.findMany({
-          where: {
-            capabilityId,
-            scope: 'PLATFORM',
-            status: { in: ['DRAFT', 'PENDING_PLATFORM_REVIEW'] },
-          },
-          select: { id: true },
-        });
-        if (versions.length > 0) {
-          await tx.skillVersion.updateMany({
-            where: { id: { in: versions.map(({ id }) => id) } },
-            data: {
-              status: 'PLATFORM_REJECTED',
-              platformReviewedById: operatorId,
-              platformReviewedAt: reviewedAt,
-              rejectionReason: reason,
-            },
-          });
-          await tx.skillVersionReview.createMany({
-            data: versions.map(({ id }) => ({
-              versionId: id,
-              actorType: 'PLATFORM',
-              decision: 'REJECT',
-              reviewerId: operatorId,
-              comment: reason,
-            })),
-          });
-        }
-      }
       return updated;
     });
   }

@@ -54,6 +54,36 @@ describe('CapabilityService download access', () => {
           status: 'PLATFORM_APPROVED',
           packageKey: { not: null },
         }),
+        orderBy: [
+          { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+      }),
+    );
+  });
+
+  it('keeps enterprise-approved package selection ordered by creation time', async () => {
+    const { prisma, service } = makeService();
+    prisma.capability.findUnique.mockResolvedValue({
+      ...publicCapability,
+      contributorId: 'member-1',
+      enterpriseId: 'enterprise-1',
+      visibility: 'ENTERPRISE_PRIVATE',
+      platformReviewStatus: 'NOT_SUBMITTED',
+      status: 'PENDING',
+    });
+    prisma.skillVersion.findFirst.mockResolvedValue({
+      packageKey: 'skills/private.zip',
+      version: '1.0.0',
+    });
+
+    await service.getSkillPackageForDownload('cap-public', 'member-1', 'MEMBER');
+
+    expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED' }),
+        orderBy: { createdAt: 'desc' },
       }),
     );
   });

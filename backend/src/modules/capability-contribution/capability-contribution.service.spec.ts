@@ -901,5 +901,50 @@ describe('CapabilityContributionService market visibility', () => {
       ],
     });
     expect(capability.count).toHaveBeenCalledWith({ where });
+    const query = capability.findMany.mock.calls[0][0];
+    expect(query.select.skillVersions).toEqual({
+      where: { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      orderBy: [
+        { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: 1,
+      select: { id: true, version: true, packageSha256: true, packageFilename: true },
+    });
+    expect(query.select.rpaVersions.orderBy).toEqual({ createdAt: 'desc' });
+    expect(query.orderBy).toEqual([{ usageCount: 'desc' }, { updatedAt: 'desc' }]);
+  });
+
+  it('binds the latest platform publication with creation time fallback to an existing employee', async () => {
+    const prisma = {
+      capability: { findFirst: jest.fn().mockResolvedValue({ id: 'cap-1', type: 'SKILL' }) },
+      digitalEmployee: { findUnique: jest.fn().mockResolvedValue({ id: 'emp-1' }) },
+      skillVersion: { findFirst: jest.fn().mockResolvedValue({ id: 'republished-old-draft' }) },
+      employeeCapabilityBinding: { create: jest.fn().mockResolvedValue({ id: 'binding-1' }) },
+    };
+    const service = new CapabilityContributionService(
+      prisma as never,
+      {} as never,
+      new CapabilityValidatorService(),
+      {} as never,
+    );
+
+    await service.bindPublishedCapability('user-1', 'cap-1', 'emp-1');
+
+    expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith({
+      where: { capabilityId: 'cap-1', scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      orderBy: [
+        { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      select: { id: true },
+    });
+    expect(prisma.employeeCapabilityBinding.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { employeeId: 'emp-1', capabilityId: 'cap-1', priority: 0, defaultSkillVersionId: 'republished-old-draft' },
+      }),
+    );
   });
 });

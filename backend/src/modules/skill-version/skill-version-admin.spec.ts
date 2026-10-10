@@ -866,4 +866,26 @@ describe('Admin monitor contract', () => {
       owner: expect.anything(), createdBy: expect.anything(), reviews: expect.anything(), packageSha256: true,
     }) }));
   });
+
+  it('previews the published head of the independently mapped platform skill for a private source', async () => {
+    const { prisma, service } = setup();
+    const head = { id: 'public-head', capabilityId: 'platform-skill', version: '1.0.3', content: 'Published baseline', updatedAt: time };
+    prisma.skillVersion.findFirst.mockImplementation(({ where }) => Promise.resolve(
+      where.sourceVersion ? { capabilityId: 'platform-skill' } : where.capabilityId === 'platform-skill' ? head : null,
+    ));
+    expect(await service.getAdminVersion(source.id)).toMatchObject({ currentPlatformVersion: head });
+    expect(prisma.skillVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { capabilityId: 'platform-skill', scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+      select: { id: true, capabilityId: true, version: true, content: true, updatedAt: true },
+      orderBy: [{ platformReviewedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+
+  it('reports no platform baseline for an unmapped private source rather than using its enterprise version', async () => {
+    const { prisma, service } = setup();
+    expect(await service.getAdminVersion(source.id)).toMatchObject({ currentPlatformVersion: null });
+    expect(prisma.skillVersion.findFirst).not.toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ content: true }),
+    }));
+  });
 });

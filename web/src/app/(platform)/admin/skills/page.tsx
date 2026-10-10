@@ -1,21 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, ChevronDown, RotateCcw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CenteredSpinner, EmptyState } from '@/components/ui/feedback';
-import { ENTERPRISE_REVIEW_LABELS, VERSION_TYPE_LABELS, currentUsageLabel, enterpriseReviewLabel, platformProcessingLabel, type MonitorFilters } from './monitor';
+import { ENTERPRISE_REVIEW_LABELS, PLATFORM_PROCESSING_LABELS, VERSION_TYPE_LABELS, currentUsageLabel, enterpriseReviewLabel, monitorContextFilters, monitorContextSuffix, platformProcessingLabel, type MonitorFilters } from './monitor';
 import { useSkillMonitor } from './use-skill-monitor';
 import { EnterprisePublishedVersions, VersionAttribution } from './version-attribution';
 
 const emptyDraft = { search: '', enterpriseName: '', ownerName: '', createdFrom: '', createdTo: '' };
-const platformOptions = { NOT_SUBMITTED: '未收录', PENDING_REVIEW: '待审', APPROVED: '已通过', REJECTED: '已驳回' };
-
 export default function AdminSkillsPage() {
-  const [filters, setFilters] = useState<MonitorFilters>({});
+  return <Suspense fallback={<CenteredSpinner label="加载技能版本..." />}><MonitorContext /></Suspense>;
+}
+
+function MonitorContext() {
+  const params = useSearchParams();
+  const context = monitorContextFilters(params);
+  return <SkillMonitorList key={monitorContextSuffix(context)} context={context} />;
+}
+
+function SkillMonitorList({ context }: { context: MonitorFilters }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [filters, setFilters] = useState<MonitorFilters>(context);
   const [draft, setDraft] = useState(emptyDraft);
   const [timeError, setTimeError] = useState('');
   const [page, setPage] = useState(1);
@@ -62,12 +73,21 @@ export default function AdminSkillsPage() {
         </div>
         <Link href="/admin/capabilities/new" className="rounded-md border border-glassline px-4 py-2 text-sm text-gtext-primary hover:bg-glass-1">首次创建技能</Link>
       </header>
+      {(filters.capabilityId || (context.scope && filters.scope)) && <section aria-label="能力上下文" className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-l-2 border-gbrand-ring pl-3 text-sm text-gtext-secondary">
+        <p className="min-w-0 break-all">{filters.capabilityId ? `当前能力：${filters.capabilityId}` : filters.scope && `当前范围：${VERSION_TYPE_LABELS[filters.scope]}`}</p>
+        <Button variant="ghost" onClick={() => {
+          const next = new URLSearchParams(params.toString());
+          next.delete('capabilityId'); next.delete('scope');
+          setDraft(emptyDraft); setTimeError(''); setFilters({}); setPage(1);
+          router.replace(`/admin/skills${next.size ? `?${next}` : ''}`, { scroll: false });
+        }}><RotateCcw className="h-4 w-4" />清除能力上下文</Button>
+      </section>}
       <section aria-label="监控筛选" className="space-y-4 border-y border-glassline py-5">
         <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_minmax(140px,1fr)_minmax(160px,1fr)_auto]">
           <label className="min-w-0 space-y-1 text-sm text-gtext-secondary">搜索<div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" /><Input aria-label="搜索技能" maxLength={200} value={draft.search} onChange={(event) => setDraft((current) => ({ ...current, search: event.target.value }))} placeholder="技能名称、提交人或企业名称" className="pl-9" /></div></label>
           <Filter label="版本类型" value={filters.scope ?? ''} options={VERSION_TYPE_LABELS} onChange={(value) => change('scope', value)} />
-          <Filter label="平台收录状态" value={filters.platformProcessingStatus ?? ''} options={platformOptions} onChange={(value) => change('platformProcessingStatus', value)} />
-          <Button type="button" variant="ghost" className="justify-self-start" onClick={() => { setDraft(emptyDraft); setTimeError(''); setFilters({}); setPage(1); }}><RotateCcw className="h-4 w-4" />重置</Button>
+          <Filter label="平台发布状态" value={filters.platformProcessingStatus ?? ''} options={PLATFORM_PROCESSING_LABELS} onChange={(value) => change('platformProcessingStatus', value)} />
+          <Button type="button" variant="ghost" className="justify-self-start" onClick={() => { setDraft(emptyDraft); setTimeError(''); setFilters(context); setPage(1); }}><RotateCcw className="h-4 w-4" />重置</Button>
         </div>
         <details className="group border-t border-glassline pt-3">
           <summary className="flex w-fit cursor-pointer list-none items-center gap-2 text-sm text-gtext-secondary"><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />高级筛选{advancedCount > 0 && <span className="text-xs text-gbrand-text">· {advancedCount}</span>}</summary>
@@ -85,7 +105,7 @@ export default function AdminSkillsPage() {
         ) : query.data?.items.length ? (
           <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-left text-sm">
             <caption className="sr-only">技能版本监控，每行是一个版本记录</caption>
-            <thead className="border-b border-glassline bg-glass-1 text-gtext-muted"><tr>{['技能 / 版本', '版本类型 / 企业', '提交与审核', '对应企业版本', '企业审核', '平台收录', '当前使用', '创建 / 更新时间', '操作'].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}</tr></thead>
+            <thead className="border-b border-glassline bg-glass-1 text-gtext-muted"><tr>{['技能 / 版本', '版本类型 / 企业', '提交与审核', '对应企业版本', '企业审核', '平台发布', '当前使用', '创建 / 更新时间', '操作'].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}</tr></thead>
             <tbody className="divide-y divide-glassline">{query.data.items.map((row) => (
               <tr key={row.id} className="text-gtext-secondary">
                 <td className="max-w-[240px] px-4 py-4"><p className="break-words font-medium text-gtext-primary">{row.capability.name}</p><p className="mt-1 break-all text-xs">v{row.version}</p><p className="mt-1 break-all text-xs text-gtext-muted">技能 ID：{row.capability.id}</p><p className="mt-1 break-all text-xs text-gtext-muted">版本 ID：{row.id}</p></td>
@@ -95,7 +115,7 @@ export default function AdminSkillsPage() {
                 <td className="whitespace-nowrap px-4 py-4">{enterpriseReviewLabel(row)}</td><td className="whitespace-nowrap px-4 py-4">{platformProcessingLabel(row)}</td>
                 <td className="whitespace-nowrap px-4 py-4">{currentUsageLabel(row)}</td>
                 <td className="px-4 py-4 whitespace-nowrap"><p>{new Date(row.createdAt).toLocaleString('zh-CN')}</p><p className="mt-1 text-xs text-gtext-muted">更新 {new Date(row.updatedAt).toLocaleString('zh-CN')}</p></td>
-                <td className="px-4 py-4"><Link className="text-gbrand-text hover:underline" href={`/admin/skills/${row.id}`}>查看来源与处理</Link></td>
+                <td className="px-4 py-4"><Link className="text-gbrand-text hover:underline" href={`/admin/skills/${encodeURIComponent(row.id)}${monitorContextSuffix(filters)}`}>查看来源与处理</Link></td>
               </tr>
             ))}</tbody>
           </table></div>

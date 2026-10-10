@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 
@@ -29,12 +30,28 @@ describe('AdminService', () => {
     enterpriseWallet: {
       aggregate: jest.fn(),
     },
+    capability: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    skillVersion: {
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    skillVersionReview: { createMany: jest.fn() },
+    contributionRewardEvent: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
   const mockWalletService = {
     adminDeposit: jest.fn(),
     adminDeduct: jest.fn(),
   };
+  const mockPersonalWalletService = { creditContributionRewardInTx: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -48,6 +65,7 @@ describe('AdminService', () => {
           provide: WalletService,
           useValue: mockWalletService,
         },
+        { provide: PersonalWalletService, useValue: mockPersonalWalletService },
       ],
     }).compile();
 
@@ -58,6 +76,136 @@ describe('AdminService', () => {
     jest.clearAllMocks();
     mockWalletService.adminDeposit.mockResolvedValue({ balance: 150 });
     mockWalletService.adminDeduct.mockResolvedValue({ balance: 50 });
+    mockPrismaService.$transaction.mockImplementation((callback) => callback(mockPrismaService));
+  });
+
+  describe('listCapabilities', () => {
+    it('loads one minimal published platform version per capability without per-row queries', async () => {
+      const version = {
+        id: 'platform-v2', version: '1.0.1', platformReviewedAt: new Date('2026-10-10T00:00:00Z'),
+      };
+      mockPrismaService.capability.findMany.mockResolvedValue([
+        { id: 'skill-published', type: 'SKILL', skillVersions: [version] },
+        { id: 'skill-unpublished', type: 'SKILL', skillVersions: [] },
+        { id: 'rpa', type: 'RPA', skillVersions: [] },
+      ]);
+      mockPrismaService.capability.count.mockResolvedValue(3);
+
+      const result = await service.listCapabilities({ type: 'SKILL', page: 2, pageSize: 10 });
+
+      expect(mockPrismaService.capability.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.capability.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { type: 'SKILL' }, skip: 10, take: 10,
+        include: expect.objectContaining({
+          skillVersions: {
+            where: { scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+            orderBy: [
+              { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+              { id: 'desc' },
+            ],
+            take: 1,
+            select: { id: true, version: true, platformReviewedAt: true },
+          },
+        }),
+      }));
+      expect(mockPrismaService.capability.count).toHaveBeenCalledWith({ where: { type: 'SKILL' } });
+      expect(mockPrismaService.skillVersion.findMany).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        items: [
+          { id: 'skill-published', type: 'SKILL', currentPlatformVersion: version },
+          { id: 'skill-unpublished', type: 'SKILL', currentPlatformVersion: null },
+          { id: 'rpa', type: 'RPA', currentPlatformVersion: null },
+        ],
+        total: 3, page: 2, pageSize: 10,
+      });
+    });
+
+    it('preserves old version summaries without a publication timestamp', async () => {
+      const version = { id: 'legacy', version: '1.0.0', platformReviewedAt: null };
+      mockPrismaService.capability.findMany.mockResolvedValue([
+        { id: 'skill', type: 'SKILL', skillVersions: [version] },
+      ]);
+      mockPrismaService.capability.count.mockResolvedValue(1);
+      const result = await service.listCapabilities();
+      expect(result.items[0].currentPlatformVersion).toEqual(version);
+      expect(result.items[0]).not.toHaveProperty('skillVersions');
+    });
+
+    it.each([
+      ['PENDING', { OR: [{ enterpriseId: null, status: 'PENDING' }, { platformReviewStatus: 'PENDING_REVIEW' }] }],
+      ['APPROVED', { OR: [{ visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' }, { enterpriseId: null, status: 'APPROVED' }] }],
+      ['REJECTED', { status: 'REJECTED' }],
+    ] as const)('preserves the %s filter', async (status, where) => {
+      mockPrismaService.capability.findMany.mockResolvedValue([]);
+      mockPrismaService.capability.count.mockResolvedValue(0);
+      await service.listCapabilities({ status });
+      expect(mockPrismaService.capability.findMany).toHaveBeenCalledWith(expect.objectContaining({ where }));
+      expect(mockPrismaService.capability.count).toHaveBeenCalledWith({ where });
+    });
+  });
+
+  describe.each(['approve', 'reject'] as const)('%sCapability', (decision) => {
+    const review = () => decision === 'approve'
+      ? service.approveCapability('cap', 'admin', 'review note')
+      : service.rejectCapability('cap', 'admin', 'review reason');
+
+    it.each(['PENDING', 'APPROVED', 'REJECTED'])('blocks SKILL in %s before any writes', async (status) => {
+      mockPrismaService.capability.findUnique.mockResolvedValue({ id: 'cap', type: 'SKILL', status });
+      await expect(review()).rejects.toThrow(BadRequestException);
+      await expect(review()).rejects.toThrow(/技能监控/);
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+      expect(mockPrismaService.capability.update).not.toHaveBeenCalled();
+      expect(mockPrismaService.skillVersion.updateMany).not.toHaveBeenCalled();
+      expect(mockPrismaService.skillVersionReview.createMany).not.toHaveBeenCalled();
+      expect(mockPrismaService.contributionRewardEvent.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['AGENT', 'RPA', 'AI_APP'])('preserves inline review for %s', async (type) => {
+      mockPrismaService.capability.findUnique.mockResolvedValue({ id: 'cap', type, status: 'PENDING' });
+      const updated = { id: 'cap', type, status: decision === 'approve' ? 'APPROVED' : 'REJECTED' };
+      mockPrismaService.capability.update.mockResolvedValue(updated);
+      expect(await review()).toEqual(updated);
+      expect(mockPrismaService.capability.update).toHaveBeenCalledWith({
+        where: { id: 'cap' },
+        data: decision === 'approve'
+          ? { status: 'APPROVED', approvedAt: expect.any(Date) }
+          : { status: 'REJECTED' },
+      });
+      expect(mockPrismaService.skillVersion.findMany).not.toHaveBeenCalled();
+    });
+
+    it('preserves enterprise contribution status, visibility and reward behavior', async () => {
+      mockPrismaService.capability.findUnique.mockResolvedValue({
+        id: 'cap', type: 'RPA', status: 'PENDING', platformReviewStatus: 'PENDING_REVIEW',
+        contributorId: 'contributor', enterpriseId: 'enterprise',
+      });
+      mockPrismaService.contributionRewardEvent.findUnique.mockResolvedValue(null);
+      mockPrismaService.contributionRewardEvent.create.mockResolvedValue({ id: 'reward' });
+      await review();
+      expect(mockPrismaService.capability.update).toHaveBeenCalledWith({
+        where: { id: 'cap' },
+        data: decision === 'approve'
+          ? { status: 'APPROVED', approvedAt: expect.any(Date), platformReviewStatus: 'APPROVED', visibility: 'MARKET_PUBLIC', platformRejectionReason: null }
+          : { status: 'REJECTED', platformReviewStatus: 'REJECTED', visibility: 'ENTERPRISE_PRIVATE', platformRejectionReason: 'review reason' },
+      });
+      if (decision === 'approve') {
+        expect(mockPrismaService.contributionRewardEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({ dedupeKey: 'platform-approved:cap', recipientId: 'contributor' }),
+        }));
+        expect(mockPersonalWalletService.creditContributionRewardInTx).toHaveBeenCalledTimes(1);
+      } else {
+        expect(mockPrismaService.contributionRewardEvent.create).not.toHaveBeenCalled();
+      }
+    });
+
+    it('preserves missing capability and non-pending errors for non-skills', async () => {
+      mockPrismaService.capability.findUnique.mockResolvedValue(null);
+      await expect(review()).rejects.toThrow(NotFoundException);
+      mockPrismaService.capability.findUnique.mockResolvedValue({ id: 'cap', type: 'RPA', status: 'APPROVED' });
+      await expect(review()).rejects.toThrow('只能审核待审核状态的能力');
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe('getComputeSummary', () => {

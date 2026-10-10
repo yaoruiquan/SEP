@@ -1,107 +1,78 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useMemo, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Check, Inbox, X } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CenteredSpinner } from '@/components/ui/feedback';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
 import { Markdown } from '@/features/chat/markdown';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
-import { useMonitorDetail, useMonitorReview, useSelectSkillSource, useSubmitMonitorReview } from '../use-skill-monitor';
-import { VERSION_TYPE_LABELS, canSelectSource, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, monitorValidation, platformProcessingLabel, promotedVersion } from '../monitor';
+import { diffLines } from '@/features/capability-iteration/diff-lines';
+import { useMonitorDetail, usePublishSkillVersion } from '../use-skill-monitor';
+import { VERSION_TYPE_LABELS, canPublishVersion, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, monitorContextFilters, monitorContextSuffix, monitorValidation, platformProcessingLabel, promotedVersion, publishedSourceVersion, type MonitorDetail } from '../monitor';
 import { EnterprisePublishedVersions, VersionAttribution } from '../version-attribution';
 
-const ACTION_LABELS = { adopt: '收录失败', submit: '送审失败', review: '审核失败' };
-type MonitorAction = keyof typeof ACTION_LABELS;
-
 export default function AdminSkillVersionDetailPage() {
+  return <Suspense fallback={<CenteredSpinner label="加载版本详情..." />}><SkillVersionDetail /></Suspense>;
+}
+
+function SkillVersionDetail() {
   const { versionId = '' } = useParams<{ versionId: string }>();
+  return <SkillVersionPreview key={versionId} versionId={versionId} />;
+}
+
+function SkillVersionPreview({ versionId }: { versionId: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const contextSuffix = monitorContextSuffix(monitorContextFilters(params));
   const query = useMonitorDetail(versionId);
-  const review = useMonitorReview();
-  const adopt = useSelectSkillSource();
-  const submitReview = useSubmitMonitorReview();
-  const [reason, setReason] = useState('');
-  const [adoptNote, setAdoptNote] = useState('');
+  const publish = usePublishSkillVersion();
+  const [changeSummary, setChangeSummary] = useState('');
+  const [confirmation, setConfirmation] = useState<{ version: MonitorDetail; changeSummary?: string } | null>(null);
   const [tab, setTab] = useState('rendered');
-  const [actionErrors, setActionErrors] = useState<{ versionId: string } & Partial<Record<MonitorAction, string>>>({ versionId });
+  const [publishError, setPublishError] = useState('');
 
-  const setActionError = (action: MonitorAction, message?: string) => {
-    setActionErrors((current) => ({ ...(current.versionId === versionId ? current : { versionId }), [action]: message }));
-  };
-  const reportActionError = (action: MonitorAction, error: unknown) => {
-    const message = error instanceof Error && error.message.trim() ? error.message : action === 'adopt' ? '采纳失败' : ACTION_LABELS[action];
-    setActionError(action, message);
-    toast.error(message);
-  };
-
-  if (query.isLoading) return <CenteredSpinner label="加载审核详情..." />;
+  if (query.isLoading) return <CenteredSpinner label="加载版本详情..." />;
   if (query.isError) return <div role="alert" className="space-y-3 p-6 text-sm text-gdanger">加载失败：{query.error instanceof Error ? query.error.message : '请稍后重试'}<Button variant="glass" onClick={() => void query.refetch()}>重试</Button></div>;
   if (!query.data) return <div className="p-6 text-sm text-gdanger">技能版本不存在。</div>;
   const version = query.data;
   const status = SKILL_VERSION_STATUS[version.status];
-  const pending = version.scope === 'PLATFORM' && version.status === 'PENDING_PLATFORM_REVIEW';
-  const promoted = promotedVersion(version);
-  const adoptable = canSelectSource(version);
+  const publishedSource = publishedSourceVersion(version);
+  const promoted = publishedSource ?? promotedVersion(version);
+  const publishable = canPublishVersion(version);
   const validation = monitorValidation(version.validationResult);
-
-  const decide = (decision: 'APPROVE' | 'REJECT') => {
-    setActionError('review');
-    if (decision === 'REJECT' && !reason.trim()) {
-      reportActionError('review', new Error('驳回时必须填写原因'));
-      return;
-    }
-    review.mutate(
-      { id: versionId, decision, comment: reason.trim() || undefined, expectedUpdatedAt: version.updatedAt },
-      {
-        onSuccess: () => {
-          setActionError('review');
-          toast.success(decision === 'APPROVE' ? '所选平台版本审核通过，已发布'  : '版本已驳回');
-          router.push('/admin/skills');
-        },
-        onError: (error) => reportActionError('review', error),
-      },
-    );
-  };
-
-  const runAdopt = () => {
-    setActionError('adopt');
-    adopt.mutate(
-      { id: versionId, changeSummary: adoptNote.trim() || undefined, expectedUpdatedAt: version.updatedAt },
+  const baseline = version.currentPlatformVersion;
+  const runPublish = () => {
+    if (!confirmation || publish.isPending || confirmation.version.currentPlatformVersion === undefined) return;
+    setPublishError('');
+    publish.mutate(
+      { id: confirmation.version.id, expectedUpdatedAt: confirmation.version.updatedAt,
+        expectedPlatformVersionId: confirmation.version.currentPlatformVersion?.id ?? null,
+        changeSummary: confirmation.changeSummary },
       {
         onSuccess: (created) => {
-          setActionError('adopt');
-          toast.success(`已收录为平台待审版本 v${created.version}`);
-          router.push(`/admin/skills/${created.id}`);
+          setPublishError(''); setConfirmation(null);
+          toast.success(`已发布为平台版本 v${created.version}`);
+          router.push(`/admin/skills/${encodeURIComponent(created.id)}${contextSuffix}`);
         },
-        onError: (error) => reportActionError('adopt', error),
-      },
-    );
-  };
-
-  const runSubmitReview = () => {
-    setActionError('submit');
-    submitReview.mutate(
-      { id: versionId, expectedUpdatedAt: version.updatedAt },
-      {
-        onSuccess: () => {
-          setActionError('submit');
-          toast.success('该版本已重新进入平台待审');
+        onError: (error) => {
+          const message = error instanceof Error && error.message.trim() ? error.message : '发布失败';
+          setPublishError(message); setConfirmation(null); toast.error(message);
         },
-        onError: (error) => reportActionError('submit', error),
       },
     );
   };
 
   return (
-    <div className="w-full min-w-0 space-y-5 p-6">
+    <div className="w-full min-w-0 space-y-5 p-4 sm:p-6">
       <button
-        onClick={() => router.push('/admin/skills')}
+        onClick={() => router.push(`/admin/skills${contextSuffix}`)}
         className="inline-flex items-center gap-2 text-sm text-gtext-secondary hover:text-gtext-primary"
       >
         <ArrowLeft className="h-4 w-4" /> 返回技能监控
@@ -120,17 +91,23 @@ export default function AdminSkillVersionDetailPage() {
             {version.enterprise ? ` · 来源企业：${version.enterprise.name}` : ''}
           </p>
         </div>
+        <Button variant="glass" disabled={query.isFetching || publish.isPending} onClick={() => void query.refetch()}><RotateCcw className="h-4 w-4" />刷新预览</Button>
       </header>
-      {actionErrors.versionId === versionId && (Object.keys(ACTION_LABELS) as MonitorAction[]).map((action) => actionErrors[action] && (
-        <div key={action} role="alert" className="whitespace-pre-wrap break-words border-l-2 border-gdanger pl-3 text-sm text-gdanger">
-          {ACTION_LABELS[action]}：{actionErrors[action]}
-        </div>
-      ))}
+      {publishError && <div role="alert" className="space-y-2 whitespace-pre-wrap break-words border-l-2 border-gdanger pl-3 text-sm text-gdanger">
+        <p>发布失败：{publishError}</p><p>请刷新预览，核对来源与当前平台版本后重试。</p>
+      </div>}
       <section aria-label="版本分类" className="grid gap-3 border-y border-glassline py-4 text-sm text-gtext-secondary sm:grid-cols-3"><p>版本类型：{VERSION_TYPE_LABELS[version.scope]}<br />产生方式：{creationMethodLabel(version)}</p><p>企业审核：{enterpriseReviewLabel(version)}<br />平台处理：{platformProcessingLabel(version)}</p><p>当前使用：{currentUsageLabel(version)}</p></section>
       <section aria-label="版本归属" className="grid min-w-0 gap-4 border-b border-glassline pb-4 sm:grid-cols-3">
         <VersionAttribution version={version} />
         <div><h2 className="mb-2 text-xs text-gtext-muted">对应企业版本</h2><EnterprisePublishedVersions version={version} /></div>
         <div className="min-w-0 break-all text-xs text-gtext-muted"><p>技能 ID：{version.capabilityId}</p><p className="mt-2">版本 ID：{version.id}</p></div>
+      </section>
+      <section aria-label="当前平台版本" className="min-w-0 space-y-2 border-b border-glassline pb-4 text-sm text-gtext-secondary">
+        <h2 className="font-medium text-gtext-primary">当前平台版本</h2>
+        {baseline ? <><Link href={`/admin/skills/${encodeURIComponent(baseline.id)}${contextSuffix}`} className="text-gbrand-text hover:underline">平台版 v{baseline.version}</Link>
+          <p className="break-all text-xs text-gtext-muted">平台技能 ID：{baseline.capabilityId} · 版本 ID：{baseline.id}</p>
+          <p className="text-xs text-gtext-muted">更新于 {new Date(baseline.updatedAt).toLocaleString('zh-CN')}</p></>
+          : <p>{baseline === null ? '尚无已发布平台版本，无平台基线（首次发布）' : '缺少平台基线信息，请刷新预览后再发布'}</p>}
       </section>
       <section aria-label="已存校验结果" className="min-w-0 space-y-3 border-b border-glassline pb-4 text-sm">
         <h2 className="font-medium text-gtext-primary">{validation.label}</h2>
@@ -143,9 +120,15 @@ export default function AdminSkillVersionDetailPage() {
             <TabsList className="bg-glass-1">
               <TabsTrigger value="rendered">渲染视图</TabsTrigger>
               <TabsTrigger value="source">Markdown</TabsTrigger>
+              <TabsTrigger value="diff">差异预览</TabsTrigger>
             </TabsList>
             <TabsContent value="rendered" className="mt-4 min-w-0">
               <Markdown content={version.content} />
+            </TabsContent>
+            <TabsContent value="diff" className="mt-4 min-w-0">
+              {baseline ? <><p className="mb-3 text-sm text-gtext-muted">当前平台版 v{baseline.version} → 所选{VERSION_TYPE_LABELS[version.scope]} v{version.version}</p>
+                <PlatformDiff baseline={baseline.content} content={version.content} /></>
+                : <p className="text-sm text-gtext-muted">{baseline === null ? '首次发布，无平台基线；所选正文将作为首个平台版本。' : '平台基线信息缺失，暂不能预览差异。'}</p>}
             </TabsContent>
             <TabsContent value="source" className="mt-4 min-w-0">
               <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-gtext-secondary">
@@ -187,11 +170,9 @@ export default function AdminSkillVersionDetailPage() {
           </Card>
           {Boolean(version.reviews?.length) && <section aria-label="审核历史" className="border-y border-glassline py-4"><h2 className="font-medium text-gtext-primary">审核历史</h2><ol className="mt-3 space-y-4 text-sm text-gtext-secondary">{version.reviews?.map((entry) => <li key={entry.id}><p>{entry.actorType === 'PLATFORM' ? '平台' : '企业'} · {entry.decision === 'APPROVE' ? '通过' : '驳回'} · {entry.reviewer.name || entry.reviewer.id}</p><p className="mt-1 text-xs text-gtext-muted">{new Date(entry.createdAt).toLocaleString('zh-CN')}</p>{entry.comment && <p className="mt-1 whitespace-pre-wrap break-words">{entry.comment}</p>}</li>)}</ol></section>}
 
-          {version.scope === 'PLATFORM' && ['DRAFT', 'PLATFORM_REJECTED'].includes(version.status) && <section className="border-y border-glassline py-4"><Button className="w-full" variant="glass-primary" loading={submitReview.isPending} onClick={runSubmitReview}><Inbox className="h-4 w-4" />提交平台审核</Button></section>}
-
           {promoted && (
             <Card className="p-5">
-              <h2 className="font-medium text-gtext-primary">已收录</h2>
+              <h2 className="font-medium text-gtext-primary">{publishedSource ? '来源已发布' : '历史平台处理记录'}</h2>
               <p className="mt-2 text-sm text-gtext-secondary">
                 平台版 v{promoted.version} · {SKILL_VERSION_STATUS[promoted.status].label}
               </p>
@@ -204,57 +185,54 @@ export default function AdminSkillVersionDetailPage() {
             </Card>
           )}
 
-          {adoptable && (
-            <Card className="p-5">
-              <h2 className="font-medium text-gtext-primary">选择来源进入平台审核</h2>
+          {publishable && (
+            <section aria-label="平台发布" className="space-y-3 border-y border-glassline py-4">
+              <label htmlFor="skill-publish-summary" className="text-sm text-gtext-secondary">发布说明（可选）</label>
               <textarea
-                value={adoptNote}
-                onChange={(event) => setAdoptNote(event.target.value)}
+                id="skill-publish-summary"
+                value={changeSummary}
+                onChange={(event) => setChangeSummary(event.target.value)}
+                maxLength={2000}
+                disabled={publish.isPending}
                 rows={4}
-                placeholder="变更说明（可留空，默认写「平台采纳 XX 的 vN」）"
+                placeholder="本次平台发布的变更说明"
                 className="mt-3 w-full resize-none rounded-md border border-glassline bg-glass-1 p-3 text-sm text-gtext-primary focus:outline-none focus:ring-2 focus:ring-gbrand-ring"
               />
-              <div className="mt-3 space-y-2">
-                <Button
-                  variant="glass"
-                  className="w-full"
-                  onClick={runAdopt}
-                  loading={adopt.isPending}
-                >
-                  <Inbox className="h-4 w-4" /> 收录到平台待审
-                </Button>
-
-              </div>
-            </Card>
-          )}
-
-          {pending && (
-            <Card className="p-5">
-              <h2 className="font-medium text-gtext-primary">审核并发布所选平台版本</h2>
-              <textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                rows={5}
-                placeholder="驳回时必须填写原因"
-                className="mt-4 w-full resize-none rounded-md border border-glassline bg-glass-1 p-3 text-sm text-gtext-primary focus:outline-none focus:ring-2 focus:ring-gbrand-ring"
-              />
-              <div className="mt-3 grid gap-2">
-                <Button variant="glass" onClick={() => decide('REJECT')} loading={review.isPending}>
-                  <X className="h-4 w-4" /> 驳回
-                </Button>
-                <Button
-                  variant="glass-primary"
-                  onClick={() => decide('APPROVE')}
-                  loading={review.isPending}
-                >
-                  <Check className="h-4 w-4" /> 审核通过并发布
-                </Button>
-              </div>
-            </Card>
+              <p className="text-xs leading-5 text-gtext-muted">缺少结构段落仅作提示；发布时将重新检查正文、敏感凭据与能力包一致性，硬错误会阻止发布。</p>
+              {!version.content.trim() && <p className="text-sm text-gdanger">技能正文不能为空，不能发布。</p>}
+              <Button variant="glass-primary" className="w-full" disabled={publish.isPending || query.isFetching || baseline === undefined || !version.content.trim()}
+                onClick={() => setConfirmation({ version, changeSummary: changeSummary.trim() || undefined })}>
+                <Upload className="h-4 w-4" />发布为平台版本
+              </Button>
+            </section>
           )}
         </aside>
       </div>
-
+      <Dialog open={Boolean(confirmation)} onOpenChange={(open) => { if (!open && !publish.isPending) setConfirmation(null); }}>
+        <DialogContent glass className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
+          <DialogHeader><DialogTitle>发布为平台版本</DialogTitle><DialogDescription>确认发布所选精确版本？</DialogDescription></DialogHeader>
+          {confirmation && <div className="min-w-0 space-y-3 text-sm text-gtext-secondary">
+            <p className="break-words">来源：{confirmation.version.capability.name} · {VERSION_TYPE_LABELS[confirmation.version.scope]} v{confirmation.version.version}</p>
+            <p className="break-words">来源企业：{confirmation.version.enterprise?.name ?? '无企业归属'}</p>
+            <p className="break-all text-xs text-gtext-muted">来源版本 ID：{confirmation.version.id}</p>
+            <p>当前平台版本：{confirmation.version.currentPlatformVersion ? `v${confirmation.version.currentPlatformVersion.version}` : '无（首次发布）'}</p>
+            <p className="leading-6">发布后将更新平台执行正文和原本使用平台版本的员工模板绑定。私有来源将发布到独立的平台能力，企业原能力不会公开；企业审核状态、企业默认版本与企业订阅选版保持不变。</p>
+            {confirmation.changeSummary && <p className="whitespace-pre-wrap break-words">发布说明：{confirmation.changeSummary}</p>}
+          </div>}
+          <DialogFooter><Button variant="glass" disabled={publish.isPending} onClick={() => setConfirmation(null)}>取消</Button>
+            <Button variant="glass-primary" loading={publish.isPending} disabled={publish.isPending} onClick={runPublish}><Upload className="h-4 w-4" />确认发布</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function PlatformDiff({ baseline, content }: { baseline: string; content: string }) {
+  const rows = useMemo(() => diffLines(baseline, content), [baseline, content]);
+  if (baseline === content) return <p className="text-sm text-gtext-muted">与当前平台版本正文相同</p>;
+  return <section aria-label="正文差异" className="max-h-[60dvh] min-w-0 overflow-auto bg-glass-1 font-mono text-xs leading-6">
+    {rows.map((row, index) => <div key={`${index}-${row.type}`} className={`whitespace-pre-wrap break-words px-3 ${row.type === 'added' ? 'bg-gsuccess/10 text-gsuccess' : row.type === 'removed' ? 'bg-gdanger/10 text-gdanger' : 'text-gtext-muted'}`}>
+      {row.type === 'gap' ? '...' : `${row.type === 'added' ? '+' : row.type === 'removed' ? '-' : ' '} ${row.text}`}
+    </div>)}
+  </section>;
 }

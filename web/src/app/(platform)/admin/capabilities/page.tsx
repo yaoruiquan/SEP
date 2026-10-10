@@ -51,8 +51,9 @@ import { common } from '@/locales/zh-CN';
  * 技能全量版本从页头的技能监控入口查看；非技能投稿保留行内详情入口。
  *
  * 审核路径按来源分流，不是偷懒，是两条链路的语义不同：
- *   · 平台自有能力（enterpriseId 为空）→ 行内通过/驳回就够，本来就是运营自己建的
- *   · 企业投稿 → 去投稿详情页审，那里能看到企业审核人、自动校验结果、版本正文，
+ *   · 技能 → 技能监控选择精确版本发布，不走通用审核
+ *   · 平台自有非技能能力（enterpriseId 为空）→ 行内通过/驳回
+ *   · 非技能企业投稿 → 去投稿详情页审，那里能看到企业审核人、自动校验结果、版本正文，
  *     且走的是 `reviewPlatform`（企业快照版本也会一起推进）
  */
 
@@ -186,7 +187,7 @@ export default function CapabilitiesPage() {
           </div>
         </div>
 
-        <CardContent className="p-0">
+        <CardContent className="overflow-x-auto p-0">
           {query.isLoading ? (
             <div className="space-y-2 p-5">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -206,11 +207,12 @@ export default function CapabilitiesPage() {
               />
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[1100px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-fg-muted">
                   <th className="px-5 py-2 text-left font-medium">名称</th>
                   <th className="px-5 py-2 text-left font-medium">类型</th>
+                  <th className="px-5 py-2 text-left font-medium">当前平台版本</th>
                   <th className="px-5 py-2 text-left font-medium">来源</th>
                   <th className="px-5 py-2 text-left font-medium">已绑定员工</th>
                   <th className="px-5 py-2 text-left font-medium">状态</th>
@@ -224,6 +226,8 @@ export default function CapabilitiesPage() {
                   const statusMeta = STATUS_META[cap.status];
                   const contribution = isContribution(cap);
                   const pending = cap.status === 'PENDING';
+                  const skill = cap.type === 'SKILL';
+                  const monitorHref = `/admin/skills?capabilityId=${encodeURIComponent(cap.id)}&scope=PLATFORM`;
 
                   return (
                     <tr
@@ -236,6 +240,19 @@ export default function CapabilitiesPage() {
                       </td>
                       <td className="px-5 py-3">
                         <Badge className={typeMeta?.tone ?? ''}>{typeMeta?.label ?? cap.type}</Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3">
+                        {skill ? (
+                          cap.currentPlatformVersion ? (
+                            <Link href={monitorHref} className="text-primary hover:underline">
+                              v{cap.currentPlatformVersion.version}
+                            </Link>
+                          ) : (
+                            <span className="text-fg-subtle">未发布</span>
+                          )
+                        ) : (
+                          <span className="text-fg-subtle">-</span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-fg-muted">
                         {cap.enterprise ? (
@@ -260,7 +277,15 @@ export default function CapabilitiesPage() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          {pending && contribution && (
+                          {skill && (
+                            <Link href={monitorHref}>
+                              <Button variant="ghost" size="sm">
+                                <FileCode2 className="h-3.5 w-3.5" />
+                                技能监控
+                              </Button>
+                            </Link>
+                          )}
+                          {pending && !skill && contribution && (
                             <Link href={`/admin/contributions?selected=${encodeURIComponent(cap.id)}`}>
                               <Button variant="ghost" size="sm">
                                 去审核
@@ -268,7 +293,7 @@ export default function CapabilitiesPage() {
                               </Button>
                             </Link>
                           )}
-                          {pending && !contribution && (
+                          {pending && !skill && !contribution && (
                             <>
                               <Button
                                 variant="ghost"

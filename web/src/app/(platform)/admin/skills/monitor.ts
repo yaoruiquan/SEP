@@ -7,7 +7,7 @@ export const ENTERPRISE_REVIEW_LABELS = {
   NOT_SUBMITTED: '未提交企业审核', PENDING: '企业待审', APPROVED: '企业通过', REJECTED: '企业驳回',
 };
 export const PLATFORM_PROCESSING_LABELS = {
-  NOT_SUBMITTED: '未收录', PENDING_REVIEW: '平台待审', APPROVED: '平台通过', REJECTED: '平台驳回',
+  NOT_SUBMITTED: '未发布', PENDING_REVIEW: '历史待审', APPROVED: '已发布', REJECTED: '历史拒绝',
 };
 export const GENERATION_TYPE_LABELS = {
   CLIENT_SUBMISSION: '客户端提交', LEGACY_WORKING_COPY: '历史副本', REVIEW_SNAPSHOT: '审核快照',
@@ -51,6 +51,7 @@ export type MonitorRow = SkillVersionSummary & MonitorClassifications & {
   enterprise?: { id: string; name: string } | null;
 };
 export type MonitorDetail = SkillVersionPreview & MonitorClassifications & {
+  currentPlatformVersion: { id: string; capabilityId: string; version: string; content: string; updatedAt: string } | null;
   validationResult?: unknown;
   packageKey?: string | null;
   packageSha256?: string | null;
@@ -90,6 +91,20 @@ export function canSelectSource(row: MonitorDetail) {
   if (!promotedVersion(row)) return true;
   return Boolean(row.isWorkingCopy && !row.reviewSnapshots?.some((snapshot) => snapshot.workingCopyUpdatedAt === row.updatedAt && snapshot.promotedVersions?.length));
 }
+export function publishedSourceVersion(row: MonitorRow | MonitorDetail) {
+  return row.promotedVersions?.find((entry) => entry.status === 'PLATFORM_APPROVED')
+    // 无 revision 的旧快照无法确认属于旧正文，保守保留其已发布关系。
+    ?? row.reviewSnapshots?.filter((snapshot) => !row.isWorkingCopy
+      || snapshot.workingCopyUpdatedAt == null || snapshot.workingCopyUpdatedAt === row.updatedAt)
+      .flatMap((snapshot) => snapshot.promotedVersions ?? [])
+      .find((entry) => entry.status === 'PLATFORM_APPROVED');
+}
+export function canPublishVersion(row: MonitorDetail) {
+  // 工作副本的汇总分类可能来自旧快照，不能作为当前 revision 已发布的依据。
+  if (row.status === 'PLATFORM_APPROVED' || publishedSourceVersion(row)
+    || (!row.isWorkingCopy && row.platformProcessingStatus === 'APPROVED')) return false;
+  return row.scope !== 'PLATFORM' || ['DRAFT', 'PENDING_PLATFORM_REVIEW', 'PLATFORM_REJECTED'].includes(row.status);
+}
 export interface MonitorFilters {
   search?: string;
   enterpriseName?: string;
@@ -104,6 +119,20 @@ export interface MonitorFilters {
   createdFrom?: string;
   createdTo?: string;
   generationType?: keyof typeof GENERATION_TYPE_LABELS;
+}
+export function monitorContextFilters(params: Pick<URLSearchParams, 'get'>): MonitorFilters {
+  const capabilityId = params.get('capabilityId') || undefined;
+  const scope = params.get('scope');
+  return {
+    ...(capabilityId ? { capabilityId } : {}),
+    ...((scope === 'PLATFORM' || scope === 'ENTERPRISE' || scope === 'PERSONAL') ? { scope } : {}),
+  };
+}
+export function monitorContextSuffix(filters: MonitorFilters) {
+  const params = new URLSearchParams();
+  if (filters.capabilityId) params.set('capabilityId', filters.capabilityId);
+  if (filters.scope) params.set('scope', filters.scope);
+  return params.size ? `?${params}` : '';
 }
 export function promotedVersion(row: MonitorClassifications) {
   return row.promotedVersions?.[0] ?? row.reviewSnapshots?.find((snapshot) => snapshot.promotedVersions?.length)?.promotedVersions?.[0];
@@ -143,5 +172,6 @@ export function platformProcessingLabel(row: MonitorRow | MonitorDetail) {
   if (status === 'PENDING_PLATFORM_REVIEW') return PLATFORM_PROCESSING_LABELS.PENDING_REVIEW;
   if (status === 'PLATFORM_APPROVED') return PLATFORM_PROCESSING_LABELS.APPROVED;
   if (status === 'PLATFORM_REJECTED') return PLATFORM_PROCESSING_LABELS.REJECTED;
-  return row.scope === 'PLATFORM' ? '平台处理未标注' : '收录状态未标注';
+  if (row.scope === 'PLATFORM' && ['DRAFT', 'ARCHIVED'].includes(row.status)) return PLATFORM_PROCESSING_LABELS.NOT_SUBMITTED;
+  return row.scope === 'PLATFORM' ? '平台处理未标注' : '发布状态未标注';
 }

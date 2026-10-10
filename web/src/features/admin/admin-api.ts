@@ -620,10 +620,17 @@ export interface EmployeeBindingItem {
   };
 }
 
+export interface CurrentPlatformVersion {
+  id: string;
+  version: string;
+  platformReviewedAt?: string | null;
+}
+
 export interface CapabilityItem {
   id: string;
   name: string;
   description: string;
   type: 'agent' | 'rpa' | 'skill' | 'ai-app';
   status: string;
+  currentPlatformVersion: CurrentPlatformVersion | null;
 }

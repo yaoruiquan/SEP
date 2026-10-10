@@ -139,3 +139,10 @@ export const AdoptEnterpriseVersionDtoSchema = z.object({
   expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 export type AdoptEnterpriseVersionDto = z.infer<typeof AdoptEnterpriseVersionDtoSchema>;
+
+export const PublishPlatformSkillVersionDtoSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  expectedPlatformVersionId: z.string().min(1).max(128).nullable(),
+  changeSummary: z.string().trim().max(2000).optional(),
+}).strict();
+export type PublishPlatformSkillVersionDto = z.infer<typeof PublishPlatformSkillVersionDtoSchema>;

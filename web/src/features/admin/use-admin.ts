@@ -4,12 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
 import type { Capability, DigitalEmployee } from '@/lib/types';
+import type { CurrentPlatformVersion } from './admin-api';
 
 /**
  * 运营端能力列表行。比公开的 `Capability` 多出投稿相关字段 ——
  * 「来源」列和「该走哪条审核路径」都靠它们判断。
  */
 export interface AdminCapabilityRow extends Capability {
+  currentPlatformVersion: CurrentPlatformVersion | null;
   enterpriseId: string | null;
   visibility: 'ENTERPRISE_PRIVATE' | 'MARKET_PUBLIC';
   platformReviewStatus:

@@ -258,6 +258,33 @@ describe('DigitalEmployeeService', () => {
   // ── bindCapability ───────────────────────────────────────────────────────────
 
   describe('bindCapability', () => {
+    it('uses the latest platform publication as the default Skill version with creation time fallback', async () => {
+      prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
+      prismaMock.capability.findMany.mockResolvedValue([mockCapability]);
+      prismaMock.skillVersion.findMany.mockResolvedValueOnce([
+        { id: 'republished-old-draft', capabilityId: 'cap-1' },
+        { id: 'previous-publication', capabilityId: 'cap-1' },
+      ]);
+      prismaMock.employeeCapabilityBinding.create.mockResolvedValue(mockBinding);
+
+      await service.bindCapability('emp-1', { capabilityId: 'cap-1', priority: 0 });
+
+      expect(prismaMock.skillVersion.findMany).toHaveBeenCalledWith({
+        where: { capabilityId: { in: ['cap-1'] }, scope: 'PLATFORM', status: 'PLATFORM_APPROVED' },
+        select: { id: true, capabilityId: true },
+        orderBy: [
+          { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+      });
+      expect(prismaMock.employeeCapabilityBinding.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ defaultSkillVersionId: 'republished-old-draft' }),
+        }),
+      );
+    });
+
     it('binds an approved capability', async () => {
       prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
       prismaMock.capability.findMany.mockResolvedValue([mockCapability]);

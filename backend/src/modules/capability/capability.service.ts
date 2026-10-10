@@ -481,7 +481,11 @@ export class CapabilityService {
             packageKey: { not: null },
           },
           select: { packageKey: true, packageSha256: true, packageFilename: true, version: true },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [
+            { platformReviewedAt: { sort: 'desc', nulls: 'last' } },
+            { createdAt: 'desc' },
+            { id: 'desc' },
+          ],
         })
       : await this.prisma.skillVersion.findFirst({
           where: {

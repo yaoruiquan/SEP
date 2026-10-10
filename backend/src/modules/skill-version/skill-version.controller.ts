@@ -30,6 +30,8 @@ import {
   type AdoptEnterpriseVersionDto,
   type CreatePlatformSkillVersionDto,
   SubmitAdminPlatformReviewDtoSchema,
+  PublishPlatformSkillVersionDtoSchema,
+  type PublishPlatformSkillVersionDto,
   type SubmitAdminPlatformReviewDto,
   AdoptPersonalVersionsDtoSchema,
   CreateEnterpriseSkillVersionDtoSchema,
@@ -451,6 +453,21 @@ export class AdminSkillVersionController {
   createPlatformVersion(@Request() req: AuthRequest, @Param('capabilityId') capabilityId: string,
     @Body(new ZodValidationPipe(CreatePlatformSkillVersionDtoSchema)) body: CreatePlatformSkillVersionDto) {
     return this.service.createPlatformVersion(req.user.id, capabilityId, body);
+  }
+
+  @Post(':id/publish')
+  @ApiOperation({ summary: '预览确认后一步发布精确来源为平台版本' })
+  @ApiBody({ schema: { type: 'object', required: ['expectedUpdatedAt', 'expectedPlatformVersionId'],
+    properties: { expectedUpdatedAt: { type: 'string', format: 'date-time' },
+      expectedPlatformVersionId: { type: 'string', nullable: true }, changeSummary: { type: 'string', maxLength: 2000 } } } })
+  @ApiResponse({ status: 201, description: '已发布平台版本，重复请求返回已有发布结果' })
+  @ApiResponse({ status: 400, description: '正文或技能包校验失败，或版本不可发布' })
+  @ApiResponse({ status: 403, description: '仅平台管理员可以发布' })
+  @ApiResponse({ status: 404, description: '来源技能版本不存在' })
+  @ApiResponse({ status: 409, description: '来源或当前平台版本已变化，请重新预览' })
+  publish(@Request() req: AuthRequest, @Param('id') id: string,
+    @Body(new ZodValidationPipe(PublishPlatformSkillVersionDtoSchema)) body: PublishPlatformSkillVersionDto) {
+    return this.service.publishPlatformVersion(req.user.id, id, body);
   }
 
   @Post(':id/submit-review')
