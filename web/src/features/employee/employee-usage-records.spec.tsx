@@ -7,6 +7,7 @@ import type {
   EmployeeUsageList,
   EmployeeUsageRecord,
 } from "./use-employee-usage";
+import type { ClientTaskMirrorEvent } from "@/features/task/use-client-task-mirrors";
 
 const mocks = vi.hoisted(() => ({
   detail: vi.fn(),
@@ -66,6 +67,86 @@ beforeEach(() => {
 });
 
 describe("EmployeeUsageRecords", () => {
+  it("旧员工正文只继承当前批次无节点身份，不借用其他批次或节点的正文与证据", () => {
+    const event = (sequence: number, type: string, message: string): ClientTaskMirrorEvent => ({
+      id: `legacy-${sequence}`, sequence, type, message, stepKey: null, progress: null,
+      occurredAt: record.usedAt, createdAt: record.usedAt,
+    });
+    const state = event(2, "monitor_state", JSON.stringify({
+      version: 1, reportedStatus: "RUNNING", source: "live", observedAt: record.usedAt,
+    }));
+    render(<EmployeeUsageBody subscriptionId="sub-1" detail={{
+      source: "client-legacy", recordId: "mirror-1",
+      task: { id: "mirror-1", clientTaskId: "task-1", title: "历史对话" },
+      run: { clientRunId: "run-1", status: "RUNNING", queuedAt: null, startedAt: null,
+        completedAt: null, usedAt: record.usedAt, timeBasis: "legacy-received" },
+      events: [event(1, "model_output", "当前历史正文"),
+        { ...state, clientRunId: "run-other" },
+        { ...event(3, "model_output", "其他批次正文"), clientRunId: "run-other" },
+        { ...event(4, "model_output", "其他节点正文"), participationId: "p-other" }],
+    }} />);
+    expect(screen.getByText("当前历史正文")).toBeInTheDocument();
+    expect(screen.queryByText("其他批次正文")).not.toBeInTheDocument();
+    expect(screen.queryByText("其他节点正文")).not.toBeInTheDocument();
+    expect(screen.getByText("最后上报状态，来源未核实")).toBeInTheDocument();
+  });
+  it("参与执行自身的批次与父级矛盾时不展示正文或状态证据", () => {
+    render(<EmployeeUsageBody subscriptionId="sub-1" detail={{
+      source: "client", recordId: "mirror-1", task: { id: "mirror-1", clientTaskId: "task-1", title: "调研任务" },
+      runs: [{ clientRunId: "run-1", queuedAt: record.usedAt, participations: [{
+        id: "p-other", clientRunId: "run-other", nodeId: null, title: "其他批次节点", subscriptionName: "小林",
+        status: "RUNNING", startedAt: null, completedAt: null, events: [{
+          id: "other", sequence: 1, type: "model_output", message: "矛盾批次正文", stepKey: null,
+          progress: null, occurredAt: null, createdAt: record.usedAt,
+        }],
+      }] }],
+    }} />);
+    expect(screen.queryByText("矛盾批次正文")).not.toBeInTheDocument();
+    expect(screen.queryByText("其他批次节点")).not.toBeInTheDocument();
+    expect(screen.getByText("暂未收到回复，原因未确认")).toBeInTheDocument();
+  });
+  it("员工正文继承父级归属，拒绝跨run/node证据，并采用最新状态而非更老匹配项", () => {
+    const event = (sequence: number, type: string, message: string): ClientTaskMirrorEvent => ({
+      id: `e-${sequence}`, sequence, type, message, stepKey: null, progress: null,
+      occurredAt: record.usedAt, createdAt: record.usedAt,
+    });
+    const state = (sequence: number, reportedStatus: string) => event(sequence, "monitor_state", JSON.stringify({
+      version: 1, reportedStatus, source: "live", observedAt: record.usedAt,
+    }));
+    const manifest = event(4, "content_manifest", JSON.stringify({ version: 1, messageId: "answer", type: "model_output", chunks: 1, source: "canonical", completeness: "complete" }));
+    render(<EmployeeUsageBody subscriptionId="sub-1" showMonitorLink={false} detail={{
+      source: "client", recordId: "mirror-1", task: { id: "mirror-1", clientTaskId: "task-1", title: "调研任务" },
+      runs: [{ clientRunId: "run-1", queuedAt: record.usedAt, participations: [{
+        id: "p-1", clientRunId: "run-1", nodeId: "research", title: "研究", subscriptionName: "小林",
+        status: "RUNNING", startedAt: null, completedAt: null, events: [
+          state(1, "RUNNING"), state(2, "PAUSED"),
+          { ...event(3, "model_output", "当前正文"), stepKey: "content:v1:answer:0:1" },
+          { ...manifest, participationId: "p-other" }, { ...manifest, id: "wrong-run", clientRunId: "run-other" },
+          { ...event(5, "model_output", "其他节点正文"), participationId: "p-other" },
+        ],
+      }] }],
+    }} />);
+    expect(screen.getByText("当前正文")).toBeInTheDocument();
+    expect(screen.queryByText("其他节点正文")).not.toBeInTheDocument();
+    expect(screen.getByText("最后上报状态，来源未核实")).toBeInTheDocument();
+    expect(screen.getByText("已收到回复，完整性未核实")).toBeInTheDocument();
+    expect(screen.queryByText("已收到完整回复")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\{"version"/)).not.toBeInTheDocument();
+  });
+  it("中断员工无输出保留回复区域，展示同节点恢复结论与停止时间", () => {
+    const events: ClientTaskMirrorEvent[] = [
+      { id: "state", sequence: 1, type: "monitor_state", message: JSON.stringify({ version: 1, reportedStatus: "INTERRUPTED", source: "local-run", observedAt: record.usedAt, runEndedAt: record.usedAt }), stepKey: null, progress: null, occurredAt: null, createdAt: record.usedAt },
+      { id: "recovery", sequence: 2, type: "content_recovery", message: JSON.stringify({ version: 1, reason: "not-generated", checkedAt: record.usedAt, source: "local-history" }), stepKey: null, progress: null, occurredAt: null, createdAt: record.usedAt },
+    ];
+    render(<EmployeeUsageBody subscriptionId="sub-1" showMonitorLink={false} detail={{
+      source: "client", recordId: "mirror-1", task: { id: "mirror-1", clientTaskId: "task-1", title: "调研任务" },
+      runs: [{ clientRunId: "run-1", queuedAt: record.usedAt, participations: [{ id: "p-1", clientRunId: "run-1", nodeId: null, title: "研究", subscriptionName: "小林", status: "INTERRUPTED", startedAt: null, completedAt: null, events }] }],
+    }} />);
+    expect(screen.getByRole("region", { name: "员工回复" })).toHaveTextContent("尚未生成回复");
+    expect(screen.getByText(/状态来源：本地运行记录/)).toHaveTextContent("停止时间：");
+    expect(screen.getByText(/^已中断 ·/)).toBeInTheDocument();
+    expect(screen.queryByText(/\{"version"/)).not.toBeInTheDocument();
+  });
   it("旧记录与已核实记录区分，并说明覆盖数量和日期范围", () => {
     renderRecords({ data: {
       ...data,
@@ -78,7 +159,7 @@ describe("EmployeeUsageRecords", () => {
     expect(screen.getByText("接收时间，执行时间未知")).toBeInTheDocument();
     expect(screen.getByText(/历史记录可能早于当前日期范围/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "客户端监控" })).toHaveAttribute(
-      "href", "/tasks?tab=monitoring&subscriptionId=sub-1",
+      "href", "/tasks?tab=monitoring&subscriptionId=sub-1&scopeSubscriptionId=sub-1",
     );
   });
 
@@ -108,7 +189,7 @@ describe("EmployeeUsageRecords", () => {
     expect(screen.getByText(/正文不完整/)).toHaveTextContent("接收于");
     expect(screen.getByText(/已完成 · 接收于/)).toHaveTextContent("执行时间未知");
     expect(screen.getByRole("link", { name: "任务监控" })).toHaveAttribute(
-      "href", "/tasks?tab=monitoring&subscriptionId=sub-1&taskId=mirror-1",
+      "href", "/tasks?tab=monitoring&subscriptionId=sub-1&scopeSubscriptionId=sub-1&taskId=mirror-1",
     );
   });
 
@@ -127,7 +208,7 @@ describe("EmployeeUsageRecords", () => {
         startedAt: null, completedAt: null, usedAt: record.usedAt, timeBasis: "legacy-queued" },
       events: [],
     }} />);
-    expect(screen.getByText("该旧记录暂无已同步正文")).toBeInTheDocument();
+    expect(screen.getByText("暂未收到回复，原因未确认")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "任务监控" })).not.toBeInTheDocument();
   });
 
@@ -203,7 +284,7 @@ describe("EmployeeUsageRecords", () => {
     expect(screen.getByText(/正文不完整/)).toHaveTextContent("近似时间");
     expect(screen.getByRole("link", { name: "任务监控" })).toHaveAttribute(
       "href",
-      "/tasks?tab=monitoring&subscriptionId=sub-1&taskId=mirror-1",
+      "/tasks?tab=monitoring&subscriptionId=sub-1&scopeSubscriptionId=sub-1&taskId=mirror-1",
     );
     fireEvent.change(screen.getByRole("combobox", { name: "运行批次" }), {
       target: { value: "old-run" },

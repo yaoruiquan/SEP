@@ -18,7 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { assembleClientTaskContent, type ClientTaskContent } from "@/features/task/client-task-content";
+import { ClientTaskContentView, ClientTaskEvidence } from "@/features/task/client-task-content-view";
+import { CLIENT_TASK_STATUS_LABELS } from "@/features/task/use-client-task-mirrors";
 import {
   useEmployeeUsageDetail,
   type EmployeeUsageDetail,
@@ -39,6 +40,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   TASK: "任务",
 };
 const STATUS_LABELS: Record<string, string> = {
+  ...CLIENT_TASK_STATUS_LABELS,
   QUEUED: "排队中",
   RUNNING: "运行中",
   WAITING_APPROVAL: "待审批",
@@ -103,7 +105,7 @@ export function EmployeeUsageRecords({
                 ? "当前服务版本尚未提供可读取旧记录的数量。"
                 : `其中 ${data.coverage.readableLegacyClientTaskCount} 项可在员工页读取，归属未核实。`}
               旧多员工编排等其他历史记录请在{" "}
-              <Link className="text-gbrand-text underline" href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId })}`}>
+              <Link className="text-gbrand-text underline" href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, scopeSubscriptionId: subscriptionId })}`}>
                 客户端监控
               </Link>
               {" "}查看。无账单、混合归属或已删除的 Web 会话不在此列表内。
@@ -268,14 +270,15 @@ export function EmployeeUsageBody({
 }) {
   const [runId, setRunId] = useState("");
   if (detail.source === "client-legacy") {
-    const content = assembleClientTaskContent(detail.events);
+    const events = detail.events.filter((event) => (!event.clientRunId || event.clientRunId === detail.run.clientRunId)
+      && !event.participationId).map((event) => ({ ...event, clientRunId: detail.run.clientRunId }));
     return (
       <div className="space-y-4">
-        <p className="rounded-md border border-border bg-muted/40 p-3 text-sm leading-6">
+        <details className="text-xs text-gtext-muted"><summary className="cursor-pointer">旧客户端记录 · 归属未核实</summary><p>
           旧客户端记录 · 归属未核实。按任务原始雇佣关系展示单员工对话，
           仅包含当前运行批次；不代表已核实的参与节点，任务级消费未知。
           旧协议未保存时间来源，开始或入队时间可能由服务器补齐。
-        </p>
+        </p></details>
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span className="text-gtext-muted">
             {STATUS_LABELS[detail.run.status] ?? detail.run.status} ·{" "}
@@ -286,13 +289,13 @@ export function EmployeeUsageBody({
           </span>
           {showMonitorLink && (
             <Link className="inline-flex items-center gap-1 text-gbrand-text"
-              href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, taskId: detail.task.id })}`}>
+              href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, scopeSubscriptionId: subscriptionId, taskId: detail.task.id })}`}>
               <ExternalLink className="h-4 w-4" />任务监控
             </Link>
           )}
         </div>
-        {!content.length && <p className="text-sm text-gtext-muted">该旧记录暂无已同步正文</p>}
-        <UsageContent items={content} />
+        <ClientTaskEvidence events={events} status={detail.run.status} clientRunId={detail.run.clientRunId} />
+        <ClientTaskContentView events={events} status={detail.run.status} />
       </div>
     );
   }
@@ -302,6 +305,7 @@ export function EmployeeUsageBody({
         {!detail.messages.length && (
           <p className="py-4 text-sm text-gtext-muted">暂无已保存正文</p>
         )}
+        {!detail.messages.some((message) => message.role === "ASSISTANT") && <section aria-label="员工回复" className="py-4"><h4 className="text-sm font-medium">员工回复</h4><p className="mt-2 text-sm text-gtext-muted">暂未收到回复，原因未确认</p></section>}
         {detail.messages.map((message) => (
           <div key={message.id} className="py-4">
             {message.role === "TOOL" ? (
@@ -355,7 +359,7 @@ export function EmployeeUsageBody({
         </label>
         {showMonitorLink && <Link
           className="inline-flex items-center gap-1 text-sm text-gbrand-text"
-          href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, taskId: detail.task.id })}`}
+          href={`/tasks?${new URLSearchParams({ tab: "monitoring", subscriptionId, scopeSubscriptionId: subscriptionId, taskId: detail.task.id })}`}
         >
           <ExternalLink className="h-4 w-4" />
           任务监控
@@ -364,8 +368,14 @@ export function EmployeeUsageBody({
       <p className="text-xs text-gtext-muted">
         仅当前雇佣关系的实际参与正文，不含任务汇总及其他员工正文。
       </p>
-      {run?.participations.map((participant) => {
-        const content = assembleClientTaskContent(participant.events);
+      {(!run || !run.participations.some((participant) => participant.clientRunId === run.clientRunId)) && <ClientTaskContentView events={[]} />}
+      {run?.participations.filter((participant) => participant.clientRunId === run.clientRunId).map((participant) => {
+        // Nested-only events inherit their proven parent. Contradictory identities cannot
+        // supply evidence or body for another run/participation.
+        const events = participant.events.filter((event) => (!event.clientRunId || event.clientRunId === run.clientRunId)
+          && (!event.participationId || event.participationId === participant.id)).map((event) => ({
+            ...event, clientRunId: run.clientRunId, participationId: participant.id,
+          }));
         return (
           <section key={participant.id} className="border-t border-border pt-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -381,34 +391,11 @@ export function EmployeeUsageBody({
                   : "尚未结束"}
               </span>
             </div>
-            {!content.length && (
-              <p className="text-sm text-gtext-muted">
-                该参与记录暂无已同步正文
-              </p>
-            )}
-            <UsageContent items={content} />
+            <ClientTaskEvidence events={events} status={participant.status} clientRunId={run.clientRunId} participationId={participant.id} />
+            <ClientTaskContentView events={events} status={participant.status} />
           </section>
         );
       })}
     </div>
   );
-}
-
-
-function UsageContent({ items }: { items: ClientTaskContent[] }) {
-  return items.map((item) => (
-    <div key={item.id} className="border-l-2 border-border py-3 pl-3">
-      <p className="mb-2 text-xs text-gtext-muted">
-        {item.type === "user_input" ? "输入" : "输出"} ·{" "}
-        {item.occurredAt
-          ? `发生于 ${usageTime(item.occurredAt)}`
-          : `接收于 ${usageTime(item.receivedAt)}`}
-        {item.timeApproximate ? "（近似时间）" : ""}
-        {item.incomplete ? ` · 正文不完整（${item.received}/${item.total} 片）` : ""}
-      </p>
-      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
-        {item.text || "无文本内容"}
-      </pre>
-    </div>
-  ));
 }

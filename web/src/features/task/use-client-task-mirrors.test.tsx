@@ -10,7 +10,9 @@ const clients: QueryClient[] = [];
 function wrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   clients.push(client);
-  return ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return function QueryWrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
 }
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
@@ -29,6 +31,16 @@ describe('client task queries', () => {
     const { result } = renderHook(() => useClientTaskMirrors(), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.get).toHaveBeenCalledWith('/client/tasks?page=1&limit=50');
+  });
+  it('keeps fixed scope, mutable employee and business sort in the request and cache identity', async () => {
+    vi.mocked(api.get).mockResolvedValue({ items: [], total: 0, page: 1, limit: 50, hasNextPage: false });
+    const { result, rerender } = renderHook(({ scopeSubscriptionId }) => useClientTaskMirrors(true, {
+      view: 'history', scopeSubscriptionId, subscriptionId: 'selected', sort: 'activityAt_desc',
+    }), { initialProps: { scopeSubscriptionId: 'fixed-a' }, wrapper: wrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.get).toHaveBeenCalledWith('/client/tasks?page=1&limit=50&view=history&scopeSubscriptionId=fixed-a&subscriptionId=selected&sort=activityAt_desc');
+    rerender({ scopeSubscriptionId: 'fixed-b' });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/client/tasks?page=1&limit=50&view=history&scopeSubscriptionId=fixed-b&subscriptionId=selected&sort=activityAt_desc'));
   });
   it('normalizes old arrays with local paging and a legacy flag without dropping records', () => {
     const items = Array.from({ length: 100 }, (_, i) => ({ id: String(i) }) as ClientTaskMirror);
@@ -62,18 +74,18 @@ describe('client task queries', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.get).mock.calls[1][0]).toContain('q=new');
   });
-  it('fetches authorized options without view/statuses/paging/sort and keeps their own cache', async () => {
+  it('keeps candidate statuses/view/scope but omits paging/sort and has its own cache', async () => {
     const data = { users: [], subscriptions: [], taskTypes: [], counts: { active: 0, attention: 0, history: 0 } };
     vi.mocked(api.get).mockResolvedValue(data);
     const { result, rerender } = renderHook(({ view, userId }: { view: 'active' | 'history'; userId: string }) => useClientTaskMirrorFilterOptions({
-      view, userId, page: 2, limit: 50, sort: 'queuedAt_desc', statuses: 'FAILED', subscriptionId: 's-1',
+      view, userId, page: 2, limit: 50, sort: 'queuedAt_desc', statuses: 'FAILED', subscriptionId: 's-1', scopeSubscriptionId: 'fixed',
     }), { initialProps: { view: 'active', userId: 'u-1' }, wrapper: wrapper() });
     await waitFor(() => expect(result.current.data).toEqual(data));
-    expect(api.get).toHaveBeenCalledWith('/client/tasks/filter-options?userId=u-1&subscriptionId=s-1');
+    expect(api.get).toHaveBeenCalledWith('/client/tasks/filter-options?view=active&userId=u-1&statuses=FAILED&subscriptionId=s-1&scopeSubscriptionId=fixed');
     rerender({ view: 'history', userId: 'u-1' });
-    expect(api.get).toHaveBeenCalledTimes(1);
-    rerender({ view: 'history', userId: 'u-2' });
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    rerender({ view: 'history', userId: 'u-2' });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
   });
   it('encodes authorized detail IDs independently of list filters', async () => {
     vi.mocked(api.get).mockResolvedValue({ events: [] });

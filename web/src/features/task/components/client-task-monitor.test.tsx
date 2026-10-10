@@ -7,7 +7,10 @@ import { ApiError } from '@/lib/api-client';
 import type { EmployeeUsageDetail } from '@/features/employee/use-employee-usage';
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), scopedDetail: vi.fn(), options: vi.fn(), refetch: vi.fn(), refetchOptions: vi.fn() }));
-vi.mock('../use-client-task-mirrors', () => ({ useClientTaskMirrors: mocks.list, useClientTaskMirror: mocks.detail, useClientTaskMirrorFilterOptions: mocks.options }));
+vi.mock('../use-client-task-mirrors', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../use-client-task-mirrors')>(),
+  useClientTaskMirrors: mocks.list, useClientTaskMirror: mocks.detail, useClientTaskMirrorFilterOptions: mocks.options,
+}));
 vi.mock('@/features/employee/use-employee-usage', () => ({ useEmployeeUsageDetail: mocks.scopedDetail }));
 
 const task: ClientTaskMirror = { ...clientTaskMonitorDetailFixture, status: 'PAUSED', lastHeartbeatAt: '2020-01-01T00:00:00Z' };
@@ -24,6 +27,7 @@ const scopedDetail = (text = '当前员工正文'): EmployeeUsageDetail => ({
 const taskRow = () => screen.getByRole('button', { name: /联调任务/ });
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/tasks?tab=monitoring');
   vi.clearAllMocks();
   mocks.list.mockReturnValue({ data: page(), refetch: mocks.refetch });
   mocks.options.mockReturnValue({ data: clientTaskMonitorOptionsFixture, refetch: mocks.refetchOptions });
@@ -33,34 +37,74 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('client monitor', () => {
-  it('shows server activity, step, start and sync timestamps without opening detail', () => {
+  it('defaults to all statuses and suppresses default or mismatched progress evidence', () => {
+    render(<ClientTaskMonitor />);
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'history', sort: 'activityAt_desc', statuses: undefined }));
+    expect(screen.queryByRole('option', { name: /未知/ })).not.toBeInTheDocument();
+    expect(within(taskRow()).queryByText(/%/)).not.toBeInTheDocument();
+    expect(within(taskRow()).getByText('来源未核实')).toBeInTheDocument();
+  });
+  it('shows only explicitly reported progress and interrupted stop time', () => {
+    mocks.list.mockReturnValue({ data: page([{ ...task, status: 'INTERRUPTED', progress: 0, stateEvidence: {
+      version: 1, reportedStatus: 'INTERRUPTED', source: 'local-run', observedAt: '2026-10-10T01:00:00Z', progress: 32,
+      runEndedAt: '2026-10-10T00:59:00Z',
+    } }]) });
+    render(<ClientTaskMonitor />);
+    expect(within(taskRow()).getByText('32%')).toBeInTheDocument();
+    expect(within(taskRow()).getByText(/停止：/)).toBeInTheDocument();
+    expect(within(taskRow()).queryByText(/心跳延迟/)).not.toBeInTheDocument();
+  });
+  it('restores URL filters on reload and popstate without accepting UNKNOWN', () => {
+    window.history.replaceState(null, '', '/tasks?tab=monitoring&scopeSubscriptionId=sub-1&monitorSubscriptionId=sub-2&statuses=INTERRUPTED,UNKNOWN&page=2&q=report');
+    render(<ClientTaskMonitor />);
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ scopeSubscriptionId: 'sub-1', subscriptionId: 'sub-2', statuses: 'INTERRUPTED', page: 2, q: 'report' }));
+    act(() => {
+      window.history.replaceState(null, '', '/tasks?tab=monitoring&scopeSubscriptionId=sub-1&statuses=COMPLETED');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ scopeSubscriptionId: 'sub-1', statuses: 'COMPLETED', page: 1, q: undefined }));
+    expect(screen.getByLabelText('搜索任务标题')).toHaveValue('');
+  });
+  it('renders legacy candidates without pretending they are proven participation', () => {
+    mocks.options.mockReturnValue({ data: { ...clientTaskMonitorOptionsFixture, subscriptions: [{
+      subscriptionId: 'legacy', employeeId: null, employeeName: '旧员工', subscriptionName: null, legacy: true,
+    }] } });
+    render(<ClientTaskMonitor />);
+    expect(screen.getByRole('option', { name: '旧员工 · 旧记录归属未核实' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('员工筛选'), { target: { value: 'legacy' } });
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ subscriptionId: 'legacy', scopeSubscriptionId: undefined }));
+  });
+  it('keeps the reply region for empty detail and hides raw metadata JSON', () => {
+    const metadata = event(1, 'content_recovery', JSON.stringify({ version: 1, reason: 'source-missing', checkedAt: '2026-10-10T01:00:00Z', source: 'local-history' }));
+    render(<ClientTaskMirrorDetailView detail={detail([metadata])} />);
+    expect(screen.getByRole('region', { name: '员工回复' })).toHaveTextContent('历史回复无法恢复');
+    expect(screen.queryByText(metadata.message!)).not.toBeInTheDocument();
+  });
+  it('shows compact activity and business time without opening detail', () => {
     render(<ClientTaskMonitor />);
     const row = within(taskRow());
-    expect(row.getByText('当前活动：生成中')).toBeInTheDocument();
-    expect(row.getByText('当前步骤：处理输入')).toBeInTheDocument();
-    expect(row.getByText(/排队（UTC\+8）：.*8:59:00/)).toBeInTheDocument();
-    expect(row.getByText(/开始（UTC\+8）：.*9:00:00/)).toBeInTheDocument();
-    expect(row.getByText(/最近同步（UTC\+8）：.*10:00:00/)).toBeInTheDocument();
+    expect(row.getByText('生成中')).toBeInTheDocument();
+    expect(row.getByText(/业务发生（UTC\+8）：.*9:00:20/)).toBeInTheDocument();
+    expect(row.queryByText(/版本|最近同步|当前步骤/)).not.toBeInTheDocument();
     expect(mocks.detail).not.toHaveBeenCalled();
   });
   it('falls back only to a reported current step when activity is absent', () => {
     mocks.list.mockReturnValue({ data: page([{ ...task, activity: null }]) });
     render(<ClientTaskMonitor />);
-    expect(within(taskRow()).getByText('当前活动：处理输入')).toBeInTheDocument();
+    expect(within(taskRow()).getByText('处理输入')).toBeInTheDocument();
     expect(within(taskRow()).queryByText(/当前步骤/)).not.toBeInTheDocument();
   });
   it('does not infer missing activity or start time from task status or heartbeat', () => {
     mocks.list.mockReturnValue({ data: page([{ ...task, activity: null, currentStep: null, startedAt: null }]) });
     render(<ClientTaskMonitor />);
-    expect(within(taskRow()).getByText('当前活动：未同步')).toBeInTheDocument();
-    expect(within(taskRow()).getByText('开始（UTC+8）：时间未知')).toBeInTheDocument();
+    expect(within(taskRow()).queryByText(/未同步|开始（UTC/)).not.toBeInTheDocument();
   });
   it('does not replace a paused task state with an offline inference', () => {
     render(<ClientTaskMonitor />);
     expect(within(taskRow()).getByText('已暂停')).toBeInTheDocument();
     expect(within(taskRow()).getByText(/心跳延迟/)).toBeInTheDocument();
   });
-  it.each(['COMPLETED', 'FAILED', 'CANCELLED'])('does not mark terminal %s tasks offline because their heartbeat stopped', (status) => {
+  it.each(['COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED'])('does not mark terminal %s tasks offline because their heartbeat stopped', (status) => {
     mocks.list.mockReturnValue({ data: page([{ ...task, status }]) });
     render(<ClientTaskMonitor />);
     expect(within(taskRow()).queryByText(/心跳延迟/)).not.toBeInTheDocument();
@@ -85,7 +129,7 @@ describe('client monitor', () => {
     expect(screen.getByText('另一个成员的任务')).toBeInTheDocument();
     expect(within(taskRow()).getByText(/用户甲/)).toBeInTheDocument();
     expect(within(taskRow()).getByText('研究助手 · 1 次执行')).toBeInTheDocument();
-    expect(screen.getByText(/仅显示已同步到云端的记录 · 共 2 条/)).toBeInTheDocument();
+    expect(screen.getByText(/当前结果 2 条 · 当前权限范围共 33 条/)).toBeInTheDocument();
   });
   it('displays complete multiline input/output, creator and update time on expansion', () => {
     mocks.detail.mockReturnValue({ data: detail([event(1, 'user_input', '输入\n第二行'), event(2, 'model_output', '答复'.repeat(600), 'content:v1:m:0:2'), event(3, 'model_output', '末尾', 'content:v1:m:1:2')]) });
@@ -93,10 +137,10 @@ describe('client monitor', () => {
     expect(mocks.detail).not.toHaveBeenCalled();
     fireEvent.click(taskRow());
     expect(screen.getByText('用户输入')).toBeInTheDocument();
-    expect(screen.getByText('模型输出')).toBeInTheDocument();
+    expect(screen.getByText('员工回复')).toBeInTheDocument();
     expect(screen.getByText('输入 第二行')).toBeInTheDocument();
     expect(screen.getByText(`${'答复'.repeat(600)}末尾`)).toBeInTheDocument();
-    expect(screen.getByText('已组装 2 个片段')).toBeInTheDocument();
+    expect(screen.getByText('已收到回复，完整性未核实')).toBeInTheDocument();
     expect(screen.getByText(/更新时间（UTC\+8）：/)).toBeInTheDocument();
     expect(mocks.detail).toHaveBeenLastCalledWith(task.id);
   });
@@ -104,7 +148,7 @@ describe('client monitor', () => {
     mocks.detail.mockReturnValue({ data: detail([event(1, 'model_output', '部分内容', 'content:v1:m:0:2')]) });
     render(<ClientTaskMonitor />);
     fireEvent.click(taskRow());
-    expect(screen.getByText('正文不完整：已收到 1/2 个片段')).toBeInTheDocument();
+    expect(screen.getByText('回复同步未完成：已收到 1/2 个片段')).toBeInTheDocument();
     expect(screen.getByText(/正文时间近似/)).toBeInTheDocument();
     expect(screen.getByText(/发生时间（UTC\+8）：时间未知 · 接收时间（UTC\+8）：时间未知/)).toBeInTheDocument();
   });
@@ -113,7 +157,7 @@ describe('client monitor', () => {
     render(<ClientTaskMonitor />);
     fireEvent.click(taskRow());
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
-    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ page: 2, limit: 50, view: 'active', sort: 'queuedAt_desc' }));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ page: 2, limit: 50, view: 'history', sort: 'activityAt_desc' }));
     expect(screen.getByText('第 2 页 · 每页 50 条')).toBeInTheDocument();
     expect(screen.queryByText(/任务事件 ·/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '上一页' }));
@@ -147,55 +191,57 @@ describe('client monitor', () => {
     render(<ClientTaskMonitor />);
     expect(screen.getByText(/服务端尚未支持完整分页/)).toBeInTheDocument();
   });
-  it('uses server counts and server view filtering, resetting pagination and detail', () => {
+  it('uses server status counts with history only, resetting pagination and detail', () => {
     mocks.list.mockImplementation((_enabled, { page: requested }) => ({ data: page([task], 101, requested) }));
-    mocks.options.mockReturnValue({ data: { ...clientTaskMonitorOptionsFixture, counts: { active: 123, attention: 45, history: 234 } } });
     render(<ClientTaskMonitor />);
-    expect(screen.getByRole('tab', { name: '进行中 · 123' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('combobox', { name: '任务状态' })).toHaveValue('');
+    expect(screen.getByRole('option', { name: '执行中 · 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     fireEvent.click(taskRow());
-    fireEvent.click(screen.getByRole('tab', { name: '待处理 · 45' }));
-    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'attention', page: 1 }));
+    fireEvent.change(screen.getByLabelText('任务状态'), { target: { value: 'COMPLETED' } });
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'history', statuses: 'COMPLETED', page: 1 }));
     expect(screen.queryByText(/任务事件 ·/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: '全部历史 · 234' }));
+    fireEvent.change(screen.getByLabelText('任务状态'), { target: { value: '' } });
     expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'history', page: 1 }));
   });
-  it('applies all draft filters only on submission with UTC+8 date bounds', () => {
+  it('applies dropdowns immediately and debounces title search with UTC+8 date bounds', () => {
+    vi.useFakeTimers();
     render(<ClientTaskMonitor />);
-    fireEvent.click(screen.getByText('时间与状态'));
-    fireEvent.change(screen.getByLabelText('搜索任务'), { target: { value: '  报告  ' } });
+    expect(screen.getByText('高级筛选').closest('details')).not.toHaveAttribute('open');
+    fireEvent.change(screen.getByLabelText('搜索任务标题'), { target: { value: '  报告  ' } });
     fireEvent.change(screen.getByLabelText('员工筛选'), { target: { value: 'sub-1' } });
     fireEvent.change(screen.getByLabelText('成员筛选'), { target: { value: 'u-2' } });
     fireEvent.change(screen.getByLabelText('任务类型筛选'), { target: { value: 'workflow' } });
     fireEvent.change(screen.getByLabelText('任务排序'), { target: { value: 'startedAt_asc' } });
-    fireEvent.change(screen.getByLabelText('开始时间'), { target: { value: '2026-10-09T00:00' } });
-    fireEvent.change(screen.getByLabelText('结束时间'), { target: { value: '2026-10-10T00:00' } });
-    fireEvent.click(screen.getByRole('checkbox', { name: '已暂停' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: '失败' }));
-    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'active', sort: 'queuedAt_desc' }));
-    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
-    expect(mocks.list).toHaveBeenLastCalledWith(true, { page: 1, limit: 50, view: 'active', q: '报告', subscriptionId: 'sub-1', userId: 'u-2',
-      taskType: 'workflow', sort: 'startedAt_asc', statuses: 'PAUSED,FAILED', from: '2026-10-08T16:00:00.000Z', to: '2026-10-09T16:00:00.000Z' });
+    fireEvent.change(screen.getByLabelText('时间范围起点'), { target: { value: '2026-10-09T00:00' } });
+    fireEvent.change(screen.getByLabelText('时间范围终点'), { target: { value: '2026-10-10T00:00' } });
+    fireEvent.change(screen.getByLabelText('任务状态'), { target: { value: 'PAUSED' } });
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'history', subscriptionId: 'sub-1', userId: 'u-2', statuses: 'PAUSED', q: undefined }));
+    act(() => vi.advanceTimersByTime(299));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ q: undefined }));
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ page: 1, limit: 50, view: 'history', q: '报告', subscriptionId: 'sub-1', userId: 'u-2',
+      taskType: 'workflow', sort: 'startedAt_asc', statuses: 'PAUSED', from: '2026-10-08T16:00:00.000Z', to: '2026-10-09T16:00:00.000Z' }));
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
-    expect(mocks.list).toHaveBeenLastCalledWith(true, { page: 1, limit: 50, view: 'active', sort: 'queuedAt_desc' });
-    expect(screen.getByLabelText('搜索任务')).toHaveValue('');
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ page: 1, limit: 50, view: 'history', sort: 'activityAt_desc', q: undefined, subscriptionId: undefined }));
+    expect(screen.getByLabelText('搜索任务标题')).toHaveValue('');
   });
   it('rejects backwards time bounds without querying them', () => {
     render(<ClientTaskMonitor />);
-    fireEvent.click(screen.getByText('时间与状态'));
-    fireEvent.change(screen.getByLabelText('开始时间'), { target: { value: '2026-10-10T00:00' } });
-    fireEvent.change(screen.getByLabelText('结束时间'), { target: { value: '2026-10-09T00:00' } });
-    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+    fireEvent.change(screen.getByLabelText('时间范围起点'), { target: { value: '2026-10-10T00:00' } });
+    fireEvent.change(screen.getByLabelText('时间范围终点'), { target: { value: '2026-10-09T00:00' } });
     expect(screen.getByRole('alert')).toHaveTextContent('结束时间必须晚于开始时间');
-    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.not.objectContaining({ from: expect.any(String) }));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ from: '2026-10-09T16:00:00.000Z', to: undefined }));
   });
   it('does not infer filter options or counts from page items and refreshes both endpoints', () => {
     mocks.options.mockReturnValue({ isError: true, refetch: mocks.refetchOptions });
     render(<ClientTaskMonitor />);
-    expect(screen.getByRole('tab', { name: '进行中' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '已完成' })).toBeInTheDocument();
+    expect(screen.queryByText(/当前权限范围共/)).not.toBeInTheDocument();
     expect(within(screen.getByLabelText('员工筛选')).getAllByRole('option')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '重试选项' }));
-    fireEvent.click(screen.getByRole('button', { name: '刷新客户端任务' }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     expect(mocks.refetchOptions).toHaveBeenCalledTimes(2);
     expect(mocks.refetch).toHaveBeenCalledOnce();
   });
@@ -205,7 +251,7 @@ describe('client monitor', () => {
     expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client', recordId: 'offpage-mirror' }, 10000);
     expect(mocks.detail).not.toHaveBeenCalled();
     expect(screen.getByRole('region', { name: '指定任务详情' })).toBeInTheDocument();
-    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ subscriptionId: 'sub-1' }));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ scopeSubscriptionId: 'sub-1' }));
     fireEvent.click(screen.getByRole('button', { name: '关闭指定任务详情' }));
     expect(screen.queryByRole('region', { name: '指定任务详情' })).not.toBeInTheDocument();
     rerender(<ClientTaskMonitor taskId="another-mirror" subscriptionId="sub-1" />);
@@ -231,10 +277,9 @@ describe('client monitor', () => {
   });
   it('expanded rows use only the applied employee scope and never request full task text', () => {
     mocks.detail.mockReturnValue({ data: detail([event(1, 'model_output', '其他员工正文')]) });
-    render(<ClientTaskMonitor />);
+    render(<ClientTaskMonitor subscriptionId="sub-1" />);
     fireEvent.change(screen.getByLabelText('员工筛选'), { target: { value: 'sub-1' } });
     expect(mocks.scopedDetail).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
     fireEvent.click(taskRow());
     expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client', recordId: task.id }, 10000);
     expect(mocks.detail).not.toHaveBeenCalled();
@@ -242,7 +287,7 @@ describe('client monitor', () => {
     expect(screen.queryByText('其他员工正文')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '任务监控' })).not.toBeInTheDocument();
   });
-  it('pinned detail changes scope with the applied filter and reset restores the full view', () => {
+  it('pinned detail and reset never release the fixed subscription scope', () => {
     mocks.options.mockReturnValue({ data: { ...clientTaskMonitorOptionsFixture, subscriptions: [
       ...clientTaskMonitorOptionsFixture.subscriptions,
       { subscriptionId: 'sub-2', employeeId: 'employee-2', employeeName: '审核员', subscriptionName: '审核助手' },
@@ -250,14 +295,31 @@ describe('client monitor', () => {
     render(<ClientTaskMonitor taskId="offpage-mirror" subscriptionId="sub-1" />);
     fireEvent.change(screen.getByLabelText('员工筛选'), { target: { value: 'sub-2' } });
     expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client', recordId: 'offpage-mirror' }, 10000);
-    mocks.scopedDetail.mockReturnValue({ data: scopedDetail('新员工正文'), refetch: mocks.refetch });
-    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
-    expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-2', { source: 'client', recordId: 'offpage-mirror' }, 10000);
-    expect(screen.queryByText('当前员工正文')).not.toBeInTheDocument();
-    expect(screen.getByText('新员工正文')).toBeInTheDocument();
+    expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client', recordId: 'offpage-mirror' }, 10000);
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ subscriptionId: 'sub-2', scopeSubscriptionId: 'sub-1' }));
+    expect(screen.getByText('当前员工正文')).toBeInTheDocument();
     expect(mocks.detail).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
-    expect(mocks.detail).toHaveBeenLastCalledWith('offpage-mirror');
+    expect(mocks.detail).not.toHaveBeenCalled();
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ subscriptionId: undefined, scopeSubscriptionId: 'sub-1' }));
+  });
+  it('clears an uncommitted search without releasing URL scope or reviving its pending debounce', () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/tasks?tab=monitoring&scopeSubscriptionId=sub-1&subscriptionId=sub-1&statuses=FAILED&page=2#monitor');
+    render(<ClientTaskMonitor />);
+    fireEvent.change(screen.getByLabelText('搜索任务标题'), { target: { value: 'pending' } });
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    act(() => vi.advanceTimersByTime(300));
+    expect(mocks.list).toHaveBeenLastCalledWith(true, expect.objectContaining({ view: 'history', page: 1, scopeSubscriptionId: 'sub-1', subscriptionId: undefined, statuses: undefined, q: undefined }));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('scopeSubscriptionId')).toBe('sub-1');
+    expect(params.get('subscriptionId')).toBe('sub-1');
+    expect(params.get('view')).toBe('history');
+    expect(params.has('q')).toBe(false);
+    expect(window.location.hash).toBe('#monitor');
+    fireEvent.click(taskRow());
+    expect(mocks.scopedDetail).toHaveBeenLastCalledWith('sub-1', { source: 'client', recordId: task.id }, 10000);
+    expect(mocks.detail).not.toHaveBeenCalled();
   });
   it('scoped authorization failures do not fall back to full task detail', () => {
     mocks.scopedDetail.mockReturnValue({ isError: true, refetch: mocks.refetch });
@@ -273,7 +335,7 @@ describe('client monitor', () => {
       task: { id: task.id, clientTaskId: task.clientTaskId, title: task.title },
       run: { clientRunId: 'legacy-run', status: 'COMPLETED', queuedAt: null,
         startedAt: null, completedAt: null, usedAt: '2026-10-09T01:00:00Z', timeBasis: 'legacy-received' },
-      events: [event(1, 'model_output', '旧单员工正文')],
+      events: [{ ...event(1, 'model_output', '旧单员工正文'), clientRunId: 'legacy-run' }],
     };
     mocks.scopedDetail.mockImplementation((_subscription, record) => record.source === 'client'
       ? { isError: true, error: new ApiError(404, 'unproven'), refetch: mocks.refetch }
@@ -316,6 +378,22 @@ describe('client monitor', () => {
 });
 
 describe('client monitor detail partitions', () => {
+  it('keeps the reply empty state and translates metadata without rendering raw JSON', () => {
+    const statePayload = JSON.stringify({ version: 1, reportedStatus: 'RUNNING', source: 'live', observedAt: '2026-10-10T01:00:00Z' });
+    const recoveryPayload = JSON.stringify({ version: 1, reason: 'source-missing', checkedAt: '2026-10-10T01:00:00Z', source: 'local-history' });
+    render(<ClientTaskMirrorDetailView detail={detail([
+      event(1, 'monitor_state', statePayload), event(2, 'monitor_state', '{invalid state json}'),
+      event(3, 'content_recovery', recoveryPayload), event(4, 'content_manifest', '{invalid manifest json}'),
+    ])} />);
+    expect(screen.getByRole('region', { name: '员工回复' })).toHaveTextContent('历史回复无法恢复：本地源内容不存在');
+    expect(screen.getByText('最后上报状态，来源未核实')).toBeInTheDocument();
+    expect(screen.getByText('客户端状态证据：执行中（实时上报）')).toBeInTheDocument();
+    expect(screen.getAllByText('同步证据无效，未采用')).toHaveLength(2);
+    for (const raw of [statePayload, recoveryPayload, '{invalid state json}', '{invalid manifest json}']) {
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText('任务事件 · 4').closest('details')).not.toHaveAttribute('open');
+  });
   it('keeps runs, nodes and repeat participations separate, including nested-only events', () => {
     const run = clientTaskMonitorDetailFixture.runs![0];
     const participant = run.participations[0];

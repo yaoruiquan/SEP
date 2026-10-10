@@ -4,6 +4,21 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { qk } from '@/lib/query-keys';
 
+export const CLIENT_TASK_STATUS_LABELS = {
+  QUEUED: '排队中', RUNNING: '执行中', WAITING_APPROVAL: '等待审批', PAUSED: '已暂停',
+  COMPLETED: '已完成', FAILED: '失败', CANCELLED: '已取消', INTERRUPTED: '已中断',
+} as const;
+export type ClientTaskStatus = keyof typeof CLIENT_TASK_STATUS_LABELS;
+export interface ClientTaskStateEvidence {
+  version: 1;
+  reportedStatus: ClientTaskStatus;
+  source: 'live' | 'local-run' | 'snapshot';
+  observedAt: string;
+  runEndedAt?: string;
+  progress?: number;
+}
+export type ClientTaskActivityTimeSource = 'event' | 'started' | 'queued' | 'received';
+
 export interface ClientTaskMirror {
   id: string;
   clientTaskId: string;
@@ -17,6 +32,9 @@ export interface ClientTaskMirror {
   modelId: string | null;
   status: string;
   progress: number;
+  stateEvidence?: ClientTaskStateEvidence | null;
+  activityAt?: string | null;
+  activityTimeSource?: ClientTaskActivityTimeSource;
   currentStep: string | null;
   activity: string | null;
   errorSummary: string | null;
@@ -101,6 +119,7 @@ export interface ClientTaskMirrorListOptions {
   page?: number;
   limit?: number;
   scope?: 'mine' | 'enterprise';
+  scopeSubscriptionId?: string;
   subscriptionId?: string;
   userId?: string;
   statuses?: string;
@@ -112,9 +131,10 @@ export interface ClientTaskMirrorListOptions {
   sort?: ClientTaskMirrorSort;
 }
 
-export type ClientTaskMirrorSort = 'queuedAt_desc' | 'queuedAt_asc' | 'startedAt_desc' | 'startedAt_asc' | 'updatedAt_desc' | 'updatedAt_asc';
+export type ClientTaskMirrorSort = 'activityAt_desc' | 'queuedAt_desc' | 'queuedAt_asc' | 'startedAt_desc' | 'startedAt_asc' | 'updatedAt_desc' | 'updatedAt_asc';
 
 export interface ClientTaskSubscriptionOption {
+  legacy?: boolean;
   subscriptionId: string;
   employeeId: string | null;
   employeeName: string | null;
@@ -125,11 +145,12 @@ export interface ClientTaskMirrorFilterOptions {
   users: { id: string; name: string | null }[];
   subscriptions: ClientTaskSubscriptionOption[];
   taskTypes: string[];
-  counts: { active: number; attention: number; history: number };
+  scopeTotal?: number;
+  counts: { active: number; attention: number; history: number; byStatus?: Record<string, number> };
 }
 
 export function useClientTaskMirrorFilterOptions(options: ClientTaskMirrorListOptions = {}) {
-  const { page: _page, limit: _limit, sort: _sort, view: _view, statuses: _statuses, ...filters } = options;
+  const { page: _page, limit: _limit, sort: _sort, ...filters } = options;
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value) params.set(key, value);

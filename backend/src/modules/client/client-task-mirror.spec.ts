@@ -5,6 +5,8 @@ import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
 import { THROTTLER_SKIP, THROTTLER_LIMIT } from '@nestjs/throttler/dist/throttler.constants';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { Prisma } from '@prisma/client';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientService } from './client.service';
 import { ClientController } from './client.controller';
@@ -41,6 +43,7 @@ function fixture(role = 'MEMBER') {
   const context = { resolve: jest.fn().mockResolvedValue(ctx) };
   const relation = (row: any, key: string) => key === 'user'
     ? { id: row.userId, name: row.userId === 'user-1' ? 'Alice' : null }
+    : key === 'subscription' ? { name: `Subscription ${row.subscriptionId}`, employeeId: `employee-${row.subscriptionId}`, employee: { name: `Employee ${row.subscriptionId}` } }
     : key === 'mirror' ? rows.find(item => item.id === row.mirrorId)
     : key === 'run' ? runs.find(item => item.id === row.runId)
     : key === 'runs' ? runs.filter(item => item.mirrorId === row.id)
@@ -100,6 +103,11 @@ function fixture(role = 'MEMBER') {
       findFirst: jest.fn(async args => project(rows.find(row => matches(row, args.where)), args)),
       findMany: jest.fn(async args => findMany(rows, args)),
       count: jest.fn(async ({ where }) => rows.filter(row => matches(row, where)).length),
+      groupBy: jest.fn(async ({ where }) => {
+        const groups = new Map<string, number>();
+        for (const row of rows.filter(row => matches(row, where))) groups.set(row.status, (groups.get(row.status) ?? 0) + 1);
+        return [...groups].map(([status, count]) => ({ status, _count: { _all: count } }));
+      }),
       create: jest.fn(async ({ data }) => {
         const row = makeRow(data);
         rows.push(row);
@@ -651,7 +659,7 @@ describe('Client task monitor filtering, summaries and options', () => {
 
   it('options ignore status/view/pagination but retain filters and owner/admin boundaries', async () => {
     const f = await prepare();
-    const options = await f.service.getTaskMirrorFilterOptions('user-1', query({ view: 'active', statuses: 'RUNNING', page: 99, subscriptionId: 'sub-2' }));
+    const options = await f.service.getTaskMirrorFilterOptions('user-1', query({ view: 'history', page: 99, subscriptionId: 'sub-2' }));
     expect(options).toMatchObject({ users: [{ id: 'user-1', name: 'Alice' }], taskTypes: ['conversation', 'workflow'],
       counts: { active: 1, attention: 1, history: 2 } });
     expect(options.subscriptions.map(sub => sub.subscriptionId)).toEqual(['sub-1', 'sub-2']);
@@ -659,7 +667,7 @@ describe('Client task monitor filtering, summaries and options', () => {
     await expect(f.service.getTaskMirrorFilterOptions('user-1', query({ userId: 'user-2' }))).rejects.toBeInstanceOf(ForbiddenException);
     const admin = await prepare('ENTERPRISE_ADMIN');
     expect((await admin.service.listTaskMirrors('user-1', query({ userId: 'user-2' })) as any[]).map(row => row.id)).toEqual(['peer']);
-    expect((await admin.service.getTaskMirrorFilterOptions('user-1')).counts).toEqual({ active: 1, attention: 1, history: 3 });
+    expect((await admin.service.getTaskMirrorFilterOptions('user-1')).counts).toMatchObject({ active: 1, attention: 1, history: 3, byStatus: { QUEUED: 1, FAILED: 1 } });
     expect((await admin.service.getTaskMirrorFilterOptions('user-1', query({ scope: 'mine' }))).users).toEqual([{ id: 'user-1', name: 'Alice' }]);
   });
 
@@ -791,4 +799,164 @@ describe('Task mirror route throttling', () => {
     }
     expect(Reflect.getMetadata(THROTTLER_SKIP + 'auth', ClientController)).toBeUndefined();
   });
+});
+
+describe('Monitor evidence and scope contracts', () => {
+  const state = { version: 1, reportedStatus: 'INTERRUPTED', source: 'local-run',
+    observedAt: '2026-10-10T01:00:00Z', runEndedAt: '2026-10-09T10:00:00Z' };
+  const event = (type: string, payload: unknown, extra: Record<string, unknown> = {}) => ({
+    clientRunId: 'run-1', sequence: 1, type, message: JSON.stringify(payload), ...extra,
+  });
+
+  it('accepts interrupted and bounded versioned evidence while preserving ordinary event compatibility', () => {
+    expect(UpdateClientTaskMirrorStatusDtoSchema.parse({ status: 'INTERRUPTED' }).status).toBe('INTERRUPTED');
+    expect(ClientTaskMirrorQueryDtoSchema.parse({ statuses: 'QUEUED,RUNNING,WAITING_APPROVAL,PAUSED,INTERRUPTED,COMPLETED,FAILED,CANCELLED' }).statuses).toHaveLength(8);
+    expect(ClientTaskEventDtoSchema.safeParse(event('monitor_state', state)).success).toBe(true);
+    expect(ClientTaskEventDtoSchema.safeParse(event('content_manifest', { version: 1, messageId: 'message_1',
+      type: 'model_output', chunks: 2, source: 'canonical', completeness: 'unverified', legacySequences: [2, 3] })).success).toBe(true);
+    expect(ClientTaskEventDtoSchema.safeParse(event('content_recovery', { version: 1, reason: 'source-missing',
+      checkedAt: '2026-10-10T01:00:00Z', source: 'local-history' })).success).toBe(true);
+    expect(ClientTaskEventDtoSchema.safeParse({ sequence: 1, type: 'toString', message: 'legacy' }).success).toBe(true);
+  });
+
+  it.each([
+    event('monitor_state', { ...state, version: 2 }),
+    event('monitor_state', { ...state, secret: 'untrusted' }),
+    event('monitor_state', { ...state, progress: 101 }),
+    event('monitor_state', state, { clientRunId: undefined }),
+    event('monitor_state', state, { message: '{' }),
+    event('content_manifest', { version: 1, messageId: 'unsafe:id', type: 'model_output', chunks: 1, source: 'canonical', completeness: 'complete' }),
+    event('content_recovery', { version: 1, reason: 'not-generated', checkedAt: 'yesterday', source: 'local-history' }),
+  ])('rejects invalid evidence %# at the HTTP validation boundary', input => {
+    expect(() => new ZodValidationPipe(ClientTaskEventDtoSchema).transform(input)).toThrow(BadRequestException);
+  });
+
+  it('accepts paused/interrupted with no completion time and preserves terminal guards', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', createBody());
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'INTERRUPTED', completedAt: '2026-10-10T01:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'INTERRUPTED' });
+    expect(f.rows()[0]).toMatchObject({ status: 'INTERRUPTED', completedAt: null });
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'COMPLETED' });
+    await expect(f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'INTERRUPTED' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('fixed subscription scope survives facets, mutable filters and total counting', async () => {
+    const f = fixture('ENTERPRISE_ADMIN');
+    f.seed(makeRow({ id: 'fixed', subscriptionId: 'sub-fixed', status: 'INTERRUPTED' }),
+      makeRow({ id: 'other', subscriptionId: 'sub-other', userId: 'user-2', status: 'COMPLETED' }));
+    const query = ClientTaskMirrorQueryDtoSchema.parse({ scopeSubscriptionId: 'sub-fixed', statuses: 'COMPLETED', view: 'history' });
+    expect(await f.service.listTaskMirrors('user-1', query)).toEqual([]);
+    const options = await f.service.getTaskMirrorFilterOptions('user-1', query);
+    expect(options.scopeTotal).toBe(1);
+    expect(options.counts).toMatchObject({ attention: 1, history: 1, byStatus: { INTERRUPTED: 1, COMPLETED: 0 } });
+    const noStatus = await f.service.getTaskMirrorFilterOptions('user-1', { scopeSubscriptionId: 'sub-fixed' });
+    expect(noStatus.subscriptions).toEqual([expect.objectContaining({ subscriptionId: 'sub-fixed', legacy: true })]);
+    expect(noStatus.users.map(user => user.id)).toEqual(['user-1']);
+    const conflicting = ClientTaskMirrorQueryDtoSchema.parse({ scopeSubscriptionId: 'sub-fixed', subscriptionId: 'sub-other' });
+    expect(await f.service.listTaskMirrors('user-1', conflicting)).toEqual([]);
+  });
+
+  it('evidence archives without changing status, progress, heartbeat or participant state', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', createBody({ protocolVersion: 2 }));
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'RUNNING', progress: 35 });
+    await f.service.eventTaskMirror('user-1', 'mirror-1', { clientRunId: 'run-1', sequence: 1,
+      type: 'user_input', message: 'hello', participation: { executionId: 'run-1', subscriptionId: 'sub-1', status: 'RUNNING' } });
+    const heartbeat = f.rows()[0].lastHeartbeatAt;
+    await f.service.eventTaskMirror('user-1', 'mirror-1', ClientTaskEventDtoSchema.parse({
+      clientRunId: 'run-1', sequence: 2, type: 'monitor_state', message: JSON.stringify(state), progress: 100,
+      participation: { executionId: 'run-1', subscriptionId: 'sub-1', status: 'COMPLETED', completedAt: '2026-10-10T01:00:00Z' },
+    }));
+    expect(f.rows()[0]).toMatchObject({ status: 'RUNNING', progress: 35, lastHeartbeatAt: heartbeat });
+    expect(f.participations()[0]).toMatchObject({ status: 'RUNNING', completedAt: null });
+  });
+
+  it('projects only the latest matching current-run evidence without exposing metadata bodies in lists', async () => {
+    const f = fixture();
+    await f.service.createTaskMirror('user-1', createBody());
+    await f.service.updateTaskMirror('user-1', 'mirror-1', { status: 'INTERRUPTED' });
+    await f.service.eventTaskMirror('user-1', 'mirror-1', ClientTaskEventDtoSchema.parse(event('monitor_state', state)));
+    const [listed]: any = await f.service.listTaskMirrors('user-1');
+    expect(listed.stateEvidence).toEqual(state);
+    expect(listed.events).toBeUndefined();
+    expect((await f.service.getTaskMirror('user-1', 'mirror-1')).stateEvidence).toEqual(state);
+    await f.service.eventTaskMirror('user-1', 'mirror-1', ClientTaskEventDtoSchema.parse(event('monitor_state',
+      { ...state, reportedStatus: 'RUNNING' }, { sequence: 2 })));
+    expect((await f.service.listTaskMirrors('user-1') as any[])[0].stateEvidence).toBeNull();
+  });
+
+  it('business-activity pagination fetches only aggregate-selected rows and preserves database order', async () => {
+    const f = fixture();
+    f.seed(makeRow({ id: 'a' }), makeRow({ id: 'b' }), makeRow({ id: 'c' }));
+    f.prisma.$queryRaw = jest.fn().mockResolvedValue([
+      { id: 'b', activityAt: createdAt, activityTimeSource: 'event' },
+      { id: 'a', activityAt: createdAt, activityTimeSource: 'received' },
+    ]);
+    const result: any = await f.service.listTaskMirrors('user-1', { sort: 'activityAt_desc', page: 1, limit: 2 });
+    expect(result.items.map(item => item.id)).toEqual(['b', 'a']);
+    expect(result).toMatchObject({ total: 3, hasNextPage: true });
+    expect(result.items[0]).toMatchObject({ activityAt: createdAt, activityTimeSource: 'event' });
+    expect(f.prisma.clientTaskMirror.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { AND: [{ enterpriseId: 'ent-1', userId: 'user-1' }, { id: { in: ['b', 'a'] } }] },
+    }));
+    expect(f.prisma.$queryRaw.mock.calls[0][0].values).toContain('ent-1');
+    expect(f.prisma.$queryRaw.mock.calls[0][0].values).toContain('user-1');
+  });
+});
+
+describe('Actual desktop API through Nest HTTP validation and mirror service', () => {
+  const apiPath = resolve(process.env.SEP_CLIENT_REPO ?? resolve(__dirname, '../../../../../sep-client'),
+    'electron/common/platform/client-monitor-api.ts');
+  // Standalone SEP checkouts omit the sibling app; an explicit path remains strict.
+  const contractTest = process.env.SEP_CLIENT_REPO || existsSync(apiPath) ? it : it.skip;
+  contractTest('serializes interrupted state and evidence, rejects conflicting timestamps and deduplicates replay', async () => {
+    const { Test } = await import('@nestjs/testing');
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { pathToFileURL } = await import('node:url');
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const f = fixture();
+    const moduleRef = await Test.createTestingModule({ controllers: [ClientController],
+      providers: [{ provide: ClientService, useValue: f.service }] })
+      .overrideGuard(JwtAuthGuard).useValue({ canActivate: (context: any) => {
+        context.switchToHttp().getRequest().user = { id: 'user-1' }; return true;
+      } }).compile();
+    const app = moduleRef.createNestApplication();
+    const directory = await mkdtemp(join(tmpdir(), 'sep-monitor-contract-'));
+    try {
+      await app.listen(0, '127.0.0.1');
+      const script = join(directory, 'contract.mts');
+      await writeFile(script, `
+import assert from 'node:assert/strict';
+import { ClientMonitorApi, ClientMonitorApiError } from ${JSON.stringify(pathToFileURL(apiPath).href)};
+const api = new ClientMonitorApi({ baseUrl: process.argv[2], webOrigin: 'http://127.0.0.1', getAccessToken: async () => 'test-token' });
+const mirror = await api.createTask({ clientTaskId: 'task-1', clientRunId: 'run-1', subscriptionId: 'sub-1', title: 'Contract fixture', protocolVersion: 2, queuedAt: '2026-10-10T00:00:00.000Z' });
+await api.updateStatus(mirror.id, { clientRunId: 'run-1', status: 'RUNNING', startedAt: '2026-10-10T00:00:00.000Z' });
+await assert.rejects(api.updateStatus(mirror.id, { clientRunId: 'run-1', status: 'PAUSED', completedAt: '2026-10-10T00:01:00.000Z' }), error => error instanceof ClientMonitorApiError && error.statusCode === 400);
+await api.updateStatus(mirror.id, { clientRunId: 'run-1', status: 'INTERRUPTED' });
+const body = { clientRunId: 'run-1', sequence: 1, type: 'monitor_state', occurredAt: '2026-10-10T00:02:00.000Z', message: JSON.stringify({ version: 1, reportedStatus: 'INTERRUPTED', source: 'live', observedAt: '2026-10-10T00:02:00.000Z', runEndedAt: '2026-10-10T00:01:00.000Z' }) };
+await api.sendEvent(mirror.id, body);
+await api.sendEvent(mirror.id, body);
+await assert.rejects(api.sendEvent(mirror.id, { ...body, message: JSON.stringify({ version: 1, reportedStatus: 'PAUSED', source: 'live', observedAt: '2026-10-10T00:02:00.000Z' }) }), error => error instanceof ClientMonitorApiError && error.statusCode === 409);
+const content = { clientRunId: 'run-1', sequence: 2, type: 'model_output', stepKey: 'content:v1:message_1:0:1', message: '  reply\\n', occurredAt: '2026-10-10T00:01:00.000Z' };
+await api.sendEvent(mirror.id, content);
+await api.sendEvent(mirror.id, { clientRunId: 'run-1', sequence: 3, type: 'content_manifest', occurredAt: '2026-10-10T00:02:00.000Z', message: JSON.stringify({ version: 1, messageId: 'message_1', type: 'model_output', chunks: 1, source: 'canonical', completeness: 'partial' }) });
+await api.updateStatus(mirror.id, { clientRunId: 'run-1', status: 'COMPLETED', completedAt: '2026-10-10T00:03:00.000Z' });
+await assert.rejects(api.updateStatus(mirror.id, { clientRunId: 'run-1', status: 'RUNNING' }), error => error instanceof ClientMonitorApiError && error.statusCode === 409);
+process.stdout.write('contract passed');
+`);
+      const cli = require.resolve('tsx/cli');
+      const result = await promisify(execFile)(process.execPath, [cli, script, await app.getUrl()], { timeout: 60_000 });
+      expect(result.stdout).toBe('contract passed');
+      expect(f.rows()[0]).toMatchObject({ status: 'COMPLETED', clientRunId: 'run-1' });
+      expect(f.events()).toHaveLength(3);
+      expect(f.events()[1].message).toBe('  reply\n');
+    } finally {
+      await app.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

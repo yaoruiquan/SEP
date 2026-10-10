@@ -65,6 +65,14 @@ const mirrorResponseSchema: SchemaObject = {
     startedAt: { type: 'string', format: 'date-time', nullable: true },
     completedAt: { type: 'string', format: 'date-time', nullable: true },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+    stateEvidence: { type: 'object', nullable: true, properties: {
+      version: { type: 'integer', enum: [1] }, reportedStatus: { type: 'string' },
+      source: { type: 'string', enum: ['live', 'local-run', 'snapshot'] },
+      observedAt: { type: 'string', format: 'date-time' },
+      runEndedAt: { type: 'string', format: 'date-time' }, progress: { type: 'integer' },
+    } },
+    activityAt: { type: 'string', format: 'date-time', nullable: true },
+    activityTimeSource: { type: 'string', enum: ['event', 'started', 'queued', 'received'] },
   },
 };
 const mirrorSummaryResponseSchema: SchemaObject = {
@@ -368,7 +376,8 @@ export class ClientController {
   @ApiQuery({ name: 'from', required: false, type: String, description: '包含边界；ISO 带时区或 YYYY-MM-DD（UTC+8 零点）' })
   @ApiQuery({ name: 'to', required: false, type: String, description: '不包含边界；业务执行/排队时间，不使用心跳时间' })
   @ApiQuery({ name: 'q', required: false, type: String, description: '标题，不区分大小写' })
-  @ApiQuery({ name: 'sort', required: false, enum: ['queuedAt_desc', 'queuedAt_asc', 'startedAt_desc', 'startedAt_asc', 'updatedAt_desc', 'updatedAt_asc'] })
+  @ApiQuery({ name: 'scopeSubscriptionId', required: false, type: String, description: '员工入口的固定订阅范围，与可变筛选取交集' })
+  @ApiQuery({ name: 'sort', required: false, enum: ['activityAt_desc', 'queuedAt_desc', 'queuedAt_asc', 'startedAt_desc', 'startedAt_asc', 'updatedAt_desc', 'updatedAt_asc'] })
   @ApiResponse({ status: 200, description: '兼容数组或分页对象，user 仅含 id/name', schema: { oneOf: [
     { type: 'array', items: mirrorSummaryResponseSchema },
     { type: 'object', required: ['items', 'total', 'page', 'limit', 'hasNextPage'], properties: {
@@ -391,8 +400,8 @@ export class ClientController {
   @SkipThrottle({ auth: true, chat: true })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '查询客户端监控筛选项与计数', description: '与列表同权限和筛选参数；忽略 view/statuses/page/limit/sort。active=QUEUED/RUNNING，attention=WAITING_APPROVAL/PAUSED/FAILED，history 为全部。订阅选项只来自已验证参与快照。' })
-  @ApiResponse({ status: 200, description: '{users:[{id,name}],subscriptions:[{subscriptionId,employeeId,employeeName,subscriptionName}],taskTypes:string[],counts:{active,attention,history}}' })
+  @ApiOperation({ summary: '查询客户端监控筛选项与计数', description: '与列表同权限；各候选忽略自身可变筛选，保留固定 scopeSubscriptionId。计数忽略 view/statuses/page/limit/sort；attention 包含审批、暂停、中断和失败。订阅包括已验证参与快照及标记 legacy 的 v1 根订阅。' })
+  @ApiResponse({ status: 200, description: '{users:[{id,name}],subscriptions:[{subscriptionId,employeeId,employeeName,subscriptionName}],taskTypes:string[],scopeTotal:number,counts:{active,attention,history,byStatus}}' })
   @ApiResponse({ status: 400, description: 'Query 校验失败' })
   @ApiResponse({ status: 401, description: '未认证' })
   @ApiResponse({ status: 403, description: '无企业或超出本人范围' })

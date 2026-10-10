@@ -1,0 +1,10 @@
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const ts = require('../../web/node_modules/typescript');
+const source = fs.readFileSync('web/src/features/task/components/client-task-monitor.fixture.ts', 'utf8');
+const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const fixtures = {};
+new Function('exports', output)(fixtures);
+const code = fs.readFileSync('outputs/sep-monitor-review/setup-fixtures.cjs', 'utf8').replace('FIXTURES_PLACEHOLDER', JSON.stringify(fixtures));
+const result = spawnSync('/Users/yao/.codex/skills/playwright/scripts/playwright_cli.sh', ['-s=sep-monitor-review', 'run-code', code], { stdio: 'inherit' });
+process.exit(result.status ?? 1);

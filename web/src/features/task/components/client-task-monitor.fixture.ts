@@ -6,6 +6,8 @@ export const clientTaskMonitorDetailFixture: ClientTaskMirrorDetail = {
   userId: 'u-1', user: { id: 'u-1', name: '用户甲' }, enterpriseId: 'enterprise-1',
   subscriptionId: 'sub-1', title: '联调任务', taskType: 'conversation', modelId: 'model-1',
   status: 'RUNNING', progress: 45, currentStep: '处理输入', activity: '生成中', errorSummary: null,
+  activityAt: '2026-10-09T01:00:20Z', activityTimeSource: 'event',
+  stateEvidence: { version: 1, reportedStatus: 'RUNNING', source: 'live', observedAt: '2026-10-09T02:00:00Z', progress: 45 },
   clientVersion: '2.0.0', protocolVersion: 2, lastSequence: 3,
   lastHeartbeatAt: '2026-10-09T02:00:00Z', queuedAt: '2026-10-09T00:59:00Z',
   startedAt: '2026-10-09T01:00:00Z', completedAt: null,
@@ -41,5 +43,8 @@ export const clientTaskMonitorPageFixture: ClientTaskMirrorPage = {
 export const clientTaskMonitorOptionsFixture: ClientTaskMirrorFilterOptions = {
   users: [{ id: 'u-1', name: '用户甲' }, { id: 'u-2', name: '用户乙' }],
   subscriptions: [{ subscriptionId: 'sub-1', employeeId: 'employee-1', employeeName: '研究员', subscriptionName: '研究助手' }],
-  taskTypes: ['conversation', 'workflow'], counts: { active: 1, attention: 0, history: 1 },
+  taskTypes: ['conversation', 'workflow'], scopeTotal: 33,
+  counts: { active: 1, attention: 0, history: 1, byStatus: {
+    QUEUED: 0, RUNNING: 1, WAITING_APPROVAL: 0, PAUSED: 0, COMPLETED: 0, FAILED: 0, CANCELLED: 0, INTERRUPTED: 0,
+  } },
 };

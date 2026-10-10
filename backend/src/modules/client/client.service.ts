@@ -26,6 +26,7 @@ import { SubscriptionRequestService } from '../subscription-request/subscription
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { buildClientTaskActivityQuery } from './client-task-activity-query';
 import * as bcrypt from 'bcrypt';
 import {
   ClientLoginDto,
@@ -37,6 +38,9 @@ import {
   ClientTaskHeartbeatDto,
   ClientTaskEventDto,
   ClientTaskMirrorQueryDto,
+  ClientTaskMonitorStatusSchema,
+  ClientMonitorEvidenceSchemas,
+  ClientMonitorStateEvidenceSchema,
   ClientPlatformEmployeeQuery,
   ClientEmployeeAccessRequest,
   ClientPlatformEmployeeListResponse,
@@ -909,22 +913,25 @@ export class ClientService {
       throw new ForbiddenException('Cannot query another task owner');
     }
     const AND: Prisma.ClientTaskMirrorWhereInput[] = [];
-    if (query.subscriptionId) AND.push({ OR: [
-      { participations: { some: { subscriptionId: query.subscriptionId } } },
-      { protocolVersion: 1, subscriptionId: query.subscriptionId },
-    ] });
+    for (const subscriptionId of new Set([query.scopeSubscriptionId, query.subscriptionId].filter(Boolean))) {
+      AND.push({ OR: [
+        { participations: { some: { subscriptionId } } },
+        { protocolVersion: 1, subscriptionId },
+      ] });
+    }
     if (query.view === 'active') AND.push({ status: { in: ['QUEUED', 'RUNNING'] } });
-    if (query.view === 'attention') AND.push({ status: { in: ['WAITING_APPROVAL', 'PAUSED', 'FAILED'] } });
+    if (query.view === 'attention') AND.push({ status: { in: ['WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED', 'FAILED'] } });
     if (query.statuses) AND.push({ status: { in: query.statuses } });
     if (query.from || query.to) {
+      const subscriptionId = query.subscriptionId ?? query.scopeSubscriptionId;
       const date = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00+08:00` : value);
       const range = { ...(query.from ? { gte: date(query.from) } : {}), ...(query.to ? { lt: date(query.to) } : {}) };
       // Use business execution/queue times, never heartbeat/updatedAt. Bind subscription and time to the same execution.
       AND.push({ OR: [
-        { participations: { some: { ...(query.subscriptionId ? { subscriptionId: query.subscriptionId } : {}),
+        { participations: { some: { ...(subscriptionId ? { subscriptionId } : {}),
           OR: [{ startedAt: range }, { startedAt: null, run: { queuedAt: range } }] } } },
-        ...(!query.subscriptionId ? [{ runs: { some: { queuedAt: range } } }] : []),
-        { protocolVersion: 1, ...(query.subscriptionId ? { subscriptionId: query.subscriptionId } : {}),
+        ...(!subscriptionId ? [{ runs: { some: { queuedAt: range } } }] : []),
+        { protocolVersion: 1, ...(subscriptionId ? { subscriptionId } : {}),
           OR: [{ startedAt: range }, { startedAt: null, queuedAt: range },
             { startedAt: null, queuedAt: null, createdAt: range }] },
       ] });
@@ -1000,6 +1007,7 @@ export class ClientService {
     return this.taskMirrorTransaction(async (tx) => {
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
       const clientRunId = body.clientRunId ?? row.clientRunId;
+      const isEvidence = Object.prototype.hasOwnProperty.call(ClientMonitorEvidenceSchemas, body.type);
       const eventData = {
         mirrorId: id, clientRunId, sequence: body.sequence, type: body.type,
         stepKey: body.stepKey ?? null, message: body.message ?? null, progress: body.progress ?? null,
@@ -1036,12 +1044,12 @@ export class ClientService {
           }
           // Late chunks are archived, but cannot rewind a newer execution state.
           participant = await tx.clientTaskParticipation.update({ where: { id: participant.id }, data: {
-            ...(body.sequence > participant.lastSequence ? {
+            ...(!isEvidence && body.sequence > participant.lastSequence ? {
               lastSequence: body.sequence,
               ...(!['COMPLETED', 'FAILED', 'CANCELLED'].includes(participant.status) ? { status: input.status } : {}),
             } : {}),
-            ...(!participant.startedAt && input.startedAt ? { startedAt: new Date(input.startedAt) } : {}),
-            ...(!participant.completedAt && input.completedAt ? { completedAt: new Date(input.completedAt) } : {}),
+            ...(!isEvidence && !participant.startedAt && input.startedAt ? { startedAt: new Date(input.startedAt) } : {}),
+            ...(!isEvidence && !participant.completedAt && input.completedAt ? { completedAt: new Date(input.completedAt) } : {}),
           } });
         } else {
           // The conversation itself was admitted with the run; a delayed first upload
@@ -1057,9 +1065,9 @@ export class ClientService {
             mirrorId: id, clientRunId, runId: run.id, executionId: input.executionId,
             ...snapshot, nodeId: input.nodeId, title: input.title,
             modelId: isRunConversation ? run.modelId : input.modelId,
-            status: input.status, lastSequence: body.sequence,
-            startedAt: input.startedAt ? new Date(input.startedAt) : null,
-            completedAt: input.completedAt ? new Date(input.completedAt) : null,
+            status: isEvidence ? undefined : input.status, lastSequence: body.sequence,
+            startedAt: !isEvidence && input.startedAt ? new Date(input.startedAt) : null,
+            completedAt: !isEvidence && input.completedAt ? new Date(input.completedAt) : null,
           } });
         }
         participationId = participant.id;
@@ -1070,7 +1078,7 @@ export class ClientService {
       return tx.clientTaskMirror.update({ where: { id }, data: {
         lastSequence: Math.max(row.lastSequence, body.sequence),
         // Historical runs may archive text, but cannot mutate the active run's progress.
-        ...(clientRunId === row.clientRunId && body.sequence > (latestCurrentEvent?.sequence ?? 0)
+        ...(!isEvidence && clientRunId === row.clientRunId && body.sequence > (latestCurrentEvent?.sequence ?? 0)
           ? { progress: body.progress, lastHeartbeatAt: new Date() } : {}),
       } });
     });
@@ -1085,6 +1093,33 @@ export class ClientService {
       runs: { select: { clientRunId: true } },
       events: { select: { clientRunId: true }, distinct: ['clientRunId'] },
     } satisfies Prisma.ClientTaskMirrorInclude;
+    if (query.sort === 'activityAt_desc') {
+      const page = query.page ?? 1;
+      const limit = query.limit ?? 50;
+      const paginated = query.page !== undefined || query.limit !== undefined;
+      return this.taskMirrorTransaction(async tx => {
+        const total = await tx.clientTaskMirror.count({ where });
+        const skip = paginated ? (page - 1) * limit : 0;
+        const activity = skip >= total ? [] : await tx.$queryRaw<Array<{
+          id: string; activityAt: Date | null; activityTimeSource: string;
+        }>>(buildClientTaskActivityQuery({
+          enterpriseId: where.enterpriseId as string | null,
+          userId: typeof where.userId === 'string' ? where.userId : undefined,
+          query, skip, take: paginated ? limit : 100,
+        }));
+        const rows = activity.length ? await tx.clientTaskMirror.findMany({
+          where: { AND: [where, { id: { in: activity.map(item => item.id) } }] }, include,
+        }) : [];
+        const indexed = new Map(rows.map(row => [row.id, row]));
+        const items = activity.flatMap(item => {
+          const row = indexed.get(item.id);
+          return row ? [{ ...this.taskMirrorSummary(row), activityAt: item.activityAt,
+            activityTimeSource: item.activityTimeSource }] : [];
+        });
+        const projected = await this.taskMirrorStateEvidence(tx, items);
+        return paginated ? { items: projected, total, page, limit, hasNextPage: page * limit < total } : projected;
+      });
+    }
     const [field, direction] = (query.sort ?? 'queuedAt_desc').split('_');
     const orderBy: Prisma.ClientTaskMirrorOrderByWithRelationInput[] = [
       { [field]: { sort: direction as Prisma.SortOrder, nulls: 'last' } },
@@ -1093,8 +1128,10 @@ export class ClientService {
     // updatedAt is non-nullable, so Prisma does not accept a null ordering for it.
     if (field === 'updatedAt') orderBy[0] = { updatedAt: direction as Prisma.SortOrder };
     if (query.page === undefined && query.limit === undefined) {
-      const rows = await this.prisma.clientTaskMirror.findMany({ where, include, orderBy, take: 100 });
-      return rows.map(row => this.taskMirrorSummary(row));
+      return this.taskMirrorTransaction(async tx => {
+        const rows = await tx.clientTaskMirror.findMany({ where, include, orderBy, take: 100 });
+        return this.taskMirrorStateEvidence(tx, rows.map(row => this.taskMirrorSummary(row)));
+      });
     }
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
@@ -1105,7 +1142,34 @@ export class ClientService {
       const items = skip >= total ? [] : await tx.clientTaskMirror.findMany({
         where, include, orderBy, skip, take: limit,
       });
-      return { items: items.map(row => this.taskMirrorSummary(row)), total, page, limit, hasNextPage: page * limit < total };
+      return { items: await this.taskMirrorStateEvidence(tx, items.map(row => this.taskMirrorSummary(row))),
+        total, page, limit, hasNextPage: page * limit < total };
+    });
+  }
+
+  private async taskMirrorStateEvidence<T extends { id: string; clientRunId: string; status: string }>(
+    tx: Prisma.TransactionClient, rows: T[],
+  ) {
+    if (!rows.length) return [];
+    // One batched metadata-only query; never fetch each task's body for the list.
+    const events = await tx.clientTaskMirrorEvent.findMany({
+      where: { type: 'monitor_state', OR: rows.map(row => ({ mirrorId: row.id, clientRunId: row.clientRunId })) },
+      orderBy: [{ sequence: 'desc' }, { id: 'desc' }],
+      select: { mirrorId: true, clientRunId: true, message: true },
+    });
+    return rows.map(row => {
+      let stateEvidence: ReturnType<typeof ClientMonitorStateEvidenceSchema.parse> | null = null;
+      for (const event of events) {
+        if (event.mirrorId !== row.id || event.clientRunId !== row.clientRunId) continue;
+        // Only the newest evidence may describe the current state. Old evidence
+        // cannot become credible again after a later state cycles to the same label.
+        try {
+          const parsed = ClientMonitorStateEvidenceSchema.safeParse(JSON.parse(event.message ?? ''));
+          if (parsed.success && parsed.data.reportedStatus === row.status) stateEvidence = parsed.data;
+        } catch { /* Legacy malformed evidence has no authority. */ }
+        break;
+      }
+      return { ...row, stateEvidence };
     });
   }
 
@@ -1131,20 +1195,46 @@ export class ClientService {
   }
 
   async getTaskMirrorFilterOptions(userId: string, query: ClientTaskMirrorQueryDto = {}) {
-    const where = await this.taskMirrorReadWhere(userId, { ...query, view: undefined, statuses: undefined });
+    // Validate the original request before removing any facet's mutable selection.
+    await this.taskMirrorReadWhere(userId, query);
+    const [where, usersWhere, subscriptionsWhere, typesWhere, scopeWhere] = await Promise.all([
+      this.taskMirrorReadWhere(userId, { ...query, view: undefined, statuses: undefined }),
+      this.taskMirrorReadWhere(userId, { ...query, userId: undefined }),
+      this.taskMirrorReadWhere(userId, { ...query, subscriptionId: undefined }),
+      this.taskMirrorReadWhere(userId, { ...query, taskType: undefined }),
+      this.taskMirrorReadWhere(userId, { scope: query.scope, scopeSubscriptionId: query.scopeSubscriptionId }),
+    ]);
     return this.taskMirrorTransaction(async tx => {
-      const users = await tx.clientTaskMirror.findMany({ where, distinct: ['userId'],
+      const users = await tx.clientTaskMirror.findMany({ where: usersWhere, distinct: ['userId'],
         select: { user: { select: { id: true, name: true } } }, orderBy: { userId: 'asc' } });
-      const subscriptions = await tx.clientTaskParticipation.findMany({ where: { mirror: where },
+      const subscriptions = await tx.clientTaskParticipation.findMany({ where: { mirror: subscriptionsWhere },
         distinct: ['subscriptionId'], orderBy: [{ subscriptionId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
         select: { subscriptionId: true, employeeId: true, employeeName: true, subscriptionName: true } });
-      const taskTypes = await tx.clientTaskMirror.findMany({ where, distinct: ['taskType'],
+      const legacy = await tx.clientTaskMirror.findMany({
+        where: { AND: [subscriptionsWhere, { protocolVersion: 1 }] }, distinct: ['subscriptionId'],
+        select: { subscriptionId: true, subscription: { select: {
+          name: true, employeeId: true, employee: { select: { name: true } },
+        } } }, orderBy: { subscriptionId: 'asc' },
+      });
+      const candidates = new Map(subscriptions.map(row => [row.subscriptionId, { ...row, legacy: false }]));
+      for (const row of legacy) {
+        if (!candidates.has(row.subscriptionId)) candidates.set(row.subscriptionId, {
+          subscriptionId: row.subscriptionId, employeeId: row.subscription.employeeId,
+          employeeName: row.subscription.employee.name, subscriptionName: row.subscription.name, legacy: true,
+        });
+      }
+      const taskTypes = await tx.clientTaskMirror.findMany({ where: typesWhere, distinct: ['taskType'],
         select: { taskType: true }, orderBy: { taskType: 'asc' } });
-      const active = await tx.clientTaskMirror.count({ where: { AND: [where, { status: { in: ['QUEUED', 'RUNNING'] } }] } });
-      const attention = await tx.clientTaskMirror.count({ where: { AND: [where, { status: { in: ['WAITING_APPROVAL', 'PAUSED', 'FAILED'] } }] } });
-      const history = await tx.clientTaskMirror.count({ where });
-      return { users: users.map(row => row.user), subscriptions, taskTypes: taskTypes.map(row => row.taskType),
-        counts: { active, attention, history } };
+      const groups = await tx.clientTaskMirror.groupBy({ by: ['status'], where, _count: { _all: true } });
+      const byStatus: Record<string, number> = Object.fromEntries(ClientTaskMonitorStatusSchema.options.map(status => [status, 0]));
+      for (const group of groups) byStatus[group.status] = group._count._all;
+      const scopeTotal = await tx.clientTaskMirror.count({ where: scopeWhere });
+      return { users: users.map(row => row.user),
+        subscriptions: [...candidates.values()].sort((a, b) => a.subscriptionId.localeCompare(b.subscriptionId)),
+        taskTypes: taskTypes.map(row => row.taskType), scopeTotal,
+        counts: { active: byStatus.QUEUED + byStatus.RUNNING,
+          attention: byStatus.WAITING_APPROVAL + byStatus.PAUSED + byStatus.INTERRUPTED + byStatus.FAILED,
+          history: groups.reduce((total, group) => total + group._count._all, 0), byStatus } };
     });
   }
 
@@ -1163,7 +1253,8 @@ export class ClientService {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           include: { events: { orderBy: [{ sequence: 'asc' }, { id: 'asc' }] } },
         } } });
-      return { ...row, events, runs };
+      const [projected] = await this.taskMirrorStateEvidence(tx, [row]);
+      return { ...projected, events, runs };
     });
   }
 

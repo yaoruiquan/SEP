@@ -3,9 +3,43 @@ import { z } from 'zod';
 const clientRunId = z.string().trim().min(1).max(160);
 const progress = z.number().int().min(0).max(100).optional();
 export const ClientTaskMonitorStatusSchema = z.enum([
-  'QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELLED',
+  'QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'INTERRUPTED', 'COMPLETED', 'FAILED', 'CANCELLED',
 ]);
 const timestamp = z.string().datetime({ offset: true });
+
+// Evidence is bounded JSON in the existing message column, never arbitrary metadata.
+const messageId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+const sequences = z.array(z.number().int().positive().max(2147483647)).min(1).max(64)
+  .refine(items => new Set(items).size === items.length, 'Sequence references must be unique');
+export const ClientMonitorStateEvidenceSchema = z.object({
+  version: z.literal(1),
+  reportedStatus: ClientTaskMonitorStatusSchema,
+  source: z.enum(['live', 'local-run', 'snapshot']),
+  observedAt: timestamp,
+  runEndedAt: timestamp.optional(),
+  progress,
+}).strict();
+export const ClientContentManifestSchema = z.object({
+  version: z.literal(1), messageId,
+  type: z.enum(['user_input', 'model_output']),
+  chunks: z.number().int().positive().max(2147483647),
+  source: z.enum(['canonical', 'timeline', 'snapshot']),
+  completeness: z.enum(['complete', 'partial', 'unverified']),
+  legacySequences: sequences.optional(),
+  replacesMessageId: messageId.optional(),
+  replacesSequences: sequences.optional(),
+}).strict();
+export const ClientContentRecoverySchema = z.object({
+  version: z.literal(1),
+  reason: z.enum(['not-generated', 'source-missing', 'ambiguous']),
+  checkedAt: timestamp,
+  source: z.literal('local-history'),
+}).strict();
+export const ClientMonitorEvidenceSchemas = {
+  monitor_state: ClientMonitorStateEvidenceSchema,
+  content_manifest: ClientContentManifestSchema,
+  content_recovery: ClientContentRecoverySchema,
+} as const;
 
 export const CreateClientTaskMirrorDtoSchema = z.object({
   clientTaskId: z.string().trim().min(1).max(160),
@@ -62,6 +96,18 @@ export const ClientTaskEventDtoSchema = z.object({
   progress,
   occurredAt: timestamp.optional().nullable(),
   participation: ClientTaskParticipationDtoSchema.optional(),
+}).superRefine((event, ctx) => {
+  if (!Object.prototype.hasOwnProperty.call(ClientMonitorEvidenceSchemas, event.type)) return;
+  const schema = ClientMonitorEvidenceSchemas[event.type as keyof typeof ClientMonitorEvidenceSchemas];
+  if (!event.clientRunId) ctx.addIssue({ code: 'custom', path: ['clientRunId'], message: 'Evidence requires an explicit run' });
+  let value: unknown;
+  try { value = JSON.parse(event.message ?? ''); } catch {
+    ctx.addIssue({ code: 'custom', path: ['message'], message: 'Evidence must be valid JSON' });
+    return;
+  }
+  if (!schema.safeParse(value).success) {
+    ctx.addIssue({ code: 'custom', path: ['message'], message: 'Invalid monitor evidence' });
+  }
 });
 export type ClientTaskEventDto = z.infer<typeof ClientTaskEventDtoSchema>;
 
@@ -80,15 +126,16 @@ export const ClientTaskMirrorQueryDtoSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   scope: z.enum(['mine', 'enterprise']).optional(),
   subscriptionId: z.string().trim().min(1).max(128).optional(),
+  scopeSubscriptionId: z.string().trim().min(1).max(128).optional(),
   userId: z.string().trim().min(1).max(128).optional(),
   statuses: z.string().transform(value => value.split(',').map(status => status.trim()))
-    .pipe(z.array(ClientTaskMonitorStatusSchema).min(1).max(7)).optional(),
+    .pipe(z.array(ClientTaskMonitorStatusSchema).min(1).max(8)).optional(),
   view: z.enum(['active', 'attention', 'history']).optional(),
   taskType: z.string().trim().min(1).max(64).optional(),
   from: queryDate.optional(),
   to: queryDate.optional(),
   q: z.string().trim().min(1).max(200).optional(),
-  sort: z.enum(['queuedAt_desc', 'queuedAt_asc', 'startedAt_desc', 'startedAt_asc', 'updatedAt_desc', 'updatedAt_asc']).optional(),
+  sort: z.enum(['activityAt_desc', 'queuedAt_desc', 'queuedAt_asc', 'startedAt_desc', 'startedAt_asc', 'updatedAt_desc', 'updatedAt_asc']).optional(),
 }).refine(value => !value.from || !value.to || asDate(value.from) < asDate(value.to), {
   message: 'from must be before to', path: ['to'],
 });

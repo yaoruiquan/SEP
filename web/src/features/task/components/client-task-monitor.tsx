@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, Monitor, RefreshCw, RotateCcw, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Monitor, RefreshCw, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CenteredSpinner } from '@/components/ui/feedback';
@@ -10,31 +10,30 @@ import { EmployeeUsageBody } from '@/features/employee/employee-usage-records';
 import { ApiError } from '@/lib/api-client';
 import { useEmployeeUsageDetail } from '@/features/employee/use-employee-usage';
 import {
+  CLIENT_TASK_STATUS_LABELS,
   useClientTaskMirror,
   useClientTaskMirrors,
   useClientTaskMirrorFilterOptions,
   type ClientTaskMirror,
   type ClientTaskMirrorDetail,
-  type ClientTaskMirrorEvent,
   type ClientTaskMirrorListOptions,
   type ClientTaskMirrorSort,
   type ClientTaskSubscriptionOption,
 } from '../use-client-task-mirrors';
-import { assembleClientTaskContent } from '../client-task-content';
+import { validatedStateEvidence } from '../client-task-content';
+import { ClientTaskContentView as EventContent, ClientTaskEvidence } from '../client-task-content-view';
 
-const labels: Record<string, string> = {
-  QUEUED: '排队中', RUNNING: '执行中', WAITING_APPROVAL: '等待审批', PAUSED: '已暂停',
-  COMPLETED: '已完成', FAILED: '失败', CANCELLED: '已取消', UNKNOWN: '离线/未知',
-};
-const views = { active: '进行中', attention: '待处理', history: '全部历史' } as const;
+const labels: Record<string, string> = { ...CLIENT_TASK_STATUS_LABELS, UNKNOWN: '状态未知' };
+const taskTypes: Record<string, string> = { conversation: '对话', workflow: '工作流', arrangement: '编排', task: '任务' };
 const sorts: Record<ClientTaskMirrorSort, string> = {
+  activityAt_desc: '业务时间 · 最新',
   queuedAt_desc: '排队时间 · 最新', queuedAt_asc: '排队时间 · 最早',
   startedAt_desc: '开始时间 · 最新', startedAt_asc: '开始时间 · 最早',
   updatedAt_desc: '更新时间 · 最新', updatedAt_asc: '更新时间 · 最早',
 };
 const controlClass = 'h-9 w-full min-w-0 rounded border border-glassline bg-gbg-deep px-2 text-xs text-gtext-primary';
 const variant = (status: string) => status === 'COMPLETED' ? 'glass-success'
-  : status === 'FAILED' || status === 'CANCELLED' ? 'glass-danger' : status === 'UNKNOWN' ? 'glass-warning' : 'glass-info';
+  : status === 'FAILED' || status === 'CANCELLED' || status === 'INTERRUPTED' ? 'glass-danger' : status === 'UNKNOWN' ? 'glass-warning' : 'glass-info';
 
 function formatTime(value: string | null | undefined) {
   if (!value || !Number.isFinite(Date.parse(value))) return '时间未知';
@@ -51,57 +50,39 @@ function EmployeeLink({ employee }: { employee: ClientTaskSubscriptionOption }) 
     : <span>员工归属未知</span>;
 }
 
-function EventContent({ events }: { events: ClientTaskMirrorEvent[] }) {
-  const contents = assembleClientTaskContent(events);
-  return <div className="min-w-0">
-    {contents.map((content) => <div key={content.id} className="border-l-2 border-glassline py-3 pl-3">
-      <h4 className="font-medium text-gtext-secondary">{content.type === 'user_input' ? '用户输入' : '模型输出'}</h4>
-      <p className="mt-1 text-[11px] text-gtext-muted">发生时间（UTC+8）：{formatTime(content.occurredAt)} · 接收时间（UTC+8）：{formatTime(content.receivedAt)}</p>
-      {content.timeApproximate && <p className="mt-1 text-[11px] text-gwarning">正文时间近似：片时间缺失、不一致或正文不完整</p>}
-      <pre className="mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-6 text-gtext-primary">{content.text || '（空内容）'}</pre>
-      {(content.total > 1 || content.incomplete) && <p className={content.incomplete ? 'mt-1 text-gdanger' : 'mt-1 text-gtext-muted'}>
-        {content.incomplete ? `正文不完整：已收到 ${content.received}/${content.total} 个片段` : `已组装 ${content.total} 个片段`}
-      </p>}
-    </div>)}
-    <details className="mt-3 border-t border-glassline pt-2">
-      <summary className="cursor-pointer text-gtext-secondary">任务事件 · {events.length}</summary>
-      <div className="mt-2 max-h-72 overflow-auto">
-        {events.length ? [...events].sort((a, b) => a.sequence - b.sequence).map((event) => <div key={event.id} className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2 border-b border-glassline/40 py-2">
-          <span>#{event.sequence}</span><div className="min-w-0 break-words"><span>{event.type} · {formatTime(event.occurredAt)}</span>
-            <p>{['user_input', 'model_output'].includes(event.type) ? '正文见上方' : event.message ?? event.stepKey ?? '状态更新'}</p>
-          </div>
-        </div>) : <p>暂无事件记录</p>}
-      </div>
-    </details>
-  </div>;
-}
-
 /** Full authorized task detail; employee-scoped usage must use its scoped endpoint instead. */
 export function ClientTaskMirrorDetailView({ detail }: { detail: ClientTaskMirrorDetail }) {
   const runs = detail.runs ?? [];
   // Nested events prove their parent relation. Preserve contradictory metadata as unresolved.
   const allEvents = new Map((detail.events ?? []).map((event) => [event.id, event]));
+  const contradictoryIds = new Set<string>();
   for (const run of runs) for (const participation of run.participations) {
     for (const event of participation.events ?? []) {
+      const existing = allEvents.get(event.id);
+      if ((event.clientRunId && event.clientRunId !== run.clientRunId)
+        || (event.participationId && event.participationId !== participation.id)
+        || (existing?.clientRunId && existing.clientRunId !== run.clientRunId)
+        || (existing?.participationId && existing.participationId !== participation.id)) contradictoryIds.add(event.id);
       allEvents.set(event.id, { ...event, clientRunId: event.clientRunId ?? run.clientRunId, participationId: event.participationId ?? participation.id });
     }
   }
   const events = [...allEvents.values()];
-  const proven = events.filter((event) => runs.some((run) => run.clientRunId === event.clientRunId
+  const proven = events.filter((event) => !contradictoryIds.has(event.id) && runs.some((run) => run.clientRunId === event.clientRunId
     && (!event.participationId || run.participations.some((participant) => participant.id === event.participationId))));
   const provenIds = new Set(proven.map((event) => event.id));
   const unresolved = events.filter((event) => !provenIds.has(event.id));
 
   return <div className="min-w-0 space-y-4 text-xs text-gtext-muted">
-    <p>更新时间（UTC+8）：{formatTime(detail.updatedAt)}</p>
-    {(!runs.length || runs.some((run) => run.protocolVersion < 2) || unresolved.length > 0) && <p className="border-l-2 border-gwarning pl-3">历史记录归属覆盖有限；未确认事件不会归到当前员工或节点。</p>}
+    <details><summary className="cursor-pointer">任务诊断</summary><p>类型：{taskTypes[detail.taskType] ?? detail.taskType} · 客户端：{detail.clientVersion ?? '版本未知'} · 运行：{detail.clientRunId}</p><p>排队：{formatTime(detail.queuedAt)} · 开始：{formatTime(detail.startedAt)} · 更新时间（UTC+8）：{formatTime(detail.updatedAt)}</p></details>
+    {(!runs.length || runs.some((run) => run.protocolVersion < 2) || unresolved.length > 0) && <details className="text-gwarning"><summary className="cursor-pointer">历史记录归属覆盖有限</summary>未确认事件不会归到当前员工或节点。</details>}
     {runs.map((run, index) => <section key={run.id} aria-label={`运行批次 ${run.clientRunId}`} className="min-w-0 border-t border-glassline pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="break-all font-medium text-gtext-primary">运行批次 {index + 1} · {run.clientRunId}</h3>
         <Badge variant={variant(run.status)}>{labels[run.status] ?? run.status}</Badge>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1"><EmployeeLink employee={run} /><span>排队：{formatTime(run.queuedAt)}</span><span>开始：{formatTime(run.startedAt)}</span><span>结束：{formatTime(run.completedAt)}</span></div>
-      <EventContent events={proven.filter((event) => event.clientRunId === run.clientRunId && !event.participationId)} />
+      <ClientTaskEvidence events={proven} status={run.status} clientRunId={run.clientRunId} />
+      {(!run.participations.length || proven.some((event) => event.clientRunId === run.clientRunId && !event.participationId)) && <EventContent status={run.status} events={proven.filter((event) => event.clientRunId === run.clientRunId && !event.participationId)} />}
       {run.participations.map((participant) => <section key={participant.id} aria-label={`参与执行 ${participant.executionId}`} className="mt-4 min-w-0 border-t border-glassline pt-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="break-words font-medium text-gtext-secondary">{participant.title || '参与执行'}{participant.nodeId ? ` · 节点 ${participant.nodeId}` : ''}</h4>
@@ -109,11 +90,13 @@ export function ClientTaskMirrorDetailView({ detail }: { detail: ClientTaskMirro
         </div>
         <p className="mt-2 break-all">执行：{participant.executionId} · <EmployeeLink employee={participant} /> · 模型：{participant.modelId ?? '未知'}</p>
         <p className="mt-1">开始：{formatTime(participant.startedAt)} · 结束：{formatTime(participant.completedAt)}</p>
-        <EventContent events={proven.filter((event) => event.clientRunId === run.clientRunId && event.participationId === participant.id)} />
+        <ClientTaskEvidence events={proven} status={participant.status} clientRunId={run.clientRunId} participationId={participant.id} />
+        <EventContent status={participant.status} events={proven.filter((event) => event.clientRunId === run.clientRunId && event.participationId === participant.id)} />
       </section>)}
     </section>)}
-    {unresolved.length > 0 && <section aria-label="历史归属未确认" className="border-t border-glassline pt-4"><h3 className="text-gtext-secondary">历史归属未确认</h3><EventContent events={unresolved} /></section>}
-    {!events.length && !runs.length && <p>暂无事件记录</p>}
+    {unresolved.length > 0 && <section aria-label="历史归属未确认" className="border-t border-glassline pt-4"><h3 className="text-gtext-secondary">历史归属未确认</h3><EventContent status={runs.length ? undefined : detail.status} events={unresolved} /></section>}
+    {!runs.length && <ClientTaskEvidence events={events} status={detail.status} clientRunId={detail.clientRunId} />}
+    {!events.length && !runs.length && <EventContent status={detail.status} events={[]} />}
     {detail.errorSummary && <p className="break-words text-gdanger">{detail.errorSummary}</p>}
   </div>;
 }
@@ -161,36 +144,61 @@ function TaskDetail({ id, subscriptionId }: { id: string; subscriptionId?: strin
 function Row({ task, open, toggle, now, subscriptionId }: { task: ClientTaskMirror; open: boolean; toggle: () => void; now: number; subscriptionId?: string }) {
   const heartbeat = task.lastHeartbeatAt ? Date.parse(task.lastHeartbeatAt) : NaN;
   const heartbeatAge = Math.max(0, Math.floor((now - heartbeat) / 1000));
-  const stale = Number.isFinite(heartbeat) && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(task.status) && now - heartbeat > 60000;
+  const stale = Number.isFinite(heartbeat) && ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'PAUSED'].includes(task.status) && now - heartbeat > 60000;
   const subscriptions = task.subscriptionSummary?.subscriptions ?? [];
+  const evidence = validatedStateEvidence(task.stateEvidence, task.status);
+  const timeLabels = { event: '业务发生', started: '任务开始', queued: '任务排队', received: '云端接收（业务时间未核实）' };
   return <>
-    <button type="button" onClick={toggle} aria-expanded={open} className="grid w-full grid-cols-[minmax(0,1fr)_5.5rem_1rem] items-center gap-3 border-b border-glassline py-3 text-left hover:bg-gbg-deep/40 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_5.5rem_3rem_1rem]">
-      <span className="min-w-0"><span className="block break-words text-sm text-gtext-primary">{task.title}</span>
-        <span className="mt-1 block break-words text-[11px] text-gtext-muted">{task.user?.name ?? '创建人未知'} · {task.taskType} · {task.clientVersion ?? '版本未知'}</span>
-        <span className="mt-1 block break-words text-xs text-gtext-secondary">当前活动：{task.activity || task.currentStep || '未同步'}</span>
-        {task.activity && task.currentStep && task.activity !== task.currentStep && <span className="mt-1 block break-words text-[11px] text-gtext-muted">当前步骤：{task.currentStep}</span>}
-        <span className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 break-words text-[11px] text-gtext-muted">
-          <span>排队（UTC+8）：{formatTime(task.queuedAt)}</span>
-          <span>开始（UTC+8）：{formatTime(task.startedAt)}</span>
-          <span>最近同步（UTC+8）：{formatTime(task.updatedAt)}</span>
-        </span>
+    <button type="button" onClick={toggle} aria-expanded={open} className="grid w-full grid-cols-[minmax(0,1fr)_auto_1rem] items-center gap-3 border-b border-glassline py-4 text-left hover:bg-gbg-deep/40 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_auto_1rem]">
+      <span className="min-w-0"><span className="block break-words text-sm font-medium text-gtext-primary">{task.title}</span>
+        <span className="mt-1 block break-words text-xs text-gtext-muted">发起人：{task.user?.name ?? '未知'} · {task.activityTimeSource ? timeLabels[task.activityTimeSource] : '业务时间未核实'}（UTC+8）：{formatTime(task.activityAt)}</span>
+        {(task.activity || task.currentStep) && <span className="mt-1 block break-words text-xs text-gtext-secondary">{task.activity || task.currentStep}</span>}
         {stale && <span className="mt-1 block text-[11px] text-gtext-muted" title="最近 60 秒未收到心跳，不代表任务状态改变">心跳延迟 · {heartbeatAge} 秒未收到</span>}
-        <span className="mt-1 block break-words text-[11px] text-gtext-muted sm:hidden">{subscriptions.length ? subscriptions.map(employeeName).join('、') : '员工归属未确认'}</span>
+        <span className="mt-1 block break-words text-[11px] text-gtext-muted sm:hidden">{subscriptions.length ? subscriptions.map(employeeName).join('、') : '员工归属未确认'}{task.subscriptionSummary?.coverage === 'limited' ? ' · 旧记录归属未核实' : ''}</span>
       </span>
-      <span className="hidden min-w-0 text-xs text-gtext-secondary sm:block">{subscriptions.length ? subscriptions.map((employee) => <span key={employee.subscriptionId} className="block break-words">{employeeName(employee)} · {employee.executionCount} 次执行</span>) : '员工归属未确认'}
-        {task.subscriptionSummary?.coverage === 'limited' && <span className="mt-1 block text-[11px] text-gtext-muted">历史归属覆盖有限</span>}
+      <span className="hidden min-w-0 text-xs text-gtext-secondary sm:block">{subscriptions.length ? subscriptions.map((employee) => <span key={employee.subscriptionId} className="block break-words">{employeeName(employee)}{employee.legacy ? ' · 旧记录归属未核实' : ` · ${employee.executionCount} 次执行`}</span>) : '员工归属未确认'}
+        {task.subscriptionSummary?.coverage === 'limited' && <span className="mt-1 block text-[11px] text-gtext-muted">旧记录归属未核实</span>}
       </span>
-      <Badge variant={variant(task.status)}>{labels[task.status] ?? task.status}</Badge>
-      <span className="hidden text-xs tabular-nums text-gtext-secondary sm:block">{Math.round(task.progress ?? 0)}%</span>
+      <span className="text-right"><Badge variant={variant(task.status)}>{labels[task.status] ?? labels.UNKNOWN}</Badge>
+        <span className="mt-1 block text-[11px] text-gtext-muted">{evidence ? evidence.source === 'live' ? '实时上报' : evidence.source === 'local-run' ? '本地运行记录' : '历史快照' : '来源未核实'}</span>
+        {evidence?.progress !== undefined && <span className="mt-1 block text-xs tabular-nums text-gtext-secondary">{Math.round(evidence.progress)}%</span>}
+        {evidence?.runEndedAt && ['PAUSED', 'INTERRUPTED'].includes(task.status) && <span className="mt-1 block text-[11px] text-gtext-muted">停止：{formatTime(evidence.runEndedAt)}</span>}
+      </span>
       {open ? <ChevronDown className="h-4 w-4 text-gtext-muted" /> : <ChevronRight className="h-4 w-4 text-gtext-muted" />}
     </button>
     {open && <div className="min-w-0 border-b border-glassline bg-gbg-deep/25 px-3 py-4 sm:px-6"><TaskDetail id={task.id} subscriptionId={subscriptionId} /></div>}
   </>;
 }
 
-type Draft = { q: string; subscriptionId: string; userId: string; taskType: string; from: string; to: string; statuses: string[]; sort: ClientTaskMirrorSort };
-const emptyDraft: Draft = { q: '', subscriptionId: '', userId: '', taskType: '', from: '', to: '', statuses: [], sort: 'queuedAt_desc' };
-
+const controlKeys = ['q', 'monitorSubscriptionId', 'userId', 'taskType', 'from', 'to', 'statuses', 'sort', 'page', 'view'] as const;
+const urlChangeEvent = 'sep-client-monitor-url';
+function subscribeUrl(onChange: () => void) {
+  window.addEventListener('popstate', onChange);
+  window.addEventListener(urlChangeEvent, onChange);
+  return () => { window.removeEventListener('popstate', onChange); window.removeEventListener(urlChangeEvent, onChange); };
+}
+function readUrl() { return window.location.search; }
+function readServerUrl() { return ''; }
+function readFilters(search: string): ClientTaskMirrorListOptions {
+  const params = new URLSearchParams(search);
+  const statuses = params.get('statuses')?.split(',').filter((status) => Object.hasOwn(CLIENT_TASK_STATUS_LABELS, status)).join(',');
+  const sort = params.get('sort');
+  const from = validUrlTime(params.get('from'));
+  const requestedTo = validUrlTime(params.get('to'));
+  const to = from && requestedTo && Date.parse(requestedTo) <= Date.parse(from) ? undefined : requestedTo;
+  return {
+    q: params.get('q') || undefined, subscriptionId: params.get('monitorSubscriptionId') || undefined,
+    userId: params.get('userId') || undefined, taskType: params.get('taskType') || undefined,
+    from, to, statuses: statuses || undefined,
+    sort: sort && Object.hasOwn(sorts, sort) ? sort as ClientTaskMirrorSort : 'activityAt_desc',
+  };
+}
+function validUrlTime(value: string | null) {
+  return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
+}
+function localTime(value?: string) {
+  return value ? new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 16) : '';
+}
 function dateFilter(value: string) {
   if (!value) return undefined;
   const date = new Date(`${value}+08:00`);
@@ -199,108 +207,135 @@ function dateFilter(value: string) {
 }
 
 export function ClientTaskMonitor({ taskId, subscriptionId }: { taskId?: string; subscriptionId?: string } = {}) {
-  const [page, setPage] = useState(1);
+  const search = useSyncExternalStore(subscribeUrl, readUrl, readServerUrl);
+  const params = new URLSearchParams(search);
+  // The parent still treats subscriptionId as a legacy fixed-scope deep link. Keep the
+  // mutable employee selection in monitorSubscriptionId in the URL, subscriptionId in API queries.
+  const scopeSubscriptionId = subscriptionId || params.get('scopeSubscriptionId') || params.get('subscriptionId') || undefined;
+  const filters = readFilters(search);
+  const requestedPage = Number(params.get('page'));
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const [selected, setSelected] = useState<string>();
   const [dismissedTaskId, setDismissedTaskId] = useState<string>();
-  const [view, setView] = useState<NonNullable<ClientTaskMirrorListOptions['view']>>('active');
-  const [draft, setDraft] = useState<Draft>({ ...emptyDraft, subscriptionId: subscriptionId ?? '' });
-  const [filters, setFilters] = useState<ClientTaskMirrorListOptions>({ sort: 'queuedAt_desc', ...(subscriptionId ? { subscriptionId } : {}) });
+  const linkedId = taskId || params.get('taskId') || undefined;
+  const linkedTaskId = dismissedTaskId !== linkedId ? linkedId : undefined;
+  const [searchText, setSearchText] = useState(filters.q ?? '');
+  const [previousQ, setPreviousQ] = useState(filters.q);
+  const [dateDraft, setDateDraft] = useState({ from: localTime(filters.from), to: localTime(filters.to) });
+  const [dateKey, setDateKey] = useState(`${filters.from}|${filters.to}`);
   const [filterError, setFilterError] = useState('');
   const [now, setNow] = useState(() => Date.now());
-  const [previousSubscriptionId, setPreviousSubscriptionId] = useState(subscriptionId);
-  const [previousTaskId, setPreviousTaskId] = useState(taskId);
-  // Reconcile navigation before rendering children so details never fetch the previous scope.
-  if (previousSubscriptionId !== subscriptionId) {
-    setPreviousSubscriptionId(subscriptionId);
-    setDraft((previous) => ({ ...previous, subscriptionId: subscriptionId ?? '' }));
-    setFilters((previous) => ({ ...previous, subscriptionId: subscriptionId || undefined }));
-    setPage(1);
-    setSelected(undefined);
+  const navigationKey = `${scopeSubscriptionId}|${linkedId}`;
+  const [previousNavigation, setPreviousNavigation] = useState(navigationKey);
+  const [previousSearch, setPreviousSearch] = useState(search);
+  if (previousSearch !== search) { setPreviousSearch(search); setSelected(undefined); }
+  if (previousNavigation !== navigationKey) {
+    setPreviousNavigation(navigationKey); setSelected(undefined); setDismissedTaskId(undefined);
   }
-  if (previousTaskId !== taskId || previousSubscriptionId !== subscriptionId) {
-    setPreviousTaskId(taskId);
-    setDismissedTaskId(undefined);
+  if (previousQ !== filters.q) { setPreviousQ(filters.q); setSearchText(filters.q ?? ''); }
+  if (dateKey !== `${filters.from}|${filters.to}`) {
+    setDateKey(`${filters.from}|${filters.to}`); setDateDraft({ from: localTime(filters.from), to: localTime(filters.to) }); setFilterError('');
   }
   const limit = 50;
-  const query = useClientTaskMirrors(true, { page, limit, view, ...filters });
-  const options = useClientTaskMirrorFilterOptions(filters);
+  const query = useClientTaskMirrors(true, { page, limit, view: 'history', ...filters, scopeSubscriptionId });
+  const options = useClientTaskMirrorFilterOptions({ ...filters, view: 'history', scopeSubscriptionId });
   const result = query.data;
-  const linkedTaskId = taskId && dismissedTaskId !== taskId ? taskId : undefined;
 
+  function writeFilters(next: ClientTaskMirrorListOptions, nextPage = 1, replace = false) {
+    const nextParams = new URLSearchParams(window.location.search);
+    controlKeys.forEach((key) => nextParams.delete(key));
+    for (const [key, value] of Object.entries(next)) {
+      if (value && key !== 'scopeSubscriptionId') nextParams.set(key === 'subscriptionId' ? 'monitorSubscriptionId' : key, String(value));
+    }
+    if (scopeSubscriptionId) { nextParams.set('scopeSubscriptionId', scopeSubscriptionId); nextParams.set('subscriptionId', scopeSubscriptionId); }
+    nextParams.set('view', 'history');
+    if (nextPage > 1) nextParams.set('page', String(nextPage));
+    window.history[replace ? 'replaceState' : 'pushState'](null, '', `${window.location.pathname}?${nextParams}${window.location.hash}`);
+    window.dispatchEvent(new Event(urlChangeEvent));
+    setSelected(undefined);
+  }
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 10000);
     return () => window.clearInterval(timer);
   }, []);
-  const updateDraft = (key: keyof Omit<Draft, 'statuses'>, value: string) => setDraft((previous) => ({ ...previous, [key]: value }));
-  const changePage = (next: number) => { setSelected(undefined); setPage(next); };
-  const applyFilters = (event: FormEvent) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (searchText.trim() === (filters.q ?? '')) return;
+    const timer = window.setTimeout(() => {
+      // Read the current URL so a pending search cannot undo a newer dropdown or scope change.
+      const current = readFilters(window.location.search);
+      writeFilters({ ...current, q: searchText.trim() || undefined });
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // writeFilters is scoped to the current immutable employee entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText, filters.q, scopeSubscriptionId, search]);
+  const updateFilter = (key: keyof ClientTaskMirrorListOptions, value: string) => writeFilters({ ...filters, [key]: value || undefined });
+  function updateDates(next: typeof dateDraft) {
+    setDateDraft(next);
     try {
-      const from = dateFilter(draft.from);
-      const to = dateFilter(draft.to);
+      const from = dateFilter(next.from), to = dateFilter(next.to);
       if (from && to && Date.parse(to) <= Date.parse(from)) throw new Error('结束时间必须晚于开始时间');
-      setFilters({ q: draft.q.trim() || undefined, subscriptionId: draft.subscriptionId || undefined, userId: draft.userId || undefined,
-        taskType: draft.taskType || undefined, from, to, statuses: draft.statuses.length ? draft.statuses.join(',') : undefined, sort: draft.sort });
-      setFilterError('');
-      changePage(1);
-    } catch (error) { setFilterError(error instanceof Error ? error.message : '筛选条件无效'); }
-  };
-
-  return <section className="min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-6">
-    <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-glassline pb-3">
-        <div><h2 className="flex items-center gap-2 text-sm font-semibold text-gtext-primary"><Monitor className="h-4 w-4 text-gbrand-text" />客户端任务监控</h2>
-          <p className="mt-1 text-[11px] text-gtext-muted">仅显示已同步到云端的记录 · 共 {result?.total ?? '—'} 条</p>
-        </div>
-        <Button variant="glass" size="sm" title="刷新客户端任务" aria-label="刷新客户端任务" onClick={() => { void query.refetch(); void options.refetch(); }}><RefreshCw className="h-4 w-4" /></Button>
-      </header>
-      <div role="tablist" aria-label="客户端任务分类" className="flex flex-wrap gap-4 border-b border-glassline">
-        {(Object.keys(views) as (keyof typeof views)[]).map((key) => <button key={key} type="button" role="tab" aria-selected={key === view} onClick={() => { setView(key); changePage(1); }} className={`border-b-2 py-3 text-xs ${key === view ? 'border-gbrand-text text-gbrand-text' : 'border-transparent text-gtext-muted'}`}>
-          {views[key]}{options.data ? ` · ${options.data.counts[key]}` : ''}
-        </button>)}
+      setFilterError(''); writeFilters({ ...filters, from, to });
+    } catch (error) { setFilterError(error instanceof Error ? error.message : '时间筛选无效'); }
+  }
+  function quickDates(days: number) {
+    const shanghai = new Date(now + 8 * 3600000);
+    const end = Date.UTC(shanghai.getUTCFullYear(), shanghai.getUTCMonth(), shanghai.getUTCDate() + 1) - 8 * 3600000;
+    updateDates({ from: localTime(new Date(end - days * 86400000).toISOString()), to: localTime(new Date(end).toISOString()) });
+  }
+  const selectedFilters = Object.entries(filters).filter(([key, value]) => value && key !== 'sort');
+  const filterNames: Record<string, string> = { q: '标题', subscriptionId: '员工', userId: '成员', taskType: '类型', statuses: '状态', from: '时间起点', to: '时间终点' };
+  function filterValue(key: string, value: string) {
+    if (key === 'statuses') return value.split(',').map((status) => labels[status]).join('、');
+    if (key === 'subscriptionId') return options.data?.subscriptions.find((employee) => employee.subscriptionId === value)?.subscriptionName || value;
+    if (key === 'userId') return options.data?.users.find((user) => user.id === value)?.name || value;
+    if (key === 'taskType') return taskTypes[value] ?? value;
+    if (key === 'from' || key === 'to') return formatTime(value);
+    return value;
+  }
+  return <section className="glass-card overflow-hidden">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-glassline px-4 py-3 sm:px-5">
+      <div><h2 className="flex items-center gap-2 text-sm font-medium text-gtext-primary"><Monitor className="h-4 w-4 text-gbrand-text" />客户端任务监控</h2>
+        <p className="mt-1 text-xs text-gtext-muted">仅显示已同步到云端的记录{result ? ` · 当前结果 ${result.total} 条` : ''}{options.data?.scopeTotal !== undefined ? ` · 当前权限范围共 ${options.data.scopeTotal} 条` : ''}</p>
+        {scopeSubscriptionId && <p className="mt-1 text-xs text-gtext-muted">固定员工范围：{options.data?.subscriptions.find((employee) => employee.subscriptionId === scopeSubscriptionId)?.subscriptionName || scopeSubscriptionId}</p>}
       </div>
-      <form onSubmit={applyFilters} className="space-y-3 border-b border-glassline py-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="min-w-0 text-[11px] text-gtext-muted">搜索<input aria-label="搜索任务" type="search" className={controlClass} placeholder="任务标题 / 关键词" value={draft.q} onChange={(event) => updateDraft('q', event.target.value)} /></label>
-          <label className="min-w-0 text-[11px] text-gtext-muted">员工<select aria-label="员工筛选" className={controlClass} value={draft.subscriptionId} onChange={(event) => updateDraft('subscriptionId', event.target.value)}>
-            <option value="">全部员工</option>{draft.subscriptionId && !options.data?.subscriptions.some((item) => item.subscriptionId === draft.subscriptionId) && <option value={draft.subscriptionId}>{draft.subscriptionId}</option>}
-            {options.data?.subscriptions.map((item) => <option key={item.subscriptionId} value={item.subscriptionId}>{employeeName(item)}</option>)}
+      <Button variant="glass" size="sm" disabled={query.isFetching || options.isFetching} onClick={() => { void query.refetch(); void options.refetch(); }}><RefreshCw className="h-3.5 w-3.5" />刷新</Button>
+    </div>
+    <div className="px-4 sm:px-5">
+      <div className="space-y-3 border-b border-glassline py-4">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <label className="min-w-0 text-xs text-gtext-muted">搜索任务标题<input aria-label="搜索任务标题" className={controlClass} placeholder="搜索任务标题…" value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label>
+          <label className="min-w-0 text-xs text-gtext-muted">硅基员工<select aria-label="员工筛选" className={controlClass} value={filters.subscriptionId ?? ''} onChange={(event) => updateFilter('subscriptionId', event.target.value)}>
+            <option value="">全部员工</option>{filters.subscriptionId && !options.data?.subscriptions.some((item) => item.subscriptionId === filters.subscriptionId) && <option value={filters.subscriptionId}>已选员工</option>}
+            {options.data?.subscriptions.map((item) => <option key={item.subscriptionId} value={item.subscriptionId}>{employeeName(item)}{item.legacy ? ' · 旧记录归属未核实' : ''}</option>)}
           </select></label>
-          <label className="min-w-0 text-[11px] text-gtext-muted">成员<select aria-label="成员筛选" className={controlClass} value={draft.userId} onChange={(event) => updateDraft('userId', event.target.value)}>
-            <option value="">全部成员</option>{draft.userId && !options.data?.users.some((item) => item.id === draft.userId) && <option value={draft.userId}>{draft.userId}</option>}
-            {options.data?.users.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
-          </select></label>
-          <label className="min-w-0 text-[11px] text-gtext-muted">任务类型<select aria-label="任务类型筛选" className={controlClass} value={draft.taskType} onChange={(event) => updateDraft('taskType', event.target.value)}>
-            <option value="">全部类型</option>{draft.taskType && !options.data?.taskTypes.includes(draft.taskType) && <option value={draft.taskType}>{draft.taskType}</option>}
-            {options.data?.taskTypes.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select></label>
-          <label className="min-w-0 text-[11px] text-gtext-muted">排序<select aria-label="任务排序" className={controlClass} value={draft.sort} onChange={(event) => updateDraft('sort', event.target.value)}>
-            {(Object.keys(sorts) as ClientTaskMirrorSort[]).map((key) => <option key={key} value={key}>{sorts[key]}</option>)}
+          <label className="min-w-0 text-xs text-gtext-muted">任务状态<select aria-label="任务状态" className={controlClass} value={filters.statuses ?? ''} onChange={(event) => updateFilter('statuses', event.target.value)}>
+            <option value="">全部状态</option>{filters.statuses?.includes(',') && <option value={filters.statuses}>{filterValue('statuses', filters.statuses)}</option>}
+            {Object.entries(CLIENT_TASK_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}{options.data?.counts.byStatus?.[status] !== undefined ? ` · ${options.data.counts.byStatus[status]}` : ''}</option>)}
           </select></label>
         </div>
-        <details><summary className="cursor-pointer text-xs text-gtext-secondary">时间与状态</summary><div className="mt-2 grid gap-3 sm:grid-cols-2">
-          <label className="min-w-0 text-[11px] text-gtext-muted">开始时间（UTC+8，含）<input aria-label="开始时间" className={controlClass} type="datetime-local" value={draft.from} onChange={(event) => updateDraft('from', event.target.value)} /></label>
-          <label className="min-w-0 text-[11px] text-gtext-muted">结束时间（UTC+8，不含）<input aria-label="结束时间" className={controlClass} type="datetime-local" value={draft.to} onChange={(event) => updateDraft('to', event.target.value)} /></label>
-        </div><fieldset className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gtext-secondary"><legend className="mb-2">任务状态</legend>{Object.entries(labels).map(([status, label]) => <label key={status} className="flex items-center gap-1.5"><input type="checkbox" checked={draft.statuses.includes(status)} onChange={(event) => setDraft((previous) => ({ ...previous, statuses: event.target.checked ? [...previous.statuses, status] : previous.statuses.filter((item) => item !== status) }))} />{label}</label>)}</fieldset></details>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="glass" size="sm"><Filter className="h-3.5 w-3.5" />筛选</Button>
-          <Button type="button" variant="ghost" size="sm" title="重置筛选" aria-label="重置筛选" onClick={() => { setDraft(emptyDraft); setFilters({ sort: 'queuedAt_desc' }); setFilterError(''); changePage(1); }}><RotateCcw className="h-3.5 w-3.5" /></Button>
-          {filterError && <p role="alert" className="text-xs text-gdanger">{filterError}</p>}
-          {options.isError && <div role="alert" className="flex items-center gap-2 text-xs text-gdanger">筛选选项读取失败<Button type="button" variant="ghost" size="sm" onClick={() => void options.refetch()}>重试选项</Button></div>}
+        <details><summary className="cursor-pointer text-xs text-gtext-secondary">高级筛选</summary><div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="min-w-0 text-xs text-gtext-muted">发起成员<select aria-label="成员筛选" className={controlClass} value={filters.userId ?? ''} onChange={(event) => updateFilter('userId', event.target.value)}><option value="">全部成员</option>{filters.userId && !options.data?.users.some((item) => item.id === filters.userId) && <option value={filters.userId}>已选成员</option>}{options.data?.users.map((item) => <option key={item.id} value={item.id}>{item.name ?? '名称未知'}</option>)}</select></label>
+          <label className="min-w-0 text-xs text-gtext-muted">任务类型<select aria-label="任务类型筛选" className={controlClass} value={filters.taskType ?? ''} onChange={(event) => updateFilter('taskType', event.target.value)}><option value="">全部类型</option>{filters.taskType && !options.data?.taskTypes.includes(filters.taskType) && <option value={filters.taskType}>{taskTypes[filters.taskType] ?? filters.taskType}</option>}{options.data?.taskTypes.map((item) => <option key={item} value={item}>{taskTypes[item] ?? item}</option>)}</select></label>
+          <label className="min-w-0 text-xs text-gtext-muted">排序<select aria-label="任务排序" className={controlClass} value={filters.sort} onChange={(event) => updateFilter('sort', event.target.value)}>{Object.entries(sorts).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-3"><span className="text-xs text-gtext-muted">时间范围（UTC+8）</span>{[[1, '今天'], [7, '近 7 天'], [30, '近 30 天']].map(([days, label]) => <Button key={days} variant="ghost" size="sm" onClick={() => quickDates(Number(days))}>{label}</Button>)}<span className="text-xs text-gtext-muted">自定义：</span></div>
+          <label className="min-w-0 text-xs text-gtext-muted">时间范围起点（含）<input aria-label="时间范围起点" className={controlClass} type="datetime-local" value={dateDraft.from} onChange={(event) => updateDates({ ...dateDraft, from: event.target.value })} /></label>
+          <label className="min-w-0 text-xs text-gtext-muted">时间范围终点（不含）<input aria-label="时间范围终点" className={controlClass} type="datetime-local" value={dateDraft.to} onChange={(event) => updateDates({ ...dateDraft, to: event.target.value })} /></label>
+        </div></details>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gtext-muted">
+          {selectedFilters.map(([key, value]) => <button key={key} type="button" className="inline-flex max-w-full items-center gap-1 rounded border border-glassline px-2 py-1" aria-label={`移除${filterNames[key]}筛选`} onClick={() => { if (key === 'q') setSearchText(''); updateFilter(key as keyof ClientTaskMirrorListOptions, ''); }}><span className="break-all">{filterNames[key]}：{filterValue(key, String(value))}</span><X className="h-3 w-3 shrink-0" /></button>)}
+          <Button variant="ghost" size="sm" aria-label="重置筛选" onClick={() => { setSearchText(''); setDateDraft({ from: '', to: '' }); setFilterError(''); writeFilters({ sort: 'activityAt_desc' }); }}><RotateCcw className="h-3.5 w-3.5" />清空筛选</Button>
+          {filterError && <p role="alert" className="text-gdanger">{filterError}</p>}
+          {options.isError && <div role="alert" className="flex items-center gap-2 text-gdanger">筛选选项读取失败<Button variant="ghost" size="sm" onClick={() => void options.refetch()}>重试选项</Button></div>}
         </div>
-      </form>
+      </div>
       {linkedTaskId && <section aria-label="指定任务详情" className="border-b border-glassline py-4">
-        <div className="mb-3 flex items-center justify-between gap-2"><h2 className="break-all text-sm text-gtext-secondary">指定任务详情 · {linkedTaskId}</h2><Button variant="ghost" size="sm" title="关闭指定任务详情" aria-label="关闭指定任务详情" onClick={() => setDismissedTaskId(linkedTaskId)}><X className="h-4 w-4" /></Button></div>
-        <TaskDetail key={linkedTaskId} id={linkedTaskId} subscriptionId={filters.subscriptionId} />
+        <div className="mb-3 flex items-center justify-between gap-2"><div><h2 className="break-all text-sm text-gtext-secondary">指定任务详情 · {linkedTaskId}</h2><p className="mt-1 text-xs text-gtext-muted">详情保留固定员工权限范围，独立于下方列表筛选。</p></div><Button variant="ghost" size="sm" aria-label="关闭指定任务详情" onClick={() => { setDismissedTaskId(linkedTaskId); const next = new URLSearchParams(window.location.search); next.delete('taskId'); window.history.replaceState(null, '', `${window.location.pathname}?${next}`); window.dispatchEvent(new Event(urlChangeEvent)); }}><X className="h-4 w-4" /></Button></div>
+        <TaskDetail key={`${scopeSubscriptionId}:${linkedTaskId}`} id={linkedTaskId} subscriptionId={scopeSubscriptionId} />
       </section>}
       {result?.legacy && <p className="py-2 text-xs text-gtext-muted">服务端尚未支持完整分页，目前仅显示最近最多 100 条记录；筛选覆盖可能有限。</p>}
-      {query.isLoading ? <CenteredSpinner label="正在读取客户端任务…" /> : query.isError ? <div className="space-y-3 py-8 text-sm text-gdanger" role="alert">
-        <p>客户端任务监控暂时不可用，请稍后重试。</p><Button variant="glass" size="sm" onClick={() => void query.refetch()}>重试</Button>
-        {page > 1 && <Button variant="glass" size="sm" onClick={() => changePage(page - 1)}>返回上一页</Button>}
-      </div> : result?.items.length ? result.items.map((task) => <Row key={task.id} task={task} now={now} subscriptionId={filters.subscriptionId} open={selected === task.id && linkedTaskId !== task.id} toggle={() => setSelected((id) => id === task.id ? undefined : task.id)} />) : <div className="py-10 text-center text-sm text-gtext-muted">暂无已同步的客户端任务</div>}
-      {result && !query.isError && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-glassline py-3 text-xs text-gtext-muted">
-        <span>第 {page} 页 · 每页 {limit} 条</span><div className="flex gap-2"><Button variant="glass" size="sm" disabled={page <= 1} onClick={() => changePage(page - 1)} title="上一页" aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="glass" size="sm" disabled={!result.hasNextPage} onClick={() => changePage(page + 1)} title="下一页" aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div>
-      </div>}
+      {query.isLoading ? <CenteredSpinner label="正在读取客户端任务…" /> : query.isError ? <div className="space-y-3 py-8 text-sm text-gdanger" role="alert"><p>客户端任务监控暂时不可用，请稍后重试。</p><Button variant="glass" size="sm" onClick={() => void query.refetch()}>重试</Button>{page > 1 && <Button variant="glass" size="sm" onClick={() => writeFilters(filters, page - 1)}>返回上一页</Button>}</div> : result?.items.length ? result.items.map((task) => <Row key={`${scopeSubscriptionId}:${task.id}`} task={task} now={now} subscriptionId={scopeSubscriptionId} open={selected === task.id && linkedTaskId !== task.id} toggle={() => setSelected((id) => id === task.id ? undefined : task.id)} />) : <div className="py-10 text-center text-sm text-gtext-muted">{selectedFilters.length ? '当前筛选无匹配任务' : '暂无已同步的客户端任务'}</div>}
+      {result && !query.isError && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-glassline py-3 text-xs text-gtext-muted"><span>第 {page} 页 · 每页 {limit} 条</span><div className="flex gap-2"><Button variant="glass" size="sm" disabled={page <= 1} onClick={() => writeFilters(filters, page - 1)} aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="glass" size="sm" disabled={!result.hasNextPage} onClick={() => writeFilters(filters, page + 1)} aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div></div>}
     </div>
   </section>;
 }
