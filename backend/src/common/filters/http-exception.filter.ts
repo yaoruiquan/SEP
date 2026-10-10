@@ -5,6 +5,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function safeRateLimit(value: unknown): Record<string, string | number> | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: Record<string, string | number> = {};
+  for (const field of ['rule', 'dimension']) {
+    if (typeof value[field] === 'string') result[field] = value[field];
+  }
+  // resetAt is Unix milliseconds, not an upstream date or a seconds timestamp.
+  for (const field of ['limit', 'windowMs', 'count', 'retryAfterSeconds', 'resetAt']) {
+    const number = value[field];
+    if (typeof number === 'number' && Number.isSafeInteger(number) && number >= 0) {
+      result[field] = number;
+    }
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+function waitingSeconds(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  const seconds = Math.ceil(value);
+  return Number.isSafeInteger(seconds) ? seconds : undefined;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -14,13 +36,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const raw = exception instanceof HttpException ? exception.getResponse() : 'Internal server error';
     const message = typeof raw === 'object' && raw !== null && 'message' in raw ? (raw as { message: unknown }).message : raw;
     const requestId = request.requestId || response.getHeader('x-request-id');
+    const rawBody = isRecord(raw) ? raw : undefined;
 
-    // ThrottlerGuard normally writes this header before throwing. Keep a
-    // deterministic fallback for other 429 producers so native clients can
-    // always decide when it is safe to retry instead of treating the result
-    // as an empty skills list.
-    if (status === HttpStatus.TOO_MANY_REQUESTS && !response.getHeader('Retry-After')) {
-      response.setHeader('Retry-After', '60');
+    if (status === HttpStatus.TOO_MANY_REQUESTS && response.getHeader('Retry-After') === undefined) {
+      let retryAfterSeconds = waitingSeconds(rawBody?.retryAfterSeconds);
+      if (retryAfterSeconds === undefined) {
+        const namedWaits = Object.entries(response.getHeaders()).flatMap(([name, value]) => {
+          if (!/^retry-after-.+$/i.test(name)) return [];
+          const seconds = typeof value === 'number' ? waitingSeconds(value)
+            : typeof value === 'string' && /^\d+$/.test(value.trim())
+              ? waitingSeconds(Number(value)) : undefined;
+          return seconds === undefined ? [] : [seconds];
+        });
+        retryAfterSeconds = namedWaits.length ? Math.max(...namedWaits) : undefined;
+      }
+      response.setHeader('Retry-After', String(retryAfterSeconds ?? 60));
     }
 
     const body = {
@@ -38,8 +68,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    const rawBody = isRecord(raw) ? raw : undefined;
     const rawError = isRecord(rawBody?.error) ? rawBody.error : undefined;
+    const rateLimit = safeRateLimit(rawError?.rateLimit);
     const errors = Array.isArray(rawBody?.errors)
       ? rawBody.errors
           .filter((error): error is { field: string; message: string } =>
@@ -76,6 +106,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? rawError.param
           : errors?.[0]?.field || null,
         requestId,
+        ...(rawError?.source === 'platform' || rawError?.source === 'upstream'
+          ? { source: rawError.source } : {}),
+        ...(rateLimit !== undefined ? { rateLimit } : {}),
       },
     });
   }

@@ -7,6 +7,7 @@ import { requestContextMiddleware } from '../../common/middleware/request-contex
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
+import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 
 const toolCall = { id: 'call_test_ls_001', type: 'function', function: { name: 'ls', arguments: '{}' } };
 const tools = [{ type: 'function', function: { name: 'ls', parameters: { type: 'object' } } }];
@@ -35,7 +36,7 @@ describe('Gateway tool-call HTTP round trip', () => {
         context.switchToHttp().getRequest().clientEmployment = {};
         return true;
       },
-    }).compile();
+    }).overrideGuard(GatewayRateLimitGuard).useValue({ canActivate: () => true }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api');
     app.use(requestContextMiddleware);
@@ -101,5 +102,23 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(res.headers['content-type']).toContain('application/json');
     expect(res.body.error).toMatchObject({ ...error, requestId: 'test-upstream' });
     expect(res.headers['x-request-id']).toBe('test-upstream');
+    if (status === 429) {
+      expect(res.body.error.source).toBe('upstream');
+      expect(res.headers['retry-after']).toBe('60');
+    }
+  });
+
+  it('preserves upstream waiting information and forwards the platform correlation id', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: { message: 'Please wait' } }), {
+      status: 429, headers: { 'Retry-After': '7', 'x-request-id': 'relay-123' },
+    }));
+    const res = await request(app.getHttpServer()).post(endpoint).set('x-request-id', 'platform-123').send({
+      model: 'deepseek-v4.1-flash', messages: [{ role: 'user', content: 'hello' }], stream: true,
+    }).expect(429);
+    expect(res.headers['retry-after']).toBe('7');
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.body.error).toMatchObject({ source: 'upstream', code: 'UPSTREAM_RATE_LIMIT_EXCEEDED', requestId: 'platform-123' });
+    expect(fetchMock.mock.calls[0][1].headers['x-request-id']).toBe('platform-123');
+    expect(res.body.error.rateLimit).toBeUndefined();
   });
 });

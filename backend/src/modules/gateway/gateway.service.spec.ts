@@ -1,4 +1,4 @@
-import { BadGatewayException, HttpException } from '@nestjs/common';
+import { BadGatewayException, HttpException, Logger } from '@nestjs/common';
 import { GatewayService } from './gateway.service';
 
 const enterpriseClaims = {
@@ -12,6 +12,7 @@ describe('GatewayService.forwardChatCompletion', () => {
   const dto = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
   let service: GatewayService;
   let fetchMock: jest.SpyInstance;
+  let warnMock: jest.SpyInstance;
 
   beforeEach(() => {
     service = new GatewayService({} as never, {} as never, {} as never, {} as never);
@@ -19,6 +20,7 @@ describe('GatewayService.forwardChatCompletion', () => {
       baseUrl: 'https://relay.test/v1/', apiKey: 'test-key', defaultModel: 'test-model',
     });
     fetchMock = jest.spyOn(global, 'fetch');
+    warnMock = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -34,6 +36,19 @@ describe('GatewayService.forwardChatCompletion', () => {
     }));
   });
 
+  it('forwards the optional platform request id without changing the payload', async () => {
+    fetchMock.mockResolvedValue(new Response('{}'));
+    await service.forwardChatCompletion(dto, 'platform-request-123');
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headers: {
+        'Content-Type': 'application/json', Authorization: 'Bearer test-key',
+        'x-request-id': 'platform-request-123',
+      },
+      body: JSON.stringify(dto),
+    }));
+    expect(warnMock).not.toHaveBeenCalled();
+  });
+
   it.each([400, 429, 503])('preserves upstream HTTP %i and structured error details', async (status) => {
     const error = { message: 'invalid tool message', type: 'invalid_request_error', code: 'invalid_tool', param: 'messages[2].tool_call_id' };
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status }));
@@ -43,8 +58,108 @@ describe('GatewayService.forwardChatCompletion', () => {
     } catch (exception) {
       expect(exception).toBeInstanceOf(HttpException);
       expect((exception as HttpException).getStatus()).toBe(status);
-      expect((exception as HttpException).getResponse()).toEqual({ error });
+      expect((exception as HttpException).getResponse()).toEqual({
+        error: { ...error, ...(status === 429 ? { source: 'upstream' } : {}) },
+      });
     }
+  });
+
+  it.each([
+    ['17', 17],
+    ['0', 0],
+    [' 23 ', 23],
+    ['Sat, 10 Oct 2026 00:00:18 GMT', 18],
+    ['Saturday, 10-Oct-26 00:00:18 GMT', 18],
+    ['Sat Oct 10 00:00:18 2026', 18],
+    ['Sat, 10 Oct 2026 00:00:00 GMT', 0],
+    ['Fri, 09 Oct 2026 23:59:50 GMT', 0],
+  ])('normalizes upstream Retry-After %s to %i seconds', async (retryAfter, expected) => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-10T00:00:00.100Z'));
+    fetchMock.mockResolvedValue(new Response('{}', {
+      status: 429, headers: { 'Retry-After': retryAfter, 'x-request-id': 'upstream-123' },
+    }));
+    await expect(service.forwardChatCompletion(dto, 'platform-123')).rejects.toMatchObject({
+      status: 429,
+      response: {
+        error: {
+          message: 'sub2api 请求失败（HTTP 429）', type: 'rate_limit_error',
+          code: 'UPSTREAM_RATE_LIMIT_EXCEEDED', param: null, source: 'upstream',
+        },
+        retryAfterSeconds: expected,
+      },
+    });
+    expect(warnMock).toHaveBeenCalledWith({
+      message: 'sub2api rate limit', status: 429, requestId: 'platform-123',
+      upstreamRequestId: 'upstream-123', retryAfterSeconds: expected,
+    });
+  });
+
+  it.each([null, '', '-1', '1.5', 'NaN', 'Infinity', 'tomorrow', '2026-10-10',
+    '9007199254740992', 'Tue, 31 Feb 2026 00:00:00 GMT', 'Sat, 10 Oct 2026 25:00:00 GMT'])(
+    'does not present invalid/missing Retry-After %p as known waiting information', async (retryAfter) => {
+      fetchMock.mockResolvedValue(new Response('not-json', {
+        status: 429, headers: retryAfter === null ? {} : { 'Retry-After': retryAfter },
+      }));
+      const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+      expect(exception).toBeInstanceOf(HttpException);
+      expect((exception as HttpException).getStatus()).toBe(429);
+      expect((exception as HttpException).getResponse()).toMatchObject({
+        error: { source: 'upstream', code: 'UPSTREAM_RATE_LIMIT_EXCEEDED' },
+      });
+      expect((exception as HttpException).getResponse()).not.toHaveProperty('retryAfterSeconds');
+      expect(warnMock.mock.calls[0][0]).not.toHaveProperty('retryAfterSeconds');
+    },
+  );
+
+  it('rejects unsafe upstream error field types without exposing nested objects', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: {
+      message: { secret: 'private' }, type: ['private'], code: 123, param: { token: 'private' },
+    } }), { status: 429 }));
+    const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+    expect((exception as HttpException).getResponse()).toEqual({
+      error: {
+        message: 'sub2api 请求失败（HTTP 429）', type: 'rate_limit_error',
+        code: 'UPSTREAM_RATE_LIMIT_EXCEEDED', param: null, source: 'upstream',
+      },
+    });
+  });
+
+  it('logs only safe correlation metadata and strips upstream error metadata', async () => {
+    const upstream = new Response(JSON.stringify({
+      error: {
+        message: 'Quota exceeded', type: 'rate_limit_error', code: 'existing_code', param: 'model',
+        source: 'platform', rateLimit: { limit: 1, secret: 'private' },
+        credentials: 'private-key', headers: { authorization: 'private-key' },
+      },
+      debug: 'private-body',
+    }), { status: 429 });
+    jest.spyOn(upstream.headers, 'get').mockImplementation((name) =>
+      name.toLowerCase() === 'x-request-id' ? `upstream\r\n\u001b[31m"${'a'.repeat(300)}` : null,
+    );
+    fetchMock.mockResolvedValue(upstream);
+
+    const exception = await service.forwardChatCompletion(dto, 'platform-123').catch((error: HttpException) => error);
+    expect((exception as HttpException).getResponse()).toEqual({
+      error: {
+        message: 'Quota exceeded', type: 'rate_limit_error', code: 'existing_code',
+        param: 'model', source: 'upstream',
+      },
+    });
+    const logged = warnMock.mock.calls[0][0];
+    expect(logged).toEqual({
+      message: 'sub2api rate limit', status: 429, requestId: 'platform-123',
+      upstreamRequestId: expect.stringMatching(/^[a-zA-Z0-9._:-]{128}$/),
+    });
+    expect(JSON.stringify(logged)).not.toMatch(/private|hello|test-key|Quota|existing_code/);
+  });
+
+  it('ignores Retry-After on non-429 errors and does not add rate limit metadata', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 503, headers: { 'Retry-After': '12' } }));
+    const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+    expect((exception as HttpException).getResponse()).toEqual({
+      error: { message: 'sub2api 请求失败（HTTP 503）', type: 'api_error', code: 'UPSTREAM_ERROR', param: null },
+    });
+    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it.each(['', '<html>private proxy diagnostics</html>'])('gives a readable fallback without echoing a raw proxy body', async (body) => {

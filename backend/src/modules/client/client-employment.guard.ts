@@ -35,8 +35,14 @@ export class ClientEmploymentGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    if (payload.type !== 'client-employment') {
+    if (!payload || payload.type !== 'client-employment') {
       throw new UnauthorizedException('Token type must be client-employment');
+    }
+
+    if (['sub', 'enterpriseId', 'memberId', 'subscriptionId'].some((field) =>
+      typeof payload[field] !== 'string' || !payload[field].trim(),
+    ) || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Invalid employment identity or expiration');
     }
 
     req.clientEmployment = payload as ClientEmploymentClaims;

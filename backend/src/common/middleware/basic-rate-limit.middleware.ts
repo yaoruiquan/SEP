@@ -7,6 +7,8 @@ const LIMIT = 120;
 const SENSITIVE_PATHS = [/^\/api\/auth\//, /^\/api\/upload\//, /^\/api\/payment\//, /^\/api\/gateway\//, /^\/api\/enterprise\/.*invitation/];
 
 export function basicRateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Model requests use the verified employment identity, not a shared proxy IP.
+  if (req.method === 'POST' && /^\/api\/gateway\/v1\/chat\/completions\/?$/i.test(req.path)) return next();
   if (!SENSITIVE_PATHS.some((pattern) => pattern.test(req.path))) return next();
   const key = `${req.ip}:${req.path.split('/').slice(0, 4).join('/')}`;
   const now = Date.now();

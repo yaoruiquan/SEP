@@ -1,0 +1,302 @@
+{
+  "source": "/var/log/caddy/sep.log",
+  "timezone": "timestamps in UTC; incident timezone UTC+8",
+  "records": [
+    {
+      "completedAt": "2026-10-10T09:47:56.031Z",
+      "startedAt": "2026-10-10T09:47:44.796Z",
+      "requestId": "e796f6c3-b81b-4550-afd8-602e652d031a",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 11235,
+      "headers": {
+        "X-Request-Id": "e796f6c3-b81b-4550-afd8-602e652d031a",
+        "Date": "Sat, 10 Oct 2026 09:47:49 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "99",
+        "X-Ratelimit-Reset": "60",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "9",
+        "X-Ratelimit-Reset-Auth": "60"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:37.313Z",
+      "startedAt": "2026-10-10T09:48:33.578Z",
+      "requestId": "3f4e97fb-9cd2-40b3-b469-c68eacd1bf01",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3734,
+      "headers": {
+        "X-Request-Id": "3f4e97fb-9cd2-40b3-b469-c68eacd1bf01",
+        "Date": "Sat, 10 Oct 2026 09:48:36 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "98",
+        "X-Ratelimit-Reset": "12",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "8",
+        "X-Ratelimit-Reset-Auth": "12"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:41.568Z",
+      "startedAt": "2026-10-10T09:48:37.650Z",
+      "requestId": "a3cf0d76-2746-4c5f-8c44-e9777fe207df",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3918,
+      "headers": {
+        "X-Request-Id": "a3cf0d76-2746-4c5f-8c44-e9777fe207df",
+        "Date": "Sat, 10 Oct 2026 09:48:40 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "97",
+        "X-Ratelimit-Reset": "8",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "7",
+        "X-Ratelimit-Reset-Auth": "8"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:46.108Z",
+      "startedAt": "2026-10-10T09:48:42.834Z",
+      "requestId": "763b4d86-5579-4118-a8d6-9c1eebfeb5c5",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3274,
+      "headers": {
+        "X-Request-Id": "763b4d86-5579-4118-a8d6-9c1eebfeb5c5",
+        "Date": "Sat, 10 Oct 2026 09:48:45 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "96",
+        "X-Ratelimit-Reset": "3",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "6",
+        "X-Ratelimit-Reset-Auth": "3"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:50.920Z",
+      "startedAt": "2026-10-10T09:48:47.880Z",
+      "requestId": "732e2929-28a2-4064-a01c-b8dcd202ada3",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3041,
+      "headers": {
+        "X-Request-Id": "732e2929-28a2-4064-a01c-b8dcd202ada3",
+        "Date": "Sat, 10 Oct 2026 09:48:50 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "96",
+        "X-Ratelimit-Reset": "60",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "6",
+        "X-Ratelimit-Reset-Auth": "60"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:54.717Z",
+      "startedAt": "2026-10-10T09:48:51.119Z",
+      "requestId": "90aab35a-b648-4fa9-99ef-2389287bf914",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3598,
+      "headers": {
+        "X-Request-Id": "90aab35a-b648-4fa9-99ef-2389287bf914",
+        "Date": "Sat, 10 Oct 2026 09:48:54 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "95",
+        "X-Ratelimit-Reset": "57",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "5",
+        "X-Ratelimit-Reset-Auth": "57"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:48:58.852Z",
+      "startedAt": "2026-10-10T09:48:55.472Z",
+      "requestId": "8ea18887-1008-4b7d-90d2-b9be6d7a92f0",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 3380,
+      "headers": {
+        "X-Request-Id": "8ea18887-1008-4b7d-90d2-b9be6d7a92f0",
+        "Date": "Sat, 10 Oct 2026 09:48:58 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "94",
+        "X-Ratelimit-Reset": "53",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "4",
+        "X-Ratelimit-Reset-Auth": "53"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:03.625Z",
+      "startedAt": "2026-10-10T09:48:59.020Z",
+      "requestId": "66db92cb-1d17-4695-bb99-85918149eb49",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 4606,
+      "headers": {
+        "X-Request-Id": "66db92cb-1d17-4695-bb99-85918149eb49",
+        "Date": "Sat, 10 Oct 2026 09:49:03 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "93",
+        "X-Ratelimit-Reset": "49",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "3",
+        "X-Ratelimit-Reset-Auth": "49"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:07.944Z",
+      "startedAt": "2026-10-10T09:49:03.870Z",
+      "requestId": "bcb0188e-5883-414d-86ce-a0e079467d3a",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 4074,
+      "headers": {
+        "X-Request-Id": "bcb0188e-5883-414d-86ce-a0e079467d3a",
+        "Date": "Sat, 10 Oct 2026 09:49:07 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "92",
+        "X-Ratelimit-Reset": "45",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "2",
+        "X-Ratelimit-Reset-Auth": "45"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:14.324Z",
+      "startedAt": "2026-10-10T09:49:09.858Z",
+      "requestId": "ed165da8-9223-43e6-be78-e5cfa6d8810d",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 4467,
+      "headers": {
+        "X-Request-Id": "ed165da8-9223-43e6-be78-e5cfa6d8810d",
+        "Date": "Sat, 10 Oct 2026 09:49:13 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "91",
+        "X-Ratelimit-Reset": "39",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "1",
+        "X-Ratelimit-Reset-Auth": "39"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:18.623Z",
+      "startedAt": "2026-10-10T09:49:14.620Z",
+      "requestId": "1fe0225e-f08b-4cc2-8b7c-50a528cbfa4b",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 200,
+      "durationMs": 4003,
+      "headers": {
+        "X-Request-Id": "1fe0225e-f08b-4cc2-8b7c-50a528cbfa4b",
+        "Date": "Sat, 10 Oct 2026 09:49:18 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "90",
+        "X-Ratelimit-Reset": "34",
+        "X-Ratelimit-Limit-Auth": "10",
+        "X-Ratelimit-Remaining-Auth": "0",
+        "X-Ratelimit-Reset-Auth": "34"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:18.923Z",
+      "startedAt": "2026-10-10T09:49:18.907Z",
+      "requestId": "1ebb43e4-5cd4-4901-b2f4-4c10533dba85",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 429,
+      "durationMs": 16,
+      "headers": {
+        "X-Request-Id": "1ebb43e4-5cd4-4901-b2f4-4c10533dba85",
+        "Date": "Sat, 10 Oct 2026 09:49:18 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "89",
+        "X-Ratelimit-Reset": "29",
+        "Retry-After-Auth": "60",
+        "Retry-After": "60"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:21.319Z",
+      "startedAt": "2026-10-10T09:49:21.296Z",
+      "requestId": "3381a3d4-347c-4423-8059-43924a989c97",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 429,
+      "durationMs": 23,
+      "headers": {
+        "X-Request-Id": "3381a3d4-347c-4423-8059-43924a989c97",
+        "Date": "Sat, 10 Oct 2026 09:49:21 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "88",
+        "X-Ratelimit-Reset": "27",
+        "Retry-After-Auth": "58",
+        "Retry-After": "60"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:25.711Z",
+      "startedAt": "2026-10-10T09:49:25.591Z",
+      "requestId": "934105d5-ce4c-4a68-bac0-c96dfcd50710",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 429,
+      "durationMs": 120,
+      "headers": {
+        "X-Request-Id": "934105d5-ce4c-4a68-bac0-c96dfcd50710",
+        "Date": "Sat, 10 Oct 2026 09:49:25 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "87",
+        "X-Ratelimit-Reset": "23",
+        "Retry-After-Auth": "54",
+        "Retry-After": "60"
+      }
+    },
+    {
+      "completedAt": "2026-10-10T09:49:34.049Z",
+      "startedAt": "2026-10-10T09:49:33.981Z",
+      "requestId": "0afe29f5-63ec-4ae8-9bd4-506fd3b3d680",
+      "method": "POST",
+      "path": "/api/gateway/v1/chat/completions",
+      "clientIp": "redacted-client-1",
+      "status": 429,
+      "durationMs": 67,
+      "headers": {
+        "X-Request-Id": "0afe29f5-63ec-4ae8-9bd4-506fd3b3d680",
+        "Date": "Sat, 10 Oct 2026 09:49:34 GMT",
+        "X-Ratelimit-Limit": "100",
+        "X-Ratelimit-Remaining": "87",
+        "X-Ratelimit-Reset": "14",
+        "Retry-After-Auth": "45",
+        "Retry-After": "60"
+      }
+    }
+  ]
+}

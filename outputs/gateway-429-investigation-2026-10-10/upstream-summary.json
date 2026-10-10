@@ -1,0 +1,93 @@
+{
+  "source": "docker logs longdao-sub2api-blue",
+  "records": [
+    {
+      "completedAt": "2026-10-10T17:47:56.022+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "55943e92-0dae-44a2-941f-982a1d74f26e",
+      "clientRequestId": "90ef529f-a623-4b75-a620-8cc16b459936",
+      "latencyMs": 10825
+    },
+    {
+      "completedAt": "2026-10-10T17:48:37.308+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "4ecfbeed-ab28-4890-8f17-83c151517a70",
+      "clientRequestId": "e074ceb0-312a-4ffb-a1e7-1e3d490bd177",
+      "latencyMs": 3469
+    },
+    {
+      "completedAt": "2026-10-10T17:48:41.564+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "d00bcbbc-bfe6-47d8-81e1-a83b72ad5ba8",
+      "clientRequestId": "b4cd2e9b-7694-490d-a56e-7eaf7964092e",
+      "latencyMs": 3820
+    },
+    {
+      "completedAt": "2026-10-10T17:48:46.103+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "710341a1-e05e-4da9-9d1c-e8207113de77",
+      "clientRequestId": "780324e4-3422-4d0a-91b0-297630338ee3",
+      "latencyMs": 3202
+    },
+    {
+      "completedAt": "2026-10-10T17:48:50.916+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "b2f4f065-aac2-430b-ad4c-b88842ed79c2",
+      "clientRequestId": "ccc4fcc1-6bfb-461b-8097-2c1d9097e1ae",
+      "latencyMs": 2943
+    },
+    {
+      "completedAt": "2026-10-10T17:48:54.714+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "aa71f148-5412-462a-985a-b1fd0e5b3c9a",
+      "clientRequestId": "c3eada6f-57ee-4d9a-8232-93245bb5ae5e",
+      "latencyMs": 3516
+    },
+    {
+      "completedAt": "2026-10-10T17:48:58.849+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "0a0970ea-d35f-4856-99f5-b05708a256f2",
+      "clientRequestId": "892b16f9-e518-475f-8ba0-c3d772fcf254",
+      "latencyMs": 3301
+    },
+    {
+      "completedAt": "2026-10-10T17:49:03.620+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "63ecd5e7-8318-49d5-9ab7-57ba906200cb",
+      "clientRequestId": "7c30eddf-508a-44ab-8acb-7f4c7abd4464",
+      "latencyMs": 4530
+    },
+    {
+      "completedAt": "2026-10-10T17:49:07.920+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "6d73a232-e051-4c26-b96e-b95f105a785d",
+      "clientRequestId": "e6eee58d-e45b-4821-a218-23d3eddf2392",
+      "latencyMs": 3955
+    },
+    {
+      "completedAt": "2026-10-10T17:49:14.320+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "4d21341e-b33c-4858-99b9-c79048df18ac",
+      "clientRequestId": "29be9a66-6b6c-4bb2-bbc5-59ddf8660dc5",
+      "latencyMs": 4225
+    },
+    {
+      "completedAt": "2026-10-10T17:49:18.617+0800",
+      "status": 200,
+      "model": "deepseek-v4.1-flash",
+      "requestId": "b0ef384d-7688-489f-93ce-85ed58b0ca1b",
+      "clientRequestId": "f5c549c8-3b79-47ca-8fcd-38727f42c8c8",
+      "latencyMs": 3903
+    }
+  ]
+}

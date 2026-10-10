@@ -6,6 +6,36 @@ import { DEFAULT_MODEL_ID, SETTING_KEYS } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isSafeInteger(seconds) ? seconds : undefined;
+  }
+
+  // Restrict Date.parse to HTTP-date formats; arbitrary strings can parse as dates.
+  const day = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)';
+  const month = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+  const time = '\\d{2}:\\d{2}:\\d{2}';
+  const standard = new RegExp(`^${day}, (\\d{2}) ${month} \\d{4} ${time} GMT$`);
+  const obsolete = new RegExp(`^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\\d{2})-${month}-\\d{2} ${time} GMT$`);
+  const asctime = new RegExp(`^${day} ${month} ( [1-9]|\\d{2}) ${time} \\d{4}$`);
+  const match = standard.exec(trimmed) || obsolete.exec(trimmed) || asctime.exec(trimmed);
+  if (!match) return undefined;
+  // asctime has no timezone suffix but HTTP dates are always UTC.
+  const timestamp = Date.parse(asctime.test(trimmed) ? `${trimmed} GMT` : trimmed);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).getUTCDate() !== Number(match[1])) {
+    return undefined;
+  }
+  return Math.max(0, Math.ceil((timestamp - Date.now()) / 1000));
+}
+
+function sanitizeRequestId(value: string | null | undefined): string | undefined {
+  const safe = value?.replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 128);
+  return safe || undefined;
+}
+
 @Injectable()
 export class GatewayService {
   private readonly logger = new Logger(GatewayService.name);
@@ -118,7 +148,7 @@ export class GatewayService {
   }
 
   /** 转发已校验的 OpenAI 兼容请求，并保留上游错误状态与字段定位信息。 */
-  async forwardChatCompletion(dto: ChatCompletionRequest): Promise<Response> {
+  async forwardChatCompletion(dto: ChatCompletionRequest, requestId?: string): Promise<Response> {
     const { baseUrl, apiKey } = await this.getSub2ApiConfig();
     let response: Response;
     try {
@@ -127,6 +157,7 @@ export class GatewayService {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
+          ...(requestId ? { 'x-request-id': requestId } : {}),
         },
         body: JSON.stringify(dto),
         signal: AbortSignal.timeout(30000),
@@ -144,14 +175,30 @@ export class GatewayService {
       // 不把 HTML 代理错误页或整个上游响应直接暴露给客户端。
       const body = await response.json().catch(() => null);
       const error = body?.error;
+      const isRateLimited = response.status === 429;
+      const retryAfterSeconds = isRateLimited
+        ? parseRetryAfter(response.headers.get('Retry-After')) : undefined;
+      if (isRateLimited) {
+        this.logger.warn({
+          message: 'sub2api rate limit',
+          status: response.status,
+          requestId: sanitizeRequestId(requestId),
+          upstreamRequestId: sanitizeRequestId(response.headers.get('x-request-id')),
+          ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+        });
+      }
       throw new HttpException({
         error: {
           message: typeof error?.message === 'string' && error.message
             ? error.message : `sub2api 请求失败（HTTP ${response.status}）`,
-          type: typeof error?.type === 'string' ? error.type : response.status >= 500 ? 'api_error' : 'invalid_request_error',
-          code: typeof error?.code === 'string' ? error.code : 'UPSTREAM_ERROR',
+          type: typeof error?.type === 'string' ? error.type
+            : isRateLimited ? 'rate_limit_error' : response.status >= 500 ? 'api_error' : 'invalid_request_error',
+          code: typeof error?.code === 'string' ? error.code
+            : isRateLimited ? 'UPSTREAM_RATE_LIMIT_EXCEEDED' : 'UPSTREAM_ERROR',
           param: typeof error?.param === 'string' ? error.param : null,
+          ...(isRateLimited ? { source: 'upstream' } : {}),
         },
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
       }, response.status);
     }
     return response;

@@ -89,6 +89,8 @@ services:
       # 完全正常，很难联想到中转。故做成可覆盖，默认仍是 blue。
       - SUB2API_BASE_URL=${SUB2API_BASE_URL:-http://longdao-sub2api-blue:8080/v1}
       - SUB2API_API_KEY=${SUB2API_API_KEY}
+      - GATEWAY_MODEL_RATE_LIMIT=${GATEWAY_MODEL_RATE_LIMIT:-60}
+      - GATEWAY_MODEL_RATE_WINDOW_MS=${GATEWAY_MODEL_RATE_WINDOW_MS:-60000}
       # 必须显式钉住模型：不传时后端回落到代码常量 DEFAULT_MODEL_ID，
       # 换个默认值就要重新构建镜像才能改。中转实际提供哪些模型用
       # `curl -H "Authorization: Bearer $KEY" <base>/models` 确认，

@@ -14,10 +14,12 @@ import { Response } from 'express';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { GatewayService } from './gateway.service';
+import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ChatCompletionRequestSchema } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
@@ -29,15 +31,17 @@ export class GatewayController {
 
   @Post('chat/completions')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ClientEmploymentGuard)
+  @SkipThrottle({ default: true, auth: true, chat: true })
+  @UseGuards(ClientEmploymentGuard, GatewayRateLimitGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '模型网关（OpenAI 兼容）' })
   @ApiResponse({ status: 200, description: 'Chat Completion JSON 或 SSE 流' })
   @ApiResponse({ status: 400, description: '请求字段或模型白名单校验失败，返回 OpenAI 兼容 error' })
   @ApiResponse({ status: 401, description: '雇佣令牌无效或过期' })
   @ApiResponse({ status: 403, description: '无订阅授权或余额不足' })
-  @ApiResponse({ status: 429, description: '上游限流' })
+  @ApiResponse({ status: 429, description: '平台模型请求频率限制或上游限流，含 Retry-After 和 error.source' })
   @ApiResponse({ status: 502, description: '上游不可用' })
+  @ApiResponse({ status: 503, description: '平台限流服务或上游暂不可用' })
   async chatCompletions(
     @Body(new ZodValidationPipe(ChatCompletionRequestSchema)) dto: ChatCompletionRequest,
     @ClientEmployment() claims: ClientEmploymentClaims,
@@ -55,8 +59,8 @@ export class GatewayController {
     }
 
     // 3. 由 service 转发；上游错误在发送 SSE 响应头之前返回 JSON。
-    const upstreamRes = await this.gatewayService.forwardChatCompletion(dto);
     const requestId = req.requestId || getHeaderValue(headers, 'x-request-id') || randomUUID();
+    const upstreamRes = await this.gatewayService.forwardChatCompletion(dto, requestId);
     const sessionId =
       getHeaderValue(headers, 'x-sep-session-id') ||
       getHeaderValue(headers, 'x-session-id') ||
