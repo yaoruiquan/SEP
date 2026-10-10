@@ -13,8 +13,11 @@ import { toast } from '@/components/ui/toast';
 import { Markdown } from '@/features/chat/markdown';
 import { SKILL_VERSION_STATUS } from '@/features/skill-version/status';
 import { useMonitorDetail, useMonitorReview, useSelectSkillSource, useSubmitMonitorReview } from '../use-skill-monitor';
-import { VERSION_TYPE_LABELS, canSelectSource, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, platformProcessingLabel, promotedVersion } from '../monitor';
+import { VERSION_TYPE_LABELS, canSelectSource, creationMethodLabel, currentUsageLabel, enterpriseReviewLabel, monitorValidation, platformProcessingLabel, promotedVersion } from '../monitor';
 import { EnterprisePublishedVersions, VersionAttribution } from '../version-attribution';
+
+const ACTION_LABELS = { adopt: '收录失败', submit: '送审失败', review: '审核失败' };
+type MonitorAction = keyof typeof ACTION_LABELS;
 
 export default function AdminSkillVersionDetailPage() {
   const { versionId = '' } = useParams<{ versionId: string }>();
@@ -26,6 +29,16 @@ export default function AdminSkillVersionDetailPage() {
   const [reason, setReason] = useState('');
   const [adoptNote, setAdoptNote] = useState('');
   const [tab, setTab] = useState('rendered');
+  const [actionErrors, setActionErrors] = useState<{ versionId: string } & Partial<Record<MonitorAction, string>>>({ versionId });
+
+  const setActionError = (action: MonitorAction, message?: string) => {
+    setActionErrors((current) => ({ ...(current.versionId === versionId ? current : { versionId }), [action]: message }));
+  };
+  const reportActionError = (action: MonitorAction, error: unknown) => {
+    const message = error instanceof Error && error.message.trim() ? error.message : action === 'adopt' ? '采纳失败' : ACTION_LABELS[action];
+    setActionError(action, message);
+    toast.error(message);
+  };
 
   if (query.isLoading) return <CenteredSpinner label="加载审核详情..." />;
   if (query.isError) return <div role="alert" className="space-y-3 p-6 text-sm text-gdanger">加载失败：{query.error instanceof Error ? query.error.message : '请稍后重试'}<Button variant="glass" onClick={() => void query.refetch()}>重试</Button></div>;
@@ -35,33 +48,52 @@ export default function AdminSkillVersionDetailPage() {
   const pending = version.scope === 'PLATFORM' && version.status === 'PENDING_PLATFORM_REVIEW';
   const promoted = promotedVersion(version);
   const adoptable = canSelectSource(version);
+  const validation = monitorValidation(version.validationResult);
 
   const decide = (decision: 'APPROVE' | 'REJECT') => {
+    setActionError('review');
     if (decision === 'REJECT' && !reason.trim()) {
-      toast.error('驳回时必须填写原因');
+      reportActionError('review', new Error('驳回时必须填写原因'));
       return;
     }
     review.mutate(
       { id: versionId, decision, comment: reason.trim() || undefined, expectedUpdatedAt: version.updatedAt },
       {
         onSuccess: () => {
+          setActionError('review');
           toast.success(decision === 'APPROVE' ? '所选平台版本审核通过，已发布'  : '版本已驳回');
           router.push('/admin/skills');
         },
-        onError: (error) => toast.error(error instanceof Error ? error.message : '审核失败'),
+        onError: (error) => reportActionError('review', error),
       },
     );
   };
 
   const runAdopt = () => {
+    setActionError('adopt');
     adopt.mutate(
       { id: versionId, changeSummary: adoptNote.trim() || undefined, expectedUpdatedAt: version.updatedAt },
       {
         onSuccess: (created) => {
+          setActionError('adopt');
           toast.success(`已收录为平台待审版本 v${created.version}`);
           router.push(`/admin/skills/${created.id}`);
         },
-        onError: (error) => toast.error(error instanceof Error ? error.message : '采纳失败'),
+        onError: (error) => reportActionError('adopt', error),
+      },
+    );
+  };
+
+  const runSubmitReview = () => {
+    setActionError('submit');
+    submitReview.mutate(
+      { id: versionId, expectedUpdatedAt: version.updatedAt },
+      {
+        onSuccess: () => {
+          setActionError('submit');
+          toast.success('该版本已重新进入平台待审');
+        },
+        onError: (error) => reportActionError('submit', error),
       },
     );
   };
@@ -89,11 +121,21 @@ export default function AdminSkillVersionDetailPage() {
           </p>
         </div>
       </header>
+      {actionErrors.versionId === versionId && (Object.keys(ACTION_LABELS) as MonitorAction[]).map((action) => actionErrors[action] && (
+        <div key={action} role="alert" className="whitespace-pre-wrap break-words border-l-2 border-gdanger pl-3 text-sm text-gdanger">
+          {ACTION_LABELS[action]}：{actionErrors[action]}
+        </div>
+      ))}
       <section aria-label="版本分类" className="grid gap-3 border-y border-glassline py-4 text-sm text-gtext-secondary sm:grid-cols-3"><p>版本类型：{VERSION_TYPE_LABELS[version.scope]}<br />产生方式：{creationMethodLabel(version)}</p><p>企业审核：{enterpriseReviewLabel(version)}<br />平台处理：{platformProcessingLabel(version)}</p><p>当前使用：{currentUsageLabel(version)}</p></section>
       <section aria-label="版本归属" className="grid min-w-0 gap-4 border-b border-glassline pb-4 sm:grid-cols-3">
         <VersionAttribution version={version} />
         <div><h2 className="mb-2 text-xs text-gtext-muted">对应企业版本</h2><EnterprisePublishedVersions version={version} /></div>
         <div className="min-w-0 break-all text-xs text-gtext-muted"><p>技能 ID：{version.capabilityId}</p><p className="mt-2">版本 ID：{version.id}</p></div>
+      </section>
+      <section aria-label="已存校验结果" className="min-w-0 space-y-3 border-b border-glassline pb-4 text-sm">
+        <h2 className="font-medium text-gtext-primary">{validation.label}</h2>
+        {validation.issues.length > 0 && <ul aria-label="校验问题" className="list-inside list-disc space-y-1 whitespace-pre-wrap break-words text-gdanger">{validation.issues.map((message, index) => <li key={index}>{message}</li>)}</ul>}
+        {validation.warnings.length > 0 && <div><h3 className="mb-1 font-medium text-gtext-secondary">校验提醒</h3><ul aria-label="校验提醒" className="list-inside list-disc space-y-1 whitespace-pre-wrap break-words text-gtext-secondary">{validation.warnings.map((message, index) => <li key={index}>{message}</li>)}</ul></div>}
       </section>
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section aria-label="只读正文" className="min-h-[70vh] min-w-0">
@@ -145,7 +187,7 @@ export default function AdminSkillVersionDetailPage() {
           </Card>
           {Boolean(version.reviews?.length) && <section aria-label="审核历史" className="border-y border-glassline py-4"><h2 className="font-medium text-gtext-primary">审核历史</h2><ol className="mt-3 space-y-4 text-sm text-gtext-secondary">{version.reviews?.map((entry) => <li key={entry.id}><p>{entry.actorType === 'PLATFORM' ? '平台' : '企业'} · {entry.decision === 'APPROVE' ? '通过' : '驳回'} · {entry.reviewer.name || entry.reviewer.id}</p><p className="mt-1 text-xs text-gtext-muted">{new Date(entry.createdAt).toLocaleString('zh-CN')}</p>{entry.comment && <p className="mt-1 whitespace-pre-wrap break-words">{entry.comment}</p>}</li>)}</ol></section>}
 
-          {version.scope === 'PLATFORM' && ['DRAFT', 'PLATFORM_REJECTED'].includes(version.status) && <section className="border-y border-glassline py-4"><Button className="w-full" variant="glass-primary" loading={submitReview.isPending} onClick={() => submitReview.mutate({ id: versionId, expectedUpdatedAt: version.updatedAt }, { onSuccess: () => toast.success('该版本已重新进入平台待审'), onError: (error) => toast.error(error instanceof Error ? error.message : '送审失败') })}><Inbox className="h-4 w-4" />提交平台审核</Button></section>}
+          {version.scope === 'PLATFORM' && ['DRAFT', 'PLATFORM_REJECTED'].includes(version.status) && <section className="border-y border-glassline py-4"><Button className="w-full" variant="glass-primary" loading={submitReview.isPending} onClick={runSubmitReview}><Inbox className="h-4 w-4" />提交平台审核</Button></section>}
 
           {promoted && (
             <Card className="p-5">

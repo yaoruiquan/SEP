@@ -27,6 +27,9 @@ const HEADING_ALIASES: Record<string, RegExp> = {
   output: /^(?:输出|输出格式|output|outputs)$/i,
   steps: /^(?:步骤|流程|执行步骤|steps|workflow)$/i,
 };
+const HEADING_LABELS: Record<string, string> = {
+  role: '角色', input: '输入', output: '输出', steps: '步骤',
+};
 
 @Injectable()
 export class CapabilityValidatorService {
@@ -40,7 +43,10 @@ export class CapabilityValidatorService {
     const headings = this.extractHeadings(normalized);
     for (const [section, matcher] of Object.entries(HEADING_ALIASES)) {
       const passed = headings.some((heading) => matcher.test(heading));
-      this.check(checks, issues, `SECTION_${section.toUpperCase()}`, passed, `Skill 正文需要包含“${section}”段落`, section);
+      const code = `SECTION_${section.toUpperCase()}`;
+      const message = `建议在 Skill 正文中明确“${HEADING_LABELS[section]}”段落`;
+      checks.push({ code, passed, message });
+      if (!passed) warnings.push({ code, message, path: section });
     }
     for (const item of SENSITIVE_PATTERNS) {
       if (item.pattern.test(normalized)) issues.push({ code: item.code, message: item.message, path: 'content' });

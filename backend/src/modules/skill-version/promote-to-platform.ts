@@ -205,7 +205,10 @@ export async function validatePlatformSource(
     throw new BadRequestException('SKILL.md frontmatter 格式无效');
   }
   const validation = validator.validateSkill(body);
-  if (!validation.valid) throw new BadRequestException({ message: '技能正文自动校验未通过', validation });
+  if (!validation.valid) {
+    const reasons = [...new Set(validation.issues.map((issue) => issue.message))].join('；');
+    throw new BadRequestException({ message: `技能正文自动校验未通过：${reasons}`, validation });
+  }
   if (source.packageKey || source.packageSha256 || source.packageFileCount != null || source.packageFilename) {
     if (!source.packageKey || !source.packageSha256 || !packages) {
       throw new BadRequestException('技能包信息不完整，不能进入平台审核');

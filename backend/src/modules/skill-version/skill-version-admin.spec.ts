@@ -110,6 +110,20 @@ function setup() {
 }
 
 describe('Platform selected-source publishing', () => {
+  it('collects a client business template without altering its source and stores structure warnings', async () => {
+    const { prisma, service } = setup();
+    const businessContent = '# 多平台经营协同\n你是国内电商场景的能力模块。\n## 能力边界\n统一多平台口径。\n## 工作要求\n使用授权数据。\n## 输出格式\n风险及待确认动作\n姚瑞泉测试';
+    prisma.skillVersion.findUnique.mockImplementation(({ where }) => Promise.resolve(where.sourceVersionId
+      ? null : { ...source, content: businessContent, scope: 'PERSONAL', status: 'ENTERPRISE_APPROVED' }));
+
+    const result = await service.adoptEnterpriseVersion('platform-admin', source.id, { mode: 'DRAFT' });
+    expect(result).toMatchObject({ content: businessContent, status: 'PENDING_PLATFORM_REVIEW',
+      validationResult: { valid: true, issues: [], warnings: expect.arrayContaining([
+        expect.objectContaining({ code: 'SECTION_ROLE' }),
+      ]) } });
+    expect(prisma.skillVersion.update).not.toHaveBeenCalled();
+  });
+
   it.each(['DRAFT', 'PENDING_ENTERPRISE_REVIEW', 'ENTERPRISE_APPROVED', 'ENTERPRISE_REJECTED', 'ARCHIVED'])(
     'selects enterprise %s without modifying source status or defaults', async (status) => {
       const { prisma, service } = setup();
@@ -446,6 +460,31 @@ describe('Selected skill package security', () => {
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const packaged = { ...source, packageKey: `skills/${sha256}.zip`, packageSha256: sha256,
     packageFilename: 'skill.zip', packageFileCount: 2 };
+
+  it('allows the client business template and appended note with structure warnings', async () => {
+    const { validator, security } = setup();
+    const content = '# 多平台经营协同\n你是国内电商场景的能力模块。\n## 能力边界\n统一多平台口径。\n## 工作要求\n使用授权数据。\n## 输出格式\n风险及待确认动作\n姚瑞泉测试';
+    const result = await validatePlatformSource({ ...source, content }, validator, security as never);
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.warnings.map((warning) => warning.code)).toEqual(expect.arrayContaining([
+      'SECTION_ROLE', 'SECTION_INPUT', 'SECTION_STEPS',
+    ]));
+  });
+
+  it.each([
+    ['# 短正文', '至少需要 20 个字符'],
+    ['api_key = example-secret-value', '正文疑似包含 API 密钥、Token 或密码'],
+  ])('includes safe failure reasons in the message without echoing the source: %s', async (content, reason) => {
+    const { validator, security } = setup();
+    const error = await validatePlatformSource({ ...source, content }, validator, security as never)
+      .catch((error: BadRequestException) => error);
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).getResponse()).toMatchObject({
+      message: expect.stringContaining(reason),
+    });
+    expect(JSON.stringify((error as BadRequestException).getResponse())).not.toContain(content);
+  });
 
   it('checks the existing scan, stored bytes hash, Markdown, key and file count for the selected package', async () => {
     const { validator, security, packages } = setup();

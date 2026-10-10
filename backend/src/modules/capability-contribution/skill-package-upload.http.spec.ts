@@ -120,20 +120,20 @@ describe("POST /contributions/skill-package", () => {
       .expect(400)
       .expect((res) => expect(res.body.message).toContain("SKILL.md")));
 
-  it("正文缺段落时仍然 201，但校验标记未通过", async () => {
+  it("正文缺段落时校验通过，并返回非阻断的结构提醒", async () => {
     const res = await request(app.getHttpServer())
       .post("/contributions/skill-package")
       .attach(
         "file",
-        zipBuffer([["SKILL.md", "# 角色\n只有角色一段，其他都没写"]]),
+        zipBuffer([["SKILL.md", "# 角色\n只有角色一段，使用业务说明描述任务，其他标题都没写"]]),
         "thin.zip",
       )
       .expect(201);
 
-    // 解析成功 ≠ 校验通过。草稿可以先建，门禁在提交审核那一步。
-    expect(res.body.validation.valid).toBe(false);
+    expect(res.body.validation.valid).toBe(true);
+    expect(res.body.validation.issues).toEqual([]);
     expect(
-      res.body.validation.issues.map((i: { code: string }) => i.code),
+      res.body.validation.warnings.map((i: { code: string }) => i.code),
     ).toContain("SECTION_INPUT");
   });
 

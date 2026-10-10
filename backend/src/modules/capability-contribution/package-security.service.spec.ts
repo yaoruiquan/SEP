@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { PackageSecurityScanStatus, PackageSecurityType } from '@prisma/client';
 import { PackageSecurityService } from './package-security.service';
+import { CapabilityValidatorService } from './capability-validator.service';
 
 describe('PackageSecurityService', () => {
   const prisma = {
@@ -43,6 +44,29 @@ describe('PackageSecurityService', () => {
 
     await expect(service.assertReviewable('b'.repeat(64), PackageSecurityType.RPA))
       .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('marks a safe Skill package as passed with non-blocking heading warnings', async () => {
+    const service = new PackageSecurityService(prisma as never, new CapabilityValidatorService());
+    await service.scanSkill({ sha256: 'e'.repeat(64), content: '# 多平台经营协同\n基于用户授权数据分析多平台经营，输出风险及待确认动作。\n姚瑞泉测试', fileCount: 1 });
+    expect(prisma.packageSecurityScan.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ status: PackageSecurityScanStatus.PASSED, issues: [],
+        warnings: expect.arrayContaining([
+          expect.objectContaining({ code: 'SECTION_ROLE' }),
+          expect.objectContaining({ code: 'STATIC_ONLY_SCAN' }),
+        ]),
+      }),
+    }));
+  });
+
+  it('still marks credential-bearing Skill packages as failed', async () => {
+    const service = new PackageSecurityService(prisma as never, new CapabilityValidatorService());
+    await service.scanSkill({ sha256: 'f'.repeat(64), content: 'api_key = example-secret-value', fileCount: 1 });
+    expect(prisma.packageSecurityScan.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ status: PackageSecurityScanStatus.FAILED,
+        issues: expect.arrayContaining([expect.objectContaining({ code: 'SECRET_API_KEY' })]),
+      }),
+    }));
   });
 
   it('blocks review when a package has no scan record', async () => {

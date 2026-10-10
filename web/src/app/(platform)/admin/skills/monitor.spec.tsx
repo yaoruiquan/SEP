@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdminSkillsPage from './page';
 import DetailPage from './[versionId]/page';
 import { canSelectSource, creationMethodLabel, currentUsageLabel, monitorQuery, originalSubmitterLabel, type MonitorDetail } from './monitor';
 
-const { get, post, push, toastError } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), push: vi.fn(), toastError: vi.fn() }));
+const { get, post, push, toastError, toastSuccess } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), push: vi.fn(), toastError: vi.fn(), toastSuccess: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ api: { get, post } }));
 vi.mock('next/navigation', () => ({ useParams: () => ({ versionId: 'source-1' }), useRouter: () => ({ push }) }));
-vi.mock('@/components/ui/toast', () => ({ toast: { success: vi.fn(), error: toastError } }));
+vi.mock('@/components/ui/toast', () => ({ toast: { success: toastSuccess, error: toastError } }));
 vi.mock('@/features/chat/markdown', () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function version(overrides: Partial<MonitorDetail> = {}): MonitorDetail {
@@ -188,8 +188,10 @@ describe('monitor 详情选审', () => {
     fireEvent.click(screen.getByRole('button', { name: '驳回' }));
     expect(post).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith('驳回时必须填写原因');
+    expect(screen.getByRole('alert')).toHaveTextContent('驳回时必须填写原因');
     fireEvent.change(screen.getByPlaceholderText('驳回时必须填写原因'), { target: { value: '  包需要补充说明  ' } });
     fireEvent.click(screen.getByRole('button', { name: '驳回' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await waitFor(() => expect(post).toHaveBeenCalledWith('/admin/skill-versions/source-1/review', { decision: 'REJECT', comment: '包需要补充说明', expectedUpdatedAt: '2026-10-08T01:00:00.000Z' }));
   });
   it('通过精确平台版本才发布，不调用 generic approve/adopt PUBLISH', async () => {
@@ -219,7 +221,107 @@ describe('monitor 详情选审', () => {
     mount(<DetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: '收录到平台待审' }));
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('403 无权选审'));
+    expect(screen.getByRole('alert')).toHaveTextContent('403 无权选审');
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe('monitor 详情校验与操作错误', () => {
+  const actions = [
+    { name: '收录', button: '收录到平台待审', path: 'adopt', overrides: {} },
+    { name: '送审', button: '提交平台审核', path: 'submit-review', overrides: { scope: 'PLATFORM', status: 'DRAFT' } },
+    { name: '审核', button: '审核通过并发布', path: 'review', overrides: { scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW' } },
+  ] satisfies { name: string; button: string; path: string; overrides: Partial<MonitorDetail> }[];
+
+  it.each(actions)('$name：warning 只展示 message，不阻断现有操作', async ({ button, path, overrides }) => {
+    const message = '建议补充“角色”标题 <script>alert("warning")</script>';
+    get.mockResolvedValue(version({
+      ...overrides,
+      validationResult: {
+        valid: true,
+        issues: [],
+        checks: [{ code: 'SECTION_ROLE', passed: false, message: '不能直接展示的检查对象' }],
+        warnings: [
+          { code: 'SECTION_ROLE', message, path: 'private/path', raw: 'private-value' },
+          null, '不能展示的原始字符串', { message: { secret: '不能展示的原始对象' } }, { message: '   ' },
+        ],
+        raw: '不能展示的原始结果',
+      },
+    }));
+    post.mockResolvedValue(version({ id: 'platform-1' }));
+    mount(<DetailPage />);
+    const validation = await screen.findByRole('region', { name: '已存校验结果' });
+    expect(within(validation).getByText('已存静态校验通过')).toBeInTheDocument();
+    const warnings = within(validation).getByRole('list', { name: '校验提醒' });
+    expect(within(warnings).getAllByRole('listitem')).toHaveLength(1);
+    expect(warnings).toHaveTextContent(message);
+    expect(validation.querySelector('script')).toBeNull();
+    expect(validation).not.toHaveTextContent(/private\/path|private-value|SECTION_ROLE|不能展示|不能直接展示|\[object Object\]/);
+    expect(screen.getByRole('button', { name: button })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(`/admin/skill-versions/source-1/${path}`, expect.any(Object)));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(actions)('$name：具体失败持续显示，刷新不清除，重试及成功清理', async ({ button, path, overrides }) => {
+    const detail = version(overrides);
+    const message = '校验失败：Skill 正文至少需要 20 个字符；正文不能包含敏感凭据；能力包未通过安全扫描';
+    get.mockResolvedValue(detail);
+    let resolveRetry!: (value: MonitorDetail) => void;
+    post.mockRejectedValueOnce(new Error(message)).mockImplementationOnce(() => new Promise<MonitorDetail>((resolve) => { resolveRetry = resolve; }));
+    const client = mount(<DetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: button }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(toastError).toHaveBeenCalledWith(message);
+    expect(push).not.toHaveBeenCalled();
+    await act(async () => { await client.invalidateQueries({ queryKey: ['skill-versions'] }); });
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+    expect(screen.getByRole('region', { name: '只读正文' })).toHaveTextContent(detail.content);
+    await waitFor(() => expect(screen.getByRole('button', { name: button })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    await act(async () => { resolveRetry(version({ id: 'platform-1' })); });
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(post).toHaveBeenLastCalledWith(`/admin/skill-versions/source-1/${path}`, expect.any(Object));
+    if (path === 'adopt') expect(push).toHaveBeenCalledWith('/admin/skills/platform-1');
+    else if (path === 'review') expect(push).toHaveBeenCalledWith('/admin/skills');
+    else expect(push).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { validationResult: { valid: false, issues: [{ code: 'SECTION_ROLE', message: '历史校验缺少角色标题' }], warnings: [{ message: '建议补充示例' }] } },
+    { validationResult: { valid: false, checks: [{ code: 'SECTION_ROLE', passed: false, message: '历史校验缺少角色标题' }] } },
+    { validationResult: { checks: [{ code: 'SECTION_ROLE', passed: false, message: '历史校验缺少角色标题' }] } },
+  ])('保留历史失败标题，不按新 warning 规则改判通过 %#', async (overrides) => {
+    get.mockResolvedValue(version(overrides));
+    mount(<DetailPage />);
+    const validation = await screen.findByRole('region', { name: '已存校验结果' });
+    expect(within(validation).getByText('已存静态校验未通过')).toBeInTheDocument();
+    expect(within(validation).getByRole('list', { name: '校验问题' })).toHaveTextContent('历史校验缺少角色标题');
+    expect(validation).not.toHaveTextContent('已存静态校验通过');
+    expect(validation).not.toHaveTextContent('安全通过');
+    expect(screen.getByRole('button', { name: '收录到平台待审' })).toBeEnabled();
+  });
+
+  it.each([
+    { validationResult: undefined, label: '无已存校验结果' },
+    { validationResult: null, label: '无已存校验结果' },
+    { validationResult: {}, label: '已存校验状态未标注' },
+    { validationResult: '旧格式记录', label: '已存校验状态未标注' },
+    { validationResult: [], label: '已存校验状态未标注' },
+    { validationResult: { warnings: { message: '非数组' }, issues: '旧字段', checks: null }, label: '已存校验状态未标注' },
+    { validationResult: { valid: false, issues: [null, { message: { raw: '不能展示' } }], warnings: [42] }, label: '已存静态校验未通过' },
+  ])('旧/无校验字段兼容且不误报通过 %#', async ({ validationResult, label }) => {
+    get.mockResolvedValue(version({ validationResult }));
+    mount(<DetailPage />);
+    const validation = await screen.findByRole('region', { name: '已存校验结果' });
+    expect(within(validation).getByText(label)).toBeInTheDocument();
+    expect(within(validation).queryByRole('list')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '收录到平台待审' })).toBeEnabled();
   });
 });
 

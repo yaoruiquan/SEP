@@ -51,12 +51,40 @@ export type MonitorRow = SkillVersionSummary & MonitorClassifications & {
   enterprise?: { id: string; name: string } | null;
 };
 export type MonitorDetail = SkillVersionPreview & MonitorClassifications & {
+  validationResult?: unknown;
   packageKey?: string | null;
   packageSha256?: string | null;
   packageFileCount?: number | null;
   packageFilename?: string | null;
   reviews?: { id: string; actorType: string; decision: string; comment: string | null; createdAt: string; reviewer: { id: string; name: string | null } }[];
 };
+
+function validationRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validationMessages(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => validationRecord(entry) && typeof entry.message === 'string' && entry.message.trim()
+    ? [entry.message.trim()] : []);
+}
+
+export function monitorValidation(result: unknown) {
+  if (result == null) return { label: '无已存校验结果', issues: [], warnings: [] };
+  if (!validationRecord(result)) return { label: '已存校验状态未标注', issues: [], warnings: [] };
+  const warnings = validationMessages(result.warnings);
+  const issues = validationMessages(result.issues);
+  const failedChecks = Array.isArray(result.checks)
+    ? result.checks.filter((check) => validationRecord(check) && check.passed === false) : [];
+  // 不按新规则把历史失败改判为通过；新规则下 warning 对应的 check 仍可能为 false。
+  const failed = result.valid === false || (Array.isArray(result.issues) && result.issues.length > 0)
+    || (result.valid !== true && failedChecks.length > 0);
+  return {
+    label: failed ? '已存静态校验未通过' : result.valid === true ? '已存静态校验通过' : '已存校验状态未标注',
+    issues: issues.length ? issues : failed ? validationMessages(failedChecks) : [],
+    warnings,
+  };
+}
 export function canSelectSource(row: MonitorDetail) {
   if (row.scope === 'PLATFORM') return false;
   if (!promotedVersion(row)) return true;

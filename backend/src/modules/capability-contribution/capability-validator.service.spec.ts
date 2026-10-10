@@ -11,17 +11,46 @@ describe('CapabilityValidatorService', () => {
     expect(result.issues).toEqual([]);
   });
 
-  it('rejects a Skill with missing sections and credential-like content', () => {
+  it('keeps missing sections as warnings while rejecting credential-like content', () => {
     const result = service.validateSkill('api_key = sk-test-secret-value');
 
     expect(result.valid).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+    expect(result.warnings.map((issue) => issue.code)).toEqual(expect.arrayContaining([
       'SECTION_ROLE',
       'SECTION_INPUT',
       'SECTION_OUTPUT',
       'SECTION_STEPS',
-      'SECRET_API_KEY',
     ]));
+    expect(result.issues.map((issue) => issue.code)).toContain('SECRET_API_KEY');
+    expect(result.issues.some((issue) => issue.code.startsWith('SECTION_'))).toBe(false);
+  });
+
+  it.each(['', '\n姚瑞泉测试'])('accepts existing business headings with an optional appended note: %p', (note) => {
+    const result = service.validateSkill(`# 多平台经营协同\n你是 SEP 国内电商场景的能力模块。\n## 能力边界\n统一多平台口径和任务。\n## 工作要求\n仅使用授权数据。\n## 输出格式\n风险、待确认动作与所需补充数据${note}`);
+
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.warnings.map((warning) => warning.code)).toEqual([
+      'SECTION_ROLE', 'SECTION_INPUT', 'SECTION_STEPS', 'NO_CODE_BLOCK',
+    ]);
+    expect(result.warnings[0].message).toContain('建议');
+  });
+
+  it.each(['', ' ', '# 标题\n测试'])('still rejects empty or short content: %p', (content) => {
+    const result = service.validateSkill(content);
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain('CONTENT_LENGTH');
+  });
+
+  it.each([
+    ['api_key = example-secret-value', 'SECRET_API_KEY'],
+    ['sk-example-secret-value', 'OPENAI_KEY'],
+    ['-----BEGIN PRIVATE KEY-----', 'PRIVATE_KEY'],
+  ])('still rejects credentials without requiring headings: %s', (content, code) => {
+    const result = service.validateSkill(content);
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain(code);
+    expect(JSON.stringify(result)).not.toContain(content);
   });
 
   it('accepts an Agent with a supported platform and HTTPS workflow', () => {
