@@ -28,7 +28,7 @@ export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavi
   const currentId = timeline.effectiveVersion?.id ?? timeline.currentVersionId;
   const releases = timeline.versions.filter(isPublishedVersion).sort((a, b) =>
     Number(b.id === currentId) - Number(a.id === currentId)
-    || new Date(b.enterpriseReviewedAt ?? b.createdAt).getTime() - new Date(a.enterpriseReviewedAt ?? a.createdAt).getTime()
+    || new Date(publishedAt(b) ?? b.createdAt).getTime() - new Date(publishedAt(a) ?? a.createdAt).getTime()
     || a.id.localeCompare(b.id));
   const visible = releases.filter((version) => source === 'ALL' || version.scope === source);
   const openId = onNavigate ? releaseId : previewId;
@@ -67,6 +67,7 @@ export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavi
       <ol className={styles.rows}>
         {visible.map((version) => {
           const current = version.id === currentId;
+          const publicationTime = publishedAt(version);
           return <li key={version.id} data-release-id={version.id}
             className={cn(styles.row, 'grid min-w-0 gap-4 lg:grid-cols-[170px_minmax(0,1fr)_145px_95px_190px] lg:items-center', current && styles.currentRow)}>
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-gtext-primary">
@@ -75,8 +76,8 @@ export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavi
               <span className={cn(styles.status, styles.mobileStatus, current && styles.positive, 'font-normal')}>{current ? '当前启用' : '可启用'}</span>
             </div>
             <p className="min-w-0 break-words text-xs leading-5 text-gtext-secondary">{version.changeSummary || '未填写更新说明'}</p>
-            <div className="text-[11px] leading-5 text-gtext-muted"><span className="block">{version.enterpriseReviewedAt ? '发布时间' : '创建时间'}</span>
-              <time>{formatDate(version.enterpriseReviewedAt ?? version.createdAt)}</time></div>
+            <div className="text-[11px] leading-5 text-gtext-muted"><span className="block">{publicationTime ? '发布时间' : '创建时间'}</span>
+              <time>{formatDate(publicationTime ?? version.createdAt)}</time></div>
             <span className={cn(styles.status, styles.desktopStatus, current && styles.positive)}>{current && <span className="h-1.5 w-1.5 rounded-full bg-gsuccess" />}{current ? '当前启用' : '可启用'}</span>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <Button size="sm" variant="glass" className={styles.action} onClick={() => {
@@ -96,7 +97,7 @@ export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavi
       {openId && !selectedRelease && <p role="status" className="text-sm text-gtext-muted">该发布版本不存在或当前不可查看</p>}
       {selectedRelease && <SkillVersionPreviewDialog key={selectedRelease.id} versionId={selectedRelease.id} source="enterprise" open onOpenChange={(open) => { if (!open) closePreview(); }}
         details={<div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gtext-muted">
-          <span>{selectedRelease.enterpriseReviewedAt ? '发布时间' : '创建时间'}：{formatDate(selectedRelease.enterpriseReviewedAt ?? selectedRelease.createdAt)}</span>
+          <span>{publishedAt(selectedRelease) ? '发布时间' : '创建时间'}：{formatDate(publishedAt(selectedRelease) ?? selectedRelease.createdAt)}</span>
           {selectedRelease.sourceSubmissionId && <Link className="inline-flex items-center gap-1 text-gbrand-text hover:underline"
             href={`/capabilities/${timeline.capability.id}?tab=changes&submission=${encodeURIComponent(selectedRelease.sourceSubmissionId)}`}
             onClick={onNavigate ? (event) => { event.preventDefault(); onNavigate({ tab: 'changes', submission: selectedRelease.sourceSubmissionId!, release: null }); } : undefined}>
@@ -112,6 +113,10 @@ export function VersionTimelinePanel({ timeline, releaseId, sourceFilter, onNavi
       </Dialog>
     </section>
   );
+}
+
+function publishedAt(version: TimelineVersion) {
+  return version.scope === 'PLATFORM' ? version.platformReviewedAt : version.enterpriseReviewedAt;
 }
 
 export function isPublishedVersion(version: TimelineVersion) {

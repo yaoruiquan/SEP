@@ -104,6 +104,7 @@ export interface TimelineVersion {
   createdBy: { id: string; name: string | null };
   enterpriseReviewedBy: { id: string; name: string | null } | null;
   enterpriseReviewedAt: string | null;
+  platformReviewedAt?: string | null;
   rejectionReason: string | null;
   reviews: VersionReviewRecord[];
   hasPlatformSubmission: boolean;

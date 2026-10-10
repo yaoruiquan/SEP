@@ -201,6 +201,69 @@ describe('SkillVersionService 个人副本与审核', () => {
       expect(contentQueries).toHaveLength(1);
       expect(contentQueries[0].where.id).toEqual({ in: ['client-pending'] });
     });
+
+    describe.each(['ENTERPRISE_ADMIN', 'MEMBER'] as const)('%s 待办筛选', (role) => {
+      it.each([
+        { status: undefined, page: 1, limit: 20, ids: ['p4-web', 'p3-client', 'p2-legacy', 'p1-legacy-copy', 'published', 'rejected'], total: 6 },
+        { status: 'PENDING_ENTERPRISE_REVIEW', page: 1, limit: 20, ids: ['p4-web', 'p3-client', 'p2-legacy', 'p1-legacy-copy'], total: 4 },
+        { status: 'PENDING_ENTERPRISE_REVIEW', page: 2, limit: 2, ids: ['p2-legacy', 'p1-legacy-copy'], total: 4 },
+        { status: 'PENDING_ENTERPRISE_REVIEW', page: 3, limit: 2, ids: [], total: 4 },
+        { status: 'ENTERPRISE_APPROVED', page: 1, limit: 20, ids: ['p2-legacy', 'p1-legacy-copy', 'published'], total: 3 },
+        { status: 'ENTERPRISE_REJECTED', page: 1, limit: 20, ids: ['rejected'], total: 1 },
+      ])('$status 第 $page 页与派生待办一致，保留审核状态语义', async ({ status, page, limit, ids, total }) => {
+        const updatedAt = new Date('2026-10-09T08:00:00.000Z');
+        const common = { updatedAt, ownerId: 'u-staff', adoptedInto: [], reviewSnapshots: [] };
+        const rows = [
+          { ...common, id: 'p4-web', status: 'PERSONAL_ACTIVE', content: 'Web 待审正文' },
+          { ...common, id: 'p3-client', status: 'PENDING_ENTERPRISE_REVIEW', content: '客户端待审正文' },
+          { ...common, id: 'p2-legacy', status: 'ENTERPRISE_APPROVED', content: '历史通过未发布正文' },
+          { ...common, id: 'p1-legacy-copy', status: 'PERSONAL_ACTIVE', content: '历史通过未发布副本',
+            reviewSnapshots: [{ status: 'ENTERPRISE_APPROVED', createdAt: updatedAt,
+              workingCopyUpdatedAt: updatedAt, enterpriseReviewedAt: updatedAt,
+              rejectionReason: null, adoptedInto: [] }] },
+          { ...common, id: 'published', status: 'ENTERPRISE_APPROVED', content: '已发布正文',
+            adoptedInto: [{ targetVersionId: 'enterprise-v2', adoptedAt: updatedAt }] },
+          { ...common, id: 'rejected', status: 'ENTERPRISE_REJECTED', content: '已拒绝正文' },
+        ];
+        const findMany = jest.fn(async (args: { where: { id?: { in: string[] }; ownerId?: string }; select: { content?: boolean } }) => (
+          args.where.id ? rows.filter((row) => args.where.id!.in.includes(row.id)) : rows
+        ));
+        const { service } = build({ skillVersionFindMany: findMany, context: { ...ADMIN_CTX, role } });
+
+        const result = await service.listPersonalDiffs('u-staff', 'cap-1', page, limit, status);
+
+        expect(result).toMatchObject({ total, pendingTotal: 4, page, limit,
+          canManage: role === 'ENTERPRISE_ADMIN', myWorkingCopy: null });
+        expect(result.items.map((row) => row.id)).toEqual(ids);
+        expect(result.items.map((row) => row.content)).toEqual(ids.map((id) => rows.find((row) => row.id === id)!.content));
+        if (status === 'PENDING_ENTERPRISE_REVIEW') {
+          expect(result.total).toBe(result.pendingTotal);
+          expect(result.items.every((row) => row.pending)).toBe(true);
+        }
+        for (const row of result.items.filter((item) => item.id.startsWith('p2-') || item.id.startsWith('p1-'))) {
+          expect(row).toMatchObject({ pending: true, isLegacyUnpublished: true, reviewStatus: 'ENTERPRISE_APPROVED' });
+        }
+        const queries = findMany.mock.calls.map(([args]) => args);
+        expect(queries[0].select.content).not.toBe(true);
+        const contentQueries = queries.filter((args) => args.select.content);
+        expect(contentQueries).toHaveLength(ids.length ? 1 : 0);
+        if (ids.length) expect(contentQueries[0].where.id).toEqual({ in: ids });
+        for (const query of [queries[0], ...contentQueries]) {
+          expect(query.where).toMatchObject({ enterpriseId: 'ent-1', capabilityId: 'cap-1', scope: 'PERSONAL' });
+          expect(query.where.ownerId).toBe(role === 'MEMBER' ? 'u-staff' : undefined);
+        }
+      });
+    });
+
+    it('待办筛选不绕过技能可读权限', async () => {
+      const { service, prisma } = build({
+        context: { ...ADMIN_CTX, role: 'MEMBER' },
+        subscriptionFindFirst: jest.fn().mockResolvedValue(null),
+      });
+      await expect(service.listPersonalDiffs('u-staff', 'cap-1', 1, 20, 'PENDING_ENTERPRISE_REVIEW'))
+        .rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.skillVersion.findMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('adoptPersonalVersions 兼容统一审核', () => {

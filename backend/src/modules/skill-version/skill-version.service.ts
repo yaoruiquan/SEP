@@ -956,7 +956,8 @@ export class SkillVersionService {
       || (b.submittedAt ?? b.updatedAt).getTime() - (a.submittedAt ?? a.updatedAt).getTime()
       || b.updatedAt.getTime() - a.updatedAt.getTime() || b.id.localeCompare(a.id));
     const pendingTotal = mapped.filter((row) => row.pending).length;
-    const filtered = status ? mapped.filter((row) => row.reviewStatus === status) : mapped;
+    const filtered = status ? mapped.filter((row) => status === 'PENDING_ENTERPRISE_REVIEW'
+      ? row.pending : row.reviewStatus === status) : mapped;
     const pageItems = filtered.slice((page - 1) * limit, page * limit);
     const myWorkingCopy = mapped.find((row) => row.canEdit) ?? null;
     const ids = [...new Set([...pageItems.map((row) => row.id), ...(myWorkingCopy ? [myWorkingCopy.id] : [])])];

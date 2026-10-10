@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { VersionTimelinePanel } from './version-timeline-panel';
+import { formatDate, VersionTimelinePanel } from './version-timeline-panel';
 import type { TimelineVersion, VersionTimeline } from './use-capability-iteration';
 
 const mocks = vi.hoisted(() => ({ enterprise: vi.fn(), pending: false, preview: vi.fn(), success: vi.fn() }));
@@ -73,6 +73,40 @@ describe('发布版本', () => {
     expect(dialog.getByText(/发布时间/)).toBeVisible();
     fireEvent.click(dialog.getByRole('link', { name: '来源提交' }));
     expect(navigate).toHaveBeenCalledWith({ tab: 'changes', submission: 'submission', release: null });
+  });
+  it('平台历史草稿按真实发布时间排序，列表与详情显示相同发布时点', () => {
+    const data = timeline();
+    const publishedAt = '2026-10-10T01:00:00Z';
+    Object.assign(data.versions[0], {
+      createdAt: '2026-10-01T00:00:00Z', platformReviewedAt: publishedAt,
+      enterpriseReviewedAt: '2026-09-30T00:00:00Z',
+    });
+    data.versions.push(Object.assign(version('older-platform', 'PLATFORM', 'PLATFORM_APPROVED'), {
+      createdAt: '2026-10-08T00:00:00Z', platformReviewedAt: '2026-10-08T01:00:00Z',
+    }));
+    render(<VersionTimelinePanel timeline={data} releaseId="platform" onNavigate={vi.fn()} />);
+    expect(screen.getAllByRole('listitem').map((item) => item.getAttribute('data-release-id')))
+      .toEqual(['enterprise', 'platform', 'older-platform']);
+    expect(row(1).getByText('发布时间')).toBeVisible();
+    expect(row(1).getByText(formatDate(publishedAt))).toBeVisible();
+    expect(screen.getByRole('dialog')).toHaveTextContent(`发布时间：${formatDate(publishedAt)}`);
+  });
+  it('缺少平台发布时间的历史版本使用创建时间，不误用企业审核时间', () => {
+    const data = timeline();
+    Object.assign(data.versions[0], { platformReviewedAt: null, enterpriseReviewedAt: '2026-10-10T01:00:00Z' });
+    render(<VersionTimelinePanel timeline={data} releaseId="platform" onNavigate={vi.fn()} />);
+    expect(row(1).getByText('创建时间')).toBeVisible();
+    expect(row(1).getByText(formatDate(data.versions[0].createdAt))).toBeVisible();
+    expect(screen.getByRole('dialog')).toHaveTextContent(`创建时间：${formatDate(data.versions[0].createdAt)}`);
+  });
+  it('企业发布时间仍按企业审核时点读取，不受平台字段影响', () => {
+    const data = timeline();
+    const publishedAt = '2026-10-10T02:00:00Z';
+    Object.assign(data.versions[1], { enterpriseReviewedAt: publishedAt, platformReviewedAt: '2026-10-08T01:00:00Z' });
+    render(<VersionTimelinePanel timeline={data} releaseId="enterprise" onNavigate={vi.fn()} />);
+    expect(row(0).getByText('发布时间')).toBeVisible();
+    expect(row(0).getByText(formatDate(publishedAt))).toBeVisible();
+    expect(screen.getByRole('dialog')).toHaveTextContent(`发布时间：${formatDate(publishedAt)}`);
   });
   it('深链接只能预览正式版本，切换URL后不残留旧弹窗', () => {
     const navigate = vi.fn(); const data = timeline();
