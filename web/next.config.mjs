@@ -1,9 +1,19 @@
 /** @type {import('next').NextConfig} */
 const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3001';
 const isDevelopment = process.env.NODE_ENV === 'development';
+const proxyTimeoutValue = process.env.SEP_API_PROXY_TIMEOUT_MS || '';
+const proxyTimeout = /^\d+$/.test(proxyTimeoutValue)
+  && Number.isSafeInteger(Number(proxyTimeoutValue))
+  && Number(proxyTimeoutValue) > 0
+  && Number(proxyTimeoutValue) <= 2147483647
+  ? Number(proxyTimeoutValue)
+  : 180000;
 
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    proxyTimeout,
+  },
   // Keep development output separate from production builds so browser chunks
   // stay valid while a dev server is running.
   distDir: isDevelopment ? '.next-dev' : '.next',

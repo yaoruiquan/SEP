@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-12",
+  "scope": "Local synthetic upstream and HTTP client; no production calls or billing",
+  "longStream": {
+    "passed": true,
+    "elapsedMs": 35029,
+    "bytes": 150,
+    "finishReason": "stop",
+    "done": true,
+    "prematureClose": false,
+    "webProxyTimeoutMs": 180000,
+    "path": "real upstream HTTP -> GatewayService -> GatewayController -> installed Next proxy -> HTTP client"
+  },
+  "gatewayTests": { "passed": 96, "skipped": 2, "failed": 0 },
+  "webConfigTests": { "passed": 35, "failed": 0 },
+  "backendTypecheck": "passed",
+  "backendBuild": "passed",
+  "webTypecheck": "passed",
+  "webBuild": "passed",
+  "targetedBackendLint": "passed",
+  "productionDeployment": "not performed",
+  "productionContainerSmoke": "not performed"
+}

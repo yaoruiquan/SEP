@@ -1,5 +1,6 @@
 import { ExecutionContext, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { APIError } from 'openai/error';
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
@@ -20,7 +21,7 @@ describe('Gateway tool-call HTTP round trip', () => {
   let fetchMock: jest.SpyInstance;
 
   beforeAll(async () => {
-    service = new GatewayService({} as never, {} as never, {} as never, {} as never);
+    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never);
     jest.spyOn(service, 'validateAndAuthorize').mockResolvedValue({
       enterpriseId: 'enterprise-1', subscriptionId: 'subscription-1', memberId: 'member-1', employeeId: 'employee-1',
       allowedModels: ['deepseek-v4.1-flash'],

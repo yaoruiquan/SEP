@@ -5,6 +5,7 @@ import { SettingService } from '../setting/setting.service';
 import { DEFAULT_MODEL_ID, SETTING_KEYS } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
+import { createGatewayStreamLifecycle, createChatCompletionStreamObserver } from './gateway-stream';
 
 function parseRetryAfter(value: string | null): number | undefined {
   if (value === null) return undefined;
@@ -148,10 +149,17 @@ export class GatewayService {
   }
 
   /** 转发已校验的 OpenAI 兼容请求，并保留上游错误状态与字段定位信息。 */
-  async forwardChatCompletion(dto: ChatCompletionRequest, requestId?: string): Promise<Response> {
+  observeChatCompletionStream() {
+    return createChatCompletionStreamObserver();
+  }
+
+  async forwardChatCompletion(dto: ChatCompletionRequest, requestId?: string, clientSignal?: AbortSignal): Promise<Response> {
     const { baseUrl, apiKey } = await this.getSub2ApiConfig();
+    const stream = dto.stream ? createGatewayStreamLifecycle(this.config, clientSignal) : undefined;
     let response: Response;
     try {
+      const signal = stream?.signal ?? AbortSignal.timeout(30000);
+      signal.throwIfAborted();
       response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -160,9 +168,17 @@ export class GatewayService {
           ...(requestId ? { 'x-request-id': requestId } : {}),
         },
         body: JSON.stringify(dto),
-        signal: AbortSignal.timeout(30000),
+        signal: clientSignal && !stream ? AbortSignal.any([signal, clientSignal]) : signal,
       });
+      if (stream) response = stream.wrap(response);
     } catch (error) {
+      stream?.cleanup();
+      if (stream) this.logger.warn({
+        message: 'gateway upstream request failed before stream',
+        requestId: sanitizeRequestId(requestId), model: dto.model,
+        code: stream.signal.reason?.getResponse?.()?.error?.code || 'UPSTREAM_UNAVAILABLE',
+      });
+      if (stream?.signal.aborted) throw stream.signal.reason;
       const message = error?.name === 'TimeoutError' || error?.name === 'AbortError'
         ? 'sub2api 请求超时（30s）'
         : '无法连接 sub2api';
@@ -173,7 +189,10 @@ export class GatewayService {
 
     if (!response.ok) {
       // 不把 HTML 代理错误页或整个上游响应直接暴露给客户端。
-      const body = await response.json().catch(() => null);
+      const body = await response.json().catch(() => {
+        if (stream?.signal.aborted) throw stream.signal.reason;
+        return null;
+      });
       const error = body?.error;
       const isRateLimited = response.status === 429;
       const retryAfterSeconds = isRateLimited

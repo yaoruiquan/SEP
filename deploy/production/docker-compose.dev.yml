@@ -35,6 +35,9 @@ x-backend-environment: &backend-environment
   SUB2API_API_KEY: ${SUB2API_API_KEY:?SUB2API_API_KEY is required}
   GATEWAY_MODEL_RATE_LIMIT: ${GATEWAY_MODEL_RATE_LIMIT:-60}
   GATEWAY_MODEL_RATE_WINDOW_MS: ${GATEWAY_MODEL_RATE_WINDOW_MS:-60000}
+  GATEWAY_STREAM_HEADER_TIMEOUT_MS: ${GATEWAY_STREAM_HEADER_TIMEOUT_MS:-120000}
+  GATEWAY_STREAM_IDLE_TIMEOUT_MS: ${GATEWAY_STREAM_IDLE_TIMEOUT_MS:-120000}
+  GATEWAY_STREAM_TOTAL_TIMEOUT_MS: ${GATEWAY_STREAM_TOTAL_TIMEOUT_MS:-600000}
   SUB2API_DEFAULT_MODEL: ${SUB2API_DEFAULT_MODEL:-gemini-3.5-flash-high}
   SUB2API_PLANNER_MODEL: ${SUB2API_PLANNER_MODEL:-}
   EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
@@ -84,8 +87,9 @@ x-web-defaults: &web-defaults
       max-size: "20m"
       max-file: "5"
   mem_limit: 384m
-  environment:
+  environment: &web-environment
     NODE_ENV: production
+    SEP_API_PROXY_TIMEOUT_MS: ${SEP_API_PROXY_TIMEOUT_MS:-180000}
     NEXT_TELEMETRY_DISABLED: "1"
     TZ: Asia/Shanghai
   networks:
@@ -143,6 +147,9 @@ services:
         NEXT_PUBLIC_WS_URL: wss://sep-dev.longdaoSEP.cn
     image: sep-dev-web:${DEPLOY_TAG:-local}
     container_name: sep-dev-web
+    environment:
+      <<: *web-environment
+      API_ORIGIN: http://sep-dev-backend:3001
     depends_on:
       dev-backend:
         condition: service_healthy
