@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
 import { basicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
+import { createJsonBodyMiddleware } from './common/middleware/json-body.middleware';
 import { CspMiddleware } from './common/middleware/csp.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { GatewayLifecycleService } from './common/lifecycle/gateway-lifecycle.service';
@@ -45,7 +46,7 @@ async function bootstrap() {
   app.use((req, res, next) => cspMiddleware.use(req, res, next));
 
   app.use(requestContextMiddleware, basicRateLimitMiddleware);
-  app.use(express.json({ limit: process.env.REQUEST_JSON_LIMIT || '2mb' }));
+  app.use(createJsonBodyMiddleware());
   app.use(express.urlencoded({ limit: process.env.REQUEST_URLENCODED_LIMIT || '2mb', extended: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.use((req, res, next) => {

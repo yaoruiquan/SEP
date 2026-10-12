@@ -1,6 +1,9 @@
 import { BadGatewayException, HttpException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SETTING_KEYS } from 'shared';
 import { GatewayService } from './gateway.service';
+
+jest.mock('../setting/setting.service', () => ({ SettingService: jest.fn() }));
 
 const enterpriseClaims = {
   sub: 'user-1',
@@ -8,6 +11,38 @@ const enterpriseClaims = {
   subscriptionId: 'subscription-1',
   memberId: 'member-1',
 };
+
+describe('GatewayService.getSub2ApiConfig', () => {
+  it.each(['', null, undefined])('structures a missing API key %p without exposing configuration values', async (apiKey) => {
+    const getEffectiveValue = jest.fn().mockImplementation(async (key: string) => (
+      key === SETTING_KEYS.SUB2API_API_KEY ? apiKey : 'private-config-value'
+    ));
+    const service = new GatewayService(
+      {} as never, new ConfigService(), { getEffectiveValue } as never, {} as never, {} as never,
+    );
+    const error = await service.getSub2ApiConfig().catch((failure) => failure);
+    expect(error).toBeInstanceOf(HttpException);
+    expect(error.getStatus()).toBe(400);
+    expect(error.message).toBe('sub2api API Key 未配置');
+    expect(error.getResponse()).toEqual({
+      message: 'sub2api API Key 未配置',
+      error: {
+        message: 'sub2api API Key 未配置', code: 'GATEWAY_CONFIG_INVALID',
+        source: 'platform', param: null, type: 'server_error',
+      },
+    });
+    expect(JSON.stringify(error.getResponse())).not.toContain('private-config-value');
+  });
+
+  it('propagates unknown configuration lookup errors unchanged', async () => {
+    const failure = new Error('unexpected configuration lookup failure');
+    const service = new GatewayService(
+      {} as never, new ConfigService(),
+      { getEffectiveValue: jest.fn().mockRejectedValue(failure) } as never, {} as never, {} as never,
+    );
+    await expect(service.getSub2ApiConfig()).rejects.toBe(failure);
+  });
+});
 
 describe('GatewayService.forwardChatCompletion', () => {
   const dto = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
@@ -254,7 +289,52 @@ describe('GatewayService.compute credit integration', () => {
       reason: '企业和个人算力余额均不足',
     });
 
-    await expect(service.validateAndAuthorize(enterpriseClaims)).rejects.toThrow('企业和个人算力余额均不足');
+    await expect(service.validateAndAuthorize(enterpriseClaims)).rejects.toMatchObject({
+      status: 403,
+      message: '企业和个人算力余额均不足',
+      response: { error: {
+        message: '企业和个人算力余额均不足', code: 'INSUFFICIENT_BALANCE',
+        source: 'platform', param: null, type: 'permission_error',
+      } },
+    });
+  });
+
+  it.each([
+    ['subscription', 'SUBSCRIPTION_INACTIVE', '订阅不存在、已停用或不属于该企业'],
+    ['employeeGrant', 'SUBSCRIPTION_ACCESS_DENIED', '无该订阅的使用授权或授权已过期'],
+  ])('returns a stable platform contract for rejected %s', async (model, code, message) => {
+    prisma[model].findFirst.mockResolvedValue(null);
+    const error = await service.validateAndAuthorize(enterpriseClaims).catch((failure) => failure);
+    expect(error).toBeInstanceOf(HttpException);
+    expect(error.getStatus()).toBe(403);
+    expect(error.message).toBe(message);
+    expect(error.getResponse()).toEqual({ message, error: {
+      message, code, source: 'platform', param: null, type: 'permission_error',
+    } });
+    expect(creditService.checkBalanceBeforeConversation).not.toHaveBeenCalled();
+    if (model === 'subscription') expect(prisma.employeeGrant.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('keeps the fallback balance message in the structured error', async () => {
+    creditService.checkBalanceBeforeConversation.mockResolvedValue({ ...balanceAllowed, allowed: false });
+    await expect(service.validateAndAuthorize(enterpriseClaims)).rejects.toMatchObject({
+      status: 403,
+      response: { error: {
+        message: '企业算力余额不足，请联系管理员充值', code: 'INSUFFICIENT_BALANCE',
+        source: 'platform', param: null, type: 'permission_error',
+      } },
+    });
+  });
+
+  it.each(['subscription', 'employeeGrant', 'balance', 'policy'])('propagates unknown %s errors unchanged', async (step) => {
+    const failure = new Error('unexpected failure');
+    if (step === 'balance') creditService.checkBalanceBeforeConversation.mockRejectedValue(failure);
+    else if (step === 'policy') prepare.mockRejectedValue(failure);
+    else prisma[step].findFirst.mockRejectedValue(failure);
+    const operation = step === 'policy'
+      ? service.prepareRequest(enterpriseClaims, { model: 'test-model', messages: [] })
+      : service.validateAndAuthorize(enterpriseClaims);
+    await expect(operation).rejects.toBe(failure);
   });
 
   it('delegates resource limits and effective model policy to the policy service', async () => {

@@ -54,9 +54,24 @@ describe('ChatCompletionRequestSchema tool round trip', () => {
     expect(ChatCompletionRequestSchema.parse(request)).toEqual(request);
   });
 
-  it('still strips unrelated caller-supplied fields', () => {
-    const parsed = ChatCompletionRequestSchema.parse({ ...followUp(), enterpriseId: 'untrusted' });
-    expect(parsed).not.toHaveProperty('enterpriseId');
+  it.each(['enterpriseId', 'response_format', 'max_completion_tokens', 'top_p', 'stop'])(
+    'rejects unsupported field %s rather than silently discarding it', (field) => {
+      const result = ChatCompletionRequestSchema.safeParse({ ...followUp(), [field]: 'untrusted' });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [field] }),
+      ]));
+    },
+  );
+
+  it.each([
+    { messages: [{ role: 'user', content: 'hello', unsupported: true }] },
+    { tools: [{ type: 'function', function: { name: 'ls', unsupported: true } }] },
+    { stream_options: { include_usage: true, unsupported: true } },
+    { thinking: { type: 'enabled', unsupported: true } },
+    { tool_choice: { type: 'function', function: { name: 'ls', unsupported: true } } },
+  ])('rejects unknown nested protocol fields %p', (overrides) => {
+    expect(ChatCompletionRequestSchema.safeParse({ ...followUp(), ...overrides }).success).toBe(false);
   });
 
   it('requires tool_call_id for tool results', () => {

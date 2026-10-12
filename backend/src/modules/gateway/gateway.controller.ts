@@ -61,6 +61,7 @@ export class GatewayController {
   })
   @ApiResponse({ status: 401, description: '雇佣令牌无效或过期' })
   @ApiResponse({ status: 403, description: '无订阅授权或余额不足' })
+  @ApiResponse({ status: 413, description: 'HTTP 请求体或规范化模型请求超过大小上限' })
   @ApiResponse({
     status: 429,
     description:
@@ -117,6 +118,14 @@ export class GatewayController {
         requestId,
         client.signal,
       );
+      const streamMetrics = {
+        headerLatencyMs: Date.now() - startedAt,
+        firstByteLatencyMs: null as number | null,
+        // Unix milliseconds when the last nonempty upstream chunk was received, before checkpointing.
+        lastDataAt: null as number | null,
+        // Raw body bytes handed to the downstream pipeline, not bytes confirmed received by the client.
+        bytesForwarded: 0,
+      };
       const logContext = {
         requestId,
         executionId,
@@ -132,6 +141,7 @@ export class GatewayController {
         this.logger.log({
           message: 'provider response received',
           ...logContext,
+          ...streamMetrics,
           status: upstreamRes.status,
           contentType: upstreamRes.headers.get('content-type'),
         });
@@ -169,8 +179,14 @@ export class GatewayController {
             source,
             async function* (chunks) {
               for await (const chunk of chunks) {
+                if (chunk.byteLength > 0) {
+                  const receivedAt = Date.now();
+                  streamMetrics.firstByteLatencyMs ??= receivedAt - startedAt;
+                  streamMetrics.lastDataAt = receivedAt;
+                }
                 observer.write(chunk);
                 await checkpoint(observer.snapshot().usage);
+                streamMetrics.bytesForwarded += chunk.byteLength;
                 yield chunk;
               }
               const summary = observer.finish();
@@ -188,6 +204,7 @@ export class GatewayController {
           this.logger.warn({
             message: 'gateway stream interrupted',
             ...logContext,
+            ...streamMetrics,
             durationMs: Date.now() - startedAt,
             clientDisconnected: client.signal.aborted,
             code: errorCode,
@@ -202,6 +219,7 @@ export class GatewayController {
           const summary = {
             message: 'gateway stream ended',
             ...logContext,
+            ...streamMetrics,
             durationMs: Date.now() - startedAt,
             finishReason,
             done,

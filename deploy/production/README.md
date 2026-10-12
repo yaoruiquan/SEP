@@ -242,6 +242,7 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 | `GATEWAY_ENTERPRISE_RPM` | `600` | 企业聚合请求限额 |
 | `GATEWAY_ENTERPRISE_TOKEN_BUDGET` | `0` | 默认关闭保守 token 流量预算；不是资金预占或上游精确 TPM |
 | `GATEWAY_DEFAULT_MAX_TOKENS` | `4096` | 未指定输出上限时的默认值，仍受模型能力约束 |
+| `GATEWAY_HTTP_JSON_LIMIT` | `4mb` | 仅 POST `/api/gateway/v1/chat/completions` 的 HTTP JSON 解析上限；其他 REST 默认仍为 2 MiB |
 | `GATEWAY_MAX_REQUEST_BYTES` | `4194304` | Gateway 模型策略的序列化输入上限（字节），不覆盖全局 HTTP body 限制 |
 | `GATEWAY_JSON_MAX_BYTES` | `8388608` | 上游普通 JSON 响应上限（字节） |
 | `GATEWAY_ERROR_MAX_BYTES` | `65536` | 上游错误响应上限（字节） |
@@ -251,6 +252,8 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 | `GATEWAY_AUTH_FAILURE_WINDOW_MS` | `60000` | 无效认证限额窗口（毫秒） |
 
 原 `GATEWAY_MODEL_RATE_LIMIT=60`、`GATEWAY_MODEL_RATE_WINDOW_MS=60000` 的企业 + 成员 + 订阅 RPM 继续独立执行，不会被新增成员/企业聚合 RPM 替代；请求必须同时满足这些限制。认证失败限流则独立用于未通过认证的请求，不占用有效身份的准入预算。
+
+请求大小分为 HTTP 原始 JSON 和规范化后的序列化模型请求两个预算，两者默认均为 4 MiB。空白、转义、默认输出字段注入会导致字节数不同；任一超限均明确返回 413，分别使用 `REQUEST_BODY_TOO_LARGE` 和 `MODEL_REQUEST_TOO_LARGE`，不保证原始 body 正好 4 MiB 的请求一定满足规范化预算。调整时应同时核对入口代理上限，不能仅扩大一个阶段。网关不接受未声明的协议字段，返回 400 / `INVALID_PARAMETER` 和具体字段路径，不再静默删除参数。
 
 ### Gateway 排空契约
 

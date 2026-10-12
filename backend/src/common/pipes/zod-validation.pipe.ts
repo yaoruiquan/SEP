@@ -19,10 +19,12 @@ export class ZodValidationPipe implements PipeTransform {
 
     if (!result.success) {
       // 汇总所有字段错误，而非只报第一个 —— 前端可一次性标出所有问题
-      const details = result.error.issues.map((i) => ({
-        field: i.path.join('.') || '(root)',
-        message: i.message,
-      }));
+      const details = result.error.issues.flatMap((i) => i.code === 'unrecognized_keys'
+        ? i.keys.map((key) => ({
+          field: [...i.path, key].join('.'),
+          message: '不支持的请求字段',
+        }))
+        : [{ field: i.path.join('.') || '(root)', message: i.message }]);
       throw new BadRequestException({
         message: '请求参数校验失败',
         errors: details,

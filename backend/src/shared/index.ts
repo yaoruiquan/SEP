@@ -1869,8 +1869,8 @@ const ChatCompletionToolSchema = z.object({
     description: ChatCompletionTextSchema.optional(),
     parameters: ChatCompletionFunctionParametersSchema.optional(),
     strict: z.boolean().optional(),
-  }),
-});
+  }).strict(),
+}).strict();
 
 const ChatCompletionToolCallSchema = z.object({
   id: z.string().min(1).max(128),
@@ -1878,8 +1878,8 @@ const ChatCompletionToolCallSchema = z.object({
   function: z.object({
     name: ChatCompletionFunctionNameSchema,
     arguments: ChatCompletionTextSchema,
-  }),
-});
+  }).strict(),
+}).strict();
 
 const ChatCompletionMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -1890,7 +1890,7 @@ const ChatCompletionMessageSchema = z.object({
   tool_call_id: z.string().min(1).max(128).optional(),
   // 推理模型的工具回传可能要求原样保留此字段，不能在 Zod parse 时剥离。
   reasoning_content: ChatCompletionTextSchema.nullable().optional(),
-}).superRefine((message, ctx) => {
+}).strict().superRefine((message, ctx) => {
   if (message.content == null && !(message.role === 'assistant' && message.tool_calls?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: '此消息必须提供文本 content' });
   }
@@ -1914,13 +1914,13 @@ export const ChatCompletionRequestSchema = z.object({
   tools: z.array(ChatCompletionToolSchema).max(128).optional(),
   tool_choice: z.union([
     z.enum(['none', 'auto', 'required']),
-    z.object({ type: z.literal('function'), function: z.object({ name: ChatCompletionFunctionNameSchema }) }),
+    z.object({ type: z.literal('function'), function: z.object({ name: ChatCompletionFunctionNameSchema }).strict() }).strict(),
   ]).optional(),
   parallel_tool_calls: z.boolean().optional(),
-  stream_options: z.object({ include_usage: z.boolean().optional() }).optional(),
-  thinking: z.object({ type: z.enum(['enabled', 'disabled']) }).optional(),
+  stream_options: z.object({ include_usage: z.boolean().optional() }).strict().optional(),
+  thinking: z.object({ type: z.enum(['enabled', 'disabled']) }).strict().optional(),
   reasoning_effort: z.string().min(1).max(64).optional(),
-}).superRefine((request, ctx) => {
+}).strict().superRefine((request, ctx) => {
   const pendingCalls = new Set<string>();
   request.messages.forEach((message, index) => {
     if (message.role === 'assistant') {

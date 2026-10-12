@@ -24,6 +24,12 @@ export interface GatewayModelPolicy {
   departmentId: string | null;
 }
 
+function platformErrorResponse(code: string, message: string, param: string | null,
+  type = 'invalid_request_error') {
+  // Nest reads the top-level message to preserve the original exception message.
+  return { message, error: { code, message, type, param, source: 'platform' } };
+}
+
 @Injectable()
 export class GatewayModelPolicyService {
   constructor(
@@ -47,7 +53,9 @@ export class GatewayModelPolicyService {
       select: { departmentId: true },
     });
     if (!member) {
-      throw new ForbiddenException('成员不属于当前用户或企业');
+      throw new ForbiddenException(platformErrorResponse(
+        'MEMBER_ACCESS_DENIED', '成员不属于当前用户或企业', null, 'permission_error',
+      ));
     }
 
     let employeeTemplateModel: string | null = null;
@@ -56,7 +64,9 @@ export class GatewayModelPolicyService {
         where: { id: identity.subscriptionId, enterpriseId: identity.enterpriseId },
         select: { employee: { select: { modelId: true } } },
       });
-      if (!subscription) throw new ForbiddenException('订阅不属于当前企业');
+      if (!subscription) throw new ForbiddenException(platformErrorResponse(
+        'SUBSCRIPTION_ACCESS_DENIED', '订阅不属于当前企业', null, 'permission_error',
+      ));
       employeeTemplateModel = subscription.employee.modelId;
     }
 
@@ -72,13 +82,10 @@ export class GatewayModelPolicyService {
       ? effective.allowedChatModels
       : effective.allowedChatModels.filter((id) => id === effective.chatModel);
     if (!effective.allowUserSwitchModel && allowedModels.length === 0) {
-      throw new BadRequestException({
-        error: {
-          code: 'MODEL_POLICY_DEFAULT_INVALID',
-          message: '强制默认模型未启用、已下架或不在企业与部门允许范围内，请联系管理员',
-          type: 'invalid_request_error', param: 'model',
-        },
-      });
+      throw new BadRequestException(platformErrorResponse(
+        'MODEL_POLICY_DEFAULT_INVALID',
+        '强制默认模型未启用、已下架或不在企业与部门允许范围内，请联系管理员', 'model',
+      ));
     }
     return {
       allowedModels,
@@ -94,46 +101,65 @@ export class GatewayModelPolicyService {
     inputBytes: number;
   }> {
     if (!policy.allowedModels.includes(request.model)) {
-      throw new ForbiddenException('该模型不在当前成员允许范围内');
+      throw new ForbiddenException(platformErrorResponse(
+        'MODEL_NOT_ALLOWED', '该模型不在当前成员允许范围内', 'model', 'permission_error',
+      ));
     }
     const model = await this.prisma.platformModel.findFirst({
       where: { modelId: request.model, enabled: true, isStale: false },
       select: { maxOutputTokens: true, supportedFeatures: true },
     });
-    if (!model) throw new BadRequestException('该模型未启用或已下架');
+    if (!model) throw new BadRequestException(platformErrorResponse(
+      'MODEL_UNAVAILABLE', '该模型未启用或已下架', 'model',
+    ));
 
     const features = model.supportedFeatures as Record<string, unknown> | null;
     const usesTools = Boolean(request.tools?.length) ||
       (request.tool_choice !== undefined && request.tool_choice !== 'none') ||
       request.messages.some((message) => message.role === 'tool' || message.tool_calls?.length);
     if (features?.functionCalling === false && usesTools) {
-      throw new BadRequestException('该模型不支持 functionCalling');
+      const param = request.tools?.length ? 'tools'
+        : request.tool_choice !== undefined && request.tool_choice !== 'none' ? 'tool_choice' : 'messages';
+      throw new BadRequestException(platformErrorResponse(
+        'MODEL_FEATURE_UNSUPPORTED', '该模型不支持 functionCalling', param,
+      ));
     }
     if (features?.streaming === false && request.stream) {
-      throw new BadRequestException('该模型不支持 streaming');
+      throw new BadRequestException(platformErrorResponse(
+        'MODEL_FEATURE_UNSUPPORTED', '该模型不支持 streaming', 'stream',
+      ));
     }
 
     const cap = model.maxOutputTokens ?? null;
     if (cap !== null && (!Number.isSafeInteger(cap) || cap <= 0)) {
-      throw new BadRequestException('模型 maxOutputTokens 配置无效');
+      throw new BadRequestException(platformErrorResponse(
+        'MODEL_OUTPUT_LIMIT_INVALID', '模型 maxOutputTokens 配置无效', 'model',
+      ));
     }
     const defaultMaxTokens = this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096);
     const effectiveCap = cap ?? defaultMaxTokens;
     const maxTokens = request.max_tokens ?? Math.min(defaultMaxTokens, effectiveCap);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0 || maxTokens > effectiveCap) {
-      throw new BadRequestException('max_tokens 必须为正整数且不能超过模型或平台输出上限');
+      throw new BadRequestException(platformErrorResponse(
+        'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens',
+      ));
     }
     const normalized = { ...request, max_tokens: maxTokens };
     let serialized: string;
     try {
       serialized = JSON.stringify(normalized);
-    } catch {
-      throw new BadRequestException('请求无法序列化');
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      throw new BadRequestException(platformErrorResponse(
+        'REQUEST_SERIALIZATION_FAILED', '请求无法序列化', null,
+      ));
     }
     // UTF-8 字节限制不是 context token 校验，也不用于计费。
     const inputBytes = Buffer.byteLength(serialized, 'utf8');
     if (inputBytes > this.positiveConfig('GATEWAY_MAX_REQUEST_BYTES', 4 * 1024 * 1024)) {
-      throw new PayloadTooLargeException('模型请求超过序列化资源上限');
+      throw new PayloadTooLargeException(platformErrorResponse(
+        'MODEL_REQUEST_TOO_LARGE', '模型请求超过序列化资源上限', null,
+      ));
     }
     return { request: normalized, inputBytes };
   }
@@ -142,7 +168,9 @@ export class GatewayModelPolicyService {
     const raw = this.config.get<string | number>(key) ?? fallback;
     const value = typeof raw === 'number' || /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (!Number.isSafeInteger(value) || value <= 0 || value > 2147483647) {
-      throw new InternalServerErrorException(`${key} must be an integer between 1 and 2147483647`);
+      throw new InternalServerErrorException(platformErrorResponse(
+        'GATEWAY_CONFIG_INVALID', `${key} must be an integer between 1 and 2147483647`, null, 'server_error',
+      ));
     }
     return value;
   }

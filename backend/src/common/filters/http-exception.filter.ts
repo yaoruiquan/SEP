@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, PayloadTooLargeException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -32,6 +32,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const response = host.switchToHttp().getResponse<Response>();
     const request = host.switchToHttp().getRequest<Request & { requestId?: string }>();
+    // Express parser errors are not Nest HttpExceptions. Only normalize its known size error.
+    if (isRecord(exception) && exception.type === 'entity.too.large' && exception.status === 413) {
+      exception = new PayloadTooLargeException({
+        error: {
+          message: '请求体超过 HTTP 解析上限', type: 'invalid_request_error',
+          code: 'REQUEST_BODY_TOO_LARGE', source: 'platform', param: null,
+        },
+        message: '请求体超过 HTTP 解析上限',
+      });
+    }
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const raw = exception instanceof HttpException ? exception.getResponse() : 'Internal server error';
     const message = typeof raw === 'object' && raw !== null && 'message' in raw ? (raw as { message: unknown }).message : raw;
@@ -62,7 +72,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     };
 
     // Keep the existing business API envelope unchanged outside the gateway.
-    const path = request.originalUrl.split('?')[0];
+    const path = request.originalUrl.split('?')[0].toLowerCase();
     if (path !== '/api/gateway' && !path.startsWith('/api/gateway/')) {
       response.status(status).json(body);
       return;
@@ -107,7 +117,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : errors?.[0]?.field || null,
         requestId,
         ...(rawError?.source === 'platform' || rawError?.source === 'upstream'
-          ? { source: rawError.source } : {}),
+          ? { source: rawError.source } : errors?.length ? { source: 'platform' } : {}),
         ...(rateLimit !== undefined ? { rateLimit } : {}),
       },
     });

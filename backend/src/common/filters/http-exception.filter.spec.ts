@@ -130,7 +130,33 @@ describe('HttpExceptionFilter', () => {
       code: 'INVALID_PARAMETER',
       param: errors[0].field,
       requestId: 'request-123',
+      source: 'platform',
     });
+  });
+
+  it('maps a known Express size error to 413 without reflecting its private body or stack', () => {
+    const exception = Object.assign(new Error('private parser message'), {
+      type: 'entity.too.large', status: 413, body: 'private request', stack: 'private stack',
+    });
+    const { response, body } = catchException(exception);
+    expect(response.status).toHaveBeenCalledWith(413);
+    expect(body.error).toMatchObject({ code: 'REQUEST_BODY_TOO_LARGE', source: 'platform', requestId: 'request-123' });
+    expect(JSON.stringify(body)).not.toContain('private');
+  });
+
+  it.each([{ status: 413 }, { status: 413, type: 'unknown' }, { status: 500, type: 'entity.too.large' }])(
+    'does not trust unrelated external errors with HTTP-looking fields %p', (exception) => {
+      const { response, body } = catchException(exception);
+      expect(response.status).toHaveBeenCalledWith(500);
+      expect(body.error.code).toBeNull();
+    },
+  );
+
+  it('uses the gateway error envelope for case-insensitive paths with a query and trailing slash', () => {
+    const { body } = catchException(
+      { type: 'entity.too.large', status: 413 }, `${gatewayPath.toUpperCase()}/?test=1`,
+    );
+    expect(body.error).toMatchObject({ code: 'REQUEST_BODY_TOO_LARGE', source: 'platform' });
   });
 
   it('accepts standard nested HttpException errors, copying only safe fields', () => {
@@ -232,7 +258,7 @@ describe('HttpExceptionFilter', () => {
     expect(body.errors).toEqual([{ field: 'model', message: 'Required' }]);
     expect(body.error).toEqual({
       message: 'Invalid request: model: Required', type: 'invalid_request_error', code: 'INVALID_PARAMETER',
-      param: 'model', requestId: 'request-123',
+      param: 'model', requestId: 'request-123', source: 'platform',
     });
     expect(JSON.stringify(body)).not.toMatch(/secret|private/);
   });

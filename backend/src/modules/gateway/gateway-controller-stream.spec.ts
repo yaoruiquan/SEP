@@ -65,6 +65,7 @@ describe('GatewayController raw SSE streaming', () => {
   let releaseRequest: jest.Mock;
   let acquire: jest.Mock;
   let beginRequest: jest.Mock;
+  let log: jest.SpyInstance;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
 
@@ -91,7 +92,7 @@ describe('GatewayController raw SSE streaming', () => {
     beginRequest = jest.fn().mockReturnValue(releaseRequest);
     warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     controller = new GatewayController(service, executions as never, { acquire } as never, { beginRequest } as never);
   });
 
@@ -135,7 +136,78 @@ describe('GatewayController raw SSE streaming', () => {
     expect(res.bytes).toEqual(raw);
     expect(res.headers.get('content-type')).toContain('text/event-stream');
     expect(res.writableFinished).toBe(true);
+    expect(raw.byteLength).toBeGreaterThan(raw.toString().length);
+    expect([...log.mock.calls, ...warn.mock.calls]).toContainEqual([expect.objectContaining({
+      message: 'gateway stream ended', requestId, executionId: 'server-execution',
+      bytesForwarded: raw.byteLength,
+    })]);
     await expectSingleLedgerEntry();
+  });
+
+  it('logs header and data arrival times before journal delays with correlated raw byte totals', async () => {
+    let now = 1000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    forward.mockImplementation(async () => {
+      now = 1050;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(value) { source = value; },
+      }), { headers: { 'Content-Type': 'text/event-stream', 'X-Request-ID': 'provider-request-123' } });
+    });
+    executions.setUpstreamRequest.mockImplementation(async () => { now = 1100; });
+    executions.saveUsage.mockImplementation(async () => { now = 1700; });
+    const res = new StreamResponse();
+    const wrote = deferred<void>();
+    res.onChunk = () => wrote.resolve();
+    const outcome = invoke(res);
+    await turn();
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'provider response received', requestId, executionId: 'server-execution',
+      upstreamRequestId: 'provider-request-123', headerLatencyMs: 50,
+      firstByteLatencyMs: null, lastDataAt: null, bytesForwarded: 0,
+    }));
+    now = 1200;
+    source.enqueue(Buffer.from(content));
+    await wrote.promise;
+    now = 1300;
+    const tail = `${finish}${usageEvent}\n\ndata:[DONE]\n\n`;
+    source.enqueue(Buffer.from(tail));
+    source.close();
+    await outcome;
+    expect(res.bytes).toEqual(Buffer.from(`${content}${tail}`));
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream ended', requestId, executionId: 'server-execution',
+      upstreamRequestId: 'provider-request-123', headerLatencyMs: 50,
+      firstByteLatencyMs: 200, lastDataAt: 1300, bytesForwarded: res.bytes.byteLength,
+      durationMs: 700,
+    }));
+    await expectSingleLedgerEntry();
+  });
+
+  it.each(['empty EOF', 'read failure'])('logs null data arrival times and zero bytes after %s without data', async (failure) => {
+    let now = 1000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    forward.mockImplementation(async () => {
+      now = 1050;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(value) { source = value; },
+      }), { headers: { 'Content-Type': 'text/event-stream', 'X-Request-ID': 'provider-request-123' } });
+    });
+    const res = new StreamResponse();
+    const outcome = invoke(res);
+    await turn();
+    now = 1200;
+    if (failure === 'empty EOF') source.close();
+    else source.error(new Error('synthetic read failure before data'));
+    await outcome;
+    expect(res.bytes.byteLength).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream interrupted', requestId, executionId: 'server-execution',
+      upstreamRequestId: 'provider-request-123', headerLatencyMs: 50,
+      firstByteLatencyMs: null, lastDataAt: null, bytesForwarded: 0, durationMs: 200,
+    }));
+    expect(executions.saveUsage).not.toHaveBeenCalled();
   });
 
   it('records usage from a final unterminated data field without inventing DONE', async () => {
@@ -167,6 +239,11 @@ describe('GatewayController raw SSE streaming', () => {
     expect(res.destroyed).toBe(true);
     expect(res.bytes.toString()).not.toContain('[DONE]');
     expect(res.bytes.toString()).not.toContain('"finish_reason":"stop"');
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream interrupted', requestId, executionId: 'server-execution',
+      headerLatencyMs: expect.any(Number), firstByteLatencyMs: expect.any(Number),
+      lastDataAt: expect.any(Number), bytesForwarded: raw.byteLength,
+    }));
     expect(warn).toHaveBeenCalled();
     expect(JSON.stringify(warn.mock.calls)).toContain(requestId);
     expect(error).not.toHaveBeenCalled();
@@ -183,6 +260,9 @@ describe('GatewayController raw SSE streaming', () => {
     expect(write.mock.results.some((result) => result.value === false)).toBe(true);
     expect(res.writableFinished).toBe(true);
     expect(res.bytes).toEqual(raw);
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream ended', bytesForwarded: raw.byteLength,
+    }));
     await expectSingleLedgerEntry();
   });
 
@@ -207,6 +287,11 @@ describe('GatewayController raw SSE streaming', () => {
     expect(end).not.toHaveBeenCalled();
     expect(JSON.stringify([...warn.mock.calls, ...error.mock.calls])).toContain(requestId);
     expect(res.bytes.toString()).not.toContain('[DONE]');
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream interrupted', requestId,
+      firstByteLatencyMs: expect.any(Number), lastDataAt: expect.any(Number),
+      bytesForwarded: Buffer.byteLength(content),
+    }));
     expect(executions.saveUsage).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
     expect(releaseRequest).toHaveBeenCalledTimes(1);
@@ -271,6 +356,11 @@ describe('GatewayController raw SSE streaming', () => {
     }
     expect(res.writableFinished).toBe(false);
     expect(res.bytes.toString()).not.toContain('[DONE]');
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream interrupted', requestId, executionId: 'server-execution',
+      clientDisconnected: true, bytesForwarded: Buffer.byteLength(content),
+      firstByteLatencyMs: expect.any(Number), lastDataAt: expect.any(Number),
+    }));
     expect(executions.saveUsage).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
     expect(releaseRequest).toHaveBeenCalledTimes(1);
@@ -310,6 +400,11 @@ describe('GatewayController raw SSE streaming', () => {
     await invoke(res);
     expect(res.writableFinished).toBe(false);
     expect(res.destroyed).toBe(true);
+    expect(res.bytes.byteLength).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'gateway stream interrupted', requestId,
+      firstByteLatencyMs: expect.any(Number), lastDataAt: expect.any(Number), bytesForwarded: 0,
+    }));
     expect(executions.fail).toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
     expect(releaseRequest).toHaveBeenCalledTimes(1);

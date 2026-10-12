@@ -1,9 +1,11 @@
-import { BadRequestException, ForbiddenException, InternalServerErrorException, PayloadTooLargeException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, InternalServerErrorException, PayloadTooLargeException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { ClientService } from '../client/client.service';
 import { ChatCompletionRequestSchema } from 'shared';
 import { GatewayModelPolicyService } from './gateway-model-policy.service';
+
+jest.mock('../setting/setting.service', () => ({ SettingService: jest.fn() }));
 
 const identity = { sub: 'user-1', enterpriseId: 'ent-1', memberId: 'member-1', subscriptionId: 'sub-1' };
 
@@ -19,6 +21,16 @@ function request(overrides: Record<string, unknown> = {}) {
   return ChatCompletionRequestSchema.parse({
     model: 'model-a', messages: [{ role: 'user', content: 'hello' }], ...overrides,
   });
+}
+
+async function expectPlatformError(operation: Promise<unknown>, status: number, code: string,
+  message: string, param: string | null, type = 'invalid_request_error') {
+  const error = await operation.catch((failure) => failure);
+  expect(error).toBeInstanceOf(HttpException);
+  if (!(error instanceof HttpException)) throw error;
+  expect(error.getStatus()).toBe(status);
+  expect(error.message).toBe(message);
+  expect(error.getResponse()).toEqual({ message, error: { message, code, source: 'platform', param, type } });
 }
 
 describe('GatewayModelPolicyService', () => {
@@ -72,7 +84,8 @@ describe('GatewayModelPolicyService', () => {
 
   it('rejects missing or mismatched members before reading policies or model metadata', async () => {
     prisma.enterpriseMember.findFirst.mockResolvedValue(null);
-    await expect(service.prepare(identity, request())).rejects.toThrow(ForbiddenException);
+    await expectPlatformError(service.prepare(identity, request()), 403, 'MEMBER_ACCESS_DENIED',
+      '成员不属于当前用户或企业', null, 'permission_error');
     expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
     expect(prisma.platformModel.findMany).not.toHaveBeenCalled();
     expect(prisma.platformModel.findFirst).not.toHaveBeenCalled();
@@ -80,7 +93,8 @@ describe('GatewayModelPolicyService', () => {
 
   it('rejects a subscription outside the claimed enterprise', async () => {
     prisma.subscription.findFirst.mockResolvedValue(null);
-    await expect(service.resolvePolicy(identity)).rejects.toThrow(ForbiddenException);
+    await expectPlatformError(service.resolvePolicy(identity), 403, 'SUBSCRIPTION_ACCESS_DENIED',
+      '订阅不属于当前企业', null, 'permission_error');
     expect(prisma.subscription.findFirst).toHaveBeenCalledWith({
       where: { id: 'sub-1', enterpriseId: 'ent-1' }, select: { employee: { select: { modelId: true } } },
     });
@@ -92,7 +106,8 @@ describe('GatewayModelPolicyService', () => {
       defaultChatModel: 'model-a', allowedChatModels: ['model-a', 'model-b'],
     });
     expect((await service.resolvePolicy(identity)).allowedModels).toEqual(['model-a']);
-    await expect(service.prepare(identity, request({ model: 'model-b' }))).rejects.toThrow(ForbiddenException);
+    await expectPlatformError(service.prepare(identity, request({ model: 'model-b' })), 403,
+      'MODEL_NOT_ALLOWED', '该模型不在当前成员允许范围内', 'model', 'permission_error');
     expect(prisma.platformModel.findFirst).not.toHaveBeenCalled();
   });
 
@@ -137,9 +152,8 @@ describe('GatewayModelPolicyService', () => {
     { allowUserSwitchModel: false, allowedChatModels: ['model-b'] },
   ])('fails explicitly on an unavailable or excluded forced default: %j', async (overrides) => {
     prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig(overrides));
-    await expect(service.resolvePolicy(identity)).rejects.toMatchObject({
-      response: { error: { code: 'MODEL_POLICY_DEFAULT_INVALID' } },
-    });
+    await expectPlatformError(service.resolvePolicy(identity), 400, 'MODEL_POLICY_DEFAULT_INVALID',
+      '强制默认模型未启用、已下架或不在企业与部门允许范围内，请联系管理员', 'model');
   });
 
   it('preserves subscription > template > department > enterprise default precedence', async () => {
@@ -164,7 +178,8 @@ describe('GatewayModelPolicyService', () => {
   it('caps an omitted max_tokens, but rejects an explicit limit beyond the model cap', async () => {
     prisma.platformModel.findFirst.mockResolvedValue({ maxOutputTokens: 2048, supportedFeatures: null });
     expect((await service.prepare(identity, request())).request.max_tokens).toBe(2048);
-    await expect(service.prepare(identity, request({ max_tokens: 2049 }))).rejects.toThrow(BadRequestException);
+    await expectPlatformError(service.prepare(identity, request({ max_tokens: 2049 })), 400,
+      'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens');
     expect((await service.prepare(identity, request({ max_tokens: 2048 }))).request.max_tokens).toBe(2048);
   });
 
@@ -194,12 +209,14 @@ describe('GatewayModelPolicyService', () => {
 
   it.each([0, -1])('rejects invalid model output metadata %s', async (maxOutputTokens) => {
     prisma.platformModel.findFirst.mockResolvedValue({ maxOutputTokens, supportedFeatures: null });
-    await expect(service.prepare(identity, request())).rejects.toThrow(BadRequestException);
+    await expectPlatformError(service.prepare(identity, request()), 400, 'MODEL_OUTPUT_LIMIT_INVALID',
+      '模型 maxOutputTokens 配置无效', 'model');
   });
 
   it('rechecks enabled/stale status immediately before resource validation', async () => {
     prisma.platformModel.findFirst.mockResolvedValue(null);
-    await expect(service.prepare(identity, request())).rejects.toThrow(BadRequestException);
+    await expectPlatformError(service.prepare(identity, request()), 400, 'MODEL_UNAVAILABLE',
+      '该模型未启用或已下架', 'model');
     expect(prisma.platformModel.findFirst).toHaveBeenCalledWith({
       where: { modelId: 'model-a', enabled: true, isStale: false },
       select: { maxOutputTokens: true, supportedFeatures: true },
@@ -236,7 +253,62 @@ describe('GatewayModelPolicyService', () => {
     jest.spyOn(config, 'get').mockImplementation((key: string) => (
       key === 'GATEWAY_MAX_REQUEST_BYTES' ? bytes - 1 : undefined
     ) as never);
-    await expect(service.prepare(identity, dto)).rejects.toThrow(PayloadTooLargeException);
+    await expectPlatformError(service.prepare(identity, dto), 413, 'MODEL_REQUEST_TOO_LARGE',
+      '模型请求超过序列化资源上限', null);
+  });
+
+  it.each([
+    [{ stream: true }, 'streaming', 'stream'],
+    [{ tools: [{ type: 'function', function: { name: 'ls' } }] }, 'functionCalling', 'tools'],
+    [{ tool_choice: 'required' }, 'functionCalling', 'tool_choice'],
+    [{ messages: [
+      { role: 'assistant', content: null, tool_calls: [
+        { id: 'call-1', type: 'function', function: { name: 'ls', arguments: '{}' } },
+      ] },
+      { role: 'tool', content: 'done', tool_call_id: 'call-1' },
+    ] }, 'functionCalling', 'messages'],
+    [{ messages: [{ role: 'assistant', content: null, tool_calls: [
+      { id: 'call-1', type: 'function', function: { name: 'ls', arguments: '{}' } },
+    ] }] }, 'functionCalling', 'messages'],
+  ])('identifies the unsupported request field %j', async (overrides, feature, param) => {
+    prisma.platformModel.findFirst.mockResolvedValue({
+      maxOutputTokens: null, supportedFeatures: { streaming: false, functionCalling: false },
+    });
+    await expectPlatformError(service.prepare(identity, request(overrides)), 400,
+      'MODEL_FEATURE_UNSUPPORTED', `该模型不支持 ${feature}`, param);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER])('returns output budget errors for %s', async (max_tokens) => {
+    await expectPlatformError(service.prepare(identity, { ...request(), max_tokens }), 400,
+      'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens');
+  });
+
+  it.each(['GATEWAY_DEFAULT_MAX_TOKENS', 'GATEWAY_MAX_REQUEST_BYTES'])('identifies invalid %s configuration', async (key) => {
+    jest.spyOn(config, 'get').mockImplementation((name: string) => (name === key ? -1 : undefined) as never);
+    await expectPlatformError(service.prepare(identity, request()), 500, 'GATEWAY_CONFIG_INVALID',
+      `${key} must be an integer between 1 and 2147483647`, null, 'server_error');
+  });
+
+  it.each(['circular', 'bigint'])('structures known %s serialization failures', async (kind) => {
+    const dto = request();
+    Object.assign(dto.messages[0], { content: kind === 'circular' ? dto : BigInt(1) });
+    await expectPlatformError(service.prepare(identity, dto), 400, 'REQUEST_SERIALIZATION_FAILED',
+      '请求无法序列化', null);
+  });
+
+  it('does not swallow unknown serialization exceptions', async () => {
+    const failure = new Error('unexpected serialization failure');
+    const dto = request();
+    Object.defineProperty(dto.messages[0], 'content', { get: () => { throw failure; }, enumerable: true });
+    await expect(service.prepare(identity, dto)).rejects.toBe(failure);
+  });
+
+  it.each(['member', 'policy', 'metadata'])('propagates unknown %s errors unchanged', async (step) => {
+    const failure = new Error('unexpected policy failure');
+    if (step === 'member') prisma.enterpriseMember.findFirst.mockRejectedValue(failure);
+    else if (step === 'policy') jest.spyOn(modelConfig, 'resolveEffectiveModel').mockRejectedValue(failure);
+    else prisma.platformModel.findFirst.mockRejectedValue(failure);
+    await expect(service.prepare(identity, request())).rejects.toBe(failure);
   });
 
   it('enforces the default 4 MiB limit without pretending to count context tokens', async () => {

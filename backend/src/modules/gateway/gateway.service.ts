@@ -79,7 +79,10 @@ export class GatewayService {
       select: { employeeId: true },
     });
     if (!subscription) {
-      throw new ForbiddenException('订阅不存在、已停用或不属于该企业');
+      const message = '订阅不存在、已停用或不属于该企业';
+      throw new ForbiddenException({ message, error: {
+        message, code: 'SUBSCRIPTION_INACTIVE', type: 'permission_error', source: 'platform', param: null,
+      } });
     }
 
     // 2. 检查授权
@@ -101,7 +104,10 @@ export class GatewayService {
       },
     });
     if (!grant) {
-      throw new ForbiddenException('无该订阅的使用授权或授权已过期');
+      const message = '无该订阅的使用授权或授权已过期';
+      throw new ForbiddenException({ message, error: {
+        message, code: 'SUBSCRIPTION_ACCESS_DENIED', type: 'permission_error', source: 'platform', param: null,
+      } });
     }
 
     // 3. 使用统一算力账本检查余额。不要读取已废弃的 ComputeAccount，
@@ -112,7 +118,10 @@ export class GatewayService {
       claims.sub,
     );
     if (!balance.allowed) {
-      throw new ForbiddenException(balance.reason || '企业算力余额不足，请联系管理员充值');
+      const message = balance.reason || '企业算力余额不足，请联系管理员充值';
+      throw new ForbiddenException({ message, error: {
+        message, code: 'INSUFFICIENT_BALANCE', type: 'permission_error', source: 'platform', param: null,
+      } });
     }
 
     return { enterpriseId, subscriptionId, memberId, employeeId: subscription.employeeId };
@@ -139,7 +148,10 @@ export class GatewayService {
       DEFAULT_MODEL_ID;
 
     if (!apiKey) {
-      throw new BadRequestException('sub2api API Key 未配置');
+      const message = 'sub2api API Key 未配置';
+      throw new BadRequestException({ message, error: {
+        message, code: 'GATEWAY_CONFIG_INVALID', type: 'server_error', source: 'platform', param: null,
+      } });
     }
 
     return { baseUrl, apiKey, defaultModel };

@@ -8,6 +8,7 @@ import type { ChatCompletionRequest } from 'shared';
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
 import { GatewayLifecycleService } from '../../common/lifecycle/gateway-lifecycle.service';
 import { requestContextMiddleware } from '../../common/middleware/request-context.middleware';
+import { createJsonBodyMiddleware } from '../../common/middleware/json-body.middleware';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
@@ -62,9 +63,10 @@ describe('Gateway tool-call HTTP round trip', () => {
         return true;
       },
     }).overrideGuard(GatewayRateLimitGuard).useValue({ canActivate: () => true }).compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication({ bodyParser: false });
     app.setGlobalPrefix('api');
     app.use(requestContextMiddleware);
+    app.use(createJsonBodyMiddleware({}));
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
@@ -296,6 +298,33 @@ describe('Gateway tool-call HTTP round trip', () => {
     const sdkError = APIError.generate(400, res.body, undefined, new Headers({ 'x-request-id': 'test-validation' }));
     expect(sdkError.message).toContain('tool_call_id');
     expect(sdkError.message).not.toContain('(no body)');
+  });
+
+  it.each(['response_format', 'max_completion_tokens', 'top_p', 'stop'])(
+    'rejects unsupported %s before starting a billable execution or calling upstream', async (field) => {
+      const res = await request(app.getHttpServer()).post(endpoint).send({ ...body, [field]: 'unsupported' }).expect(400);
+      expect(res.body.error).toMatchObject({ code: 'INVALID_PARAMETER', source: 'platform', param: field });
+      expect(res.body.errors).toEqual([{ field, message: '不支持的请求字段' }]);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(executions.start).not.toHaveBeenCalled();
+      expect(admission.acquire).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reports the exact nested field rather than the root when rejecting an unknown option', async () => {
+    const res = await request(app.getHttpServer()).post(endpoint).send({
+      ...body, stream_options: { include_usage: true, unsupported: true },
+    }).expect(400);
+    expect(res.body.error).toMatchObject({ code: 'INVALID_PARAMETER', param: 'stream_options.unsupported' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid history above 2 MiB through the model-specific parser', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(completion)));
+    await request(app.getHttpServer()).post(endpoint).send({
+      model: body.model, messages: Array.from({ length: 3 }, () => ({ role: 'user', content: 'a'.repeat(800000) })),
+    }).expect(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([400, 429, 503])('returns upstream %s with JSON before any SSE headers', async (status) => {

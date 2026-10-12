@@ -18,6 +18,7 @@ const defaults = {
   ENTERPRISE_RPM: 600,
   ENTERPRISE_TOKEN_BUDGET: 0,
   DEFAULT_MAX_TOKENS: 4096,
+  HTTP_JSON_LIMIT: '4mb',
   MAX_REQUEST_BYTES: 4194304,
   JSON_MAX_BYTES: 8388608,
   ERROR_MAX_BYTES: 65536,
@@ -51,4 +52,4 @@ for (const [file, services] of [
     assert.ok(backend.healthcheck.test.join(' ').includes('3001/health'));
   }
 }
-console.log('sep-compose tests passed (13 defaults, independent original RPM, both production backends/colors)');
+console.log('sep-compose tests passed (gateway defaults, independent original RPM and HTTP body policy, both production backends/colors)');
