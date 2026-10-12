@@ -14,6 +14,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { EnterpriseModelConfigService } from './enterprise-model-config.service';
 
 const ACME = {
@@ -86,6 +87,65 @@ describe('EnterpriseModelConfigService', () => {
 
       expect(prisma.enterpriseModelConfig.create).toHaveBeenCalled();
       expect(cfg.defaultChatModel).toBe('gemini-3.5-flash-high');
+    });
+
+    it('并发首次读取复用唯一键竞争中已创建的配置，不覆盖其策略', async () => {
+      const winner = makeConfig({
+        defaultChatModel: 'gpt-4o',
+        allowedChatModels: ['gpt-4o'],
+        allowUserSwitchModel: false,
+      });
+      const conflict = new Prisma.PrismaClientKnownRequestError('duplicate enterprise', {
+        code: 'P2002', clientVersion: '6', meta: { target: ['enterpriseId'] },
+      });
+      prisma.enterpriseModelConfig.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(winner);
+      prisma.enterpriseModelConfig.create
+        .mockResolvedValueOnce(winner)
+        .mockRejectedValueOnce(conflict);
+
+      const configs = await Promise.all([svc.get('u1'), svc.get('u2')]);
+
+      expect(configs).toEqual([configs[0], configs[0]]);
+      expect(configs[0]).toMatchObject({
+        defaultChatModel: 'gpt-4o', allowedChatModels: ['gpt-4o'], allowUserSwitchModel: false,
+      });
+      expect(prisma.enterpriseModelConfig.findUnique).toHaveBeenCalledTimes(3);
+      expect(prisma.enterpriseModelConfig.findUnique).toHaveBeenLastCalledWith({
+        where: { enterpriseId: 'ent-acme' },
+      });
+      expect(prisma.enterpriseModelConfig.update).not.toHaveBeenCalled();
+    });
+
+    it('唯一键错误后仍找不到本企业配置时保留原始错误', async () => {
+      const conflict = new Prisma.PrismaClientKnownRequestError('duplicate id', {
+        code: 'P2002', clientVersion: '6', meta: { target: ['id'] },
+      });
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
+      prisma.enterpriseModelConfig.create.mockRejectedValue(conflict);
+
+      await expect(svc.get('u1')).rejects.toBe(conflict);
+      expect(prisma.enterpriseModelConfig.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('其他数据库错误不能被初始化恢复掩盖', async () => {
+      const failure = new Prisma.PrismaClientKnownRequestError('enterprise missing', {
+        code: 'P2003', clientVersion: '6',
+      });
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
+      prisma.enterpriseModelConfig.create.mockRejectedValue(failure);
+
+      await expect(svc.get('u1')).rejects.toBe(failure);
+      expect(prisma.enterpriseModelConfig.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('已有企业配置只读，不重新创建或更新', async () => {
+      await svc.get('u1');
+
+      expect(prisma.enterpriseModelConfig.create).not.toHaveBeenCalled();
+      expect(prisma.enterpriseModelConfig.update).not.toHaveBeenCalled();
     });
 
     it('编排模型原样下发，未指定时为 null（= 跟随平台默认）', async () => {

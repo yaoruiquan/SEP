@@ -1,6 +1,7 @@
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { ClientService } from './client.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -12,6 +13,7 @@ import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
+import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 
 describe('ClientService', () => {
   let service: ClientService;
@@ -315,6 +317,46 @@ describe('ClientService', () => {
       OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }],
       subscription: { enterpriseId: 'ent-1', status: 'ACTIVE' },
     });
+  });
+
+  it('returns all subscriptions on first load when enterprise config creation races', async () => {
+    const subscriptions = ['sub-1', 'sub-2'].map((id) => ({
+      id, name: null, templateVersion: '1.0.0', status: 'ACTIVE', employeeId: 'emp-1',
+      employee: { id: 'emp-1', name: 'Employee', avatar: null, version: '1.0.0' },
+    }));
+    const config = {
+      id: 'cfg-1', enterpriseId: 'ent-1', defaultChatModel: 'gpt-4o-mini',
+      allowedChatModels: ['gpt-4o-mini'], allowUserSwitchModel: true,
+      employeeModelPolicy: 'FOLLOW_TEMPLATE', employeeDefaultModel: null, rerankModel: null,
+      createdAt: new Date('2026-10-12'), updatedAt: new Date('2026-10-12'),
+    };
+    prisma.employeeGrant.findMany.mockResolvedValue(subscriptions.map((subscription) => ({ subscription })));
+    prisma.enterpriseMember.findFirst.mockResolvedValue({ departmentId: null });
+    prisma.subscription.findFirst.mockResolvedValue({ employee: { modelId: 'gpt-4o-mini' } });
+    prisma.subscription.findUnique = jest.fn().mockResolvedValue({ config: null });
+    prisma.platformModel.findMany.mockResolvedValue([{ modelId: 'gpt-4o-mini' }]);
+    prisma.enterpriseModelConfig.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(config);
+    prisma.enterpriseModelConfig.create = jest.fn()
+      .mockResolvedValueOnce(config)
+      .mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('duplicate enterprise', {
+        code: 'P2002', clientVersion: '6', meta: { target: ['enterpriseId'] },
+      }));
+    const realPolicy = new GatewayModelPolicyService(
+      new EnterpriseModelConfigService(prisma, {} as EnterpriseContextService),
+      prisma,
+      new ConfigService(),
+    );
+    modelPolicy.resolvePolicy.mockImplementation((identity) => realPolicy.resolvePolicy(identity));
+
+    const result = await service.listSubscriptions('user-1');
+
+    expect(result.map((item) => item.subscriptionId)).toEqual(['sub-1', 'sub-2']);
+    expect(result.map((item) => item.allowedModels)).toEqual([['gpt-4o-mini'], ['gpt-4o-mini']]);
+    expect(prisma.enterpriseModelConfig.create).toHaveBeenCalledTimes(2);
+    expect(prisma.enterpriseModelConfig.findUnique).toHaveBeenCalledTimes(3);
   });
 
   it('returns the same versioned avatar in client list and runtime without exposing extra employee fields', async () => {

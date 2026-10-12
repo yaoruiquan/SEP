@@ -1,4 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, GatewayTimeoutException, HttpException, Logger } from '@nestjs/common';
+import { MODEL_RUNTIME_POLICY_FIELDS } from 'shared';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { TaskPlanningService } from './task-planning.service';
 
 describe('TaskPlanningService', () => {
@@ -6,6 +8,7 @@ describe('TaskPlanningService', () => {
   const prisma = {
     digitalEmployee: { findMany: jest.fn() },
     employeeGrant: { findMany: jest.fn() },
+    platformModel: { findUnique: jest.fn().mockResolvedValue(null) },
   };
   const enterpriseContext = {
     resolve: jest.fn().mockResolvedValue({
@@ -30,6 +33,10 @@ describe('TaskPlanningService', () => {
   };
   // 企业没指定编排模型 → 落到系统设置那一档
   const modelConfig = { getPlannerModel: jest.fn().mockResolvedValue(null) };
+  const policy = { version: 7, values: Object.fromEntries(MODEL_RUNTIME_POLICY_FIELDS.map((field) => [field.key, Number(field.defaultValue)])) };
+  const runtimePolicies = { getSnapshot: jest.fn().mockResolvedValue(policy) };
+  const release = jest.fn().mockResolvedValue(undefined);
+  const admission = { acquire: jest.fn().mockResolvedValue({ release }), reserve: jest.fn().mockResolvedValue(undefined) };
   const service = new TaskPlanningService(
     prisma as never,
     subscriptions as never,
@@ -37,6 +44,10 @@ describe('TaskPlanningService', () => {
     config as never,
     settings as never,
     modelConfig as never,
+    runtimePolicies as never,
+    admission as never,
+    new GatewayModelPolicyService({} as never, {} as never, {} as never),
+    { checkBalanceBeforeConversation: jest.fn().mockResolvedValue({ allowed: true }) } as never,
   );
 
   const validPlan = {
@@ -55,6 +66,9 @@ describe('TaskPlanningService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    runtimePolicies.getSnapshot.mockResolvedValue(policy);
+    admission.acquire.mockResolvedValue({ release });
+    admission.reserve.mockResolvedValue(undefined);
     subscriptions.findAll.mockResolvedValue([
       { id: 'subscription-1', status: 'ACTIVE', employee: { id: 'employee-1' } },
       { id: 'subscription-2', status: 'ACTIVE', employee: { id: 'employee-2' } },
@@ -138,5 +152,60 @@ describe('TaskPlanningService', () => {
     }), { status: 200 }));
 
     await expect(service.preview('user-1', { objective: '分析销售数据' })).rejects.toThrow('无效的员工或能力选择');
+  });
+
+  it('uses one snapshot, shared business admission and reserves the complete planner request', async () => {
+    prisma.platformModel.findUnique.mockResolvedValueOnce({ maxOutputTokens: 1000 } as never);
+    await service.preview('user-1', { objective: '分析销售数据' });
+    expect(runtimePolicies.getSnapshot).toHaveBeenCalledTimes(1);
+    expect(admission.acquire).toHaveBeenCalledWith({ enterpriseId: 'enterprise-1', memberId: 'member-1' }, policy);
+    expect(admission.reserve).toHaveBeenCalledWith(expect.anything(), policy,
+      expect.objectContaining({ max_tokens: 1000, messages: expect.any(Array) }), 1000);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('never calls the upstream after budget refusal and releases its lease', async () => {
+    admission.reserve.mockRejectedValueOnce(new HttpException({ code: 'MODEL_BUDGET_EXCEEDED' }, 429));
+    await expect(service.preview('user-1', { objective: '分析销售数据' })).rejects.toMatchObject({ status: 429 });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([200, 502])('times out a stalled %s response body, not just fetch headers', async (status) => {
+    jest.useFakeTimers();
+    runtimePolicies.getSnapshot.mockResolvedValueOnce({ ...policy, values: { ...policy.values, PLANNER_REQUEST_TIMEOUT_MS: 1000 } });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: status === 200,
+      json: () => new Promise(() => undefined), text: () => new Promise(() => undefined) });
+    const pending = service.preview('user-1', { objective: '分析销售数据' });
+    const assertion = expect(pending).rejects.toBeInstanceOf(GatewayTimeoutException);
+    await jest.advanceTimersByTimeAsync(1001);
+    await assertion;
+    expect(release).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
+  it('propagates client cancellation while reading the response body', async () => {
+    const abort = new AbortController();
+    (global.fetch as jest.Mock).mockImplementationOnce(async () => {
+      queueMicrotask(() => abort.abort());
+      return { ok: true, json: () => new Promise(() => undefined) };
+    });
+    await expect(service.preview('user-1', { objective: '分析销售数据' }, abort.signal)).rejects.toMatchObject({ status: 499 });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('correlates safe failure logs without exposing model content or credentials', async () => {
+    const logs = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const errors = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    (global.fetch as jest.Mock).mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: '{private-upstream-body}' } }],
+    }), { status: 200 }));
+    await expect(service.preview('user-1', { objective: 'private-prompt' })).rejects.toMatchObject({ status: 502 });
+    const start = String(logs.mock.calls[0][0]);
+    const requestId = start.match(/requestId=([^ ]+)/)?.[1];
+    expect(requestId).toBeDefined();
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`requestId=${requestId} chain=planner policyVersion=7`));
+    expect(JSON.stringify([...logs.mock.calls, ...errors.mock.calls])).not.toMatch(/private-upstream-body|private-prompt|test-key/);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });

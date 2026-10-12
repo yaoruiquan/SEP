@@ -330,4 +330,43 @@ describe('HttpExceptionFilter', () => {
     expect(body.message).toEqual(raw);
     expect(body).not.toHaveProperty('error');
   });
+
+  it.each(['/api/conversations/messages', '/api/task-planning/preview'])(
+    'preserves platform policy rejection metadata across business routes %s', path => {
+      const metadata = { rule: 'member-concurrency', dimension: 'enterprise/member', limit: 4,
+        count: 4, resetAt: 123456, retryAfterSeconds: 17, policyVersion: 8 };
+      const { response, body } = catchException(new HttpException({
+        error: { message: 'Policy rejected', code: 'PLATFORM_ADMISSION_REJECTED', source: 'platform',
+          ...metadata, rateLimit: { ...metadata, secret: 'hidden' } }, retryAfterSeconds: 17,
+      }, 429), path);
+      expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '17');
+      expect(body.error).toMatchObject({ source: 'platform', code: 'PLATFORM_ADMISSION_REJECTED', ...metadata, rateLimit: metadata });
+      expect(JSON.stringify(body)).not.toContain('hidden');
+    },
+  );
+
+  it('preserves safe platform dependency 503 metadata outside the gateway', () => {
+    const { body } = catchException(new HttpException({ error: { message: 'Unavailable',
+      source: 'platform', code: 'PLATFORM_ADMISSION_UNAVAILABLE', policyVersion: 8, credentials: 'hidden' } }, 503), '/api/tasks');
+    expect(body.error).toMatchObject({ source: 'platform', code: 'PLATFORM_ADMISSION_UNAVAILABLE', policyVersion: 8 });
+    expect(JSON.stringify(body)).not.toContain('hidden');
+  });
+
+  it.each(['MODEL_RUNTIME_POLICY_INVALID', 'MODEL_RUNTIME_POLICY_UNAVAILABLE'])(
+    'preserves safe snapshot failure %s without inventing a policy version', code => {
+      const { body } = catchException(new HttpException({ error: {
+        message: 'Snapshot unavailable', source: 'platform', code, credentials: 'hidden',
+      } }, 503), '/api/task-planning/preview');
+      expect(body.error).toMatchObject({ message: 'Snapshot unavailable', source: 'platform', code });
+      expect(body.error).not.toHaveProperty('policyVersion');
+      expect(JSON.stringify(body)).not.toContain('hidden');
+    },
+  );
+
+  it('does not broaden the ordinary business envelope to unrelated platform 503 errors', () => {
+    const raw = { message: 'Business unavailable', error: { source: 'platform', code: 'OTHER_UNAVAILABLE' } };
+    const { body } = catchException(new HttpException(raw, 503), '/api/employees');
+    expect(body.message).toBe('Business unavailable');
+    expect(body).not.toHaveProperty('error');
+  });
 });

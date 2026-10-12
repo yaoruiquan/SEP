@@ -5,9 +5,16 @@ import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterpri
 import { SkillVersionModule } from '../skill-version/skill-version.module';
 import { CapabilityInsightController } from './capability-insight.controller';
 import { CapabilityInsightService } from './capability-insight.service';
+import { GatewayPolicyModule } from '../gateway/gateway-policy.module';
 
 @Module({
-  imports: [EnterpriseModule, SkillVersionModule, SettingModule, EnterpriseModelConfigModule],
+  imports: [
+    EnterpriseModule,
+    SkillVersionModule,
+    SettingModule,
+    EnterpriseModelConfigModule,
+    GatewayPolicyModule,
+  ],
   controllers: [CapabilityInsightController],
   providers: [CapabilityInsightService],
 })

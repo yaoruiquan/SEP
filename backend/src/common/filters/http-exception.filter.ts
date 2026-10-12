@@ -12,7 +12,7 @@ function safeRateLimit(value: unknown): Record<string, string | number> | undefi
     if (typeof value[field] === 'string') result[field] = value[field];
   }
   // resetAt is Unix milliseconds, not an upstream date or a seconds timestamp.
-  for (const field of ['limit', 'windowMs', 'count', 'retryAfterSeconds', 'resetAt']) {
+  for (const field of ['limit', 'windowMs', 'count', 'retryAfterSeconds', 'resetAt', 'policyVersion']) {
     const number = value[field];
     if (typeof number === 'number' && Number.isSafeInteger(number) && number >= 0) {
       result[field] = number;
@@ -73,13 +73,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // Keep the existing business API envelope unchanged outside the gateway.
     const path = request.originalUrl.split('?')[0].toLowerCase();
-    if (path !== '/api/gateway' && !path.startsWith('/api/gateway/')) {
+    const rawError = isRecord(rawBody?.error) ? rawBody.error : undefined;
+    const versionedPolicy = typeof rawError?.policyVersion === 'number' &&
+      Number.isSafeInteger(rawError.policyVersion) && rawError.policyVersion >= 0;
+    const unavailableSnapshot = status === 503 &&
+      ['MODEL_RUNTIME_POLICY_INVALID', 'MODEL_RUNTIME_POLICY_UNAVAILABLE'].includes(String(rawError?.code));
+    const platformPolicyError = rawError?.source === 'platform' && [429, 503].includes(status) &&
+      (versionedPolicy || unavailableSnapshot);
+    if (path !== '/api/gateway' && !path.startsWith('/api/gateway/') && !platformPolicyError) {
       response.status(status).json(body);
       return;
     }
 
-    const rawError = isRecord(rawBody?.error) ? rawBody.error : undefined;
     const rateLimit = safeRateLimit(rawError?.rateLimit);
+    const policyMetadata = safeRateLimit(rawError);
     const errors = Array.isArray(rawBody?.errors)
       ? rawBody.errors
           .filter((error): error is { field: string; message: string } =>
@@ -116,6 +123,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? rawError.param
           : errors?.[0]?.field || null,
         requestId,
+        ...(policyMetadata ?? {}),
         ...(rawError?.source === 'platform' || rawError?.source === 'upstream'
           ? { source: rawError.source } : errors?.length ? { source: 'platform' } : {}),
         ...(rateLimit !== undefined ? { rateLimit } : {}),

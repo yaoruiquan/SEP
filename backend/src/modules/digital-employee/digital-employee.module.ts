@@ -8,9 +8,11 @@ import { EmployeeTrackRecordService } from './employee-track-record.service';
 import { DigitalEmployeeRunner } from './digital-employee.runner';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CapabilityModule } from '../capability/capability.module';
+import { SettingModule } from '../setting/setting.module';
+import { GatewayPolicyModule } from '../gateway/gateway-policy.module';
 
 @Module({
-  imports: [PrismaModule, CapabilityModule],
+  imports: [PrismaModule, CapabilityModule, SettingModule, GatewayPolicyModule],
   controllers: [DigitalEmployeeController, MarketController, PackageController],
   providers: [
     DigitalEmployeeService,

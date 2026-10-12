@@ -11,6 +11,7 @@ import { TaskQueueService } from './task-queue.service';
 import { TaskReconcileService } from './task-reconcile.service';
 import { TaskRunnerService } from './task-runner.service';
 import { TaskStepExecutor } from './task-step-executor.service';
+import { GatewayPolicyModule } from '../gateway/gateway-policy.module';
 
 /**
  * 任务执行引擎。
@@ -20,7 +21,12 @@ import { TaskStepExecutor } from './task-step-executor.service';
  * 拖成 800 行。
  */
 @Module({
-  imports: [ConversationModule, SettingModule, EnterpriseModelConfigModule],
+  imports: [
+    ConversationModule,
+    SettingModule,
+    EnterpriseModelConfigModule,
+    GatewayPolicyModule,
+  ],
   controllers: [TaskExecutionController],
   providers: [
     TaskExecutionService,

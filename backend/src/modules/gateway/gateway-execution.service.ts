@@ -4,7 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
-import type { ChatCompletionUsage } from 'shared';
+import type { ChatCompletionUsage, ModelRuntimePolicySnapshot } from 'shared';
 import { validGatewayUsage } from './gateway-response';
 import { timeoutValue } from './gateway-stream';
 import { waitForGatewayOperation } from './gateway-operation';
@@ -24,8 +24,12 @@ export class GatewayExecutionService implements OnModuleInit {
     void this.reconcile().catch(() => this.logger.error({ event: 'gateway_reconcile_unavailable' }));
   }
 
-  async start(claims: ClientEmploymentClaims, employeeId: string, modelId: string, requestId: string) {
-    const budget = Math.max(
+  async start(claims: ClientEmploymentClaims, employeeId: string, modelId: string, requestId: string,
+    snapshot?: ModelRuntimePolicySnapshot) {
+    const budget = snapshot ? Math.max(
+      snapshot.values.GATEWAY_STREAM_TOTAL_TIMEOUT_MS,
+      snapshot.values.GATEWAY_NON_STREAM_TIMEOUT_MS,
+    ) : Math.max(
       timeoutValue(this.config, 'GATEWAY_STREAM_TOTAL_TIMEOUT_MS', 600000),
       timeoutValue(this.config, 'GATEWAY_NON_STREAM_TIMEOUT_MS', 120000),
     );

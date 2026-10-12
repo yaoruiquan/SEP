@@ -49,6 +49,8 @@ reset() {
   MOCK_OBSERVE_FAIL=0 MOCK_SWITCH_FAIL=0
   MOCK_START_FAIL= MOCK_HEALTH_FAIL= MOCK_WEB_READY_FAIL=0 MOCK_RESUME_FAIL=0
   MOCK_RESTORE_POLICY_FAIL= MOCK_READINESS_ACTIVE=0
+  MOCK_UP_FAIL=0 MOCK_UP_PARTIAL=both MOCK_CANDIDATE_ACTIVE=0
+  MOCK_READINESS_HOLD=1 MOCK_UPLOAD_FAIL=0 MOCK_LIFECYCLE_STATE=ready
   container sep-blue-backend running 2
   container sep-blue-web
   container sep-green-backend exited
@@ -113,7 +115,7 @@ docker() {
           [[ "$MOCK_SNAPSHOT_FAIL" == 0 ]] || return 1
           boot=$(cat "$MOCK_DIR/$name.boot")
           active=$(cat "$MOCK_DIR/$name.active")
-          state=ready
+          state=$MOCK_LIFECYCLE_STATE
           marker=0
           if [[ -f "$MOCK_DIR/$name.marker" && "$(cat "$MOCK_DIR/$name.marker")" == "$boot" ]]; then
             state=draining marker=1
@@ -141,11 +143,11 @@ docker() {
           fi
           if [[ "$MOCK_READINESS_FAIL" != 0 ]]; then
             printf '%s\n' "$MOCK_READINESS_ACTIVE" > "$MOCK_DIR/$name.active"
-            MOCK_HOLD=1
+            MOCK_HOLD=$MOCK_READINESS_HOLD
           fi
           [[ "$MOCK_READINESS_FAIL" == 0 ]] || return 1
           ;;
-        *UPLOAD_LOCAL_DIR*) event "upload $name" ;;
+        *UPLOAD_LOCAL_DIR*) event "upload $name"; [[ "$MOCK_UPLOAD_FAIL" == 0 ]] ;;
         *3000/*) event "web-ready $name"; [[ "$MOCK_WEB_READY_FAIL" == 0 ]] ;;
         *) fail 'unexpected node operation' ;;
       esac
@@ -157,8 +159,15 @@ docker() {
         name=${@: -2:1}
         name=${name%-backend}
         event "compose-up $name"
-        container "sep-$name-backend"
-        container "sep-$name-web"
+        if [[ "$MOCK_UP_FAIL" == 0 || "$MOCK_UP_PARTIAL" == both || "$MOCK_UP_PARTIAL" == backend ]]; then
+          container "sep-$name-backend" running "$MOCK_CANDIDATE_ACTIVE"
+          # Force-recreate replaces the container's ephemeral control directory.
+          rm -f "$MOCK_DIR/sep-$name-backend.marker"
+        fi
+        if [[ "$MOCK_UP_FAIL" == 0 || "$MOCK_UP_PARTIAL" == both || "$MOCK_UP_PARTIAL" == web ]]; then
+          container "sep-$name-web"
+        fi
+        [[ "$MOCK_UP_FAIL" == 0 ]] || return 1
       elif [[ "$code" == *' build '* ]]; then event compose-build
       else fail "unsupported compose: $code"; fi
       ;;
@@ -176,7 +185,7 @@ prepare_deploy_revision() { DEPLOY_TAG=test; }
 prune_build_cache() { return 0; }
 ensure_upload_volume_permissions() { return 0; }
 run_migrations() { event migrate; }
-switch_caddy_upstream() { event "switch $1"; [[ "$MOCK_SWITCH_FAIL" == 0 ]]; }
+switch_caddy_upstream() { event "switch $1"; [[ "$MOCK_SWITCH_FAIL" == 0 || ( "$MOCK_SWITCH_FAIL" != 1 && "$MOCK_SWITCH_FAIL" != "$1" ) ]]; }
 observe_candidate() { event "observe $1"; [[ "$MOCK_OBSERVE_FAIL" == 0 ]]; }
 
 reset
@@ -346,6 +355,90 @@ MOCK_HOLD=1
 expect_failure cmd_stop
 no_signal
 
+# Failures before any Caddy switch retire only this invocation's candidate.
+# Successful retirement leaves ordinary deploy able to recreate and retry.
+for fault in start-both start-backend start-web start-none backend-health web-health backend-ready upload web-ready; do
+  reset
+  MOCK_CANDIDATE_ACTIVE=2 MOCK_READINESS_ACTIVE=2 MOCK_READINESS_HOLD=0
+  command=cmd_deploy
+  case "$fault" in
+    start-*) MOCK_UP_FAIL=1 MOCK_UP_PARTIAL=${fault#start-} ;;
+    backend-health) MOCK_HEALTH_FAIL=sep-green-backend command=cmd_deploy_backend ;;
+    web-health) MOCK_HEALTH_FAIL=sep-green-web command=cmd_deploy_web ;;
+    backend-ready) MOCK_READINESS_FAIL=1 command=cmd_deploy_bluegreen ;;
+    upload) MOCK_UPLOAD_FAIL=1 ;;
+    web-ready) MOCK_WEB_READY_FAIL=1 ;;
+  esac
+  expect_failure "$command"
+  [[ "$(cat "$MOCK_DIR/sep-green-backend.state")" == exited ]] || fail "$fault must retire candidate backend"
+  [[ "$(cat "$MOCK_DIR/sep-green-web.state")" == exited ]] || fail "$fault must retire candidate Web"
+  [[ "$(cat "$ACTIVE_COLOR_FILE")" == sep-blue-web ]] || fail "$fault must retain active target"
+  [[ "$(cat "$STATE_DIR/previous-target")" == sep-green-web ]] || fail "$fault must retain previous target"
+  [[ "$(cat "$MOCK_DIR/sep-blue-backend.state")" == running && "$(cat "$MOCK_DIR/sep-blue-backend.active")" == 2 ]] || fail "$fault must leave active requests alone"
+  if grep -Eq '^(switch |mark sep-blue-|TERM sep-blue-)' "$EVENTS"; then fail "$fault must not touch active target or Caddy"; fi
+  if [[ "$fault" != start-web && "$fault" != start-none ]]; then
+    before 'poll sep-green-backend 0' 'TERM sep-green-backend'
+  fi
+  if [[ "$fault" == start-both || "$fault" != start-* ]]; then
+    before 'TERM sep-green-backend' 'TERM sep-green-web'
+  fi
+  # Reset only the injected failures, preserving retired containers and policy records.
+  MOCK_UP_FAIL=0 MOCK_HEALTH_FAIL= MOCK_READINESS_FAIL=0 MOCK_UPLOAD_FAIL=0 MOCK_WEB_READY_FAIL=0
+  : > "$EVENTS"
+  cmd_deploy
+  before 'compose-up green' 'switch sep-green-web'
+  [[ "$(cat "$ACTIVE_COLOR_FILE")" == sep-green-web ]] || fail "$fault must allow ordinary retry"
+  [[ ! -f "$STATE_DIR/sep-green-backend.restart-policy" && ! -f "$STATE_DIR/sep-green-web.restart-policy" ]] || fail 'recreation must discard retired policy records'
+  [[ "$(cat "$MOCK_DIR/sep-green-backend.policy")" == unless-stopped ]] || fail 'retry must use Compose restart policy'
+done
+
+# Unknown lifecycle, failed control, and drain timeouts must preserve the pair.
+for fault in snapshot marker boot stopping control-error drain-timeout ready-timeout stop-timeout; do
+  reset
+  MOCK_HEALTH_FAIL=sep-green-web MOCK_CANDIDATE_ACTIVE=2
+  case "$fault" in
+    snapshot) MOCK_SNAPSHOT_FAIL=1 ;;
+    marker) MOCK_MARKER_FAIL=1 ;;
+    boot) MOCK_BOOT_CHANGE=1 ;;
+    stopping) MOCK_LIFECYCLE_STATE=stopping ;;
+    control-error) MOCK_LIFECYCLE_STATE=control_error ;;
+    drain-timeout) MOCK_HOLD=1 ;;
+    ready-timeout) MOCK_HEALTH_FAIL= MOCK_READINESS_FAIL=1 MOCK_READINESS_ACTIVE=2 ;;
+    stop-timeout) MOCK_STOP_FAIL=1 ;;
+  esac
+  expect_failure cmd_deploy_bluegreen
+  [[ "$(cat "$MOCK_DIR/sep-green-backend.state")" == running && "$(cat "$MOCK_DIR/sep-green-web.state")" == running ]] || fail "$fault must retain failed candidate pair"
+  [[ "$(cat "$ACTIVE_COLOR_FILE")" == sep-blue-web ]] || fail "$fault must not change active target"
+  if [[ "$fault" == ready-timeout ]]; then
+    [[ "$(cat "$MOCK_DIR/sep-green-backend.active")" == 2 ]] || fail 'readiness drain timeout must retain admitted requests'
+  fi
+  if [[ "$fault" != stop-timeout ]]; then no_signal; fi
+  if grep -Eq '^(switch |TERM sep-blue-|TERM sep-green-web)' "$EVENTS"; then fail "$fault must not switch or stop either Web/active backend"; fi
+  : > "$EVENTS"
+  expect_failure cmd_deploy_bluegreen
+  if grep -Eq '^(compose-|mark |TERM |switch )' "$EVENTS"; then fail "$fault retry must not recreate or clean retained candidate"; fi
+done
+
+# A failed/uncertain Caddy operation is past the automatic cleanup boundary.
+reset
+MOCK_SWITCH_FAIL=1
+expect_failure cmd_deploy_bluegreen
+before 'compose-up green' 'switch sep-green-web'
+no_signal
+if grep -q '^mark ' "$EVENTS"; then fail 'Caddy failure must not drain either target'; fi
+[[ "$(cat "$MOCK_DIR/sep-green-backend.state")" == running && "$(cat "$MOCK_DIR/sep-green-web.state")" == running ]] || fail 'Caddy failure must retain candidate pair'
+: > "$EVENTS"
+expect_failure cmd_deploy_bluegreen
+if grep -q '^compose-' "$EVENTS"; then fail 'Caddy failure retry must not recreate retained candidate'; fi
+
+reset
+MOCK_OBSERVE_FAIL=1 MOCK_SWITCH_FAIL=sep-blue-web
+expect_failure cmd_deploy_bluegreen
+before 'switch sep-green-web' 'switch sep-blue-web'
+no_signal
+if grep -q '^mark ' "$EVENTS"; then fail 'failed Caddy rollback must not drain either target'; fi
+[[ "$(cat "$MOCK_DIR/sep-green-backend.state")" == running && "$(cat "$MOCK_DIR/sep-green-web.state")" == running ]] || fail 'failed Caddy rollback must retain candidate pair'
+
 for command in cmd_deploy cmd_deploy_web cmd_deploy_backend cmd_deploy_bluegreen; do
   reset
   "$command"
@@ -367,4 +460,4 @@ container sep-green-backend running
 expect_failure cmd_deploy_bluegreen
 if grep -q '^compose-' "$EVENTS"; then fail 'must not recreate retained running candidate'; fi
 
-printf '%s\n' 'sep-drain mock tests passed (drain, TERM-only, readiness, rollback, restart, deployment aliases)'
+printf '%s\n' 'sep-drain mock tests passed (drain, TERM-only, readiness, rollback, restart, pre-switch retirement/retry, failure protection, deployment aliases)'

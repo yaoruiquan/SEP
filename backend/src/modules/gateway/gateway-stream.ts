@@ -1,9 +1,10 @@
 import {
   BadGatewayException,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ChatCompletionUsage } from 'shared';
+import type { ChatCompletionUsage, ModelRuntimePolicySnapshot } from 'shared';
 import { validGatewayUsage } from './gateway-response';
 
 export function timeoutValue(
@@ -24,24 +25,19 @@ export function timeoutValue(
 
 /** Owns the fetch and body time budgets until EOF, cancellation, or failure. */
 export function createGatewayStreamLifecycle(
-  config: ConfigService,
+  snapshot: ModelRuntimePolicySnapshot,
   clientSignal?: AbortSignal,
-  mode: 'stream' | 'json' = 'stream',
+  streaming: boolean = true,
 ) {
-  const jsonMs = mode === 'json' ? timeoutValue(config, 'GATEWAY_NON_STREAM_TIMEOUT_MS', 120000) : undefined;
-  const headerMs = jsonMs ?? timeoutValue(
-    config,
-    'GATEWAY_STREAM_HEADER_TIMEOUT_MS',
-    120000,
-  );
-  const idleMs = jsonMs ?? timeoutValue(config, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 120000);
-  const totalMs = jsonMs ?? timeoutValue(
-    config,
-    'GATEWAY_STREAM_TOTAL_TIMEOUT_MS',
-    600000,
-  );
+  const headerMs = streaming ? snapshot.values.GATEWAY_STREAM_HEADER_TIMEOUT_MS : snapshot.values.GATEWAY_NON_STREAM_TIMEOUT_MS;
+  const idleMs = snapshot.values.GATEWAY_STREAM_IDLE_TIMEOUT_MS;
+  const totalMs = streaming ? snapshot.values.GATEWAY_STREAM_TOTAL_TIMEOUT_MS : snapshot.values.GATEWAY_NON_STREAM_TIMEOUT_MS;
+  if (![headerMs, idleMs, totalMs].every(value => Number.isSafeInteger(value) && value > 0 && value <= 720_000)) {
+    throw new ServiceUnavailableException({ error: { message: '模型超时策略无效', type: 'server_error',
+      source: 'platform', code: 'MODEL_TIMEOUT_POLICY_INVALID', policyVersion: snapshot.version } });
+  }
   const controller = new AbortController();
-  let idleTimer: ReturnType<typeof setTimeout>;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let output: ReadableStreamDefaultController<Uint8Array> | undefined;
   let settled = false;
@@ -58,16 +54,17 @@ export function createGatewayStreamLifecycle(
     cleanup();
     controller.abort(reason);
     output?.error(reason);
-    void reader?.cancel(reason).catch(() => undefined);
+    void reader?.cancel(reason).catch(() => undefined).finally(() => reader?.releaseLock());
   }
   function timeout(code: string) {
     abort(
       new BadGatewayException({
         error: {
-          message: 'sub2api 请求超时',
+          message: streaming ? 'sub2api 流式请求超时' : 'sub2api 非流式请求超时',
           type: 'api_error',
           code,
           param: null,
+          policyVersion: snapshot.version,
         },
       }),
     );
@@ -85,7 +82,7 @@ export function createGatewayStreamLifecycle(
     );
   }
   function resetIdle() {
-    clearTimeout(idleTimer);
+    if (!streaming || idleTimer !== undefined) return;
     idleTimer = setTimeout(
       () => timeout('UPSTREAM_STREAM_IDLE_TIMEOUT'),
       idleMs,
@@ -93,11 +90,11 @@ export function createGatewayStreamLifecycle(
   }
 
   const headerTimer = setTimeout(
-    () => timeout('UPSTREAM_STREAM_HEADER_TIMEOUT'),
+    () => timeout(streaming ? 'UPSTREAM_STREAM_HEADER_TIMEOUT' : 'UPSTREAM_NON_STREAM_TIMEOUT'),
     headerMs,
   );
   const totalTimer = setTimeout(
-    () => timeout('UPSTREAM_STREAM_TOTAL_TIMEOUT'),
+    () => timeout(streaming ? 'UPSTREAM_STREAM_TOTAL_TIMEOUT' : 'UPSTREAM_NON_STREAM_TIMEOUT'),
     totalMs,
   );
   clientSignal?.addEventListener('abort', cancelClient, { once: true });
@@ -130,11 +127,13 @@ export function createGatewayStreamLifecycle(
               if (settled) return;
               if (done) {
                 cleanup();
+                reader!.releaseLock();
                 streamController.close();
                 return;
               }
               if (value.byteLength) {
                 clearTimeout(idleTimer);
+                idleTimer = undefined;
                 streamController.enqueue(value);
                 return;
               }
@@ -147,8 +146,9 @@ export function createGatewayStreamLifecycle(
           cleanup();
           controller.abort(reason);
           await reader!.cancel(reason).catch(() => undefined);
+          reader!.releaseLock();
         },
-      });
+      }, { highWaterMark: 0 });
       return new Response(body, {
         status: response.status,
         statusText: response.statusText,

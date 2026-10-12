@@ -1,4 +1,5 @@
-import { Body, Controller, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Request, Res, UseGuards } from '@nestjs/common';
+import type { Request as ExpressRequest, Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -17,10 +18,18 @@ export class TaskPlanningController {
   @ApiResponse({ status: 201, description: '返回待用户确认的任务计划' })
   @ApiResponse({ status: 400, description: '没有可用员工或任务目标无效' })
   @ApiResponse({ status: 502, description: '规划模型不可用或返回无效计划' })
-  preview(
+  async preview(
     @Body(new ZodValidationPipe(TaskPlanPreviewDtoSchema)) dto: TaskPlanPreviewDto,
-    @Request() req: { user: { id: string } },
+    @Request() req: ExpressRequest & { user: { id: string } },
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.service.preview(req.user.id, dto);
+    const abort = new AbortController();
+    const onClose = () => { if (!res.writableEnded) abort.abort(); };
+    res.once('close', onClose);
+    try {
+      return await this.service.preview(req.user.id, dto, abort.signal);
+    } finally {
+      res.off('close', onClose);
+    }
   }
 }

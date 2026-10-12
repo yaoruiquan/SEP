@@ -97,6 +97,16 @@ describe('GatewayLifecycleService', () => {
     }))).toThrow('must cover request budget plus grace');
   });
 
+  it('covers editable timeout increases even when process environment starts with a shorter budget', () => {
+    const configured = new GatewayLifecycleService(new ConfigService({
+      GATEWAY_STREAM_TOTAL_TIMEOUT_MS: '120000', GATEWAY_NON_STREAM_TIMEOUT_MS: '60000',
+    }));
+    expect(configured.snapshot()).toMatchObject({ requestBudgetMs: 600000, drainTimeoutMs: 630000 });
+    expect(() => new GatewayLifecycleService(new ConfigService({
+      GATEWAY_STREAM_TOTAL_TIMEOUT_MS: '120000', SEP_GATEWAY_DRAIN_TIMEOUT_MS: '150000',
+    }))).toThrow('must cover request budget plus grace');
+  });
+
   it.each(['0', '-1', '1.5', 'NaN', '2147483648'])('rejects invalid budget %s', (value) => {
     expect(() => new GatewayLifecycleService(new ConfigService({ GATEWAY_STREAM_TOTAL_TIMEOUT_MS: value }))).toThrow();
   });

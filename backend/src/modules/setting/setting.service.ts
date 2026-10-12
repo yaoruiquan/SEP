@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret-cipher';
-import { SETTING_FIELDS, SETTING_KEYS, SECRET_SETTING_KEYS, type SettingFieldMeta, type SettingKey } from 'shared';
+import {
+  SETTING_FIELDS, SETTING_KEYS, SECRET_SETTING_KEYS, MODEL_RUNTIME_POLICY_KEYS,
+  MODEL_RUNTIME_POLICY_REVISION, MODEL_RUNTIME_POLICY_LEGACY_KEYS,
+  type SettingFieldMeta, type SettingKey,
+} from 'shared';
 
 export type SettingSource = 'database' | 'environment' | 'default' | 'unconfigured';
 
@@ -208,6 +212,10 @@ export class SettingService {
 
   /** 更新一批配置。空字符串删除数据库覆盖并回退环境变量/默认值。 */
   async updateMany(updates: Record<string, string>): Promise<void> {
+    const reserved: readonly string[] = [...MODEL_RUNTIME_POLICY_KEYS, MODEL_RUNTIME_POLICY_REVISION, ...MODEL_RUNTIME_POLICY_LEGACY_KEYS];
+    for (const key of Object.keys(updates)) {
+      if (reserved.includes(key)) throw new BadRequestException(`配置 ${key} 不可通过通用接口编辑；请使用 /settings/model-runtime-policy，旧配置仅供历史审查`);
+    }
     if ('DEFAULT_AVATAR_STYLE' in updates) throw new BadRequestException('请通过头像风格管理切换默认风格');
     for (const [key, rawValue] of Object.entries(updates)) {
       const field = this.fieldFor(key);

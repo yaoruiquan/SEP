@@ -736,12 +736,22 @@ cmd_deploy_bluegreen() {
   run_migrations || return 1
 
   info "启动候选环境..."
-  dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web" || return 1
-  # Newly recreated containers use Compose's policy, not a retired boot's record.
-  rm -f "$STATE_DIR/sep-$candidate-backend.restart-policy" "$STATE_DIR/sep-$candidate-web.restart-policy" || return 1
-  wait_service_healthy "sep-${candidate}-backend" || return 1
-  wait_service_healthy "sep-${candidate}-web" || return 1
-  check_service_readiness "$candidate" || return 1
+  # Cleanup is safe only before the first Caddy switch attempt. Partial starts
+  # still use the normal lifecycle drain and TERM-only retirement path.
+  # Recreated containers discard retired policy records and use Compose's policy.
+  if ! dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web" ||
+     ! rm -f "$STATE_DIR/sep-$candidate-backend.restart-policy" "$STATE_DIR/sep-$candidate-web.restart-policy" ||
+     ! wait_service_healthy "sep-${candidate}-backend" ||
+     ! wait_service_healthy "sep-${candidate}-web" ||
+     ! check_service_readiness "$candidate"; then
+    error "候选启动或切流前检查失败；退役明确未切流的 ${target}"
+    if retire_target "$target"; then
+      info "候选已安全退役；修复失败原因后可重试普通部署"
+    else
+      error "候选退役失败；保留容器与排空状态，需人工介入，不能直接覆盖重试"
+    fi
+    return 1
+  fi
 
   info "切换 Caddy 到 ${target}..."
   if ! switch_caddy_upstream "$target"; then

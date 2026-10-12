@@ -6,6 +6,7 @@ import type { ChatCompletionRequest } from 'shared';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 class StreamResponse extends Writable {
   readonly chunks: Buffer[] = [];
@@ -46,6 +47,7 @@ function deferred<T>() {
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 const usage = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 };
 const requestId = 'controller-stream-request-123';
+const snapshot = policySnapshot();
 const claims: ClientEmploymentClaims = {
   sub: 'user-1', enterpriseId: 'enterprise-1', subscriptionId: 'subscription-1',
   memberId: 'member-1', sid: 'session-auth-1', type: 'client-employment', iat: 1, exp: 9999999999,
@@ -64,6 +66,8 @@ describe('GatewayController raw SSE streaming', () => {
   let release: jest.Mock;
   let releaseRequest: jest.Mock;
   let acquire: jest.Mock;
+  let reserve: jest.Mock;
+  let prepare: jest.SpyInstance;
   let beginRequest: jest.Mock;
   let log: jest.SpyInstance;
   let warn: jest.SpyInstance;
@@ -77,7 +81,10 @@ describe('GatewayController raw SSE streaming', () => {
       enterpriseId: claims.enterpriseId, subscriptionId: claims.subscriptionId,
       memberId: claims.memberId, employeeId: 'employee-1',
     });
-    jest.spyOn(service, 'prepareRequest').mockResolvedValue({ request: dto, allowedModels: [dto.model], inputBytes: 100 });
+    prepare = jest.spyOn(service, 'prepareRequest').mockResolvedValue({
+      request: { ...dto, max_tokens: 4096, stream_options: { include_usage: true } },
+      allowedModels: [dto.model], inputBytes: 100,
+    });
     forward = jest.spyOn(service, 'forwardChatCompletion');
     executions = {
       start: jest.fn().mockResolvedValue({ id: 'server-execution' }),
@@ -89,11 +96,12 @@ describe('GatewayController raw SSE streaming', () => {
     release = jest.fn().mockResolvedValue(undefined);
     releaseRequest = jest.fn();
     acquire = jest.fn().mockResolvedValue({ release });
+    reserve = jest.fn().mockResolvedValue(undefined);
     beginRequest = jest.fn().mockReturnValue(releaseRequest);
     warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
-    controller = new GatewayController(service, executions as never, { acquire } as never, { beginRequest } as never);
+    controller = new GatewayController(service, executions as never, { acquire, reserve } as never, { beginRequest } as never);
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
@@ -102,7 +110,7 @@ describe('GatewayController raw SSE streaming', () => {
     return controller.chatCompletions(
       dto, claims,
       { 'x-sep-session-id': 'session-1', 'x-sep-message-id': 'message-1' },
-      { requestId } as Request & { requestId: string },
+      { requestId, modelRuntimePolicy: snapshot } as unknown as Request & { requestId: string },
       res as unknown as ExpressResponse,
     );
   }
@@ -126,6 +134,16 @@ describe('GatewayController raw SSE streaming', () => {
     expect(executions.finish).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(releaseRequest).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(claims, dto, snapshot);
+    expect(executions.start).toHaveBeenCalledWith(claims, 'employee-1', dto.model, requestId, snapshot);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledWith(claims, snapshot);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(reserve).toHaveBeenCalledWith(claims, snapshot, {
+      ...dto, max_tokens: 4096, stream_options: { include_usage: true },
+    }, 4096);
+    expect(acquire.mock.invocationCallOrder[0]).toBeLessThan(reserve.mock.invocationCallOrder[0]);
+    expect(reserve.mock.invocationCallOrder[0]).toBeLessThan(forward.mock.invocationCallOrder[0]);
   }
 
   it('preserves no-space data fields, CRLF, split UTF-8 and an EOF tail byte-for-byte', async () => {
@@ -301,7 +319,7 @@ describe('GatewayController raw SSE streaming', () => {
     const entered = deferred<void>();
     const headers = deferred<Response>();
     let signal: AbortSignal | undefined;
-    forward.mockImplementation((_dto, _requestId, clientSignal?: AbortSignal) => {
+    forward.mockImplementation((_dto, _snapshot, _requestId, clientSignal?: AbortSignal) => {
       signal = clientSignal;
       entered.resolve();
       return headers.promise;
@@ -315,7 +333,9 @@ describe('GatewayController raw SSE streaming', () => {
       await turn();
       expect(signal).toBeInstanceOf(AbortSignal);
       expect(signal?.aborted).toBe(true);
-      expect(forward.mock.calls[0].slice(0, 2)).toEqual([dto, requestId]);
+      expect(forward.mock.calls[0].slice(0, 3)).toEqual([
+        { ...dto, max_tokens: 4096, stream_options: { include_usage: true } }, snapshot, requestId,
+      ]);
     } finally {
       headers.resolve(new Response(''));
       await outcome;
@@ -331,7 +351,7 @@ describe('GatewayController raw SSE streaming', () => {
     const body = new ReadableStream<Uint8Array>({
       start(value) { source = value; }, cancel: upstreamCancelled,
     });
-    forward.mockImplementation((_dto, _requestId, clientSignal?: AbortSignal) => {
+    forward.mockImplementation((_dto, _snapshot, _requestId, clientSignal?: AbortSignal) => {
       signal = clientSignal;
       signal?.addEventListener('abort', () => {
         try { source.error(signal?.reason ?? new Error('client disconnected')); } catch { /* Already cancelled. */ }
@@ -520,6 +540,37 @@ describe('GatewayController raw SSE streaming', () => {
       await outcome;
       expect(releaseRequest).toHaveBeenCalledTimes(1);
       expect(JSON.stringify(error.mock.calls)).toContain('gateway_admission_release_timeout');
+    } finally { pending.resolve(); jest.useRealTimers(); }
+  });
+
+  it('releases the owned lease when reservation rejects without masking the original error', async () => {
+    const failure = new Error('resource limit');
+    reserve.mockRejectedValue(failure);
+    release.mockRejectedValue(new Error('release unavailable'));
+    await expect(invoke(new StreamResponse())).rejects.toBe(failure);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(forward).not.toHaveBeenCalled();
+    expect(executions.fail).toHaveBeenCalledWith('server-execution', 'EXECUTION_FAILED', true, false);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds a pending reservation and never forwards after its late completion', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    const entered = deferred<void>();
+    const pending = deferred<void>();
+    reserve.mockImplementation(() => { entered.resolve(); return pending.promise; });
+    const outcome = invoke(new StreamResponse()).catch(error => error);
+    try {
+      await entered.promise;
+      await jest.advanceTimersByTimeAsync(5000);
+      expect(await outcome).toMatchObject({ response: { error: { code: 'PLATFORM_ADMISSION_TIMEOUT' } } });
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(releaseRequest).toHaveBeenCalledTimes(1);
+      pending.resolve();
+      await turn();
+      expect(forward).not.toHaveBeenCalled();
     } finally { pending.resolve(); jest.useRealTimers(); }
   });
 });

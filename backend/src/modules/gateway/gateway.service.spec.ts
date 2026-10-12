@@ -2,6 +2,8 @@ import { BadGatewayException, HttpException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SETTING_KEYS } from 'shared';
 import { GatewayService } from './gateway.service';
+import { GatewayModelPolicyService } from './gateway-model-policy.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 jest.mock('../setting/setting.service', () => ({ SettingService: jest.fn() }));
 
@@ -64,7 +66,7 @@ describe('GatewayService.forwardChatCompletion', () => {
   it('forwards the validated request only through sub2api', async () => {
     const upstream = new Response('{}');
     fetchMock.mockResolvedValue(upstream);
-    expect(await (await service.forwardChatCompletion(dto)).json()).toEqual({});
+    expect(await (await service.forwardChatCompletion(dto, policySnapshot())).json()).toEqual({});
     expect(fetchMock).toHaveBeenCalledWith('https://relay.test/v1/chat/completions', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-key' },
@@ -74,7 +76,7 @@ describe('GatewayService.forwardChatCompletion', () => {
 
   it('forwards the optional platform request id without changing the payload', async () => {
     fetchMock.mockResolvedValue(new Response('{}'));
-    await (await service.forwardChatCompletion(dto, 'platform-request-123')).body!.cancel();
+    await (await service.forwardChatCompletion(dto, policySnapshot(), 'platform-request-123')).body!.cancel();
     expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       headers: {
         'Content-Type': 'application/json', Authorization: 'Bearer test-key',
@@ -89,7 +91,7 @@ describe('GatewayService.forwardChatCompletion', () => {
     const error = { message: 'invalid tool message', type: 'invalid_request_error', code: 'invalid_tool', param: 'messages[2].tool_call_id' };
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status }));
     try {
-      await service.forwardChatCompletion(dto);
+      await service.forwardChatCompletion(dto, policySnapshot());
       throw new Error('Expected upstream rejection');
     } catch (exception) {
       expect(exception).toBeInstanceOf(HttpException);
@@ -114,7 +116,7 @@ describe('GatewayService.forwardChatCompletion', () => {
     fetchMock.mockResolvedValue(new Response('{}', {
       status: 429, headers: { 'Retry-After': retryAfter, 'x-request-id': 'upstream-123' },
     }));
-    await expect(service.forwardChatCompletion(dto, 'platform-123')).rejects.toMatchObject({
+    await expect(service.forwardChatCompletion(dto, policySnapshot(), 'platform-123')).rejects.toMatchObject({
       status: 429,
       response: {
         error: {
@@ -136,7 +138,7 @@ describe('GatewayService.forwardChatCompletion', () => {
       fetchMock.mockResolvedValue(new Response('not-json', {
         status: 429, headers: retryAfter === null ? {} : { 'Retry-After': retryAfter },
       }));
-      const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+      const exception = await service.forwardChatCompletion(dto, policySnapshot()).catch((error: HttpException) => error);
       expect(exception).toBeInstanceOf(HttpException);
       expect((exception as HttpException).getStatus()).toBe(429);
       expect((exception as HttpException).getResponse()).toMatchObject({
@@ -151,7 +153,7 @@ describe('GatewayService.forwardChatCompletion', () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: {
       message: { secret: 'private' }, type: ['private'], code: 123, param: { token: 'private' },
     } }), { status: 429 }));
-    const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+    const exception = await service.forwardChatCompletion(dto, policySnapshot()).catch((error: HttpException) => error);
     expect((exception as HttpException).getResponse()).toEqual({
       error: {
         message: 'sub2api 请求失败（HTTP 429）', type: 'rate_limit_error',
@@ -171,7 +173,7 @@ describe('GatewayService.forwardChatCompletion', () => {
     }), { status: 429, headers: { 'x-request-id': `upstream [31m"${'a'.repeat(300)}` } });
     fetchMock.mockResolvedValue(upstream);
 
-    const exception = await service.forwardChatCompletion(dto, 'platform-123').catch((error: HttpException) => error);
+    const exception = await service.forwardChatCompletion(dto, policySnapshot(), 'platform-123').catch((error: HttpException) => error);
     expect((exception as HttpException).getResponse()).toEqual({
       error: {
         message: 'Quota exceeded', type: 'rate_limit_error', code: 'existing_code',
@@ -188,7 +190,7 @@ describe('GatewayService.forwardChatCompletion', () => {
 
   it('ignores Retry-After on non-429 errors and does not add rate limit metadata', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 503, headers: { 'Retry-After': '12' } }));
-    const exception = await service.forwardChatCompletion(dto).catch((error: HttpException) => error);
+    const exception = await service.forwardChatCompletion(dto, policySnapshot()).catch((error: HttpException) => error);
     expect((exception as HttpException).getResponse()).toEqual({
       error: { message: 'sub2api 请求失败（HTTP 503）', type: 'api_error', code: 'UPSTREAM_ERROR', param: null },
     });
@@ -197,7 +199,7 @@ describe('GatewayService.forwardChatCompletion', () => {
 
   it.each(['', '<html>private proxy diagnostics</html>'])('gives a readable fallback without echoing a raw proxy body', async (body) => {
     fetchMock.mockResolvedValue(new Response(body, { status: 502 }));
-    await expect(service.forwardChatCompletion(dto)).rejects.toMatchObject({
+    await expect(service.forwardChatCompletion(dto, policySnapshot())).rejects.toMatchObject({
       response: { error: { message: 'sub2api 请求失败（HTTP 502）', code: 'UPSTREAM_ERROR' } },
       status: 502,
     });
@@ -205,25 +207,84 @@ describe('GatewayService.forwardChatCompletion', () => {
 
   it('maps transport failures to 502 without exposing internal connection details', async () => {
     fetchMock.mockRejectedValue(new Error('secret internal connection detail'));
-    await expect(service.forwardChatCompletion(dto)).rejects.toBeInstanceOf(BadGatewayException);
+    await expect(service.forwardChatCompletion(dto, policySnapshot())).rejects.toBeInstanceOf(BadGatewayException);
   });
 
   it('forces usage collection for streams even if the caller disables it', async () => {
+    const snapshot = policySnapshot();
+    const policy = new GatewayModelPolicyService({} as never, { platformModel: {
+      findFirst: jest.fn().mockResolvedValue({ maxOutputTokens: null, supportedFeatures: null }),
+    } } as never, new ConfigService());
+    jest.spyOn(policy, 'resolvePolicy').mockResolvedValue({
+      allowedModels: [dto.model], defaultModel: dto.model, allowUserSwitchModel: true, departmentId: null,
+    });
+    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never, policy);
+    jest.spyOn(service, 'getSub2ApiConfig').mockResolvedValue({
+      baseUrl: 'https://relay.test/v1/', apiKey: 'test-key', defaultModel: dto.model,
+    });
+    const input = { ...dto, stream: true, stream_options: { include_usage: false } };
+    const prepared = await service.prepareRequest(enterpriseClaims, input, snapshot);
+    expect(input.stream_options.include_usage).toBe(false);
+    expect(prepared.request.stream_options).toEqual({ include_usage: true });
+    expect(prepared.inputBytes).toBe(Buffer.byteLength(JSON.stringify(prepared.request)));
     fetchMock.mockResolvedValue(new Response('data:[DONE]\n\n'));
-    const response = await service.forwardChatCompletion({ ...dto, stream: true, stream_options: { include_usage: false } });
+    const response = await service.forwardChatCompletion(prepared.request, snapshot);
+    expect(fetchMock.mock.calls[0][1].body).toBe(JSON.stringify(prepared.request));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ stream_options: { include_usage: true } });
     await response.body!.cancel();
   });
 
   it('bounds error response bodies', async () => {
     fetchMock.mockResolvedValue(new Response('x'.repeat(65537), { status: 429 }));
-    await expect(service.forwardChatCompletion(dto)).rejects.toMatchObject({
+    await expect(service.forwardChatCompletion(dto, policySnapshot())).rejects.toMatchObject({
       response: { error: { code: 'UPSTREAM_RESPONSE_TOO_LARGE' } }, status: 502,
     });
   });
 });
 
+describe('GatewayService.prepareRequest snapshot normalization', () => {
+  const request = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
+  const snapshot = policySnapshot({ GATEWAY_DEFAULT_MAX_TOKENS: 4096 });
+  let findFirst: jest.Mock;
+  let service: GatewayService;
+
+  beforeEach(() => {
+    findFirst = jest.fn().mockResolvedValue({ maxOutputTokens: 1000, supportedFeatures: null });
+    const policy = new GatewayModelPolicyService({} as never, { platformModel: { findFirst } } as never, new ConfigService());
+    jest.spyOn(policy, 'resolvePolicy').mockResolvedValue({
+      allowedModels: [request.model], defaultModel: request.model, allowUserSwitchModel: true, departmentId: null,
+    });
+    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never, policy);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('normalizes to the model cap before returning the exact serialized request', async () => {
+    const result = await service.prepareRequest(enterpriseClaims, request, snapshot);
+    expect(result.request).toEqual({ ...request, max_tokens: 1000 });
+    expect(result.inputBytes).toBe(Buffer.byteLength(JSON.stringify(result.request)));
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { modelId: request.model, enabled: true, isStale: false },
+      select: { maxOutputTokens: true, supportedFeatures: true },
+    });
+  });
+
+  it('rejects model overflow and invalid metadata before admission can run', async () => {
+    await expect(service.prepareRequest(enterpriseClaims, { ...request, max_tokens: 1001 }, snapshot)).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', limit: 1000, policyVersion: 7 } },
+    });
+    findFirst.mockResolvedValue({ maxOutputTokens: -1, supportedFeatures: null });
+    await expect(service.prepareRequest(enterpriseClaims, request, snapshot)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('preserves streaming capability checks with snapshot normalization enabled', async () => {
+    findFirst.mockResolvedValue({ maxOutputTokens: 1000, supportedFeatures: { streaming: false } });
+    await expect(service.prepareRequest(enterpriseClaims, { ...request, stream: true }, snapshot)).rejects.toThrow('streaming');
+  });
+});
+
 describe('GatewayService.compute credit integration', () => {
+  const snapshot = policySnapshot();
   const enabledModel = { modelId: 'test-model' };
   const modelConfig = { allowedChatModels: ['test-model'] };
   const balanceAllowed = {
@@ -332,16 +393,16 @@ describe('GatewayService.compute credit integration', () => {
     else if (step === 'policy') prepare.mockRejectedValue(failure);
     else prisma[step].findFirst.mockRejectedValue(failure);
     const operation = step === 'policy'
-      ? service.prepareRequest(enterpriseClaims, { model: 'test-model', messages: [] })
+      ? service.prepareRequest(enterpriseClaims, { model: 'test-model', messages: [] }, snapshot)
       : service.validateAndAuthorize(enterpriseClaims);
     await expect(operation).rejects.toBe(failure);
   });
 
   it('delegates resource limits and effective model policy to the policy service', async () => {
     const dto = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
-    const result = await service.prepareRequest(enterpriseClaims, dto);
+    const result = await service.prepareRequest(enterpriseClaims, dto, snapshot);
     expect(result).toEqual({ allowedModels: ['test-model'], request: {}, inputBytes: 2 });
-    expect(prepare).toHaveBeenCalledWith(enterpriseClaims, dto);
+    expect(prepare).toHaveBeenCalledWith(enterpriseClaims, dto, snapshot);
     expect(creditService.chargeUsage).not.toHaveBeenCalled();
   });
 });

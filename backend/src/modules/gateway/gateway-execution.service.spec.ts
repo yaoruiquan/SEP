@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { GatewayExecutionService } from './gateway-execution.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 describe('Gateway execution journal and recovery', () => {
   const claims = { sub: 'user', enterpriseId: 'enterprise', memberId: 'member', subscriptionId: 'subscription' } as never;
@@ -43,6 +44,18 @@ describe('Gateway execution journal and recovery', () => {
       data: { status: 'USAGE_PENDING', inputTokens: 12, outputTokens: 8 },
     }));
     expect(credit.chargeUsage).not.toHaveBeenCalled();
+  });
+
+  it('uses the request snapshot for journal expiry rather than the process timeout', async () => {
+    const now = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      service = new GatewayExecutionService(prisma, credit, new ConfigService({ GATEWAY_STREAM_TOTAL_TIMEOUT_MS: '1000' }));
+      await service.start(claims, 'employee', 'model', 'request', policySnapshot({
+        GATEWAY_STREAM_TOTAL_TIMEOUT_MS: 600000, GATEWAY_NON_STREAM_TIMEOUT_MS: 120000,
+      }));
+      expect(prisma.gatewayExecution.create.mock.calls[0][0].data.expiresAt).toEqual(new Date(now + 720000));
+    } finally { jest.restoreAllMocks(); }
   });
 
   it.each([-1, 0.5, NaN, Infinity, 2147483648])('does not persist invalid provider tokens %s', async (tokens) => {

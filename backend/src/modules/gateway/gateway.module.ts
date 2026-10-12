@@ -10,9 +10,7 @@ import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 import { AuthModule } from '../auth/auth.module';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { GatewayAuthRateLimitService } from './gateway-auth-rate-limit.service';
-import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
-import { GatewayModelPolicyService } from './gateway-model-policy.service';
-import { GatewayAdmissionService } from './gateway-admission.service';
+import { GatewayPolicyModule } from './gateway-policy.module';
 import { GatewayExecutionService } from './gateway-execution.service';
 import { GatewayLifecycleModule } from '../../common/lifecycle/gateway-lifecycle.module';
 
@@ -23,12 +21,11 @@ import { GatewayLifecycleModule } from '../../common/lifecycle/gateway-lifecycle
     ClientModule,
     ComputeCreditModule,
     AuthModule,
-    EnterpriseModelConfigModule,
+    GatewayPolicyModule,
     GatewayLifecycleModule,
   ],
   controllers: [GatewayController],
   providers: [GatewayService, GatewayRateLimitService, GatewayRateLimitGuard,
-    ClientEmploymentGuard, GatewayAuthRateLimitService, GatewayModelPolicyService,
-    GatewayAdmissionService, GatewayExecutionService],
+    ClientEmploymentGuard, GatewayAuthRateLimitService, GatewayExecutionService],
 })
 export class GatewayModule {}

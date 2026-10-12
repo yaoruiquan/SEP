@@ -32,6 +32,7 @@ describe("ConversationStreamService —— 逐条消息的额度闸门", () => {
       conversationSession: { findUnique: jest.fn().mockResolvedValue(session) },
       subscription: { findUnique: jest.fn().mockResolvedValue({ id: "sub-1" }) },
       message: { create: jest.fn() },
+      platformModel: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     computeCredit = { checkBalanceBeforeConversation: jest.fn() };
     sessionLock = { acquireLock: jest.fn().mockRejectedValue(REACHED_LOCK) };
@@ -45,10 +46,13 @@ describe("ConversationStreamService —— 逐条消息的额度闸门", () => {
       {} as any, // settingService
       { resolve: jest.fn().mockResolvedValue({ enterpriseId: "ent-1" }) } as any,
       {} as any, // knowledgeSearch
-      { assertBudgetAllowsNewSession: jest.fn() } as any,
+      { resolveEffectiveModel: jest.fn().mockResolvedValue({ chatModel: 'model' }) } as any,
       {} as any, // uploadService
       {} as any, // attachmentContext
       computeCredit,
+      { getSnapshot: jest.fn().mockResolvedValue({ version: 0, values: {} }) } as any,
+      {} as any,
+      { internalOutputTokens: jest.fn().mockReturnValue(4096) } as any,
     );
   });
 

@@ -43,6 +43,10 @@ export const DEFAULT_MODEL_ID = "gemini-3.5-flash-high";
 // secret=true 的项加密存储，接口永不回传明文。
 // ============================================================================
 
+export * from './model-runtime-policy';
+export const UpdateSettingsDtoSchema = z.record(z.string(), z.string());
+export type UpdateSettingsDto = z.infer<typeof UpdateSettingsDtoSchema>;
+
 /**
  * 汇率默认值。真实生效值优先取系统设置（SETTING_KEYS.USD_TO_CNY_RATE），
  * 由调用方通过 calculateCost 的 rate 参数传入；此常量仅作兜底。
@@ -383,6 +387,8 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     type: "integer",
     unit: "tokens",
     min: 1,
+    editable: false,
+    description: "未接入运行链路的旧配置，仅供历史审查；请使用模型运行策略。",
   },
   {
     key: SETTING_KEYS.MAX_CONCURRENT_SESSIONS,
@@ -391,7 +397,8 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     envFallback: "MAX_CONCURRENT_SESSIONS",
     placeholder: "10",
     category: "security",
-    description: "设置为 0 表示不限制。",
+    description: "未接入运行链路的旧配置，不映射为企业模型并发；请使用模型运行策略。",
+    editable: false,
     type: "integer",
     unit: "个",
     min: 0,
@@ -522,6 +529,8 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     type: "integer",
     unit: "秒",
     min: 1,
+    editable: false,
+    description: "未接入运行链路的旧配置，不映射为各阶段超时；请使用模型运行策略。",
   },
   // 认证与安全配置
   { key: SETTING_KEYS.MAIL_ENABLED, label: "启用邮件服务", secret: false, envFallback: "MAIL_ENABLED", placeholder: "false", category: "auth", description: "用于注册验证码、密码重置、邮箱验证和安全通知。", type: "boolean", defaultValue: "false", testable: true },

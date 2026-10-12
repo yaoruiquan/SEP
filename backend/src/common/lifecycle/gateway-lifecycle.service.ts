@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, ServiceUnavailableException } from '@nestjs/c
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import { MODEL_RUNTIME_POLICY_FIELDS } from 'shared';
 
 export const GATEWAY_RUNTIME_DIRECTORY = '/tmp/sep-runtime';
 export const GATEWAY_DRAIN_FILE = `${GATEWAY_RUNTIME_DIRECTORY}/gateway-drain.json`;
@@ -28,6 +29,9 @@ export class GatewayLifecycleService implements OnModuleInit {
 
   constructor(config: ConfigService) {
     this.requestBudgetMs = Math.max(
+      ...MODEL_RUNTIME_POLICY_FIELDS
+        .filter(({ key }) => key === 'GATEWAY_STREAM_TOTAL_TIMEOUT_MS' || key === 'GATEWAY_NON_STREAM_TIMEOUT_MS')
+        .map(({ max }) => max),
       positiveInteger(config, 'GATEWAY_STREAM_TOTAL_TIMEOUT_MS', 600000),
       positiveInteger(config, 'GATEWAY_NON_STREAM_TIMEOUT_MS', 120000),
     );

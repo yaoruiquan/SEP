@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   generateText,
   isStepCount,
@@ -9,12 +14,21 @@ import {
 } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { PrismaService } from '../../prisma/prisma.service';
+import { randomUUID } from 'node:crypto';
 import { CapabilityService } from '../capability/capability.service';
 import {
   type AdapterInput,
   type CapabilityExecutionContext,
 } from '../capability/adapters/adapter.interface';
-import { DEFAULT_MODEL_ID } from 'shared';
+import { SettingService } from '../setting/setting.service';
+import { ModelRuntimePolicyService } from '../setting/model-runtime-policy.service';
+import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
+import { ModelRequestLifecycle } from '../conversation/model-request-lifecycle';
+import {
+  GatewayAdmissionService,
+  type GatewayAdmissionIdentity,
+} from '../gateway/gateway-admission.service';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 
 @Injectable()
 export class DigitalEmployeeRunner {
@@ -23,7 +37,10 @@ export class DigitalEmployeeRunner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly capabilityService: CapabilityService,
-    private readonly configService: ConfigService,
+    private readonly settings: SettingService,
+    private readonly runtimePolicy: ModelRuntimePolicyService,
+    private readonly admission: GatewayAdmissionService,
+    private readonly modelPolicy: GatewayModelPolicyService,
   ) {}
 
   async run(
@@ -32,6 +49,7 @@ export class DigitalEmployeeRunner {
     sessionId: string,
     userId?: string,
   ) {
+    const requestId = randomUUID();
     const employee = await this.prisma.digitalEmployee.findUnique({
       where: { id: employeeId },
       include: {
@@ -56,7 +74,7 @@ export class DigitalEmployeeRunner {
       throw new NotFoundException(`Digital employee ${employeeId} not found`);
     }
 
-    const executionContext = await this.resolveExecutionContext(
+    const { executionContext, identity } = await this.resolveExecutionContext(
       employeeId,
       userId,
     );
@@ -64,6 +82,7 @@ export class DigitalEmployeeRunner {
     // Build Vercel AI SDK tools from bound capabilities.
     // 明确声明为 ToolSet 避免 TS 对 generateText 泛型做无限推断（OOM 来源）。
     const tools: ToolSet = {};
+    let lifecycle: ModelRequestLifecycle;
 
     for (const binding of employee.bindings) {
       const cap = binding.capability;
@@ -79,7 +98,10 @@ export class DigitalEmployeeRunner {
           this.toJsonSchema(cap.inputSchema as Record<string, unknown>),
         ),
         execute: async (params: Record<string, unknown>) => {
-          this.logger.log(`Tool call: ${cap.name} [${cap.id}]`);
+          lifecycle.assertActive();
+          this.logger.log(
+            `[ModelPolicy] requestId=${requestId} sessionId=${sessionId} chain=digital-employee policyVersion=${snapshot.version} capabilityId=${cap.id}`,
+          );
           const input: AdapterInput = {
             userMessage: JSON.stringify(params),
             sessionId,
@@ -90,55 +112,103 @@ export class DigitalEmployeeRunner {
             input,
             executionContext,
           );
+          lifecycle.assertActive();
           return result.success ? result.output : `Error: ${result.error}`;
         },
       };
     }
 
-    // Initialise sub2api provider
-    const baseURL = this.configService.get<string>(
-      'SUB2API_BASE_URL',
-      'https://longdaoai.cn/v1',
-    );
-    const apiKey = this.configService.getOrThrow<string>('SUB2API_API_KEY');
-    const defaultModel = this.configService.get<string>(
-      'SUB2API_DEFAULT_MODEL',
-      DEFAULT_MODEL_ID,
-    );
-
-    const provider = createOpenAICompatible({
-      name: 'sub2api',
-      baseURL,
-      apiKey,
-    });
-
+    const { baseURL, apiKey, defaultModel } =
+      await resolveSub2ApiProviderConfig(this.settings);
+    const snapshot = await this.runtimePolicy.getSnapshot();
     const modelId = employee.modelId || defaultModel;
-    this.logger.log(`Running "${employee.name}" — model: ${modelId}, tools: ${Object.keys(tools).length}`);
-
-    const { text, steps } = await generateText({
-      model: provider(modelId),
-      system: employee.systemPrompt,
-      prompt: userMessage,
-      tools: Object.keys(tools).length > 0 ? tools : undefined,
-      stopWhen: isStepCount(employee.maxSteps),
+    const model = await this.prisma.platformModel.findUnique({
+      where: { modelId },
+      select: { maxOutputTokens: true },
     });
+    const maxOutputTokens = this.modelPolicy.internalOutputTokens(
+      model,
+      snapshot,
+      snapshot.values.WEB_DEFAULT_MAX_OUTPUT_TOKENS,
+    );
+    this.logger.log(
+      `[ModelPolicy] requestId=${requestId} sessionId=${sessionId} chain=digital-employee policyVersion=${snapshot.version} employeeId=${employee.id}`,
+    );
 
-    return {
-      text,
-      stepsCount: steps.length,
-      employeeId: employee.id,
-      employeeName: employee.name,
-    };
+    const lease = await this.admission.acquire(identity, snapshot);
+    try {
+      lifecycle = new ModelRequestLifecycle(
+        snapshot.values.WEB_MODEL_TOTAL_TIMEOUT_MS,
+      );
+      let reservation: Promise<void> | undefined;
+      const provider = createOpenAICompatible({
+        name: 'sub2api',
+        baseURL,
+        apiKey,
+        fetch: async (url, init) => {
+          lifecycle.assertActive();
+          if (typeof init?.body !== 'string') {
+            throw new ServiceUnavailableException('模型请求无法进行资源预留');
+          }
+          // SDK has already included tool definitions and all preceding tool results.
+          reservation ??= this.admission.reserve(
+            identity,
+            snapshot,
+            JSON.parse(init.body),
+            maxOutputTokens,
+          );
+          await lifecycle.wait(reservation);
+          lifecycle.assertActive();
+          return fetch(url, {
+            ...init,
+            signal: AbortSignal.any([
+              lifecycle.signal,
+              ...(init.signal ? [init.signal] : []),
+            ]),
+          });
+        },
+      });
+      const { text, steps } = await lifecycle.wait(
+        generateText({
+          model: provider(modelId),
+          system: employee.systemPrompt,
+          prompt: userMessage,
+          tools: Object.keys(tools).length > 0 ? tools : undefined,
+          stopWhen: isStepCount(employee.maxSteps),
+          maxOutputTokens,
+          prepareStep: () => {
+            // Automatic retries reuse the reservation; a new logical step does not.
+            reservation = undefined;
+            return {};
+          },
+          abortSignal: lifecycle.signal,
+        }),
+      );
+
+      return {
+        text,
+        stepsCount: steps.length,
+        employeeId: employee.id,
+        employeeName: employee.name,
+      };
+    } finally {
+      lifecycle?.dispose();
+      await lease.release();
+    }
   }
 
   private async resolveExecutionContext(
     employeeId: string,
     userId?: string,
-  ): Promise<CapabilityExecutionContext> {
-    if (!userId) return {};
+  ): Promise<{
+    executionContext: CapabilityExecutionContext;
+    identity: GatewayAdmissionIdentity;
+  }> {
+    if (!userId)
+      throw new ForbiddenException('模型调用需要已认证的企业成员身份');
 
     // 与 EnterpriseContextService 一致，按最早的成员关系定位企业。
-    // 此测试接口也供平台预览使用，无企业/有效授权订阅时保留无订阅执行。
+    // Preview calls still consume model resources and need a real tenant identity.
     const member = await this.prisma.enterpriseMember.findFirst({
       where: { userId },
       orderBy: { createdAt: 'asc' },
@@ -149,7 +219,7 @@ export class DigitalEmployeeRunner {
         departmentId: true,
       },
     });
-    if (!member) return { userId };
+    if (!member) throw new ForbiddenException('模型调用需要有效的企业成员身份');
 
     const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
@@ -181,9 +251,12 @@ export class DigitalEmployeeRunner {
       select: { id: true },
     });
 
-    return subscription
-      ? { subscriptionId: subscription.id, userId }
-      : { userId };
+    return {
+      identity: { enterpriseId: member.enterpriseId, memberId: member.id },
+      executionContext: subscription
+        ? { subscriptionId: subscription.id, userId }
+        : { userId },
+    };
   }
 
   /**
@@ -196,8 +269,7 @@ export class DigitalEmployeeRunner {
    */
   private toJsonSchema(schema: Record<string, unknown>): JSONSchema7 {
     const properties = schema?.properties as
-      | Record<string, JSONSchema7>
-      | undefined;
+      Record<string, JSONSchema7> | undefined;
 
     if (!properties || Object.keys(properties).length === 0) {
       return {

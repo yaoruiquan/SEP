@@ -9,9 +9,9 @@ import {
   Headers,
   Req,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Response } from 'express';
-import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -27,7 +27,7 @@ import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { GatewayService } from './gateway.service';
-import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
+import { GatewayRateLimitGuard, GatewayPolicyRequest } from './gateway-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ChatCompletionRequestSchema } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
@@ -74,7 +74,7 @@ export class GatewayController {
     dto: ChatCompletionRequest,
     @ClientEmployment() claims: ClientEmploymentClaims,
     @Headers() headers: Record<string, string | string[] | undefined>,
-    @Req() req: Request & { requestId?: string },
+    @Req() req: GatewayPolicyRequest,
     @Res() res: Response,
   ) {
     const releaseRequest = this.lifecycle.beginRequest();
@@ -96,13 +96,18 @@ export class GatewayController {
     res.on('close', onClose);
     if (res.destroyed) client.abort();
     try {
+      const snapshot = req.modelRuntimePolicy;
+      if (!snapshot) throw new ServiceUnavailableException({ error: {
+        message: '模型策略快照不可用', type: 'server_error', source: 'platform',
+        code: 'MODEL_RUNTIME_POLICY_UNAVAILABLE',
+      } });
       const authorization = await waitForGatewayOperation(this.gatewayService.validateAndAuthorize(claims), 'PLATFORM_AUTHORIZATION_TIMEOUT');
-      const { request: prepared } = await waitForGatewayOperation(this.gatewayService.prepareRequest(claims, dto), 'PLATFORM_MODEL_POLICY_TIMEOUT');
+      const { request: prepared } = await waitForGatewayOperation(this.gatewayService.prepareRequest(claims, dto, snapshot), 'PLATFORM_MODEL_POLICY_TIMEOUT');
       client.signal.throwIfAborted();
-      const execution = await waitForGatewayOperation(this.executions.start(claims, authorization.employeeId, prepared.model, requestId));
+      const execution = await waitForGatewayOperation(this.executions.start(claims, authorization.employeeId, prepared.model, requestId, snapshot));
       executionId = execution.id;
       res.setHeader('X-SEP-Execution-ID', executionId);
-      const acquisition = this.admission.acquire(claims, executionId, { ...prepared, requestId });
+      const acquisition = this.admission.acquire(claims, snapshot);
       try { lease = await waitForGatewayOperation(acquisition, 'PLATFORM_ADMISSION_TIMEOUT'); }
       catch (error) {
         // A queued Redis command can admit after we stop waiting; release its owned lease.
@@ -111,10 +116,13 @@ export class GatewayController {
         throw error;
       }
       client.signal.throwIfAborted();
+      await waitForGatewayOperation(this.admission.reserve(claims, snapshot, prepared, prepared.max_tokens!), 'PLATFORM_ADMISSION_TIMEOUT');
+      client.signal.throwIfAborted();
       const startedAt = Date.now();
       forwarding = true;
       const upstreamRes = await this.gatewayService.forwardChatCompletion(
         prepared,
+        snapshot,
         requestId,
         client.signal,
       );
@@ -131,6 +139,7 @@ export class GatewayController {
         executionId,
         subscriptionId: claims.subscriptionId,
         model: prepared.model,
+        policyVersion: snapshot.version,
         upstreamRequestId: upstreamRes.headers
           .get('x-request-id')
           ?.replace(/[^a-zA-Z0-9._:-]/g, '')

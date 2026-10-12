@@ -4,11 +4,16 @@ import {
   Injectable,
   InternalServerErrorException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
-import type { ChatCompletionRequest } from 'shared';
+import type { ChatCompletionRequest, ModelRuntimePolicySnapshot } from 'shared';
+
+export interface GatewayModelCapabilities {
+  maxOutputTokens?: number | null;
+}
 
 export interface GatewayModelIdentity {
   sub: string;
@@ -38,13 +43,13 @@ export class GatewayModelPolicyService {
     private readonly config: ConfigService,
   ) {}
 
-  async prepare(identity: GatewayModelIdentity, request: ChatCompletionRequest): Promise<{
+  async prepare(identity: GatewayModelIdentity, request: ChatCompletionRequest, snapshot?: ModelRuntimePolicySnapshot): Promise<{
     allowedModels: string[];
     request: ChatCompletionRequest;
     inputBytes: number;
   }> {
     const policy = await this.resolvePolicy(identity);
-    return { allowedModels: policy.allowedModels, ...await this.validateResources(request, policy) };
+    return { allowedModels: policy.allowedModels, ...await this.validateResources(request, policy, snapshot) };
   }
 
   async resolvePolicy(identity: GatewayModelIdentity): Promise<GatewayModelPolicy> {
@@ -96,7 +101,7 @@ export class GatewayModelPolicyService {
   }
 
   /** 返回副本供上游转发；调用方必须使用 request，才能应用默认输出预算。 */
-  async validateResources(request: ChatCompletionRequest, policy: GatewayModelPolicy): Promise<{
+  async validateResources(request: ChatCompletionRequest, policy: GatewayModelPolicy, snapshot?: ModelRuntimePolicySnapshot): Promise<{
     request: ChatCompletionRequest;
     inputBytes: number;
   }> {
@@ -136,15 +141,15 @@ export class GatewayModelPolicyService {
         'MODEL_OUTPUT_LIMIT_INVALID', '模型 maxOutputTokens 配置无效', 'model',
       ));
     }
-    const defaultMaxTokens = this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096);
+    const defaultMaxTokens = snapshot?.values.GATEWAY_DEFAULT_MAX_TOKENS ?? this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096);
     const effectiveCap = cap ?? defaultMaxTokens;
     const maxTokens = request.max_tokens ?? Math.min(defaultMaxTokens, effectiveCap);
-    if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0 || maxTokens > effectiveCap) {
+    if (!snapshot && (!Number.isSafeInteger(maxTokens) || maxTokens <= 0 || maxTokens > effectiveCap)) {
       throw new BadRequestException(platformErrorResponse(
         'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens',
       ));
     }
-    const normalized = { ...request, max_tokens: maxTokens };
+    const normalized = snapshot ? this.normalize(request, model, snapshot) : { ...request, max_tokens: maxTokens };
     let serialized: string;
     try {
       serialized = JSON.stringify(normalized);
@@ -162,6 +167,51 @@ export class GatewayModelPolicyService {
       ));
     }
     return { request: normalized, inputBytes };
+  }
+
+  resolveOutputLimit(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot): number {
+    const platform = snapshot.values.MODEL_MAX_OUTPUT_TOKENS;
+    const capability = model.maxOutputTokens;
+    if (!Number.isSafeInteger(platform) || platform <= 0 ||
+        (capability != null && (!Number.isSafeInteger(capability) || capability <= 0))) {
+      throw new ServiceUnavailableException({ error: { message: '模型输出能力配置无效', type: 'server_error',
+        code: 'MODEL_OUTPUT_POLICY_INVALID', source: 'platform', policyVersion: snapshot.version } });
+    }
+    return Math.min(platform, capability ?? platform);
+  }
+
+  normalizeInternal(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot, requested: number): number {
+    this.validateOutput(requested);
+    return Math.min(requested, this.resolveOutputLimit(model, snapshot));
+  }
+
+  internalOutputTokens(model: GatewayModelCapabilities | null, snapshot: ModelRuntimePolicySnapshot, requested: number): number {
+    return this.normalizeInternal(model ?? {}, snapshot, requested);
+  }
+
+  normalize<T extends object>(body: T & { max_tokens?: unknown }, model: GatewayModelCapabilities,
+    snapshot: ModelRuntimePolicySnapshot): T & { max_tokens: number } {
+    const limit = this.resolveOutputLimit(model, snapshot);
+    const requested = body.max_tokens;
+    if (requested !== undefined) {
+      this.validateOutput(requested);
+      if ((requested as number) > limit) {
+        throw new BadRequestException({ error: { message: `max_tokens 不得超过模型有效输出上限 ${limit}`,
+          type: 'invalid_request_error', code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', source: 'platform',
+          param: 'max_tokens', limit, policyVersion: snapshot.version } });
+      }
+    }
+    const output = requested === undefined
+      ? this.normalizeInternal(model, snapshot, snapshot.values.GATEWAY_DEFAULT_MAX_TOKENS)
+      : requested as number;
+    return { ...body, max_tokens: output };
+  }
+
+  private validateOutput(value: unknown): void {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+      throw new BadRequestException({ error: { message: '输出数量必须为正整数', type: 'invalid_request_error',
+        code: 'INVALID_PARAMETER', source: 'platform', param: 'max_tokens' } });
+    }
   }
 
   private positiveConfig(key: string, fallback: number): number {

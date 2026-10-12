@@ -19,6 +19,8 @@ import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 import { GatewayExecutionService } from './gateway-execution.service';
 import { GatewayAdmissionService } from './gateway-admission.service';
 import { GatewayAuthRateLimitService } from './gateway-auth-rate-limit.service';
+import { ModelRuntimePolicyService } from '../setting/model-runtime-policy.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 @Controller()
 class OrdinaryController {
@@ -46,7 +48,9 @@ describe('Gateway production guard chain over HTTP', () => {
     start: jest.fn(), saveUsage: jest.fn(), finish: jest.fn(), fail: jest.fn(), setUpstreamRequest: jest.fn(),
   };
   const releaseAdmission = jest.fn();
-  const admission = { acquire: jest.fn() };
+  const admission = { acquire: jest.fn(), reserve: jest.fn() };
+  const snapshot = policySnapshot();
+  const policies = { getSnapshot: jest.fn() };
   const releaseRequest = jest.fn();
   const lifecycle = { beginRequest: jest.fn() };
 
@@ -59,6 +63,7 @@ describe('Gateway production guard chain over HTTP', () => {
       controllers: [GatewayController, OrdinaryController],
       providers: [
         GatewayRateLimitGuard, GatewayRateLimitService,
+        { provide: ModelRuntimePolicyService, useValue: policies },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: (name: string) => name === 'ACCESS_JWT_SECRET' ? secret : undefined } },
         // This Redis mock exclusively models the existing subscription RPM Lua.
@@ -87,8 +92,9 @@ describe('Gateway production guard chain over HTTP', () => {
   });
   beforeEach(() => {
     now = 1_000_000;
+    policies.getSnapshot.mockReset().mockResolvedValue(snapshot);
     buckets.clear();
-    rpmEval.mockReset().mockImplementation(async (_script, _keys, key, limit, windowMs) => {
+    rpmEval.mockReset().mockImplementation(async (_script, _keys, key, _windowKey, limit, windowMs) => {
       let bucket = buckets.get(key);
       if (!bucket || now >= bucket.resetAt) {
         bucket = { count: 0, resetAt: now + windowMs };
@@ -96,7 +102,7 @@ describe('Gateway production guard chain over HTTP', () => {
       }
       const allowed = bucket.count < limit;
       if (allowed) bucket.count++;
-      return [Number(allowed), bucket.count, bucket.resetAt - now, bucket.resetAt];
+      return [Number(allowed), bucket.count, bucket.resetAt - now, bucket.resetAt, windowMs];
     });
     sessions.assertActiveSession.mockReset().mockResolvedValue(undefined);
     authProtection.consumeFailure.mockReset().mockResolvedValue({
@@ -113,6 +119,7 @@ describe('Gateway production guard chain over HTTP', () => {
       mock.mockReset().mockResolvedValue(undefined);
     }
     admission.acquire.mockReset().mockResolvedValue({ release: releaseAdmission });
+    admission.reserve.mockReset().mockResolvedValue(undefined);
     releaseRequest.mockReset();
     lifecycle.beginRequest.mockReset().mockReturnValue(releaseRequest);
     forward.mockReset().mockImplementation(async () => new Response(JSON.stringify({
@@ -143,6 +150,12 @@ describe('Gateway production guard chain over HTTP', () => {
     expect(executions.start).toHaveBeenCalledTimes(15);
     expect(releaseAdmission).toHaveBeenCalledTimes(15);
     expect(releaseRequest).toHaveBeenCalledTimes(15);
+    expect(policies.getSnapshot).toHaveBeenCalledTimes(15);
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining(identity), expect.objectContaining({ model: body.model }), snapshot);
+    expect(executions.start).toHaveBeenCalledWith(expect.objectContaining(identity), 'employee-1', body.model, expect.any(String), snapshot);
+    expect(admission.acquire).toHaveBeenCalledWith(expect.objectContaining(identity), snapshot);
+    expect(admission.reserve).toHaveBeenCalledTimes(15);
+    expect(forward).toHaveBeenCalledWith(expect.objectContaining({ model: body.model }), snapshot, expect.any(String), expect.any(AbortSignal));
   });
 
   it('reports the dedicated threshold and decreasing wait, without extending reset time', async () => {
@@ -205,6 +218,7 @@ describe('Gateway production guard chain over HTTP', () => {
     expect(authorize).not.toHaveBeenCalled();
     expect(forward).not.toHaveBeenCalled();
     expect(executions.start).not.toHaveBeenCalled();
+    expect(policies.getSnapshot).not.toHaveBeenCalled();
   });
 
   it('rejects revoked sessions through auth protection before consuming model RPM', async () => {
@@ -257,6 +271,20 @@ describe('Gateway production guard chain over HTTP', () => {
     rpmEval.mockRejectedValue(new Error('private Redis failure'));
     const res = await send().expect(503);
     expect(res.body.error).toMatchObject({ source: 'platform', code: 'PLATFORM_RATE_LIMIT_UNAVAILABLE' });
+    expect(forward).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on policy read failure before consuming model RPM', async () => {
+    policies.getSnapshot.mockRejectedValue(new ServiceUnavailableException({ error: {
+      code: 'MODEL_RUNTIME_POLICY_UNAVAILABLE', source: 'platform', message: 'Policy unavailable',
+    } }));
+    const res = await send().expect(503);
+    expect(res.body.error.code).toBe('MODEL_RUNTIME_POLICY_UNAVAILABLE');
+    expect(policies.getSnapshot).toHaveBeenCalledTimes(1);
+    expect(rpmEval).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+    expect(executions.start).not.toHaveBeenCalled();
+    expect(admission.acquire).not.toHaveBeenCalled();
     expect(forward).not.toHaveBeenCalled();
   });
 

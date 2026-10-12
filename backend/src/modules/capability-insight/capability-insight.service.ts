@@ -3,17 +3,26 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
+import { ModelRequestLifecycle } from '../conversation/model-request-lifecycle';
+import { ModelRuntimePolicyService } from '../setting/model-runtime-policy.service';
+import {
+  GatewayAdmissionService,
+  type GatewayAdmissionIdentity,
+} from '../gateway/gateway-admission.service';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import {
   InsightOutputSchema,
   type AdoptInsightDto,
@@ -37,6 +46,9 @@ export class CapabilityInsightService {
     private readonly config: ConfigService,
     private readonly settings: SettingService,
     private readonly modelConfig: EnterpriseModelConfigService,
+    private readonly runtimePolicy: ModelRuntimePolicyService,
+    private readonly admission: GatewayAdmissionService,
+    private readonly modelPolicy: GatewayModelPolicyService,
   ) {}
 
   /**
@@ -49,7 +61,11 @@ export class CapabilityInsightService {
    * 同步执行而不是入队：一次 LLM 调用 10–30 秒，前端可以等；
    * 引入队列反而要多做一套「建议生成到哪一步了」的状态机。
    */
-  async generate(userId: string, capabilityId: string, dto: GenerateInsightDto) {
+  async generate(
+    userId: string,
+    capabilityId: string,
+    dto: GenerateInsightDto,
+  ) {
     const ctx = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertEnterpriseAdmin(ctx);
 
@@ -67,10 +83,15 @@ export class CapabilityInsightService {
       },
       select: { id: true },
     });
-    if (!subscription) throw new ForbiddenException('本企业未雇佣携带该技能的硅基员工');
+    if (!subscription)
+      throw new ForbiddenException('本企业未雇佣携带该技能的硅基员工');
 
-    const baseline = await this.skillVersions.resolveEffectiveVersion(subscription.id, capabilityId);
-    if (!baseline) throw new NotFoundException('该技能还没有可用版本，无法分析');
+    const baseline = await this.skillVersions.resolveEffectiveVersion(
+      subscription.id,
+      capabilityId,
+    );
+    if (!baseline)
+      throw new NotFoundException('该技能还没有可用版本，无法分析');
 
     const [executions, personalVersions] = await Promise.all([
       this.prisma.toolExecution.findMany({
@@ -135,6 +156,7 @@ export class CapabilityInsightService {
         content: version.content.slice(0, 4000),
       })),
       modelId,
+      identity: { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
     });
 
     return this.prisma.capabilityInsight.create({
@@ -179,7 +201,9 @@ export class CapabilityInsightService {
     if (insight.status !== 'PENDING') {
       throw new ConflictException('该建议已处理过');
     }
-    throw new ForbiddenException('AI 建议正文采纳已停用，请通过客户端修改技能并提交企业审核');
+    throw new ForbiddenException(
+      'AI 建议正文采纳已停用，请通过客户端修改技能并提交企业审核',
+    );
   }
 
   /** 拒绝建议。留痕而不删除 —— 同一个现象被反复建议时能看出「已经拒过一次」。 */
@@ -190,10 +214,15 @@ export class CapabilityInsightService {
       where: { id: insightId, enterpriseId: ctx.enterpriseId },
     });
     if (!insight) throw new NotFoundException('建议不存在');
-    if (insight.status !== 'PENDING') throw new ConflictException('该建议已处理过');
+    if (insight.status !== 'PENDING')
+      throw new ConflictException('该建议已处理过');
     return this.prisma.capabilityInsight.update({
       where: { id: insight.id },
-      data: { status: 'DISMISSED', adoptedById: userId, resolvedAt: new Date() },
+      data: {
+        status: 'DISMISSED',
+        adoptedById: userId,
+        resolvedAt: new Date(),
+      },
     });
   }
 
@@ -204,26 +233,42 @@ export class CapabilityInsightService {
   private async resolveModelId(enterpriseId: string): Promise<string> {
     const override = this.config.get<string>('SUB2API_PLANNER_MODEL');
     if (override) return override;
-    const enterpriseChoice = await this.modelConfig.getPlannerModel(enterpriseId);
+    const enterpriseChoice =
+      await this.modelConfig.getPlannerModel(enterpriseId);
     if (enterpriseChoice) return enterpriseChoice;
     const { defaultModel } = await resolveSub2ApiProviderConfig(this.settings);
     return defaultModel;
   }
 
   private truncate(value: unknown) {
-    const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
-    return text.length > SAMPLE_CHARS ? `${text.slice(0, SAMPLE_CHARS)}…` : text;
+    const text =
+      typeof value === 'string' ? value : JSON.stringify(value ?? '');
+    return text.length > SAMPLE_CHARS
+      ? `${text.slice(0, SAMPLE_CHARS)}…`
+      : text;
   }
 
   private async askModel(params: {
     capabilityName: string;
     baselineContent: string;
-    executions: Array<{ member: string; status: string; input: string; output: string }>;
-    personalVersions: Array<{ owner: string; changeSummary: string | null; content: string }>;
+    executions: Array<{
+      member: string;
+      status: string;
+      input: string;
+      output: string;
+    }>;
+    personalVersions: Array<{
+      owner: string;
+      changeSummary: string | null;
+      content: string;
+    }>;
     modelId: string;
+    identity: GatewayAdmissionIdentity;
   }): Promise<InsightOutput> {
     // 中转参数统一从系统设置取，不读 env（见 resolveSub2ApiProviderConfig）
-    const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
+    const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(
+      this.settings,
+    );
     if (!apiKey) throw new BadGatewayException('分析模型未配置，请联系管理员');
 
     const material = [
@@ -246,50 +291,101 @@ export class CapabilityInsightService {
         : '## 最近的使用记录\n（无）',
     ].join('\n\n');
 
+    const snapshot = await this.runtimePolicy.getSnapshot();
+    const requestId = randomUUID();
+    this.logger.log(
+      `[ModelPolicy] requestId=${requestId} chain=capability-insight policyVersion=${snapshot.version}`,
+    );
+    const model = await this.prisma.platformModel.findUnique({
+      where: { modelId: params.modelId },
+      select: { maxOutputTokens: true },
+    });
+    const maxOutputTokens = this.modelPolicy.internalOutputTokens(
+      model,
+      snapshot,
+      Math.min(3000, snapshot.values.PLANNER_MAX_OUTPUT_TOKENS),
+    );
+    const request = {
+      model: params.modelId,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '你是企业能力沉淀分析器。企业买了一个技能，成员在使用中各自改了自己的副本、也留下了使用记录。',
+            '你的任务：找出「值得升级进企业统一版本」的共性改进点。',
+            '判据 —— 只报下面这类：',
+            '  1. 多位成员在个人副本里做了相似的修改（说明企业版缺这一块）',
+            '  2. 使用记录显示某类输入反复得不到好结果（说明正文有盲区）',
+            '  3. 成员补充了企业特定的术语、话术、流程约束（属于组织知识，应该沉淀）',
+            '不要报这类：个人偏好、一次性的临时调整、与技能职责无关的内容。',
+            'confidence 反映证据强度：多人一致且有使用记录支撑给 0.8 以上；只有一个人改过给 0.5 以下。',
+            'affectedSnippet 只在你能从当前正文里准确定位到片段时给出，定位不到就省略这个字段，不要编。',
+            '没有值得沉淀的内容时返回空数组 —— 硬凑建议会让管理员失去对这个功能的信任。',
+            '只返回一个合法 JSON 对象，不要 Markdown 代码块：',
+            '{ "findings": [{ "phenomenon": string, "suggestion": string, "affectedSnippet"?: string, "confidence": number }] }',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: `技能名称：${params.capabilityName}\n\n${material}`,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: maxOutputTokens,
+    };
+    const lease = await this.admission.acquire(params.identity, snapshot);
+    const lifecycle = new ModelRequestLifecycle(
+      snapshot.values.PLANNER_REQUEST_TIMEOUT_MS,
+      undefined,
+      'planner',
+    );
+    let response: Response | undefined;
     try {
-      const response = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: params.modelId,
-          messages: [
-            {
-              role: 'system',
-              content: [
-                '你是企业能力沉淀分析器。企业买了一个技能，成员在使用中各自改了自己的副本、也留下了使用记录。',
-                '你的任务：找出「值得升级进企业统一版本」的共性改进点。',
-                '判据 —— 只报下面这类：',
-                '  1. 多位成员在个人副本里做了相似的修改（说明企业版缺这一块）',
-                '  2. 使用记录显示某类输入反复得不到好结果（说明正文有盲区）',
-                '  3. 成员补充了企业特定的术语、话术、流程约束（属于组织知识，应该沉淀）',
-                '不要报这类：个人偏好、一次性的临时调整、与技能职责无关的内容。',
-                'confidence 反映证据强度：多人一致且有使用记录支撑给 0.8 以上；只有一个人改过给 0.5 以下。',
-                'affectedSnippet 只在你能从当前正文里准确定位到片段时给出，定位不到就省略这个字段，不要编。',
-                '没有值得沉淀的内容时返回空数组 —— 硬凑建议会让管理员失去对这个功能的信任。',
-                '只返回一个合法 JSON 对象，不要 Markdown 代码块：',
-                '{ "findings": [{ "phenomenon": string, "suggestion": string, "affectedSnippet"?: string, "confidence": number }] }',
-              ].join('\n'),
-            },
-            { role: 'user', content: `技能名称：${params.capabilityName}\n\n${material}` },
-          ],
-          temperature: 0.2,
-          max_tokens: 3000,
+      // Admission errors must keep their platform status/code rather than become upstream 502.
+      await lifecycle.wait(
+        this.admission.reserve(
+          params.identity,
+          snapshot,
+          request,
+          maxOutputTokens,
+        ),
+      );
+      lifecycle.assertActive();
+      response = await lifecycle.wait(
+        fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
+          signal: lifecycle.signal,
         }),
-      });
+      );
       if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        throw new Error(`relay ${response.status}: ${detail.slice(0, 240)}`);
+        const detail = await lifecycle.wait(response.text());
+        throw new BadGatewayException(
+          `relay ${response.status}: ${detail.slice(0, 240)}`,
+        );
       }
-      const payload = (await response.json()) as {
+      const payload = (await lifecycle.wait(response.json())) as {
         choices?: Array<{ message?: { content?: string } }>;
       };
       const text = payload.choices?.[0]?.message?.content;
-      if (!text) throw new Error('分析模型返回了空内容');
+      if (!text) throw new BadGatewayException('分析模型返回了空内容');
       return InsightOutputSchema.parse(this.extractJson(text));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`能力建议生成失败: ${message}`);
+      if (lifecycle.signal.aborted) throw lifecycle.signal.reason;
+      if (error instanceof HttpException) throw error;
+      this.logger.error(
+        `Model request failed requestId=${requestId} chain=capability-insight policyVersion=${snapshot.version} status=internal`,
+      );
       throw new BadGatewayException('分析模型暂时不可用，请稍后重试');
+    } finally {
+      lifecycle.dispose();
+      if (response?.body && !response.body.locked)
+        await response.body.cancel().catch(() => undefined);
+      await lease.release();
     }
   }
 

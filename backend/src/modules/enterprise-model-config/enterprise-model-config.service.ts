@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import type {
@@ -50,7 +51,6 @@ export class EnterpriseModelConfigService {
   }
 
   private async getForEnterprise(enterpriseId: string) {
-
     let config = await this.prisma.enterpriseModelConfig.findUnique({
       where: { enterpriseId },
     });
@@ -65,6 +65,15 @@ export class EnterpriseModelConfigService {
           ...this.getEffectiveEmbeddingConfig(),
           employeeModelPolicy: 'FOLLOW_TEMPLATE',
         },
+      }).catch(async (error: unknown) => {
+        // Another request may have initialized this enterprise after the read.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const existing = await this.prisma.enterpriseModelConfig.findUnique({
+            where: { enterpriseId },
+          });
+          if (existing) return existing;
+        }
+        throw error;
       });
     }
 

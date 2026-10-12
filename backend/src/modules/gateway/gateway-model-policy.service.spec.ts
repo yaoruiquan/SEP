@@ -4,6 +4,7 @@ import { EnterpriseModelConfigService } from '../enterprise-model-config/enterpr
 import { ClientService } from '../client/client.service';
 import { ChatCompletionRequestSchema } from 'shared';
 import { GatewayModelPolicyService } from './gateway-model-policy.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 jest.mock('../setting/setting.service', () => ({ SettingService: jest.fn() }));
 
@@ -335,5 +336,84 @@ describe('GatewayModelPolicyService', () => {
     expect(listed[0].allowedModels).toEqual(['model-a']);
     expect(prisma.subscription.findFirst).toHaveBeenCalledTimes(2);
     await expect(service.prepare(identity, request({ model: 'model-b' }))).rejects.toThrow(ForbiddenException);
+  });
+
+  it('adds snapshot defaults without mutating tools or history', () => {
+    const body = request({ tools: [{ type: 'function', function: { name: 'tool' } }] });
+    expect(service.normalize(body, { maxOutputTokens: 1024 }, policySnapshot())).toEqual({ ...body, max_tokens: 1024 });
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(service.normalize(body, { maxOutputTokens: null }, policySnapshot()).max_tokens).toBe(4096);
+  });
+
+  it('uses the platform ceiling independently of default output and missing model metadata', () => {
+    expect(service.resolveOutputLimit({}, policySnapshot())).toBe(32768);
+    expect(service.resolveOutputLimit({ maxOutputTokens: 100000 }, policySnapshot())).toBe(32768);
+    expect(service.resolveOutputLimit({ maxOutputTokens: 100 }, policySnapshot())).toBe(100);
+  });
+
+  it('rejects explicit client overflow and clamps only internal defaults', () => {
+    expect(() => service.normalize({ max_tokens: 101 }, { maxOutputTokens: 100 }, policySnapshot())).toThrow(
+      expect.objectContaining({ status: 400, response: { error: expect.objectContaining({
+        code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', param: 'max_tokens', limit: 100, policyVersion: 7,
+      }) } }),
+    );
+    expect(service.internalOutputTokens({ maxOutputTokens: 100 }, policySnapshot(), 4096)).toBe(100);
+    expect(service.internalOutputTokens(null, policySnapshot(), 4000)).toBe(4000);
+    expect(service.normalizeInternal({}, policySnapshot({ MODEL_MAX_OUTPUT_TOKENS: 2000 }), 4096)).toBe(2000);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])('fails closed on invalid output capability %p', maxOutputTokens => {
+    expect(() => service.resolveOutputLimit({ maxOutputTokens }, policySnapshot()))
+      .toThrow(expect.objectContaining({ status: 503 }));
+    expect(() => service.resolveOutputLimit({}, policySnapshot({ MODEL_MAX_OUTPUT_TOKENS: maxOutputTokens })))
+      .toThrow(expect.objectContaining({ status: 503 }));
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, '100', null])('rejects invalid explicit snapshot output %p', max_tokens => {
+    expect(() => service.normalize({ max_tokens }, {}, policySnapshot())).toThrow(expect.objectContaining({ status: 400 }));
+  });
+
+  it('uses the captured snapshot for prepare and revalidation instead of environment output defaults', async () => {
+    jest.spyOn(config, 'get').mockImplementation((key: string) => (key === 'GATEWAY_DEFAULT_MAX_TOKENS' ? -1 : undefined) as never);
+    const snapshot = policySnapshot({ GATEWAY_DEFAULT_MAX_TOKENS: 512, MODEL_MAX_OUTPUT_TOKENS: 2048 });
+    const dto = request({ max_tokens: 1500 });
+    expect((await service.prepare(identity, dto, snapshot)).request.max_tokens).toBe(1500);
+    expect((await service.prepare(identity, request(), snapshot)).request.max_tokens).toBe(512);
+    const policy = await service.resolvePolicy(identity);
+    expect((await service.validateResources(dto, policy, snapshot)).request.max_tokens).toBe(1500);
+    await expect(service.prepare(identity, request({ max_tokens: 2049 }), snapshot))
+      .rejects.toMatchObject({ status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', policyVersion: 7 } } });
+  });
+
+  it('retains ownership and department authorization on the snapshot preparation path', async () => {
+    const snapshot = policySnapshot();
+    prisma.enterpriseMember.findFirst.mockResolvedValueOnce(null);
+    await expect(service.prepare(identity, request(), snapshot)).rejects.toThrow(ForbiddenException);
+    expect(prisma.platformModel.findFirst).not.toHaveBeenCalled();
+    prisma.subscription.findFirst.mockResolvedValueOnce(null);
+    await expect(service.prepare(identity, request(), snapshot)).rejects.toThrow(ForbiddenException);
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({ allowedChatModels: ['model-a'] }));
+    prisma.departmentModelPolicy.findUnique.mockResolvedValue({ defaultChatModel: null, allowedChatModels: ['model-b'] });
+    await expect(service.prepare(identity, request(), snapshot)).rejects.toThrow(ForbiddenException);
+    expect(prisma.platformModel.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('retains availability, feature support, model caps and serialized size checks with a snapshot', async () => {
+    const snapshot = policySnapshot();
+    prisma.platformModel.findFirst.mockResolvedValueOnce(null);
+    await expect(service.prepare(identity, request(), snapshot)).rejects.toThrow(BadRequestException);
+    prisma.platformModel.findFirst.mockResolvedValue({ maxOutputTokens: 100, supportedFeatures: { streaming: false, functionCalling: false } });
+    await expect(service.prepare(identity, request({ stream: true }), snapshot)).rejects.toThrow('streaming');
+    await expect(service.prepare(identity, request({ tool_choice: 'required' }), snapshot)).rejects.toThrow('functionCalling');
+    await expect(service.prepare(identity, request({ messages: [
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'tool', arguments: '{}' } }] },
+      { role: 'tool', content: 'done', tool_call_id: 'call-1' },
+    ] }), snapshot))
+      .rejects.toThrow('functionCalling');
+    await expect(service.prepare(identity, request({ max_tokens: 101 }), snapshot))
+      .rejects.toMatchObject({ response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', limit: 100 } } });
+    expect((await service.prepare(identity, request(), snapshot)).request.max_tokens).toBe(100);
+    jest.spyOn(config, 'get').mockImplementation((key: string) => (key === 'GATEWAY_MAX_REQUEST_BYTES' ? 10 : undefined) as never);
+    await expect(service.prepare(identity, request(), snapshot)).rejects.toThrow(PayloadTooLargeException);
   });
 });

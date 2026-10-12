@@ -13,6 +13,7 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  HttpException,
   BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -127,6 +128,7 @@ export class ConversationController {
    * Content-Type: text/event-stream
    */
   @Post(':id/messages')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送消息（SSE 流式返回）' })
   @ApiResponse({ status: 200, description: 'SSE 事件流' })
   async sendMessage(
@@ -138,11 +140,18 @@ export class ConversationController {
     @Request() req: AuthenticatedRequest,
     @Res() res: Response,
   ) {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
+    const abort = new AbortController();
+    const policyAbort = new AbortController();
+    const onClose = () => { if (!res.writableEnded) abort.abort(); };
+    res.once('close', onClose);
+    const startStream = () => {
+      if (res.headersSent) return;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+    };
 
     try {
       const generator = this.streamService.streamConversation(
@@ -151,16 +160,40 @@ export class ConversationController {
         req.user.id,
         dto.targetEmployeeId, // 传递目标员工 ID（多员工协作）
         dto.attachments, // 多模态附件
+        abort.signal,
+        (reason) => policyAbort.abort(reason),
       );
 
       for await (const sseEvent of generator) {
-        res.write(`event: ${sseEvent.event}\ndata: ${JSON.stringify(sseEvent.data)}\n\n`);
+        if (abort.signal.aborted) break;
+        startStream();
+        if (!res.write(`event: ${sseEvent.event}\ndata: ${JSON.stringify(sseEvent.data)}\n\n`)) {
+          await new Promise<void>((resolve) => {
+            if (policyAbort.signal.aborted || abort.signal.aborted) return resolve();
+            const done = () => {
+              res.off('drain', done);
+              res.off('close', done);
+              policyAbort.signal.removeEventListener('abort', done);
+              resolve();
+            };
+            res.once('drain', done);
+            res.once('close', done);
+            policyAbort.signal.addEventListener('abort', done, { once: true });
+          });
+        }
       }
     } catch (err) {
-      this.logger.error(`SSE error for session ${id}`, err);
-      res.write(`event: error\ndata: ${JSON.stringify({ message: (err as Error).message })}\n\n`);
+      this.logger.error(`SSE error session=${id} status=${err instanceof HttpException ? err.getStatus() : 'internal'}`);
+      if (!res.headersSent && !abort.signal.aborted) throw err;
+      if (!abort.signal.aborted) {
+        const response = err instanceof HttpException ? err.getResponse() : undefined;
+        const details = response && typeof response === 'object' && 'error' in response &&
+          response.error && typeof response.error === 'object' ? response.error : response;
+        res.write(`event: error\ndata: ${JSON.stringify({ message: err instanceof HttpException ? err.message : '对话处理失败，请稍后重试', ...(details && typeof details === 'object' ? details : {}) })}\n\n`);
+      }
     } finally {
-      res.end();
+      res.off('close', onClose);
+      if (res.headersSent && !res.destroyed) res.end();
     }
   }
 }

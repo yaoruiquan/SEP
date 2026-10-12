@@ -12,6 +12,7 @@ import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterpri
 import { UploadModule } from '../upload/upload.module';
 import { ComputeCreditModule } from '../compute-credit/compute-credit.module';
 import { AttachmentContextService } from './attachment-context.service';
+import { GatewayPolicyModule } from '../gateway/gateway-policy.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AttachmentContextService } from './attachment-context.service';
     SubscriptionModule,
     ModelModule,
     SettingModule,
+    GatewayPolicyModule,
     KnowledgeModule,
     EnterpriseModelConfigModule,
     // 统一人民币算力账本：对话前余额闸门 + 对话后扣费

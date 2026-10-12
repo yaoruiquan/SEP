@@ -36,13 +36,16 @@ import {
   type OAuthProviderName,
   type SettingView,
 } from '@/features/admin/use-admin';
+import ModelRuntimePolicySettings from './ModelRuntimePolicySettings';
+import { isDedicatedPolicySetting, isLegacyPolicySetting } from './model-runtime-policy-form';
 
-const CATEGORY_ORDER = ['overview', 'platform', 'auth', 'ai', 'billing', 'payments', 'users', 'security', 'notifications', 'runtime', 'general'];
+const CATEGORY_ORDER = ['overview', 'platform', 'auth', 'ai', 'model-runtime-policy', 'billing', 'payments', 'users', 'security', 'notifications', 'runtime', 'general'];
 const CATEGORY_META: Record<string, { label: string; description: string; icon: typeof ShieldCheck }> = {
   overview: { label: '概览', description: '查看配置健康度与生效来源', icon: Sparkles },
   platform: { label: '平台信息', description: '品牌、客服与备案信息', icon: SlidersHorizontal },
   auth: { label: '认证与安全', description: '邮件、钉钉、微信、QQ 登录与登录风控', icon: ShieldCheck },
   ai: { label: 'AI 服务', description: '上游渠道、默认模型与响应策略', icon: Sparkles },
+  'model-runtime-policy': { label: '模型运行策略', description: '模型超时、业务请求频率、并发与资源预留', icon: SlidersHorizontal },
   billing: { label: '计费与额度', description: '汇率、单价与算力赠送规则', icon: Database },
   payments: { label: '支付与收款', description: '支付渠道和平台收款配置', icon: Database },
   users: { label: '用户与企业', description: '注册、审核与使用限制', icon: UsersRound },
@@ -95,26 +98,27 @@ export default function SettingsCenter() {
   const grouped = useMemo(() => {
     const map = new Map<string, SettingView[]>();
     for (const setting of settings ?? []) {
+      if (isDedicatedPolicySetting(setting.key)) continue;
       const category = categoryFor(setting);
       map.set(category, [...(map.get(category) ?? []), setting]);
     }
     return map;
   }, [settings]);
 
-  const categories = useMemo(() => CATEGORY_ORDER.filter((key) => key === 'overview' || grouped.has(key)), [grouped]);
+  const categories = useMemo(() => CATEGORY_ORDER.filter((key) => key === 'overview' || key === 'model-runtime-policy' || grouped.has(key)), [grouped]);
   const configuredCount = (settings ?? []).filter((setting) => setting.configured).length;
   const saveCategory = async (category: string) => {
     const fields = grouped.get(category) ?? [];
     const payload: Record<string, string> = {};
     for (const setting of fields) {
-      if (setting.editable === false) continue;
+      if (setting.editable === false || isLegacyPolicySetting(setting.key) || isDedicatedPolicySetting(setting.key)) continue;
       const value = edits[setting.key] ?? '';
       if (setting.secret && !value.trim()) continue;
       payload[setting.key] = value.trim();
     }
     try {
       await update.mutateAsync(payload);
-      toast.success('本分类配置已保存', '新的运行时配置已生效；敏感字段不会回显。');
+      toast.success('本分类配置已保存', '配置已写入；标记需重启的项目仍需重启服务。敏感字段不会回显。');
     } catch (saveError) {
       toast.error(`保存失败：${(saveError as Error).message}`);
     }
@@ -133,14 +137,15 @@ export default function SettingsCenter() {
             const Icon = meta.icon;
             const count = key === 'overview' ? configuredCount : (grouped.get(key)?.filter((item) => item.configured).length ?? 0);
             return <button key={key} onClick={() => setActiveCategory(key)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${activeCategory === key ? 'bg-primary/10 text-primary' : 'text-fg-muted hover:bg-bg-subtle hover:text-fg-base'}`}>
-              <Icon className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1 truncate">{meta.label}</span><span className="text-xs text-fg-subtle">{key === 'overview' ? `${count}/${settings?.length ?? 0}` : count}</span><ChevronRight className="h-3.5 w-3.5" />
+              <Icon className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1 truncate">{meta.label}</span>{key !== 'model-runtime-policy' && <span className="text-xs text-fg-subtle">{key === 'overview' ? `${count}/${settings?.length ?? 0}` : count}</span>}<ChevronRight className="h-3.5 w-3.5" />
             </button>;
           })}
         </CardContent>
       </Card>
 
       <div className="min-w-0 space-y-6">
-        {activeCategory === 'overview' ? <Overview settings={settings ?? []} onNavigate={setActiveCategory} /> : <CategoryPanel category={activeCategory} fields={grouped.get(activeCategory) ?? []} edits={edits} setEdits={setEdits} onSave={() => saveCategory(activeCategory)} saving={update.isPending} />}
+        <div hidden={activeCategory !== 'model-runtime-policy'}><ModelRuntimePolicySettings /></div>
+        {activeCategory === 'overview' ? <Overview settings={(settings ?? []).filter((setting) => !isDedicatedPolicySetting(setting.key))} onNavigate={setActiveCategory} /> : activeCategory !== 'model-runtime-policy' && <CategoryPanel category={activeCategory} fields={grouped.get(activeCategory) ?? []} edits={edits} setEdits={setEdits} onSave={() => saveCategory(activeCategory)} saving={update.isPending} />}
       </div>
     </div>
   );
@@ -149,7 +154,7 @@ export default function SettingsCenter() {
 function Overview({ settings, onNavigate }: { settings: SettingView[]; onNavigate: (category: string) => void }) {
   const configured = settings.filter((setting) => setting.configured).length;
   const secret = settings.filter((setting) => setting.secret);
-  const incomplete = settings.filter((setting) => !setting.configured && setting.editable !== false);
+  const incomplete = settings.filter((setting) => !setting.configured && setting.editable !== false && !isLegacyPolicySetting(setting.key));
   return <>
     <div><p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">运营配置</p><h2 className="mt-2 text-xl font-semibold">系统配置概览</h2><p className="mt-1 text-sm text-fg-muted">配置优先级为数据库覆盖 → 环境变量 → 系统默认。密钥仅展示配置状态，不回传明文。</p></div>
     <div className="grid gap-4 sm:grid-cols-3">
@@ -240,10 +245,10 @@ function OAuthTesting({ provider, label, fields, edits, setEdits }: { provider: 
 
 function SettingField({ setting, value, onChange }: { setting: SettingView; value: string; onChange: (value: string) => void }) {
   const type = inputType(setting);
-  const disabled = setting.editable === false;
+  const disabled = setting.editable === false || isLegacyPolicySetting(setting.key) || isDedicatedPolicySetting(setting.key);
   const source = sourceLabel(setting.source);
   if (type === 'switch') return <div className="rounded-md border border-border p-4 md:col-span-2"><div className="flex items-center justify-between gap-4"><div><div className="flex items-center gap-2"><span className="text-sm font-medium">{setting.label}</span>{setting.configured && <Badge variant="secondary">已配置</Badge>}</div><p className="mt-1 text-xs text-fg-muted">{setting.description ?? ''}</p></div><Switch checked={value === 'true'} disabled={disabled} onCheckedChange={(checked) => onChange(checked ? 'true' : 'false')} /></div><FieldMeta setting={setting} source={source} /></div>;
   return <div className="space-y-2"><div className="flex items-start justify-between gap-3"><div><label className="text-sm font-medium">{setting.label}</label><p className="mt-1 text-xs text-fg-muted">{setting.description ?? ''}</p></div>{setting.secret && <KeyRound className="h-4 w-4 shrink-0 text-warning" />}</div><Input type={type} value={value} disabled={disabled} placeholder={setting.secret ? (setting.configured ? '已配置，留空保持不变' : setting.placeholder ?? '请输入密钥') : setting.placeholder} onChange={(event) => onChange(event.target.value)} /><FieldMeta setting={setting} source={source} /></div>;
 }
 
-function FieldMeta({ setting, source }: { setting: SettingView; source: string }) { return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-subtle"><span className="inline-flex items-center gap-1"><Database className="h-3 w-3" />{source}</span>{setting.unit && <span>单位：{setting.unit}</span>}{setting.restartRequired && <span className="inline-flex items-center gap-1 text-warning"><RotateCcw className="h-3 w-3" />需重启</span>}{setting.testable && <span className="inline-flex items-center gap-1 text-primary"><FlaskConical className="h-3 w-3" />可测试</span>}</div>; }
+function FieldMeta({ setting, source }: { setting: SettingView; source: string }) { return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-subtle"><span className="inline-flex items-center gap-1"><Database className="h-3 w-3" />{source}</span>{isLegacyPolicySetting(setting.key) && <span className="text-warning">未接入执行，旧值仅供审查；请使用模型运行策略。</span>}{setting.unit && <span>单位：{setting.unit}</span>}{setting.restartRequired && <span className="inline-flex items-center gap-1 text-warning"><RotateCcw className="h-3 w-3" />需重启</span>}{setting.testable && <span className="inline-flex items-center gap-1 text-primary"><FlaskConical className="h-3 w-3" />可测试</span>}</div>; }

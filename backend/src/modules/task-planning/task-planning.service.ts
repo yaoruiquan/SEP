@@ -3,15 +3,23 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  HttpException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { resolveSub2ApiProviderConfig } from '../conversation/sub2api-provider-config';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { DEFAULT_MODEL_ID } from 'shared';
+import { type ModelRuntimePolicySnapshot } from 'shared';
+import { ModelRuntimePolicyService } from '../setting/model-runtime-policy.service';
+import { GatewayAdmissionService } from '../gateway/gateway-admission.service';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
+import { ModelRequestLifecycle } from '../conversation/model-request-lifecycle';
+import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 import {
   PlannerOutputSchema,
   type PlannerOutput,
@@ -40,9 +48,13 @@ export class TaskPlanningService {
     private readonly config: ConfigService,
     private readonly settings: SettingService,
     private readonly modelConfig: EnterpriseModelConfigService,
+    private readonly runtimePolicies: ModelRuntimePolicyService,
+    private readonly admission: GatewayAdmissionService,
+    private readonly modelPolicy: GatewayModelPolicyService,
+    private readonly computeCredit: ComputeCreditService,
   ) {}
 
-  async preview(userId: string, dto: TaskPlanPreviewDto) {
+  async preview(userId: string, dto: TaskPlanPreviewDto, signal?: AbortSignal) {
     const context = await this.enterpriseContext.resolve(userId);
     const grants = await this.prisma.employeeGrant.findMany({
       where: {
@@ -107,11 +119,20 @@ export class TaskPlanningService {
 
     // 先解析模型再请求：报错文案里要带上模型名，否则用户不知道该去改哪个设置
     const plannerModel = await this.resolvePlannerModel(context.enterpriseId);
-    const plannerOutput: PlannerOutput = await this.generatePlan(
-      dto.objective,
-      candidates,
-      plannerModel,
-    );
+    const gate = await this.computeCredit.checkBalanceBeforeConversation(context.enterpriseId, undefined, userId);
+    if (!gate.allowed) throw new ForbiddenException({ code: 'COMPUTE_BLOCKED', message: gate.reason ?? '算力余额不足' });
+    signal?.throwIfAborted();
+    const policy = await this.runtimePolicies.getSnapshot();
+    const identity = { enterpriseId: context.enterpriseId, memberId: context.memberId };
+    const model = await this.prisma.platformModel.findUnique({ where: { modelId: plannerModel }, select: { maxOutputTokens: true } });
+    const outputTokens = this.modelPolicy.internalOutputTokens(model, policy, policy.values.PLANNER_MAX_OUTPUT_TOKENS);
+    const lease = await this.admission.acquire(identity, policy);
+    let plannerOutput: PlannerOutput;
+    try {
+      plannerOutput = await this.generatePlan(dto.objective, candidates, plannerModel, identity, policy, outputTokens, signal);
+    } finally {
+      await lease.release();
+    }
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const stepIds = plannerOutput.steps.map((_, index) => `step-${index + 1}`);
     const steps = plannerOutput.steps.flatMap((step, index) => {
@@ -180,6 +201,10 @@ export class TaskPlanningService {
     objective: string,
     candidates: CandidateEmployee[],
     modelId: string,
+    identity: { enterpriseId: string; memberId: string },
+    policy: ModelRuntimePolicySnapshot,
+    outputTokens: number,
+    signal?: AbortSignal,
   ): Promise<PlannerOutput> {
     // 走系统设置而不是 env —— 这里原来直接读 ConfigService，而线上 env 里的
     // SUB2API_API_KEY 已失效、SystemSetting 里的是有效的，于是「对话正常、
@@ -187,14 +212,7 @@ export class TaskPlanningService {
     const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(this.settings);
     const catalog = JSON.stringify(candidates, null, 2);
 
-    try {
-      const response = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+    const body = {
           model: modelId,
           messages: [
             {
@@ -214,23 +232,38 @@ export class TaskPlanningService {
             { role: 'user', content: `用户任务目标：\n${objective}\n\n候选硅基员工与能力目录：\n${catalog}` },
           ],
           temperature: 0.1,
-          max_tokens: 4000,
-        }),
-      });
+          max_tokens: outputTokens,
+    };
+    await this.admission.reserve(identity, policy, body, outputTokens);
+    const lifecycle = new ModelRequestLifecycle(policy.values.PLANNER_REQUEST_TIMEOUT_MS, signal, 'planner');
+    const requestId = randomUUID();
+    this.logger.log(`[ModelPolicy] requestId=${requestId} chain=planner policyVersion=${policy.version}`);
+    let response: Response | undefined;
+    try {
+      lifecycle.assertActive();
+      response = await lifecycle.wait(fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST', signal: lifecycle.signal,
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }));
       if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        throw new Error(`relay ${response.status}: ${detail.slice(0, 240)}`);
+        await lifecycle.wait(response.text());
+        throw new BadGatewayException('任务规划上游服务暂时不可用');
       }
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const payload = await lifecycle.wait(response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      lifecycle.assertActive();
       const text = payload.choices?.[0]?.message?.content;
-      if (!text) throw new Error('规划模型返回了空内容');
+      if (!text) throw new BadGatewayException('规划模型返回了空内容');
 
       return PlannerOutputSchema.parse(this.extractPlanJson(text));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Task planning failed: ${message}`);
-      if (error instanceof Error && error.stack) this.logger.debug(error.stack);
+      if (lifecycle.signal.aborted) throw lifecycle.signal.reason;
+      if (error instanceof HttpException) throw error;
+      this.logger.error(`Task planning failed requestId=${requestId} chain=planner policyVersion=${policy.version} status=internal`);
       throw new BadGatewayException('任务规划模型暂时不可用，请稍后重试');
+    } finally {
+      lifecycle.dispose();
+      if (response?.body && !response.body.locked) await response.body.cancel().catch(() => undefined);
     }
   }
 

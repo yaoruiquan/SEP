@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { DEFAULT_MODEL_ID, SETTING_KEYS } from 'shared';
-import type { ChatCompletionRequest } from 'shared';
+import type { ChatCompletionRequest, ModelRuntimePolicySnapshot } from 'shared';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
 import { createGatewayStreamLifecycle, createChatCompletionStreamObserver, timeoutValue } from './gateway-stream';
 import { readGatewayJson } from './gateway-response';
@@ -127,8 +127,12 @@ export class GatewayService {
     return { enterpriseId, subscriptionId, memberId, employeeId: subscription.employeeId };
   }
 
-  prepareRequest(claims: Parameters<GatewayModelPolicyService['prepare']>[0], dto: ChatCompletionRequest) {
-    return this.modelPolicy.prepare(claims, dto);
+  prepareRequest(claims: Parameters<GatewayModelPolicyService['prepare']>[0], dto: ChatCompletionRequest, snapshot: ModelRuntimePolicySnapshot) {
+    // Include usage collection before policy size checks and reservation of the final body.
+    const request = dto.stream
+      ? { ...dto, stream_options: { ...dto.stream_options, include_usage: true } }
+      : dto;
+    return this.modelPolicy.prepare(claims, request, snapshot);
   }
 
   /**
@@ -162,9 +166,9 @@ export class GatewayService {
     return createChatCompletionStreamObserver();
   }
 
-  async forwardChatCompletion(dto: ChatCompletionRequest, requestId?: string, clientSignal?: AbortSignal): Promise<Response> {
+  async forwardChatCompletion(dto: ChatCompletionRequest, snapshot: ModelRuntimePolicySnapshot, requestId?: string, clientSignal?: AbortSignal): Promise<Response> {
     const { baseUrl, apiKey } = await this.getSub2ApiConfig();
-    const stream = createGatewayStreamLifecycle(this.config, clientSignal, dto.stream ? 'stream' : 'json');
+    const stream = createGatewayStreamLifecycle(snapshot, clientSignal, !!dto.stream);
     let response: Response;
     try {
       const signal = stream.signal;
@@ -176,13 +180,11 @@ export class GatewayService {
           Authorization: `Bearer ${apiKey}`,
           ...(requestId ? { 'x-request-id': requestId } : {}),
         },
-        body: JSON.stringify(dto.stream ? {
-          ...dto, stream_options: { ...dto.stream_options, include_usage: true },
-        } : dto),
+        body: JSON.stringify(dto),
         signal,
       });
       response = stream.wrap(response);
-    } catch (error) {
+    } catch {
       stream.cleanup();
       this.logger.warn({
         message: 'gateway upstream request failed before stream',

@@ -3,10 +3,13 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  HttpException,
+  GatewayTimeoutException,
 } from "@nestjs/common";
 import { streamText } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from "../../prisma/prisma.service";
 import { CapabilityService } from "../capability/capability.service";
 import { AdapterInput } from "../capability/adapters/adapter.interface";
@@ -28,6 +31,10 @@ import { SettingService } from "../setting/setting.service";
 import { UploadService } from "../upload/upload.service";
 import { AttachmentContextService } from "./attachment-context.service";
 import { resolveSub2ApiProviderConfig } from "./sub2api-provider-config";
+import { ModelRuntimePolicyService } from "../setting/model-runtime-policy.service";
+import { GatewayAdmissionService } from "../gateway/gateway-admission.service";
+import { GatewayModelPolicyService } from "../gateway/gateway-model-policy.service";
+import { ModelRequestLifecycle } from "./model-request-lifecycle";
 import {
   SseEvent,
   ModelMessage,
@@ -39,21 +46,6 @@ import {
 @Injectable()
 export class ConversationStreamService {
   private readonly logger = new Logger(ConversationStreamService.name);
-
-  /**
-   * 上游一个字节都不回时，等多久放弃。
-   *
-   * 实测中转（sub2api）对部分模型 `stream: true` 永远不返回任何数据 ——
-   * 2026-09-05 逐个探测 14 个模型，6 个如此，其中 `gemini-3.5-flash` 恰好是
-   * 某企业的默认会话模型。而 `for await (result.fullStream)` 会一直等，
-   * 于是 SSE 连接不关、前端「正在输入」永不结束、也永远不报错。
-   *
-   * 是**空闲**超时而不是总时长上限：长回答本来就该慢，不能因为写得久被砍断；
-   * 每收到一个 chunk 就重新计时。用 env 覆盖便于排障时调短。
-   */
-  private readonly streamIdleTimeoutMs = Number(
-    process.env.SUB2API_STREAM_IDLE_TIMEOUT_MS ?? 45_000,
-  );
 
   constructor(
     private readonly prisma: PrismaService,
@@ -68,6 +60,9 @@ export class ConversationStreamService {
     private readonly uploadService: UploadService,
     private readonly attachmentContext: AttachmentContextService,
     private readonly computeCredit: ComputeCreditService,
+    private readonly runtimePolicies: ModelRuntimePolicyService,
+    private readonly admission: GatewayAdmissionService,
+    private readonly modelPolicy: GatewayModelPolicyService,
   ) {}
 
   // ── main entry ────────────────────────────────────────────────────────────
@@ -78,6 +73,8 @@ export class ConversationStreamService {
     userId: string,
     targetEmployeeId?: string, // 指定处理该消息的员工（多员工协作）
     attachments?: MessageAttachment[], // 多模态附件（图片/文档/视频）
+    signal?: AbortSignal,
+    onAbort?: (reason: unknown) => void,
   ): AsyncGenerator<SseEvent> {
     // 1. 验证会话归属 + 加载 employee 配置
     const session = await this.prisma.conversationSession.findUnique({
@@ -221,10 +218,37 @@ export class ConversationStreamService {
       };
     }
 
-    // 2. 获取分布式锁（防并发）
-    const lockValue = await this.sessionLockService.acquireLock(sessionId);
+    signal?.throwIfAborted();
+    const effective = await this.modelConfig.resolveEffectiveModel({
+      userId, userSelectedModel: session.modelId ?? undefined, subscriptionId,
+      employeeTemplateModel: employee.modelId, departmentId: enterpriseCtx.departmentId ?? undefined,
+    });
+    const policy = await this.runtimePolicies.getSnapshot();
+    const modelId = effective.chatModel;
+    const model = await this.prisma.platformModel.findUnique({ where: { modelId }, select: { maxOutputTokens: true } });
+    const maxOutputTokens = this.modelPolicy.internalOutputTokens(model, policy, policy.values.WEB_DEFAULT_MAX_OUTPUT_TOKENS);
+    const requestId = randomUUID();
+    Object.assign(handledByMetadata, { policyVersion: policy.version, requestId });
+    const identity = { enterpriseId: enterpriseCtx.enterpriseId, memberId: enterpriseCtx.memberId };
+    const lockValue = await this.sessionLockService.acquireLock(sessionId, signal);
+    let lifecycle: ModelRequestLifecycle | undefined;
+    let lease: { release(): Promise<void> } | undefined;
+    let lostLock: unknown;
+    const notifyAbort = () => onAbort?.(lifecycle?.signal.reason);
+    const stopRenewal = this.sessionLockService.startRenewal(sessionId, lockValue, (error) => {
+      lostLock = error;
+      lifecycle?.abort(error);
+    });
+    const assertOwnership = () => { if (lostLock) throw lostLock; };
 
     try {
+      lease = await this.admission.acquire(identity, policy);
+      lifecycle = new ModelRequestLifecycle(policy.values.WEB_MODEL_TOTAL_TIMEOUT_MS, signal);
+      lifecycle.signal.addEventListener('abort', notifyAbort, { once: true });
+      if (lifecycle.signal.aborted) notifyAbort();
+      assertOwnership();
+      lifecycle.assertActive();
+      this.logger.log(`[ModelPolicy] requestId=${requestId} session=${sessionId} chain=web policyVersion=${policy.version}`);
       // 3. 持久化用户消息（标记实际处理者 + 附件）
       await this.prisma.message.create({
         data: {
@@ -244,7 +268,8 @@ export class ConversationStreamService {
       // 所以这里不能再 push 一次 —— 否则模型会连续看到两条一样的用户消息。
       // 只有最后一条（本轮）带图片字节：历史图片每轮重传会线性推高 input token，
       // 而且多数上游对历史图片并不敏感，退化成文件名说明足够。
-      const messages = await this.loadMessages(sessionId, 20);
+      const messages = await lifecycle.wait(this.loadMessages(sessionId, 20));
+      assertOwnership();
 
       // 5. 构建工具映射
       const { tools, capabilityByToolName } = this.buildTools(
@@ -265,13 +290,13 @@ export class ConversationStreamService {
       // （纯附件消息 content 为空，空串检索没有意义还会白跑一次 embedding）
       if (subscriptionId && content.trim().length > 0) {
         try {
-          const searchResult = await this.knowledgeSearch.search(
+          const searchResult = await lifecycle.wait(this.knowledgeSearch.search(
             content,
             userId,
             subscriptionId,
             3, // topK: 检索 3 个最相关的文本块
             0.7, // scoreThreshold: 相似度阈值
-          );
+          ));
 
           if (searchResult.count > 0) {
             // 保存知识来源供后续持久化
@@ -300,10 +325,13 @@ export class ConversationStreamService {
             );
           }
         } catch (error) {
+          lifecycle.assertActive();
           // 知识库检索失败不应阻断对话
           this.logger.error(`[RAG] Search failed for session ${sessionId}:`, error);
         }
       }
+      lifecycle.assertActive();
+      assertOwnership();
 
       // 6. 初始化 sub2api provider
       const { baseURL, apiKey } = await resolveSub2ApiProviderConfig(
@@ -314,22 +342,6 @@ export class ConversationStreamService {
       // 计费的前提（缺失时只能按字符估算，input token 会被严重低估）。
       // 但 sub2api 中继在 tools + stream_options 同时出现时返回 400 Invalid request，
       // 故仅在无工具时启用；带工具的会话退回字符估算。
-      const provider = createOpenAICompatible({
-        name: "sub2api",
-        baseURL,
-        apiKey,
-        includeUsage: !hasTools,
-      });
-      // 企业模型策略解析（五级优先级：USER_CHOICE → EMPLOYEE_INSTANCE → DEPT → ENTERPRISE → SYSTEM）
-      // resolveEffectiveModel 内部走 DB，在锁内调用是安全的（不影响其他会话）。
-      const effective = await this.modelConfig.resolveEffectiveModel({
-        userId,
-        userSelectedModel: session.modelId ?? undefined,
-        subscriptionId,
-        employeeTemplateModel: employee.modelId,
-        departmentId: enterpriseCtx.departmentId ?? undefined,
-      });
-      const modelId = effective.chatModel;
 
       this.logger.debug(
         `[Model] resolved=${modelId}, source=${effective.source}, session=${sessionId}`,
@@ -346,36 +358,49 @@ export class ConversationStreamService {
       );
 
       while (stepCount <= employee.maxSteps) {
+        lifecycle.assertActive();
+        assertOwnership();
         this.logger.debug(
           `[Stream Step] step=${stepCount}, messages=${messages.length}`,
         );
 
-        // 上游卡死时必须有人叫停，见 streamIdleTimeoutMs 的说明。
-        // 控制器按「步」创建：一次工具循环里的每一段流各自计时。
+        // Idle is per model step; the outer total deadline is never reset.
         const abort = new AbortController();
+        const cancelStep = () => abort.abort(lifecycle!.signal.reason);
+        lifecycle.signal.addEventListener('abort', cancelStep, { once: true });
         let idleTimer: ReturnType<typeof setTimeout> | undefined;
         let idleTimedOut = false;
         const bumpIdle = () => {
           if (idleTimer) clearTimeout(idleTimer);
           idleTimer = setTimeout(() => {
             idleTimedOut = true;
-            abort.abort();
-          }, this.streamIdleTimeoutMs);
+            abort.abort(new GatewayTimeoutException({ message: '模型流空闲超时', code: 'MODEL_STREAM_TIMEOUT', phase: 'idle', policyVersion: policy.version }));
+          }, policy.values.SUB2API_STREAM_IDLE_TIMEOUT_MS);
         };
-        bumpIdle();
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = streamText({
-          model: provider(modelId),
-          // instructions 是 AI SDK v7 的新 key(原 system)
-          instructions: this.buildSystemPrompt(employee.systemPrompt, knowledgeContext),
-          messages: messages as Parameters<typeof streamText>[0]["messages"],
-          tools: hasTools ? tools : undefined,
-          abortSignal: abort.signal,
+        // Reserve the complete serialized request once per SDK step, including tools/history.
+        let reservation: Promise<void> | undefined;
+        let reservationError: unknown;
+        const provider = createOpenAICompatible({
+          name: "sub2api", baseURL, apiKey, includeUsage: !hasTools,
+          fetch: async (url, options) => {
+            lifecycle!.assertActive();
+            assertOwnership();
+            const body = JSON.parse(String(options?.body ?? '{}'));
+            reservation ??= this.admission.reserve(identity, policy, body, maxOutputTokens).catch((error) => {
+              reservationError = error;
+              throw error;
+            });
+            await lifecycle!.wait(reservation);
+            lifecycle!.assertActive();
+            assertOwnership();
+            bumpIdle();
+            return fetch(url, options);
+          },
         });
 
-        this.logger.debug(`[Stream Result Created] session=${sessionId}`);
-
+        let result: ReturnType<typeof streamText>;
+        let streamFinished = false;
         accumulatedText = "";
         const pendingToolCalls: Array<{
           toolCallId: string;
@@ -385,11 +410,30 @@ export class ConversationStreamService {
 
         // 🔴 修复 P0-1: 包裹异常处理
         try {
+          result = streamText({
+            model: provider(modelId),
+            instructions: this.buildSystemPrompt(employee.systemPrompt, knowledgeContext),
+            messages: messages as Parameters<typeof streamText>[0]["messages"],
+            tools: hasTools ? tools : undefined,
+            abortSignal: abort.signal,
+            maxOutputTokens,
+          });
+          this.logger.debug(`[Stream Result Created] session=${sessionId}`);
           // Cast to any: AI SDK v7 stream chunk property names are unstable across patch versions
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          for await (const rawChunk of result.fullStream) {
-            // 有动静就重新计时 —— 判定的是「卡住了」，不是「写得久」
+          const iterator = result.fullStream[Symbol.asyncIterator]();
+          while (true) {
             bumpIdle();
+            const next = await lifecycle.wait(iterator.next(), abort.signal);
+            if (idleTimer) clearTimeout(idleTimer);
+            lifecycle.assertActive();
+            assertOwnership();
+            if (next.done) {
+              streamFinished = true;
+              break;
+            }
+            const rawChunk = next.value;
+            // 有动静就重新计时 —— 判定的是「卡住了」，不是「写得久」
             const chunk = rawChunk as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             switch (chunk.type) {
               case "text-delta": {
@@ -435,24 +479,28 @@ export class ConversationStreamService {
             }
           }
         } catch (streamError) {
+          streamError = reservationError ?? streamError;
+          lifecycle.assertActive();
+          assertOwnership();
           // 🔴 修复 P0-1: 捕获流消费异常
-          this.logger.error(
-            `Stream consumption error for session ${sessionId}:`,
-            streamError,
-          );
+          this.logger.error(`Stream consumption error session=${sessionId} requestId=${requestId} policyVersion=${policy.version} status=${streamError instanceof HttpException ? streamError.getStatus() : 'upstream'}`);
           // 空闲超时要说清是「上游没回」而不是含糊的 aborted：
           // AI SDK 把 abort 包装成 AbortError，原话对用户毫无信息量，
           // 而这条消息决定了用户下一步该找谁（换模型 / 找运维看中转）。
-          const timedOutSeconds = Math.round(this.streamIdleTimeoutMs / 1000);
+          const timedOutSeconds = Math.round(policy.values.SUB2API_STREAM_IDLE_TIMEOUT_MS / 1000);
+          const structured = streamError instanceof HttpException ? streamError.getResponse() : undefined;
+          const details = structured && typeof structured === 'object' && 'error' in structured &&
+            structured.error && typeof structured.error === 'object' ? structured.error : structured;
           yield {
             event: "error",
-            data: idleTimedOut
+            data: details && typeof details === 'object' ? { ...details, policyVersion: policy.version } : idleTimedOut
               ? {
                   message: `模型 ${modelId} 超过 ${timedOutSeconds} 秒没有返回任何内容，可能是中转未提供该模型的流式响应。请换一个模型或联系管理员。`,
                   code: "MODEL_STREAM_TIMEOUT",
+                  phase: 'idle', policyVersion: policy.version,
                 }
               : {
-                  message: `AI 回复生成失败: ${(streamError as Error).message}`,
+                  message: "AI 回复生成失败，请稍后重试",
                   code: "STREAM_CONSUMPTION_ERROR",
                 },
           };
@@ -469,6 +517,8 @@ export class ConversationStreamService {
         } finally {
           // 正常走完也要清，否则悬着的定时器会把事件循环拖住
           if (idleTimer) clearTimeout(idleTimer);
+          lifecycle.signal.removeEventListener('abort', cancelStep);
+          if (!streamFinished || idleTimedOut || lifecycle.signal.aborted) abort.abort();
         }
 
         // 中止时 AI SDK 让 fullStream **静默结束**，真正的 reject 发生在下面
@@ -476,7 +526,7 @@ export class ConversationStreamService {
         // catch 兜成一句 "This operation was aborted"，既没有 code 也没有出路。
         // 所以在这里就地判定：只有本轮真的空闲超时了才走这一支。
         if (idleTimedOut) {
-          const timedOutSeconds = Math.round(this.streamIdleTimeoutMs / 1000);
+          const timedOutSeconds = Math.round(policy.values.SUB2API_STREAM_IDLE_TIMEOUT_MS / 1000);
           this.logger.error(
             `Upstream model ${modelId} sent nothing for ${timedOutSeconds}s (session ${sessionId})`,
           );
@@ -485,6 +535,7 @@ export class ConversationStreamService {
             data: {
               message: `模型 ${modelId} 超过 ${timedOutSeconds} 秒没有返回任何内容，可能是中转未提供该模型的流式响应。请在右上角换一个模型，或联系管理员检查中转。`,
               code: "MODEL_STREAM_TIMEOUT",
+              phase: 'idle', policyVersion: policy.version,
             },
           };
           await this.prisma.message.create({
@@ -498,10 +549,14 @@ export class ConversationStreamService {
           break;
         }
 
-        [finishReason, usage] = await Promise.all([
+        lifecycle.assertActive();
+        assertOwnership();
+        [finishReason, usage] = await lifecycle.wait(Promise.all([
           result.finishReason,
           result.usage,
-        ]);
+        ]));
+        lifecycle.assertActive();
+        assertOwnership();
 
         // ── 最终回复(无工具调用)────────────────────────────────────────────
         if (finishReason !== "tool-calls") {
@@ -548,6 +603,8 @@ export class ConversationStreamService {
             parseFallbackPriceConfig(rawFallbackIn, rawFallbackOut),
           );
 
+          lifecycle.assertActive();
+          assertOwnership();
           const saved = await this.prisma.message.create({
             data: {
               sessionId,
@@ -587,11 +644,15 @@ export class ConversationStreamService {
             );
           }
 
+          lifecycle.assertActive();
+          assertOwnership();
           await this.prisma.conversationSession.update({
             where: { id: sessionId },
             data: { updatedAt: new Date() },
           });
           await this.conversationService.autoGenerateTitle(sessionId, content);
+          lifecycle.assertActive();
+          assertOwnership();
           yield { event: "done", data: { messageId: saved.id, usage } };
           break;
         }
@@ -618,6 +679,8 @@ export class ConversationStreamService {
         const toolResults: ToolResultContent[] = [];
 
         for (const tc of pendingToolCalls) {
+          lifecycle.assertActive();
+          assertOwnership();
           const cap = capabilityByToolName.get(tc.toolName);
 
           // 🔴 修复: 检查工具是否存在
@@ -695,6 +758,10 @@ export class ConversationStreamService {
               durationMs: Date.now() - startTime,
             },
           };
+          // Non-cancellable tools retain their real execution record even after the deadline.
+          // Losing ownership forbids any further session writes or tool dispatch.
+          assertOwnership();
+          if (lifecycle.signal.aborted) break;
         }
 
         // 工具结果的人类可读形式（前端直接渲染这段）
@@ -713,6 +780,8 @@ export class ConversationStreamService {
             toolCalls: toolResults as unknown as object,
           },
         });
+        lifecycle.assertActive();
+        assertOwnership();
 
         // 追加到 messages 供下一轮使用
         // AI SDK v7 的 tool-call 部件字段是 input（v4 时代叫 args）
@@ -732,6 +801,8 @@ export class ConversationStreamService {
 
       // 🔴 修复 P0-3: 兜底逻辑,防止达到 maxSteps 后无最终回复
       if (stepCount > employee.maxSteps) {
+        lifecycle.assertActive();
+        assertOwnership();
         this.logger.warn(
           `Session ${sessionId} reached maxSteps=${employee.maxSteps} without final reply`,
         );
@@ -750,13 +821,28 @@ export class ConversationStreamService {
         yield { event: "done", data: { messageId: saved.id, usage: {} } };
       }
     } catch (err) {
-      this.logger.error(`Stream error in session ${sessionId}`, err);
+      if (!lease) throw err;
+      this.logger.error(`Stream error session=${sessionId} requestId=${requestId} policyVersion=${policy.version} status=${err instanceof HttpException ? err.getStatus() : 'internal'}`);
+      const response = err instanceof HttpException ? err.getResponse() : undefined;
+      const details = response && typeof response === 'object' && 'error' in response &&
+        response.error && typeof response.error === 'object' ? response.error : response;
       yield {
         event: "error",
-        data: { message: (err as Error).message ?? "Stream failed" },
+        data: {
+          message: err instanceof HttpException ? err.message : "对话处理失败，请稍后重试",
+          ...(details && typeof details === 'object' ? details : {}),
+          policyVersion: policy.version,
+        },
       };
     } finally {
-      await this.sessionLockService.releaseLock(sessionId, lockValue);
+      lifecycle?.signal.removeEventListener('abort', notifyAbort);
+      lifecycle?.dispose();
+      await stopRenewal();
+      try {
+        await lease?.release();
+      } finally {
+        await this.sessionLockService.releaseLock(sessionId, lockValue);
+      }
     }
   }
 

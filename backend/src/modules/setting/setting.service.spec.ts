@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { SettingService } from './setting.service';
-import { SETTING_KEYS } from 'shared';
+import { MODEL_RUNTIME_POLICY_KEYS, MODEL_RUNTIME_POLICY_REVISION, MODEL_RUNTIME_POLICY_LEGACY_KEYS, SETTING_KEYS } from 'shared';
 
 function fixture() {
   const prisma: any = {
@@ -23,6 +23,20 @@ function fixture() {
 }
 
 describe('SettingService', () => {
+  it.each([...MODEL_RUNTIME_POLICY_KEYS, MODEL_RUNTIME_POLICY_REVISION, ...MODEL_RUNTIME_POLICY_LEGACY_KEYS])('blocks generic updates of reserved or dead key %s before touching any setting', async (key) => {
+    const { service, prisma } = fixture();
+    await expect(service.updateMany({ MAIL_HOST: 'smtp.example.com', [key]: '100' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.systemSetting.upsert).not.toHaveBeenCalled();
+    expect(prisma.systemSetting.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('exposes dead keys as explicitly read-only and never lists the internal revision', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([{ key: MODEL_RUNTIME_POLICY_REVISION, value: '3' }]);
+    const rows = await service.listForAdmin();
+    for (const key of MODEL_RUNTIME_POLICY_LEGACY_KEYS) expect(rows.find((row) => row.key === key)).toMatchObject({ editable: false });
+    expect(rows.find((row) => row.key === MODEL_RUNTIME_POLICY_REVISION)).toBeUndefined();
+  });
   it('falls back to environment and default values', async () => {
     const { service, prisma } = fixture();
     prisma.systemSetting.findUnique.mockResolvedValue(null);

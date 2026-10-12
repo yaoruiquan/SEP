@@ -1,5 +1,5 @@
-import { Injectable, InternalServerErrorException, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import type { ModelRuntimePolicySnapshot } from 'shared';
 import { createHash } from 'node:crypto';
 import { RedisService } from '../../redis/redis.service';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
@@ -14,13 +14,15 @@ local count = tonumber(redis.call('GET', KEYS[1]) or '0')
 local ttl = redis.call('PTTL', KEYS[1])
 if ttl <= 0 then
   redis.call('SET', KEYS[1], 1, 'PX', window)
-  return {1, 1, window, now + window}
+  redis.call('SET', KEYS[2], window, 'PX', window)
+  return {1, 1, window, now + window, window}
 end
+local originalWindow = tonumber(redis.call('GET', KEYS[2]) or '0')
 if count >= limit then
-  return {0, count, ttl, now + ttl}
+  return {0, count, ttl, now + ttl, originalWindow}
 end
 count = redis.call('INCR', KEYS[1])
-return {1, count, ttl, now + ttl}
+return {1, count, ttl, now + ttl, originalWindow}
 `;
 
 export interface GatewayRateLimitResult {
@@ -28,36 +30,35 @@ export interface GatewayRateLimitResult {
   rule: 'gateway-model';
   dimension: 'enterprise/member/subscription';
   limit: number;
-  windowMs: number;
+  windowMs?: number;
   count: number;
   retryAfterSeconds: number;
   resetAt: number;
   keyHash: string;
+  policyVersion: number;
 }
 
 @Injectable()
 export class GatewayRateLimitService {
   private readonly logger = new Logger(GatewayRateLimitService.name);
-  private readonly limit: number;
-  private readonly windowMs: number;
+  constructor(private readonly redisService: RedisService) {}
 
-  constructor(private readonly redisService: RedisService, config: ConfigService) {
-    this.limit = positiveInteger(config, 'GATEWAY_MODEL_RATE_LIMIT', 60);
-    this.windowMs = positiveInteger(config, 'GATEWAY_MODEL_RATE_WINDOW_MS', 60_000);
-  }
-
-  async consume(claims: ClientEmploymentClaims, requestId?: string): Promise<GatewayRateLimitResult> {
+  async consume(claims: ClientEmploymentClaims, snapshot: ModelRuntimePolicySnapshot, requestId?: string): Promise<GatewayRateLimitResult> {
+    const limit = snapshot.values.GATEWAY_MODEL_RATE_LIMIT;
+    const windowMs = snapshot.values.GATEWAY_MODEL_RATE_WINDOW_MS;
     const keyHash = createHash('sha256')
       .update(JSON.stringify([claims.enterpriseId, claims.memberId, claims.subscriptionId]))
       .digest('hex');
     let result: unknown;
+    const key = `sep:gateway:rate:v1:${keyHash}`;
     try {
       result = await this.redisService.redis.eval(
-        GATEWAY_RATE_LIMIT_SCRIPT, 1, `sep:gateway:rate:v1:${keyHash}`, this.limit, this.windowMs,
+        // Hash the legacy key itself so metadata shares its slot without migrating counters.
+        GATEWAY_RATE_LIMIT_SCRIPT, 2, key, `{${key}}:window`, limit, windowMs,
       );
-      if (!Array.isArray(result) || result.length !== 4 ||
+      if (!Array.isArray(result) || result.length !== 5 ||
           !result.every((value) => Number.isSafeInteger(value)) ||
-          ![0, 1].includes(result[0]) || result[1] < 1 || result[2] <= 0 || result[3] <= 0) {
+          ![0, 1].includes(result[0]) || result[1] < 1 || result[2] <= 0 || result[3] <= 0 || result[4] < 0) {
         throw new ServiceUnavailableException();
       }
     } catch {
@@ -65,28 +66,19 @@ export class GatewayRateLimitService {
       throw new ServiceUnavailableException({
         error: {
           message: '模型网关限流服务暂不可用，请稍后重试', type: 'server_error',
-          code: 'PLATFORM_RATE_LIMIT_UNAVAILABLE', source: 'platform', param: null,
+          code: 'PLATFORM_RATE_LIMIT_UNAVAILABLE', source: 'platform', param: null, policyVersion: snapshot.version,
         },
       });
     }
-    const [allowed, count, ttl, resetAt] = result as number[];
+    const [allowed, count, ttl, resetAt, originalWindow] = result as number[];
     const admission: GatewayRateLimitResult = {
       allowed: allowed === 1, rule: 'gateway-model', dimension: 'enterprise/member/subscription',
-      limit: this.limit, windowMs: this.windowMs, count, retryAfterSeconds: Math.ceil(ttl / 1000),
-      resetAt, keyHash,
+      limit, ...(originalWindow > 0 ? { windowMs: originalWindow } : {}), count, retryAfterSeconds: Math.ceil(ttl / 1000),
+      resetAt, keyHash, policyVersion: snapshot.version,
     };
     if (!admission.allowed) {
       this.logger.warn(JSON.stringify({ event: 'gateway_rate_limit_exceeded', requestId, ...admission }));
     }
     return admission;
   }
-}
-
-function positiveInteger(config: ConfigService, name: string, fallback: number): number {
-  const raw = config.get<string | number>(name) ?? fallback;
-  const value = typeof raw === 'number' || /^\d+$/.test(raw) ? Number(raw) : NaN;
-  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
-    throw new InternalServerErrorException(`${name} must be an integer between 1 and 2147483647`);
-  }
-  return value;
 }

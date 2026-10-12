@@ -10,6 +10,7 @@ import { CenteredSpinner } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
 import { useSettings, useUpdateSettings } from '@/features/admin/use-admin';
 import { useUpstreamModels } from '@/features/model/use-models';
+import { isDedicatedPolicySetting, isLegacyPolicySetting } from './model-runtime-policy-form';
 
 export default function BasicSettings() {
   const { data: settings, isLoading } = useSettings();
@@ -50,6 +51,7 @@ export default function BasicSettings() {
     // 只提交有改动的项：非敏感项全提交；敏感项仅当填了新值才提交
     const payload: Record<string, string> = {};
     for (const s of settings ?? []) {
+      if (s.editable === false || isLegacyPolicySetting(s.key) || isDedicatedPolicySetting(s.key)) continue;
       const v = edits[s.key] ?? '';
       if (s.secret) {
         if (v.trim() !== '') payload[s.key] = v.trim();
@@ -70,6 +72,8 @@ export default function BasicSettings() {
     const setting = settings?.find((s) => s.key === key);
     const value = edits[key] ?? '';
     const isSecret = setting?.secret ?? false;
+    const disabled = setting?.editable === false || isLegacyPolicySetting(key) || isDedicatedPolicySetting(key);
+    if (isLegacyPolicySetting(key)) return <div className="space-y-1 text-sm"><p className="font-medium">{label}</p><p className="text-fg-muted">历史值：{setting?.value ?? '未配置'}。未接入执行，仅供审查；请使用设置中心的模型运行策略。</p></div>;
 
     if (type === 'switch') {
       return (
@@ -79,6 +83,7 @@ export default function BasicSettings() {
             {tooltip && <p className="text-xs text-muted-foreground">{tooltip}</p>}
           </div>
           <Switch
+            disabled={disabled}
             checked={value === 'true'}
             onCheckedChange={(checked) =>
               setEdits((prev) => ({ ...prev, [key]: checked ? 'true' : 'false' }))
@@ -99,6 +104,7 @@ export default function BasicSettings() {
           </label>
           {tooltip && <p className="text-xs text-muted-foreground mb-1.5">{tooltip}</p>}
           <Textarea
+            disabled={disabled}
             value={value}
             placeholder={isSecret ? '留空则不修改' : ''}
             onChange={(e) =>
@@ -120,6 +126,7 @@ export default function BasicSettings() {
         </label>
         {tooltip && <p className="text-xs text-muted-foreground mb-1.5">{tooltip}</p>}
         <Input
+          disabled={disabled}
           type={isSecret ? 'password' : type}
           value={value}
           placeholder={isSecret ? '留空则不修改' : ''}

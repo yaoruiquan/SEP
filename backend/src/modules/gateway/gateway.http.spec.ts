@@ -15,6 +15,9 @@ import { GatewayService } from './gateway.service';
 import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 import { GatewayAdmissionService } from './gateway-admission.service';
 import { GatewayExecutionService } from './gateway-execution.service';
+import { ModelRuntimePolicyService } from '../setting/model-runtime-policy.service';
+import { GatewayModelPolicyService } from './gateway-model-policy.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
 const toolCall = { id: 'call_test_ls_001', type: 'function', function: { name: 'ls', arguments: '{}' } };
 const tools = [{ type: 'function', function: { name: 'ls', parameters: { type: 'object' } } }];
@@ -33,12 +36,15 @@ describe('Gateway tool-call HTTP round trip', () => {
   let service: GatewayService;
   let fetchMock: jest.SpyInstance;
   let forwardSpy: jest.SpyInstance;
+  const snapshot = policySnapshot();
+  const policies = { getSnapshot: jest.fn() };
   const modelPolicy = { prepare: jest.fn() };
+  const model = { findFirst: jest.fn() };
   const executions = {
     start: jest.fn(), saveUsage: jest.fn(), finish: jest.fn(), fail: jest.fn(), setUpstreamRequest: jest.fn(),
   };
   const releaseAdmission = jest.fn();
-  const admission = { acquire: jest.fn() };
+  const admission = { acquire: jest.fn(), reserve: jest.fn() };
   const releaseRequest = jest.fn();
   const lifecycle = { beginRequest: jest.fn() };
 
@@ -56,13 +62,19 @@ describe('Gateway tool-call HTTP round trip', () => {
         { provide: GatewayExecutionService, useValue: executions },
         { provide: GatewayAdmissionService, useValue: admission },
         { provide: GatewayLifecycleService, useValue: lifecycle },
+        { provide: ModelRuntimePolicyService, useValue: policies },
       ],
     }).overrideGuard(ClientEmploymentGuard).useValue({
       canActivate: (context: ExecutionContext) => {
         context.switchToHttp().getRequest().clientEmployment = { ...claims };
         return true;
       },
-    }).overrideGuard(GatewayRateLimitGuard).useValue({ canActivate: () => true }).compile();
+    }).overrideGuard(GatewayRateLimitGuard).useValue({
+      canActivate: async (context: ExecutionContext) => {
+        context.switchToHttp().getRequest().modelRuntimePolicy = await policies.getSnapshot();
+        return true;
+      },
+    }).compile();
     app = moduleRef.createNestApplication({ bodyParser: false });
     app.setGlobalPrefix('api');
     app.use(requestContextMiddleware);
@@ -73,15 +85,21 @@ describe('Gateway tool-call HTTP round trip', () => {
   });
 
   beforeEach(() => {
-    modelPolicy.prepare.mockReset().mockImplementation(async (_claims, dto: ChatCompletionRequest) => {
-      const prepared = { ...dto, max_tokens: dto.max_tokens ?? 4096 };
-      return { request: prepared, allowedModels: [dto.model], inputBytes: Buffer.byteLength(JSON.stringify(prepared)) };
+    policies.getSnapshot.mockReset().mockResolvedValue(snapshot);
+    model.findFirst.mockReset().mockResolvedValue({ maxOutputTokens: null, supportedFeatures: null });
+    const resourcePolicy = new GatewayModelPolicyService({} as never, { platformModel: model } as never, new ConfigService());
+    modelPolicy.prepare.mockReset().mockImplementation(async (_claims, dto: ChatCompletionRequest, policy) => {
+      const checked = await resourcePolicy.validateResources(dto, {
+        allowedModels: [dto.model], defaultModel: dto.model, allowUserSwitchModel: true, departmentId: null,
+      }, policy);
+      return { ...checked, allowedModels: [dto.model] };
     });
     executions.start.mockReset().mockImplementation(async () => ({ id: randomUUID() }));
     for (const mock of [executions.saveUsage, executions.finish, executions.fail, executions.setUpstreamRequest, releaseAdmission]) {
       mock.mockReset().mockResolvedValue(undefined);
     }
     admission.acquire.mockReset().mockResolvedValue({ release: releaseAdmission });
+    admission.reserve.mockReset().mockResolvedValue(undefined);
     releaseRequest.mockReset();
     lifecycle.beginRequest.mockReset().mockReturnValue(releaseRequest);
     fetchMock = jest.spyOn(global, 'fetch');
@@ -120,6 +138,10 @@ describe('Gateway tool-call HTTP round trip', () => {
       expect(JSON.parse(init.body)).toEqual({
         ...body, max_tokens: 4096, ...(stream ? { stream_options: { include_usage: true } } : {}),
       });
+      expect(admission.reserve.mock.calls[fetchMock.mock.calls.length - 1]).toEqual([
+        claims, snapshot, JSON.parse(init.body), 4096,
+      ]);
+      expect(forwardSpy.mock.calls[fetchMock.mock.calls.length - 1][1]).toBe(snapshot);
       if (stream) {
         expect(res.headers['content-type']).toContain('text/event-stream');
         expect(res.text).toBe(sse);
@@ -131,6 +153,9 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(executions.finish).toHaveBeenCalledTimes(2);
     expect(releaseAdmission).toHaveBeenCalledTimes(2);
     expect(releaseRequest).toHaveBeenCalledTimes(2);
+    expect(policies.getSnapshot).toHaveBeenCalledTimes(2);
+    expect(admission.acquire).toHaveBeenCalledTimes(2);
+    expect(admission.reserve).toHaveBeenCalledTimes(2);
   });
 
   it('uses distinct server executions and usage journal entries for repeated client IDs', async () => {
@@ -148,13 +173,14 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(new Set(ids).size).toBe(2);
     expect(executions.start).toHaveBeenCalledTimes(2);
     for (const id of ids) {
-      expect(admission.acquire).toHaveBeenCalledWith(claims, id, { ...body, max_tokens: 4096, requestId: 'same-client-request' });
+      expect(admission.acquire).toHaveBeenCalledWith(claims, snapshot);
+      expect(admission.reserve).toHaveBeenCalledWith(claims, snapshot, { ...body, max_tokens: 4096 }, 4096);
       expect(executions.setUpstreamRequest).toHaveBeenCalledWith(id, 'upstream-request');
       expect(executions.saveUsage).toHaveBeenCalledWith(id, usage);
       expect(executions.finish).toHaveBeenCalledWith(id, {});
     }
-    expect(executions.start).toHaveBeenNthCalledWith(1, claims, 'employee-1', body.model, 'same-client-request');
-    expect(executions.start).toHaveBeenNthCalledWith(2, claims, 'employee-1', body.model, 'same-client-request');
+    expect(executions.start).toHaveBeenNthCalledWith(1, claims, 'employee-1', body.model, 'same-client-request', snapshot);
+    expect(executions.start).toHaveBeenNthCalledWith(2, claims, 'employee-1', body.model, 'same-client-request', snapshot);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(executions.fail).not.toHaveBeenCalled();
     expect(releaseAdmission).toHaveBeenCalledTimes(2);
@@ -354,5 +380,65 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(res.body.error).toMatchObject({ source: 'upstream', code: 'UPSTREAM_RATE_LIMIT_EXCEEDED', requestId: 'platform-123' });
     expect(fetchMock.mock.calls[0][1].headers['x-request-id']).toBe('platform-123');
     expect(res.body.error.rateLimit).toBeUndefined();
+  });
+
+  it('releases concurrency on resource rejection and never calls upstream', async () => {
+    admission.reserve.mockRejectedValue(new HttpException({ error: {
+      message: 'Budget exceeded', type: 'rate_limit_error', source: 'platform',
+      code: 'PLATFORM_ADMISSION_REJECTED', rule: 'enterprise-resource-budget',
+      dimension: 'enterprise', limit: 1000, count: 900, resetAt: 1060000, policyVersion: 7,
+    }, retryAfterSeconds: 4 }, 429));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(429);
+    expect(res.body.error).toMatchObject({ source: 'platform', rule: 'enterprise-resource-budget', policyVersion: 7 });
+    expect(res.headers['retry-after']).toBe('4');
+    expect(policies.getSnapshot).toHaveBeenCalledTimes(1);
+    expect(admission.acquire).toHaveBeenCalledTimes(1);
+    expect(admission.reserve).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+    expect(executions.fail).toHaveBeenCalledWith(expect.any(String), 'PLATFORM_ADMISSION_REJECTED', true, false);
+  });
+
+  it('rejects explicit output overflow without admission or upstream calls', async () => {
+    const res = await request(app.getHttpServer()).post(endpoint).send({ ...body, max_tokens: 32769 }).expect(400);
+    expect(res.body.error).toMatchObject({ code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', policyVersion: 7, limit: 32768 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(executions.start).not.toHaveBeenCalled();
+    expect(admission.acquire).not.toHaveBeenCalled();
+    expect(admission.reserve).not.toHaveBeenCalled();
+    expect(releaseAdmission).not.toHaveBeenCalled();
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses each request snapshot for normalization, journal expiry, reservation and forwarding', async () => {
+    const snapshots = [policySnapshot({ GATEWAY_DEFAULT_MAX_TOKENS: 1000 }, 7),
+      policySnapshot({ GATEWAY_DEFAULT_MAX_TOKENS: 2000 }, 8)];
+    policies.getSnapshot.mockResolvedValueOnce(snapshots[0]).mockResolvedValueOnce(snapshots[1]);
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(completion)));
+    for (let i = 0; i < snapshots.length; i++) {
+      await request(app.getHttpServer()).post(endpoint).send(body).expect(200);
+      const expected = { ...body, max_tokens: snapshots[i].values.GATEWAY_DEFAULT_MAX_TOKENS };
+      expect(modelPolicy.prepare.mock.calls[i][2]).toBe(snapshots[i]);
+      expect(executions.start.mock.calls[i][4]).toBe(snapshots[i]);
+      expect(admission.acquire.mock.calls[i][1]).toBe(snapshots[i]);
+      expect(admission.reserve.mock.calls[i]).toEqual([claims, snapshots[i], expected, expected.max_tokens]);
+      expect(forwardSpy.mock.calls[i][1]).toBe(snapshots[i]);
+      expect(fetchMock.mock.calls[i][1].body).toBe(JSON.stringify(expected));
+    }
+    expect(policies.getSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed on policy read failure before authorization, execution or admission', async () => {
+    policies.getSnapshot.mockRejectedValue(new ServiceUnavailableException({ error: {
+      code: 'MODEL_RUNTIME_POLICY_UNAVAILABLE', source: 'platform', message: 'Policy unavailable',
+    } }));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(503);
+    expect(res.body.error.code).toBe('MODEL_RUNTIME_POLICY_UNAVAILABLE');
+    expect(modelPolicy.prepare).not.toHaveBeenCalled();
+    expect(executions.start).not.toHaveBeenCalled();
+    expect(admission.acquire).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lifecycle.beginRequest).not.toHaveBeenCalled();
   });
 });

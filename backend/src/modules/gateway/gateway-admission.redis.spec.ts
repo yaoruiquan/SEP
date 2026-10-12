@@ -1,246 +1,305 @@
-import { ConfigService } from '@nestjs/config';
-import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import Redis from 'ioredis';
+import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import type { RedisService } from '../../redis/redis.service';
-import type { ClientEmploymentClaims } from '../client/client-employment.guard';
-import { GATEWAY_ADMISSION_RELEASE_SCRIPT, GATEWAY_ADMISSION_SCRIPT, GatewayAdmissionService } from './gateway-admission.service';
+import { GatewayAdmissionService, gatewayAdmissionKeys, GATEWAY_ADMISSION_LEASE_MS,
+  GATEWAY_ADMISSION_SCRIPT, GATEWAY_ADMISSION_RELEASE_SCRIPT, GATEWAY_RESOURCE_RESERVE_SCRIPT } from './gateway-admission.service';
+import { policySnapshot } from './gateway-policy.test-fixtures';
 
-// Opt-in against isolated local Redis only; unique expiring keys, never FLUSHDB.
-const integration = process.env.GATEWAY_REDIS_TEST_URL ? describe : describe.skip;
-integration('Gateway admission Lua on real Redis', () => {
+const url = process.env.GATEWAY_RATE_LIMIT_TEST_REDIS_URL || process.env.GATEWAY_REDIS_TEST_URL;
+const integration = url ? describe : describe.skip;
+
+integration('Gateway shared admission Lua on isolated Redis', () => {
   let redis: Redis;
-  const ownedKeys = new Set<string>();
-  const newKeys = (enterprise = randomUUID(), member = randomUUID()) => {
-    const prefix = `sep:test:gateway-admission:{${enterprise}}`;
-    const keys = [
-      `${prefix}:concurrency:enterprise`, `${prefix}:concurrency:member:${member}`,
-      `${prefix}:rpm:member:${member}`, `${prefix}:rpm:enterprise`, `${prefix}:tokens:enterprise`,
-    ];
-    keys.forEach((key) => ownedKeys.add(key));
-    return keys;
-  };
-  const acquire = (keys: string[], options: {
-    client?: Redis; execution?: string; lease?: number; window?: number;
-    memberConcurrency?: number; enterpriseConcurrency?: number; memberRpm?: number; enterpriseRpm?: number;
-    tokenLimit?: number; reservation?: number;
-  } = {}) => (options.client ?? redis).eval(
-    GATEWAY_ADMISSION_SCRIPT, 5, ...keys, options.execution ?? randomUUID(), options.lease ?? 5000,
-    options.window ?? 2000, options.memberConcurrency ?? 50, options.enterpriseConcurrency ?? 100,
-    options.memberRpm ?? 100, options.enterpriseRpm ?? 200, options.tokenLimit ?? 0, options.reservation ?? 0,
-  ) as Promise<number[]>;
-  const release = (keys: string[], execution: string, deadline: number) => redis.eval(
-    GATEWAY_ADMISSION_RELEASE_SCRIPT, 2, ...keys.slice(0, 2), execution, deadline,
-  );
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  let other: Redis;
+  let a: GatewayAdmissionService;
+  let b: GatewayAdmissionService;
+  const keys = new Set<string>();
+  function identity(memberId = 'member') {
+    const id = { enterpriseId: `test-${randomUUID()}`, memberId };
+    track(id);
+    return id;
+  }
+  function track(id: { enterpriseId: string; memberId: string }) {
+    const result = gatewayAdmissionKeys(id);
+    [...result.admission, result.reserve].forEach(key => keys.add(key));
+    return result;
+  }
   beforeAll(() => {
-    redis = new Redis(process.env.GATEWAY_REDIS_TEST_URL!, { maxRetriesPerRequest: 1 });
+    redis = new Redis(url!, { maxRetriesPerRequest: 1 });
+    other = redis.duplicate();
+    a = new GatewayAdmissionService({ redis } as never);
+    b = new GatewayAdmissionService({ redis: other } as never);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     jest.spyOn(Logger.prototype, 'error').mockImplementation();
   });
   afterAll(async () => {
-    try { if (ownedKeys.size) await redis.del(...ownedKeys); } finally { await redis.quit(); jest.restoreAllMocks(); }
+    try { if (keys.size) await redis.del(...keys); } finally { await Promise.all([redis.quit(), other.quit()]); }
+    jest.restoreAllMocks();
   });
 
-  it('admits exactly the member concurrency limit atomically across two clients', async () => {
-    const keys = newKeys();
-    const other = redis.duplicate();
-    try {
-      const results = await Promise.all(Array.from({ length: 30 }, (_, i) => acquire(keys, {
-        client: i % 2 ? other : redis, memberConcurrency: 4,
-      })));
-      expect(results.filter(([allowed]) => allowed === 1)).toHaveLength(4);
-      expect(results.filter(([allowed]) => !allowed).every(([, rule, count]) => rule === 1 && count === 4)).toBe(true);
-      expect(await redis.zcard(keys[0])).toBe(4);
-      expect(await redis.zcard(keys[1])).toBe(4);
-      expect(await redis.mget(keys[2], keys[3], keys[4])).toEqual(['4', '4', null]);
-    } finally { await other.quit(); }
+  it('admits exactly four under two-instance races and keeps RPM after idempotent release', async () => {
+    const id = identity();
+    const results = await Promise.allSettled(Array.from({ length: 40 }, (_, i) => (i % 2 ? a : b).acquire(id, policySnapshot())));
+    const accepted = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    expect(accepted).toHaveLength(4);
+    const k = track(id);
+    expect(await redis.get(k.admission[0])).toBe('4');
+    expect(await redis.get(k.admission[1])).toBe('4');
+    expect(await redis.zcard(k.admission[2])).toBe(4);
+    expect(await redis.zcard(k.admission[3])).toBe(4);
+    expect(await redis.pttl(k.admission[3])).toBeGreaterThan(GATEWAY_ADMISSION_LEASE_MS - 5000);
+    await Promise.all(accepted.map(lease => Promise.all([lease.release(), lease.release()])));
+    expect(await redis.exists(k.admission[2], k.admission[3])).toBe(0);
+    expect(await redis.get(k.admission[1])).toBe('4');
   });
 
-  it('enforces enterprise concurrency across members without writing rejected member keys', async () => {
-    const enterprise = randomUUID();
-    const sets = Array.from({ length: 20 }, () => newKeys(enterprise));
-    const results = await Promise.all(sets.map((keys) => acquire(keys, { enterpriseConcurrency: 3 })));
-    expect(results.filter(([allowed]) => allowed === 1)).toHaveLength(3);
-    expect(await redis.zcard(sets[0][0])).toBe(3);
-    expect(await redis.get(sets[0][3])).toBe('3');
-    for (const [i, result] of results.entries()) {
-      if (result[0]) continue;
-      expect(result.slice(0, 3)).toEqual([0, 2, 3]);
-      expect(await redis.exists(sets[i][1], sets[i][2])).toBe(0);
+  it('shares enterprise concurrency across members, declines atomically and permits after release', async () => {
+    const id = identity();
+    const next = { ...id, memberId: 'other' };
+    track(next);
+    const policy = policySnapshot({ GATEWAY_MEMBER_CONCURRENCY: 1, GATEWAY_ENTERPRISE_CONCURRENCY: 1 });
+    const first = await a.acquire(id, policy);
+    await expect(b.acquire(next, policy)).rejects.toMatchObject({ response: { error: { rule: 'enterprise-concurrency' } } });
+    expect(await redis.exists(track(next).admission[0])).toBe(0);
+    await first.release();
+    const second = await b.acquire(next, policy);
+    await second.release();
+  });
+
+  it('preserves current RPM TTL and counts when policy limits change', async () => {
+    const id = identity();
+    const first = await a.acquire(id, policySnapshot());
+    await first.release();
+    const k = track(id).admission;
+    await redis.pexpire(k[0], 250);
+    const resetAt = Date.now() + await redis.pttl(k[0]);
+    const error = await b.acquire(id, policySnapshot({ GATEWAY_MEMBER_RPM: 1 }, 8)).catch(error => error);
+    expect(error.response.error).toMatchObject({ rule: 'member-rpm', count: 1, policyVersion: 8 });
+    expect(Math.abs(error.response.error.resetAt - resetAt)).toBeLessThan(30);
+    expect(await redis.pttl(k[0])).toBeLessThanOrEqual(250);
+    expect(await redis.get(k[1])).toBe('1');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const recovered = await a.acquire(id, policySnapshot({ GATEWAY_MEMBER_RPM: 1 }));
+    await recovered.release();
+  });
+
+  it('does not kill in-flight leases on a lower concurrency limit and expires crashed leases', async () => {
+    const id = identity();
+    const first = await a.acquire(id, policySnapshot());
+    const second = await b.acquire(id, policySnapshot());
+    const lowered = policySnapshot({ GATEWAY_MEMBER_CONCURRENCY: 1 }, 8);
+    await expect(a.acquire(id, lowered)).rejects.toMatchObject({ response: { error: { count: 2 } } });
+    const k = track(id).admission;
+    expect(await redis.zcard(k[2])).toBe(2);
+    for (const key of k.slice(2)) {
+      const leases = await redis.zrange(key, 0, -1);
+      await redis.zadd(key, ...leases.flatMap(lease => [Date.now() - 1, lease]));
     }
+    const recovered = await b.acquire(id, lowered);
+    await first.release();
+    await second.release();
+    expect(await redis.zcard(k[2])).toBe(1);
+    await recovered.release();
   });
 
-  it.each([
-    ['member', { memberRpm: 3 }, 3], ['enterprise', { enterpriseRpm: 3 }, 4],
-    ['token', { tokenLimit: 30, reservation: 10 }, 5],
-  ] as const)('checks all %s budgets before writing any quota or lease', async (_name, limits, rule) => {
-    const keys = newKeys();
-    const other = redis.duplicate();
-    try {
-      const results = await Promise.all(Array.from({ length: 25 }, (_, i) => acquire(keys, {
-        ...limits, client: i % 2 ? other : redis,
-      })));
-      expect(results.filter(([allowed]) => allowed === 1)).toHaveLength(3);
-      expect(results.filter(([allowed]) => !allowed).every(([, deniedRule]) => deniedRule === rule)).toBe(true);
-      expect(await redis.zcard(keys[0])).toBe(3);
-      expect(await redis.zcard(keys[1])).toBe(3);
-      expect(await redis.mget(keys[2], keys[3], keys[4])).toEqual(['3', '3', rule === 5 ? '30' : null]);
-    } finally { await other.quit(); }
+  it('shares RPM across instances and members at the enterprise threshold', async () => {
+    const id = identity();
+    const policy = policySnapshot({ GATEWAY_MEMBER_RPM: 2, GATEWAY_ENTERPRISE_RPM: 2 });
+    for (const memberId of ['client', 'web']) {
+      const candidate = { ...id, memberId };
+      track(candidate);
+      await (await a.acquire(candidate, policy)).release();
+    }
+    const planner = { ...id, memberId: 'planner' };
+    track(planner);
+    await expect(b.acquire(planner, policy)).rejects.toMatchObject({ response: { error: {
+      rule: 'enterprise-rpm', limit: 2, count: 2,
+    } } });
+    expect(await redis.exists(track(planner).admission[0])).toBe(0);
   });
 
-  it('aggregates enterprise RPM and token reservations across members', async () => {
-    const enterprise = randomUUID();
-    const a = newKeys(enterprise);
-    const b = newKeys(enterprise);
-    const c = newKeys(enterprise);
-    await acquire(a, { enterpriseRpm: 2, tokenLimit: 100, reservation: 30 });
-    await acquire(b, { enterpriseRpm: 2, tokenLimit: 100, reservation: 30 });
-    const denied = await acquire(c, { enterpriseRpm: 2, tokenLimit: 100, reservation: 30 });
-    expect(denied.slice(0, 3)).toEqual([0, 4, 2]);
-    expect(await redis.mget(a[2], b[2], c[2], a[3], a[4])).toEqual(['1', '1', null, '2', '60']);
-    expect(await redis.exists(c[1])).toBe(0);
+  it('reserves atomically across chains, does not refund on release, and resumes at expiry', async () => {
+    const id = identity();
+    const request = { messages: [{ content: '系统' }], tools: [{ name: 'test' }] };
+    const amount = Buffer.byteLength(JSON.stringify(request), 'utf8') + 10;
+    const policy = policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: amount * 3 });
+    const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) =>
+      (i % 2 ? a : b).reserve({ ...id, memberId: `member-${i}` }, policy, request, 10)));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(3);
+    const key = track(id).reserve;
+    expect(await redis.get(key)).toBe(String(amount * 3));
+    const lease = await a.acquire(id, policy);
+    await lease.release();
+    expect(await redis.get(key)).toBe(String(amount * 3));
+    await redis.pexpire(key, 200);
+    await expect(b.reserve(id, policy, request, 10)).rejects.toMatchObject({ response: { error: { count: amount * 3 } } });
+    expect(await redis.pttl(key)).toBeLessThanOrEqual(200);
+    await a.reserve(id, policySnapshot(), request, 10);
+    expect(await redis.get(key)).toBe(String(amount * 3));
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await a.reserve(id, policy, request, 10);
+    expect(await redis.get(key)).toBe(String(amount));
   });
 
-  it('does not prolong concurrency TTLs or write quotas on denied retries; returns earliest lease deadline', async () => {
-    const keys = newKeys();
-    const first = await acquire(keys, { memberConcurrency: 2, lease: 1000 });
-    await sleep(25);
-    await acquire(keys, { memberConcurrency: 2, lease: 2000 });
-    const before = await Promise.all(keys.map((key) => redis.pttl(key)));
-    const denied = await acquire(keys, { memberConcurrency: 2, lease: 10000 });
-    await sleep(30);
-    const retry = await acquire(keys, { memberConcurrency: 2, lease: 10000 });
-    const after = await Promise.all(keys.map((key) => redis.pttl(key)));
-    expect(denied.slice(0, 3)).toEqual([0, 1, 2]);
-    expect(denied[4]).toBe(first[4]);
-    expect(retry[4]).toBe(first[4]);
-    expect(retry[3]).toBeLessThan(denied[3]);
-    for (let i = 0; i < 4; i++) expect(after[i]).toBeLessThan(before[i]);
-    expect(await redis.mget(keys[2], keys[3], keys[4])).toEqual(['2', '2', null]);
+  const rawAcquire = (id: { enterpriseId: string; memberId: string }, execution: string, lease = 5000) =>
+    redis.eval(GATEWAY_ADMISSION_SCRIPT, 4, ...track(id).admission, 120, 600, 4, 32, 60000, lease, execution) as Promise<number[]>;
+  const rawRelease = (id: { enterpriseId: string; memberId: string }, execution: string, deadline: number) =>
+    redis.eval(GATEWAY_ADMISSION_RELEASE_SCRIPT, 2, ...track(id).admission.slice(2), execution, deadline);
+
+  it('rejects duplicate server IDs without refreshing the lease or consuming RPM', async () => {
+    const id = identity();
+    const first = await rawAcquire(id, 'same');
+    expect(await rawAcquire(id, 'same')).toEqual([-1, 0, 0, 0, 0]);
+    const k = track(id).admission;
+    expect(await redis.zscore(k[2], 'same')).toBe(String(first[4]));
+    expect(await redis.mget(k[0], k[1])).toEqual(['1', '1']);
   });
 
-  it('does not extend an aggregate RPM window and recovers at expiry', async () => {
-    const keys = newKeys();
-    const first = await acquire(keys, { memberRpm: 1, window: 150 });
-    const denied = await acquire(keys, { memberRpm: 1, window: 150 });
-    expect(denied.slice(0, 3)).toEqual([0, 3, 1]);
-    await sleep(25);
-    const retry = await acquire(keys, { memberRpm: 1, window: 150 });
-    expect(retry[4]).toBe(denied[4]);
-    await sleep(160);
-    const next = await acquire(keys, { memberRpm: 1, window: 150 });
-    expect(next[0]).toBe(1);
-    expect(next[4]).toBeGreaterThan(first[4]);
-    expect(await redis.get(keys[2])).toBe('1');
+  it('protects replacement leases against old owners and never refunds RPM or reservations', async () => {
+    const id = identity();
+    const old = await rawAcquire(id, 'same', 50);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    const replacement = await rawAcquire(id, 'same');
+    expect(await rawRelease(id, 'same', old[4])).toBe(0);
+    const k = track(id);
+    expect(await redis.zscore(k.admission[2], 'same')).toBe(String(replacement[4]));
+    expect(await redis.zscore(k.admission[3], 'same')).toBe(String(replacement[4]));
+    await a.reserve(id, policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 1000 }), {}, 10);
+    expect(await rawRelease(id, 'same', replacement[4])).toBe(2);
+    expect(await rawRelease(id, 'same', replacement[4])).toBe(0);
+    expect(await redis.mget(k.admission[0], k.admission[1], k.reserve)).toEqual(['2', '2', '12']);
   });
 
-  it('rejects an oversized token reservation without creating any keys', async () => {
-    const keys = newKeys();
-    const denied = await acquire(keys, { tokenLimit: 10, reservation: 11 });
-    expect(denied.slice(0, 3)).toEqual([0, 5, 0]);
-    expect(await redis.exists(...keys)).toBe(0);
+  it('keeps the longest owned deadline when a subsequent raw caller has a shorter lease', async () => {
+    const id = identity();
+    const long = await rawAcquire(id, 'long', 1000);
+    await rawAcquire(id, 'short', 100);
+    const k = track(id).admission;
+    expect(await redis.pttl(k[3])).toBeGreaterThan(800);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    await expect(a.acquire(id, policySnapshot({ GATEWAY_MEMBER_CONCURRENCY: 1 })))
+      .rejects.toMatchObject({ response: { error: { rule: 'member-concurrency', count: 1, resetAt: long[4] } } });
   });
 
-  it('only cleans expired leases on rejection without extending remaining leases', async () => {
-    const keys = newKeys();
-    await acquire(keys, { execution: 'live', memberRpm: 1 });
-    await redis.zadd(keys[0], 1, 'expired');
-    await redis.zadd(keys[1], 1, 'expired');
-    const before = await redis.pttl(keys[0]);
-    const denied = await acquire(keys, { memberRpm: 1 });
-    expect(denied.slice(0, 3)).toEqual([0, 3, 1]);
-    expect(await redis.zrange(keys[0], 0, -1)).toEqual(['live']);
-    expect(await redis.zrange(keys[1], 0, -1)).toEqual(['live']);
-    expect(await redis.pttl(keys[0])).toBeLessThanOrEqual(before);
-    expect(await redis.mget(keys[2], keys[3])).toEqual(['1', '1']);
+  it.each(['not-a-number', '-1', '1.5', '1e3', '01', ' 1 ', '9007199254740992', 'persistent']) (
+    'fails closed on corrupt or persistent counters %s without consuming other budgets', async value => {
+      const id = identity();
+      const k = track(id);
+      const raw = value === 'persistent' ? '1' : value;
+      for (const key of [k.admission[0], k.admission[1]]) {
+        if (value === 'persistent') await redis.set(key, raw);
+        else await redis.set(key, raw, 'PX', 2000);
+        await expect(a.acquire(id, policySnapshot())).rejects.toMatchObject({ status: 503 });
+        expect(await redis.zcard(k.admission[2])).toBe(0);
+        expect(await redis.zcard(k.admission[3])).toBe(0);
+        expect(await redis.get(k.admission[key === k.admission[0] ? 1 : 0])).toBeNull();
+        expect(await redis.get(key)).toBe(raw);
+        await redis.del(key);
+      }
+      if (value === 'persistent') await redis.set(k.reserve, raw);
+      else await redis.set(k.reserve, raw, 'PX', 2000);
+      await expect(a.reserve(id, policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 1000 }), {}, 10))
+        .rejects.toMatchObject({ status: 503 });
+      expect(await redis.get(k.reserve)).toBe(raw);
+      expect(await redis.exists(...k.admission)).toBe(0);
+    },
+  );
+
+  it('validates both RPM counters before writing any increments even when a prior counter is over limit', async () => {
+    const id = identity();
+    const k = track(id).admission;
+    await redis.set(k[0], '120', 'PX', 2000);
+    await redis.set(k[1], 'corrupt', 'PX', 2000);
+    await expect(a.acquire(id, policySnapshot())).rejects.toMatchObject({ status: 503 });
+    expect(await redis.mget(k[0], k[1])).toEqual(['120', 'corrupt']);
+    expect(await redis.exists(k[2], k[3])).toBe(0);
   });
 
-  it('recovers crashed executions by expiring leases without a release call', async () => {
-    const keys = newKeys();
-    await acquire(keys, { execution: 'crashed', memberConcurrency: 1, lease: 100 });
-    expect((await acquire(keys, { memberConcurrency: 1, lease: 100 }))[0]).toBe(0);
-    await sleep(150);
-    expect((await acquire(keys, { execution: 'replacement', memberConcurrency: 1, lease: 100 }))[0]).toBe(1);
-    expect(await redis.zrange(keys[0], 0, -1)).toEqual(['replacement']);
-    expect(await redis.zrange(keys[1], 0, -1)).toEqual(['replacement']);
-    expect(await redis.mget(keys[2], keys[3])).toEqual(['2', '2']);
+  it('does not create a token window when a reservation exceeds the entire budget', async () => {
+    const id = identity();
+    await expect(a.reserve(id, policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 1 }), {}, 10))
+      .rejects.toMatchObject({ status: 429, response: { error: { count: 0, rateLimit: { windowMs: 60000 } } } });
+    expect(await redis.exists(track(id).reserve)).toBe(0);
   });
 
-  it('uses the last deadline for TTL, not a later request with a shorter lease', async () => {
-    const keys = newKeys();
-    const long = await acquire(keys, { execution: 'long', lease: 1000 });
-    await acquire(keys, { execution: 'short', lease: 100 });
-    expect(await redis.pttl(keys[0])).toBeGreaterThan(800);
-    await sleep(150);
-    const denied = await acquire(keys, { memberConcurrency: 1 });
-    expect(denied.slice(0, 3)).toEqual([0, 1, 1]);
-    expect(denied[4]).toBe(long[4]);
+  it('retains business RPM after a separate failed reservation and owner release', async () => {
+    const id = identity();
+    const snapshot = policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 1 });
+    const lease = await a.acquire(id, snapshot);
+    await expect(a.reserve(id, snapshot, {}, 10)).rejects.toMatchObject({ status: 429 });
+    await lease.release();
+    const k = track(id);
+    expect(await redis.mget(k.admission[0], k.admission[1], k.reserve)).toEqual(['1', '1', null]);
+    expect(await redis.exists(k.admission[2], k.admission[3])).toBe(0);
   });
 
-  it('releases idempotently without removing other executions or refunding RPM/tokens', async () => {
-    const keys = newKeys();
-    const a = await acquire(keys, { execution: 'a', tokenLimit: 100, reservation: 20 });
-    await acquire(keys, { execution: 'b', tokenLimit: 100, reservation: 20 });
-    expect(await release(keys, 'a', a[4])).toBe(2);
-    expect(await release(keys, 'a', a[4])).toBe(0);
-    expect(await redis.zrange(keys[0], 0, -1)).toEqual(['b']);
-    expect(await redis.zrange(keys[1], 0, -1)).toEqual(['b']);
-    expect(await redis.mget(keys[2], keys[3], keys[4])).toEqual(['2', '2', '40']);
+  it('uses Redis TTL/reset time rather than extending the active reservation window', async () => {
+    const id = identity();
+    const key = track(id).reserve;
+    await redis.set(key, '10', 'PX', 500);
+    const result = await redis.eval(GATEWAY_RESOURCE_RESERVE_SCRIPT, 1, key, 1000, 10, 60000) as number[];
+    expect(result.slice(0, 3)).toEqual([1, 0, 20]);
+    expect(result[3]).toBeLessThanOrEqual(500);
+    expect(await redis.pttl(key)).toBeLessThanOrEqual(500);
   });
 
-  it('rejects duplicate active server IDs without refreshing or consuming quotas', async () => {
-    const keys = newKeys();
-    const first = await acquire(keys, { execution: 'same' });
-    const duplicate = await acquire(keys, { execution: 'same' });
-    expect(duplicate).toEqual([-1, 0, 0, 0, 0]);
-    expect(await redis.zscore(keys[0], 'same')).toBe(String(first[4]));
-    expect(await redis.mget(keys[2], keys[3])).toEqual(['1', '1']);
+  it('returns the earliest lease deadline without extending any window on denied retries', async () => {
+    const id = identity();
+    const first = await rawAcquire(id, 'first', 1000);
+    await rawAcquire(id, 'second', 2000);
+    const k = track(id).admission;
+    const before = await Promise.all(k.map(key => redis.pttl(key)));
+    const policy = policySnapshot({ GATEWAY_MEMBER_CONCURRENCY: 2 });
+    const denied = await a.acquire(id, policy).catch(error => error);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const retry = await b.acquire(id, policy).catch(error => error);
+    expect(denied.response.error).toMatchObject({ rule: 'member-concurrency', count: 2, resetAt: first[4] });
+    expect(retry.response.error.resetAt).toBe(first[4]);
+    const after = await Promise.all(k.map(key => redis.pttl(key)));
+    after.forEach((ttl, i) => expect(ttl).toBeLessThan(before[i]));
+    expect(await redis.mget(k[0], k[1])).toEqual(['2', '2']);
   });
 
-  it('does not let an old release delete a newer lease with the same execution ID', async () => {
-    const keys = newKeys();
-    const old = await acquire(keys, { execution: 'same', lease: 50 });
-    await sleep(80);
-    const replacement = await acquire(keys, { execution: 'same' });
-    expect(await release(keys, 'same', old[4])).toBe(0);
-    expect(await redis.zscore(keys[0], 'same')).toBe(String(replacement[4]));
-    expect(await redis.zscore(keys[1], 'same')).toBe(String(replacement[4]));
+  it('only removes expired leases when an RPM rejection leaves an active owner in place', async () => {
+    const id = identity();
+    await rawAcquire(id, 'live');
+    const k = track(id).admission;
+    for (const key of k.slice(2)) await redis.zadd(key, 1, 'expired');
+    const before = await redis.pttl(k[3]);
+    await expect(a.acquire(id, policySnapshot({ GATEWAY_MEMBER_RPM: 1 })))
+      .rejects.toMatchObject({ response: { error: { rule: 'member-rpm', count: 1 } } });
+    expect(await redis.zrange(k[2], 0, -1)).toEqual(['live']);
+    expect(await redis.zrange(k[3], 0, -1)).toEqual(['live']);
+    expect(await redis.pttl(k[3])).toBeLessThanOrEqual(before);
+    expect(await redis.mget(k[0], k[1])).toEqual(['1', '1']);
   });
 
-  it('fails closed on corrupt counters without adding a lease or changing other quotas', async () => {
-    const keys = newKeys();
-    await redis.set(keys[3], 'not-a-number', 'PX', 2000);
-    await expect(acquire(keys)).rejects.toThrow('Invalid gateway admission counter');
-    expect(await redis.exists(keys[0], keys[1], keys[2], keys[4])).toBe(0);
-    expect(await redis.get(keys[3])).toBe('not-a-number');
+  it('releases only its own execution while preserving other active executions', async () => {
+    const id = identity();
+    const first = await rawAcquire(id, 'first');
+    await rawAcquire(id, 'second');
+    expect(await rawRelease(id, 'first', first[4])).toBe(2);
+    expect(await rawRelease(id, 'first', first[4])).toBe(0);
+    const k = track(id).admission;
+    expect(await redis.zrange(k[2], 0, -1)).toEqual(['second']);
+    expect(await redis.zrange(k[3], 0, -1)).toEqual(['second']);
+    expect(await redis.mget(k[0], k[1])).toEqual(['2', '2']);
   });
 
-  it('runs the public service API on real Redis with conservative reservations and safe 503 duplicate handling', async () => {
-    const enterpriseId = randomUUID();
-    const claims: ClientEmploymentClaims = {
-      sub: 'user', enterpriseId, memberId: 'member', subscriptionId: 'subscription',
-      type: 'client-employment', sid: 'session', iat: 1, exp: 2,
-    };
-    const trackedRedis = { eval: async (script: string, count: number, ...args: (string | number)[]) => {
-      args.slice(0, count).forEach((key) => ownedKeys.add(String(key)));
-      return redis.eval(script, count, ...args);
-    } };
-    const service = new GatewayAdmissionService(
-      { redis: trackedRedis } as unknown as RedisService,
-      new ConfigService({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 10000, GATEWAY_MEMBER_CONCURRENCY: 1 }),
-    );
-    const dto = { model: 'model', messages: [{ role: 'user' as const, content: 'input' }], max_tokens: 100 };
-    const lease = await service.acquire(claims, 'exec-a', dto);
-    await expect(service.acquire(claims, 'exec-a', dto)).rejects.toBeInstanceOf(ServiceUnavailableException);
-    await expect(service.acquire(claims, 'exec-b', dto)).rejects.toMatchObject({ status: 429 });
-    await Promise.all([lease.release(), lease.release()]);
-    const next = await service.acquire(claims, 'exec-b', dto);
-    await next.release();
-    const tokenKey = [...ownedKeys].find((key) => key.startsWith('sep:gateway:admission:') && key.endsWith(':tokens:enterprise'))!;
-    expect(await redis.get(tokenKey)).toBe(String(2 * (Buffer.byteLength(JSON.stringify(dto)) + 100)));
-    const prefix = tokenKey.replace(':tokens:enterprise', '');
-    expect(await redis.zcard(`${prefix}:concurrency:enterprise`)).toBe(0);
-    expect(await redis.get(`${prefix}:rpm:enterprise`)).toBe('2');
+  it.each(['member', 'enterprise'])('enforces the %s RPM threshold atomically across two clients', async dimension => {
+    const id = identity();
+    const policy = policySnapshot({ GATEWAY_MEMBER_RPM: 3, GATEWAY_ENTERPRISE_RPM: dimension === 'enterprise' ? 3 : 600 });
+    const candidates = Array.from({ length: 25 }, (_, i) => dimension === 'member' ? id : { ...id, memberId: `m-${i}` });
+    candidates.forEach(track);
+    const results = await Promise.allSettled(candidates.map((candidate, i) => (i % 2 ? a : b).acquire(candidate, policy)));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(3);
+    const rejected = results.filter(result => result.status === 'rejected');
+    for (const result of rejected) {
+      if (result.status === 'rejected') expect(result.reason.response.error).toMatchObject({ rule: `${dimension}-rpm`, count: 3 });
+    }
+    const k = track(id).admission;
+    expect(await redis.get(k[1])).toBe('3');
+    expect(await redis.zcard(k[3])).toBe(3);
+    await Promise.all(results.flatMap(result => result.status === 'fulfilled' ? [result.value.release()] : []));
   });
 });
