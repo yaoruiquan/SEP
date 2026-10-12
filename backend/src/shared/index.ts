@@ -1805,24 +1805,91 @@ export type ClientRefreshDto = z.infer<typeof ClientRefreshDtoSchema>;
 // Gateway Layer Types (OpenAI-compatible chat completion)
 // ============================================================================
 
-const ChatCompletionToolCallSchema = z.object({
-  id: z.string().min(1),
+const ChatCompletionFunctionNameSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/);
+const ChatCompletionTextSchema = z.string().max(1024 * 1024);
+const ChatCompletionJsonSchema: z.ZodType<Record<string, unknown> | boolean> = z.lazy(() =>
+  z.union([
+    z.boolean(),
+    z.object({
+      type: z.union([
+        z.enum(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']),
+        z.array(z.enum(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])).min(1).max(7),
+      ]).optional(),
+      properties: z.record(ChatCompletionJsonSchema).optional(),
+      required: z.array(z.string().min(1).max(256)).max(256).optional(),
+      items: z.union([ChatCompletionJsonSchema, z.array(ChatCompletionJsonSchema).max(128)]).optional(),
+      additionalProperties: ChatCompletionJsonSchema.optional(),
+      allOf: z.array(ChatCompletionJsonSchema).min(1).max(128).optional(),
+      anyOf: z.array(ChatCompletionJsonSchema).min(1).max(128).optional(),
+      oneOf: z.array(ChatCompletionJsonSchema).min(1).max(128).optional(),
+      not: ChatCompletionJsonSchema.optional(),
+      $defs: z.record(ChatCompletionJsonSchema).optional(),
+      definitions: z.record(ChatCompletionJsonSchema).optional(),
+      enum: z.array(z.unknown()).min(1).max(256).optional(),
+      description: ChatCompletionTextSchema.optional(),
+      $ref: z.string().max(1024).optional(),
+    }).catchall(z.unknown()),
+  ]),
+);
+
+// 先限制 JSON 的深度和节点数，再递归校验 schema，避免任意深度耗尽调用栈。
+const ChatCompletionFunctionParametersSchema = z.record(z.unknown()).superRefine((parameters, ctx) => {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: parameters, depth: 0 }];
+  let nodes = 0;
+  while (stack.length) {
+    const { value, depth } = stack.pop()!;
+    nodes += 1;
+    if (nodes > 8192 || depth > 32) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '参数 schema 超过结构资源上限' });
+      return;
+    }
+    if (value === null || typeof value === 'boolean' ||
+        (typeof value === 'number' && Number.isFinite(value)) ||
+        (typeof value === 'string' && value.length <= 1024 * 1024)) continue;
+    if (typeof value !== 'object') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '参数 schema 必须是有界 JSON 结构' });
+      return;
+    }
+    const entries = Object.entries(value);
+    if (entries.length > (Array.isArray(value) ? 1024 : 256) ||
+        entries.some(([key]) => key.length > 256)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '参数 schema 字段或数组超过上限' });
+      return;
+    }
+    for (const [, child] of entries) stack.push({ value: child, depth: depth + 1 });
+  }
+}).pipe(ChatCompletionJsonSchema).pipe(z.object({
+  type: z.literal('object').optional(),
+}).catchall(z.unknown()));
+
+const ChatCompletionToolSchema = z.object({
   type: z.literal('function'),
   function: z.object({
-    name: z.string().min(1),
-    arguments: z.string(),
+    name: ChatCompletionFunctionNameSchema,
+    description: ChatCompletionTextSchema.optional(),
+    parameters: ChatCompletionFunctionParametersSchema.optional(),
+    strict: z.boolean().optional(),
+  }),
+});
+
+const ChatCompletionToolCallSchema = z.object({
+  id: z.string().min(1).max(128),
+  type: z.literal('function'),
+  function: z.object({
+    name: ChatCompletionFunctionNameSchema,
+    arguments: ChatCompletionTextSchema,
   }),
 });
 
 const ChatCompletionMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
   // 工具调用轮的 assistant 可以没有文本；其他消息仍要求文本内容。
-  content: z.string().nullable().optional(),
-  name: z.string().optional(),
-  tool_calls: z.array(ChatCompletionToolCallSchema).optional(),
-  tool_call_id: z.string().min(1).optional(),
+  content: ChatCompletionTextSchema.nullable().optional(),
+  name: ChatCompletionFunctionNameSchema.optional(),
+  tool_calls: z.array(ChatCompletionToolCallSchema).max(128).optional(),
+  tool_call_id: z.string().min(1).max(128).optional(),
   // 推理模型的工具回传可能要求原样保留此字段，不能在 Zod parse 时剥离。
-  reasoning_content: z.string().nullable().optional(),
+  reasoning_content: ChatCompletionTextSchema.nullable().optional(),
 }).superRefine((message, ctx) => {
   if (message.content == null && !(message.role === 'assistant' && message.tool_calls?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: '此消息必须提供文本 content' });
@@ -1830,23 +1897,49 @@ const ChatCompletionMessageSchema = z.object({
   if (message.role === 'tool' && !message.tool_call_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tool_call_id'], message: '工具结果必须提供 tool_call_id' });
   }
+  if (message.role !== 'assistant' && message.tool_calls !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tool_calls'], message: '仅 assistant 可以发起工具调用' });
+  }
+  if (message.role !== 'tool' && message.tool_call_id !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tool_call_id'], message: '仅 tool 消息可以关联工具结果' });
+  }
 });
 
 export const ChatCompletionRequestSchema = z.object({
-  model: z.string().min(1),
-  messages: z.array(ChatCompletionMessageSchema),
+  model: z.string().min(1).max(256),
+  messages: z.array(ChatCompletionMessageSchema).min(1).max(512),
   temperature: z.number().min(0).max(2).optional(),
-  max_tokens: z.number().int().positive().optional(),
+  max_tokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   stream: z.boolean().optional(),
-  tools: z.array(z.any()).optional(),
+  tools: z.array(ChatCompletionToolSchema).max(128).optional(),
   tool_choice: z.union([
     z.enum(['none', 'auto', 'required']),
-    z.object({ type: z.literal('function'), function: z.object({ name: z.string().min(1) }) }),
+    z.object({ type: z.literal('function'), function: z.object({ name: ChatCompletionFunctionNameSchema }) }),
   ]).optional(),
   parallel_tool_calls: z.boolean().optional(),
   stream_options: z.object({ include_usage: z.boolean().optional() }).optional(),
   thinking: z.object({ type: z.enum(['enabled', 'disabled']) }).optional(),
-  reasoning_effort: z.string().min(1).optional(),
+  reasoning_effort: z.string().min(1).max(64).optional(),
+}).superRefine((request, ctx) => {
+  const pendingCalls = new Set<string>();
+  request.messages.forEach((message, index) => {
+    if (message.role === 'assistant') {
+      // 新 assistant 轮取代上一轮，不能把过期或已消费的 ID 用于孤立结果。
+      pendingCalls.clear();
+      for (const call of message.tool_calls ?? []) {
+        if (pendingCalls.has(call.id)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['messages', index, 'tool_calls'], message: '同轮工具调用 ID 不能重复' });
+        }
+        pendingCalls.add(call.id);
+      }
+    } else if (message.role === 'tool') {
+      if (!message.tool_call_id || !pendingCalls.delete(message.tool_call_id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['messages', index, 'tool_call_id'], message: '工具结果必须关联当前轮此前未消费的 assistant tool_calls ID' });
+      }
+    } else {
+      pendingCalls.clear();
+    }
+  });
 });
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
 

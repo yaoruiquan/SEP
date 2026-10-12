@@ -4,8 +4,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatCompletionUsage } from 'shared';
+import { validGatewayUsage } from './gateway-response';
 
-function timeoutValue(
+export function timeoutValue(
   config: ConfigService,
   name: string,
   fallback: number,
@@ -25,14 +26,16 @@ function timeoutValue(
 export function createGatewayStreamLifecycle(
   config: ConfigService,
   clientSignal?: AbortSignal,
+  mode: 'stream' | 'json' = 'stream',
 ) {
-  const headerMs = timeoutValue(
+  const jsonMs = mode === 'json' ? timeoutValue(config, 'GATEWAY_NON_STREAM_TIMEOUT_MS', 120000) : undefined;
+  const headerMs = jsonMs ?? timeoutValue(
     config,
     'GATEWAY_STREAM_HEADER_TIMEOUT_MS',
     120000,
   );
-  const idleMs = timeoutValue(config, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 120000);
-  const totalMs = timeoutValue(
+  const idleMs = jsonMs ?? timeoutValue(config, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 120000);
+  const totalMs = jsonMs ?? timeoutValue(
     config,
     'GATEWAY_STREAM_TOTAL_TIMEOUT_MS',
     600000,
@@ -61,7 +64,7 @@ export function createGatewayStreamLifecycle(
     abort(
       new BadGatewayException({
         error: {
-          message: 'sub2api 流式请求超时',
+          message: 'sub2api 请求超时',
           type: 'api_error',
           code,
           param: null,
@@ -117,18 +120,24 @@ export function createGatewayStreamLifecycle(
       const body = new ReadableStream<Uint8Array>({
         start(streamController) {
           output = streamController;
-          resetIdle();
         },
         async pull(streamController) {
           try {
-            const { done, value } = await reader!.read();
-            if (settled) return;
-            if (done) {
-              cleanup();
-              streamController.close();
-            } else {
-              if (value.byteLength) resetIdle();
-              streamController.enqueue(value);
+            // Backpressure is not upstream silence; only budget outstanding reads.
+            resetIdle();
+            while (!settled) {
+              const { done, value } = await reader!.read();
+              if (settled) return;
+              if (done) {
+                cleanup();
+                streamController.close();
+                return;
+              }
+              if (value.byteLength) {
+                clearTimeout(idleTimer);
+                streamController.enqueue(value);
+                return;
+              }
             }
           } catch (error) {
             abort(error);
@@ -153,33 +162,31 @@ export function createGatewayStreamLifecycle(
 export function createChatCompletionStreamObserver() {
   const decoder = new TextDecoder();
   const maxEventLength = 1024 * 1024;
+  const maxEventLines = 4096;
   let buffer = '';
   let data: string[] = [];
   let eventLength = 0;
+  let eventLines = 0;
   let oversized = false;
   let oversizedLine = false;
   let usage: ChatCompletionUsage | null = null;
   let finishReason: string | null = null;
   let done = false;
+  let protocolError = false;
+  let finished = false;
 
-  function dispatch() {
+  function dispatch(complete = true) {
     if (!oversized && data.length) {
       const payload = data.join('\n');
-      if (payload.trim() === '[DONE]') done = true;
+      if (payload.trim() === '[DONE]') { if (complete) done = true; }
       else {
         try {
           const json = JSON.parse(payload);
-          const candidate = json.usage;
-          if (
-            candidate &&
-            Number.isSafeInteger(candidate.prompt_tokens) &&
-            candidate.prompt_tokens >= 0 &&
-            Number.isSafeInteger(candidate.completion_tokens) &&
-            candidate.completion_tokens >= 0
-          )
-            usage = candidate;
+          const candidate = validGatewayUsage(json.usage);
+          if (candidate) usage = candidate;
+          if (json.error) protocolError = true;
           const reason = json.choices?.[0]?.finish_reason;
-          if (typeof reason === 'string' && reason) finishReason = reason;
+          if (complete && typeof reason === 'string' && reason) finishReason = reason.slice(0, 100);
         } catch {
           /* Non-JSON events remain untouched on the wire. */
         }
@@ -187,6 +194,7 @@ export function createChatCompletionStreamObserver() {
     }
     data = [];
     eventLength = 0;
+    eventLines = 0;
     oversized = false;
   }
   function line(value: string) {
@@ -194,13 +202,14 @@ export function createChatCompletionStreamObserver() {
       dispatch();
       return;
     }
-    if (!value.startsWith('data:') || oversized) return;
-    const payload = value.slice(5).replace(/^ /, '');
-    eventLength += payload.length;
-    if (eventLength > maxEventLength) {
+    if (oversized) return;
+    // Include framing and per-line overhead, including empty data fields.
+    eventLength += Buffer.byteLength(value, 'utf8') + 2;
+    eventLines += 1;
+    if (eventLength > maxEventLength || eventLines > maxEventLines) {
       oversized = true;
       data = [];
-    } else data.push(payload);
+    } else if (value.startsWith('data:')) data.push(value.slice(5).replace(/^ /, ''));
   }
   function parse(final = false) {
     let match: RegExpExecArray | null;
@@ -214,14 +223,15 @@ export function createChatCompletionStreamObserver() {
         oversized = true;
       } else line(value);
     }
-    if (buffer.length > maxEventLength) {
+    if (Buffer.byteLength(buffer, 'utf8') > maxEventLength) {
       buffer = '';
       oversizedLine = true;
     }
     if (final) {
       if (!oversizedLine && buffer) line(buffer);
       buffer = '';
-      dispatch();
+      // An EOF tail can carry accounting data, but is not a dispatched SSE event.
+      dispatch(false);
     }
   }
   return {
@@ -229,10 +239,14 @@ export function createChatCompletionStreamObserver() {
       buffer += decoder.decode(chunk, { stream: true });
       parse();
     },
+    snapshot() { return { usage, finishReason, done, protocolError }; },
     finish() {
-      buffer += decoder.decode();
-      parse(true);
-      return { usage, finishReason, done };
+      if (!finished) {
+        buffer += decoder.decode();
+        parse(true);
+        finished = true;
+      }
+      return { usage, finishReason, done, protocolError };
     },
   };
 }

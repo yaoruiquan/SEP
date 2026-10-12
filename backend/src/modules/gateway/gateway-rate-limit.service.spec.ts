@@ -6,7 +6,7 @@ import { GATEWAY_RATE_LIMIT_SCRIPT, GatewayRateLimitService } from './gateway-ra
 
 const claims: ClientEmploymentClaims = {
   sub: 'user', enterpriseId: 'enterprise', memberId: 'member', subscriptionId: 'subscription',
-  type: 'client-employment', iat: 1, exp: 2,
+  sid: 'auth-session', type: 'client-employment', iat: 1, exp: 2,
 };
 
 describe('GatewayRateLimitService', () => {

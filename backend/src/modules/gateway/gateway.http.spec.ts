@@ -1,40 +1,64 @@
-import { ExecutionContext, INestApplication, ValidationPipe } from '@nestjs/common';
+import { ExecutionContext, HttpException, INestApplication, Logger, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { APIError } from 'openai/error';
+import { randomUUID } from 'node:crypto';
+import type { ChatCompletionRequest } from 'shared';
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
+import { GatewayLifecycleService } from '../../common/lifecycle/gateway-lifecycle.service';
 import { requestContextMiddleware } from '../../common/middleware/request-context.middleware';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
 import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
+import { GatewayAdmissionService } from './gateway-admission.service';
+import { GatewayExecutionService } from './gateway-execution.service';
 
 const toolCall = { id: 'call_test_ls_001', type: 'function', function: { name: 'ls', arguments: '{}' } };
 const tools = [{ type: 'function', function: { name: 'ls', parameters: { type: 'object' } } }];
 const endpoint = '/api/gateway/v1/chat/completions';
+const claims = {
+  sub: 'user-1', sid: 'session-1', enterpriseId: 'enterprise-1', memberId: 'member-1', subscriptionId: 'subscription-1',
+  type: 'client-employment', iat: 1, exp: 2,
+};
+const body = { model: 'deepseek-v4.1-flash', messages: [{ role: 'user', content: 'hello' }] };
+const usage = { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 };
+const completion = { choices: [{ message: { role: 'assistant', content: 'hello' }, finish_reason: 'stop' }], usage };
 
 // 使用真实 Zod pipe、controller、转发 service 和全局 filter；只 mock 授权/配置/上游。
 describe('Gateway tool-call HTTP round trip', () => {
   let app: INestApplication;
   let service: GatewayService;
   let fetchMock: jest.SpyInstance;
+  let forwardSpy: jest.SpyInstance;
+  const modelPolicy = { prepare: jest.fn() };
+  const executions = {
+    start: jest.fn(), saveUsage: jest.fn(), finish: jest.fn(), fail: jest.fn(), setUpstreamRequest: jest.fn(),
+  };
+  const releaseAdmission = jest.fn();
+  const admission = { acquire: jest.fn() };
+  const releaseRequest = jest.fn();
+  const lifecycle = { beginRequest: jest.fn() };
 
   beforeAll(async () => {
-    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never);
+    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never, modelPolicy as never);
     jest.spyOn(service, 'validateAndAuthorize').mockResolvedValue({
       enterpriseId: 'enterprise-1', subscriptionId: 'subscription-1', memberId: 'member-1', employeeId: 'employee-1',
-      allowedModels: ['deepseek-v4.1-flash'],
     });
     jest.spyOn(service, 'getSub2ApiConfig').mockResolvedValue({
       baseUrl: 'https://relay.test/v1', apiKey: 'test-key', defaultModel: 'deepseek-v4.1-flash',
     });
-    jest.spyOn(service, 'recordTransaction').mockResolvedValue();
     const moduleRef = await Test.createTestingModule({
-      controllers: [GatewayController], providers: [{ provide: GatewayService, useValue: service }],
+      controllers: [GatewayController], providers: [
+        { provide: GatewayService, useValue: service },
+        { provide: GatewayExecutionService, useValue: executions },
+        { provide: GatewayAdmissionService, useValue: admission },
+        { provide: GatewayLifecycleService, useValue: lifecycle },
+      ],
     }).overrideGuard(ClientEmploymentGuard).useValue({
       canActivate: (context: ExecutionContext) => {
-        context.switchToHttp().getRequest().clientEmployment = {};
+        context.switchToHttp().getRequest().clientEmployment = { ...claims };
         return true;
       },
     }).overrideGuard(GatewayRateLimitGuard).useValue({ canActivate: () => true }).compile();
@@ -46,8 +70,29 @@ describe('Gateway tool-call HTTP round trip', () => {
     await app.init();
   });
 
-  beforeEach(() => { fetchMock = jest.spyOn(global, 'fetch'); });
-  afterEach(() => { fetchMock.mockRestore(); });
+  beforeEach(() => {
+    modelPolicy.prepare.mockReset().mockImplementation(async (_claims, dto: ChatCompletionRequest) => {
+      const prepared = { ...dto, max_tokens: dto.max_tokens ?? 4096 };
+      return { request: prepared, allowedModels: [dto.model], inputBytes: Buffer.byteLength(JSON.stringify(prepared)) };
+    });
+    executions.start.mockReset().mockImplementation(async () => ({ id: randomUUID() }));
+    for (const mock of [executions.saveUsage, executions.finish, executions.fail, executions.setUpstreamRequest, releaseAdmission]) {
+      mock.mockReset().mockResolvedValue(undefined);
+    }
+    admission.acquire.mockReset().mockResolvedValue({ release: releaseAdmission });
+    releaseRequest.mockReset();
+    lifecycle.beginRequest.mockReset().mockReturnValue(releaseRequest);
+    fetchMock = jest.spyOn(global, 'fetch');
+    forwardSpy = jest.spyOn(service, 'forwardChatCompletion');
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+  });
+  afterEach(() => {
+    fetchMock.mockRestore();
+    forwardSpy.mockRestore();
+    for (const method of ['log', 'warn', 'error'] as const) (Logger.prototype[method] as jest.Mock).mockRestore();
+  });
   afterAll(async () => { await app?.close(); jest.restoreAllMocks(); });
 
   it.each([false, true])('preserves first and follow-up requests with stream=%s', async (stream) => {
@@ -61,13 +106,18 @@ describe('Gateway tool-call HTTP round trip', () => {
     const chunks = [
       { choices: [{ delta: { tool_calls: [{ index: 0, ...toolCall, function: { name: 'ls', arguments: '{' } }] } }] },
       { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
     ];
     const sse = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
-    fetchMock.mockImplementation(async () => new Response(stream ? sse : JSON.stringify({ choices: [{ message: assistant }] })));
+    fetchMock.mockImplementation(async () => new Response(stream ? sse : JSON.stringify({ choices: [{ message: assistant, finish_reason: 'tool_calls' }] }), {
+      headers: { 'Content-Type': stream ? 'text/event-stream' : 'application/json' },
+    }));
     for (const body of [first, second]) {
       const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(200);
       const [, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
-      expect(JSON.parse(init.body)).toEqual(body);
+      expect(JSON.parse(init.body)).toEqual({
+        ...body, max_tokens: 4096, ...(stream ? { stream_options: { include_usage: true } } : {}),
+      });
       if (stream) {
         expect(res.headers['content-type']).toContain('text/event-stream');
         expect(res.text).toBe(sse);
@@ -75,6 +125,160 @@ describe('Gateway tool-call HTTP round trip', () => {
         expect(res.body.choices[0].message).toEqual(assistant);
       }
     }
+    expect(executions.start).toHaveBeenCalledTimes(2);
+    expect(executions.finish).toHaveBeenCalledTimes(2);
+    expect(releaseAdmission).toHaveBeenCalledTimes(2);
+    expect(releaseRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses distinct server executions and usage journal entries for repeated client IDs', async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(completion), {
+      headers: { 'Content-Type': 'application/json', 'x-request-id': 'upstream-request' },
+    }));
+    const responses = [];
+    for (let i = 0; i < 2; i++) {
+      responses.push(await request(app.getHttpServer()).post(endpoint)
+        .set('x-request-id', 'same-client-request').set('x-sep-session-id', 'same-client-session')
+        .set('x-sep-message-id', 'same-client-message').send(body).expect(200));
+    }
+    const ids = responses.map((res) => res.headers['x-sep-execution-id']);
+    expect(ids.every((id) => typeof id === 'string' && id !== 'same-client-message' && id !== 'same-client-request')).toBe(true);
+    expect(new Set(ids).size).toBe(2);
+    expect(executions.start).toHaveBeenCalledTimes(2);
+    for (const id of ids) {
+      expect(admission.acquire).toHaveBeenCalledWith(claims, id, { ...body, max_tokens: 4096, requestId: 'same-client-request' });
+      expect(executions.setUpstreamRequest).toHaveBeenCalledWith(id, 'upstream-request');
+      expect(executions.saveUsage).toHaveBeenCalledWith(id, usage);
+      expect(executions.finish).toHaveBeenCalledWith(id, {});
+    }
+    expect(executions.start).toHaveBeenNthCalledWith(1, claims, 'employee-1', body.model, 'same-client-request');
+    expect(executions.start).toHaveBeenNthCalledWith(2, claims, 'employee-1', body.model, 'same-client-request');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(executions.fail).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(2);
+    expect(releaseRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not acquire or fetch when journal creation fails', async () => {
+    executions.start.mockRejectedValue(new ServiceUnavailableException({ error: {
+      code: 'EXECUTION_JOURNAL_UNAVAILABLE', source: 'platform', message: 'Journal unavailable',
+    } }));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(503);
+    expect(res.body.error).toMatchObject({ code: 'EXECUTION_JOURNAL_UNAVAILABLE', source: 'platform' });
+    expect(admission.acquire).not.toHaveBeenCalled();
+    expect(forwardSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(executions.fail).not.toHaveBeenCalled();
+    expect(releaseAdmission).not.toHaveBeenCalled();
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns draining 503 without creating an execution or forwarding', async () => {
+    lifecycle.beginRequest.mockImplementation(() => { throw new ServiceUnavailableException({ error: {
+      code: 'SERVER_DRAINING', source: 'platform', message: 'Gateway instance is draining',
+    } }); });
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(503);
+    expect(res.body.error).toMatchObject({ code: 'SERVER_DRAINING', source: 'platform' });
+    expect(modelPolicy.prepare).not.toHaveBeenCalled();
+    expect(executions.start).not.toHaveBeenCalled();
+    expect(admission.acquire).not.toHaveBeenCalled();
+    expect(forwardSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(releaseRequest).not.toHaveBeenCalled();
+  });
+
+  it('marks the execution failed without forwarding when admission rejects', async () => {
+    admission.acquire.mockRejectedValue(new HttpException({ error: {
+      code: 'PLATFORM_CONCURRENCY_LIMIT_EXCEEDED', source: 'platform', message: 'Concurrency exceeded',
+    }, retryAfterSeconds: 12 }, 429));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(429);
+    expect(res.body.error).toMatchObject({ code: 'PLATFORM_CONCURRENCY_LIMIT_EXCEEDED', source: 'platform' });
+    expect(res.headers['retry-after']).toBe('12');
+    expect(executions.fail).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], 'PLATFORM_CONCURRENCY_LIMIT_EXCEEDED', true, false);
+    expect(forwardSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(releaseAdmission).not.toHaveBeenCalled();
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['application/json', 'text/html', 'text/plain'])('rejects streaming MIME %s as JSON 502 before SSE headers', async (mime) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(completion), { headers: { 'Content-Type': mime } }));
+    const res = await request(app.getHttpServer()).post(endpoint).send({ ...body, stream: true }).expect(502);
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.body.error).toMatchObject({ code: 'UPSTREAM_INVALID_CONTENT_TYPE', source: 'upstream' });
+    expect(res.headers['x-accel-buffering']).toBeUndefined();
+    expect(executions.fail).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], 'UPSTREAM_INVALID_CONTENT_TYPE', false, false);
+    expect(executions.saveUsage).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { choices: [] }, { choices: [null] }, { choices: [{}] },
+    { choices: [{ message: { role: 'assistant', content: 'partial' }, finish_reason: null }] },
+  ])('rejects incomplete JSON choices %j but retains billable usage', async ({ choices }) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ choices, usage }), { headers: { 'Content-Type': 'application/json' } }));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(502);
+    expect(res.body.error.code).toBe('UPSTREAM_INVALID_COMPLETION');
+    expect(executions.fail).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], 'UPSTREAM_INVALID_COMPLETION', false, false);
+    expect(executions.saveUsage).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], usage);
+    expect(executions.finish).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('freezes uncertain usage when a nonstream checkpoint fails instead of returning success', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(completion), { headers: { 'Content-Type': 'application/json' } }));
+    executions.saveUsage.mockRejectedValue(new HttpException({ error: {
+      code: 'EXECUTION_USAGE_CHECKPOINT_REJECTED', source: 'platform', message: 'Usage needs reconciliation',
+    } }, 503));
+    const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(503);
+    expect(res.body.error.code).toBe('EXECUTION_USAGE_CHECKPOINT_REJECTED');
+    expect(executions.fail).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], 'EXECUTION_USAGE_CHECKPOINT_REJECTED', false, true);
+    expect(executions.finish).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, false, true])('forces upstream include_usage when the client supplied %p', async (includeUsage) => {
+    const sse = `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [], usage })}\n\n` + 'data: [DONE]\n\n';
+    fetchMock.mockResolvedValue(new Response(sse, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } }));
+    const payload = { ...body, stream: true, ...(includeUsage === undefined ? {} : { stream_options: { include_usage: includeUsage } }) };
+    const res = await request(app.getHttpServer()).post(endpoint).send(payload).expect(200);
+    expect(res.text).toBe(sse);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ ...payload, max_tokens: 4096, stream_options: { include_usage: true } });
+    expect(executions.saveUsage).toHaveBeenCalledTimes(1);
+    expect(executions.saveUsage).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], usage);
+    expect(executions.finish).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], { finishReason: 'stop', done: true, errorCode: undefined });
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts an effective finish_reason without fabricating a missing DONE', async () => {
+    const sse = `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage })}\n\n`;
+    fetchMock.mockResolvedValue(new Response(sse, { headers: { 'Content-Type': 'text/event-stream' } }));
+    const res = await request(app.getHttpServer()).post(endpoint).send({ ...body, stream: true }).expect(200);
+    expect(res.text).toBe(sse);
+    expect(res.text).not.toContain('[DONE]');
+    expect(executions.saveUsage).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], usage);
+    expect(executions.finish).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], { finishReason: 'stop', done: false, errorCode: undefined });
+    expect(executions.fail).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts incomplete SSE at EOF while persisting observed usage and releasing resources', async () => {
+    const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' }, finish_reason: null }], usage })}\n\n` + 'data: [DONE]\n\n';
+    fetchMock.mockResolvedValue(new Response(sse, { headers: { 'Content-Type': 'text/event-stream' } }));
+    await expect(request(app.getHttpServer()).post(endpoint).send({ ...body, stream: true }))
+      .rejects.toThrow(/aborted|socket hang up|ECONNRESET/);
+    await new Promise((resolve) => setImmediate(resolve));
+    const { id } = await executions.start.mock.results[0].value;
+    expect(executions.saveUsage).toHaveBeenCalledWith(id, usage);
+    expect(executions.finish).toHaveBeenCalledWith(id, { finishReason: null, done: true, errorCode: 'UPSTREAM_INCOMPLETE_STREAM' });
+    expect(releaseAdmission).toHaveBeenCalledTimes(1);
+    expect(releaseRequest).toHaveBeenCalledTimes(1);
   });
 
   it('reproduces the SDK no-body message for the legacy nonempty Nest error envelope', () => {

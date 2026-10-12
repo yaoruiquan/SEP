@@ -6,7 +6,6 @@ import {
   Res,
   HttpCode,
   HttpStatus,
-  BadRequestException,
   Headers,
   Req,
   Logger,
@@ -32,12 +31,22 @@ import { GatewayRateLimitGuard } from './gateway-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ChatCompletionRequestSchema } from 'shared';
 import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
+import { GatewayExecutionService } from './gateway-execution.service';
+import { waitForGatewayOperation } from './gateway-operation';
+import { GatewayAdmissionService, GatewayAdmissionLease } from './gateway-admission.service';
+import { GatewayLifecycleService } from '../../common/lifecycle/gateway-lifecycle.service';
+import { gatewayUpstreamError, validGatewayCompletion, validGatewayUsage } from './gateway-response';
 
 @ApiTags('gateway')
 @Controller('gateway/v1')
 export class GatewayController {
   private readonly logger = new Logger(GatewayController.name);
-  constructor(private readonly gatewayService: GatewayService) {}
+  constructor(
+    private readonly gatewayService: GatewayService,
+    private readonly executions: GatewayExecutionService,
+    private readonly admission: GatewayAdmissionService,
+    private readonly lifecycle: GatewayLifecycleService,
+  ) {}
 
   @Post('chat/completions')
   @HttpCode(HttpStatus.OK)
@@ -67,64 +76,70 @@ export class GatewayController {
     @Req() req: Request & { requestId?: string },
     @Res() res: Response,
   ) {
-    // 1. 验证 + 授权
-    const {
-      enterpriseId,
-      subscriptionId,
-      memberId,
-      employeeId,
-      allowedModels,
-    } = await this.gatewayService.validateAndAuthorize(claims);
-
-    // 2. 检查模型白名单
-    if (!allowedModels.includes(dto.model)) {
-      throw new BadRequestException(`模型 "${dto.model}" 不在白名单中`);
-    }
-
-    // 3. 由 service 转发；上游错误在发送 SSE 响应头之前返回 JSON。
+    const releaseRequest = this.lifecycle.beginRequest();
     const requestId =
       req.requestId || getHeaderValue(headers, 'x-request-id') || randomUUID();
     const client = new AbortController();
+    let executionId: string | undefined;
+    let lease: GatewayAdmissionLease | undefined;
+    let forwarding = false;
     let upstreamFailed = false;
+    let usageUncertain = false;
+    const saveUsage = async (usage: ChatCompletionUsage) => {
+      try { await waitForGatewayOperation(this.executions.saveUsage(executionId!, usage)); }
+      catch (error) { usageUncertain = true; throw error; }
+    };
     const onClose = () => {
       if (!res.writableFinished && !upstreamFailed) client.abort();
     };
     res.on('close', onClose);
     if (res.destroyed) client.abort();
     try {
+      const authorization = await waitForGatewayOperation(this.gatewayService.validateAndAuthorize(claims), 'PLATFORM_AUTHORIZATION_TIMEOUT');
+      const { request: prepared } = await waitForGatewayOperation(this.gatewayService.prepareRequest(claims, dto), 'PLATFORM_MODEL_POLICY_TIMEOUT');
+      client.signal.throwIfAborted();
+      const execution = await waitForGatewayOperation(this.executions.start(claims, authorization.employeeId, prepared.model, requestId));
+      executionId = execution.id;
+      res.setHeader('X-SEP-Execution-ID', executionId);
+      const acquisition = this.admission.acquire(claims, executionId, { ...prepared, requestId });
+      try { lease = await waitForGatewayOperation(acquisition, 'PLATFORM_ADMISSION_TIMEOUT'); }
+      catch (error) {
+        // A queued Redis command can admit after we stop waiting; release its owned lease.
+        void acquisition.then(late => waitForGatewayOperation(late.release(), 'PLATFORM_ADMISSION_RELEASE_TIMEOUT'), () => undefined)
+          .catch(() => this.logger.error({ event: 'gateway_late_admission_cleanup_failed', executionId, requestId }));
+        throw error;
+      }
+      client.signal.throwIfAborted();
       const startedAt = Date.now();
+      forwarding = true;
       const upstreamRes = await this.gatewayService.forwardChatCompletion(
-        dto,
+        prepared,
         requestId,
         client.signal,
       );
       const logContext = {
         requestId,
-        subscriptionId,
-        model: dto.model,
+        executionId,
+        subscriptionId: claims.subscriptionId,
+        model: prepared.model,
         upstreamRequestId: upstreamRes.headers
           .get('x-request-id')
           ?.replace(/[^a-zA-Z0-9._:-]/g, '')
           .slice(0, 128),
       };
-      if (dto.stream)
+      await waitForGatewayOperation(this.executions.setUpstreamRequest(executionId, logContext.upstreamRequestId));
+      if (prepared.stream)
         this.logger.log({
           message: 'provider response received',
           ...logContext,
           status: upstreamRes.status,
           contentType: upstreamRes.headers.get('content-type'),
         });
-      const sessionId =
-        getHeaderValue(headers, 'x-sep-session-id') ||
-        getHeaderValue(headers, 'x-session-id') ||
-        `gateway:${claims.sub}:${claims.subscriptionId}`;
-      const messageId =
-        getHeaderValue(headers, 'x-sep-message-id') || requestId;
-
-      // 5. 流式 or 非流式
-      if (dto.stream) {
-        if (!upstreamRes.body)
-          throw new BadRequestException('无法读取上游响应流');
+      if (prepared.stream) {
+        if (!upstreamRes.body || upstreamRes.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/event-stream') {
+          await upstreamRes.body?.cancel().catch(() => undefined);
+          throw gatewayUpstreamError('UPSTREAM_INVALID_CONTENT_TYPE', 'sub2api 未返回有效 SSE 响应');
+        }
         // Forward bytes unchanged; parsing is only for accounting and diagnostics.
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
@@ -134,6 +149,15 @@ export class GatewayController {
 
         const observer = this.gatewayService.observeChatCompletionStream();
         let complete = false;
+        let errorCode: string | undefined;
+        let savedUsage: ChatCompletionUsage | null = null;
+        let checkpointError: unknown;
+        const checkpoint = async (usage: ChatCompletionUsage | null) => {
+          if (!usage || (savedUsage?.prompt_tokens === usage.prompt_tokens && savedUsage?.completion_tokens === usage.completion_tokens)) return;
+          try { await saveUsage(usage); }
+          catch (error) { checkpointError = error; throw error; }
+          savedUsage = usage;
+        };
         try {
           const source = Readable.fromWeb(
             upstreamRes.body as NodeReadableStream<Uint8Array>,
@@ -146,27 +170,34 @@ export class GatewayController {
             async function* (chunks) {
               for await (const chunk of chunks) {
                 observer.write(chunk);
+                await checkpoint(observer.snapshot().usage);
                 yield chunk;
+              }
+              const summary = observer.finish();
+              await checkpoint(summary.usage);
+              if (!summary.finishReason || summary.protocolError) {
+                upstreamFailed = true;
+                throw gatewayUpstreamError('UPSTREAM_INCOMPLETE_STREAM', 'sub2api 流未完整结束');
               }
             },
             res,
           );
           complete = true;
         } catch (error) {
+          errorCode = error?.getResponse?.()?.error?.code || error?.code || 'UPSTREAM_STREAM_ERROR';
           this.logger.warn({
             message: 'gateway stream interrupted',
             ...logContext,
             durationMs: Date.now() - startedAt,
             clientDisconnected: client.signal.aborted,
-            code:
-              error?.getResponse?.()?.error?.code ||
-              error?.code ||
-              'UPSTREAM_STREAM_ERROR',
+            code: errorCode,
           });
           // Headers are already sent: terminate abnormally, never fabricate a successful end.
           res.destroy();
         }
         const { usage, finishReason, done } = observer.finish();
+        if (checkpointError) throw checkpointError;
+        await checkpoint(usage);
         if (complete) {
           const summary = {
             message: 'gateway stream ended',
@@ -175,52 +206,40 @@ export class GatewayController {
             finishReason,
             done,
           };
-          if (!finishReason || !done) this.logger.warn(summary);
+          if (!done) this.logger.warn(summary);
           else this.logger.log(summary);
         }
 
-        // 6. 后台记账
-        if (usage) {
-          setImmediate(() =>
-            this.gatewayService.recordTransaction({
-              enterpriseId,
-              subscriptionId,
-              memberId,
-              employeeId,
-              userId: claims.sub,
-              sessionId,
-              messageId,
-              modelId: dto.model,
-              usage,
-            }),
-          );
-        }
+        await waitForGatewayOperation(this.executions.finish(executionId, { finishReason, done, errorCode }));
       } else {
-        // 非流式：直接返回 JSON
-        const json = await upstreamRes.json();
-        const usage: ChatCompletionUsage | undefined = json.usage;
-
-        res.json(json);
-
-        // 后台记账
-        if (usage) {
-          setImmediate(() =>
-            this.gatewayService.recordTransaction({
-              enterpriseId,
-              subscriptionId,
-              memberId,
-              employeeId,
-              userId: claims.sub,
-              sessionId,
-              messageId,
-              modelId: dto.model,
-              usage,
-            }),
-          );
+        const json = await this.gatewayService.readCompletion(upstreamRes);
+        const usage = validGatewayUsage((json as { usage?: unknown } | null)?.usage);
+        if (usage) await saveUsage(usage);
+        if (!validGatewayCompletion(json)) {
+          throw gatewayUpstreamError('UPSTREAM_INVALID_COMPLETION', 'sub2api 未返回有效模型结果');
         }
+        res.json(json);
+        await waitForGatewayOperation(this.executions.finish(executionId, {}));
       }
+    } catch (error) {
+      client.abort();
+      if (executionId) {
+        const definitive = !forwarding || (error?.getStatus?.() < 500 && error?.getStatus?.() >= 400);
+        await waitForGatewayOperation(this.executions.fail(executionId, error?.getResponse?.()?.error?.code || 'EXECUTION_FAILED', definitive, usageUncertain))
+          .catch(() => this.logger.error({ event: 'gateway_journal_update_failed', executionId, requestId }));
+      }
+      // A response may already be complete when settlement storage becomes unavailable.
+      if (res.headersSent) {
+        this.logger.error({ event: 'gateway_finalization_failed', executionId, requestId });
+        if (!res.writableFinished) res.destroy();
+      } else throw error;
     } finally {
       res.off('close', onClose);
+      try {
+        if (lease) await waitForGatewayOperation(lease.release(), 'PLATFORM_ADMISSION_RELEASE_TIMEOUT')
+          .catch(() => this.logger.error({ event: 'gateway_admission_release_timeout', executionId, requestId }));
+      }
+      finally { releaseRequest(); }
     }
   }
 }

@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { SessionService } from './session.service';
 
 const config = {
@@ -9,6 +9,11 @@ const config = {
 describe('SessionService', () => {
   let prisma: any;
   let service: SessionService;
+  const activeSession = (changes = {}) => ({
+    userId: 'user-1', type: 'WEB', revokedAt: null,
+    expiresAt: new Date(Date.now() + 60_000), deviceId: null,
+    user: { status: 'ACTIVE' }, device: null, ...changes,
+  });
 
   beforeEach(() => {
     prisma = {
@@ -17,6 +22,7 @@ describe('SessionService', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(activeSession()),
       },
       authToken: {
         create: jest.fn(),
@@ -65,7 +71,13 @@ describe('SessionService', () => {
     expect(result).toMatchObject({ sessionId: 'session-1', userId: 'user-1', familyId: 'family-1' });
     expect(result.refreshToken).not.toBe('presented-token');
     expect(prisma.authToken.updateMany).toHaveBeenCalledWith({
-      where: { id: 'token-1', usedAt: null, revokedAt: null },
+      where: {
+        id: 'token-1', usedAt: null, revokedAt: null, expiresAt: { gt: expect.any(Date) },
+        session: {
+          id: 'session-1', userId: 'user-1', type: 'WEB', revokedAt: null,
+          expiresAt: { gt: expect.any(Date) }, user: { status: 'ACTIVE' },
+        },
+      },
       data: expect.objectContaining({ usedAt: expect.any(Date) }),
     });
     expect(prisma.authToken.create).toHaveBeenCalledTimes(1);
@@ -114,6 +126,7 @@ describe('SessionService', () => {
       },
     };
     prisma.authToken.findUnique.mockResolvedValue(current);
+    prisma.authSession.findUnique.mockResolvedValue(activeSession({ userId: 'user-race' }));
     prisma.authToken.updateMany.mockResolvedValue({ count: 0 });
     const revokeFamily = jest.spyOn(service, 'revokeSessionFamily').mockResolvedValue();
 
@@ -175,6 +188,79 @@ describe('SessionService', () => {
     }));
     expect(prisma.authToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { session: { userId: 'user-1' }, revokedAt: null },
+    }));
+  });
+
+  it('accepts an active desktop session with a device belonging to the user', async () => {
+    prisma.authSession.findUnique.mockResolvedValue(activeSession({
+      type: 'DESKTOP', deviceId: 'device-1', device: { userId: 'user-1', revokedAt: null },
+    }));
+    await expect(service.assertActiveSession('session-1', 'user-1', 'DESKTOP')).resolves.toBeUndefined();
+    expect(prisma.authSession.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'session-1' }, select: expect.objectContaining({ user: { select: { status: true } } }),
+    }));
+  });
+
+  it.each([
+    ['missing', null],
+    ['wrong user', activeSession({ userId: 'other' })],
+    ['wrong type', activeSession({ type: 'DESKTOP' })],
+    ['revoked', activeSession({ revokedAt: new Date() })],
+    ['expired', activeSession({ expiresAt: new Date(0) })],
+    ['disabled user', activeSession({ user: { status: 'DISABLED' } })],
+  ])('rejects %s sessions', async (_reason, session) => {
+    prisma.authSession.findUnique.mockResolvedValue(session);
+    await expect(service.assertActiveSession('session-1', 'user-1', 'WEB'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it.each([
+    { deviceId: null, device: null },
+    { deviceId: 'device-1', device: null },
+    { deviceId: 'device-1', device: { userId: 'other', revokedAt: null } },
+    { deviceId: 'device-1', device: { userId: 'user-1', revokedAt: new Date() } },
+  ])('rejects invalid desktop devices: %j', async (device) => {
+    prisma.authSession.findUnique.mockResolvedValue(activeSession({ type: 'DESKTOP', ...device }));
+    await expect(service.assertActiveSession('session-1', 'user-1', 'DESKTOP'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('fails closed with a sanitized 503 when session storage is unavailable', async () => {
+    prisma.authSession.findUnique.mockRejectedValue(new Error('private database details'));
+    await expect(service.assertActiveSession('session-1', 'user-1', 'WEB'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(service.assertActiveSession('session-1', 'user-1', 'WEB'))
+      .rejects.toThrow('Authentication session service unavailable');
+  });
+
+  it.each(['validateRefreshToken', 'rotateRefreshToken'] as const)(
+    '%s rejects a disabled user before rotation', async (method) => {
+      prisma.authToken.findUnique.mockResolvedValue({
+        id: 'token-1', usedAt: null, revokedAt: null, expiresAt: new Date(Date.now() + 60_000),
+        session: { id: 'session-1', familyId: 'family-1', ...activeSession() },
+      });
+      prisma.authSession.findUnique.mockResolvedValue(activeSession({ user: { status: 'DISABLED' } }));
+      await expect(service[method]('token', 'WEB')).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.authToken.updateMany).not.toHaveBeenCalled();
+      expect(prisma.authToken.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the desktop ownership and revocation checks in the atomic consumption predicate', async () => {
+    const session = activeSession({
+      type: 'DESKTOP', deviceId: 'device-1', device: { userId: 'user-1', revokedAt: null },
+    });
+    prisma.authToken.findUnique.mockResolvedValue({
+      id: 'token-1', usedAt: null, revokedAt: null, expiresAt: session.expiresAt,
+      session: { id: 'session-1', familyId: 'family-1', ...session },
+    });
+    prisma.authSession.findUnique.mockResolvedValue(session);
+    prisma.authToken.updateMany.mockResolvedValue({ count: 1 });
+    await service.rotateRefreshToken('token', 'DESKTOP');
+    expect(prisma.authToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ session: expect.objectContaining({
+        deviceId: { not: null }, device: { is: { userId: 'user-1', revokedAt: null } },
+      }) }),
     }));
   });
 });

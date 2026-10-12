@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -24,6 +25,7 @@ import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { buildClientTaskActivityQuery } from './client-task-activity-query';
@@ -144,6 +146,7 @@ export class ClientService {
     @Optional() private readonly events?: AuthEventService,
     @Optional() private readonly rateLimit?: AuthRateLimitService,
     @Optional() private readonly mail?: MailService,
+    @Optional() private readonly modelPolicy?: GatewayModelPolicyService,
   ) {}
 
   private get jwtSecret(): string {
@@ -543,9 +546,10 @@ export class ClientService {
       throw new UnauthorizedException('Device has been revoked or is invalid');
     }
 
-    const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
-    const user = await this.prisma.user.findUnique({ where: { id: rotated.userId } });
+    const user = await this.prisma.user.findUnique({ where: { id: current.userId } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (user.status === 'DISABLED') throw new UnauthorizedException('Account has been disabled');
+    const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
     const membership = await this.prisma.enterpriseMember.findFirst({
       where: { userId: user.id }, orderBy: { createdAt: 'asc' },
       select: { enterprise: { select: { id: true, name: true, logo: true } } },
@@ -578,16 +582,18 @@ export class ClientService {
     const deviceId = session.deviceId;
     if (!deviceId) throw new UnauthorizedException('Desktop session has no device');
 
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId }, select: { id: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
-      select: { revokedAt: true },
+      select: { userId: true, revokedAt: true },
     });
-    if (!device) {
-      throw new UnauthorizedException('Device not found');
-    }
-    if (device.revokedAt) {
+    if (!device || device.revokedAt || device.userId !== userId) {
       await this.sessions.revokeSession(session.sessionId, 'device_revoked');
-      throw new UnauthorizedException('Device has been revoked');
+      throw new UnauthorizedException('Device has been revoked or is invalid');
     }
 
     // 3. 检查订阅是否存在且 ACTIVE
@@ -653,13 +659,14 @@ export class ClientService {
     const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
     const employmentToken = this.jwtService.sign(
       {
-        sub: userId,
+        sub: rotated.userId,
+        sid: rotated.sessionId,
         enterpriseId: subscription.enterpriseId,
         subscriptionId: subscription.id,
         memberId: membership.id,
         type: 'client-employment',
       },
-      { secret: this.jwtSecret, expiresIn: `${ttlMinutes}m` },
+      { secret: this.jwtSecret, algorithm: 'HS256', expiresIn: `${ttlMinutes}m` },
     );
 
     return {
@@ -682,6 +689,8 @@ export class ClientService {
    * 返回 ACTIVE 订阅及其模板信息，客户端不需要 config 等管理端信息。
    */
   async listSubscriptions(userId: string): Promise<ClientEmploymentListItem[]> {
+    const modelPolicy = this.modelPolicy;
+    if (!modelPolicy) throw new ServiceUnavailableException('模型策略服务未配置');
     const ctx = await this.enterpriseContext.resolve(userId);
     const grants = await this.prisma.employeeGrant.findMany({
       where: {
@@ -700,26 +709,27 @@ export class ClientService {
         subscription: { include: { employee: { select: { id: true, name: true, avatar: true, avatarStyle: true, avatarBindings: true, version: true } } } },
       },
     });
-    const [models, modelConfig] = await Promise.all([
-      this.prisma.platformModel.findMany({ where: { enabled: true }, orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }], select: { modelId: true } }),
-      this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: ctx.enterpriseId }, select: { allowedChatModels: true } }),
-    ]);
-    const enabledModels = models.map((model) => model.modelId);
-    const allowedModels = modelConfig?.allowedChatModels?.length
-      ? enabledModels.filter((id) => modelConfig.allowedChatModels.includes(id)) : enabledModels;
     const seen = new Set<string>();
-    return grants.flatMap((grant) => {
+    const subscriptions = grants.filter((grant) => {
       const sub = grant.subscription;
-      if (seen.has(sub.id)) return [];
+      if (seen.has(sub.id)) return false;
       seen.add(sub.id);
-      return [{
+      return true;
+    });
+    return Promise.all(subscriptions.map(async (grant) => {
+      const sub = grant.subscription;
+      const { allowedModels } = await modelPolicy.resolvePolicy({
+        sub: userId, enterpriseId: ctx.enterpriseId, memberId: ctx.memberId,
+        subscriptionId: sub.id,
+      });
+      return {
         id: sub.id, subscriptionId: sub.id, employeeId: sub.employeeId,
         name: sub.name ?? sub.employee.name, status: sub.status,
         templateVersion: sub.templateVersion, template: withEmployeeAvatar(sub.employee),
         department: null, allowedModels,
         upgradeAvailable: sub.employee.version !== sub.templateVersion,
-      }];
-    });
+      };
+    }));
   }
 
   async getRuntime(userId: string, subscriptionId: string) {

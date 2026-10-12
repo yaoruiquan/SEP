@@ -11,6 +11,8 @@ import { ComputeCreditModule } from '../compute-credit/compute-credit.module';
 import { PersonalWalletModule } from '../personal-wallet/personal-wallet.module';
 import { DigitalEmployeeModule } from '../digital-employee/digital-employee.module';
 import { SubscriptionRequestModule } from '../subscription-request/subscription-request.module';
+import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 
 @Module({
   imports: [
@@ -29,8 +31,9 @@ import { SubscriptionRequestModule } from '../subscription-request/subscription-
     PersonalWalletModule,
     DigitalEmployeeModule,
     SubscriptionRequestModule,
+    EnterpriseModelConfigModule,
   ],
   controllers: [ClientController],
-  providers: [ClientService],
+  providers: [ClientService, GatewayModelPolicyService],
 })
 export class ClientModule {}

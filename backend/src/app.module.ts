@@ -46,6 +46,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HealthModule } from './health/health.module';
 import { employeeAssetBaseUrl } from './common/employee-avatar';
 import { validateAuthEnvironment } from './auth-environment';
+import { GatewayLifecycleModule } from './common/lifecycle/gateway-lifecycle.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { validateAuthEnvironment } from './auth-environment';
         return validateAuthEnvironment(env);
       },
     }),
+    GatewayLifecycleModule,
     // 安全模块（全局限流、日志脱敏、异常处理）
     SecurityModule,
     // 监控告警模块（指标收集、健康检查、告警）

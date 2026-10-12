@@ -6,13 +6,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import {
+import type {
   UpdateEnterpriseModelConfigDto,
   UpdateDepartmentModelPolicyDto,
   EffectiveModelConfig,
   AvailableModel,
-} from '../../shared/model-config.dto';
-import { DEFAULT_MODEL_ID } from '../../shared';
+} from 'shared/model-config.dto';
+import { DEFAULT_MODEL_ID } from 'shared';
 
 
 @Injectable()
@@ -46,15 +46,19 @@ export class EnterpriseModelConfigService {
 
   async get(userId: string) {
     const context = await this.ctx.resolve(userId);
+    return this.getForEnterprise(context.enterpriseId);
+  }
+
+  private async getForEnterprise(enterpriseId: string) {
 
     let config = await this.prisma.enterpriseModelConfig.findUnique({
-      where: { enterpriseId: context.enterpriseId },
+      where: { enterpriseId },
     });
 
     if (!config) {
       config = await this.prisma.enterpriseModelConfig.create({
         data: {
-          enterpriseId: context.enterpriseId,
+          enterpriseId,
           defaultChatModel: DEFAULT_MODEL_ID,
           allowedChatModels: [],
           allowUserSwitchModel: true,
@@ -143,7 +147,7 @@ export class EnterpriseModelConfigService {
     await this.ctx.resolve(userId);
 
     const models = await this.prisma.platformModel.findMany({
-      where: { enabled: true },
+      where: { enabled: true, isStale: false },
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
       select: {
         modelId: true,
@@ -180,6 +184,10 @@ export class EnterpriseModelConfigService {
 
   async resolveEffectiveModel(opts: {
     userId: string;
+    /** 已验证的服务端企业身份，避免按用户第一条 membership 重新选择企业。 */
+    enterpriseId?: string;
+    /** 网关必须得到实际可调用集合；空交集不能解释成不限制。 */
+    restrictToAvailableModels?: boolean;
     userSelectedModel?: string;
     /** 雇佣关系 id。收敛前是 employeeInstanceId。 */
     subscriptionId?: string;
@@ -187,13 +195,15 @@ export class EnterpriseModelConfigService {
     employeeTemplateModel?: string | null;
     departmentId?: string;
   }): Promise<EffectiveModelConfig> {
-    const context = await this.ctx.resolve(opts.userId);
-    const config = await this.get(opts.userId);
+    const config = opts.enterpriseId
+      ? await this.getForEnterprise(opts.enterpriseId)
+      : await this.get(opts.userId);
+    const canSwitch = config.allowUserSwitchModel && config.employeeModelPolicy !== 'FORCE_DEFAULT';
 
     // 所有分支共享的知识库/开关字段，只有 chatModel 与 allowedChatModels 会被覆盖
     const base = {
       allowedChatModels: config.allowedChatModels,
-      allowUserSwitchModel: config.allowUserSwitchModel,
+      allowUserSwitchModel: canSwitch,
       ...this.getEffectiveEmbeddingConfig(),
       rerankModel: config.rerankModel,
     };
@@ -208,14 +218,27 @@ export class EnterpriseModelConfigService {
       });
     }
 
-    const allowed =
-      deptPolicy && deptPolicy.allowedChatModels.length > 0
-        ? deptPolicy.allowedChatModels
-        : config.allowedChatModels;
+    const enterpriseAllowed = config.allowedChatModels;
+    const departmentAllowed = deptPolicy?.allowedChatModels ?? [];
+    // 旧调用把 [] 解释为不限制；严格集合仅由网关路径消费，避免空交集改变旧契约。
+    let allowed = departmentAllowed.length > 0 ? departmentAllowed : enterpriseAllowed;
+    if (opts.restrictToAvailableModels) {
+      const models = await this.prisma.platformModel.findMany({
+        where: { enabled: true, isStale: false },
+        orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+        select: { modelId: true },
+      });
+      allowed = models.map((model) => model.modelId).filter((id) =>
+        (enterpriseAllowed.length === 0 || enterpriseAllowed.includes(id)) &&
+        (departmentAllowed.length === 0 || departmentAllowed.includes(id)),
+      );
+    }
 
     // 1. 用户显式选择（需开关允许且落在白名单内）
-    if (opts.userSelectedModel && config.allowUserSwitchModel) {
-      const isAllowed = allowed.length === 0 || allowed.includes(opts.userSelectedModel);
+    if (opts.userSelectedModel && canSwitch) {
+      const isAllowed = opts.restrictToAvailableModels
+        ? allowed.includes(opts.userSelectedModel)
+        : allowed.length === 0 || allowed.includes(opts.userSelectedModel);
       if (isAllowed) {
         return {
           ...base,
@@ -254,7 +277,7 @@ export class EnterpriseModelConfigService {
 
       if (opts.subscriptionId) {
         const subscription = await this.prisma.subscription.findUnique({
-          where: { id: opts.subscriptionId },
+          where: { id: opts.subscriptionId, enterpriseId: config.enterpriseId },
           select: { config: true },
         });
         const raw = subscription?.config as { modelId?: unknown } | null;

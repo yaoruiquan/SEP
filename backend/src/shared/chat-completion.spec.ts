@@ -84,4 +84,101 @@ describe('ChatCompletionRequestSchema tool round trip', () => {
     (request.messages[1].tool_calls[0].function.arguments as unknown) = {};
     expect(ChatCompletionRequestSchema.safeParse(request).success).toBe(false);
   });
+
+  it('accepts multiple consecutive tool rounds and preserves nested JSON Schema keywords', () => {
+    const request = followUp(null);
+    request.tools[0].function.parameters = {
+      type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } },
+      required: ['paths'], additionalProperties: false,
+      $defs: { path: { type: 'string', pattern: '^/' } },
+    } as typeof request.tools[0]['function']['parameters'];
+    request.messages.push(
+      { role: 'assistant', content: null, tool_calls: [{ ...toolCall, id: 'next_round' }], reasoning_content: '' },
+      { role: 'tool', content: 'next result', tool_call_id: 'next_round' },
+      { role: 'assistant', content: 'done' },
+    );
+    expect(ChatCompletionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it('rejects empty messages and accepts exactly 512', () => {
+    const message = { role: 'user', content: 'test' };
+    expect(ChatCompletionRequestSchema.safeParse({ model: 'test', messages: [] }).success).toBe(false);
+    expect(ChatCompletionRequestSchema.safeParse({ model: 'test', messages: Array(512).fill(message) }).success).toBe(true);
+    expect(ChatCompletionRequestSchema.safeParse({ model: 'test', messages: Array(513).fill(message) }).success).toBe(false);
+  });
+
+  it('limits tools to 128 and validates function structure', () => {
+    const tool = followUp().tools[0];
+    const request = { model: 'test', messages: [{ role: 'user', content: 'test' }] };
+    expect(ChatCompletionRequestSchema.safeParse({ ...request, tools: Array(128).fill(tool) }).success).toBe(true);
+    expect(ChatCompletionRequestSchema.safeParse({ ...request, tools: Array(129).fill(tool) }).success).toBe(false);
+    for (const invalid of [null, {}, { type: 'other' }, { type: 'function', function: {} },
+      { type: 'function', function: { name: 'bad name' } },
+      { type: 'function', function: { name: 'test', parameters: [] } },
+      { type: 'function', function: { name: 'test', parameters: { type: 'string' } } },
+      { type: 'function', function: { name: 'test', parameters: { properties: { name: 3 } } } },
+      { type: 'function', function: { name: 'test', parameters: { required: 'name' } } },
+    ]) {
+      expect(ChatCompletionRequestSchema.safeParse({ ...request, tools: [invalid] }).success).toBe(false);
+    }
+  });
+
+  it('accepts no-argument functions and strict functions with an object schema', () => {
+    const request = { model: 'test', messages: [{ role: 'user', content: 'test' }], tools: [
+      { type: 'function', function: { name: 'clock' } },
+      { type: 'function', function: { name: 'ls', strict: true, parameters: { type: 'object', additionalProperties: false } } },
+    ] };
+    expect(ChatCompletionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it('rejects orphan, forward, duplicate and obsolete tool results', () => {
+    const request = followUp();
+    request.messages[2].tool_call_id = 'unknown';
+    expect(ChatCompletionRequestSchema.safeParse(request).success).toBe(false);
+    const forward = followUp();
+    [forward.messages[1], forward.messages[2]] = [forward.messages[2], forward.messages[1]];
+    expect(ChatCompletionRequestSchema.safeParse(forward).success).toBe(false);
+    const duplicate = followUp();
+    duplicate.messages.push({ ...duplicate.messages[2] });
+    expect(ChatCompletionRequestSchema.safeParse(duplicate).success).toBe(false);
+    const obsolete = followUp();
+    obsolete.messages.splice(2, 0, { role: 'assistant', content: 'new response' });
+    expect(ChatCompletionRequestSchema.safeParse(obsolete).success).toBe(false);
+  });
+
+  it('rejects duplicate call IDs and tool calls on non-assistant messages', () => {
+    const duplicate = followUp();
+    duplicate.messages[1].tool_calls.push(structuredClone(toolCall));
+    expect(ChatCompletionRequestSchema.safeParse(duplicate).success).toBe(false);
+    const wrongRole = followUp();
+    wrongRole.messages[1].role = 'user';
+    expect(ChatCompletionRequestSchema.safeParse(wrongRole).success).toBe(false);
+  });
+
+  it('limits tool IDs, names, content, arguments and output integers', () => {
+    const base = { model: 'test', messages: [{ role: 'user', content: 'test' }] };
+    for (const max_tokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(ChatCompletionRequestSchema.safeParse({ ...base, max_tokens }).success).toBe(false);
+    }
+    const longId = followUp();
+    longId.messages[1].tool_calls[0].id = 'x'.repeat(129);
+    expect(ChatCompletionRequestSchema.safeParse(longId).success).toBe(false);
+    const longName = followUp();
+    longName.tools[0].function.name = 'x'.repeat(65);
+    expect(ChatCompletionRequestSchema.safeParse(longName).success).toBe(false);
+    const longArguments = followUp();
+    longArguments.messages[1].tool_calls[0].function.arguments = 'x'.repeat(1024 * 1024 + 1);
+    expect(ChatCompletionRequestSchema.safeParse(longArguments).success).toBe(false);
+    expect(ChatCompletionRequestSchema.safeParse({ ...base, messages: [{ role: 'user', content: 'x'.repeat(1024 * 1024 + 1) }] }).success).toBe(false);
+  });
+
+  it('bounds recursive schemas and rejects non-JSON extension values', () => {
+    const request = followUp();
+    let nested: Record<string, unknown> = { type: 'string' };
+    for (let i = 0; i < 40; i++) nested = { type: 'object', properties: { child: nested } };
+    request.tools[0].function.parameters = nested as typeof request.tools[0]['function']['parameters'];
+    expect(ChatCompletionRequestSchema.safeParse(request).success).toBe(false);
+    request.tools[0].function.parameters = { type: 'object', extension: () => null } as typeof request.tools[0]['function']['parameters'];
+    expect(ChatCompletionRequestSchema.safeParse(request).success).toBe(false);
+  });
 });

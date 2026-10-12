@@ -411,7 +411,7 @@ check_service_readiness() {
     web="sep-${color}-web"
   fi
 
-  docker exec "$backend" node -e "fetch('http://127.0.0.1:3001/api/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  docker exec "$backend" node -e "fetch('http://127.0.0.1:3001/api/health/ready', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || return 1
   docker exec "$backend" node -e '
     const fs = require("node:fs");
     const path = require("node:path");
@@ -420,8 +420,8 @@ check_service_readiness() {
     fs.mkdirSync(root, { recursive: true });
     fs.writeFileSync(probe, "ok", { flag: "wx" });
     fs.rmSync(probe);
-  '
-  docker exec "$web" node -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  ' || return 1
+  docker exec "$web" node -e "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || return 1
 }
 
 observe_candidate() {
@@ -445,13 +445,249 @@ observe_candidate() {
   done
 }
 
-stop_legacy() {
-  docker stop sep-backend sep-web 2>/dev/null || true
+deployment_lock() {
+  ensure_state_dir || return 1
+  exec 9>"$LOCK_FILE" || return 1
+  flock -n 9 || { error "已有部署正在执行"; return 1; }
 }
 
+target_web() {
+  case "$1" in
+    legacy|sep-web) echo sep-web ;;
+    sep-blue-web|sep-green-web) echo "$1" ;;
+    *) error "不支持的 SEP 目标"; return 1 ;;
+  esac
+}
+
+container_state() {
+  local container=$1 state names
+  case "$container" in sep-backend|sep-web|sep-blue-backend|sep-blue-web|sep-green-backend|sep-green-web) ;;
+    *) return 1 ;;
+  esac
+  if state=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null); then
+    printf '%s\n' "$state"
+  else
+    names=$(docker container ls -a --format '{{.Names}}') || return 1
+    if grep -Fxq "$container" <<<"$names"; then
+      return 1
+    fi
+    echo missing
+  fi
+}
+
+assert_target_inactive() {
+  local target=$1 backend web container state names
+  backend=$(target_backend "$target") || return 1
+  web=$(target_web "$target") || return 1
+  for container in "$backend" "$web"; do
+    # Distinguish a missing candidate from an unavailable Docker daemon.
+    docker info --format '{{.ServerVersion}}' >/dev/null || return 1
+    if state=$(container_state "$container" 2>/dev/null); then
+      [[ "$state" == exited || "$state" == created || "$state" == missing ]] || {
+        error "$container 仍处于 ${state}；可能排空未完成，拒绝覆盖"; return 1;
+      }
+    else
+      names=$(docker container ls -a --format '{{.Names}}') || return 1
+      if grep -Fxq "$container" <<<"$names"; then
+        error "无法确认 $container 状态，拒绝覆盖"; return 1
+      fi
+    fi
+  done
+}
+
+# Only read lifecycle fields, never inspect or print container credentials.
+gateway_snapshot() {
+  local backend=$1
+  case "$backend" in sep-backend|sep-blue-backend|sep-green-backend) ;; *) return 1 ;; esac
+  docker exec --user node "$backend" node -e '
+    const timer = setTimeout(() => process.exit(1), 6000);
+    fetch("http://127.0.0.1:3001/health", {signal: AbortSignal.timeout(5000)})
+      .then(async r => {
+        if (!r.ok) throw new Error("liveness failed");
+        const s = await r.json();
+        if (!/^[a-f0-9-]{36}$/.test(s.bootId) ||
+            !["ready", "draining", "stopping", "control_error"].includes(s.gatewayState) ||
+            typeof s.draining !== "boolean" ||
+            !Number.isSafeInteger(s.activeGatewayRequests) || s.activeGatewayRequests < 0 ||
+            ![s.requestBudgetMs, s.drainGraceMs, s.drainTimeoutMs].every(n => Number.isSafeInteger(n) && n > 0) ||
+            s.drainTimeoutMs < s.requestBudgetMs + s.drainGraceMs) throw new Error("invalid lifecycle");
+        console.log([s.bootId, s.gatewayState, Number(s.draining), s.activeGatewayRequests,
+          s.requestBudgetMs, s.drainGraceMs, s.drainTimeoutMs].join(" "));
+        clearTimeout(timer);
+        process.exit(0);
+      }).catch(() => process.exit(1));
+  '
+}
+
+write_gateway_drain() {
+  local backend=$1 boot=$2 token=$3
+  docker exec --user node "$backend" node -e '
+    const fs = require("node:fs");
+    const [bootId, token] = process.argv.slice(1);
+    const root = "/tmp/sep-runtime";
+    const destination = `${root}/gateway-drain.json`;
+    const temporary = `${destination}.${process.pid}.tmp`;
+    const directory = fs.lstatSync(root);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) process.exit(1);
+    fs.writeFileSync(temporary, JSON.stringify({bootId, token}), {mode: 0o600, flag: "wx"});
+    fs.renameSync(temporary, destination);
+  ' "$boot" "$token"
+}
+
+resume_gateway() {
+  local backend=$1 snapshot boot state draining active budget grace timeout
+  snapshot=$(gateway_snapshot "$backend") || return 1
+  read -r boot state draining active budget grace timeout <<<"$snapshot"
+  [[ "$state" != stopping && "$state" != control_error ]] || {
+    error "$backend 不可恢复准入：$state"; return 1;
+  }
+  [[ "$state" == ready && "$draining" == 0 ]] && return 0
+  docker exec --user node "$backend" node -e '
+    const fs = require("node:fs");
+    const file = "/tmp/sep-runtime/gateway-drain.json";
+    try {
+      const marker = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (marker.bootId !== process.argv[1]) process.exit(1);
+      fs.unlinkSync(file);
+    } catch (e) { if (e.code !== "ENOENT") process.exit(1); }
+  ' "$boot" || return 1
+  snapshot=$(gateway_snapshot "$backend") || return 1
+  [[ "$snapshot" == "$boot ready 0 "* ]] || return 1
+}
+
+drain_gateway() {
+  local backend=$1 snapshot boot state draining active budget grace runtime_timeout
+  local timeout=${SEP_DRAIN_TIMEOUT_SECONDS:-} poll=${SEP_DRAIN_POLL_SECONDS:-1} deadline token current_boot
+  snapshot=$(gateway_snapshot "$backend") || { error "$backend 排空状态不可读；保留容器"; return 1; }
+  read -r boot state draining active budget grace runtime_timeout <<<"$snapshot"
+  [[ "$state" == ready || "$state" == draining ]] || { error "$backend 状态 $state 不允许排空"; return 1; }
+  timeout=${timeout:-$(((runtime_timeout + 999) / 1000))}
+  [[ "$timeout" =~ ^[1-9][0-9]*$ && ${#timeout} -le 7 && "$poll" =~ ^[1-9][0-9]*$ && ${#poll} -le 4 ]] || {
+    error "排空等待参数无效"; return 1;
+  }
+  ((timeout * 1000 >= budget + grace && timeout * 1000 >= runtime_timeout)) || {
+    error "SEP_DRAIN_TIMEOUT_SECONDS 必须覆盖实例请求预算、grace 与排空配置"; return 1;
+  }
+  deadline=$((SECONDS + timeout))
+  token="${DEPLOY_TAG:-local}-$$-$SECONDS"
+  write_gateway_drain "$backend" "$boot" "$token" || { error "排空标记写入失败；保留容器"; return 1; }
+  while :; do
+    snapshot=$(gateway_snapshot "$backend") || { error "排空状态读取失败；保留容器"; return 1; }
+    read -r current_boot state draining active budget grace runtime_timeout <<<"$snapshot"
+    [[ "$current_boot" == "$boot" && "$state" == draining && "$draining" == 1 ]] || {
+      error "排空期间进程身份或状态变化；保留容器"; return 1;
+    }
+    ((SECONDS < deadline)) || { error "$backend 排空超时（activeGatewayRequests=${active}）；保留旧容器，不硬杀"; return 1; }
+    [[ "$active" == 0 ]] && return 0
+    local remaining=$((deadline - SECONDS))
+    ((poll < remaining)) && sleep "$poll" || sleep "$remaining"
+  done
+}
+
+# docker stop/restart automatically SIGKILL on timeout. Send TERM only and retain
+# a process that does not exit within the explicit stop observation window.
+disable_restart_for_stop() {
+  local container=$1 policy file
+  ensure_state_dir || return 1
+  file="$STATE_DIR/$container.restart-policy"
+  if [[ ! -f "$file" ]]; then
+    policy=$(docker inspect --format='{{.HostConfig.RestartPolicy.Name}}' "$container") || return 1
+    case "$policy" in no|unless-stopped|always) ;; *) error "不支持的容器重启策略；拒绝停止"; return 1 ;; esac
+    printf '%s\n' "$policy" > "$file" || return 1
+  fi
+  # Keep the policy disabled on every failure, including a stop timeout. A later
+  # rollback/restart restores it only after readiness succeeds.
+  docker update --restart=no "$container" >/dev/null || return 1
+}
+
+restore_restart_policy() {
+  local container=$1 policy file="$STATE_DIR/$1.restart-policy"
+  [[ -f "$file" ]] || return 0
+  policy=$(cat "$file") || return 1
+  case "$policy" in no|unless-stopped|always) ;; *) error "保存的容器重启策略无效"; return 1 ;; esac
+  docker update "--restart=$policy" "$container" >/dev/null || return 1
+  rm -f "$file"
+}
+
+signal_and_wait_stopped() {
+  local container=$1 timeout=${SEP_STOP_GRACE_SECONDS:-30} state deadline
+  [[ "$timeout" =~ ^[1-9][0-9]*$ && ${#timeout} -le 4 ]] || { error "停止观察预算无效"; return 1; }
+  state=$(container_state "$container") || return 1
+  [[ "$state" == exited || "$state" == created || "$state" == missing ]] && return 0
+  [[ "$state" == running ]] || { error "$container 状态不可停止：$state"; return 1; }
+  disable_restart_for_stop "$container" || return 1
+  deadline=$((SECONDS + timeout))
+  docker kill --signal=SIGTERM "$container" >/dev/null || return 1
+  while :; do
+    state=$(container_state "$container") || return 1
+    [[ "$state" == exited ]] && return 0
+    ((SECONDS < deadline)) || { error "$container 停止超时；保留容器，不发送 SIGKILL"; return 1; }
+    sleep 1
+  done
+}
+
+retire_target() {
+  local target=$1 backend web state
+  backend=$(target_backend "$target") || return 1
+  web=$(target_web "$target") || return 1
+  state=$(container_state "$backend") || return 1
+  if [[ "$state" == running ]]; then
+    drain_gateway "$backend" || return 1
+    signal_and_wait_stopped "$backend" || return 1
+  elif [[ "$state" != exited && "$state" != created && "$state" != missing ]]; then
+    error "$backend 状态不明确，保留环境"; return 1
+  fi
+  signal_and_wait_stopped "$web" || return 1
+}
+
+stop_legacy() { retire_target legacy; }
+
 stop_color() {
-  local color=$1
-  dc_bg stop "${color}-web" "${color}-backend" 2>/dev/null || true
+  case "$1" in blue|green) retire_target "sep-$1-web" ;; *) return 1 ;; esac
+}
+
+restore_target_ready() {
+  local target=$1 backend web color container state
+  backend=$(target_backend "$target") || return 1
+  web=$(target_web "$target") || return 1
+  for container in "$backend" "$web"; do
+    state=$(container_state "$container") || return 1
+    case "$state" in
+      exited|created) docker start "$container" >/dev/null || return 1 ;;
+      running) ;;
+      *) error "$container 状态不允许恢复：$state"; return 1 ;;
+    esac
+  done
+  wait_service_healthy "$backend" || return 1
+  wait_service_healthy "$web" || return 1
+  resume_gateway "$backend" || return 1
+  color=$([[ "$target" == legacy || "$target" == sep-web ]] && echo legacy || target_color "$target")
+  check_service_readiness "$color" || return 1
+  restore_restart_policy "$backend" || return 1
+  restore_restart_policy "$web" || return 1
+}
+
+restart_target() {
+  local target=$1 backend snapshot boot state draining active budget grace timeout
+  backend=$(target_backend "$target") || return 1
+  if restore_target_ready "$target"; then return 0; fi
+  # Readiness requires temporarily resuming admission. If any recovery stage
+  # fails, fence the current boot again; never blindly delete an old marker.
+  if snapshot=$(gateway_snapshot "$backend"); then
+    read -r boot state draining active budget grace timeout <<<"$snapshot"
+    if [[ "$state" == ready || "$state" == draining ]]; then
+      if write_gateway_drain "$backend" "$boot" "recovery-failed-$$-$SECONDS"; then
+        snapshot=$(gateway_snapshot "$backend") || snapshot=
+        [[ "$snapshot" == "$boot draining 1 "* ]] || error "$backend 恢复失败且无法确认排空标记生效，需人工介入"
+      else
+        error "$backend 恢复失败且无法重新写入排空标记，需人工介入"
+      fi
+    fi
+  else
+    error "$backend 恢复失败且状态不可读；不清理排空标记，需人工介入"
+  fi
+  error "$target 恢复失败；保留容器与可确认的排空状态"
+  return 1
 }
 
 # 构建失败时 BuildKit 缓存可能占满生产机磁盘，导致下一次发布在
@@ -469,15 +705,14 @@ prune_build_cache() {
 }
 
 cmd_deploy_bluegreen() {
-  check_env
-  check_compose_scope
-  prepare_deploy_revision
-  ensure_state_dir
-  exec 9>"$LOCK_FILE"
-  flock -n 9 || { error "已有部署正在执行"; exit 1; }
+  check_env || return 1
+  check_compose_scope || return 1
+  prepare_deploy_revision || return 1
+  deployment_lock || return 1
 
   local active candidate previous target
   active=$(current_target)
+  target_backend "$active" >/dev/null || { error "活动目标状态无效"; return 1; }
   if [[ "$active" == "sep-blue-web" ]]; then
     candidate=green
     previous=blue
@@ -489,26 +724,28 @@ cmd_deploy_bluegreen() {
     previous=legacy
   fi
   target=$(color_target "$candidate")
+  assert_target_inactive "$target" || return 1
 
   info "蓝绿发布：当前=${active}，候选=${candidate}，版本=${DEPLOY_TAG}"
 
-  prune_build_cache
+  prune_build_cache || return 1
   info "构建候选后端和前端镜像..."
-  dc_bg build "${candidate}-backend" "${candidate}-web"
-  ensure_upload_volume_permissions "sep-${candidate}-backend:${DEPLOY_TAG}"
+  dc_bg build "${candidate}-backend" "${candidate}-web" || return 1
+  ensure_upload_volume_permissions "sep-${candidate}-backend:${DEPLOY_TAG}" || return 1
 
-  run_migrations
+  run_migrations || return 1
 
   info "启动候选环境..."
-  dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web"
-  wait_service_healthy "sep-${candidate}-backend"
-  wait_service_healthy "sep-${candidate}-web"
-  check_service_readiness "$candidate"
+  dc_bg up -d --force-recreate "${candidate}-backend" "${candidate}-web" || return 1
+  # Newly recreated containers use Compose's policy, not a retired boot's record.
+  rm -f "$STATE_DIR/sep-$candidate-backend.restart-policy" "$STATE_DIR/sep-$candidate-web.restart-policy" || return 1
+  wait_service_healthy "sep-${candidate}-backend" || return 1
+  wait_service_healthy "sep-${candidate}-web" || return 1
+  check_service_readiness "$candidate" || return 1
 
   info "切换 Caddy 到 ${target}..."
   if ! switch_caddy_upstream "$target"; then
-    stop_color "$candidate" 2>/dev/null || true
-    error "Caddy 切换失败，候选环境已停止，旧环境保持不变"
+    error "Caddy 切换失败；保留两色容器，不能假定配置恢复成功"
     return 1
   fi
 
@@ -525,138 +762,72 @@ cmd_deploy_bluegreen() {
         return 1
       fi
     fi
-    stop_color "$candidate" 2>/dev/null || true
+    stop_color "$candidate" || return 1
     return 1
   fi
 
-  printf '%s\n' "$active" > "$STATE_DIR/previous-target"
-  printf '%s\n' "$target" > "$ACTIVE_COLOR_FILE"
+  printf '%s\n' "$active" > "$STATE_DIR/previous-target" || return 1
+  printf '%s\n' "$target" > "$ACTIVE_COLOR_FILE" || return 1
 
   # 只有候选完整通过有界观察期后，才排空并停止旧环境。
   if [[ "$active" == "legacy" ]]; then
-    sleep "${SEP_DRAIN_SECONDS:-15}"
-    stop_legacy
+    stop_legacy || return 1
   elif [[ "$active" == sep-blue-web || "$active" == sep-green-web ]]; then
-    sleep "${SEP_DRAIN_SECONDS:-15}"
-    stop_color "$previous" 2>/dev/null || true
+    stop_color "$previous" || return 1
   fi
   success "蓝绿发布完成：${target}"
   cmd_status
 }
 
 cmd_rollback_bluegreen() {
-  check_env
-  ensure_state_dir
-  exec 9>"$LOCK_FILE"
-  flock -n 9 || { error "已有部署正在执行"; exit 1; }
-  local active previous previous_color
+  check_env || return 1
+  check_compose_scope || return 1
+  deployment_lock || return 1
+  local active previous
   active=$(current_target)
   previous=$(cat "$STATE_DIR/previous-target" 2>/dev/null || true)
-  [[ -n "$previous" && "$previous" != "$active" ]] || { error "没有可回滚版本"; exit 1; }
-  if [[ "$previous" == legacy ]]; then
-    docker start sep-backend sep-web >/dev/null
-    wait_healthy sep-backend
-    wait_healthy sep-web
-    check_service_readiness legacy
-  else
-    previous_color=$(target_color "$previous")
-    local previous_image
-    previous_image=$(docker inspect --format='{{.Config.Image}}' "sep-${previous_color}-backend")
-    ensure_upload_volume_permissions "$previous_image"
-    dc_bg up -d "${previous_color}-backend" "${previous_color}-web"
-    wait_service_healthy "sep-${previous_color}-backend"
-    wait_service_healthy "sep-${previous_color}-web"
-    check_service_readiness "$previous_color"
-  fi
+  [[ -n "$previous" && "$previous" != "$active" ]] || { error "没有可回滚版本"; return 1; }
+  target_backend "$previous" >/dev/null || return 1
+  # Start the retained containers, not a compose definition with today's image tag.
+  restart_target "$previous" || return 1
   local previous_target
   previous_target=$([[ "$previous" == legacy ]] && echo sep-web || echo "$previous")
   switch_caddy_upstream "$previous_target" || {
     error "回滚时 Caddy 切换失败；保留当前流量与已启动的 previous 环境，需人工介入"
     return 1
   }
-  printf '%s\n' "$previous" > "$ACTIVE_COLOR_FILE"
-  printf '%s\n' "$active" > "$STATE_DIR/previous-target"
+  printf '%s\n' "$previous" > "$ACTIVE_COLOR_FILE" || return 1
+  printf '%s\n' "$active" > "$STATE_DIR/previous-target" || return 1
+  retire_target "$active" || return 1
   success "已回滚到 ${previous}"
 }
 
 # -- deploy-web ---------------------------------------------------------------
-# 只重建并重启前端，最常用（改了前端代码/配置后）
+# 兼容入口：前后端成对蓝绿发布，保护仍经旧 Web 转发的模型请求。
 cmd_deploy_web() {
-  check_env
-  check_compose_scope
-  prepare_deploy_revision
-
-  info "重建 sep-web 镜像（含 build args）..."
-  dc build --no-cache sep-web
-
-  info "重启 sep-web..."
-  docker restart sep-web
-
-  success "sep-web 已更新 ✓"
-  cmd_status
+  info "deploy-web 使用成对蓝绿发布，避免重建 Web 截断 Gateway 代理流"
+  cmd_deploy_bluegreen
 }
 
 # -- deploy-backend -----------------------------------------------------------
-# 只重建并重启后端（改了后端代码后）
+# 兼容入口：前后端成对蓝绿发布。
 cmd_deploy_backend() {
-  check_env
-  check_compose_scope
-  prepare_deploy_revision
-
-  info "重建 sep-backend 镜像..."
-  dc build --no-cache sep-backend
-  ensure_upload_volume_permissions "sep-backend:${DEPLOY_TAG}"
-
-  run_migrations
-
-  info "重启 sep-backend（保留容器配置，不重新创建）..."
-  docker stop sep-backend 2>/dev/null || true
-  dc up --no-deps -d sep-backend
-
-  wait_healthy sep-backend
-
-  success "sep-backend 已更新 ✓"
-  cmd_status
+  info "deploy-backend 使用成对蓝绿发布与 Gateway 排空"
+  cmd_deploy_bluegreen
 }
 
 # -- deploy -------------------------------------------------------------------
-# 全量部署：拉代码 → 构建所有镜像 → 迁移 → 启动
+# 全量部署：校验 checkout → 构建 → 迁移 → 切流 → 排空。
 cmd_deploy() {
-  check_env
-  check_compose_scope
-  prepare_deploy_revision
-
-  if [[ "${SEP_ASSUME_YES:-false}" == "true" ]]; then
-    info "已启用自动确认：仅部署 SEP 容器"
-  else
-    warn "⚠️  全量部署将重建并重启 SEP 容器，确认继续? [y/N] "
-    read -r confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || { info "已取消"; exit 0; }
-  fi
-
-  info "构建所有镜像..."
-  dc build --no-cache sep-backend sep-web
-  ensure_upload_volume_permissions "sep-backend:${DEPLOY_TAG}"
-
-  run_migrations
-
-  info "启动 sep-backend..."
-  dc up --no-deps -d sep-backend
-  wait_healthy sep-backend
-
-  info "启动 sep-web..."
-  dc up --no-deps -d sep-web
-  sleep 3
-
-  success "全量部署完成 ✓"
-  cmd_status
+  info "deploy 使用成对蓝绿发布与 Gateway 排空"
+  cmd_deploy_bluegreen
 }
 
 # -- restart ------------------------------------------------------------------
 # 重启容器（不重建镜像，用于恢复崩溃的服务）
 cmd_restart() {
   local service="${1:-all}"
-  check_env
+  check_env || return 1
   case "$service" in
     all|sep-backend|sep-web) ;;
     *)
@@ -664,25 +835,35 @@ cmd_restart() {
       return 1
       ;;
   esac
-  if [[ "$service" == "all" ]]; then
-    local backend_image
-    backend_image=$(docker inspect --format='{{.Config.Image}}' sep-backend)
-    ensure_upload_volume_permissions "$backend_image"
-    info "重启所有 SEP 服务..."
-    docker restart sep-backend sep-web 2>/dev/null || true
-    wait_healthy sep-backend
-  else
-    if [[ "$service" == "sep-backend" ]]; then
-      local backend_image
-      backend_image=$(docker inspect --format='{{.Config.Image}}' sep-backend)
-      ensure_upload_volume_permissions "$backend_image"
-    fi
-    info "重启 $service..."
-    docker restart "$service"
-    [[ "$service" == "sep-backend" ]] && wait_healthy sep-backend
+  deployment_lock || return 1
+  local target backend web state
+  target=$(current_target)
+  backend=$(target_backend "$target") || return 1
+  web=$(target_web "$target") || return 1
+  state=$(container_state "$backend") || return 1
+  if [[ "$state" == running ]]; then
+    drain_gateway "$backend" || return 1
+  elif [[ "$state" != exited && "$state" != created ]]; then
+    error "无法确认后端状态，拒绝重启"; return 1
   fi
+  if [[ "$service" == all || "$service" == sep-backend ]]; then
+    signal_and_wait_stopped "$backend" || return 1
+  fi
+  if [[ "$service" == all || "$service" == sep-web ]]; then
+    signal_and_wait_stopped "$web" || return 1
+  fi
+  restart_target "$target" || return 1
   success "重启完成 ✓"
   cmd_status
+}
+
+cmd_stop() {
+  check_env || return 1
+  deployment_lock || return 1
+  local target
+  target=$(current_target) || return 1
+  retire_target "$target" || return 1
+  success "当前 SEP 应用已排空并停止（保留容器和镜像）"
 }
 
 # =============================================================================
@@ -694,10 +875,13 @@ usage() {
 用法: $(basename "$0") <command> [options]
 
 命令:
-  deploy           全量部署（构建所有镜像 + 迁移 + 启动）
-  deploy-web       仅重建并重启前端（最常用）
-  deploy-backend   仅重建并重启后端
-  restart [svc]    重启容器，不重建镜像（svc 默认 all）
+  deploy           成对蓝绿发布（构建 + 迁移 + 切流 + 排空）
+  deploy-web       成对蓝绿发布的兼容别名
+  deploy-backend   成对蓝绿发布的兼容别名
+  deploy-bluegreen 成对蓝绿发布
+  rollback-bluegreen 回滚保留版本并排空离任实例
+  restart [svc]    排空当前活动色后重启，不重建镜像（svc 默认 all）
+  stop             排空当前活动色后停止，超时保留容器
   status           显示所有容器状态
   logs [svc]       跟踪日志（svc 不指定则跟踪所有）
 
@@ -716,6 +900,7 @@ if [[ "${SEP_DEPLOY_LIBRARY:-false}" != "true" ]]; then
     deploy-web)      cmd_deploy_web ;;
     deploy-backend)  cmd_deploy_backend ;;
     restart)         cmd_restart "${2:-all}" ;;
+    stop)            cmd_stop ;;
     status)          cmd_status ;;
     logs)            cmd_logs "${2:-}" ;;
     deploy-bluegreen) cmd_deploy_bluegreen ;;

@@ -126,10 +126,11 @@ describe('EnterpriseModelConfigService', () => {
       expect(models[0].pricingInputPer1M).toBeNull();
     });
 
-    it('只取 enabled 的模型', async () => {
+    it('只取 enabled 且未下架的模型', async () => {
       await svc.getAvailableModels('u1');
       expect(prisma.platformModel.findMany.mock.calls[0][0].where).toEqual({
         enabled: true,
+        isStale: false,
       });
     });
   });
@@ -254,6 +255,69 @@ describe('EnterpriseModelConfigService', () => {
 
       expect(r.chatModel).toBe('claude-sonnet-5');
       expect(r.source).toBe('ENTERPRISE');
+    });
+
+    it('FORCE_DEFAULT 不允许显式用户模型绕过统一模型', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({
+        employeeModelPolicy: 'FORCE_DEFAULT', employeeDefaultModel: 'gpt-4o',
+      }));
+      const result = await svc.resolveEffectiveModel({ userId: 'u1', userSelectedModel: 'claude-sonnet-5' });
+      expect(result).toMatchObject({ chatModel: 'gpt-4o', allowUserSwitchModel: false, source: 'ENTERPRISE' });
+    });
+
+    it('严格路径中部门白名单不能扩大企业范围，空交集不接受任意用户模型', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({ allowedChatModels: ['gpt-4o'] }));
+      prisma.departmentModelPolicy.findUnique.mockResolvedValue({
+        defaultChatModel: null, allowedChatModels: ['claude-sonnet-5'],
+      });
+      const result = await svc.resolveEffectiveModel({
+        userId: 'u1', departmentId: 'dept-tech', userSelectedModel: 'claude-sonnet-5',
+        restrictToAvailableModels: true,
+      });
+      expect(result.allowedChatModels).toEqual([]);
+      expect(result.source).toBe('ENTERPRISE');
+    });
+
+    it('旧调用保留部门白名单契约，不把不相交的白名单变成 [] 不限制', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({ allowedChatModels: ['gpt-4o'] }));
+      prisma.departmentModelPolicy.findUnique.mockResolvedValue({
+        defaultChatModel: null, allowedChatModels: ['claude-sonnet-5'],
+      });
+      const result = await svc.resolveEffectiveModel({
+        userId: 'u1', departmentId: 'dept-tech', userSelectedModel: 'outside-both-lists',
+      });
+      expect(result.allowedChatModels).toEqual(['claude-sonnet-5']);
+      expect(result.source).toBe('ENTERPRISE');
+      expect(prisma.platformModel.findMany).not.toHaveBeenCalled();
+    });
+
+    it('旧调用的白名单与严格可调用集合保持隔离', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({ allowedChatModels: ['gpt-4o'] }));
+      prisma.departmentModelPolicy.findUnique.mockResolvedValue({
+        defaultChatModel: null, allowedChatModels: ['claude-sonnet-5'],
+      });
+      prisma.platformModel.findMany.mockResolvedValue([{ modelId: 'gpt-4o' }, { modelId: 'claude-sonnet-5' }]);
+      const options = { userId: 'u1', departmentId: 'dept-tech', userSelectedModel: 'claude-sonnet-5' };
+      const legacy = await svc.resolveEffectiveModel(options);
+      const strict = await svc.resolveEffectiveModel({ ...options, restrictToAvailableModels: true });
+      expect(legacy).toMatchObject({ allowedChatModels: ['claude-sonnet-5'], source: 'USER_CHOICE' });
+      expect(strict).toMatchObject({ allowedChatModels: [], source: 'ENTERPRISE' });
+    });
+
+    it('网关使用已验证企业，不重新按用户选择 membership，并返回平台有效交集', async () => {
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue(makeConfig({ allowedChatModels: ['gpt-4o', 'stale'] }));
+      prisma.departmentModelPolicy.findUnique.mockResolvedValue({
+        defaultChatModel: null, allowedChatModels: ['gpt-4o', 'outside'],
+      });
+      prisma.platformModel.findMany.mockResolvedValue([{ modelId: 'gpt-4o' }, { modelId: 'outside' }]);
+      const result = await svc.resolveEffectiveModel({
+        userId: 'u1', enterpriseId: 'ent-acme', departmentId: 'dept-tech', restrictToAvailableModels: true,
+      });
+      expect(ctxSvc.resolve).not.toHaveBeenCalled();
+      expect(result.allowedChatModels).toEqual(['gpt-4o']);
+      expect(prisma.platformModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { enabled: true, isStale: false },
+      }));
     });
 
     it('雇佣关系 config 里 modelId 不是字符串时不当成有效值', async () => {

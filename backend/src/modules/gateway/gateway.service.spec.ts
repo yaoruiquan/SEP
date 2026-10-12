@@ -1,4 +1,5 @@
 import { BadGatewayException, HttpException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { GatewayService } from './gateway.service';
 
 const enterpriseClaims = {
@@ -15,7 +16,7 @@ describe('GatewayService.forwardChatCompletion', () => {
   let warnMock: jest.SpyInstance;
 
   beforeEach(() => {
-    service = new GatewayService({} as never, {} as never, {} as never, {} as never);
+    service = new GatewayService({} as never, new ConfigService(), {} as never, {} as never, {} as never);
     jest.spyOn(service, 'getSub2ApiConfig').mockResolvedValue({
       baseUrl: 'https://relay.test/v1/', apiKey: 'test-key', defaultModel: 'test-model',
     });
@@ -28,7 +29,7 @@ describe('GatewayService.forwardChatCompletion', () => {
   it('forwards the validated request only through sub2api', async () => {
     const upstream = new Response('{}');
     fetchMock.mockResolvedValue(upstream);
-    expect(await service.forwardChatCompletion(dto)).toBe(upstream);
+    expect(await (await service.forwardChatCompletion(dto)).json()).toEqual({});
     expect(fetchMock).toHaveBeenCalledWith('https://relay.test/v1/chat/completions', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-key' },
@@ -38,7 +39,7 @@ describe('GatewayService.forwardChatCompletion', () => {
 
   it('forwards the optional platform request id without changing the payload', async () => {
     fetchMock.mockResolvedValue(new Response('{}'));
-    await service.forwardChatCompletion(dto, 'platform-request-123');
+    await (await service.forwardChatCompletion(dto, 'platform-request-123')).body!.cancel();
     expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       headers: {
         'Content-Type': 'application/json', Authorization: 'Bearer test-key',
@@ -132,10 +133,7 @@ describe('GatewayService.forwardChatCompletion', () => {
         credentials: 'private-key', headers: { authorization: 'private-key' },
       },
       debug: 'private-body',
-    }), { status: 429 });
-    jest.spyOn(upstream.headers, 'get').mockImplementation((name) =>
-      name.toLowerCase() === 'x-request-id' ? `upstream\r\n\u001b[31m"${'a'.repeat(300)}` : null,
-    );
+    }), { status: 429, headers: { 'x-request-id': `upstream [31m"${'a'.repeat(300)}` } });
     fetchMock.mockResolvedValue(upstream);
 
     const exception = await service.forwardChatCompletion(dto, 'platform-123').catch((error: HttpException) => error);
@@ -159,7 +157,7 @@ describe('GatewayService.forwardChatCompletion', () => {
     expect((exception as HttpException).getResponse()).toEqual({
       error: { message: 'sub2api 请求失败（HTTP 503）', type: 'api_error', code: 'UPSTREAM_ERROR', param: null },
     });
-    expect(warnMock).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalledWith(expect.objectContaining({ message: 'sub2api request rejected', status: 503 }));
   });
 
   it.each(['', '<html>private proxy diagnostics</html>'])('gives a readable fallback without echoing a raw proxy body', async (body) => {
@@ -173,6 +171,20 @@ describe('GatewayService.forwardChatCompletion', () => {
   it('maps transport failures to 502 without exposing internal connection details', async () => {
     fetchMock.mockRejectedValue(new Error('secret internal connection detail'));
     await expect(service.forwardChatCompletion(dto)).rejects.toBeInstanceOf(BadGatewayException);
+  });
+
+  it('forces usage collection for streams even if the caller disables it', async () => {
+    fetchMock.mockResolvedValue(new Response('data:[DONE]\n\n'));
+    const response = await service.forwardChatCompletion({ ...dto, stream: true, stream_options: { include_usage: false } });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ stream_options: { include_usage: true } });
+    await response.body!.cancel();
+  });
+
+  it('bounds error response bodies', async () => {
+    fetchMock.mockResolvedValue(new Response('x'.repeat(65537), { status: 429 }));
+    await expect(service.forwardChatCompletion(dto)).rejects.toMatchObject({
+      response: { error: { code: 'UPSTREAM_RESPONSE_TOO_LARGE' } }, status: 502,
+    });
   });
 });
 
@@ -191,6 +203,7 @@ describe('GatewayService.compute credit integration', () => {
   let prisma: Record<string, any>;
   let creditService: { checkBalanceBeforeConversation: jest.Mock; chargeUsage: jest.Mock };
   let service: GatewayService;
+  let prepare: jest.Mock;
 
   beforeEach(() => {
     prisma = {
@@ -207,11 +220,13 @@ describe('GatewayService.compute credit integration', () => {
         unpaidCNY: 0,
       }),
     };
+    prepare = jest.fn().mockResolvedValue({ allowedModels: ['test-model'], request: {}, inputBytes: 2 });
     service = new GatewayService(
       prisma as never,
-      {} as never,
+      new ConfigService(),
       {} as never,
       creditService as never,
+      { prepare } as never,
     );
   });
 
@@ -223,7 +238,6 @@ describe('GatewayService.compute credit integration', () => {
       subscriptionId: 'subscription-1',
       memberId: 'member-1',
       employeeId: 'employee-1',
-      allowedModels: ['test-model'],
     });
     expect(creditService.checkBalanceBeforeConversation).toHaveBeenCalledWith(
       'enterprise-1',
@@ -243,30 +257,11 @@ describe('GatewayService.compute credit integration', () => {
     await expect(service.validateAndAuthorize(enterpriseClaims)).rejects.toThrow('企业和个人算力余额均不足');
   });
 
-  it('charges usage through ComputeCreditService and preserves the idempotency anchors', async () => {
-    await service.recordTransaction({
-      enterpriseId: 'enterprise-1',
-      subscriptionId: 'subscription-1',
-      memberId: 'member-1',
-      employeeId: 'employee-1',
-      userId: 'user-1',
-      sessionId: 'session-1',
-      messageId: 'message-1',
-      modelId: 'test-model',
-      usage: { prompt_tokens: 12, completion_tokens: 8 } as never,
-    });
-
-    expect(creditService.chargeUsage).toHaveBeenCalledWith({
-      enterpriseId: 'enterprise-1',
-      subscriptionId: 'subscription-1',
-      employeeId: 'employee-1',
-      userId: 'user-1',
-      sessionId: 'session-1',
-      messageId: 'message-1',
-      modelId: 'test-model',
-      inputTokens: 12,
-      outputTokens: 8,
-    });
-    expect(prisma.computeAccount).toBeUndefined();
+  it('delegates resource limits and effective model policy to the policy service', async () => {
+    const dto = { model: 'test-model', messages: [{ role: 'user' as const, content: 'hello' }] };
+    const result = await service.prepareRequest(enterpriseClaims, dto);
+    expect(result).toEqual({ allowedModels: ['test-model'], request: {}, inputBytes: 2 });
+    expect(prepare).toHaveBeenCalledWith(enterpriseClaims, dto);
+    expect(creditService.chargeUsage).not.toHaveBeenCalled();
   });
 });

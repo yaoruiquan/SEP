@@ -1,5 +1,6 @@
 import {
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -75,6 +76,29 @@ export class SessionService {
 
   private typeOf(clientType: AuthClientType): 'WEB' | 'DESKTOP' {
     return clientType;
+  }
+
+  async assertActiveSession(
+    sessionId: string,
+    userId: string,
+    clientType: AuthClientType,
+  ): Promise<void> {
+    const session = await this.prisma.authSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        userId: true, type: true, revokedAt: true, expiresAt: true, deviceId: true,
+        user: { select: { status: true } },
+        device: { select: { userId: true, revokedAt: true } },
+      },
+    }).catch(() => {
+      throw new ServiceUnavailableException('Authentication session service unavailable');
+    });
+    if (!session || session.userId !== userId || session.type !== clientType ||
+        session.revokedAt || session.expiresAt <= new Date() || session.user.status !== 'ACTIVE' ||
+        (clientType === 'DESKTOP' && (!session.deviceId || !session.device ||
+          session.device.revokedAt || session.device.userId !== userId))) {
+      throw new UnauthorizedException('Invalid or expired authentication session');
+    }
   }
 
   async createSession(input: CreateSessionInput): Promise<CreatedSession> {
@@ -181,6 +205,8 @@ export class SessionService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
+    await this.assertActiveSession(session.id, session.userId, clientType);
+
     const nextRefreshToken = this.issueRefreshToken();
     const nextExpiresAt = new Date(
       Date.now() + this.getRefreshTtlSeconds(clientType) * 1000,
@@ -189,7 +215,17 @@ export class SessionService {
 
     const consumed = await this.prisma.$transaction(async (tx) => {
       const result = await tx.authToken.updateMany({
-        where: { id: existing.id, usedAt: null, revokedAt: null },
+        where: {
+          id: existing.id, usedAt: null, revokedAt: null, expiresAt: { gt: now },
+          session: {
+            id: session.id, userId: session.userId, type: clientType,
+            revokedAt: null, expiresAt: { gt: now },
+            user: { status: 'ACTIVE' },
+            ...(clientType === 'DESKTOP'
+              ? { deviceId: { not: null }, device: { is: { userId: session.userId, revokedAt: null } } }
+              : {}),
+          },
+        },
         data: { usedAt: now },
       });
       if (result.count !== 1) return false;
@@ -255,6 +291,7 @@ export class SessionService {
     if (token.expiresAt <= now || token.session.expiresAt <= now) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+    await this.assertActiveSession(token.session.id, token.session.userId, clientType);
     return {
       sessionId: token.session.id,
       familyId: token.session.familyId,

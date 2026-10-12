@@ -1,0 +1,141 @@
+import { ConfigService } from '@nestjs/config';
+import { GatewayExecutionService } from './gateway-execution.service';
+
+describe('Gateway execution journal and recovery', () => {
+  const claims = { sub: 'user', enterpriseId: 'enterprise', memberId: 'member', subscriptionId: 'subscription' } as never;
+  const usage = { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 };
+  let service: GatewayExecutionService;
+  let prisma: any;
+  let credit: any;
+  let execution: any;
+
+  beforeEach(() => {
+    execution = { id: 'server-execution', enterpriseId: 'enterprise', userId: 'user', subscriptionId: 'subscription',
+      employeeId: 'employee', modelId: 'model', requestId: 'request', inputTokens: 12, outputTokens: 8,
+      status: 'USAGE_PENDING' };
+    prisma = { gatewayExecution: {
+      create: jest.fn().mockResolvedValue(execution), update: jest.fn().mockResolvedValue(execution),
+      updateMany: jest.fn().mockImplementation(async ({ data }) => {
+        if (data.settlementLeaseUntil instanceof Date) execution.settlementLeaseUntil = data.settlementLeaseUntil;
+        return { count: 1 };
+      }), findUniqueOrThrow: jest.fn().mockResolvedValue(execution),
+      findMany: jest.fn().mockResolvedValue([{ id: execution.id }]),
+    } };
+    credit = { chargeUsage: jest.fn().mockResolvedValue({ usageRecordId: 'bill', alreadyCharged: false }) };
+    service = new GatewayExecutionService(prisma, credit, new ConfigService());
+  });
+
+  it('creates a server-owned journal before any model request and rejects storage failure', async () => {
+    await service.start(claims, 'employee', 'model', 'request');
+    expect(prisma.gatewayExecution.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      enterpriseId: 'enterprise', userId: 'user', memberId: 'member', requestId: 'request',
+    }) });
+    expect(prisma.gatewayExecution.create.mock.calls[0][0].data).not.toHaveProperty('id');
+    prisma.gatewayExecution.create.mockRejectedValue(new Error('private connection details'));
+    await expect(service.start(claims, 'employee', 'model', 'request')).rejects.toMatchObject({
+      status: 503, response: { error: { code: 'EXECUTION_JOURNAL_UNAVAILABLE' } },
+    });
+  });
+
+  it('persists observed usage without making an active stream ready to settle', async () => {
+    await service.saveUsage(execution.id, usage);
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'USAGE_PENDING', inputTokens: 12, outputTokens: 8 },
+    }));
+    expect(credit.chargeUsage).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 0.5, NaN, Infinity, 2147483648])('does not persist invalid provider tokens %s', async (tokens) => {
+    await service.saveUsage(execution.id, { ...usage, prompt_tokens: tokens });
+    expect(prisma.gatewayExecution.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not report a rejected late usage write as a successful checkpoint', async () => {
+    prisma.gatewayExecution.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.saveUsage(execution.id, usage)).rejects.toMatchObject({
+      status: 503, response: { error: { code: 'EXECUTION_USAGE_CHECKPOINT_REJECTED' } },
+    });
+  });
+
+  it('freezes an uncertain usage snapshot rather than opening it for settlement', async () => {
+    await service.fail(execution.id, 'EXECUTION_JOURNAL_TIMEOUT', false, true);
+    expect(prisma.gatewayExecution.update).not.toHaveBeenCalled();
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith({
+      where: { id: execution.id, status: { in: ['STARTED', 'USAGE_PENDING'] }, settlementReady: false, settlementLeaseUntil: null },
+      data: { status: 'NEEDS_RECONCILIATION', settlementReady: false, errorCode: 'USAGE_CHECKPOINT_UNCERTAIN' },
+    });
+    expect(credit.chargeUsage).not.toHaveBeenCalled();
+  });
+
+  it('charges by journal identity and execution ID, never by client correlation IDs', async () => {
+    await service.finish(execution.id, { finishReason: 'stop', done: true });
+    expect(credit.chargeUsage).not.toHaveBeenCalled();
+    await service.settle(execution.id);
+    expect(credit.chargeUsage).toHaveBeenCalledWith({
+      enterpriseId: 'enterprise', userId: 'user', subscriptionId: 'subscription', employeeId: 'employee',
+      sessionId: 'gateway-execution', messageId: 'server-execution', modelId: 'model', inputTokens: 12, outputTokens: 8,
+    });
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenLastCalledWith({ where: {
+      id: execution.id, status: 'USAGE_PENDING', settlementLeaseUntil: expect.any(Date),
+    }, data: {
+      status: 'SETTLED', usageRecordId: 'bill', settlementLeaseUntil: null,
+    } });
+  });
+
+  it('does not charge if another worker holds the lease or execution is already settled', async () => {
+    prisma.gatewayExecution.updateMany.mockResolvedValue({ count: 0 });
+    await service.settle(execution.id);
+    expect(credit.chargeUsage).not.toHaveBeenCalled();
+  });
+
+  it('retains a failed charge for idempotent recovery with the same server key', async () => {
+    credit.chargeUsage.mockRejectedValueOnce(new Error('database temporarily unavailable'));
+    await service.settle(execution.id);
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenLastCalledWith({ where: {
+      id: execution.id, status: 'USAGE_PENDING', settlementLeaseUntil: expect.any(Date),
+    }, data: {
+      settlementLeaseUntil: null, errorCode: 'SETTLEMENT_FAILED',
+    } });
+    credit.chargeUsage.mockResolvedValue({ usageRecordId: 'bill', alreadyCharged: true });
+    await service.reconcile();
+    expect(credit.chargeUsage.mock.calls.map(([params]) => params.messageId)).toEqual(['server-execution', 'server-execution']);
+  });
+
+  it('marks missing usage as reconciliation, not zero-cost settlement', async () => {
+    prisma.gatewayExecution.updateMany.mockImplementation(async ({ where }) => ({ count: where.status === 'USAGE_PENDING' ? 0 : 1 }));
+    await service.finish(execution.id, {});
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith({
+      where: { id: execution.id, status: 'STARTED' }, data: { status: 'NEEDS_RECONCILIATION', errorCode: 'USAGE_MISSING' },
+    });
+    expect(credit.chargeUsage).not.toHaveBeenCalled();
+  });
+
+  it('recovers stale executions and bounds the settlement scan', async () => {
+    await service.reconcile();
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'NEEDS_RECONCILIATION', errorCode: 'EXECUTION_EXPIRED_WITHOUT_USAGE' },
+    }));
+    expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'NEEDS_RECONCILIATION', errorCode: 'EXECUTION_EXPIRED_WITH_UNCONFIRMED_USAGE' },
+    }));
+    expect(prisma.gatewayExecution.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
+  });
+
+  it('retains the owned lease when a charge times out instead of freeing it early', async () => {
+    jest.useFakeTimers();
+    let complete!: () => void;
+    credit.chargeUsage.mockImplementation(() => new Promise(resolve => {
+      complete = () => resolve({ usageRecordId: 'bill', alreadyCharged: false });
+    }));
+    const outcome = service.settle(execution.id);
+    try {
+      await jest.advanceTimersByTimeAsync(5000);
+      await outcome;
+      expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledTimes(1);
+      expect(execution.settlementLeaseUntil).toBeInstanceOf(Date);
+      complete();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledTimes(1);
+    } finally { complete(); jest.useRealTimers(); }
+  });
+});

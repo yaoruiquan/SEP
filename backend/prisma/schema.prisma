@@ -1858,6 +1858,46 @@ model PersonalRechargeOrder {
   @@map("personal_recharge_orders")
 }
 
+enum GatewayExecutionStatus {
+  STARTED
+  USAGE_PENDING
+  SETTLED
+  NEEDS_RECONCILIATION
+  FAILED
+}
+
+// Keep execution metadata independent of subscription deletion and client IDs.
+model GatewayExecution {
+  id                   String                 @id @default(cuid())
+  enterpriseId         String
+  userId               String
+  memberId             String
+  subscriptionId       String
+  employeeId           String
+  modelId              String
+  requestId            String
+  upstreamRequestId    String?
+  status               GatewayExecutionStatus @default(STARTED)
+  inputTokens          Int?
+  outputTokens         Int?
+  finishReason         String?
+  done                 Boolean                @default(false)
+  errorCode            String?
+  settlementAttempts   Int                    @default(0)
+  settlementReady      Boolean                @default(false)
+  settlementLeaseUntil DateTime?
+  usageRecordId        String?
+  expiresAt            DateTime
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@index([status, settlementLeaseUntil, createdAt])
+  @@index([status, expiresAt])
+  @@index([enterpriseId, createdAt])
+  @@index([requestId])
+  @@map("gateway_executions")
+}
+
 model ComputeUsageRecord {
   id String @id @default(cuid())
 

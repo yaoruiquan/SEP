@@ -5,6 +5,14 @@ import { CsrfGuard } from './csrf.guard';
 describe('CsrfGuard', () => {
   let guard: CsrfGuard;
   let reflector: Reflector;
+  const originalEnv = { NODE_ENV: process.env.NODE_ENV, CORS_ORIGIN: process.env.CORS_ORIGIN };
+
+  afterAll(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
 
   beforeEach(() => {
     reflector = new Reflector();
@@ -115,9 +123,9 @@ describe('CsrfGuard', () => {
       expect(guard.canActivate(context)).toBe(true);
     });
 
-    it('模型接口无 Bearer 凭证时仍拒绝无 Origin 的请求', () => {
+    it('模型接口无 Bearer 凭证时交给认证 Guard 拒绝和统计失败', () => {
       const context = createMockContext('POST', '/api/gateway/v1/chat/completions');
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+      expect(guard.canActivate(context)).toBe(true);
     });
 
     it('其他接口带 Bearer 凭证也不能跳过 CSRF 来源校验', () => {
@@ -132,6 +140,7 @@ describe('CsrfGuard', () => {
         '/api/client/auth/login',
         '/api/client/auth/refresh',
         '/api/client/auth/token',
+        '/api/client/auth/logout',
       ]) {
         const context = createMockContext('POST', path);
         expect(guard.canActivate(context)).toBe(true);
@@ -147,6 +156,37 @@ describe('CsrfGuard', () => {
       const context = createMockContext('POST', '/api/users');
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
+  });
+
+  it.each([
+    '/api/gateway/v1/chat/completions/',
+    '/API/GATEWAY/V1/CHAT/COMPLETIONS/',
+    '/api/client/auth/login/', '/api/client/auth/refresh/',
+    '/api/client/auth/token/', '/api/client/auth/logout/',
+  ])('allows only known POST paths with a trailing slash: %s', (path) => {
+    expect(guard.canActivate(createMockContext('POST', path))).toBe(true);
+  });
+
+  it.each(['', 'Basic invalid', 'Bearer invalid', 'Bearer '])(
+    'routes malformed model credentials to authentication: %s', (authorization) => {
+      expect(guard.canActivate(createMockContext('POST', '/api/gateway/v1/chat/completions/', {
+        authorization,
+      }))).toBe(true);
+    },
+  );
+
+  it.each([
+    ['POST', '/api/gateway/v1/chat/completions-other'],
+    ['POST', '/api/gateway/v1/chat/completions//'],
+    ['POST', '/api/gateway/v1/models'],
+    ['PATCH', '/api/gateway/v1/chat/completions/'],
+    ['POST', '/api/client/auth/token-extra/'],
+    ['POST', '/api/client/tasks/'],
+    ['PUT', '/api/client/auth/login/'],
+    ['POST', '/api/auth/logout/'],
+  ])('retains source validation for %s %s', (method, path) => {
+    expect(() => guard.canActivate(createMockContext(method, path, { authorization: 'Bearer token' })))
+      .toThrow(ForbiddenException);
   });
 
   describe.each([

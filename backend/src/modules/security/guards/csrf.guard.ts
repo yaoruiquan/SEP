@@ -52,12 +52,11 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
-    // 原生客户端不发送浏览器 Origin；模型网关只接受经 ClientEmploymentGuard
-    // 验证的 Bearer 令牌，不依赖 Cookie，因此不需要浏览器 CSRF 来源校验。
-    // 限定到唯一端点，其他受 Cookie 保护的写操作继续严格校验。
+    // Pure Bearer authentication also handles missing/malformed credentials and
+    // counts failures; CSRF must not reject those before the route guard runs.
+    const path = request.path.replace(/\/$/, '').toLowerCase();
     if (
-      request.path === '/api/gateway/v1/chat/completions' &&
-      /^Bearer \S+$/.test(request.headers.authorization ?? '')
+      method === 'POST' && path === '/api/gateway/v1/chat/completions'
     ) {
       return true;
     }
@@ -66,12 +65,12 @@ export class CsrfGuard implements CanActivate {
     // 请求没有 Origin/Referer 时也应允许认证流程通过。仅精确放行认证端点，
     // 其他 /api/client/* 写接口仍继续执行来源校验。
     if (
-      [
+      method === 'POST' && [
         '/api/client/auth/login',
         '/api/client/auth/refresh',
         '/api/client/auth/token',
         '/api/client/auth/logout',
-      ].includes(request.path)
+      ].includes(path)
     ) {
       return true;
     }

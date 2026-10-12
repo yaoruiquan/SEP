@@ -1,11 +1,13 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EmbeddingService } from '../modules/knowledge/embedding.service';
 import { TaskQueueService } from '../modules/task-execution/task-queue.service';
 import { KnowledgeQueueService } from '../modules/knowledge/knowledge-queue.service';
+import { GatewayLifecycleService } from '../common/lifecycle/gateway-lifecycle.service';
 
 @Controller('health')
 @ApiTags('Health')
@@ -17,21 +19,32 @@ export class HealthController {
     private readonly embedding: EmbeddingService,
     private readonly taskQueue: TaskQueueService,
     private readonly knowledgeQueue: KnowledgeQueueService,
+    private readonly gatewayLifecycle: GatewayLifecycleService,
   ) {}
 
   @Get()
   @ApiOperation({ summary: '存活检查（Liveness）' })
+  @ApiResponse({ status: 200, description: 'Process alive; includes read-only Gateway lifecycle state' })
   liveness() {
     return { 
       status: 'ok',
       timestamp: new Date().toISOString(),
       service: 'sep-backend',
+      ...this.gatewayLifecycle.snapshot(),
     };
   }
 
   @Get('ready')
   @ApiOperation({ summary: '就绪检查（Readiness）- 检查所有依赖服务' })
-  async readiness() {
+  @ApiResponse({ status: 200, description: 'Dependencies ready and Gateway accepting requests' })
+  @ApiResponse({ status: 503, description: 'Dependencies unavailable or Gateway draining/stopping' })
+  async readiness(@Res({ passthrough: true }) response: Response) {
+    const initial = this.gatewayLifecycle.snapshot();
+    response.setHeader('Cache-Control', 'no-store');
+    if (initial.draining) {
+      response.status(503);
+      return { status: initial.gatewayState, ...initial, timestamp: new Date().toISOString() };
+    }
     const checks: Record<string, string> = {};
     
     // 数据库检查
@@ -66,14 +79,17 @@ export class HealthController {
       }
     }
     
-    const status = Object.values(checks).every((value) => value === 'ok') ? 'ok' : 'failed';
+    const lifecycle = this.gatewayLifecycle.snapshot();
+    const status = lifecycle.draining ? lifecycle.gatewayState
+      : Object.values(checks).every((value) => value === 'ok') ? 'ok' : 'failed';
     const body = { 
       status, 
       checks,
+      ...lifecycle,
       timestamp: new Date().toISOString(),
     };
     
-    if (status !== 'ok') throw new ServiceUnavailableException(body);
+    response.status(status === 'ok' ? 200 : 503);
     return body;
   }
 

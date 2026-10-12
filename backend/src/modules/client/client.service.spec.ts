@@ -11,6 +11,7 @@ import { SessionService } from '../auth/session.service';
 import { MemberAllowanceQueryService } from '../compute-credit/member-allowance-query.service';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
+import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 
 describe('ClientService', () => {
   let service: ClientService;
@@ -20,6 +21,7 @@ describe('ClientService', () => {
   let allowanceQuery: any;
   let personalWallet: any;
   let skillVersions: { resolveEffectiveVersion: jest.Mock };
+  let modelPolicy: { resolvePolicy: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -36,6 +38,7 @@ describe('ClientService', () => {
     allowanceQuery = { getOne: jest.fn() };
     personalWallet = { getView: jest.fn() };
     skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
+    modelPolicy = { resolvePolicy: jest.fn().mockResolvedValue({ allowedModels: ['gpt-4o-mini'] }) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
         sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
@@ -52,6 +55,7 @@ describe('ClientService', () => {
       providers: [
         ClientService,
         { provide: SkillVersionService, useValue: skillVersions },
+        { provide: GatewayModelPolicyService, useValue: modelPolicy },
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
@@ -303,6 +307,10 @@ describe('ClientService', () => {
     const result = await service.listSubscriptions('user-1');
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ subscriptionId: 'sub-1', employeeId: 'emp-1', allowedModels: ['gpt-4o-mini'], upgradeAvailable: true });
+    expect(modelPolicy.resolvePolicy).toHaveBeenCalledTimes(1);
+    expect(modelPolicy.resolvePolicy).toHaveBeenCalledWith({
+      sub: 'user-1', enterpriseId: 'ent-1', memberId: 'member-1', subscriptionId: 'sub-1',
+    });
     expect(prisma.employeeGrant.findMany.mock.calls[0][0].where).toMatchObject({
       OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }],
       subscription: { enterpriseId: 'ent-1', status: 'ACTIVE' },

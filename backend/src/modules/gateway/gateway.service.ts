@@ -3,9 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { DEFAULT_MODEL_ID, SETTING_KEYS } from 'shared';
-import type { ChatCompletionRequest, ChatCompletionUsage } from 'shared';
+import type { ChatCompletionRequest } from 'shared';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
-import { createGatewayStreamLifecycle, createChatCompletionStreamObserver } from './gateway-stream';
+import { createGatewayStreamLifecycle, createChatCompletionStreamObserver, timeoutValue } from './gateway-stream';
+import { readGatewayJson } from './gateway-response';
+import { GatewayModelPolicyService } from './gateway-model-policy.service';
 
 function parseRetryAfter(value: string | null): number | undefined {
   if (value === null) return undefined;
@@ -46,11 +48,12 @@ export class GatewayService {
     private config: ConfigService,
     private settingService: SettingService,
     private computeCreditService: ComputeCreditService,
+    private modelPolicy: GatewayModelPolicyService,
   ) {}
 
   /**
    * 验证订阅令牌 + 检查授权和余额
-   * @returns { enterpriseId, subscriptionId, memberId, employeeId, modelWhitelist }
+   * Model policy and resource checks follow this authorization step.
    */
   async validateAndAuthorize(claims: {
     sub: string;
@@ -62,7 +65,6 @@ export class GatewayService {
     subscriptionId: string;
     memberId: string;
     employeeId: string;
-    allowedModels: string[];
   }> {
     const { enterpriseId, subscriptionId, memberId } = claims;
 
@@ -113,16 +115,11 @@ export class GatewayService {
       throw new ForbiddenException(balance.reason || '企业算力余额不足，请联系管理员充值');
     }
 
-    // 4. 获取模型白名单（从 PlatformModel）
-    const [models, modelConfig] = await Promise.all([
-      this.prisma.platformModel.findMany({ where: { enabled: true }, select: { modelId: true } }),
-      this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId }, select: { allowedChatModels: true } }),
-    ]);
-    const enabledModels = models.map((m) => m.modelId);
-    const allowedModels = modelConfig?.allowedChatModels?.length
-      ? enabledModels.filter((id) => modelConfig.allowedChatModels.includes(id)) : enabledModels;
+    return { enterpriseId, subscriptionId, memberId, employeeId: subscription.employeeId };
+  }
 
-    return { enterpriseId, subscriptionId, memberId, employeeId: subscription.employeeId, allowedModels };
+  prepareRequest(claims: Parameters<GatewayModelPolicyService['prepare']>[0], dto: ChatCompletionRequest) {
+    return this.modelPolicy.prepare(claims, dto);
   }
 
   /**
@@ -155,10 +152,10 @@ export class GatewayService {
 
   async forwardChatCompletion(dto: ChatCompletionRequest, requestId?: string, clientSignal?: AbortSignal): Promise<Response> {
     const { baseUrl, apiKey } = await this.getSub2ApiConfig();
-    const stream = dto.stream ? createGatewayStreamLifecycle(this.config, clientSignal) : undefined;
+    const stream = createGatewayStreamLifecycle(this.config, clientSignal, dto.stream ? 'stream' : 'json');
     let response: Response;
     try {
-      const signal = stream?.signal ?? AbortSignal.timeout(30000);
+      const signal = stream.signal;
       signal.throwIfAborted();
       response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
@@ -167,21 +164,21 @@ export class GatewayService {
           Authorization: `Bearer ${apiKey}`,
           ...(requestId ? { 'x-request-id': requestId } : {}),
         },
-        body: JSON.stringify(dto),
-        signal: clientSignal && !stream ? AbortSignal.any([signal, clientSignal]) : signal,
+        body: JSON.stringify(dto.stream ? {
+          ...dto, stream_options: { ...dto.stream_options, include_usage: true },
+        } : dto),
+        signal,
       });
-      if (stream) response = stream.wrap(response);
+      response = stream.wrap(response);
     } catch (error) {
-      stream?.cleanup();
-      if (stream) this.logger.warn({
+      stream.cleanup();
+      this.logger.warn({
         message: 'gateway upstream request failed before stream',
         requestId: sanitizeRequestId(requestId), model: dto.model,
         code: stream.signal.reason?.getResponse?.()?.error?.code || 'UPSTREAM_UNAVAILABLE',
       });
-      if (stream?.signal.aborted) throw stream.signal.reason;
-      const message = error?.name === 'TimeoutError' || error?.name === 'AbortError'
-        ? 'sub2api 请求超时（30s）'
-        : '无法连接 sub2api';
+      if (stream.signal.aborted) throw stream.signal.reason;
+      const message = '无法连接 sub2api';
       throw new BadGatewayException({
         error: { message, type: 'api_error', code: 'UPSTREAM_UNAVAILABLE', param: null },
       });
@@ -189,10 +186,11 @@ export class GatewayService {
 
     if (!response.ok) {
       // 不把 HTML 代理错误页或整个上游响应直接暴露给客户端。
-      const body = await response.json().catch(() => {
-        if (stream?.signal.aborted) throw stream.signal.reason;
+      const body = await readGatewayJson(response, timeoutValue(this.config, 'GATEWAY_ERROR_MAX_BYTES', 65536)).catch((error) => {
+        if (stream.signal.aborted) throw stream.signal.reason;
+        if (error?.getResponse?.()?.error?.code === 'UPSTREAM_RESPONSE_TOO_LARGE') throw error;
         return null;
-      });
+      }) as { error?: Record<string, unknown> } | null;
       const error = body?.error;
       const isRateLimited = response.status === 429;
       const retryAfterSeconds = isRateLimited
@@ -205,16 +203,18 @@ export class GatewayService {
           upstreamRequestId: sanitizeRequestId(response.headers.get('x-request-id')),
           ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
         });
-      }
+      } else this.logger.warn({ message: 'sub2api request rejected', status: response.status,
+        requestId: sanitizeRequestId(requestId), model: dto.model,
+        upstreamRequestId: sanitizeRequestId(response.headers.get('x-request-id')) });
       throw new HttpException({
         error: {
           message: typeof error?.message === 'string' && error.message
-            ? error.message : `sub2api 请求失败（HTTP ${response.status}）`,
-          type: typeof error?.type === 'string' ? error.type
+            ? error.message.slice(0, 1000) : `sub2api 请求失败（HTTP ${response.status}）`,
+          type: typeof error?.type === 'string' ? error.type.slice(0, 128)
             : isRateLimited ? 'rate_limit_error' : response.status >= 500 ? 'api_error' : 'invalid_request_error',
-          code: typeof error?.code === 'string' ? error.code
+          code: typeof error?.code === 'string' ? error.code.slice(0, 128)
             : isRateLimited ? 'UPSTREAM_RATE_LIMIT_EXCEEDED' : 'UPSTREAM_ERROR',
-          param: typeof error?.param === 'string' ? error.param : null,
+          param: typeof error?.param === 'string' ? error.param.slice(0, 256) : null,
           ...(isRateLimited ? { source: 'upstream' } : {}),
         },
         ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
@@ -223,39 +223,8 @@ export class GatewayService {
     return response;
   }
 
-  /** 记账到统一算力账本，并由 ComputeUsageRecord 的幂等键防止重复扣费。 */
-  async recordTransaction(params: {
-    enterpriseId: string;
-    subscriptionId: string;
-    memberId: string;
-    employeeId: string;
-    userId?: string;
-    sessionId: string;
-    messageId: string;
-    modelId: string;
-    usage: ChatCompletionUsage;
-  }): Promise<void> {
-    try {
-      const result = await this.computeCreditService.chargeUsage({
-        enterpriseId: params.enterpriseId,
-        subscriptionId: params.subscriptionId,
-        employeeId: params.employeeId,
-        userId: params.userId,
-        sessionId: params.sessionId,
-        messageId: params.messageId,
-        modelId: params.modelId,
-        inputTokens: params.usage.prompt_tokens,
-        outputTokens: params.usage.completion_tokens,
-      });
-
-      this.logger.log(
-        `统一账本记账成功：subscriptionId=${params.subscriptionId}, ` +
-        `usageRecordId=${result.usageRecordId}, alreadyCharged=${result.alreadyCharged}`,
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const stack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`统一账本记账失败：${message}`, stack);
-    }
+  readCompletion(response: Response) {
+    return readGatewayJson(response, timeoutValue(this.config, 'GATEWAY_JSON_MAX_BYTES', 8 * 1024 * 1024));
   }
+
 }
