@@ -1,4 +1,5 @@
 import { SkillVersionService } from '../skill-version/skill-version.service';
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -14,6 +15,7 @@ import { PersonalWalletService } from '../personal-wallet/personal-wallet.servic
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
+import { MediaConfigService } from '../media-config/media-config.service';
 
 describe('ClientService', () => {
   let service: ClientService;
@@ -24,6 +26,7 @@ describe('ClientService', () => {
   let personalWallet: any;
   let skillVersions: { resolveEffectiveVersion: jest.Mock };
   let modelPolicy: { resolvePolicy: jest.Mock };
+  let mediaConfig: { getRuntimeMedia: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -41,6 +44,7 @@ describe('ClientService', () => {
     personalWallet = { getView: jest.fn() };
     skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
     modelPolicy = { resolvePolicy: jest.fn().mockResolvedValue({ allowedModels: ['gpt-4o-mini'] }) };
+    mediaConfig = { getRuntimeMedia: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
         sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
@@ -58,6 +62,7 @@ describe('ClientService', () => {
         ClientService,
         { provide: SkillVersionService, useValue: skillVersions },
         { provide: GatewayModelPolicyService, useValue: modelPolicy },
+        { provide: MediaConfigService, useValue: mediaConfig },
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
@@ -380,6 +385,15 @@ describe('ClientService', () => {
     expect(listed.template.avatar).toBe(expected.avatarAsset.portraitUrl);
     expect(runtime.employee).not.toHaveProperty('systemPrompt');
     expect(runtime.employee).not.toHaveProperty('bindings');
+    expect(runtime.runtime).not.toHaveProperty('media');
+    expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
+    const negotiated = await service.getRuntime('user-1', 'sub-1', 1);
+    expect(negotiated.runtime.media).toMatchObject({ protocolVersion: 1, executionAvailable: false, tools: [] });
+    expect(mediaConfig.getRuntimeMedia).toHaveBeenCalledWith('ent-1');
+    mediaConfig.getRuntimeMedia.mockClear();
+    const unsupported = await service.getRuntime('user-1', 'sub-1', 2);
+    expect(unsupported.runtime).not.toHaveProperty('media');
+    expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
   });
 
   it('uses the shared enterprise resolver for runtime and omits skills without an approved version', async () => {
@@ -408,5 +422,15 @@ describe('ClientService', () => {
     expect(skillVersions.resolveEffectiveVersion.mock.calls).toEqual([['sub-1', 'cap-1'], ['sub-1', 'cap-2']]);
     expect(prisma.subscription.findFirst.mock.calls[0][0].include.employee.select.bindings.where)
       .toEqual({ enabled: true, capability: { type: 'SKILL' } });
+  });
+
+  it('does not read media configuration when subscription authorization fails', async () => {
+    prisma.subscription.findFirst.mockResolvedValue(null);
+    await expect(service.getRuntime('user-1', 'revoked-subscription', 1)).rejects.toBeInstanceOf(NotFoundException);
+    expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
+    expect(prisma.subscription.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 'revoked-subscription', enterpriseId: 'ent-1', status: 'ACTIVE',
+      grants: { some: { OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }] } },
+    });
   });
 });

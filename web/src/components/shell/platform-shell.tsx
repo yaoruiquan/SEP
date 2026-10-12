@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, ShieldCheck, Users, Settings, Building2, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone, Menu } from 'lucide-react';
+import { LayoutDashboard, ShieldCheck, Users, Settings, Building2, LogOut, Wallet, ChevronLeft, ChevronRight, Megaphone, Menu, Image } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -57,7 +57,8 @@ const NAV_GROUPS: NavGroup[] = [
     title: '平台',
     links: [
       { href: '/admin/announcements', label: '公告', icon: Megaphone },
-      { href: '/admin/settings', label: '系统设置', icon: Settings },
+      { href: '/admin/settings', label: '系统设置', icon: Settings, exact: true },
+      { href: '/admin/settings/media-models', label: '图片模型', icon: Image },
       { href: '/admin/audit', label: '安全与审计', icon: ShieldCheck },
       { href: '/admin/auth-users', label: '认证中心', icon: ShieldCheck },
     ],
@@ -81,6 +82,7 @@ const CRUMBS: CrumbMap = {
   new: '新建',
   edit: '编辑',
   bindings: '能力绑定',
+  'media-models': '图片模型',
 };
 
 export function PlatformShell({ children }: { children: React.ReactNode }) {

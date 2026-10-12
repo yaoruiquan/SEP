@@ -47,6 +47,7 @@ import { HealthModule } from './health/health.module';
 import { employeeAssetBaseUrl } from './common/employee-avatar';
 import { validateAuthEnvironment } from './auth-environment';
 import { GatewayLifecycleModule } from './common/lifecycle/gateway-lifecycle.module';
+import { MediaConfigModule } from './modules/media-config/media-config.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { GatewayLifecycleModule } from './common/lifecycle/gateway-lifecycle.mod
     NotificationsModule,
     MailModule,
     EnterpriseModelConfigModule,
+    MediaConfigModule,
     CostAnalyticsModule,
     EnterpriseSettingsModule,
     CartModule,

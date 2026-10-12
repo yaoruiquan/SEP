@@ -4,6 +4,7 @@ export type { EmployeeAvatarAsset } from './employee-avatar';
 export * from './task.dto';
 export * from './client-task.dto';
 export * from './notification.dto';
+export * from './media.dto';
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）
@@ -61,6 +62,8 @@ export const SETTING_KEYS = {
   SUB2API_BASE_URL: "SUB2API_BASE_URL",
   SUB2API_API_KEY: "SUB2API_API_KEY",
   SUB2API_DEFAULT_MODEL: "SUB2API_DEFAULT_MODEL",
+  MEDIA_BASE_URL: "MEDIA_BASE_URL",
+  MEDIA_API_KEY: "MEDIA_API_KEY",
   /** 美元→人民币汇率。模型单价以 USD 计，计费入账以 CNY 计。 */
   USD_TO_CNY_RATE: "USD_TO_CNY_RATE",
   /** 客户端实例令牌有效期（分钟）。建议初值 15。 */
@@ -160,6 +163,7 @@ export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 /** 哪些配置项是敏感值（加密存储、接口打码）。 */
 export const SECRET_SETTING_KEYS: readonly SettingKey[] = [
   SETTING_KEYS.SUB2API_API_KEY,
+  SETTING_KEYS.MEDIA_API_KEY,
   SETTING_KEYS.ALIPAY_PRIVATE_KEY,
   SETTING_KEYS.MAIL_PASSWORD,
   SETTING_KEYS.WECHAT_APP_SECRET,
@@ -216,6 +220,28 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     placeholder: DEFAULT_MODEL_ID,
     category: "ai",
     type: "string",
+  },
+  {
+    key: SETTING_KEYS.MEDIA_BASE_URL,
+    label: "媒体模型上游地址",
+    secret: false,
+    envFallback: "MEDIA_BASE_URL",
+    placeholder: "https://example.com/v1",
+    category: "media",
+    description: "独立于会话模型的图片/视频模型上游地址。",
+    type: "url",
+    editable: false,
+  },
+  {
+    key: SETTING_KEYS.MEDIA_API_KEY,
+    label: "媒体模型 API Key",
+    secret: true,
+    envFallback: "MEDIA_API_KEY",
+    placeholder: "sk-...",
+    category: "media",
+    description: "仅保存加密密文，页面不会回显。",
+    type: "string",
+    editable: false,
   },
   // 平台基础信息
   {

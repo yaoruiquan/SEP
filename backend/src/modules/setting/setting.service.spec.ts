@@ -1,6 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { SettingService } from './setting.service';
 import { MODEL_RUNTIME_POLICY_KEYS, MODEL_RUNTIME_POLICY_REVISION, MODEL_RUNTIME_POLICY_LEGACY_KEYS, SETTING_KEYS } from 'shared';
+import { decryptSecret, encryptSecret } from '../../common/crypto/secret-cipher';
 
 function fixture() {
   const prisma: any = {
@@ -10,7 +12,10 @@ function fixture() {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
     },
+    mediaModelProfile: { updateMany: jest.fn() },
+    $transaction: jest.fn(),
   };
+  prisma.$transaction.mockImplementation((fn: any) => fn(prisma));
   const config: any = {
     getOrThrow: jest.fn(() => 'test-master-key'),
     get: jest.fn((key: string) => ({
@@ -109,5 +114,59 @@ describe('SettingService', () => {
     const { service, prisma } = fixture();
     await service.updateMany({ [SETTING_KEYS.MAIL_HOST]: '' });
     expect(prisma.systemSetting.deleteMany).toHaveBeenCalledWith({ where: { key: SETTING_KEYS.MAIL_HOST } });
+  });
+
+  it('rejects media connection edits through the generic settings endpoint', async () => {
+    const { service } = fixture();
+    await expect(service.updateMany({ [SETTING_KEYS.MEDIA_API_KEY]: 'test-media-key' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMany({ [SETTING_KEYS.MEDIA_BASE_URL]: 'https://relay.example/v1' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('encrypts media keys once and revokes verification when effective connection changes', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'test-media-key' });
+    const savedKey = prisma.systemSetting.upsert.mock.calls[1][0];
+    expect(savedKey.create.value).toBe(savedKey.update.value);
+    expect(savedKey.create.value).not.toBe('test-media-key');
+    expect(decryptSecret(savedKey.create.value, 'test-master-key')).toBe('test-media-key');
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledWith({
+      data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
+    });
+  });
+
+  it('preserves empty keys and verification when effective database values are unchanged', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([
+      { key: SETTING_KEYS.MEDIA_BASE_URL, value: 'https://relay.example/v1' },
+      { key: SETTING_KEYS.MEDIA_API_KEY, value: encryptSecret('test-media-key', 'test-master-key') },
+    ]);
+    await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: ' ' });
+    expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'test-media-key' });
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'changed-key' });
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('compares effective environment fallbacks without changing chat settings', async () => {
+    const { service, prisma, config } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    config.get.mockImplementation((key: string) => ({
+      MEDIA_BASE_URL: 'https://relay.example/v1', MEDIA_API_KEY: 'test-media-key',
+    } as Record<string, string>)[key]);
+    await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'test-media-key' });
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    expect(prisma.systemSetting.upsert.mock.calls.map(([args]: any[]) => args.where.key))
+      .toEqual([SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY]);
+  });
+
+  it('maps concurrent media connection transactions to HTTP 409', async () => {
+    const { service, prisma } = fixture();
+    prisma.$transaction.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('write conflict', {
+      code: 'P2034', clientVersion: 'test',
+    }));
+    await expect(service.updateMediaConnection({ baseUrl: 'https://relay.example/v1' })).rejects.toBeInstanceOf(ConflictException);
   });
 });

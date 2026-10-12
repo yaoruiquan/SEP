@@ -13,6 +13,7 @@ import { DigitalEmployeeModule } from '../digital-employee/digital-employee.modu
 import { SubscriptionRequestModule } from '../subscription-request/subscription-request.module';
 import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
+import { MediaConfigModule } from '../media-config/media-config.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.servi
     DigitalEmployeeModule,
     SubscriptionRequestModule,
     EnterpriseModelConfigModule,
+    MediaConfigModule,
   ],
   controllers: [ClientController],
   providers: [ClientService, GatewayModelPolicyService],

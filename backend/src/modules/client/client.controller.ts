@@ -47,6 +47,8 @@ import {
   ClientPlatformEmployeeQuerySchema,
   ClientEmployeeAccessRequest,
   ClientEmployeeAccessRequestSchema,
+  MediaRuntimeQuery,
+  MediaRuntimeQuerySchema,
 } from 'shared';
 
 const mirrorResponseSchema: SchemaObject = {
@@ -270,14 +272,17 @@ export class ClientController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取订阅锁定版本的客户端运行时清单' })
+  @ApiQuery({ name: 'mediaProtocolVersion', required: false, type: Number, description: '传 1 协商媒体配置；省略或其他版本保持旧响应' })
   @ApiResponse({ status: 200, description: '员工配置与已审核技能正文；employee.avatarAsset 与订阅清单同源，图片版本独立于 templateVersion' })
+  @ApiResponse({ status: 400, description: '媒体协议协商参数无效' })
   @ApiResponse({ status: 403, description: '无有效订阅或员工授权' })
   @ApiResponse({ status: 404, description: '订阅不存在或当前不可用' })
   async getRuntime(
     @Request() req: ExpressRequest & { user: { id: string } },
     @Param('subscriptionId') subscriptionId: string,
+    @Query(new ZodValidationPipe(MediaRuntimeQuerySchema)) query: MediaRuntimeQuery,
   ) {
-    return this.clientService.getRuntime(req.user.id, subscriptionId);
+    return this.clientService.getRuntime(req.user.id, subscriptionId, query.mediaProtocolVersion);
   }
 
   @Post('tasks')
