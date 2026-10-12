@@ -1,8 +1,17 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret-cipher';
-import { SETTING_FIELDS, SETTING_KEYS, SECRET_SETTING_KEYS, type SettingFieldMeta, type SettingKey } from 'shared';
+import {
+  SETTING_FIELDS,
+  SETTING_KEYS,
+  SECRET_SETTING_KEYS,
+  type SettingFieldMeta,
+  type SettingKey,
+  type UpdateMediaConnectionDto,
+} from 'shared';
 
 export type SettingSource = 'database' | 'environment' | 'default' | 'unconfigured';
 
@@ -73,15 +82,19 @@ export class SettingService {
     const field = this.fieldFor(key);
     if (!field) return undefined;
     const row = await this.prisma.systemSetting.findUnique({ where: { key } });
-    if (row?.value !== undefined && row.value !== '') {
-      if (SECRET_SETTING_KEYS.includes(key)) {
+    return this.resolveEffectiveValue(field, row?.value);
+  }
+
+  private resolveEffectiveValue(field: SettingFieldMeta, storedValue: string | undefined): string | undefined {
+    if (storedValue !== undefined && storedValue !== '') {
+      if (SECRET_SETTING_KEYS.includes(field.key)) {
         try {
-          return decryptSecret(row.value, this.masterKey);
+          return decryptSecret(storedValue, this.masterKey);
         } catch (error) {
-          this.logger.error(`Failed to decrypt setting ${key}, falling back to env`, error instanceof Error ? error.message : String(error));
+          this.logger.error(`Failed to decrypt setting ${field.key}, falling back to env`, error instanceof Error ? error.message : String(error));
         }
       } else {
-        return row.value;
+        return storedValue;
       }
     }
     return this.config.get<string>(field.envFallback) ?? this.rawDefault(field);
@@ -225,6 +238,73 @@ export class SettingService {
         create: { key, value: stored, isSecret: field.secret, label: field.label, category: field.category ?? this.inferCategory(key) },
         update: { value: stored, isSecret: field.secret, label: field.label, category: field.category ?? this.inferCategory(key) },
       });
+    }
+  }
+
+  /**
+   * 更新独立的图片/视频模型连接配置。
+   *
+   * 媒体连接不能复用聊天模型的 SUB2API 配置：两者的可用模型、密钥
+   * 和变更审计是不同边界。apiKey 为空时保留现有密钥，避免管理端表单
+   * 只编辑地址时意外清空凭据。
+   */
+  async updateMediaConnection(dto: UpdateMediaConnectionDto): Promise<void> {
+    const baseUrl = dto.baseUrl.trim();
+    if (!baseUrl) throw new BadRequestException('媒体模型地址不能为空');
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const baseField = this.fieldFor(SETTING_KEYS.MEDIA_BASE_URL);
+        const keyField = this.fieldFor(SETTING_KEYS.MEDIA_API_KEY);
+        if (!baseField || !keyField) throw new BadRequestException('媒体模型配置元数据缺失');
+
+        const rows = await tx.systemSetting.findMany({
+          where: { key: { in: [SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY] } },
+        });
+        const stored = new Map(rows.map((row) => [row.key, row.value]));
+        const previousBaseUrl = this.resolveEffectiveValue(baseField, stored.get(baseField.key))?.trim();
+        const previousKey = this.resolveEffectiveValue(keyField, stored.get(keyField.key))?.trim();
+        const apiKey = dto.apiKey?.trim();
+        const connectionChanged = previousBaseUrl !== baseUrl || Boolean(apiKey && apiKey !== previousKey);
+
+        await tx.systemSetting.upsert({
+          where: { key: SETTING_KEYS.MEDIA_BASE_URL },
+          create: {
+            key: SETTING_KEYS.MEDIA_BASE_URL,
+            value: baseUrl,
+            isSecret: false,
+            label: baseField.label,
+            category: baseField.category ?? this.inferCategory(SETTING_KEYS.MEDIA_BASE_URL),
+          },
+          update: { value: baseUrl, isSecret: false },
+        });
+
+        if (apiKey) {
+          const encryptedKey = encryptSecret(apiKey, this.masterKey);
+          await tx.systemSetting.upsert({
+            where: { key: SETTING_KEYS.MEDIA_API_KEY },
+            create: {
+              key: SETTING_KEYS.MEDIA_API_KEY,
+              value: encryptedKey,
+              isSecret: true,
+              label: keyField.label,
+              category: keyField.category ?? this.inferCategory(SETTING_KEYS.MEDIA_API_KEY),
+            },
+            update: { value: encryptedKey, isSecret: true },
+          });
+        }
+
+        if (connectionChanged) {
+          await tx.mediaModelProfile.updateMany({
+            data: { verified: false, configVersion: `cfg_${randomUUID()}` },
+          });
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException('媒体连接已被其他管理员更新，请重新加载后保存');
+      }
+      throw error;
     }
   }
 }

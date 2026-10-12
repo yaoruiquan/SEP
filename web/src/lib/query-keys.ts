@@ -37,6 +37,12 @@ export const qk = {
     ['enterprise', enterpriseId, 'model-config'] as const,
   availableModels: (enterpriseId: string) =>
     ['enterprise', enterpriseId, 'available-models'] as const,
+  adminMediaProfiles: ['admin', 'media', 'profiles'] as const,
+  adminMediaConnection: ['admin', 'media', 'connection'] as const,
+  mediaConfig: (enterpriseId: string) =>
+    ['enterprise', enterpriseId, 'media-config'] as const,
+  availableMediaProfiles: (enterpriseId: string) =>
+    ['enterprise', enterpriseId, 'available-media-profiles'] as const,
   effectiveModelConfig: (enterpriseId?: string, opts?: Record<string, unknown>) =>
     ['enterprise', enterpriseId ?? 'unknown', 'effective-model-config', opts ?? {}] as const,
   // Subscription Requests (P0)

@@ -26,6 +26,7 @@ import { PersonalWalletService } from '../personal-wallet/personal-wallet.servic
 import { SubscriptionRequestService } from '../subscription-request/subscription-request.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
+import { MediaConfigService } from '../media-config/media-config.service';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { buildClientTaskActivityQuery } from './client-task-activity-query';
@@ -147,6 +148,7 @@ export class ClientService {
     @Optional() private readonly rateLimit?: AuthRateLimitService,
     @Optional() private readonly mail?: MailService,
     @Optional() private readonly modelPolicy?: GatewayModelPolicyService,
+    @Optional() private readonly mediaConfig?: MediaConfigService,
   ) {}
 
   private get jwtSecret(): string {
@@ -732,7 +734,7 @@ export class ClientService {
     }));
   }
 
-  async getRuntime(userId: string, subscriptionId: string) {
+  async getRuntime(userId: string, subscriptionId: string, mediaProtocolVersion?: number) {
     const ctx = await this.enterpriseContext.resolve(userId);
     const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
@@ -792,12 +794,15 @@ export class ClientService {
         version: version.version, content: version.content };
     }));
     const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => skill !== null);
+    const media = mediaProtocolVersion === 1 && this.mediaConfig
+      ? await this.mediaConfig.getRuntimeMedia(ctx.enterpriseId)
+      : undefined;
     return {
       manifestVersion: 1,
       subscriptionId: subscription.id,
       templateVersion: subscription.templateVersion,
       employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, avatarStyle: subscription.employee.avatarStyle, avatarBindings: subscription.employee.avatarBindings, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
-      runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills },
+      runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills, ...(media ? { media } : {}) },
     };
   }
 

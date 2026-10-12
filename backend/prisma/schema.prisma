@@ -2258,6 +2258,26 @@ model PlatformModel {
   @@map("platform_models")
 }
 
+/// 独立媒体配置，不参与会话模型同步和白名单。
+model MediaModelProfile {
+  id            String   @id @default(cuid())
+  profileId     String   @unique
+  kind          String   @default("image")
+  displayName   String
+  modelId       String
+  configVersion String
+  operations    String[] @default(["generate"])
+  executionMode String   @default("sync-response")
+  capabilities  Json
+  enabled       Boolean  @default(false)
+  verified      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([kind, enabled, verified])
+  @@map("media_model_profiles")
+}
+
 // ============================================================================
 // Employee Package（员工包）
 // ----------------------------------------------------------------------------
@@ -2719,6 +2739,9 @@ model EnterpriseModelConfig {
   ///
   /// null = 跟随平台的系统设置 SUB2API_DEFAULT_MODEL（保持接入前的行为）。
   plannerModel String?
+
+  /// 图片/视频媒体策略，与聊天模型白名单完全独立。
+  mediaPolicy Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
