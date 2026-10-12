@@ -68,4 +68,29 @@ describe('media configuration schemas', () => {
       expect(MediaRuntimeQuerySchema.safeParse({ mediaProtocolVersion }).success).toBe(false);
     }
   });
+
+  it('negotiates artifact and media protocol versions independently', () => {
+    expect(MediaRuntimeQuerySchema.parse({ skillArtifactProtocolVersion: '1' })).toEqual({ skillArtifactProtocolVersion: 1 });
+    expect(MediaRuntimeQuerySchema.parse({ mediaProtocolVersion: '1', skillArtifactProtocolVersion: '1' }))
+      .toEqual({ mediaProtocolVersion: 1, skillArtifactProtocolVersion: 1 });
+    expect(MediaRuntimeQuerySchema.parse({ mediaProtocolVersion: '2', skillArtifactProtocolVersion: '1' }))
+      .toEqual({ mediaProtocolVersion: 2, skillArtifactProtocolVersion: 1 });
+    expect(MediaRuntimeQuerySchema.parse({ mediaProtocolVersion: '1', skillArtifactProtocolVersion: '2' }))
+      .toEqual({ mediaProtocolVersion: 1, skillArtifactProtocolVersion: 2 });
+    expect(MediaRuntimeQuerySchema.parse({ skillArtifactProtocolVersion: '99' })).toEqual({ skillArtifactProtocolVersion: 99 });
+  });
+
+  it.each(['mediaProtocolVersion', 'skillArtifactProtocolVersion'])('rejects malformed %s even alongside valid other negotiation', (field) => {
+    const other = field === 'mediaProtocolVersion' ? 'skillArtifactProtocolVersion' : 'mediaProtocolVersion';
+    for (const value of ['bad', '', '0', '-1', '1.5', 'Infinity', ['1', '2'], { version: '1' }]) {
+      expect(MediaRuntimeQuerySchema.safeParse({ [field]: value }).success).toBe(false);
+      expect(MediaRuntimeQuerySchema.safeParse({ [field]: value, [other]: '1' }).success).toBe(false);
+    }
+  });
+
+  it('rejects unknown runtime query fields instead of silently accepting client secrets', () => {
+    for (const extra of [{ apiKey: 'mock-secret' }, { protocolVersion: '1' }, { skillArtifactVersion: '1' }]) {
+      expect(MediaRuntimeQuerySchema.safeParse({ mediaProtocolVersion: '1', skillArtifactProtocolVersion: '1', ...extra }).success).toBe(false);
+    }
+  });
 });

@@ -1,8 +1,19 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, PayloadTooLargeException } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { SkillArtifactBlockedReasonSchema } from 'shared';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSkillArtifactRoute(originalUrl: string): boolean {
+  try {
+    // Match the URL forms Express accepts; reserved separators stay encoded.
+    const path = decodeURI(originalUrl.split('?')[0]);
+    return /^\/api\/client\/subscriptions\/[a-zA-Z0-9_-]{1,128}\/skills\/[a-zA-Z0-9_-]{1,128}\/versions\/[a-zA-Z0-9_-]{1,128}\/artifact\/?$/i.test(path);
+  } catch {
+    return false;
+  }
 }
 
 function safeRateLimit(value: unknown): Record<string, string | number> | undefined {
@@ -70,6 +81,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.originalUrl,
     };
+
+    if (status === HttpStatus.CONFLICT && isSkillArtifactRoute(request.originalUrl) &&
+      rawBody?.code === 'SKILL_ARTIFACT_BLOCKED' && SkillArtifactBlockedReasonSchema.safeParse(rawBody.reason).success) {
+      response.status(status).json({ ...body, code: 'SKILL_ARTIFACT_BLOCKED', reason: rawBody.reason });
+      return;
+    }
 
     // Keep the existing business API envelope unchanged outside the gateway.
     const path = request.originalUrl.split('?')[0].toLowerCase();

@@ -1,0 +1,88 @@
+[
+  {
+    "name": "mock-available-single-file",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-single",
+      "versionId": "ver-mock-single",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "AVAILABLE",
+      "format": "single-file",
+      "installationDirectory": "mock-single-skill",
+      "entryPath": "SKILL.md",
+      "entrySha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "artifactSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "byteLength": 180,
+      "fileCount": 1,
+      "downloadPath": "/client/subscriptions/sub-mock/skills/cap-mock-single/versions/ver-mock-single/artifact"
+    }
+  },
+  {
+    "name": "mock-available-zip",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-zip",
+      "versionId": "ver-mock-zip",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "AVAILABLE",
+      "format": "zip",
+      "installationDirectory": "mock-package-skill",
+      "entryPath": "bundle/mock-package-skill/SKILL.md",
+      "entrySha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "artifactSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "byteLength": 1024,
+      "fileCount": 3,
+      "downloadPath": "/client/subscriptions/sub-mock/skills/cap-mock-zip/versions/ver-mock-zip/artifact"
+    }
+  },
+  {
+    "name": "mock-blocked-invalid-entry",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-blocked",
+      "versionId": "ver-mock-blocked",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "BLOCKED",
+      "reason": "INVALID_ENTRY"
+    }
+  },
+  {
+    "name": "mock-blocked-package-required",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-blocked",
+      "versionId": "ver-mock-blocked",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "BLOCKED",
+      "reason": "PACKAGE_REQUIRED"
+    }
+  },
+  {
+    "name": "mock-blocked-package-unavailable",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-blocked",
+      "versionId": "ver-mock-blocked",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "BLOCKED",
+      "reason": "PACKAGE_UNAVAILABLE"
+    }
+  },
+  {
+    "name": "mock-blocked-content-mismatch",
+    "mock": true,
+    "artifact": {
+      "protocolVersion": 1,
+      "capabilityId": "cap-mock-blocked",
+      "versionId": "ver-mock-blocked",
+      "approvedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "BLOCKED",
+      "reason": "PACKAGE_CONTENT_MISMATCH"
+    }
+  }
+]

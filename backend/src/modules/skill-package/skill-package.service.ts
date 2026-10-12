@@ -1,10 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { basename, join, resolve, sep } from 'path';
+import { basename, join, posix, resolve, sep } from 'path';
+import { TextDecoder } from 'util';
+import { inflateRawSync } from 'zlib';
 import AdmZip from 'adm-zip';
 import matter from 'gray-matter';
+import { SkillArtifactFrontmatterSchema } from 'shared';
 import { StorageService } from '../upload/storage/storage.service';
 
 /** zip 自身字节上限。包里只装 SKILL.md 与少量附件，20MB 足够且能挡住误传大文件。 */
@@ -39,6 +42,18 @@ export interface SkillPackageContent {
 export interface StoredSkillPackage extends SkillPackageContent {
   /** 上传时的原始文件名。仅用于展示，真正的定位靠 sha256。 */
   filename: string;
+}
+
+export interface InstallableSkillPackage {
+  buffer: Buffer;
+  sha256: string;
+  skillName: string;
+  content: string;
+  entryPath: string;
+  entrySha256: string;
+  /** ZIP 自身字节数，与 store/read 的语义一致。 */
+  totalBytes: number;
+  fileCount: number;
 }
 
 /**
@@ -118,6 +133,102 @@ export class SkillPackageService {
     return this.parse(buffer, sha256);
   }
 
+  /** 批准客户端安装前的严格校验，不收紧旧 store/read 的历史包规则。 */
+  async readInstallablePackage(sha256: string): Promise<InstallableSkillPackage> {
+    if (!/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new BadRequestException('sha256 格式非法');
+    }
+    // 存储异常不属于包解析异常，尤其不能把未找到的 404 转成 400。
+    let buffer: Buffer;
+    try {
+      buffer = await this.readBytes(this.keyFor(sha256));
+    } catch (error) {
+      const storageError = error as { code?: string; status?: number };
+      if ((error instanceof HttpException && error.getStatus() === 404) ||
+        (storageError?.code === 'NoSuchKey' && storageError.status === 404)) {
+        throw new NotFoundException('上传的 SKILL 包不存在或已过期，请重新上传');
+      }
+      throw error;
+    }
+    try {
+      if (buffer.length > SKILL_PACKAGE_MAX_BYTES) {
+        throw new BadRequestException('包不能超过 20MB');
+      }
+      this.assertZipMagic(buffer);
+      if (crypto.createHash('sha256').update(buffer).digest('hex') !== sha256) {
+        throw new BadRequestException('SKILL 包 SHA256 不匹配');
+      }
+      const entries = this.validateEntries(buffer);
+      for (const entry of entries) {
+        this.assertInstallableLocalHeader(buffer, entry);
+        this.assertInstallableEntryName(entry.entryName, entry.isDirectory);
+        // adm-zip omits maxOutputLength for size=0; budget-check empty streams first.
+        if (!entry.isDirectory && entry.header.method === 8 && entry.header.size === 0) {
+          const bytes = inflateRawSync(entry.getCompressedData(), { maxOutputLength: 1 });
+          if (bytes.length !== 0) {
+            throw new BadRequestException('ZIP 条目大小不匹配');
+          }
+        }
+      }
+      if (entries.some((entry) => ((entry.attr >>> 16) & 0xf000) === 0xa000)) {
+        throw new BadRequestException('包内不能包含符号链接');
+      }
+      const files = entries.filter((entry) => !entry.isDirectory);
+      const skillEntries = files.filter(
+        (entry) => posix.basename(entry.entryName) === SKILL_ENTRY_NAME,
+      );
+      if (skillEntries.length !== 1) {
+        throw new BadRequestException('包内必须恰好包含一个 SKILL.md');
+      }
+      const skillEntry = skillEntries[0];
+      if (skillEntry.header.size > MAX_SKILL_MARKDOWN_BYTES) {
+        throw new BadRequestException('SKILL.md 不能超过 500KB');
+      }
+      let entryBytes: Buffer | undefined;
+      let uncompressed = 0;
+      // 附件也读取一次以校验 CRC/损坏压缩数据，不能只校验入口。
+      for (const entry of files) {
+        const bytes = entry.getData();
+        if (bytes.length !== entry.header.size) {
+          throw new BadRequestException('ZIP 条目大小不匹配');
+        }
+        uncompressed += bytes.length;
+        if (uncompressed > MAX_UNCOMPRESSED_BYTES) {
+          throw new BadRequestException('解压后体积超过 64MB，请精简包内容');
+        }
+        if (entry === skillEntry) entryBytes = bytes;
+      }
+      const raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entryBytes!);
+      if (!/^---\r?\n/.test(raw)) {
+        throw new BadRequestException('SKILL.md 必须以 YAML frontmatter 开始');
+      }
+      const frontmatter = SkillArtifactFrontmatterSchema.safeParse(matter(raw).data);
+      if (!frontmatter.success) {
+        throw new BadRequestException('SKILL.md frontmatter 非法');
+      }
+      const { name } = frontmatter.data;
+      const entryPath = skillEntry.entryName;
+      const directory = posix.dirname(entryPath);
+      if (directory !== '.' && posix.basename(directory) !== name) {
+        throw new BadRequestException('SKILL.md name 必须与所在目录名一致');
+      }
+      const parsed = this.parse(buffer, sha256, entries);
+      return {
+        buffer,
+        sha256,
+        skillName: name,
+        content: parsed.content,
+        entryPath,
+        entrySha256: crypto.createHash('sha256').update(entryBytes!).digest('hex'),
+        totalBytes: parsed.totalBytes,
+        fileCount: parsed.fileCount,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('SKILL 包非法或已损坏');
+    }
+  }
+
   /** 读取已存储的原始 ZIP；OSS 与本地磁盘共用此下载入口。 */
   async readBytes(key: string): Promise<Buffer> {
     this.assertStorageKey(key);
@@ -170,8 +281,7 @@ export class SkillPackageService {
     return `skills/${sha256}.zip`;
   }
 
-  /** 纯解析，无 IO。store 与 read 共用同一套校验，两条路径的结论不会漂移。 */
-  private parse(buffer: Buffer, sha256: string): SkillPackageContent {
+  private validateEntries(buffer: Buffer): AdmZip.IZipEntry[] {
     const entries = new AdmZip(buffer).getEntries();
     const files = entries.filter((entry) => !entry.isDirectory);
 
@@ -196,7 +306,16 @@ export class SkillPackageService {
         `解压后体积超过 ${Math.floor(MAX_UNCOMPRESSED_BYTES / 1024 / 1024)}MB，请精简包内容`,
       );
     }
+    return entries;
+  }
 
+  /** 纯解析，无 IO。store 与 read 共用同一套校验，两条路径的结论不会漂移。 */
+  private parse(
+    buffer: Buffer,
+    sha256: string,
+    entries = this.validateEntries(buffer),
+  ): SkillPackageContent {
+    const files = entries.filter((entry) => !entry.isDirectory);
     const skillEntry = files.find(
       (entry) => basename(entry.entryName) === SKILL_ENTRY_NAME,
     );
@@ -243,6 +362,35 @@ export class SkillPackageService {
     if (unsafe) {
       throw new BadRequestException(`包内条目名非法：${displayName}`);
     }
+  }
+
+  private assertInstallableEntryName(entryName: string, isDirectory: boolean) {
+    const path = isDirectory && entryName.endsWith('/') ? entryName.slice(0, -1) : entryName;
+    if (!entryName || entryName.length > 1024 || /[\\\x00-\x1f\x7f:]/.test(entryName) ||
+      path.split('/').some((part) => !part || part === '.' || part === '..')) {
+      throw new BadRequestException('包内条目必须为安全相对路径');
+    }
+  }
+
+  private assertInstallableLocalHeader(buffer: Buffer, entry: AdmZip.IZipEntry) {
+    // adm-zip exposes central names only; streaming extractors may use local names.
+    const { offset, flags, method, compressedSize } = entry.header;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 30 > buffer.length ||
+      buffer.readUInt32LE(offset) !== 0x04034b50) {
+      throw new BadRequestException('ZIP 本地文件头非法');
+    }
+    const nameLength = buffer.readUInt16LE(offset + 26);
+    const nameEnd = offset + 30 + nameLength;
+    const dataOffset = nameEnd + buffer.readUInt16LE(offset + 28);
+    const centralName = (entry as AdmZipEntryWithRawName).rawEntryName;
+    const localName = buffer.subarray(offset + 30, nameEnd);
+    if (dataOffset > buffer.length || dataOffset + compressedSize > buffer.length ||
+      !centralName || !localName.equals(centralName) ||
+      buffer.readUInt16LE(offset + 6) !== flags || buffer.readUInt16LE(offset + 8) !== method) {
+      throw new BadRequestException('ZIP 本地文件头与中央目录不一致');
+    }
+    const name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(localName);
+    this.assertInstallableEntryName(name, entry.isDirectory);
   }
 
   /** 只取展示用的文件名：去掉路径分隔符，限长，保留 .zip 后缀。 */

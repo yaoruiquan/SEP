@@ -3,6 +3,8 @@ import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ClientService } from './client.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -16,6 +18,11 @@ import { SubscriptionRequestService } from '../subscription-request/subscription
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { MediaConfigService } from '../media-config/media-config.service';
+import { ClientSkillArtifactService } from './client-skill-artifact.service';
+import { SkillPackageService } from '../skill-package/skill-package.service';
+import { ClientSkillArtifactSchema, SkillArtifactBlockedReasonSchema } from '../../shared/client-skill-artifact.dto';
+
+const artifactFixtures = JSON.parse(readFileSync(join(__dirname, '../../shared/fixtures/skill-artifact-v1.json'), 'utf8'));
 
 describe('ClientService', () => {
   let service: ClientService;
@@ -27,6 +34,7 @@ describe('ClientService', () => {
   let skillVersions: { resolveEffectiveVersion: jest.Mock };
   let modelPolicy: { resolvePolicy: jest.Mock };
   let mediaConfig: { getRuntimeMedia: jest.Mock };
+  let skillArtifacts: { describe: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -45,6 +53,7 @@ describe('ClientService', () => {
     skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
     modelPolicy = { resolvePolicy: jest.fn().mockResolvedValue({ allowedModels: ['gpt-4o-mini'] }) };
     mediaConfig = { getRuntimeMedia: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
+    skillArtifacts = { describe: jest.fn().mockResolvedValue(artifactFixtures[0].artifact) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
         sessionId: 'session-1', userId: 'user-1', deviceId: 'device-1',
@@ -63,6 +72,7 @@ describe('ClientService', () => {
         { provide: SkillVersionService, useValue: skillVersions },
         { provide: GatewayModelPolicyService, useValue: modelPolicy },
         { provide: MediaConfigService, useValue: mediaConfig },
+        { provide: ClientSkillArtifactService, useValue: skillArtifacts },
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('explicit-test-jwt-secret') } },
@@ -431,6 +441,165 @@ describe('ClientService', () => {
     expect(prisma.subscription.findFirst.mock.calls[0][0].where).toMatchObject({
       id: 'revoked-subscription', enterpriseId: 'ent-1', status: 'ACTIVE',
       grants: { some: { OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }] } },
+    });
+  });
+
+  describe('skill artifact runtime negotiation', () => {
+    const approvedVersion = {
+      id: 'ver-mock-single', capabilityId: 'cap-mock-single', version: '1.0.0',
+      content: 'Mock approved chat skill content', scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      packageSha256: null, packageKey: null,
+    };
+
+    beforeEach(() => {
+      prisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-mock', templateVersion: '1.0.0', config: { temperature: 0.2 },
+        employee: {
+          id: 'emp-mock', name: 'Mock employee', description: 'Mock runtime', avatar: null, version: '1.0.0',
+          systemPrompt: 'Mock chat instructions', modelId: 'mock-chat-model', maxSteps: 10,
+          bindings: [
+            { capability: { id: 'cap-mock-single', name: 'Mock skill', description: 'Mock approved skill' } },
+            { capability: { id: 'cap-mock-unapproved', name: 'Unapproved mock skill', description: null } },
+          ],
+        },
+      });
+      prisma.platformModel.findMany.mockResolvedValue([{ modelId: 'mock-chat-model' }]);
+      prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ allowedChatModels: ['mock-chat-model'] });
+      skillVersions.resolveEffectiveVersion.mockImplementation(async (_subscriptionId, capabilityId) =>
+        capabilityId === approvedVersion.capabilityId ? approvedVersion : null);
+    });
+
+    it.each([0, 1])('negotiates mock single-file/ZIP artifact v1 and describes only approved skills (%s)', async (index) => {
+      const descriptor = ClientSkillArtifactSchema.parse({
+        ...artifactFixtures[index].artifact, capabilityId: approvedVersion.capabilityId, versionId: approvedVersion.id,
+      });
+      skillArtifacts.describe.mockResolvedValue(descriptor);
+      const result = await service.getRuntime('user-1', 'sub-mock', undefined, 1);
+
+      expect(result.manifestVersion).toBe(1);
+      expect(result.runtime.skillArtifactProtocolVersion).toBe(1);
+      expect(result.runtime.skills).toEqual([{
+        capabilityId: approvedVersion.capabilityId, name: 'Mock skill', description: 'Mock approved skill',
+        versionId: approvedVersion.id, version: approvedVersion.version, content: approvedVersion.content,
+        artifact: descriptor,
+      }]);
+      expect(skillArtifacts.describe).toHaveBeenCalledTimes(1);
+      expect(skillArtifacts.describe).toHaveBeenCalledWith('sub-mock', approvedVersion.capabilityId, approvedVersion);
+      expect(result.runtime).not.toHaveProperty('media');
+      expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, 2, 99])('does not call describe without supported artifact negotiation (%s)', async (protocolVersion) => {
+      const result = await service.getRuntime('user-1', 'sub-mock', undefined, protocolVersion);
+      expect(skillArtifacts.describe).not.toHaveBeenCalled();
+      expect(result.runtime).not.toHaveProperty('skillArtifactProtocolVersion');
+      expect(result.runtime.skills[0]).not.toHaveProperty('artifact');
+      expect(result.runtime.skills[0].content).toBe(approvedVersion.content);
+    });
+
+    it.each([
+      [1, undefined, true, false],
+      [1, 2, true, false],
+      [2, 1, false, true],
+      [undefined, 1, false, true],
+      [1, 1, true, true],
+    ])('negotiates media (%s) and artifact (%s) independently', async (mediaVersion, artifactVersion, expectsMedia, expectsArtifact) => {
+      const result = await service.getRuntime('user-1', 'sub-mock', mediaVersion, artifactVersion);
+      expect(mediaConfig.getRuntimeMedia).toHaveBeenCalledTimes(expectsMedia ? 1 : 0);
+      expect(skillArtifacts.describe).toHaveBeenCalledTimes(expectsArtifact ? 1 : 0);
+      expect('media' in result.runtime).toBe(expectsMedia);
+      expect('skillArtifactProtocolVersion' in result.runtime).toBe(expectsArtifact);
+      expect('artifact' in result.runtime.skills[0]).toBe(expectsArtifact);
+      if (expectsMedia) expect(mediaConfig.getRuntimeMedia).toHaveBeenCalledWith('ent-1');
+    });
+
+    it.each(SkillArtifactBlockedReasonSchema.options)('keeps chat runtime usable when installation is BLOCKED (%s)', async (reason) => {
+      const descriptor = ClientSkillArtifactSchema.parse({
+        ...artifactFixtures[2].artifact, capabilityId: approvedVersion.capabilityId, versionId: approvedVersion.id, reason,
+      });
+      skillArtifacts.describe.mockResolvedValue(descriptor);
+      const baseline = await service.getRuntime('user-1', 'sub-mock');
+      const negotiated = await service.getRuntime('user-1', 'sub-mock', undefined, 1);
+      const { artifact, ...chatSkill } = negotiated.runtime.skills[0];
+      const { skillArtifactProtocolVersion, skills, ...chatRuntime } = negotiated.runtime;
+
+      expect(artifact).toEqual(descriptor);
+      expect(artifact).not.toHaveProperty('downloadPath');
+      expect(chatSkill).toEqual(baseline.runtime.skills[0]);
+      expect(chatRuntime).toEqual({
+        systemPrompt: 'Mock chat instructions', modelId: 'mock-chat-model', allowedModels: ['mock-chat-model'],
+        config: { temperature: 0.2 },
+      });
+      expect(negotiated.employee).toEqual(baseline.employee);
+      expect(skillArtifactProtocolVersion).toBe(1);
+      expect(skills).toHaveLength(1);
+    });
+
+    it('preserves legacy chat when optional artifact service is not registered', async () => {
+      const legacy = await Test.createTestingModule({
+        providers: [
+          ClientService,
+          { provide: PrismaService, useValue: prisma },
+          { provide: EnterpriseContextService, useValue: (service as any).enterpriseContext },
+          { provide: SettingService, useValue: {} },
+          { provide: JwtService, useValue: jwt },
+          { provide: ConfigService, useValue: new ConfigService() },
+          { provide: SessionService, useValue: sessions },
+          { provide: MemberAllowanceQueryService, useValue: allowanceQuery },
+          { provide: PersonalWalletService, useValue: personalWallet },
+          { provide: SubscriptionRequestService, useValue: {} },
+          { provide: SkillVersionService, useValue: skillVersions },
+          { provide: GatewayModelPolicyService, useValue: modelPolicy },
+          { provide: MediaConfigService, useValue: mediaConfig },
+        ],
+      }).compile();
+      try {
+        const result = await legacy.get(ClientService).getRuntime('user-1', 'sub-mock', 1, 1);
+        expect(result.runtime).not.toHaveProperty('skillArtifactProtocolVersion');
+        expect(result.runtime.skills[0]).not.toHaveProperty('artifact');
+        expect(result.runtime.skills[0].content).toBe(approvedVersion.content);
+        expect(result.runtime.media).toHaveProperty('protocolVersion', 1);
+      } finally {
+        await legacy.close();
+      }
+    });
+
+    it('does not resolve versions, describe artifacts or read packages after runtime authorization is revoked', async () => {
+      const packages = { readInstallablePackage: jest.fn() };
+      const artifacts = new ClientSkillArtifactService(prisma, (service as any).enterpriseContext, skillVersions as unknown as SkillVersionService, packages as unknown as SkillPackageService);
+      const describe = jest.spyOn(artifacts, 'describe');
+      skillArtifacts.describe.mockImplementation((...args) => artifacts.describe(args[0], args[1], args[2]));
+      prisma.subscription.findFirst.mockResolvedValue(null);
+
+      await expect(service.getRuntime('user-1', 'sub-mock', 1, 1)).rejects.toBeInstanceOf(NotFoundException);
+      expect(skillVersions.resolveEffectiveVersion).not.toHaveBeenCalled();
+      expect(skillArtifacts.describe).not.toHaveBeenCalled();
+      expect(describe).not.toHaveBeenCalled();
+      expect(packages.readInstallablePackage).not.toHaveBeenCalled();
+      expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
+    });
+
+    it('does not read a previously negotiated package when download authorization is revoked', async () => {
+      const packages = { readInstallablePackage: jest.fn() };
+      const artifacts = new ClientSkillArtifactService(prisma, (service as any).enterpriseContext, skillVersions as unknown as SkillVersionService, packages as unknown as SkillPackageService);
+      const runtime = await service.getRuntime('user-1', 'sub-mock', undefined, 1);
+      expect(runtime.runtime.skills[0].artifact).toHaveProperty('status', 'AVAILABLE');
+      skillVersions.resolveEffectiveVersion.mockClear();
+      prisma.subscription.findFirst.mockResolvedValue(null);
+
+      await expect(artifacts.download('user-1', {
+        subscriptionId: 'sub-mock', capabilityId: approvedVersion.capabilityId, versionId: approvedVersion.id,
+      })).rejects.toBeInstanceOf(NotFoundException);
+      expect(packages.readInstallablePackage).not.toHaveBeenCalled();
+      expect(skillVersions.resolveEffectiveVersion).not.toHaveBeenCalled();
+      expect(prisma.subscription.findFirst.mock.calls.at(-1)[0].where).toMatchObject({
+        id: 'sub-mock', enterpriseId: 'ent-1', status: 'ACTIVE',
+        OR: [{ endDate: null }, { endDate: { gt: expect.any(Date) } }],
+        grants: { some: {
+          OR: [{ memberId: 'member-1' }, { departmentId: 'dept-1' }],
+          AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] }],
+        } },
+      });
     });
   });
 });

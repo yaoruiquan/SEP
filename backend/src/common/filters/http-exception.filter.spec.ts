@@ -4,6 +4,24 @@ import { HttpExceptionFilter } from './http-exception.filter';
 describe('HttpExceptionFilter', () => {
   const gatewayPath = '/api/gateway/v1/chat/completions';
 
+  it.each(['/api/client/subscriptions/sub-1/runtime', '/api/skills', gatewayPath])('does not extend unrelated error envelopes with artifact fields: %s', (path) => {
+    const { body } = catchException(new HttpException({ message: 'Not installable', code: 'SKILL_ARTIFACT_BLOCKED', reason: 'INVALID_ENTRY' }, 409), path);
+    expect(body.code).toBeUndefined();
+    expect(body.reason).toBeUndefined();
+  });
+
+  it.each([
+    '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv-1/artifact/extra',
+    '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv%2F1/artifact',
+    '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv%3F1/artifact',
+    '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv%ZZ/artifact',
+    `/api/client/subscriptions/sub-1/skills/cap-1/versions/${'v'.repeat(129)}/artifact`,
+  ])('does not preserve artifact fields on malformed or unrelated paths: %s', (path) => {
+    const { body } = catchException(new HttpException({ message: 'Not installable', code: 'SKILL_ARTIFACT_BLOCKED', reason: 'INVALID_ENTRY' }, 409), path);
+    expect(body.code).toBeUndefined();
+    expect(body.reason).toBeUndefined();
+  });
+
   function catchException(
     exception: unknown,
     originalUrl = gatewayPath,

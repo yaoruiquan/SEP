@@ -27,6 +27,8 @@ import { SubscriptionRequestService } from '../subscription-request/subscription
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { MediaConfigService } from '../media-config/media-config.service';
+import { ClientSkillArtifactService } from './client-skill-artifact.service';
+import { clientSubscriptionAccessWhere } from './client-subscription-access';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { buildClientTaskActivityQuery } from './client-task-activity-query';
@@ -149,6 +151,7 @@ export class ClientService {
     @Optional() private readonly mail?: MailService,
     @Optional() private readonly modelPolicy?: GatewayModelPolicyService,
     @Optional() private readonly mediaConfig?: MediaConfigService,
+    @Optional() private readonly skillArtifacts?: ClientSkillArtifactService,
   ) {}
 
   private get jwtSecret(): string {
@@ -734,25 +737,10 @@ export class ClientService {
     }));
   }
 
-  async getRuntime(userId: string, subscriptionId: string, mediaProtocolVersion?: number) {
+  async getRuntime(userId: string, subscriptionId: string, mediaProtocolVersion?: number, skillArtifactProtocolVersion?: number) {
     const ctx = await this.enterpriseContext.resolve(userId);
-    const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        id: subscriptionId,
-        enterpriseId: ctx.enterpriseId,
-        status: 'ACTIVE',
-        OR: [{ endDate: null }, { endDate: { gt: now } }],
-        grants: {
-          some: {
-            OR: [
-              { memberId: ctx.memberId },
-              ...(ctx.departmentId ? [{ departmentId: ctx.departmentId }] : []),
-            ],
-            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
-          },
-        },
-      },
+      where: clientSubscriptionAccessWhere(ctx, subscriptionId),
       include: {
         employee: {
           select: {
@@ -791,7 +779,11 @@ export class ClientService {
       if (!version) return null;
       return { capabilityId: binding.capability.id, name: binding.capability.name,
         description: binding.capability.description, versionId: version.id,
-        version: version.version, content: version.content };
+        version: version.version, content: version.content,
+        ...(skillArtifactProtocolVersion === 1 && this.skillArtifacts ? {
+          artifact: await this.skillArtifacts.describe(subscription.id, binding.capability.id, version),
+        } : {}),
+      };
     }));
     const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => skill !== null);
     const media = mediaProtocolVersion === 1 && this.mediaConfig
@@ -802,7 +794,9 @@ export class ClientService {
       subscriptionId: subscription.id,
       templateVersion: subscription.templateVersion,
       employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, avatarStyle: subscription.employee.avatarStyle, avatarBindings: subscription.employee.avatarBindings, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
-      runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills, ...(media ? { media } : {}) },
+      runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills,
+        ...(skillArtifactProtocolVersion === 1 && this.skillArtifacts ? { skillArtifactProtocolVersion: 1 } : {}),
+        ...(media ? { media } : {}) },
     };
   }
 

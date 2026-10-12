@@ -273,6 +273,7 @@ export class ClientController {
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取订阅锁定版本的客户端运行时清单' })
   @ApiQuery({ name: 'mediaProtocolVersion', required: false, type: Number, description: '传 1 协商媒体配置；省略或其他版本保持旧响应' })
+  @ApiQuery({ name: 'skillArtifactProtocolVersion', required: false, type: Number, description: '传 1 协商批准 Skill 安装产物；与媒体协议独立' })
   @ApiResponse({ status: 200, description: '员工配置与已审核技能正文；employee.avatarAsset 与订阅清单同源，图片版本独立于 templateVersion' })
   @ApiResponse({ status: 400, description: '媒体协议协商参数无效' })
   @ApiResponse({ status: 403, description: '无有效订阅或员工授权' })
@@ -282,6 +283,9 @@ export class ClientController {
     @Param('subscriptionId') subscriptionId: string,
     @Query(new ZodValidationPipe(MediaRuntimeQuerySchema)) query: MediaRuntimeQuery,
   ) {
+    if (query.skillArtifactProtocolVersion !== undefined) {
+      return this.clientService.getRuntime(req.user.id, subscriptionId, query.mediaProtocolVersion, query.skillArtifactProtocolVersion);
+    }
     return this.clientService.getRuntime(req.user.id, subscriptionId, query.mediaProtocolVersion);
   }
 

@@ -2095,3 +2095,4 @@ export type CostAlert = z.infer<typeof CostAlertSchema>;
 
 export * from './client-employee.dto';
 export * from './subscription-usage.dto';
+export * from './client-skill-artifact.dto';

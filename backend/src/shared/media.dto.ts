@@ -110,5 +110,6 @@ export type MediaRuntime = z.infer<typeof MediaRuntimeSchema>;
 
 export const MediaRuntimeQuerySchema = z.object({
   mediaProtocolVersion: z.coerce.number().int().min(1).optional(),
+  skillArtifactProtocolVersion: z.coerce.number().int().min(1).optional(),
 }).strict();
 export type MediaRuntimeQuery = z.infer<typeof MediaRuntimeQuerySchema>;

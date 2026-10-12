@@ -70,6 +70,41 @@ describe('media configuration HTTP contracts', () => {
     expect(client.getRuntime).not.toHaveBeenCalled();
   });
 
+  it('requires authentication before artifact runtime negotiation', async () => {
+    await request(app.getHttpServer()).get('/api/client/subscriptions/sub-1/runtime?skillArtifactProtocolVersion=1').expect(401);
+    expect(client.getRuntime).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['skillArtifactProtocolVersion=1', undefined, 1],
+    ['mediaProtocolVersion=1&skillArtifactProtocolVersion=1', 1, 1],
+    ['mediaProtocolVersion=2&skillArtifactProtocolVersion=1', 2, 1],
+    ['mediaProtocolVersion=1&skillArtifactProtocolVersion=2', 1, 2],
+    ['skillArtifactProtocolVersion=99', undefined, 99],
+  ])('passes independently negotiated protocol versions to runtime: %s', async (query, mediaVersion, artifactVersion) => {
+    await request(app.getHttpServer()).get(`/api/client/subscriptions/sub-1/runtime?${query}`).set('x-test-role', 'MEMBER').expect(200);
+    expect(client.getRuntime).toHaveBeenCalledTimes(1);
+    expect(client.getRuntime).toHaveBeenCalledWith('user-1', 'sub-1', mediaVersion, artifactVersion);
+  });
+
+  it.each([
+    'skillArtifactProtocolVersion=bad',
+    'skillArtifactProtocolVersion=',
+    'skillArtifactProtocolVersion=0',
+    'skillArtifactProtocolVersion=-1',
+    'skillArtifactProtocolVersion=1.5',
+    'skillArtifactProtocolVersion=Infinity',
+    'skillArtifactProtocolVersion=1&skillArtifactProtocolVersion=2',
+    'skillArtifactProtocolVersion[version]=1',
+    'mediaProtocolVersion=1&skillArtifactProtocolVersion=bad',
+    'mediaProtocolVersion=bad&skillArtifactProtocolVersion=1',
+    'mediaProtocolVersion=1&skillArtifactProtocolVersion=1&apiKey=mock-secret',
+    'mediaProtocolVersion=1&skillArtifactProtocolVersion=1&skillArtifactVersion=1',
+  ])('rejects malformed combined artifact runtime query before dispatch: %s', async (query) => {
+    await request(app.getHttpServer()).get(`/api/client/subscriptions/sub-1/runtime?${query}`).set('x-test-role', 'MEMBER').expect(400);
+    expect(client.getRuntime).not.toHaveBeenCalled();
+  });
+
   it('rejects profile verification injection and updates without an expected version', async () => {
     await request(app.getHttpServer()).post('/api/admin/media/profiles').set('x-test-role', 'ADMIN').send({
       profileId: 'test-image', kind: 'image', displayName: '图片', modelId: 'test-model',
