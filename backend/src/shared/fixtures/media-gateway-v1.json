@@ -1,0 +1,206 @@
+{
+  "mock": true,
+  "endpoint": "/gateway/v1/media",
+  "simulationOnly": true,
+  "realPrice": false,
+  "walletCharged": false,
+  "issuedAt": "2026-10-13T00:00:00.000Z",
+  "ttlSeconds": { "reference": 900, "quote": 60, "output": 300 },
+  "staticPng": {
+    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQ2FIBAAJEAU2Vdyv6AAAAAElFTkSuQmCC",
+    "mimeType": "image/png",
+    "byteLength": 69,
+    "sha256": "fa12251425fce59deb3c6f022d074c26e0ad5ce5edb1e58ec50350c3f85de426",
+    "width": 1,
+    "height": 1
+  },
+  "references": [
+    {
+      "mock": true,
+      "referenceId": "ref_mock_1",
+      "expiresAt": "2026-10-13T00:15:00.000Z",
+      "mimeType": "image/png",
+      "byteLength": 69,
+      "sha256": "fa12251425fce59deb3c6f022d074c26e0ad5ce5edb1e58ec50350c3f85de426",
+      "width": 1,
+      "height": 1
+    }
+  ],
+  "quoteRequests": [
+    {
+      "profileId": "mock-sync",
+      "configVersion": "mock-v1",
+      "operation": "generate",
+      "referenceIds": [],
+      "creativeBrief": "Generate the static mock PNG.",
+      "parameters": { "size": "1x1", "count": 1 }
+    },
+    {
+      "profileId": "mock-async",
+      "configVersion": "mock-v1",
+      "operation": "edit",
+      "referenceIds": ["ref_mock_1"],
+      "creativeBrief": "Return the static mock PNG for this reference.",
+      "parameters": { "size": "1x1", "count": 2 }
+    },
+    {
+      "profileId": "mock-partial",
+      "configVersion": "mock-v1",
+      "operation": "generate",
+      "referenceIds": [],
+      "creativeBrief": "Generate two static mock PNG outputs with one simulated failure.",
+      "parameters": { "size": "1x1", "count": 2 }
+    },
+    {
+      "profileId": "mock-no-price",
+      "configVersion": "mock-v1",
+      "operation": "generate",
+      "referenceIds": [],
+      "creativeBrief": "Generate the static mock PNG.",
+      "parameters": { "size": "1x1", "count": 1 }
+    }
+  ],
+  "requests": [
+    {
+      "profileId": "mock-sync",
+      "configVersion": "mock-v1",
+      "operation": "generate",
+      "referenceIds": [],
+      "creativeBrief": "Generate the static mock PNG.",
+      "parameters": { "size": "1x1", "count": 1 },
+      "clientRequestId": "client_mock_1",
+      "quoteId": "quote_mock_1"
+    },
+    {
+      "profileId": "mock-async",
+      "configVersion": "mock-v1",
+      "operation": "edit",
+      "referenceIds": ["ref_mock_1"],
+      "creativeBrief": "Return the static mock PNG for this reference.",
+      "parameters": { "size": "1x1", "count": 2 },
+      "clientRequestId": "client_mock_2",
+      "quoteId": "quote_mock_2"
+    },
+    {
+      "profileId": "mock-partial",
+      "configVersion": "mock-v1",
+      "operation": "generate",
+      "referenceIds": [],
+      "creativeBrief": "Generate two static mock PNG outputs with one simulated failure.",
+      "parameters": { "size": "1x1", "count": 2 },
+      "clientRequestId": "client_mock_3",
+      "quoteId": "quote_mock_3"
+    }
+  ],
+  "quotes": [
+    {
+      "mock": true,
+      "quoteId": "quote_mock_1",
+      "expiresAt": "2026-10-13T00:01:00.000Z",
+      "semanticSha256": "4efac38d8143a653a9c0131d35f010aff91a6b05ea88ae2a4930a79800ba27b9",
+      "pricingStatus": "quoted",
+      "amountCny": "0.010000",
+      "pricingVersion": "mock-v1",
+      "billingStatus": "MOCK_NOT_CHARGED"
+    },
+    {
+      "mock": true,
+      "quoteId": "quote_mock_2",
+      "expiresAt": "2026-10-13T00:01:00.000Z",
+      "semanticSha256": "b6ce27203483d9a6c13c3ce6b58db2a851bcc83ea187e63ad423fb7f32dd1a96",
+      "pricingStatus": "quoted",
+      "amountCny": "0.010000",
+      "pricingVersion": "mock-v1",
+      "billingStatus": "MOCK_NOT_CHARGED"
+    },
+    {
+      "mock": true,
+      "quoteId": "quote_mock_3",
+      "expiresAt": "2026-10-13T00:01:00.000Z",
+      "semanticSha256": "9a960d7db60c5076a45572c6ec44ac44b01dade8b2fc1cf6340bdc8d3881ece0",
+      "pricingStatus": "quoted",
+      "amountCny": "0.010000",
+      "pricingVersion": "mock-v1",
+      "billingStatus": "MOCK_NOT_CHARGED"
+    },
+    {
+      "mock": true,
+      "quoteId": "quote_mock_unavailable",
+      "expiresAt": "2026-10-13T00:01:00.000Z",
+      "semanticSha256": "fb573315d3f521d5ac2a1c57dd13739e0028b69371ebc9785f80f250e874801a",
+      "pricingStatus": "unavailable",
+      "amountCny": null,
+      "pricingVersion": "mock-v1",
+      "billingStatus": "MOCK_NOT_CHARGED"
+    }
+  ],
+  "receipts": [
+    {
+      "mock": true,
+      "receiptId": "receipt_mock_1",
+      "clientRequestId": "client_mock_1",
+      "profileId": "mock-sync",
+      "configVersion": "mock-v1",
+      "executionMode": "sync-response",
+      "status": "SUCCEEDED",
+      "pollAfterMs": null,
+      "outputs": [
+        {
+          "outputId": "receipt_mock_1_0",
+          "kind": "image",
+          "mimeType": "image/png",
+          "byteLength": 69,
+          "width": 1,
+          "height": 1,
+          "sha256": "fa12251425fce59deb3c6f022d074c26e0ad5ce5edb1e58ec50350c3f85de426",
+          "expiresAt": "2026-10-13T00:05:00.000Z"
+        }
+      ],
+      "billingStatus": "MOCK_NOT_CHARGED",
+      "errorCode": null,
+      "outputErrors": [],
+      "recovery": { "canQuery": false, "canCancel": false, "canDownload": true }
+    },
+    {
+      "mock": true,
+      "receiptId": "receipt_mock_2",
+      "clientRequestId": "client_mock_2",
+      "profileId": "mock-async",
+      "configVersion": "mock-v1",
+      "executionMode": "async-query",
+      "status": "QUEUED",
+      "pollAfterMs": 1000,
+      "outputs": [],
+      "billingStatus": "MOCK_NOT_CHARGED",
+      "errorCode": null,
+      "outputErrors": [],
+      "recovery": { "canQuery": true, "canCancel": true, "canDownload": false }
+    },
+    {
+      "mock": true,
+      "receiptId": "receipt_mock_3",
+      "clientRequestId": "client_mock_3",
+      "profileId": "mock-partial",
+      "configVersion": "mock-v1",
+      "executionMode": "async-query",
+      "status": "PARTIAL_SUCCEEDED",
+      "pollAfterMs": null,
+      "outputs": [
+        {
+          "outputId": "receipt_mock_3_0",
+          "kind": "image",
+          "mimeType": "image/png",
+          "byteLength": 69,
+          "width": 1,
+          "height": 1,
+          "sha256": "fa12251425fce59deb3c6f022d074c26e0ad5ce5edb1e58ec50350c3f85de426",
+          "expiresAt": "2026-10-13T00:05:00.000Z"
+        }
+      ],
+      "billingStatus": "MOCK_NOT_CHARGED",
+      "errorCode": null,
+      "outputErrors": [{ "index": 1, "code": "OUTPUT_FAILED" }],
+      "recovery": { "canQuery": false, "canCancel": false, "canDownload": true }
+    }
+  ]
+}

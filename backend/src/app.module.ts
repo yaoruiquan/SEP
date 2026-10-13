@@ -48,6 +48,7 @@ import { employeeAssetBaseUrl } from './common/employee-avatar';
 import { validateAuthEnvironment } from './auth-environment';
 import { GatewayLifecycleModule } from './common/lifecycle/gateway-lifecycle.module';
 import { MediaConfigModule } from './modules/media-config/media-config.module';
+import { MediaGatewayModule } from './modules/media-gateway/media-gateway.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { MediaConfigModule } from './modules/media-config/media-config.module';
     MailModule,
     EnterpriseModelConfigModule,
     MediaConfigModule,
+    MediaGatewayModule,
     CostAnalyticsModule,
     EnterpriseSettingsModule,
     CartModule,
