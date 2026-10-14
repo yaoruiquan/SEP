@@ -16,6 +16,7 @@ import { MediaGatewayService } from '../src/modules/media-gateway/media-gateway.
 import { MediaGatewayStore } from '../src/modules/media-gateway/media-gateway.store';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
+import { validateMediaElectronReviewConfig } from './helpers/media-electron-review-config';
 
 class LocalConfigurationError extends Error {}
 
@@ -24,6 +25,7 @@ function settings(environment: Record<string, string | undefined>) {
       environment.MEDIA_GATEWAY_MOCK_ENABLED !== 'true') {
     throw new LocalConfigurationError('Requires NODE_ENV=development or test and MEDIA_GATEWAY_MOCK_ENABLED=true');
   }
+  validateMediaElectronReviewConfig(environment);
   const databaseUrl = environment.MEDIA_GATEWAY_TEST_DATABASE_URL;
   if (!databaseUrl || !environment.DATABASE_URL) {
     throw new LocalConfigurationError('Explicit MEDIA_GATEWAY_TEST_DATABASE_URL and business DATABASE_URL are required');

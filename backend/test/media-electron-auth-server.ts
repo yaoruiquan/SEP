@@ -12,6 +12,7 @@ import { requestContextMiddleware } from '../src/common/middleware/request-conte
 import { ClientModule } from '../src/modules/client/client.module';
 import { SecurityModule } from '../src/modules/security/security.module';
 import { RedisModule } from '../src/redis/redis.module';
+import { validateMediaElectronReviewConfig } from './helpers/media-electron-review-config';
 
 let moduleRef: TestingModule | undefined;
 let app: INestApplication | undefined;
@@ -41,7 +42,10 @@ async function bootstrap() {
   const configModule = await ConfigModule.forRoot({
     isGlobal: true,
     envFilePath: resolve(__dirname, '../.env'),
-    validate: validateAuthEnvironment,
+    validate: (environment) => {
+      validateMediaElectronReviewConfig(environment);
+      return validateAuthEnvironment(environment);
+    },
   });
   moduleRef = await Test.createTestingModule({
     imports: [configModule, RedisModule, SecurityModule, ClientModule],
