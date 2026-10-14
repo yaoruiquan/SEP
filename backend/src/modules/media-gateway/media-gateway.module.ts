@@ -10,10 +10,11 @@ import { MediaGatewayController } from './media-gateway.controller';
 import { MediaGatewayMockAdapter } from './media-gateway-mock.adapter';
 import { MediaGatewayMockGuard } from './media-gateway-mock.guard';
 import { MediaGatewayService } from './media-gateway.service';
+import { MediaGatewayStore } from './media-gateway.store';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), PrismaModule, RedisModule, AuthModule],
   controllers: [MediaGatewayController],
-  providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayService],
+  providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayStore, MediaGatewayService],
 })
 export class MediaGatewayModule {}

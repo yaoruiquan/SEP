@@ -2278,6 +2278,54 @@ model MediaModelProfile {
   @@map("media_model_profiles")
 }
 
+// Mock metadata only. No input/output bytes, prompts, credentials or upstream URLs.
+model MediaGatewayReference {
+  id        String   @id @default(cuid())
+  scope     String
+  metadata  Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("media_gateway_references")
+}
+
+model MediaGatewayQuote {
+  id        String   @id @default(cuid())
+  scope     String
+  metadata  Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("media_gateway_quotes")
+}
+
+// No cascading owner relations: deleting an owner must not release an idempotency key.
+model MediaGatewayRequest {
+  id                 String   @id @default(cuid())
+  enterpriseId       String
+  clientRequestId    String
+  scope              String
+  semanticSha256     String
+  referenceIds       String[]
+  referenceHashes    String[]
+  count              Int
+  configuration      Json
+  receipt            Json
+  status             String
+  revision           Int      @default(0)
+  submissionDeadline DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([enterpriseId, clientRequestId])
+  @@index([scope, createdAt])
+  @@map("media_gateway_requests")
+}
+
 // ============================================================================
 // Employee Package（员工包）
 // ----------------------------------------------------------------------------

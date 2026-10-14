@@ -1,11 +1,15 @@
 import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
+import { MediaGatewayMemoryStore } from '../../../test/helpers/media-gateway-memory-store';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { MediaGatewayQuoteRequestSchema, MediaGatewayRequestSchema } from 'shared';
 import type { MediaGatewayQuoteRequest } from 'shared';
 import { MediaGatewayService } from './media-gateway.service';
 import { MediaGatewayMockAdapter, MEDIA_MOCK_PNG } from './media-gateway-mock.adapter';
+import { mediaStorageUnavailable } from './media-gateway.store';
+import type { MediaGatewayStore, RequestClaim } from './media-gateway.store';
 
 const claims: ClientEmploymentClaims = {
   sub: 'user-1', sid: 'session-1', enterpriseId: 'enterprise-1', subscriptionId: 'sub-1',
@@ -18,6 +22,7 @@ describe('MediaGatewayService mock workflow', () => {
   let adapter: MediaGatewayMockAdapter;
   let config: ConfigService;
   let environment: Record<string, string | undefined>;
+  let store: MediaGatewayMemoryStore;
   const prisma = { enterpriseMember: { findFirst: jest.fn() }, subscription: { findFirst: jest.fn() } };
 
   beforeEach(() => {
@@ -27,9 +32,14 @@ describe('MediaGatewayService mock workflow', () => {
     prisma.enterpriseMember.findFirst.mockReset().mockResolvedValue({ departmentId: 'department-1' });
     prisma.subscription.findFirst.mockReset().mockResolvedValue({ id: 'sub-1' });
     adapter = new MediaGatewayMockAdapter();
-    service = new MediaGatewayService(config, prisma as unknown as PrismaService, adapter);
+    store = new MediaGatewayMemoryStore();
+    service = instance(store);
   });
   afterEach(() => jest.restoreAllMocks());
+
+  function instance(sharedStore = new MediaGatewayMemoryStore(store.state), instanceAdapter = adapter) {
+    return new MediaGatewayService(config, prisma as unknown as PrismaService, instanceAdapter, sharedStore as unknown as MediaGatewayStore);
+  }
 
   function payload(profileId = 'mock-sync', changes: Partial<MediaGatewayQuoteRequest> = {}) {
     return MediaGatewayQuoteRequestSchema.parse({ profileId, configVersion: 'mock-v1', operation: 'generate', creativeBrief: 'Test product', ...changes });
@@ -53,7 +63,7 @@ describe('MediaGatewayService mock workflow', () => {
 
   it('publishes only mock profiles and a static test image, independently of real media config', async () => {
     const profiles = await service.profiles(claims);
-    expect(profiles).toMatchObject({ mock: true, persistence: 'process-memory', billingStatus: 'MOCK_NOT_CHARGED' });
+    expect(profiles).toMatchObject({ mock: true, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED' });
     expect(profiles.profiles).toHaveLength(9);
     expect(Buffer.from(profiles.referenceFixtureBase64, 'base64')).toEqual(MEDIA_MOCK_PNG);
   });
@@ -346,17 +356,239 @@ describe('MediaGatewayService mock workflow', () => {
     expect((await service.findByClientId(claims, receipt.clientRequestId)).status).toBe('SUCCEEDED');
   });
 
-  it('bounds memory and retains completed request IDs rather than evicting to permit retries', async () => {
+  it('retains idempotency keys beyond 1000 requests without eviction or a process-local cap', async () => {
     const quote = await service.quote(claims, payload());
-    for (let i = 0; i < 1000; i++) {
+    const spy = jest.spyOn(adapter, 'submit');
+    for (let i = 0; i < 1002; i++) {
       await service.submit(claims, MediaGatewayRequestSchema.parse({ ...payload(), quoteId: quote.quoteId, clientRequestId: `cap-${i}` }));
     }
-    await error(service.submit(claims, MediaGatewayRequestSchema.parse({ ...payload(), quoteId: quote.quoteId, clientRequestId: 'cap-new' })), 429, 'MEDIA_RATE_LIMITED');
-    expect((await service.submit(claims, MediaGatewayRequestSchema.parse({ ...payload(), quoteId: quote.quoteId, clientRequestId: 'cap-0' }))).status).toBe('SUCCEEDED');
+    const restarted = instance();
+    expect((await restarted.submit(claims, MediaGatewayRequestSchema.parse({ ...payload(), quoteId: quote.quoteId, clientRequestId: 'cap-0' }))).status).toBe('SUCCEEDED');
+    expect(store.state.requests.size).toBe(1002);
+    expect(spy).toHaveBeenCalledTimes(1002);
   });
 
-  it('discloses process-local persistence instead of pretending restart recovery is durable', async () => {
-    await submit(); const restarted = new MediaGatewayService(config, prisma as unknown as PrismaService, adapter);
-    await error(restarted.findByClientId(claims, 'request-1'), 404, 'MEDIA_NOT_FOUND');
+  it('recovers receipts and downloads through a new service and store sharing persisted state', async () => {
+    const original = await submit();
+    const restarted = instance(undefined, new MediaGatewayMockAdapter());
+    const recovered = await restarted.findByClientId(claims, original.clientRequestId);
+    expect(recovered).toEqual(original);
+    expect(await restarted.receipt(claims, recovered.receiptId)).toEqual(original);
+    const content = await restarted.content(claims, recovered.receiptId, recovered.outputs[0].outputId);
+    expect(content.bytes).toEqual(MEDIA_MOCK_PNG);
+    expect(content.output.sha256).toBe(createHash('sha256').update(content.bytes).digest('hex'));
+  });
+
+  it('shares references and quotes across instances and resumes async work with a fresh adapter', async () => {
+    const ref = await service.uploadReference(claims, referenceFile());
+    const dto = payload('mock-async', { operation: 'edit', referenceIds: [ref.referenceId], parameters: { size: '1x1', count: 2 } });
+    const second = instance();
+    const quote = await second.quote(claims, dto);
+    const receipt = await instance().submit(claims, MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'shared-edit' }));
+    const restarted = instance(undefined, new MediaGatewayMockAdapter());
+    expect((await restarted.receipt(claims, receipt.receiptId)).status).toBe('RUNNING');
+    const completed = await restarted.receipt(claims, receipt.receiptId);
+    expect(completed).toMatchObject({ status: 'SUCCEEDED' });
+    expect(completed.outputs).toHaveLength(2);
+  });
+
+  it('uses an atomic shared claim for simultaneous submissions from different service instances', async () => {
+    const dto = payload('mock-async');
+    const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'cross-instance' });
+    let release!: (value: 'QUEUED') => void;
+    const spy = jest.spyOn(adapter, 'submit').mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    const submissions = [service, instance()].map((current) => current.submit(claims, input));
+    await new Promise((resolve) => setImmediate(resolve));
+    try {
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await instance().findByClientId(claims, input.clientRequestId)).status).toBe('SUBMITTING');
+    } finally { release('QUEUED'); }
+    const receipts = await Promise.all(submissions);
+    expect(new Set(receipts.map((item) => item.receiptId)).size).toBe(1);
+    expect(store.state.requests.size).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['RUNNING', 'SUCCEEDED'] as const)('does not let a stale cross-instance %s query overwrite cancellation', async (status) => {
+    const receipt = await submit('mock-async');
+    let release!: (value: typeof status) => void;
+    jest.spyOn(adapter, 'query').mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    const query = service.receipt(claims, receipt.receiptId);
+    await new Promise((resolve) => setImmediate(resolve));
+    try {
+      expect((await instance().cancel(claims, receipt.receiptId)).status).toBe('CANCELLED');
+    } finally { release(status); }
+    expect(await query).toMatchObject({ status: 'CANCELLED', outputs: [], recovery: { canDownload: false } });
+    expect((await instance().findByClientId(claims, receipt.clientRequestId)).status).toBe('CANCELLED');
+  });
+
+  it('returns the winning terminal query when a cross-instance cancellation loses CAS', async () => {
+    const receipt = await submit('mock-async');
+    const cancellingStore = new MediaGatewayMemoryStore(store.state);
+    const originalSave = cancellingStore.save.bind(cancellingStore);
+    let release!: () => void;
+    jest.spyOn(cancellingStore, 'save').mockImplementation(async (record) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return originalSave(record);
+    });
+    const cancellation = instance(cancellingStore).cancel(claims, receipt.receiptId);
+    await new Promise((resolve) => setImmediate(resolve));
+    try {
+      jest.spyOn(adapter, 'query').mockResolvedValue('SUCCEEDED');
+      expect((await service.receipt(claims, receipt.receiptId)).status).toBe('SUCCEEDED');
+    } finally { release(); }
+    expect(await cancellation).toMatchObject({ status: 'SUCCEEDED', recovery: { canDownload: true } });
+    expect((await instance().findByClientId(claims, receipt.clientRequestId)).status).toBe('SUCCEEDED');
+  });
+
+  it('keeps configuration and semantic hashes frozen without storing the creative prompt', async () => {
+    const creativeBrief = 'private prompt that must never enter persisted metadata';
+    const ref = await service.uploadReference(claims, referenceFile());
+    const dto = payload('mock-async', { creativeBrief, operation: 'edit', referenceIds: [ref.referenceId], parameters: { size: '1x1', count: 3 } });
+    const quote = await service.quote(claims, dto);
+    const receipt = await service.submit(claims, MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'frozen' }));
+    const original = await store.findRequest(receipt.receiptId);
+    expect(original).toMatchObject({
+      semanticSha256: quote.semanticSha256, referenceIds: [ref.referenceId], referenceHashes: [ref.sha256], count: 3,
+      configuration: { adapter: 'static-png-v1', profileId: 'mock-async', configVersion: 'mock-v1', operation: 'edit',
+        parameters: { size: '1x1', count: 3 }, pricingVersion: quote.pricingVersion, amountCny: quote.amountCny },
+    });
+    expect(original?.semanticSha256).toBe(createHash('sha256').update(JSON.stringify({
+      profileId: dto.profileId, configVersion: dto.configVersion, operation: dto.operation,
+      creativeBrief, parameters: dto.parameters, references: [ref.sha256],
+    })).digest('hex'));
+    dto.creativeBrief = 'changed locally'; dto.parameters.count = 1;
+    await instance().receipt(claims, receipt.receiptId);
+    await instance().receipt(claims, receipt.receiptId);
+    const saved = await store.findRequest(receipt.receiptId);
+    expect(saved?.configuration).toEqual(original?.configuration);
+    expect(saved?.semanticSha256).toBe(original?.semanticSha256);
+    expect(saved?.receipt.outputs).toHaveLength(3);
+    const serialized = JSON.stringify([Array.from(store.state.requests.values()), Array.from(store.state.quotes.values()), Array.from(store.state.references.values())]);
+    expect(serialized).not.toContain(creativeBrief);
+    expect(serialized).not.toContain('creativeBrief');
+    expect(serialized).not.toMatch(/"prompt"|"buffer"/);
+  });
+
+  it('isolates persisted JSON from mutated response and store-read objects', async () => {
+    const receipt = await submit();
+    const original = structuredClone(receipt);
+    receipt.outputs.length = 0;
+    receipt.recovery.canDownload = false;
+    const record = (await store.findRequest(receipt.receiptId))!;
+    record.receipt.outputs[0].sha256 = 'mutated';
+    record.configuration.parameters.count = 4;
+    expect(await instance().findByClientId(claims, receipt.clientRequestId)).toEqual(original);
+    expect((await store.findRequest(receipt.receiptId))?.configuration.parameters.count).toBe(1);
+  });
+
+  it('surfaces storage lookup failure without falling back to a process-local submission', async () => {
+    const dto = payload(); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'lookup-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    jest.spyOn(store, 'findByClientId').mockImplementationOnce(async () => mediaStorageUnavailable());
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.requests.size).toBe(0);
+  });
+
+  it('does not submit when claim fails before any acknowledged insert', async () => {
+    const dto = payload(); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'claim-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    jest.spyOn(store, 'claim').mockImplementationOnce(async () => mediaStorageUnavailable());
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.requests.size).toBe(0);
+  });
+
+  it.each(['findByClientId', 'receipt'] as const)('persists UNKNOWN on %s after an unacknowledged claim expires and never resubmits', async (read) => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'claim-timeout' });
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim: RequestClaim) => {
+      await originalClaim(claim);
+      mediaStorageUnavailable();
+    });
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    expect(spy).not.toHaveBeenCalled();
+    const pending = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+    const restarted = instance();
+    jest.spyOn(Date, 'now').mockReturnValue(pending.submissionDeadline.getTime() - 1);
+    expect((await restarted.findByClientId(claims, input.clientRequestId)).status).toBe('SUBMITTING');
+    jest.spyOn(Date, 'now').mockReturnValue(pending.submissionDeadline.getTime() + 1);
+    const recovered = read === 'receipt'
+      ? await restarted.receipt(claims, pending.receipt.receiptId)
+      : await restarted.findByClientId(claims, input.clientRequestId);
+    expect(recovered).toMatchObject({ status: 'SUBMISSION_UNKNOWN', errorCode: 'SUBMISSION_UNKNOWN', pollAfterMs: null,
+      recovery: { canQuery: false, canCancel: false, canDownload: false } });
+    const persisted = (await store.findRequest(recovered.receiptId))!;
+    expect(persisted.receipt.status).toBe('SUBMISSION_UNKNOWN');
+    expect(persisted.revision).toBeGreaterThan(pending.revision);
+    expect(await restarted.submit(claims, input)).toEqual(recovered);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch an adapter after an acknowledged claim is delayed past the two-minute deadline', async () => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'delayed-claim' });
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    const start = Date.now();
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      expect(result.record.submissionDeadline.getTime() - start).toBeGreaterThanOrEqual(120_000);
+      expect(result.record.submissionDeadline.getTime() - start).toBeLessThan(121_000);
+      jest.spyOn(Date, 'now').mockReturnValue(result.record.submissionDeadline.getTime() + 1);
+      return result;
+    });
+    expect(await service.submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN' });
+    expect((await store.findByClientId(claims.enterpriseId, input.clientRequestId))?.receipt.status).toBe('SUBMISSION_UNKNOWN');
+    expect(await instance().submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not let a delayed adapter completion overwrite a persisted UNKNOWN timeout', async () => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'late-completion' });
+    let release!: (value: 'QUEUED') => void;
+    const spy = jest.spyOn(adapter, 'submit').mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    const submission = service.submit(claims, input);
+    await new Promise((resolve) => setImmediate(resolve));
+    const pending = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+    try {
+      jest.spyOn(Date, 'now').mockReturnValue(pending.submissionDeadline.getTime() + 1);
+      expect((await instance().findByClientId(claims, input.clientRequestId)).status).toBe('SUBMISSION_UNKNOWN');
+    } finally { release('QUEUED'); }
+    expect((await submission).status).toBe('SUBMISSION_UNKNOWN');
+    expect((await store.findRequest(pending.receipt.receiptId))?.receipt.status).toBe('SUBMISSION_UNKNOWN');
+    expect((await instance().submit(claims, input)).status).toBe('SUBMISSION_UNKNOWN');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates a final-save failure and recovers only the original claim without another adapter call', async () => {
+    const dto = payload(); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'save-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    jest.spyOn(store, 'save').mockImplementationOnce(async () => mediaStorageUnavailable());
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    const pending = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+    expect(pending.receipt).toMatchObject({ status: 'SUBMITTING', outputs: [] });
+    expect((await instance().submit(claims, input)).receiptId).toBe(pending.receipt.receiptId);
+    jest.spyOn(Date, 'now').mockReturnValue(pending.submissionDeadline.getTime() + 1);
+    expect((await instance().submit(claims, input)).status).toBe('SUBMISSION_UNKNOWN');
+    expect((await store.findRequest(pending.receipt.receiptId))?.receipt.status).toBe('SUBMISSION_UNKNOWN');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['query', 'cancel'] as const)('preserves storage 503 during %s instead of mapping it to an adapter error', async (operation) => {
+    const receipt = await submit('mock-async');
+    jest.spyOn(store, 'save').mockImplementationOnce(async () => mediaStorageUnavailable());
+    await error(operation === 'query' ? service.receipt(claims, receipt.receiptId) : service.cancel(claims, receipt.receiptId),
+      503, 'MEDIA_STORAGE_UNAVAILABLE');
+    expect((await store.findRequest(receipt.receiptId))?.receipt.status).toBe('QUEUED');
+    expect((await instance().findByClientId(claims, receipt.clientRequestId)).status).toBe('QUEUED');
   });
 });

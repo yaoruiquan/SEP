@@ -24,8 +24,8 @@ import { MediaGatewayMockGuard } from './media-gateway-mock.guard';
 @ApiResponse({ status: 404, description: '当前作用域内不存在资源' })
 @ApiResponse({ status: 409, description: '幂等冲突、报价/配置失效或不支持取消' })
 @ApiResponse({ status: 410, description: '参考或结果已过期' })
-@ApiResponse({ status: 429, description: '默认业务限流或 mock 进程容量限制' })
-@ApiResponse({ status: 503, description: 'mock 未启用或查询暂不可用；生产执行保持关闭' })
+@ApiResponse({ status: 429, description: '默认业务限流' })
+@ApiResponse({ status: 503, description: 'mock 未启用、查询或数据库存储暂不可用；查原 ID，不重发生成' })
 @SkipThrottle({ auth: true, chat: true })
 @UseGuards(ClientEmploymentGuard, MediaGatewayMockGuard)
 @Controller('gateway/v1/media')
@@ -35,7 +35,7 @@ export class MediaGatewayController {
   @Get('profiles')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: '获取开发环境 mock 场景和静态参考 fixture，不改变生产 runtime' })
-  @ApiResponse({ status: 200, description: 'mock profiles、测试 fixture、内存存储声明' })
+  @ApiResponse({ status: 200, description: 'mock profiles、测试 fixture、数据库持久化声明' })
   profiles(@ClientEmployment() claims: ClientEmploymentClaims) { return this.media.profiles(claims); }
 
   @Post('references')

@@ -1,33 +1,28 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { clientSubscriptionAccessWhere } from '../client/client-subscription-access';
 import { validateUploadedFile } from '../upload/file-validator';
 import {
   MediaGatewayQuoteRequestSchema, MediaGatewayRequestSchema,
-  MediaGatewayReceiptSchema, MediaGatewayReferenceSchema, MediaGatewayQuoteSchema,
+  MediaGatewayReceiptSchema,
 } from 'shared';
 import type {
   MediaGatewayQuoteRequest, MediaGatewayRequest, MediaGatewayReceipt,
-  MediaGatewayReference, MediaGatewayQuote, MediaGatewayErrorCode,
+  MediaGatewayErrorCode,
 } from 'shared';
 import {
   MediaGatewayMockAdapter, MEDIA_MOCK_CONFIG_VERSION, MEDIA_MOCK_PNG,
   MEDIA_MOCK_PNG_SHA256, MEDIA_MOCK_PROFILE_IDS, MediaMockProfileId,
 } from './media-gateway-mock.adapter';
+import { MediaGatewayStore, RequestRecord } from './media-gateway.store';
 
-type ReferenceRecord = { scope: string; value: MediaGatewayReference };
-type QuoteRecord = { scope: string; value: MediaGatewayQuote };
-type RequestRecord = {
-  scope: string; semanticSha256: string; referenceIds: string[]; referenceHashes: string[];
-  count: number; receipt: MediaGatewayReceipt;
-};
-const MAX_RECORDS = 1000;
 const REFERENCE_TTL_MS = 15 * 60_000;
 const QUOTE_TTL_MS = 60_000;
 const OUTPUT_TTL_MS = 5 * 60_000;
+const SUBMISSION_TIMEOUT_MS = 2 * 60_000;
 
 export function mediaGatewayError(status: number, code: MediaGatewayErrorCode, message: string): never {
   throw new HttpException({ message, error: {
@@ -37,17 +32,13 @@ export function mediaGatewayError(status: number, code: MediaGatewayErrorCode, m
 
 @Injectable()
 export class MediaGatewayService {
-  private readonly references = new Map<string, ReferenceRecord>();
-  private readonly quotes = new Map<string, QuoteRecord>();
-  // No receipt eviction: forgetting an ID could turn a replay into a new submission.
-  private readonly requests = new Map<string, RequestRecord>();
-  private readonly byClientId = new Map<string, string>();
   private readonly queries = new Map<string, Promise<void>>();
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly adapter: MediaGatewayMockAdapter,
+    private readonly store: MediaGatewayStore,
   ) {}
 
   assertMockEnabled() {
@@ -76,7 +67,7 @@ export class MediaGatewayService {
   async profiles(claims: ClientEmploymentClaims) {
     await this.authorize(claims);
     return {
-      mock: true, protocolVersion: 1, persistence: 'process-memory', billingStatus: 'MOCK_NOT_CHARGED',
+      mock: true, protocolVersion: 1, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED',
       referenceFixtureSha256: MEDIA_MOCK_PNG_SHA256,
       referenceFixtureBase64: MEDIA_MOCK_PNG.toString('base64'), profiles: this.adapter.profiles(),
     };
@@ -93,70 +84,60 @@ export class MediaGatewayService {
     if (!file.buffer.equals(MEDIA_MOCK_PNG)) {
       mediaGatewayError(400, 'INVALID_REFERENCE', 'mock 仅接受 profiles 返回的静态 PNG，不接收真实商品图');
     }
-    this.removeExpired(this.references);
-    this.assertCapacity(this.references);
-    const value = MediaGatewayReferenceSchema.parse({
-      mock: true, referenceId: randomUUID(), expiresAt: new Date(Date.now() + REFERENCE_TTL_MS).toISOString(),
+    return this.store.saveReference(this.scope(claims), {
+      mock: true, expiresAt: new Date(Date.now() + REFERENCE_TTL_MS).toISOString(),
       mimeType: 'image/png', byteLength: file.buffer.length, sha256: MEDIA_MOCK_PNG_SHA256, width: 1, height: 1,
     });
-    this.references.set(value.referenceId, { scope: this.scope(claims), value });
-    return value;
   }
 
   async quote(claims: ClientEmploymentClaims, input: MediaGatewayQuoteRequest) {
     await this.authorize(claims);
     const dto = this.parse(MediaGatewayQuoteRequestSchema, input);
     this.validateProfile(dto);
-    const hashes = this.referenceHashes(claims, dto.referenceIds);
-    this.removeExpired(this.quotes);
-    this.assertCapacity(this.quotes);
-    const value = MediaGatewayQuoteSchema.parse({
-      mock: true, quoteId: randomUUID(), expiresAt: new Date(Date.now() + QUOTE_TTL_MS).toISOString(),
+    const hashes = await this.referenceHashes(claims, dto.referenceIds);
+    return this.store.saveQuote(this.scope(claims), {
+      mock: true, expiresAt: new Date(Date.now() + QUOTE_TTL_MS).toISOString(),
       semanticSha256: this.semanticHash(dto, hashes), pricingStatus: dto.profileId === 'mock-no-price' ? 'unavailable' : 'quoted',
       amountCny: dto.profileId === 'mock-no-price' ? null : '0.010000', pricingVersion: 'mock-v1', billingStatus: 'MOCK_NOT_CHARGED',
     });
-    this.quotes.set(value.quoteId, { scope: this.scope(claims), value });
-    return value;
   }
 
   async submit(claims: ClientEmploymentClaims, input: MediaGatewayRequest) {
     await this.authorize(claims);
     const dto = this.parse(MediaGatewayRequestSchema, input);
-    const index = this.clientKey(claims, dto.clientRequestId);
-    const existingId = this.byClientId.get(index);
-    if (existingId) {
-      const record = this.ownedRequest(claims, existingId);
-      // A replay can use frozen hashes when the exact original references expired.
-      const hashes = dto.referenceIds.length === record.referenceIds.length &&
-        dto.referenceIds.every((id, i) => id === record.referenceIds[i])
-        ? record.referenceHashes : this.referenceHashes(claims, dto.referenceIds);
-      if (this.semanticHash(dto, hashes) !== record.semanticSha256) {
-        mediaGatewayError(409, 'IDEMPOTENCY_CONFLICT', '相同 clientRequestId 对应不同请求内容');
-      }
-      return this.snapshot(record);
-    }
+    const existing = await this.store.findByClientId(claims.enterpriseId, dto.clientRequestId);
+    if (existing) return this.replay(claims, dto, existing);
     this.validateProfile(dto);
-    const hashes = this.referenceHashes(claims, dto.referenceIds);
+    const hashes = await this.referenceHashes(claims, dto.referenceIds);
     const semanticSha256 = this.semanticHash(dto, hashes);
-    const quote = this.quotes.get(dto.quoteId);
+    const quote = await this.store.findQuote(dto.quoteId);
     if (!quote || quote.scope !== this.scope(claims)) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '报价不可用');
     if (Date.parse(quote.value.expiresAt) <= Date.now()) mediaGatewayError(409, 'QUOTE_EXPIRED', '报价已过期');
     if (quote.value.semanticSha256 !== semanticSha256) mediaGatewayError(409, 'IDEMPOTENCY_CONFLICT', '报价与请求内容不一致');
     if (quote.value.pricingStatus !== 'quoted') mediaGatewayError(409, 'PRICE_UNAVAILABLE', '价格未知，不能提交生成');
     if (dto.profileId === 'mock-budget') mediaGatewayError(403, 'BUDGET_EXCEEDED', 'mock 模拟预算不足');
-    this.assertCapacity(this.requests);
     const mode = this.adapter.mode(dto.profileId);
-    const receipt = MediaGatewayReceiptSchema.parse({
-      mock: true, receiptId: randomUUID(), clientRequestId: dto.clientRequestId,
-      profileId: dto.profileId, configVersion: dto.configVersion, executionMode: mode,
-      status: 'SUBMITTING', pollAfterMs: mode === 'async-query' ? 1000 : null,
-      outputs: [], outputErrors: [], billingStatus: 'MOCK_NOT_CHARGED', errorCode: null,
-      recovery: { canQuery: mode === 'async-query', canCancel: mode === 'async-query' && dto.profileId !== 'mock-no-cancel', canDownload: false },
+    const claim = await this.store.claim({
+      enterpriseId: claims.enterpriseId, clientRequestId: dto.clientRequestId,
+      scope: this.scope(claims), semanticSha256, referenceIds: [...dto.referenceIds], referenceHashes: hashes,
+      count: dto.parameters.count, submissionDeadline: new Date(Date.now() + SUBMISSION_TIMEOUT_MS),
+      configuration: {
+        adapter: 'static-png-v1', profileId: dto.profileId as MediaMockProfileId, configVersion: MEDIA_MOCK_CONFIG_VERSION,
+        operation: dto.operation, parameters: { size: dto.parameters.size, count: dto.parameters.count },
+        pricingVersion: 'mock-v1', amountCny: quote.value.amountCny!,
+      },
+      receipt: {
+        mock: true, clientRequestId: dto.clientRequestId,
+        profileId: dto.profileId, configVersion: dto.configVersion, executionMode: mode,
+        status: 'SUBMITTING', pollAfterMs: mode === 'async-query' ? 1000 : null,
+        outputs: [], outputErrors: [], billingStatus: 'MOCK_NOT_CHARGED', errorCode: null,
+        recovery: { canQuery: mode === 'async-query', canCancel: mode === 'async-query' && dto.profileId !== 'mock-no-cancel', canDownload: false },
+      },
     });
-    const record = { scope: this.scope(claims), semanticSha256, referenceIds: [...dto.referenceIds], referenceHashes: hashes, count: dto.parameters.count, receipt };
-    // The claim is installed synchronously before the first adapter await.
-    this.requests.set(receipt.receiptId, record);
-    this.byClientId.set(index, receipt.receiptId);
+    if (!claim.created) return this.replay(claims, dto, claim.record);
+    const record = await this.recover(claim.record);
+    if (record.receipt.status !== 'SUBMITTING') return this.snapshot(record);
+    const receipt = record.receipt;
     try {
       receipt.status = await this.adapter.submit(dto.profileId as MediaMockProfileId);
       if (receipt.status === 'SUCCEEDED') this.complete(record, dto.parameters.count);
@@ -169,19 +150,20 @@ export class MediaGatewayService {
       receipt.recovery.canQuery = false;
       receipt.recovery.canCancel = false;
     }
-    return this.snapshot(record);
+    // Storage failures must not be classified as adapter failures or trigger another submit.
+    return this.snapshot(await this.store.save(record));
   }
 
   async findByClientId(claims: ClientEmploymentClaims, clientRequestId: string) {
     await this.authorize(claims);
-    const id = this.byClientId.get(this.clientKey(claims, clientRequestId));
-    if (!id) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '当前进程未找到回执，不代表上游未接单');
-    return this.snapshot(this.ownedRequest(claims, id));
+    const record = await this.store.findByClientId(claims.enterpriseId, clientRequestId);
+    if (!record || record.scope !== this.scope(claims)) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '未找到回执，不代表上游未接单');
+    return this.snapshot(await this.recover(record));
   }
 
   async receipt(claims: ClientEmploymentClaims, receiptId: string) {
     await this.authorize(claims);
-    const record = this.ownedRequest(claims, receiptId);
+    const record = await this.ownedRequest(claims, receiptId);
     const pending = this.queries.get(receiptId);
     if (pending) await pending;
     else if (record.receipt.recovery.canQuery && ['QUEUED', 'RUNNING'].includes(record.receipt.status)) {
@@ -189,12 +171,12 @@ export class MediaGatewayService {
       this.queries.set(receiptId, query);
       try { await query; } finally { this.queries.delete(receiptId); }
     }
-    return this.snapshot(record);
+    return this.snapshot(await this.ownedRequest(claims, receiptId));
   }
 
   async content(claims: ClientEmploymentClaims, receiptId: string, outputId: string) {
     await this.authorize(claims);
-    const record = this.ownedRequest(claims, receiptId);
+    const record = await this.ownedRequest(claims, receiptId);
     const output = record.receipt.outputs.find((item) => item.outputId === outputId);
     if (!output) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '结果不可用');
     if (!output.expiresAt || Date.parse(output.expiresAt) <= Date.now()) {
@@ -205,15 +187,17 @@ export class MediaGatewayService {
 
   async cancel(claims: ClientEmploymentClaims, receiptId: string) {
     await this.authorize(claims);
-    const record = this.ownedRequest(claims, receiptId);
+    let record = await this.ownedRequest(claims, receiptId);
     const current = this.snapshot(record);
     if (current.status === 'CANCELLED') return current;
     if (!current.recovery.canCancel) mediaGatewayError(409, 'CANCEL_UNSUPPORTED', '当前 mock 请求不支持取消');
     const query = this.queries.get(receiptId);
     if (query) await query;
+    record = await this.ownedRequest(claims, receiptId);
     if (['QUEUED', 'RUNNING'].includes(record.receipt.status)) {
       record.receipt.status = 'CANCELLED';
       record.receipt.pollAfterMs = null;
+      record = await this.store.save(record);
     }
     return this.snapshot(record);
   }
@@ -231,6 +215,7 @@ export class MediaGatewayService {
       // Query failures do not create new submissions or claim a false terminal failure.
       mediaGatewayError(503, 'MEDIA_RATE_LIMITED', 'mock 查询暂不可用，请查询原回执');
     }
+    await this.store.save(record);
   }
 
   private complete(record: RequestRecord, count: number) {
@@ -265,13 +250,13 @@ export class MediaGatewayService {
     return MediaGatewayReceiptSchema.parse(receipt);
   }
 
-  private referenceHashes(claims: ClientEmploymentClaims, ids: string[]) {
-    return ids.map((id) => {
-      const item = this.references.get(id);
+  private async referenceHashes(claims: ClientEmploymentClaims, ids: string[]) {
+    return Promise.all(ids.map(async (id) => {
+      const item = await this.store.findReference(id);
       if (!item || item.scope !== this.scope(claims)) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '参考图不可用');
       if (Date.parse(item.value.expiresAt) <= Date.now()) mediaGatewayError(410, 'REFERENCE_EXPIRED', '参考图已过期');
       return item.value.sha256;
-    });
+    }));
   }
 
   private validateProfile(dto: MediaGatewayQuoteRequest) {
@@ -292,20 +277,34 @@ export class MediaGatewayService {
     })).digest('hex');
   }
 
-  private ownedRequest(claims: ClientEmploymentClaims, id: string) {
-    const record = this.requests.get(id);
+  private async ownedRequest(claims: ClientEmploymentClaims, id: string) {
+    const record = await this.store.findRequest(id);
     if (!record || record.scope !== this.scope(claims)) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '回执不可用');
-    return record;
+    return this.recover(record);
   }
 
   private scope(claims: ClientEmploymentClaims) { return JSON.stringify([claims.enterpriseId, claims.subscriptionId, claims.memberId, claims.sub]); }
-  private clientKey(claims: ClientEmploymentClaims, id: string) { return JSON.stringify([claims.enterpriseId, id]); }
-  private assertCapacity(map: Map<string, unknown>) {
-    if (map.size >= MAX_RECORDS) mediaGatewayError(429, 'MEDIA_RATE_LIMITED', '当前 mock 进程记录已达上限');
-  }
-  private removeExpired<T extends { value: { expiresAt?: string } }>(map: Map<string, T>) {
-    for (const [id, record] of map) {
-      if (record.value.expiresAt && Date.parse(record.value.expiresAt) <= Date.now()) map.delete(id);
+
+  private async replay(claims: ClientEmploymentClaims, dto: MediaGatewayRequest, record: RequestRecord) {
+    if (record.scope !== this.scope(claims)) mediaGatewayError(404, 'MEDIA_NOT_FOUND', '回执不可用');
+    // Exact original references remain replayable after their TTL, using frozen content hashes.
+    const hashes = dto.referenceIds.length === record.referenceIds.length &&
+      dto.referenceIds.every((id, i) => id === record.referenceIds[i])
+      ? record.referenceHashes : await this.referenceHashes(claims, dto.referenceIds);
+    if (this.semanticHash(dto, hashes) !== record.semanticSha256) {
+      mediaGatewayError(409, 'IDEMPOTENCY_CONFLICT', '相同 clientRequestId 对应不同请求内容');
     }
+    return this.snapshot(await this.recover(record));
+  }
+
+  private async recover(record: RequestRecord): Promise<RequestRecord> {
+    if (record.receipt.status === 'SUBMITTING' && record.submissionDeadline.getTime() <= Date.now()) {
+      record.receipt.status = 'SUBMISSION_UNKNOWN';
+      record.receipt.errorCode = 'SUBMISSION_UNKNOWN';
+      record.receipt.pollAfterMs = null;
+      record.receipt.recovery = { canQuery: false, canCancel: false, canDownload: false };
+      return this.store.save(record);
+    }
+    return record;
   }
 }

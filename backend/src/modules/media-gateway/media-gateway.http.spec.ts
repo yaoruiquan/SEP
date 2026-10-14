@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { getOptionsToken } from '@nestjs/throttler';
 import { createHash } from 'node:crypto';
 import request from 'supertest';
+import { MediaGatewayMemoryStore } from '../../../test/helpers/media-gateway-memory-store';
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
@@ -13,6 +14,7 @@ import { MediaGatewayController } from './media-gateway.controller';
 import { MediaGatewayMockGuard } from './media-gateway-mock.guard';
 import { MediaGatewayMockAdapter, MEDIA_MOCK_PNG, MEDIA_MOCK_PNG_SHA256 } from './media-gateway-mock.adapter';
 import { MediaGatewayService } from './media-gateway.service';
+import { MediaGatewayStore, mediaStorageUnavailable } from './media-gateway.store';
 
 const root = '/api/gateway/v1/media';
 const claims: ClientEmploymentClaims = {
@@ -24,20 +26,23 @@ describe('media gateway mock HTTP contracts', () => {
   let app: INestApplication;
   let adapter: MediaGatewayMockAdapter;
   let environment: Record<string, string>;
+  let store: MediaGatewayMemoryStore;
   const prisma = { enterpriseMember: { findFirst: jest.fn() }, subscription: { findFirst: jest.fn() } };
 
   beforeEach(async () => {
     environment = { NODE_ENV: 'test', MEDIA_GATEWAY_MOCK_ENABLED: 'true' };
+    store = new MediaGatewayMemoryStore();
     prisma.enterpriseMember.findFirst.mockReset().mockResolvedValue({ departmentId: 'department-1' });
     prisma.subscription.findFirst.mockReset().mockResolvedValue({ id: 'sub-1' });
     const module = await Test.createTestingModule({
       imports: [SecurityModule],
       controllers: [MediaGatewayController],
-      providers: [MediaGatewayService, MediaGatewayMockAdapter, MediaGatewayMockGuard,
+      providers: [MediaGatewayService, MediaGatewayMockAdapter, MediaGatewayMockGuard, MediaGatewayStore,
         { provide: ConfigService, useValue: { get: (key: string) => environment[key] } },
         { provide: PrismaService, useValue: prisma },
       ],
-    }).overrideProvider(getOptionsToken()).useValue([
+    }).overrideProvider(MediaGatewayStore).useValue(store)
+      .overrideProvider(getOptionsToken()).useValue([
       { name: 'default', ttl: 60_000, limit: 100 },
       { name: 'auth', ttl: 60_000, limit: 10 },
       { name: 'chat', ttl: 60_000, limit: 60 },
@@ -91,7 +96,7 @@ describe('media gateway mock HTTP contracts', () => {
 
   it('runs static reference -> quote -> synchronous receipt -> verified binary download', async () => {
     const profiles = await get('/profiles').expect(200);
-    expect(profiles.body).toMatchObject({ mock: true, persistence: 'process-memory', billingStatus: 'MOCK_NOT_CHARGED' });
+    expect(profiles.body).toMatchObject({ mock: true, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED' });
     expect(profiles.body).not.toHaveProperty('data');
     expect(Buffer.from(profiles.body.referenceFixtureBase64, 'base64')).toEqual(MEDIA_MOCK_PNG);
     const ref = await post('/references').attach('file', MEDIA_MOCK_PNG, { filename: 'fixture.png', contentType: 'image/png' }).expect(201);
@@ -220,5 +225,28 @@ describe('media gateway mock HTTP contracts', () => {
     expect(result.status).toBe(status);
     expect(result.body.error.code).toBe(code);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('returns a storage 503 without falling back or submitting when a claim cannot be acknowledged', async () => {
+    const spy = jest.spyOn(adapter, 'submit');
+    jest.spyOn(store, 'claim').mockImplementationOnce(async () => mediaStorageUnavailable());
+    const { result } = await submit();
+    expect(result.status).toBe(503);
+    expect(result.body.error).toMatchObject({ code: 'MEDIA_STORAGE_UNAVAILABLE', source: 'platform', type: 'server_error' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.requests.size).toBe(0);
+  });
+
+  it('reports failed final persistence as storage 503 and never submits the replay again', async () => {
+    const spy = jest.spyOn(adapter, 'submit');
+    jest.spyOn(store, 'save').mockImplementationOnce(async () => mediaStorageUnavailable());
+    const { dto, result } = await submit();
+    expect(result.status).toBe(503);
+    expect(result.body.error.code).toBe('MEDIA_STORAGE_UNAVAILABLE');
+    const pending = await get('/requests/by-client-id/request-1').expect(200);
+    expect(pending.body).toMatchObject({ status: 'SUBMITTING', outputs: [] });
+    const replay = await post('/requests').send(dto).expect(202);
+    expect(replay.body.receiptId).toBe(pending.body.receiptId);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
