@@ -145,6 +145,41 @@ describe('ClientSkillArtifactService', () => {
     await expect(service.download('user-1', params)).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it.each(['platform update', 'enterprise approval withdrawn'])(
+    'rejects the previously downloaded version after %s and distributes only the current approved bytes', async (transition) => {
+      const previous = makeVersion(transition === 'enterprise approval withdrawn'
+        ? { scope: 'ENTERPRISE', status: 'ENTERPRISE_APPROVED', enterpriseId: ctx.enterpriseId }
+        : {});
+      versions.resolveEffectiveVersion.mockResolvedValue(previous);
+      const installed = await service.download('user-1', params);
+      const originalBytes = Buffer.from(installed.buffer);
+      const originalDescriptor = structuredClone(installed.descriptor);
+      const next = makeVersion({ id: 'sv-2', version: '2.0.0', content: 'Updated approved product image instructions.\n' });
+      versions.resolveEffectiveVersion.mockResolvedValue(next);
+      await expect(service.download('user-1', params)).rejects.toBeInstanceOf(NotFoundException);
+      const current = await service.download('user-1', { ...params, versionId: next.id });
+      expect(current.descriptor.versionId).toBe(next.id);
+      expect(current.descriptor.approvedContentSha256).toBe(digest(next.content));
+      expect(current.descriptor.artifactSha256).toBe(digest(current.buffer));
+      expect(current.descriptor.artifactSha256).not.toBe(originalDescriptor.artifactSha256);
+      expect(installed.buffer).toEqual(originalBytes);
+      expect(installed.descriptor).toEqual(originalDescriptor);
+      expect(versions.resolveEffectiveVersion).toHaveBeenCalledTimes(3);
+      expect(packages.readInstallablePackage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, makeVersion({ status: 'DRAFT' })])(
+    'does not reuse an issued artifact after approval is revoked (case %#)', async (effective) => {
+      const installed = await service.download('user-1', params);
+      expect(installed.descriptor.status).toBe('AVAILABLE');
+      versions.resolveEffectiveVersion.mockResolvedValue(effective);
+      await expect(service.download('user-1', params)).rejects.toBeInstanceOf(NotFoundException);
+      expect(versions.resolveEffectiveVersion).toHaveBeenCalledTimes(2);
+      expect(packages.readInstallablePackage).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     [{ packageKey: 'skills/bad.zip', packageSha256: 'a'.repeat(64) }, 'PACKAGE_UNAVAILABLE'],
     [{ packageKey: null, packageSha256: 'a'.repeat(64) }, 'PACKAGE_UNAVAILABLE'],

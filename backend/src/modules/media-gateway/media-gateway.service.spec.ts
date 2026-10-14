@@ -439,6 +439,146 @@ describe('MediaGatewayService mock workflow', () => {
     expect((await service.findByClientId(claims, receipt.clientRequestId)).status).toBe('SUCCEEDED');
   });
 
+  describe('existing jobs after live authorization loss', () => {
+    const losses = ['subscription expiry', 'grant expiry', 'member disabled', 'grant revocation', 'department reassignment'] as const;
+    type AccessLoss = typeof losses[number];
+    const start = Date.parse('2026-10-14T00:00:00.000Z');
+
+    beforeEach(() => jest.useFakeTimers({ now: start }));
+    afterEach(() => jest.useRealTimers());
+
+    function accessFixture(loss: AccessLoss) {
+      const access = { activeUser: true, grantPresent: true, departmentId: 'department-1' };
+      const expiresAt = start + 1000;
+      prisma.enterpriseMember.findFirst.mockImplementation(async ({ where }) => {
+        expect(where).toEqual({ id: claims.memberId, enterpriseId: claims.enterpriseId,
+          userId: claims.sub, user: { status: 'ACTIVE' } });
+        return access.activeUser ? { departmentId: access.departmentId } : null;
+      });
+      prisma.subscription.findFirst.mockImplementation(async ({ where }) => {
+        expect(where).toMatchObject({ id: claims.subscriptionId, enterpriseId: claims.enterpriseId, status: 'ACTIVE' });
+        expect(where.OR).toEqual([{ endDate: null }, { endDate: { gt: new Date(Date.now()) } }]);
+        expect(where.grants.some.AND).toEqual([{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date(Date.now()) } }] }]);
+        expect(where.grants.some.OR).toEqual([{ memberId: claims.memberId }, { departmentId: access.departmentId }]);
+        if (loss === 'subscription expiry' && where.OR[1].endDate.gt.getTime() >= expiresAt) return null;
+        if (loss === 'grant expiry' && where.grants.some.AND[0].OR[1].expiresAt.gt.getTime() >= expiresAt) return null;
+        if (!access.grantPresent) return null;
+        if (loss === 'department reassignment' && !where.grants.some.OR.some(
+          (grant: { departmentId?: string }) => grant.departmentId === 'department-1',
+        )) return null;
+        return { id: claims.subscriptionId };
+      });
+      return () => {
+        jest.setSystemTime(expiresAt);
+        if (loss === 'member disabled') access.activeUser = false;
+        if (loss === 'grant revocation') access.grantPresent = false;
+        if (loss === 'department reassignment') access.departmentId = 'department-2';
+      };
+    }
+
+    function observeEffects() {
+      const snapshot = () => ({ references: Array.from(store.state.references.entries()),
+        quotes: Array.from(store.state.quotes.entries()), requests: Array.from(store.state.requests.entries()),
+        clientIds: Array.from(store.state.clientIds.entries()) });
+      const state = structuredClone(snapshot());
+      const writes = [jest.spyOn(store, 'saveReference'), jest.spyOn(store, 'saveQuote'),
+        jest.spyOn(store, 'claim'), jest.spyOn(store, 'save')];
+      const reads = [jest.spyOn(store, 'findReference'), jest.spyOn(store, 'findQuote'),
+        jest.spyOn(store, 'findRequest'), jest.spyOn(store, 'findByClientId')];
+      const dispatch = jest.spyOn(adapter, 'submit');
+      const query = jest.spyOn(adapter, 'query');
+      return () => {
+        for (const spy of [...reads, ...writes, dispatch, query]) expect(spy).not.toHaveBeenCalled();
+        expect(snapshot()).toEqual(state);
+      };
+    }
+
+    it.each(losses.flatMap((loss) => ['SUCCEEDED', 'QUEUED', 'RUNNING'].map((status) => ({ loss, status }))))(
+      'denies old $status jobs, downloads, quotes and submissions after $loss without store/provider effects',
+      async ({ loss, status }) => {
+        const loseAccess = accessFixture(loss);
+        const ref = await service.uploadReference(claims, referenceFile());
+        const dto = payload(status === 'SUCCEEDED' ? 'mock-sync' : 'mock-async', {
+          operation: 'edit', referenceIds: [ref.referenceId],
+        });
+        const quote = await service.quote(claims, dto);
+        const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'original-job' });
+        let original = await service.submit(claims, input);
+        if (status === 'RUNNING') original = await service.receipt(claims, original.receiptId);
+        expect(original.status).toBe(status);
+        const downloadable = status === 'SUCCEEDED' ? original : await submit('mock-sync', {}, 'downloadable-job');
+        const freshQuote = await service.quote(claims, dto);
+        const freshInput = MediaGatewayRequestSchema.parse({ ...dto, quoteId: freshQuote.quoteId, clientRequestId: 'new-job' });
+        const assertNoEffects = observeEffects();
+        loseAccess();
+
+        const operations = [
+          () => service.findByClientId(claims, original.clientRequestId),
+          () => service.receipt(claims, original.receiptId),
+          () => service.content(claims, downloadable.receiptId, downloadable.outputs[0].outputId),
+          () => service.quote(claims, dto),
+          () => service.submit(claims, input),
+          () => service.submit(claims, freshInput),
+          () => service.cancel(claims, original.receiptId),
+        ];
+        for (const operation of operations) {
+          prisma.enterpriseMember.findFirst.mockClear();
+          prisma.subscription.findFirst.mockClear();
+          await error(operation(), 403, 'MEDIA_FORBIDDEN');
+          expect(prisma.enterpriseMember.findFirst).toHaveBeenCalledTimes(1);
+          expect(prisma.subscription.findFirst).toHaveBeenCalledTimes(loss === 'member disabled' ? 0 : 1);
+          assertNoEffects();
+        }
+
+        prisma.enterpriseMember.findFirst.mockResolvedValue({ departmentId: 'department-1' });
+        prisma.subscription.findFirst.mockResolvedValue({ id: claims.subscriptionId });
+        const restarted = instance();
+        expect(await restarted.findByClientId(claims, original.clientRequestId)).toEqual(original);
+        expect(await restarted.submit(claims, input)).toEqual(original);
+        expect((await restarted.content(claims, downloadable.receiptId, downloadable.outputs[0].outputId)).bytes).toEqual(MEDIA_MOCK_PNG);
+        assertNoEffects();
+      },
+    );
+
+    it.each(losses)('does not recover or mutate an overdue SUBMITTING job after %s', async (loss) => {
+      const loseAccess = accessFixture(loss);
+      const dto = payload('mock-async');
+      const quote = await service.quote(claims, dto);
+      const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'unacknowledged-job' });
+      const originalClaim = store.claim.bind(store);
+      jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+        await originalClaim(claim);
+        mediaStorageUnavailable();
+      });
+      const dispatch = jest.spyOn(adapter, 'submit');
+      await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+      expect(dispatch).not.toHaveBeenCalled();
+      const pending = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+      expect(pending.receipt.status).toBe('SUBMITTING');
+      jest.mocked(store.claim).mockClear();
+      const assertNoEffects = observeEffects();
+      loseAccess();
+      jest.setSystemTime(pending.submissionDeadline.getTime());
+
+      for (const operation of [
+        () => service.findByClientId(claims, input.clientRequestId),
+        () => service.receipt(claims, pending.receipt.receiptId),
+        () => service.submit(claims, input),
+      ]) {
+        await error(operation(), 403, 'MEDIA_FORBIDDEN');
+        assertNoEffects();
+      }
+
+      prisma.enterpriseMember.findFirst.mockResolvedValue({ departmentId: 'department-1' });
+      prisma.subscription.findFirst.mockResolvedValue({ id: claims.subscriptionId });
+      expect(await instance().findByClientId(claims, input.clientRequestId)).toMatchObject({
+        receiptId: pending.receipt.receiptId, status: 'SUBMISSION_UNKNOWN', errorCode: 'SUBMISSION_UNKNOWN',
+      });
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(store.state.requests.size).toBe(1);
+    });
+  });
+
   it('retains idempotency keys beyond 1000 requests without eviction or a process-local cap', async () => {
     const quote = await service.quote(claims, payload());
     const spy = jest.spyOn(adapter, 'submit');

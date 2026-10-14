@@ -257,7 +257,7 @@ integration('SEP and desktop client HTTP / PostgreSQL mock integration', () => {
         { provide: SessionService, useValue: { assertActiveSession: async () => { sessionsChecked++; } } },
         { provide: GatewayAuthRateLimitService, useValue: { consumeFailure: async () => ({ allowed: true }) } },
         { provide: PrismaService, useValue: { enterpriseMember: { findFirst: async () => ({ departmentId: null }) },
-          subscription: { findFirst: async () => ({ id: subscriptionId }) } } },
+          subscription: { findFirst: async () => fixture.state === 'revoked' ? null : ({ id: subscriptionId }) } } },
         { provide: MediaGatewayStore, useValue: new MediaGatewayStore(database as unknown as PrismaService) },
       ],
     }).overrideGuard(JwtAuthGuard).useClass(SyntheticAccessGuard).overrideProvider(getOptionsToken()).useValue([{ name: 'default', ttl: 60_000, limit: 1000 },
