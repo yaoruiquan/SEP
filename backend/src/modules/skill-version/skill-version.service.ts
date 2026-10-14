@@ -12,6 +12,7 @@ import {
   SkillVersionScope,
   SkillVersionStatus,
 } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { EnterpriseSkillDefaultService } from './enterprise-skill-default.service';
@@ -596,13 +597,20 @@ export class SkillVersionService {
       owner: version.owner ?? version.sourceVersion?.owner ?? null };
   }
 
-  async createPlatformVersion(userId: string, capabilityId: string, dto: CreatePlatformSkillVersionDto) {
+  async createPlatformVersion(userId: string, capabilityId: string, dto: CreatePlatformSkillVersionDto,
+    guard?: { expectedTemplateSha256: string }) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${capabilityId} FOR UPDATE`;
       const capability = await tx.capability.findUnique({ where: { id: capabilityId } });
       if (!capability) throw new NotFoundException('技能不存在');
       if (capability.type !== 'SKILL') throw new BadRequestException('只有 SKILL 支持版本');
       if (capability.enterpriseId) throw new BadRequestException('私有企业技能须选择来源并复制为平台技能');
+      if (guard) {
+        const config = await tx.skillConfig.findUnique({ where: { capabilityId }, select: { template: true } });
+        if (!config || createHash('sha256').update(config.template).digest('hex') !== guard.expectedTemplateSha256) {
+          throw new ConflictException('历史模板已变化，请重新审阅后补版');
+        }
+      }
       if (await tx.skillVersion.count({ where: { capabilityId } })) {
         throw new ConflictException('仅允许首次创建技能正文，已有技能须选择客户端来源版本');
       }
@@ -850,6 +858,7 @@ export class SkillVersionService {
     await tx.skillConfig.upsert({ where: { capabilityId: version.capabilityId },
       create: { capabilityId: version.capabilityId, template: version.content }, update: { template: version.content } });
     await this.advancePlatformBindingDefaults(tx, version.capabilityId, version.id);
+    if (await this.platformSettings?.getEffectiveValue('CONTRIBUTION_REWARDS_ENABLED') !== 'true') return;
     // Independent platform copies retain the original capability's reward identity.
     let origin = version.sourceVersion?.capability ?? version.capability;
     if (origin.id === version.capabilityId) {

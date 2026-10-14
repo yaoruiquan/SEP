@@ -54,6 +54,16 @@ function goToContentStep() {
   fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
 }
 
+async function goToInfoStep() {
+  goToContentStep();
+  const input = document.querySelector('input[type="file"][accept=".zip,application/zip"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['rpa'], 'invoice-rpa.zip', { type: 'application/zip' })] } });
+  await screen.findByText('invoice-rpa.zip');
+  fireEvent.change(screen.getByPlaceholderText(/账号\/环境要求/), { target: { value: '需要安装客户端并配置目录后使用' } });
+  fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+  fireEvent.change(screen.getByPlaceholderText(/竞品周报生成器/), { target: { value: '发票 RPA' } });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -120,5 +130,38 @@ describe('创建能力贡献', () => {
     expect(body.skillConfig).toBeUndefined();
     expect(uploadMutation).not.toHaveBeenCalled();
     expect(body.rpaConfig).toMatchObject({ packageSha256: 'c'.repeat(64), packageFilename: 'invoice-rpa.zip' });
+  });
+
+  it('弹窗接受非空短描述并 trim，而不是用 10 字硬限拦截', async () => {
+    renderDialog(); await goToInfoStep();
+    fireEvent.change(screen.getByPlaceholderText(/说明它解决什么问题/), { target: { value: ' 短描述 ' } });
+    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
+    expect(createMutation).toHaveBeenCalledWith(expect.objectContaining({ description: '短描述', type: 'rpa' }), expect.any(Object));
+  });
+
+  it.each([' \n ', 'x'.repeat(2001)])('空白或超预算描述不能创建', async (description) => {
+    renderDialog(); await goToInfoStep();
+    fireEvent.change(screen.getByPlaceholderText(/说明它解决什么问题/), { target: { value: description } });
+    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
+    expect(createMutation).not.toHaveBeenCalled();
+  });
+
+  it('贡献信息接受名称 100/描述 2000 边界，保留上传包身份', async () => {
+    renderDialog(); await goToInfoStep();
+    fireEvent.change(screen.getByPlaceholderText(/竞品周报生成器/), { target: { value: 'a'.repeat(100) } });
+    fireEvent.change(screen.getByPlaceholderText(/说明它解决什么问题/), { target: { value: 'x'.repeat(2000) } });
+    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
+    expect(createMutation).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'a'.repeat(100), description: 'x'.repeat(2000),
+      rpaConfig: expect.objectContaining({ packageSha256: 'c'.repeat(64), packageFilename: 'invoice-rpa.zip' }),
+    }), expect.any(Object));
+  });
+
+  it.each(['   ', 'a'.repeat(101)])('空白或超预算名称不能创建', async (name) => {
+    renderDialog(); await goToInfoStep();
+    fireEvent.change(screen.getByPlaceholderText(/竞品周报生成器/), { target: { value: name } });
+    fireEvent.change(screen.getByPlaceholderText(/说明它解决什么问题/), { target: { value: '短描述' } });
+    fireEvent.click(screen.getByRole('button', { name: /创建草稿/ }));
+    expect(createMutation).not.toHaveBeenCalled();
   });
 });

@@ -23,6 +23,7 @@ import { PackageSecurityService } from "./package-security.service";
  */
 const SKILL_BODY =
   "# 角色\n竞品分析助手\n# 输入\n竞品列表\n# 步骤\n1. 收集\n# 输出\n周报";
+const skillMarkdown = (body = SKILL_BODY) => `---\nname: 竞品周报\ndescription: 竞品分析与周报\n---\n${body}`;
 
 function zipBuffer(entries: Array<[string, string]>) {
   const zip = new AdmZip();
@@ -82,7 +83,7 @@ describe("POST /contributions/skill-package", () => {
       .post('/contributions/skill-package')
       .set('x-test-role', role)
       .set('User-Agent', userAgent)
-      .attach('file', zipBuffer([['SKILL.md', SKILL_BODY]]), 'initial.zip')
+      .attach('file', zipBuffer([['SKILL.md', skillMarkdown()]]), 'initial.zip')
       .expect(201);
 
     expect(security.scanSkill).toHaveBeenCalledWith(expect.objectContaining({
@@ -93,7 +94,7 @@ describe("POST /contributions/skill-package", () => {
 
   it("返回 sha256、包统计、正文与校验结论", async () => {
     const buffer = zipBuffer([
-      ["SKILL.md", `---\nname: 竞品周报\n---\n${SKILL_BODY}`],
+      ["SKILL.md", skillMarkdown()],
     ]);
 
     const res = await request(app.getHttpServer())
@@ -106,7 +107,7 @@ describe("POST /contributions/skill-package", () => {
     expect(res.body.totalBytes).toBe(buffer.length);
     expect(res.body.content.startsWith("# 角色")).toBe(true);
     expect(res.body.suggested.name).toBe("竞品周报");
-    // 上传即校验：这份正文缺 frontmatter 之外的东西都齐了
+    // 上传即校验：合法入口与正文一并校验。
     expect(res.body.validation.valid).toBe(true);
     expect(res.body.validation.checks.length).toBeGreaterThan(0);
     // kind 是内部字段，不该出现在响应里
@@ -125,7 +126,7 @@ describe("POST /contributions/skill-package", () => {
       .post("/contributions/skill-package")
       .attach(
         "file",
-        zipBuffer([["SKILL.md", "# 角色\n只有角色一段，使用业务说明描述任务，其他标题都没写"]]),
+        zipBuffer([["SKILL.md", skillMarkdown("# 角色\n只有角色一段，使用业务说明描述任务，其他标题都没写")]]),
         "thin.zip",
       )
       .expect(201);

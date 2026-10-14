@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { SkillContentSchema } from './skill-content-schema';
+export * from './skill-content-schema';
 import type { EmployeeAvatarAsset } from './employee-avatar';
 export type { EmployeeAvatarAsset } from './employee-avatar';
 export * from './task.dto';
@@ -105,6 +107,7 @@ export const SETTING_KEYS = {
   ADMIN_NOTIFICATION_EMAIL: "ADMIN_NOTIFICATION_EMAIL",
   ABNORMAL_USAGE_THRESHOLD: "ABNORMAL_USAGE_THRESHOLD",
   SYSTEM_MAINTENANCE_NOTICE: "SYSTEM_MAINTENANCE_NOTICE",
+  CONTRIBUTION_REWARDS_ENABLED: "CONTRIBUTION_REWARDS_ENABLED",
   CONTRIBUTION_ENTERPRISE_REWARD_CNY: "CONTRIBUTION_ENTERPRISE_REWARD_CNY",
   CONTRIBUTION_PLATFORM_REWARD_CNY: "CONTRIBUTION_PLATFORM_REWARD_CNY",
   // 认证中心（运营端可动态配置）
@@ -360,6 +363,15 @@ export const SETTING_FIELDS: readonly SettingFieldMeta[] = [
     type: "number",
     unit: "元",
     min: 0,
+  },
+  {
+    key: SETTING_KEYS.CONTRIBUTION_REWARDS_ENABLED,
+    label: "贡献奖励开关",
+    secret: false,
+    envFallback: "CONTRIBUTION_REWARDS_ENABLED",
+    defaultValue: "false",
+    category: "billing",
+    type: "boolean",
   },
   {
     key: SETTING_KEYS.CONTRIBUTION_ENTERPRISE_REWARD_CNY,
@@ -844,7 +856,7 @@ export interface AuthResponse {
 // Capability Upload
 export const CapabilityUploadDtoSchema = z.object({
   name: z.string().min(1).max(100),
-  description: z.string().min(10).max(2000),
+  description: z.string().trim().min(1).max(2000),
   type: z.enum(["agent", "rpa", "skill", "ai-app"]),
   industry: z.array(z.string()),
   position: z.array(z.string()),
@@ -905,7 +917,7 @@ export const SkillPackageSha256Schema = z
  */
 export const ContributionSkillConfigDtoSchema = z
   .object({
-    template: z.string().min(20).optional(),
+    template: SkillContentSchema.optional(),
     packageSha256: SkillPackageSha256Schema.optional(),
     /** 展示用的原始文件名。定位靠 sha256，这个字段错了也不影响正文来源。 */
     packageFilename: z.string().max(120).optional(),
@@ -953,7 +965,7 @@ export interface SkillPackageParseResult {
 export const ContributionCapabilityCreateDtoSchema = z
   .object({
     name: z.string().min(1).max(100),
-    description: z.string().min(10).max(2000),
+    description: z.string().trim().min(1).max(2000),
     type: z.enum(["agent", "skill", "rpa"]),
     industry: z.array(z.string()).default([]),
     position: z.array(z.string()).default([]),
@@ -1009,7 +1021,7 @@ export type ContributionCapabilityCreateDto = z.infer<
 
 export const ContributionCapabilityUpdateDtoSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  description: z.string().min(10).max(2000).optional(),
+  description: z.string().trim().min(1).max(2000).optional(),
   industry: z.array(z.string()).optional(),
   position: z.array(z.string()).optional(),
   inputSchema: z.record(z.any()).optional(),
@@ -1041,7 +1053,7 @@ export const ContributionVersionCreateDtoSchema = z
   .object({
     /** 派生自哪个版本。不传则取该作用域内最新的版本，没有则取当前公开版本。 */
     parentVersionId: z.string().optional(),
-    content: z.string().min(20).optional(),
+    content: SkillContentSchema.optional(),
     packageSha256: SkillPackageSha256Schema.optional(),
     packageFilename: z.string().max(120).optional(),
     changeSummary: z.string().min(1).max(1000),
@@ -1055,7 +1067,7 @@ export type ContributionVersionCreateDto = z.infer<
 
 /** 作者在贡献中心编辑草稿版本的正文（仅在线编写的版本可改）。 */
 export const ContributionVersionUpdateDtoSchema = z.object({
-  content: z.string().min(20),
+  content: SkillContentSchema,
   changeSummary: z.string().min(1).max(1000).optional(),
 });
 export type ContributionVersionUpdateDto = z.infer<
@@ -1089,7 +1101,7 @@ export const EmployeeAvatarUrlSchema = z.union([
 
 export const DigitalEmployeeCreateDtoSchema = z.object({
   name: z.string().min(1).max(100),
-  description: z.string().min(10).max(2000),
+  description: z.string().trim().min(1).max(2000),
   industry: z.string(),
   position: z.string(),
   functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).default("OPERATIONS_ORG"),
@@ -1115,7 +1127,7 @@ export type DigitalEmployeeCreateDto = z.infer<
 
 export const DigitalEmployeeUpdateDtoSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  description: z.string().min(10).max(2000).optional(),
+  description: z.string().trim().min(1).max(2000).optional(),
   industry: z.string().optional(),
   position: z.string().optional(),
   functionalCategory: z.enum(["TECH", "PRODUCT_DESIGN", "MARKETING_GROWTH", "ECOMMERCE", "SALES_CUSTOMER", "OPERATIONS_ORG", "FINANCE_LEGAL"]).optional(),

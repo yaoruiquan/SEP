@@ -1,0 +1,744 @@
+{
+  "checkedAt": "2026-10-14T06:54:48.984Z",
+  "method": "Real backend artifact preparation and unchanged client parsing, executed in memory; no database writes or network calls",
+  "approvedArtifacts": 96,
+  "reviewedPreviewArtifacts": 9,
+  "passed": 105,
+  "results": [
+    {
+      "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+      "versionId": "cmuxhoyc100047qiivsozzx0t",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商经营诊断"
+    },
+    {
+      "capabilityId": "cmuxhoych00067qiib57oa2ez",
+      "versionId": "cmuxhoych00097qiife68x71m",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商漏斗分析"
+    },
+    {
+      "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+      "versionId": "cmuxhoyck000e7qiij6xunrtg",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商经营日报"
+    },
+    {
+      "capabilityId": "cmuxhoycn000g7qiiskdsh2yi",
+      "versionId": "cmuxhoycn000j7qiimmo61cbb",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商实验设计"
+    },
+    {
+      "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+      "versionId": "cmuxhoycq000o7qiihzfshatj",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "单品利润测算"
+    },
+    {
+      "capabilityId": "cmuxhoyct000q7qiit5qemxat",
+      "versionId": "cmuxhoyct000t7qii8f8rco75",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "大促活动复盘"
+    },
+    {
+      "capabilityId": "cmuxhoycx000v7qiikxbh9cox",
+      "versionId": "cmuxhoycx000y7qiipmydbjst",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "渠道归因分析"
+    },
+    {
+      "capabilityId": "cmuxhoyd000107qii569s600y",
+      "versionId": "cmuxhoyd000137qiitrl3prui",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "留存复购分析"
+    },
+    {
+      "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+      "versionId": "cmuxhoyd300187qiil50z0ij3",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商数据质检"
+    },
+    {
+      "capabilityId": "cmuxhoyd5001a7qiicg7mwifb",
+      "versionId": "cmuxhoyd5001d7qiig6w4rjoo",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "商品趋势挖掘"
+    },
+    {
+      "capabilityId": "cmuxhoyd8001f7qiizianabc6",
+      "versionId": "cmuxhoyd8001i7qiinxsc4l0p",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "商品机会评分"
+    },
+    {
+      "capabilityId": "cmuxhoyda001k7qii1bc4buop",
+      "versionId": "cmuxhoyda001n7qiilhp7k026",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "竞品价格监测"
+    },
+    {
+      "capabilityId": "cmuxhoyde001p7qiit758o2at",
+      "versionId": "cmuxhoyde001s7qii4x63o0bg",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "用户需求挖掘"
+    },
+    {
+      "capabilityId": "cmuxhoydg001u7qiic5uhx8eh",
+      "versionId": "cmuxhoydg001x7qiizngxrvfg",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商评论洞察"
+    },
+    {
+      "capabilityId": "cmuxhoydi001z7qiir36r50xi",
+      "versionId": "cmuxhoydi00227qiieftzdoib",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "商品资料治理"
+    },
+    {
+      "capabilityId": "cmuxhoydm00247qii50ghyx11",
+      "versionId": "cmuxhoydm00277qiik2uq9wzw",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "商品卖点结构化"
+    },
+    {
+      "capabilityId": "cmuxhoydo00297qii6u0waviz",
+      "versionId": "cmuxhoydo002c7qii0jo5sugs",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商视觉需求单"
+    },
+    {
+      "capabilityId": "cmuxhoydr002e7qii360byrbz",
+      "versionId": "cmuxhoydr002h7qiin8w0uv1w",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "SKU 生命周期管理"
+    },
+    {
+      "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+      "versionId": "cmuxhoydu002m7qiiw2643m7r",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "商品组合规划"
+    },
+    {
+      "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+      "versionId": "cmuxhoydw002r7qiirj0t363w",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "内容电商策略"
+    },
+    {
+      "capabilityId": "cmuxhoydz002t7qii9qs87zt1",
+      "versionId": "cmuxhoydz002w7qiie14n4wey",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "小红书种草策划"
+    },
+    {
+      "capabilityId": "cmuxhoye1002y7qii2gzuo5m9",
+      "versionId": "cmuxhoye100317qiihdaehvgs",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "抖音短视频策划"
+    },
+    {
+      "capabilityId": "cmuxhoye400337qiiu3tk5r3m",
+      "versionId": "cmuxhoye400367qii9wsu9k7z",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "快手内容策划"
+    },
+    {
+      "capabilityId": "cmuxhoye600387qii6oh4bemo",
+      "versionId": "cmuxhoye6003b7qiia2kcrtpe",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商视频脚本"
+    },
+    {
+      "capabilityId": "cmuxhoyea003d7qiiobucgg58",
+      "versionId": "cmuxhoyea003g7qiixw3bagzs",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "直播脚本编排"
+    },
+    {
+      "capabilityId": "cmuxhoyec003i7qii534icq16",
+      "versionId": "cmuxhoyec003l7qii7uq8exxj",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "内容排期管理"
+    },
+    {
+      "capabilityId": "cmuxhoyef003n7qiigd8l0so0",
+      "versionId": "cmuxhoyef003q7qiiviilsduz",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "达人合作策划"
+    },
+    {
+      "capabilityId": "cmuxhoyeh003s7qiitbs2a0hj",
+      "versionId": "cmuxhoyeh003v7qiif09obey8",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "评论区运营"
+    },
+    {
+      "capabilityId": "cmuxhoyej003x7qiih44n681w",
+      "versionId": "cmuxhoyej00407qiiuzzva7vf",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "私域内容运营"
+    },
+    {
+      "capabilityId": "cmuxhoyel00427qiie5sgespl",
+      "versionId": "cmuxhoyel00457qiiqfu9596k",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "直播间诊断"
+    },
+    {
+      "capabilityId": "cmuxhoyep00477qii9hrw8ji8",
+      "versionId": "cmuxhoyep004a7qiiamzowk35",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "直播商品编排"
+    },
+    {
+      "capabilityId": "cmuxhoyes004c7qiins1bat1y",
+      "versionId": "cmuxhoyes004f7qiis1m2gixe",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "主播话术教练"
+    },
+    {
+      "capabilityId": "cmuxhoyeu004h7qiij64vjnzi",
+      "versionId": "cmuxhoyeu004k7qii4ubzi87c",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商投放预算"
+    },
+    {
+      "capabilityId": "cmuxhoyex004m7qiif09ds48p",
+      "versionId": "cmuxhoyex004p7qii3nm3vzux",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "广告素材测试"
+    },
+    {
+      "capabilityId": "cmuxhoyez004r7qiiezmhyov4",
+      "versionId": "cmuxhoyez004u7qiigwgnzwu8",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "国内电商搜索投放"
+    },
+    {
+      "capabilityId": "cmuxhoyf2004w7qii30aim3ap",
+      "versionId": "cmuxhoyf2004z7qiiqdetk5pa",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "广告投放审计"
+    },
+    {
+      "capabilityId": "cmuxhoyf500517qiitnsq68kl",
+      "versionId": "cmuxhoyf500547qii6i3xxl7c",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "促销机制设计"
+    },
+    {
+      "capabilityId": "cmuxhoyf800567qiijooc51pw",
+      "versionId": "cmuxhoyf800597qiisl02jj01",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "活动流量规划"
+    },
+    {
+      "capabilityId": "cmuxhoyfa005b7qiis2jn4pv6",
+      "versionId": "cmuxhoyfa005e7qiiawksf9rt",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "分销佣金设计"
+    },
+    {
+      "capabilityId": "cmuxhoyfd005g7qiiaz2pi6ef",
+      "versionId": "cmuxhoyfd005j7qii0igluyj2",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "售前咨询响应"
+    },
+    {
+      "capabilityId": "cmuxhoyff005l7qiike5ga63l",
+      "versionId": "cmuxhoyff005o7qiicw5ickkg",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "订单物流查询"
+    },
+    {
+      "capabilityId": "cmuxhoyfi005q7qiif4lcf8xf",
+      "versionId": "cmuxhoyfi005t7qiijc14bw1k",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "售后工单分流"
+    },
+    {
+      "capabilityId": "cmuxhoyfk005v7qiit795vb78",
+      "versionId": "cmuxhoyfk005y7qiimim57s5o",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "退款风险识别"
+    },
+    {
+      "capabilityId": "cmuxhoyfn00607qii2sz3kaia",
+      "versionId": "cmuxhoyfn00637qii3uq07ymn",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客诉升级处理"
+    },
+    {
+      "capabilityId": "cmuxhoyfq00657qii5izuvuu0",
+      "versionId": "cmuxhoyfq00687qii89c9bkxy",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客服知识库整理"
+    },
+    {
+      "capabilityId": "cmuxhoyfs006a7qiigpaz7g3o",
+      "versionId": "cmuxhoyft006d7qiiyh4l8kfz",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客服质检"
+    },
+    {
+      "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+      "versionId": "cmuxhoyfv006i7qiiut2ayyhm",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客户意图识别"
+    },
+    {
+      "capabilityId": "cmuxhoyfx006k7qii7cvg2ce2",
+      "versionId": "cmuxhoyfx006n7qiiembbv2ji",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "会话总结交接"
+    },
+    {
+      "capabilityId": "cmuxhoyg0006p7qiinatgh778",
+      "versionId": "cmuxhoyg0006s7qiicq8ihedz",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客服合规话术"
+    },
+    {
+      "capabilityId": "cmuxhoyg2006u7qii0pfp3il6",
+      "versionId": "cmuxhoyg2006x7qiixou2tvl6",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "库存需求预测"
+    },
+    {
+      "capabilityId": "cmuxhoyg5006z7qiifmv5eohu",
+      "versionId": "cmuxhoyg500727qiia0qvz3hf",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "补货建议"
+    },
+    {
+      "capabilityId": "cmuxhoyg700747qii4l6yvks9",
+      "versionId": "cmuxhoyg700777qiivyueuck1",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "滞销品治理"
+    },
+    {
+      "capabilityId": "cmuxhoyg900797qiiovb5fbbc",
+      "versionId": "cmuxhoyg9007c7qiiy8fwavmt",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "供应商评估"
+    },
+    {
+      "capabilityId": "cmuxhoygc007e7qii04px2ose",
+      "versionId": "cmuxhoygc007h7qiirff3mvxk",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "1688货源研究"
+    },
+    {
+      "capabilityId": "cmuxhoygf007j7qiigbo4mk3r",
+      "versionId": "cmuxhoygf007m7qiiybqolaow",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "采购成本优化"
+    },
+    {
+      "capabilityId": "cmuxhoygh007o7qiirq9q4h8i",
+      "versionId": "cmuxhoygh007r7qii0t8c94ek",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "仓内作业规划"
+    },
+    {
+      "capabilityId": "cmuxhoygj007t7qiiqa6q9k5v",
+      "versionId": "cmuxhoygj007w7qiirasu4u0t",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "履约异常处理"
+    },
+    {
+      "capabilityId": "cmuxhoygm007y7qii0i91ka34",
+      "versionId": "cmuxhoygm00817qiilow4tf4m",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "发货时效管理"
+    },
+    {
+      "capabilityId": "cmuxhoygo00837qii80f69y6p",
+      "versionId": "cmuxhoygo00867qiix13es0uz",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "退货质检与再销售"
+    },
+    {
+      "capabilityId": "cmuxhoygr00887qiipo8aox75",
+      "versionId": "cmuxhoygr008b7qiir0g4z5om",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客户分层"
+    },
+    {
+      "capabilityId": "cmuxhoygt008d7qii4ou4t7l4",
+      "versionId": "cmuxhoygt008g7qiig22j29b7",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "会员生命周期"
+    },
+    {
+      "capabilityId": "cmuxhoygw008i7qiiwvfqun28",
+      "versionId": "cmuxhoygw008l7qiiqoiq11hb",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "私域增长运营"
+    },
+    {
+      "capabilityId": "cmuxhoygy008n7qiix64j96xc",
+      "versionId": "cmuxhoygy008q7qiig5jdu2ut",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "复购运营"
+    },
+    {
+      "capabilityId": "cmuxhoyh1008s7qii1l09jrwi",
+      "versionId": "cmuxhoyh1008v7qii5rf191li",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "优惠券策略"
+    },
+    {
+      "capabilityId": "cmuxhoyh4008x7qii1p8uhid1",
+      "versionId": "cmuxhoyh400907qii38grgw8p",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "社群运营"
+    },
+    {
+      "capabilityId": "cmuxhoyh600927qiit9p5syh6",
+      "versionId": "cmuxhoyh600957qiizw3jbr27",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "CRM 标签体系"
+    },
+    {
+      "capabilityId": "cmuxhoyh900977qii27il4r7y",
+      "versionId": "cmuxhoyh9009a7qii83ak1brb",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "客户价值分析"
+    },
+    {
+      "capabilityId": "cmuxhoyhc009c7qiiixas6lsm",
+      "versionId": "cmuxhoyhc009f7qiiqh6pawix",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "老客转介绍"
+    },
+    {
+      "capabilityId": "cmuxhoyhe009h7qiii27morqz",
+      "versionId": "cmuxhoyhe009k7qiieglxwcgj",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "会员权益设计"
+    },
+    {
+      "capabilityId": "cmuxhoyhh009m7qiizup0gg30",
+      "versionId": "cmuxhoyhh009p7qiim4jyqzdr",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "平台账务对账"
+    },
+    {
+      "capabilityId": "cmuxhoyhl009r7qiidumf1dxr",
+      "versionId": "cmuxhoyhm009u7qiigzysymhd",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商现金流计划"
+    },
+    {
+      "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+      "versionId": "cmuxhoyho009z7qiiyj3ern1y",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商单位经济模型"
+    },
+    {
+      "capabilityId": "cmuxhoyhs00a17qiieljubrab",
+      "versionId": "cmuxhoyhs00a47qiithubzof8",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "发票与税务资料"
+    },
+    {
+      "capabilityId": "cmuxhoyhu00a67qiixt2l4c2j",
+      "versionId": "cmuxhoyhu00a97qiiqimgli97",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "平台规则核查"
+    },
+    {
+      "capabilityId": "cmuxhoyhw00ab7qii1tx7jsaj",
+      "versionId": "cmuxhoyhw00ae7qiisgj8hl4i",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "广告合规审查"
+    },
+    {
+      "capabilityId": "cmuxhoyhz00ag7qiiqbrd6ea4",
+      "versionId": "cmuxhoyhz00aj7qii56sd5qnq",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商隐私保护"
+    },
+    {
+      "capabilityId": "cmuxhoyi200al7qiimep8gklx",
+      "versionId": "cmuxhoyi200ao7qiin4vh3m2u",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "交易风控初筛"
+    },
+    {
+      "capabilityId": "cmuxhoyi400aq7qii8yjw77it",
+      "versionId": "cmuxhoyi400at7qiijmm2jl3j",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商合作协议审阅"
+    },
+    {
+      "capabilityId": "cmuxhoyi700av7qii7950ferg",
+      "versionId": "cmuxhoyi700ay7qiil07ocgab",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "经营证据归档"
+    },
+    {
+      "capabilityId": "cmuxhoyia00b07qiio9xr6lo2",
+      "versionId": "cmuxhoyia00b37qiifqqcu6a3",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "多平台经营协同"
+    },
+    {
+      "capabilityId": "cmuxhoyid00b57qii5cyjixl8",
+      "versionId": "cmuxhoyid00b87qiihkyj00c2",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商 SOP 编排"
+    },
+    {
+      "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+      "versionId": "cmuxhoyih00bd7qii32zsbc1i",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商任务规划"
+    },
+    {
+      "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+      "versionId": "cmuxhoyij00bi7qiio75203do",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商知识库维护"
+    },
+    {
+      "capabilityId": "cmuxhoyil00bk7qiis0c288dh",
+      "versionId": "cmuxhoyil00bn7qiir52vlavx",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商会议纪要"
+    },
+    {
+      "capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr",
+      "versionId": "cmuxhoyiq00bs7qiiqeztop6o",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "电商目标复盘"
+    },
+    {
+      "capabilityId": "cmuxhoyis00bu7qiiminipz4n",
+      "versionId": "cmuxhoyis00bx7qii9drugzpk",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "供应商沟通助手"
+    },
+    {
+      "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+      "versionId": "cmv7r838100027qdnt2ntdn0j",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-abc4b58d6e235d1dab0cb846"
+    },
+    {
+      "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+      "versionId": "cmv7r839o00087qdnvbonmlwl",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-8b26f07eaec154c2b3d0e56a"
+    },
+    {
+      "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+      "versionId": "cmv7r83a9000e7qdnurvij25m",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-47d495c84c62926fb536bb13"
+    },
+    {
+      "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+      "versionId": "cmv7r83al000k7qdnpxf47zjv",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-dcbe02e5b8f7ca7e76a43bdc"
+    },
+    {
+      "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+      "versionId": "cmv7r83bu000q7qdnef9ekg5b",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-7241382c062002b03646aa3c"
+    },
+    {
+      "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+      "versionId": "cmv7r83cy000w7qdncenua6mx",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-3918e14bb3eacf67903e37da"
+    },
+    {
+      "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+      "versionId": "cmv7r83dt00127qdnkreol8xr",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-0af6c6b52a5f3d7308e6d0ca"
+    },
+    {
+      "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+      "versionId": "cmv7r83e700187qdnqxk56e5p",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-4ed12b1527bf67771e19debb"
+    },
+    {
+      "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+      "versionId": "cmv7r83ex001e7qdntp1g0jf0",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-50c3e7373602d27651a6f470"
+    },
+    {
+      "capabilityId": "cmszr2p56005a7qr5xitkx1xw",
+      "versionId": "sv_7f6e445b71df23d238700fdd7131d749",
+      "source": "APPROVED",
+      "status": "PASS",
+      "name": "sep-fa25c4829a01b03e53af19ea"
+    },
+    {
+      "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+      "versionId": "reviewed-cmt2lfhgs001i7qar4u8acc1u",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-abc4b58d6e235d1dab0cb846"
+    },
+    {
+      "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+      "versionId": "reviewed-cmt2lfhi300257qarb8y9umiu",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-8b26f07eaec154c2b3d0e56a"
+    },
+    {
+      "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+      "versionId": "reviewed-cmt2lfhia002f7qarn6jzpz5v",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-47d495c84c62926fb536bb13"
+    },
+    {
+      "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+      "versionId": "reviewed-cmt2lfhhi001n7qar5qltbb1d",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-dcbe02e5b8f7ca7e76a43bdc"
+    },
+    {
+      "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+      "versionId": "reviewed-cmt2lfhhv001x7qard9g0fm8q",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-7241382c062002b03646aa3c"
+    },
+    {
+      "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+      "versionId": "reviewed-cmt2lfhhp001s7qarocrkaf4q",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-3918e14bb3eacf67903e37da"
+    },
+    {
+      "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+      "versionId": "reviewed-cmt2lfhi9002d7qarng6pacwo",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-0af6c6b52a5f3d7308e6d0ca"
+    },
+    {
+      "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+      "versionId": "reviewed-cmt2lfhhw001z7qarijpfrkio",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-4ed12b1527bf67771e19debb"
+    },
+    {
+      "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+      "versionId": "reviewed-cmt2lfhi300277qaraa5mxn9i",
+      "source": "REVIEWED_PREVIEW_NOT_PUBLISHED",
+      "status": "PASS",
+      "name": "sep-50c3e7373602d27651a6f470"
+    }
+  ]
+}

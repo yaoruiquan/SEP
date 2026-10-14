@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AgentConfig } from '@prisma/client';
+import { SKILL_CONTENT_MAX_BYTES } from '../../shared/skill-content-schema';
 
 export type ValidationIssue = {
   code: string;
@@ -21,6 +22,17 @@ const SENSITIVE_PATTERNS: Array<{ code: string; pattern: RegExp; message: string
   { code: 'PRIVATE_KEY', pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, message: '正文疑似包含私钥' },
 ];
 
+function isCredentialPlaceholder(value: string): boolean {
+  const token = value.replace(/^["'`]|["'`,;]+$/g, '');
+  return /^(?:\$\{[^}]+\}|\$[A-Z_][A-Z0-9_]*|\{\{[^}]+\}\}|<[^>]+>|(?:process\.env|os\.environ)[.\[][\w"'\]]+|YOUR(?:[_-][A-Z0-9]+)*|(?:DUMMY|PLACEHOLDER|REPLACE|INSERT|CHANGE)(?:[_-][A-Z0-9]+)*|[x*]{3,}|sk-(?:x{3,}|your[-_]?(?:api[-_]?)?key|placeholder)|(?:你的|填写|替换|示例|请填)[\p{L}\p{N}_-]*)$/iu.test(token);
+}
+
+function withoutCredentialPlaceholders(content: string): string {
+  return content.replace(/\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*([^\s`]+|`[^`]+`)/gi,
+    (assignment, value: string) => isCredentialPlaceholder(value) ? '' : assignment)
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, (value) => isCredentialPlaceholder(value) ? '' : value);
+}
+
 const HEADING_ALIASES: Record<string, RegExp> = {
   role: /^(?:角色|人设|role|persona)$/i,
   input: /^(?:输入|输入参数|input|inputs)$/i,
@@ -39,7 +51,9 @@ export class CapabilityValidatorService {
     const warnings: ValidationIssue[] = [];
     const checks: CapabilityValidationResult['checks'] = [];
 
-    this.check(checks, issues, 'CONTENT_LENGTH', normalized.length >= 20, 'Skill 正文至少需要 20 个字符', 'content');
+    this.check(checks, issues, 'CONTENT_LENGTH', normalized.length > 0, 'Skill 正文不能为空', 'content');
+    this.check(checks, issues, 'CONTENT_BYTES', Buffer.byteLength(content, 'utf8') <= SKILL_CONTENT_MAX_BYTES,
+      'Skill 正文不能超过 500KiB（UTF-8）', 'content');
     const headings = this.extractHeadings(normalized);
     for (const [section, matcher] of Object.entries(HEADING_ALIASES)) {
       const passed = headings.some((heading) => matcher.test(heading));
@@ -48,10 +62,11 @@ export class CapabilityValidatorService {
       checks.push({ code, passed, message });
       if (!passed) warnings.push({ code, message, path: section });
     }
+    const credentialContent = withoutCredentialPlaceholders(normalized);
     for (const item of SENSITIVE_PATTERNS) {
-      if (item.pattern.test(normalized)) issues.push({ code: item.code, message: item.message, path: 'content' });
+      if (item.pattern.test(credentialContent)) issues.push({ code: item.code, message: item.message, path: 'content' });
     }
-    const sensitiveCheck = !SENSITIVE_PATTERNS.some((item) => item.pattern.test(normalized));
+    const sensitiveCheck = !SENSITIVE_PATTERNS.some((item) => item.pattern.test(credentialContent));
     this.check(checks, issues, 'NO_SENSITIVE_CREDENTIALS', sensitiveCheck, '正文不能包含敏感凭据', 'content');
     if (!normalized.includes('```')) warnings.push({ code: 'NO_CODE_BLOCK', message: '建议使用代码块明确输入输出示例', path: 'content' });
 

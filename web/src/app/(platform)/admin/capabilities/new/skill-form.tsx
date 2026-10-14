@@ -14,15 +14,15 @@ import { toast } from '@/components/ui/toast';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { api, uploadForm } from '@/lib/api-client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { CapabilityUploadDtoSchema } from '../../../../../../../backend/src/shared';
 
 const INDUSTRIES = ['电商', '跨境电商', '金融', '教育', '医疗', '通用'];
 const POSITIONS = ['客服', '销售', '市场', '运营', '技术', '通用'];
 
-const skillFormSchema = z.object({
-  name: z.string().min(1, '能力名称不能为空'),
-  description: z.string().min(10, '描述至少 10 个字符'),
-  industry: z.array(z.string()),
-  position: z.array(z.string()),
+const skillFormSchema = CapabilityUploadDtoSchema.pick({ name: true, description: true, industry: true, position: true }).extend({
+  name: z.string().trim().pipe(CapabilityUploadDtoSchema.shape.name),
+  description: z.string().trim().min(1, '描述不能为空')
+    .max(CapabilityUploadDtoSchema.shape.description.maxLength ?? 2000),
 });
 
 type SkillFormValues = z.infer<typeof skillFormSchema>;
@@ -187,7 +187,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">能力名称</Label>
-            <Input id="name" placeholder="例如：前端代码生成助手" {...register('name')} />
+            <Input id="name" maxLength={100} placeholder="例如：前端代码生成助手" {...register('name')} />
             {errors.name && <p className="text-sm text-red-600">{errors.name.message}</p>}
           </div>
 
@@ -197,6 +197,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
               id="description"
               placeholder="详细描述该 SKILL 的功能和用途"
               rows={4}
+              maxLength={2000}
               {...register('description')}
             />
             {errors.description && <p className="text-sm text-red-600">{errors.description.message}</p>}

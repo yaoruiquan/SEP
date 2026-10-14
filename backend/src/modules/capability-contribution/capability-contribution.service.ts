@@ -689,6 +689,7 @@ export class CapabilityContributionService {
       throw new ConflictException("只有待企业审核能力可以审核");
     await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     const approved = dto.decision === "APPROVE";
+    const rewardsEnabled = approved && await this.setting?.getEffectiveValue("CONTRIBUTION_REWARDS_ENABLED") === "true";
     const result = await this.prisma.$transaction(async (tx) => {
       const pendingSkillVersions = capability.type === "SKILL"
         ? ((await tx.skillVersion.findMany({
@@ -756,7 +757,7 @@ export class CapabilityContributionService {
           dto.comment,
         );
       }
-      if (approved) {
+      if (rewardsEnabled) {
         const amount = await this.rewardAmount("enterprise");
         const dedupeKey = `enterprise-approved:${capability.id}`;
         await tx.contributionRewardEvent.createMany({
@@ -794,13 +795,13 @@ export class CapabilityContributionService {
       category: "APPROVAL",
       title: approved ? "企业审核已通过" : "企业审核未通过",
       message: approved
-        ? `能力「${capability.name}」已通过企业审核，奖励已入账。`
+        ? `能力「${capability.name}」已通过企业审核${rewardsEnabled ? "，奖励已入账" : ""}。`
         : `能力「${capability.name}」未通过企业审核：${dto.comment ?? "请查看审核意见"}`,
       relatedType: "capability",
       relatedId: capability.id,
       actionUrl: `/contributions/${capability.id}`,
     });
-    if (approved)
+    if (rewardsEnabled)
       await this.safeNotify({
         userId: capability.contributorId,
         type: "CONTRIBUTION_REWARD_CREDITED",
@@ -957,6 +958,7 @@ export class CapabilityContributionService {
       throw new ConflictException("只有待平台审核能力可以审核");
     await this.assertCapabilityPackageReviewable(capability.id, capability.type);
     const approved = dto.decision === "APPROVE";
+    const rewardsEnabled = approved && await this.setting?.getEffectiveValue("CONTRIBUTION_REWARDS_ENABLED") === "true";
     const result = await this.prisma.$transaction(async (tx) => {
       const pendingSkillVersions = capability.type === "SKILL"
         ? ((await tx.skillVersion.findMany({
@@ -1028,7 +1030,7 @@ export class CapabilityContributionService {
           dto.comment,
         );
       }
-      if (approved) {
+      if (rewardsEnabled) {
         const amount = await this.rewardAmount("platform");
         const dedupeKey = `platform-approved:${capability.id}`;
         await tx.contributionRewardEvent.createMany({
@@ -1066,13 +1068,13 @@ export class CapabilityContributionService {
       category: "APPROVAL",
       title: approved ? "平台审核已通过" : "平台审核未通过",
       message: approved
-        ? `能力「${capability.name}」已公开，奖励已入账。`
+        ? `能力「${capability.name}」已公开${rewardsEnabled ? "，奖励已入账" : ""}。`
         : `能力「${capability.name}」未通过平台审核：${dto.comment ?? "请查看审核意见"}`,
       relatedType: "capability",
       relatedId: capability.id,
       actionUrl: `/contributions/${capability.id}`,
     });
-    if (approved)
+    if (rewardsEnabled)
       await this.safeNotify({
         userId: capability.contributorId,
         type: "CONTRIBUTION_REWARD_CREDITED",

@@ -6,8 +6,8 @@ import { basename, join, posix, resolve, sep } from 'path';
 import { TextDecoder } from 'util';
 import { inflateRawSync } from 'zlib';
 import AdmZip from 'adm-zip';
-import matter from 'gray-matter';
-import { SkillArtifactFrontmatterSchema } from 'shared';
+import { isSafeSkillPathComponent, SkillArtifactFrontmatterSchema } from 'shared';
+import { parseSkillMarkdown, SKILL_CONTENT_MAX_BYTES, skillLocalResourceReferences } from '../../shared/skill-content';
 import { StorageService } from '../upload/storage/storage.service';
 
 /** zip 自身字节上限。包里只装 SKILL.md 与少量附件，20MB 足够且能挡住误传大文件。 */
@@ -17,7 +17,7 @@ const MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /** 条目数上限，防止上万个空条目把解析拖死。 */
 const MAX_ENTRIES = 500;
 /** SKILL.md 正文上限 */
-const MAX_SKILL_MARKDOWN_BYTES = 500 * 1024;
+const MAX_SKILL_MARKDOWN_BYTES = SKILL_CONTENT_MAX_BYTES;
 /** 包里必须存在的入口文件；按 basename 精确匹配，不能用 endsWith（会误收 NOTSKILL.md）。 */
 const SKILL_ENTRY_NAME = 'SKILL.md';
 /** zip 魔数 PK\x03\x04。只看扩展名会被改名的任意文件骗过。 */
@@ -95,7 +95,7 @@ export class SkillPackageService {
     this.assertZipMagic(file.buffer);
 
     const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
-    const parsed = this.parse(file.buffer, sha256);
+    const parsed = this.packageContent(this.validatePackage(file.buffer, sha256));
 
     if (this.usesSharedStorage()) {
       await this.storage!.put({ key: parsed.key, buffer: file.buffer, mime: 'application/zip', filename: file.originalname });
@@ -130,10 +130,10 @@ export class SkillPackageService {
       }
       throw error;
     }
-    return this.parse(buffer, sha256);
+    return this.packageContent(this.validatePackage(buffer, sha256));
   }
 
-  /** 批准客户端安装前的严格校验，不收紧旧 store/read 的历史包规则。 */
+  /** 上传、发布重读与安装共用相同的包校验。 */
   async readInstallablePackage(sha256: string): Promise<InstallableSkillPackage> {
     if (!/^[0-9a-f]{64}$/.test(sha256)) {
       throw new BadRequestException('sha256 格式非法');
@@ -150,6 +150,10 @@ export class SkillPackageService {
       }
       throw error;
     }
+    return this.validatePackage(buffer, sha256);
+  }
+
+  private validatePackage(buffer: Buffer, sha256: string): InstallableSkillPackage {
     try {
       if (buffer.length > SKILL_PACKAGE_MAX_BYTES) {
         throw new BadRequestException('包不能超过 20MB');
@@ -199,34 +203,53 @@ export class SkillPackageService {
         if (entry === skillEntry) entryBytes = bytes;
       }
       const raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entryBytes!);
-      if (!/^---\r?\n/.test(raw)) {
+      const parsed = parseSkillMarkdown(raw);
+      if (!parsed.hasFrontmatter) {
         throw new BadRequestException('SKILL.md 必须以 YAML frontmatter 开始');
       }
-      const frontmatter = SkillArtifactFrontmatterSchema.safeParse(matter(raw).data);
-      if (!frontmatter.success) {
+      const frontmatter = SkillArtifactFrontmatterSchema.safeParse(parsed.data);
+      if (!frontmatter.success || !parsed.content.trim()) {
         throw new BadRequestException('SKILL.md frontmatter 非法');
       }
       const { name } = frontmatter.data;
       const entryPath = skillEntry.entryName;
       const directory = posix.dirname(entryPath);
-      if (directory !== '.' && posix.basename(directory) !== name) {
+      if (directory !== '.' && posix.basename(directory).normalize('NFKC') !== name.normalize('NFKC')) {
         throw new BadRequestException('SKILL.md name 必须与所在目录名一致');
       }
-      const parsed = this.parse(buffer, sha256, entries);
+      const paths = new Set(files.map((entry) => entry.entryName.normalize('NFKC')));
+      for (const reference of skillLocalResourceReferences(parsed.content)) {
+        let resource: string;
+        try { resource = decodeURIComponent(reference); } catch { resource = reference; }
+        const target = posix.normalize(posix.join(directory, resource)).normalize('NFKC');
+        if (resource.startsWith('/') || /[\\\x00-\x1f\x7f:]/.test(resource) ||
+          target === '..' || target.startsWith('../') || !paths.has(target)) {
+          throw new BadRequestException('SKILL.md 引用的本地资源缺失或路径非法');
+        }
+      }
       return {
         buffer,
         sha256,
         skillName: name,
-        content: parsed.content,
+        content: parsed.content.trimStart(),
         entryPath,
         entrySha256: crypto.createHash('sha256').update(entryBytes!).digest('hex'),
-        totalBytes: parsed.totalBytes,
-        fileCount: parsed.fileCount,
+        totalBytes: buffer.length,
+        fileCount: files.length,
       };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new BadRequestException('SKILL 包非法或已损坏');
     }
+  }
+
+  private packageContent(pkg: InstallableSkillPackage): SkillPackageContent {
+    const zip = new AdmZip(pkg.buffer);
+    const raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(zip.getEntry(pkg.entryPath)!.getData());
+    const parsed = parseSkillMarkdown(raw);
+    return { key: this.keyFor(pkg.sha256), sha256: pkg.sha256, fileCount: pkg.fileCount,
+      totalBytes: pkg.totalBytes, content: pkg.content,
+      suggested: { name: pkg.skillName, description: this.readFrontmatterString(parsed.data, 'description', 2000) } };
   }
 
   /** 读取已存储的原始 ZIP；OSS 与本地磁盘共用此下载入口。 */
@@ -291,7 +314,7 @@ export class SkillPackageService {
     const seen = new Set<string>();
     for (const entry of entries) {
       const rawEntryName = (entry as AdmZipEntryWithRawName).rawEntryName;
-      const normalizedName = entry.entryName.replace(/\\/g, '/');
+      const normalizedName = entry.entryName.replace(/\\/g, '/').normalize('NFKC');
       // adm-zip may normalize traversal names before exposing entryName.
       // Validate the original central-directory name as well.
       this.assertSafeEntryName(rawEntryName?.toString('utf8') ?? entry.entryName, entry.entryName);
@@ -307,39 +330,6 @@ export class SkillPackageService {
       );
     }
     return entries;
-  }
-
-  /** 纯解析，无 IO。store 与 read 共用同一套校验，两条路径的结论不会漂移。 */
-  private parse(
-    buffer: Buffer,
-    sha256: string,
-    entries = this.validateEntries(buffer),
-  ): SkillPackageContent {
-    const files = entries.filter((entry) => !entry.isDirectory);
-    const skillEntry = files.find(
-      (entry) => basename(entry.entryName) === SKILL_ENTRY_NAME,
-    );
-    if (!skillEntry) throw new BadRequestException('包内必须包含 SKILL.md');
-    if (skillEntry.header.size > MAX_SKILL_MARKDOWN_BYTES) {
-      throw new BadRequestException('SKILL.md 不能超过 500KB');
-    }
-
-    const raw = skillEntry.getData().toString('utf8');
-    const parsed = matter(raw);
-    const content = parsed.content.trimStart();
-    if (!content.trim()) throw new BadRequestException('SKILL.md 正文不能为空');
-
-    return {
-      key: this.keyFor(sha256),
-      sha256,
-      fileCount: files.length,
-      totalBytes: buffer.length,
-      content,
-      suggested: {
-        name: this.readFrontmatterString(parsed.data, 'name', 100),
-        description: this.readFrontmatterString(parsed.data, 'description', 2000),
-      },
-    };
   }
 
   private assertZipMagic(buffer: Buffer) {
@@ -366,8 +356,7 @@ export class SkillPackageService {
 
   private assertInstallableEntryName(entryName: string, isDirectory: boolean) {
     const path = isDirectory && entryName.endsWith('/') ? entryName.slice(0, -1) : entryName;
-    if (!entryName || entryName.length > 1024 || /[\\\x00-\x1f\x7f:]/.test(entryName) ||
-      path.split('/').some((part) => !part || part === '.' || part === '..')) {
+    if (!entryName || entryName.length > 1024 || !path.split('/').every(isSafeSkillPathComponent)) {
       throw new BadRequestException('包内条目必须为安全相对路径');
     }
   }

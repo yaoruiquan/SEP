@@ -20,7 +20,17 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { z } from 'zod';
 import { UserRole, UserStatus } from '@prisma/client';
-import { CnyAmountSchema } from 'shared';
+import { CapabilityUploadDtoSchema, CnyAmountSchema, DigitalEmployeeCreateDtoSchema, EmployeeAvatarUrlSchema } from 'shared';
+
+const EmployeeDescriptionSchema = z.string().trim().min(1, '描述不能为空')
+  .max(DigitalEmployeeCreateDtoSchema.shape.description.maxLength ?? 2000);
+const CapabilityDescriptionSchema = z.string().trim().min(1, '描述不能为空')
+  .max(CapabilityUploadDtoSchema.shape.description.maxLength ?? 2000);
+const CapabilityNameSchema = z.string().trim().pipe(CapabilityUploadDtoSchema.shape.name);
+const OptionalEmployeeAvatarSchema = z.preprocess(
+  (value) => typeof value === 'string' && !value.trim() ? undefined : value,
+  EmployeeAvatarUrlSchema.optional(),
+);
 
 const CreditAdjustmentSchema = z.object({
   amount: z.number().positive('金额必须大于0'),
@@ -44,10 +54,10 @@ const RejectEmployeeSchema = z.object({
 
 const CreateEmployeeSchema = z.object({
   name: z.string().min(1, '员工名称不能为空').max(100, '名称不能超过100字符'),
-  description: z.string().optional(),
+  description: EmployeeDescriptionSchema.optional(),
   industry: z.string().optional(),
   position: z.string().optional(),
-  avatar: z.string().url('头像必须是有效的URL').optional(),
+  avatar: OptionalEmployeeAvatarSchema,
   systemPrompt: z.string().optional(),
   modelId: z.string().optional(),
   maxSteps: z.number().int().positive().optional(),
@@ -60,10 +70,10 @@ const CreateEmployeeSchema = z.object({
 
 const UpdateEmployeeSchema = z.object({
   name: z.string().min(1, '员工名称不能为空').max(100, '名称不能超过100字符').optional(),
-  description: z.string().optional(),
+  description: EmployeeDescriptionSchema.optional(),
   industry: z.string().optional(),
   position: z.string().optional(),
-  avatar: z.string().url('头像必须是有效的URL').optional(),
+  avatar: OptionalEmployeeAvatarSchema,
   systemPrompt: z.string().optional(),
   modelId: z.string().optional(),
   maxSteps: z.number().int().positive().optional(),
@@ -73,8 +83,8 @@ const UpdateEmployeeSchema = z.object({
 });
 
 const CreateCapabilitySchema = z.object({
-  name: z.string().min(1, '能力名称不能为空').max(100, '名称不能超过100字符'),
-  description: z.string().min(1, '描述不能为空'),
+  name: CapabilityNameSchema,
+  description: CapabilityDescriptionSchema,
   type: z.enum(['AGENT', 'RPA', 'SKILL', 'AI_APP'], {
     errorMap: () => ({ message: '类型必须是 AGENT、RPA、SKILL 或 AI_APP' })
   }),
@@ -101,8 +111,8 @@ const CreateCapabilitySchema = z.object({
 });
 
 const UpdateCapabilitySchema = z.object({
-  name: z.string().min(1, '能力名称不能为空').max(100, '名称不能超过100字符').optional(),
-  description: z.string().optional(),
+  name: CapabilityNameSchema.optional(),
+  description: CapabilityDescriptionSchema.optional(),
   type: z.enum(['AGENT', 'RPA', 'SKILL', 'AI_APP']).optional(),
   industry: z.array(z.string()).optional(),
   position: z.array(z.string()).optional(),

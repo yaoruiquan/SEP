@@ -10,7 +10,16 @@ import { useAuthStore } from '@/lib/auth-store';
 import { cn } from '@/lib/utils';
 import { RpaPackageUpload } from './components/rpa-package-upload';
 import { useCreateContribution } from './use-contributions';
-import type { RpaPackageParseResult } from '../../../../backend/src/shared';
+import { ContributionCapabilityCreateDtoSchema, type RpaPackageParseResult } from '../../../../backend/src/shared';
+import { z } from 'zod';
+
+const contributionFormSchema = ContributionCapabilityCreateDtoSchema.innerType().pick({
+  name: true, description: true, type: true, industry: true, position: true,
+  inputSchema: true, outputSchema: true, rpaConfig: true,
+}).extend({
+  description: z.string().trim().min(1, '请填写能力说明')
+    .max(ContributionCapabilityCreateDtoSchema.innerType().shape.description.maxLength ?? 2000),
+});
 
 type ContributionType = 'rpa';
 type Step = 1 | 2 | 3;
@@ -48,11 +57,13 @@ export function ContributionCreateDialog({ open, onOpenChange }: { open: boolean
   const submit = () => {
     if (!configReady) { toast.error('请先上传 RPA ZIP 包并填写使用说明'); return; }
     if (!name.trim()) { toast.error('请填写能力名称'); return; }
-    if (description.trim().length < 10) { toast.error('能力说明至少需要 10 个字'); return; }
-    create.mutate({
+    if (!description.trim()) { toast.error('请填写能力说明'); return; }
+    const validated = contributionFormSchema.safeParse({
       name: name.trim(), description: description.trim(), type, industry: splitTags(industry), position: splitTags(position),
       rpaConfig: { platform: rpaPlatform, executionMode: 'download' as const, packageSha256: rpaPkg!.sha256, packageFilename: rpaPkg!.filename, configDoc: rpaDoc.trim() },
-    }, {
+    });
+    if (!validated.success) { toast.error(validated.error.issues[0]?.message || '请检查能力信息'); return; }
+    create.mutate(validated.data, {
       onSuccess: () => { toast.success('能力草稿已创建', '接下来可以提交企业审核'); close(false); },
       onError: (error) => toast.error(error instanceof Error ? error.message : '创建失败，请稍后重试'),
     });
@@ -82,7 +93,7 @@ function ConfigStep({ rpaPkg, rpaPlatform, rpaDoc, onRpaPackageChange, onRpaPlat
   return <div><SectionIntro eyebrow="02 / RPA 配置" title="上传可复用的自动化流程" description="平台只做 ZIP 结构与元数据检查，不执行其中的脚本或流程。审核通过后，授权用户可以下载并在本地导入。" /><div className="mt-5 grid gap-4"><RpaPackageUpload value={rpaPkg} onChange={onRpaPackageChange} /><label className="block text-sm text-gtext-secondary">RPA 平台<select value={rpaPlatform} onChange={(event) => onRpaPlatformChange(event.target.value as 'shizai' | 'yingdao')} className="mt-1.5 h-10 w-full rounded-glass-md border border-glassline bg-glass-2 px-3 text-sm text-gtext-primary outline-none focus:border-glassline-brand"><option value="shizai">实在智能</option><option value="yingdao">影刀</option></select></label><label className="block text-sm text-gtext-secondary">使用与环境说明<Textarea glass value={rpaDoc} onChange={(event) => onRpaDocChange(event.target.value)} placeholder="说明适用平台版本、导入步骤、账号/环境要求和注意事项（至少 10 个字）" className="mt-1.5 min-h-28 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{rpaDoc.trim().length} / 至少 10 个字符 · 不要填写密码、Token 等敏感信息</span></label></div></div>;
 }
 
-function InfoStep({ prefilled, name, description, industry, position, onNameChange, onDescriptionChange, onIndustryChange, onPositionChange }: { prefilled: boolean; name: string; description: string; industry: string; position: string; onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void; onIndustryChange: (value: string) => void; onPositionChange: (value: string) => void }) { return <div><SectionIntro eyebrow="03 / 信息" title="补充能力信息" description="信息会进入审核队列和能力目录；不要填写密码、Token、Cookie 或其他敏感信息。" />{prefilled && <p className="mt-4 rounded-glass-md border border-gsuccess/30 bg-gsuccess/10 p-3 text-xs text-gsuccess">已从上传的 SKILL.md frontmatter 预填名称与说明，你仍可在这里修改。</p>}<div className="mt-5 grid gap-4"><label className="block text-sm text-gtext-secondary">能力名称<Input glass value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：竞品周报生成器" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">能力说明<Textarea glass value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="说明它解决什么问题、输入输出是什么" className="mt-1.5 min-h-24 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{description.trim().length} / 至少 10 个字</span></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm text-gtext-secondary">适用行业<Input glass value={industry} onChange={(event) => onIndustryChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">适用岗位<Input glass value={position} onChange={(event) => onPositionChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label></div></div></div>; }
+function InfoStep({ prefilled, name, description, industry, position, onNameChange, onDescriptionChange, onIndustryChange, onPositionChange }: { prefilled: boolean; name: string; description: string; industry: string; position: string; onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void; onIndustryChange: (value: string) => void; onPositionChange: (value: string) => void }) { return <div><SectionIntro eyebrow="03 / 信息" title="补充能力信息" description="信息会进入审核队列和能力目录；不要填写密码、Token、Cookie 或其他敏感信息。" />{prefilled && <p className="mt-4 rounded-glass-md border border-gsuccess/30 bg-gsuccess/10 p-3 text-xs text-gsuccess">已从上传的 SKILL.md frontmatter 预填名称与说明，你仍可在这里修改。</p>}<div className="mt-5 grid gap-4"><label className="block text-sm text-gtext-secondary">能力名称<Input glass maxLength={100} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：竞品周报生成器" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">能力说明<Textarea glass maxLength={2000} value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="说明它解决什么问题、输入输出是什么" className="mt-1.5 min-h-24 resize-y" /><span className="mt-2 block text-[11px] text-gtext-muted">{description.trim().length} / 2000 个字符 · 建议至少 10 个字</span></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm text-gtext-secondary">适用行业<Input glass value={industry} onChange={(event) => onIndustryChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label><label className="block text-sm text-gtext-secondary">适用岗位<Input glass value={position} onChange={(event) => onPositionChange(event.target.value)} placeholder="多个标签用逗号分隔" className="mt-1.5" /></label></div></div></div>; }
 function SourceTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} aria-pressed={active} className={cn('h-7 rounded-glass-pill px-3 text-xs transition-all duration-200', active ? 'bg-gbg-raised text-gtext-primary shadow-glass-sm' : 'text-gtext-muted hover:bg-glass-3 hover:text-gtext-secondary')}>{children}</button>; }
 function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) { return <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gbrand-text">{eyebrow}</p><h3 className="mt-2 text-lg font-semibold text-gtext-primary">{title}</h3><p className="mt-1 max-w-xl text-sm leading-6 text-gtext-muted">{description}</p></div>; }
 function TypeChoice({ active, onClick, icon, title, desc }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; desc: string }) { return <button type="button" onClick={onClick} aria-pressed={active} className={cn('group flex min-h-28 items-start gap-3 rounded-glass-lg border p-4 text-left transition-all duration-150', active ? 'border-glassline-brand bg-gbrand/10 shadow-glass-sm' : 'border-glassline bg-glass-1 hover:border-glassline-brand/60 hover:bg-glass-2')}><span className={cn('mt-0.5 transition-colors', active ? 'text-gbrand-text' : 'text-gtext-muted group-hover:text-gbrand-text')}>{icon}</span><span><span className="flex items-center gap-2 text-sm font-semibold text-gtext-primary">{title}{active && <Check className="h-3.5 w-3.5 text-gbrand-text" />}</span><span className="mt-1 block text-xs leading-5 text-gtext-muted">{desc}</span></span></button>; }

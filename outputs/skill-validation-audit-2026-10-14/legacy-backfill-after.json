@@ -1,0 +1,86 @@
+{
+  "applied": false,
+  "databaseHost": "localhost",
+  "sideEffects": {
+    "contributionRewardsEnabled": false,
+    "contributionRewardsDisabledByRequest": false,
+    "contributionRewardPerCapabilityCNY": 50,
+    "newContributionRewards": 0,
+    "estimatedWalletCreditCNY": 0,
+    "partialCompletionPossible": true
+  },
+  "results": [
+    {
+      "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+      "name": "China E-Commerce Operator",
+      "sourceSha256": "2ac34237257541ed6fdb68b61d031eb0f747304581823802ab954494c9454ba3",
+      "reviewSummary": "审阅为国内电商咨询分析；保留历史参考内容，限制平台规则与效果目标",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r838100027qdnt2ntdn0j"
+    },
+    {
+      "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+      "name": "Content Creator",
+      "sourceSha256": "13c31a31d8429e1ed6f57d6bc7a88e93a508c47471e9176391aeab131b8eecf8",
+      "reviewSummary": "审阅为内容策划和文案草稿；不承诺媒体成品与自动发布",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r839o00087qdnvbonmlwl"
+    },
+    {
+      "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+      "name": "Customer Service",
+      "sourceSha256": "54685aad6383f2421053676605c47d476d1e5aa7f213ea24fb9928e97909ea69",
+      "reviewSummary": "移除已退款、账户修改和取消订阅的完成式示例，修订为国内电商客服草稿",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83a9000e7qdnurvij25m"
+    },
+    {
+      "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+      "name": "Livestream Commerce Coach",
+      "sourceSha256": "6f41391555332eaed0acf355a2ea4f5255e49428f5865917bbe44c843408acb7",
+      "reviewSummary": "移除不一致出价公式及未经证实的功效、最低价、库存话术，修订直播咨询与复盘",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83al000k7qdnpxf47zjv"
+    },
+    {
+      "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+      "name": "PPC Campaign Strategist",
+      "sourceSha256": "7cb68f5c4657bf804528018029d63c3f88d9d15e2aea31e05a20908ce179a2f1",
+      "reviewSummary": "将境外投放直接写账户指令改为国内电商投放咨询；不声称原生平台接入",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83bu000q7qdnef9ekg5b"
+    },
+    {
+      "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+      "name": "Private Domain Operator",
+      "sourceSha256": "6a396874df50fc13f9a70b7eed4ec692b72cd7ff51dc6fc2f9264bae68e140a4",
+      "reviewSummary": "审阅为企微和SCRM咨询；明确代码及数据库结构是参考示例",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83cy000w7qdncenua6mx"
+    },
+    {
+      "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+      "name": "Retail Customer Returns",
+      "sourceSha256": "1dd37003940f5ed4b359391a2f88bfc1d2306ccd5000a45bfe8010b1c1da1eff",
+      "reviewSummary": "移除美元、POS、固定退款窗口和扣费范例，修订国内电商售后证据流程",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83dt00127qdnkreol8xr"
+    },
+    {
+      "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+      "name": "Tracking & Measurement Specialist",
+      "sourceSha256": "98086f943dc39a4202693de5339c87ac9f226137032d16e1761d2fc1e8b5bb79",
+      "reviewSummary": "将海外追踪部署指令修订为国内转化口径核对咨询；保留个人数据边界",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83e700187qdnqxk56e5p"
+    },
+    {
+      "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+      "name": "Visual Storyteller",
+      "sourceSha256": "f6b0d370bc08d467886610e45d6e5aa39d89dc3d54bba92ff04334f3222f584d",
+      "reviewSummary": "移除未交付本地文件与命令依赖，修订为商品视觉brief和分镜策划",
+      "status": "ALREADY_APPROVED",
+      "versionId": "cmv7r83ex001e7qdntp1g0jf0"
+    }
+  ]
+}

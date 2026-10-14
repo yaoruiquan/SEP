@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SkillContentSchema } from './skill-content-schema';
 
 export const SkillVersionScopeSchema = z.enum(['PLATFORM', 'ENTERPRISE', 'PERSONAL']);
 export const SkillVersionStatusSchema = z.enum([
@@ -20,7 +21,7 @@ export const CreateEnterpriseSkillVersionDtoSchema = z.object({
 });
 
 export const UpdateSkillVersionDtoSchema = z.object({
-  content: z.string().min(1, '技能正文不能为空').max(500_000, '技能正文不能超过 500KB'),
+  content: SkillContentSchema,
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
@@ -72,7 +73,7 @@ export const SelectSkillVersionDtoSchema = z.object({
 });
 
 export const CreatePlatformSkillVersionDtoSchema = z.object({
-  content: z.string().min(1, '技能正文不能为空').max(500_000, '技能正文不能超过 500KB'),
+  content: SkillContentSchema,
   changeSummary: z.string().trim().max(2000).optional(),
 });
 
@@ -85,7 +86,7 @@ export const AdoptPersonalVersionsDtoSchema = z.object({
   changeSummary: z.string().trim().max(2000).optional(),
   expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
   expectedVersions: z.record(z.string().datetime({ offset: true })).optional(),
-  expectedMergedContent: z.string().min(1).max(500_000).optional(),
+  expectedMergedContent: SkillContentSchema.optional(),
 });
 
 export type CreateEnterpriseSkillVersionDto = z.infer<

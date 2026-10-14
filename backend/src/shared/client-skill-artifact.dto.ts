@@ -1,15 +1,25 @@
 import { z } from 'zod';
 
 export const SkillArtifactSha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
-export const SkillArtifactNameSchema = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+export function isSafeSkillPathComponent(value: string): boolean {
+  return [value, value.normalize('NFKC')].every((part) => part.length > 0 && part !== '.' && part !== '..'
+    && !/[\\/\x00-\x1f\x7f:<>"|?*]/.test(part) && !/[ .]$/.test(part)
+    && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+}
+export const SkillArtifactNameSchema = z.string().refine((value) => {
+  const safe = (name: string) => /^[\p{L}\p{N}]+(?:(?:-|\p{Zs}+)[\p{L}\p{N}]+)*$/u.test(name);
+  return Array.from(value).length >= 1 && Array.from(value).length <= 64 &&
+    safe(value) && safe(value.normalize('NFKC')) && isSafeSkillPathComponent(value);
+}, '名称须为 1-64 个 Unicode 字母、数字、内部空格或非连续连字符，不能含路径、控制字符或 Windows 保留名');
 const SkillArtifactIdSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/);
 export const SkillArtifactFrontmatterSchema = z.object({
   name: SkillArtifactNameSchema,
   description: z.string().min(1).max(1024).refine((value) => value.trim().length > 0),
   license: z.string().optional(),
   compatibility: z.string().min(1).max(500).optional(),
-  metadata: z.record(z.string()).optional(),
+  metadata: z.record(z.unknown()).optional(),
   'allowed-tools': z.string().optional(),
+  'disable-model-invocation': z.boolean().optional(),
 }).passthrough();
 
 const identity = {
@@ -30,8 +40,7 @@ export const ClientSkillArtifactAvailableSchema = z.object({
     installationDirectory: SkillArtifactNameSchema,
     entryPath: z.string().max(1024).refine((value) => {
       const parts = value.split('/');
-      return parts.at(-1) === 'SKILL.md' && parts.every((part) => part.length > 0 && part !== '.' && part !== '..')
-        && !/[\\\x00-\x1f\x7f:]/.test(value);
+      return parts.at(-1) === 'SKILL.md' && parts.every(isSafeSkillPathComponent);
     }, '入口必须为安全相对路径'),
     entrySha256: SkillArtifactSha256Schema,
     artifactSha256: SkillArtifactSha256Schema,

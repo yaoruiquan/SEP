@@ -9,6 +9,7 @@ import { PersonalWalletModule } from '../personal-wallet/personal-wallet.module'
 import { AuthModule } from '../auth/auth.module';
 import { AdminAuthService } from './admin-auth.service';
 import { CapabilityContributionModule } from '../capability-contribution/capability-contribution.module';
+import { EmployeeReadinessModule } from '../digital-employee/employee-readiness.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { CapabilityContributionModule } from '../capability-contribution/capabil
     PersonalWalletModule,
     AuthModule,
     CapabilityContributionModule,
+    EmployeeReadinessModule,
   ],
   controllers: [AdminController, AdminUploadController],
   providers: [AdminService, AdminAuthService],

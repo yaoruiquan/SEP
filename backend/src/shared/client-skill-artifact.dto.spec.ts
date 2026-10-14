@@ -26,7 +26,7 @@ describe('client skill artifact v1 schemas', () => {
       .toEqual(SkillArtifactBlockedReasonSchema.options);
   });
 
-  it.each(['SKILL.md', 'weekly/SKILL.md', 'bundle/weekly/SKILL.md'])('accepts safe entryPath %s', (entryPath) => {
+  it.each(['SKILL.md', 'weekly/SKILL.md', 'bundle/weekly/SKILL.md', 'CRM 标签体系/SKILL.md'])('accepts safe entryPath %s', (entryPath) => {
     expect(ClientSkillArtifactSchema.safeParse({ ...available, entryPath }).success).toBe(true);
   });
 
@@ -35,6 +35,8 @@ describe('client skill artifact v1 schemas', () => {
     'weekly/./SKILL.md', 'weekly//SKILL.md', 'weekly/SKILL.md/', 'weekly\\SKILL.md',
     'C:/SKILL.md', 'weekly\u0000/SKILL.md', 'weekly\n/SKILL.md', 'weekly\u007f/SKILL.md',
     'NOTSKILL.md', 'weekly/skill.md', `${'a'.repeat(1020)}/SKILL.md`,
+    'CON/SKILL.md', 'com1.txt/SKILL.md', 'COM¹/SKILL.md', 'ＮＵＬ/SKILL.md',
+    'weekly./SKILL.md', 'weekly /SKILL.md', 'weekly?/SKILL.md', 'weekly|/SKILL.md',
   ])('rejects unsafe or non-entry path %j', (entryPath) => {
     expect(ClientSkillArtifactSchema.safeParse({ ...available, entryPath }).success).toBe(false);
   });
@@ -61,7 +63,7 @@ describe('client skill artifact v1 schemas', () => {
   it.each([
     { protocolVersion: 2 }, { status: 'UNKNOWN' }, { capabilityId: '' }, { versionId: '' },
     { approvedContentSha256: 'bad' }, { entrySha256: 'A'.repeat(64) }, { artifactSha256: 'a'.repeat(63) },
-    { format: 'tar' }, { installationDirectory: '../skill' }, { installationDirectory: 'Bad-Name' },
+    { format: 'tar' }, { installationDirectory: '../skill' }, { installationDirectory: 'Bad_Name' },
     { byteLength: 0 }, { byteLength: -1 }, { byteLength: 1.5 }, { byteLength: 20 * 1024 * 1024 + 1 },
     { fileCount: 0 }, { fileCount: 1.5 }, { fileCount: 501 },
   ])('rejects invalid AVAILABLE descriptor fields: %j', (override) => {
@@ -95,12 +97,19 @@ describe('client skill artifact v1 schemas', () => {
     }
   });
 
-  it.each(['a', 'a0', 'weekly-report-1', 'a'.repeat(64)])('accepts valid frontmatter names: %s', (name) => {
+  it.each(['a', 'a0', 'weekly-report-1', 'a'.repeat(64), 'A', '中文', '電商-分析', 'ＡＩ', '𐐀'.repeat(64),
+    'CRM 标签体系', 'SKU 生命周期管理', '电商 SOP 编排', 'Two  Spaces', 'Unicode\u00a0Space', 'CON-tool', 'COM10'])('accepts valid frontmatter names without rewriting: %s', (name) => {
     expect(SkillArtifactNameSchema.safeParse(name).success).toBe(true);
+    expect(SkillArtifactNameSchema.parse(name)).toBe(name);
   });
 
-  it.each(['', 'A', '中文', '-a', 'a-', 'a--b', 'a_b', 'a b', ' a', 'a ', 'a'.repeat(65)])('rejects invalid frontmatter names: %j', (name) => {
+  it.each(['', '-a', 'a-', 'a--b', 'a_b', ' a', 'a ', 'a'.repeat(65), 'a/b', 'a\u0000', 'a\u202eb', 'a\tb', 'a\nb', '..', 'a\\b'])('rejects invalid frontmatter names: %j', (name) => {
     expect(SkillArtifactNameSchema.safeParse(name).success).toBe(false);
+  });
+
+  it.each(['CON', 'prn', 'Aux', 'NUL', 'COM1', 'com9', 'LPT1', 'lpt9', 'COM¹', 'LPT²', 'ＣＯＮ'])('rejects Windows device names: %s', (name) => {
+    expect(SkillArtifactNameSchema.safeParse(name).success).toBe(false);
+    expect(ClientSkillArtifactSchema.safeParse({ ...available, installationDirectory: name }).success).toBe(false);
   });
 
   it('requires valid name and description, with boundary and optional-field validation', () => {
@@ -118,7 +127,7 @@ describe('client skill artifact v1 schemas', () => {
       { description: 'x'.repeat(1025) }, { description: ` ${'x'.repeat(1024)} ` }, { description: 1 },
       { compatibility: '' }, { compatibility: 'x'.repeat(501) },
       { compatibility: null }, { license: 1 }, { 'allowed-tools': ['Read'] }, { metadata: null },
-      { metadata: ['mock'] }, { metadata: { version: 1 } }, { metadata: { author: { name: 'mock' } } },
+      { metadata: ['mock'] }, { 'disable-model-invocation': 'true' },
     ]) {
       expect(SkillArtifactFrontmatterSchema.safeParse({ ...frontmatter, ...override }).success).toBe(false);
     }

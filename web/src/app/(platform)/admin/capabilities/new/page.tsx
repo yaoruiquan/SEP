@@ -15,6 +15,7 @@ import { ArrowLeft, Loader2, Bot, Workflow, Globe, Link2, Upload, File } from 'l
 import Link from 'next/link';
 import { useCreateCozeCapability, useCreateCozeUrlCapability } from '@/features/admin/use-admin';
 import { SkillForm } from './skill-form';
+import { CapabilityUploadDtoSchema } from '../../../../../../../backend/src/shared';
 
 // ─── Platform Icons ──────────────────────────────────────────────────────────
 
@@ -163,25 +164,23 @@ const POSITIONS = ['客服', '销售', '市场', '运营', '技术', '通用'];
 
 // ─── Coze Form Schema ────────────────────────────────────────────────────────
 
-const cozeFormSchema = z.object({
+const capabilityInfoSchema = CapabilityUploadDtoSchema.pick({ name: true, description: true, industry: true, position: true }).extend({
+  name: z.string().trim().pipe(CapabilityUploadDtoSchema.shape.name),
+  description: z.string().trim().min(1, '描述不能为空')
+    .max(CapabilityUploadDtoSchema.shape.description.maxLength ?? 2000),
+});
+
+const cozeFormSchema = capabilityInfoSchema.extend({
   region: z.enum(['CN', 'GLOBAL']),
   runtimeKind: z.enum(['BOT_CHAT', 'WORKFLOW']),
   resourceId: z.string().min(1, 'Bot ID 或 Workflow ID 不能为空'),
   apiKey: z.string().optional(),
-  name: z.string().min(1, '能力名称不能为空'),
-  description: z.string().min(10, '描述至少 10 个字符'),
-  industry: z.array(z.string()),
-  position: z.array(z.string()),
 });
 
 type CozeFormValues = z.infer<typeof cozeFormSchema>;
 
-const cozeUrlFormSchema = z.object({
+const cozeUrlFormSchema = capabilityInfoSchema.extend({
   webUrl: z.string().url('请输入有效的 URL（以 https:// 开头）'),
-  name: z.string().min(1, '能力名称不能为空'),
-  description: z.string().min(10, '描述至少 10 个字符'),
-  industry: z.array(z.string()),
-  position: z.array(z.string()),
 });
 
 type CozeUrlFormValues = z.infer<typeof cozeUrlFormSchema>;
@@ -448,18 +447,18 @@ function CozeForm({ onCancel }: { onCancel: () => void }) {
             <div>
               <Label>能力名称 *</Label>
               {connectionMode === 'API'
-                ? <><Input {...apiReg('name')} placeholder="例如: 营销文案生成助手" />
+                ? <><Input {...apiReg('name')} maxLength={100} placeholder="例如: 营销文案生成助手" />
                     {apiErr.name && <p className="text-xs text-danger mt-1">{apiErr.name.message}</p>}</>
-                : <><Input {...urlReg('name')} placeholder="例如: 营销文案生成助手" />
+                : <><Input {...urlReg('name')} maxLength={100} placeholder="例如: 营销文案生成助手" />
                     {urlErr.name && <p className="text-xs text-danger mt-1">{urlErr.name.message}</p>}</>}
             </div>
 
             <div>
               <Label>能力描述 *</Label>
               {connectionMode === 'API'
-                ? <><Textarea {...apiReg('description')} rows={3} placeholder="描述该能力的功能、使用场景和特点..." />
+                ? <><Textarea {...apiReg('description')} maxLength={2000} rows={3} placeholder="描述该能力的功能、使用场景和特点..." />
                     {apiErr.description && <p className="text-xs text-danger mt-1">{apiErr.description.message}</p>}</>
-                : <><Textarea {...urlReg('description')} rows={3} placeholder="描述该能力的功能、使用场景和特点..." />
+                : <><Textarea {...urlReg('description')} maxLength={2000} rows={3} placeholder="描述该能力的功能、使用场景和特点..." />
                     {urlErr.description && <p className="text-xs text-danger mt-1">{urlErr.description.message}</p>}</>}
             </div>
 

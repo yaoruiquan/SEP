@@ -71,7 +71,7 @@ describe('Capability write HTTP validation', () => {
 
   it.each([
     { ...skill, type: 'SKILL' },
-    { ...skill, description: 'short' },
+    { ...skill, description: ' \t\r\n' },
     { ...skill, skillConfig: undefined },
     { ...skill, type: 'agent' },
     { ...skill, skillConfig: { template: '# Skill', metadata: { zipPath: metadata.zipPath } } },
@@ -82,13 +82,29 @@ describe('Capability write HTTP validation', () => {
     expect(prisma.capability.create).not.toHaveBeenCalled();
   });
 
-  it.each([{ type: 'UNKNOWN' }, { description: 'short' }, { inputSchema: 'not-a-schema' }])(
+  it.each([{ type: 'UNKNOWN' }, { description: ' \t\r\n' }, { inputSchema: 'not-a-schema' }])(
     'validates partial updates before reaching the service: %j', async (payload) => {
       await request(app.getHttpServer()).patch('/capabilities/cap-1').send(payload).expect(400);
       expect(prisma.capability.findUnique).not.toHaveBeenCalled();
       expect(prisma.capability.update).not.toHaveBeenCalled();
     },
   );
+
+  it('accepts a short Chinese description on creation and persists its trimmed value', async () => {
+    await request(app.getHttpServer()).post('/capabilities').set('x-test-role', 'ADMIN')
+      .send({ ...skill, description: ' 做图 ' }).expect(201);
+    expect(prisma.capability.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ description: '做图' }),
+    }));
+  });
+
+  it('accepts a short Chinese description on update and persists its trimmed value', async () => {
+    await request(app.getHttpServer()).patch('/capabilities/cap-1')
+      .send({ description: ' 做图 ' }).expect(200);
+    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: { description: '做图' },
+    }));
+  });
 
   it('rejects AGENT to SKILL conversion over HTTP', async () => {
     await request(app.getHttpServer()).patch('/capabilities/cap-1').send({ type: 'skill' }).expect(400);

@@ -4,7 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionType } from '@prisma/client';
+import { SettingService } from '../setting/setting.service';
 
 describe('AdminService', () => {
   let service: AdminService;
@@ -52,6 +53,7 @@ describe('AdminService', () => {
     adminDeduct: jest.fn(),
   };
   const mockPersonalWalletService = { creditContributionRewardInTx: jest.fn() };
+  const mockSettingService = { getEffectiveValue: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -66,6 +68,7 @@ describe('AdminService', () => {
           useValue: mockWalletService,
         },
         { provide: PersonalWalletService, useValue: mockPersonalWalletService },
+        { provide: SettingService, useValue: mockSettingService },
       ],
     }).compile();
 
@@ -74,6 +77,7 @@ describe('AdminService', () => {
 
     // Reset mocks
     jest.clearAllMocks();
+    mockSettingService.getEffectiveValue.mockReset().mockResolvedValue('false');
     mockWalletService.adminDeposit.mockResolvedValue({ balance: 150 });
     mockWalletService.adminDeduct.mockResolvedValue({ balance: 50 });
     mockPrismaService.$transaction.mockImplementation((callback) => callback(mockPrismaService));
@@ -176,6 +180,7 @@ describe('AdminService', () => {
     });
 
     it('preserves enterprise contribution status, visibility and reward behavior', async () => {
+      mockSettingService.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : undefined);
       mockPrismaService.capability.findUnique.mockResolvedValue({
         id: 'cap', type: 'RPA', status: 'PENDING', platformReviewStatus: 'PENDING_REVIEW',
         contributorId: 'contributor', enterpriseId: 'enterprise',
@@ -191,7 +196,7 @@ describe('AdminService', () => {
       });
       if (decision === 'approve') {
         expect(mockPrismaService.contributionRewardEvent.create).toHaveBeenCalledWith(expect.objectContaining({
-          data: expect.objectContaining({ dedupeKey: 'platform-approved:cap', recipientId: 'contributor' }),
+          data: expect.objectContaining({ dedupeKey: 'platform-approved:cap', recipientId: 'contributor', amount: new Prisma.Decimal(50) }),
         }));
         expect(mockPersonalWalletService.creditContributionRewardInTx).toHaveBeenCalledTimes(1);
       } else {
@@ -205,6 +210,47 @@ describe('AdminService', () => {
       mockPrismaService.capability.findUnique.mockResolvedValue({ id: 'cap', type: 'RPA', status: 'APPROVED' });
       await expect(review()).rejects.toThrow('只能审核待审核状态的能力');
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('approveCapability reward switch', () => {
+    beforeEach(() => {
+      mockPrismaService.capability.findUnique.mockResolvedValue({
+        id: 'cap', type: 'RPA', status: 'PENDING', platformReviewStatus: 'PENDING_REVIEW',
+        contributorId: 'contributor', enterpriseId: 'enterprise',
+      });
+      mockPrismaService.capability.update.mockResolvedValue({ id: 'cap', status: 'APPROVED', platformReviewStatus: 'APPROVED', visibility: 'MARKET_PUBLIC' });
+      mockPrismaService.contributionRewardEvent.findUnique.mockResolvedValue(null);
+      mockPrismaService.contributionRewardEvent.create.mockResolvedValue({ id: 'reward' });
+      mockPersonalWalletService.creditContributionRewardInTx.mockResolvedValue(undefined);
+    });
+
+    it.each([undefined, null, 'false', '', 'TRUE', '1', true])('approves without reward events or credit when the switch is %p', async (value) => {
+      mockSettingService.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? value : '75');
+      await expect(service.approveCapability('cap', 'admin')).resolves.toEqual(expect.objectContaining({ status: 'APPROVED' }));
+      expect(mockPrismaService.capability.update).toHaveBeenCalledWith({
+        where: { id: 'cap' }, data: expect.objectContaining({
+          status: 'APPROVED', platformReviewStatus: 'APPROVED', visibility: 'MARKET_PUBLIC',
+        }),
+      });
+      expect(mockPrismaService.contributionRewardEvent.findUnique).not.toHaveBeenCalled();
+      expect(mockPrismaService.contributionRewardEvent.create).not.toHaveBeenCalled();
+      expect(mockPersonalWalletService.creditContributionRewardInTx).not.toHaveBeenCalled();
+      expect(mockSettingService.getEffectiveValue).not.toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
+    });
+
+    it.each([
+      ['75', 75], [undefined, 50], ['not-a-number', 50], ['0', 50], ['-1', 50],
+    ])('preserves configured amount %p and fallback behavior when enabled', async (configured, expected) => {
+      mockSettingService.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : configured);
+      await service.approveCapability('cap', 'admin');
+      expect(mockSettingService.getEffectiveValue).toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
+      expect(mockPrismaService.contributionRewardEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ amount: new Prisma.Decimal(expected), dedupeKey: 'platform-approved:cap' }),
+      }));
+      expect(mockPersonalWalletService.creditContributionRewardInTx).toHaveBeenCalledWith(
+        mockPrismaService, 'contributor', new Prisma.Decimal(expected), 'reward', expect.any(String),
+      );
     });
   });
 

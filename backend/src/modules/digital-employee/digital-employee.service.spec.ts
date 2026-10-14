@@ -3,6 +3,7 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { DigitalEmployeeService } from './digital-employee.service';
 import { EmployeeTrackRecordService } from './employee-track-record.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmployeeReadinessService } from './employee-readiness.service';
 
 // ─── Mock PrismaService ───────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ const mockBinding = {
 };
 
 const prismaMock = {
+  $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
   digitalEmployee: {
     create: jest.fn(),
     findMany: jest.fn(),
@@ -58,6 +61,7 @@ const prismaMock = {
     create: jest.fn(),
     findUnique: jest.fn(),
     delete: jest.fn(),
+    findMany: jest.fn(),
   },
   conversationSession: {
     findMany: jest.fn(),
@@ -78,6 +82,10 @@ describe('DigitalEmployeeService', () => {
         DigitalEmployeeService,
         { provide: PrismaService, useValue: prismaMock },
         {
+          provide: EmployeeReadinessService,
+          useFactory: () => new EmployeeReadinessService(prismaMock as any, { describe: jest.fn() } as any),
+        },
+        {
           // 人才市场履历由独立 service 算（一条原生 SQL），这里只需它别真跑
           provide: EmployeeTrackRecordService,
           useValue: {
@@ -92,6 +100,12 @@ describe('DigitalEmployeeService', () => {
 
     service = module.get<DigitalEmployeeService>(DigitalEmployeeService);
     jest.clearAllMocks();
+    prismaMock.$transaction.mockImplementation((action) => action(prismaMock));
+    prismaMock.$queryRaw.mockResolvedValue([{ id: 'emp-1' }]);
+    prismaMock.employeeCapabilityBinding.findMany.mockResolvedValue([{
+      ...mockBinding, enabled: true, defaultSkillVersionId: null, defaultSkillVersion: null,
+      capability: { ...mockBinding.capability, status: 'APPROVED', enterpriseId: null },
+    }]);
   });
 
   // ── create ──────────────────────────────────────────────────────────────────
@@ -213,7 +227,7 @@ describe('DigitalEmployeeService', () => {
       expect(result.name).toBe('新名称');
     });
 
-    it('stamps publishedAt when status changes to PUBLISHED', async () => {
+    it('stamps publishedAt after readiness checks when status changes to APPROVED', async () => {
       prismaMock.digitalEmployee.findUnique.mockResolvedValue(mockEmployee);
       prismaMock.digitalEmployee.update.mockResolvedValue({
         ...mockEmployee,

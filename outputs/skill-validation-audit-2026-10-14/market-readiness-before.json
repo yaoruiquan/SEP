@@ -1,0 +1,2841 @@
+{
+  "auditedAt": "2026-10-14T06:31:12.558Z",
+  "databaseHost": "localhost",
+  "summary": {
+    "employees": 107,
+    "ready": 101,
+    "blocked": 6,
+    "enabledBindings": 210,
+    "uniqueSkills": 96,
+    "approvedVersions": 87
+  },
+  "results": [
+    {
+      "id": "cmszr2p58005c7qr50b1ollys",
+      "name": "抖音运营策略师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmszr2p58005e7qr5ub94hgoe",
+          "capabilityId": "cmszr2p56005a7qr5xitkx1xw",
+          "defaultSkillVersionId": "sv_7f6e445b71df23d238700fdd7131d749",
+          "capability": {
+            "name": "Douyin Strategist",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmt2lfhh2001k7qarjhnng753",
+      "name": "国内电商运营专家",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxh7001k7qjqxa2b6f1e",
+          "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "China E-Commerce Operator",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：China E-Commerce Operator：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+            "capabilityName": "China E-Commerce Operator",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmt2lfhhm001p7qararq7eri4",
+      "name": "直播电商增长教练",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxhk001n7qjqhd4l2os8",
+          "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Livestream Commerce Coach",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：Livestream Commerce Coach：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+            "capabilityName": "Livestream Commerce Coach",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmt2lfhhr001u7qarlu6o5soq",
+      "name": "私域复购运营师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxhs001q7qjq9wnuw4eh",
+          "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Private Domain Operator",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：Private Domain Operator：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+            "capabilityName": "Private Domain Operator",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmt2lfhhy00217qarjqkheyh3",
+      "name": "电商投放优化师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxhz001u7qjqsnyhdoir",
+          "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "PPC Campaign Strategist",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmt2lkxhz001v7qjq2vcq7wzs",
+          "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Tracking & Measurement Specialist",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：Tracking & Measurement Specialist：缺少已批准平台版本；PPC Campaign Strategist：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+            "capabilityName": "Tracking & Measurement Specialist",
+            "reason": "缺少已批准平台版本"
+          },
+          {
+            "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+            "capabilityName": "PPC Campaign Strategist",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmt2lfhi500297qarn8kakp0b",
+      "name": "商品内容与详情页策划",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxi8001z7qjq9iro2w7d",
+          "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Content Creator",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmt2lkxi800207qjqowmu46wf",
+          "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Visual Storyteller",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：Visual Storyteller：缺少已批准平台版本；Content Creator：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+            "capabilityName": "Visual Storyteller",
+            "reason": "缺少已批准平台版本"
+          },
+          {
+            "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+            "capabilityName": "Content Creator",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmt2lfhif002h7qarp4ujz52i",
+      "name": "电商售后与退货专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmt2lkxil00247qjqj1zm9xuj",
+          "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Retail Customer Returns",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmt2lkxil00257qjqm7to1nzs",
+          "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+          "defaultSkillVersionId": null,
+          "capability": {
+            "name": "Customer Service",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "BLOCKED",
+      "diagnostics": {
+        "code": "EMPLOYEE_NOT_READY",
+        "message": "员工不可上架：Customer Service：缺少已批准平台版本；Retail Customer Returns：缺少已批准平台版本",
+        "failures": [
+          {
+            "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+            "capabilityName": "Customer Service",
+            "reason": "缺少已批准平台版本"
+          },
+          {
+            "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+            "capabilityName": "Retail Customer Returns",
+            "reason": "缺少已批准平台版本"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cmuxhoyiw00by7qii2euifms1",
+      "name": "电商经营总监",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyiy00bz7qii3tb8gn35",
+          "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+          "defaultSkillVersionId": "cmuxhoyc100047qiivsozzx0t",
+          "capability": {
+            "name": "电商经营诊断",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyiy00c07qiicovu0kag",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyj200c17qii36vrhedf",
+      "name": "电商经营日报官",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyj300c27qiiww5mcqca",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyj300c37qiif3xq8tko",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyj400c47qiid35cqgt3",
+      "name": "电商漏斗诊断师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyj400c57qii8w951wt9",
+          "capabilityId": "cmuxhoych00067qiib57oa2ez",
+          "defaultSkillVersionId": "cmuxhoych00097qiife68x71m",
+          "capability": {
+            "name": "电商漏斗分析",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyj400c67qiih8aux31l",
+          "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+          "defaultSkillVersionId": "cmuxhoyc100047qiivsozzx0t",
+          "capability": {
+            "name": "电商经营诊断",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyj500c77qiiedosp3nj",
+      "name": "电商利润增长顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyj600c87qiirur9x1bb",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyj600c97qii31tc9t0t",
+          "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+          "defaultSkillVersionId": "cmuxhoyho009z7qiiyj3ern1y",
+          "capability": {
+            "name": "电商单位经济模型",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyj600ca7qiijvyl79kp",
+      "name": "电商数据质检专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyj800cb7qiiaj5lpb9x",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyj800cc7qiid0bw60oh",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyj900cd7qiizi2hlo04",
+      "name": "电商渠道归因分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyj900ce7qiiptbq8oy4",
+          "capabilityId": "cmuxhoycx000v7qiikxbh9cox",
+          "defaultSkillVersionId": "cmuxhoycx000y7qiipmydbjst",
+          "capability": {
+            "name": "渠道归因分析",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyj900cf7qii2n44im50",
+          "capabilityId": "cmuxhoych00067qiib57oa2ez",
+          "defaultSkillVersionId": "cmuxhoych00097qiife68x71m",
+          "capability": {
+            "name": "电商漏斗分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyja00cg7qii82yipz10",
+      "name": "电商复购分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyja00ch7qiibim286pk",
+          "capabilityId": "cmuxhoyd000107qii569s600y",
+          "defaultSkillVersionId": "cmuxhoyd000137qiitrl3prui",
+          "capability": {
+            "name": "留存复购分析",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyja00ci7qiinm118fnc",
+          "capabilityId": "cmuxhoyh900977qii27il4r7y",
+          "defaultSkillVersionId": "cmuxhoyh9009a7qii83ak1brb",
+          "capability": {
+            "name": "客户价值分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjb00cj7qiiqeiq160f",
+      "name": "电商活动复盘官",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjb00ck7qiir2m65fvr",
+          "capabilityId": "cmuxhoyct000q7qiit5qemxat",
+          "defaultSkillVersionId": "cmuxhoyct000t7qii8f8rco75",
+          "capability": {
+            "name": "大促活动复盘",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjb00cl7qiih6mf1q7z",
+          "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+          "defaultSkillVersionId": "cmuxhoyc100047qiivsozzx0t",
+          "capability": {
+            "name": "电商经营诊断",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjd00cm7qiiepa1usm3",
+      "name": "电商实验增长师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyje00cn7qii4ca02gbc",
+          "capabilityId": "cmuxhoycn000g7qiiskdsh2yi",
+          "defaultSkillVersionId": "cmuxhoycn000j7qiimmo61cbb",
+          "capability": {
+            "name": "电商实验设计",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyje00co7qiiqus9xkp7",
+          "capabilityId": "cmuxhoych00067qiib57oa2ez",
+          "defaultSkillVersionId": "cmuxhoych00097qiife68x71m",
+          "capability": {
+            "name": "电商漏斗分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyje00cp7qii0ck8zbva",
+      "name": "电商经营驾驶舱顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjf00cq7qiih96vm15p",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjf00cr7qii1a6etqar",
+          "capabilityId": "cmuxhoycx000v7qiikxbh9cox",
+          "defaultSkillVersionId": "cmuxhoycx000y7qiipmydbjst",
+          "capability": {
+            "name": "渠道归因分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjg00cs7qii4vg435dg",
+      "name": "店铺异常监控员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjg00ct7qiismyg20dq",
+          "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+          "defaultSkillVersionId": "cmuxhoyc100047qiivsozzx0t",
+          "capability": {
+            "name": "电商经营诊断",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjg00cu7qiikft9uwh8",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjg00cv7qiibmxpidpe",
+      "name": "电商目标拆解师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjh00cw7qii26syatrm",
+          "capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr",
+          "defaultSkillVersionId": "cmuxhoyiq00bs7qiiqeztop6o",
+          "capability": {
+            "name": "电商目标复盘",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjh00cx7qiibp6cusx8",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjh00cy7qii5034ilpo",
+      "name": "电商成本结构分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyji00cz7qiir0rjw60q",
+          "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+          "defaultSkillVersionId": "cmuxhoyho009z7qiiyj3ern1y",
+          "capability": {
+            "name": "电商单位经济模型",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyji00d07qii2hmewl3r",
+          "capabilityId": "cmuxhoygf007j7qiigbo4mk3r",
+          "defaultSkillVersionId": "cmuxhoygf007m7qiiybqolaow",
+          "capability": {
+            "name": "采购成本优化",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjj00d17qiibp3p4f6s",
+      "name": "多店铺经营分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjj00d27qiif8izy697",
+          "capabilityId": "cmuxhoyia00b07qiio9xr6lo2",
+          "defaultSkillVersionId": "cmuxhoyia00b37qiifqqcu6a3",
+          "capability": {
+            "name": "多平台经营协同",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjj00d37qiimsyznwot",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjk00d47qiies2601si",
+      "name": "电商管理层汇报顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjk00d57qiixgbr6dcf",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjk00d67qiicn0slxn6",
+          "capabilityId": "cmuxhoyil00bk7qiis0c288dh",
+          "defaultSkillVersionId": "cmuxhoyil00bn7qiir52vlavx",
+          "capability": {
+            "name": "电商会议纪要",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjl00d77qiir438vvmq",
+      "name": "国内电商选品研究员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjl00d87qiibmmnk2vk",
+          "capabilityId": "cmuxhoyd5001a7qiicg7mwifb",
+          "defaultSkillVersionId": "cmuxhoyd5001d7qiig6w4rjoo",
+          "capability": {
+            "name": "商品趋势挖掘",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjl00d97qiiblll3dqu",
+          "capabilityId": "cmuxhoyd8001f7qiizianabc6",
+          "defaultSkillVersionId": "cmuxhoyd8001i7qiinxsc4l0p",
+          "capability": {
+            "name": "商品机会评分",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjn00da7qiic27cvt9v",
+      "name": "爆品机会评估师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjn00db7qiiipl7d05m",
+          "capabilityId": "cmuxhoyd8001f7qiizianabc6",
+          "defaultSkillVersionId": "cmuxhoyd8001i7qiinxsc4l0p",
+          "capability": {
+            "name": "商品机会评分",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjn00dc7qiigdgojmsz",
+          "capabilityId": "cmuxhoyde001p7qiit758o2at",
+          "defaultSkillVersionId": "cmuxhoyde001s7qii4x63o0bg",
+          "capability": {
+            "name": "用户需求挖掘",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjo00dd7qii6v04jtin",
+      "name": "竞品价格策略师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjp00de7qiikuooqudj",
+          "capabilityId": "cmuxhoyda001k7qii1bc4buop",
+          "defaultSkillVersionId": "cmuxhoyda001n7qiilhp7k026",
+          "capability": {
+            "name": "竞品价格监测",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjp00df7qii0id9lr2n",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjp00dg7qii8mj8phyh",
+      "name": "用户需求挖掘师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjq00dh7qiif5y6qeci",
+          "capabilityId": "cmuxhoyde001p7qiit758o2at",
+          "defaultSkillVersionId": "cmuxhoyde001s7qii4x63o0bg",
+          "capability": {
+            "name": "用户需求挖掘",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjq00di7qiis4t0t2cu",
+          "capabilityId": "cmuxhoydg001u7qiic5uhx8eh",
+          "defaultSkillVersionId": "cmuxhoydg001x7qiizngxrvfg",
+          "capability": {
+            "name": "电商评论洞察",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjr00dj7qiibsb4jel6",
+      "name": "商品评价洞察师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjr00dk7qiiexxu8ez0",
+          "capabilityId": "cmuxhoydg001u7qiic5uhx8eh",
+          "defaultSkillVersionId": "cmuxhoydg001x7qiizngxrvfg",
+          "capability": {
+            "name": "电商评论洞察",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjr00dl7qiis1ch7bai",
+          "capabilityId": "cmuxhoydr002e7qii360byrbz",
+          "defaultSkillVersionId": "cmuxhoydr002h7qiin8w0uv1w",
+          "capability": {
+            "name": "SKU 生命周期管理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "name": "商品资料治理师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjt00dn7qiiv6d8f2kt",
+          "capabilityId": "cmuxhoydi001z7qiir36r50xi",
+          "defaultSkillVersionId": "cmuxhoydi00227qiieftzdoib",
+          "capability": {
+            "name": "商品资料治理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjt00do7qii0a2d0ke9",
+          "capabilityId": "cmuxhoydm00247qii50ghyx11",
+          "defaultSkillVersionId": "cmuxhoydm00277qiik2uq9wzw",
+          "capability": {
+            "name": "商品卖点结构化",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyju00dp7qiisxoedyr7",
+      "name": "商品卖点策略师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyju00dq7qiifmfy167q",
+          "capabilityId": "cmuxhoydm00247qii50ghyx11",
+          "defaultSkillVersionId": "cmuxhoydm00277qiik2uq9wzw",
+          "capability": {
+            "name": "商品卖点结构化",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyju00dr7qiijp6x4pvl",
+          "capabilityId": "cmuxhoyde001p7qiit758o2at",
+          "defaultSkillVersionId": "cmuxhoyde001s7qii4x63o0bg",
+          "capability": {
+            "name": "用户需求挖掘",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjv00ds7qiiah2mxz03",
+      "name": "电商视觉需求策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjv00dt7qii5pr57xuf",
+          "capabilityId": "cmuxhoydo00297qii6u0waviz",
+          "defaultSkillVersionId": "cmuxhoydo002c7qii0jo5sugs",
+          "capability": {
+            "name": "电商视觉需求单",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjv00du7qii8eukv4oz",
+          "capabilityId": "cmuxhoydm00247qii50ghyx11",
+          "defaultSkillVersionId": "cmuxhoydm00277qiik2uq9wzw",
+          "capability": {
+            "name": "商品卖点结构化",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjw00dv7qiiiun3vyj7",
+      "name": "SKU 生命周期顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyjx00dw7qiivfh5miv4",
+          "capabilityId": "cmuxhoydr002e7qii360byrbz",
+          "defaultSkillVersionId": "cmuxhoydr002h7qiin8w0uv1w",
+          "capability": {
+            "name": "SKU 生命周期管理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyjx00dx7qiixdyf9cew",
+          "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+          "defaultSkillVersionId": "cmuxhoydu002m7qiiw2643m7r",
+          "capability": {
+            "name": "商品组合规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "name": "店铺商品组合顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk000dz7qii6i2i0xj7",
+          "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+          "defaultSkillVersionId": "cmuxhoydu002m7qiiw2643m7r",
+          "capability": {
+            "name": "商品组合规划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk000e07qiig3ybxhoh",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk000e17qii66i7vwxm",
+      "name": "内容电商增长策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk100e27qiisqz3cj2u",
+          "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+          "defaultSkillVersionId": "cmuxhoydw002r7qiirj0t363w",
+          "capability": {
+            "name": "内容电商策略",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk100e37qiiqrqruj4c",
+          "capabilityId": "cmuxhoyec003i7qii534icq16",
+          "defaultSkillVersionId": "cmuxhoyec003l7qii7uq8exxj",
+          "capability": {
+            "name": "内容排期管理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk200e47qii6hpdjl2o",
+      "name": "小红书种草策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk300e57qiiy06fg42v",
+          "capabilityId": "cmuxhoydz002t7qii9qs87zt1",
+          "defaultSkillVersionId": "cmuxhoydz002w7qiie14n4wey",
+          "capability": {
+            "name": "小红书种草策划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk300e67qiianrunfnc",
+          "capabilityId": "cmuxhoyeh003s7qiitbs2a0hj",
+          "defaultSkillVersionId": "cmuxhoyeh003v7qiif09obey8",
+          "capability": {
+            "name": "评论区运营",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk300e77qiimnayxrg3",
+      "name": "抖音短视频策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk400e87qiimc6yb3zz",
+          "capabilityId": "cmuxhoye1002y7qii2gzuo5m9",
+          "defaultSkillVersionId": "cmuxhoye100317qiihdaehvgs",
+          "capability": {
+            "name": "抖音短视频策划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk400e97qiiatrnugpw",
+          "capabilityId": "cmuxhoye600387qii6oh4bemo",
+          "defaultSkillVersionId": "cmuxhoye6003b7qiia2kcrtpe",
+          "capability": {
+            "name": "电商视频脚本",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk400ea7qiidbs9n833",
+      "name": "快手信任内容顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk500eb7qiie91uhst0",
+          "capabilityId": "cmuxhoye400337qiiu3tk5r3m",
+          "defaultSkillVersionId": "cmuxhoye400367qii9wsu9k7z",
+          "capability": {
+            "name": "快手内容策划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk500ec7qii90o60239",
+          "capabilityId": "cmuxhoye600387qii6oh4bemo",
+          "defaultSkillVersionId": "cmuxhoye6003b7qiia2kcrtpe",
+          "capability": {
+            "name": "电商视频脚本",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk600ed7qii9k3lwwfs",
+      "name": "电商视频脚本导演",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk600ee7qiiny35fumn",
+          "capabilityId": "cmuxhoye600387qii6oh4bemo",
+          "defaultSkillVersionId": "cmuxhoye6003b7qiia2kcrtpe",
+          "capability": {
+            "name": "电商视频脚本",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk600ef7qiidctcmgxp",
+          "capabilityId": "cmuxhoydo00297qii6u0waviz",
+          "defaultSkillVersionId": "cmuxhoydo002c7qii0jo5sugs",
+          "capability": {
+            "name": "电商视觉需求单",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk700eg7qiiea9aj7xu",
+      "name": "直播脚本总编",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk700eh7qiijinars86",
+          "capabilityId": "cmuxhoyea003d7qiiobucgg58",
+          "defaultSkillVersionId": "cmuxhoyea003g7qiixw3bagzs",
+          "capability": {
+            "name": "直播脚本编排",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk800ei7qii6sb1yezb",
+          "capabilityId": "cmuxhoyep00477qii9hrw8ji8",
+          "defaultSkillVersionId": "cmuxhoyep004a7qiiamzowk35",
+          "capability": {
+            "name": "直播商品编排",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk800ej7qiiqqktt2lq",
+      "name": "电商内容排期经理",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyk900ek7qii5qb5rggq",
+          "capabilityId": "cmuxhoyec003i7qii534icq16",
+          "defaultSkillVersionId": "cmuxhoyec003l7qii7uq8exxj",
+          "capability": {
+            "name": "内容排期管理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyk900el7qiicdhzso4m",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyk900em7qiidjmt4umf",
+      "name": "达人合作策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyka00en7qiisv263xik",
+          "capabilityId": "cmuxhoyef003n7qiigd8l0so0",
+          "defaultSkillVersionId": "cmuxhoyef003q7qiiviilsduz",
+          "capability": {
+            "name": "达人合作策划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyka00eo7qiiz5q7qj0d",
+          "capabilityId": "cmuxhoyfa005b7qiis2jn4pv6",
+          "defaultSkillVersionId": "cmuxhoyfa005e7qiiawksf9rt",
+          "capability": {
+            "name": "分销佣金设计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykb00ep7qiifbeksncc",
+      "name": "评论区转化运营师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykc00eq7qiizqdj8ry4",
+          "capabilityId": "cmuxhoyeh003s7qiitbs2a0hj",
+          "defaultSkillVersionId": "cmuxhoyeh003v7qiif09obey8",
+          "capability": {
+            "name": "评论区运营",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykc00er7qii1unlapr9",
+          "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+          "defaultSkillVersionId": "cmuxhoyfv006i7qiiut2ayyhm",
+          "capability": {
+            "name": "客户意图识别",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykc00es7qiiwkwoospd",
+      "name": "品牌电商内容架构师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykd00et7qiir7jeh7i4",
+          "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+          "defaultSkillVersionId": "cmuxhoydw002r7qiirj0t363w",
+          "capability": {
+            "name": "内容电商策略",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykd00eu7qiibaauy41y",
+          "capabilityId": "cmuxhoydm00247qii50ghyx11",
+          "defaultSkillVersionId": "cmuxhoydm00277qiik2uq9wzw",
+          "capability": {
+            "name": "商品卖点结构化",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykd00ev7qiijoijgs3f",
+      "name": "商品测评内容策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyke00ew7qiieavrclom",
+          "capabilityId": "cmuxhoye600387qii6oh4bemo",
+          "defaultSkillVersionId": "cmuxhoye6003b7qiia2kcrtpe",
+          "capability": {
+            "name": "电商视频脚本",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyke00ex7qii6h8s9r6y",
+          "capabilityId": "cmuxhoydg001u7qiic5uhx8eh",
+          "defaultSkillVersionId": "cmuxhoydg001x7qiizngxrvfg",
+          "capability": {
+            "name": "电商评论洞察",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyke00ey7qii1x63eqxt",
+      "name": "电商直播切片策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykf00ez7qii41q5qs7a",
+          "capabilityId": "cmuxhoye600387qii6oh4bemo",
+          "defaultSkillVersionId": "cmuxhoye6003b7qiia2kcrtpe",
+          "capability": {
+            "name": "电商视频脚本",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykf00f07qiidlwnitbt",
+          "capabilityId": "cmuxhoyec003i7qii534icq16",
+          "defaultSkillVersionId": "cmuxhoyec003l7qii7uq8exxj",
+          "capability": {
+            "name": "内容排期管理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykg00f17qiio1u8z26d",
+      "name": "私域内容编辑",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykg00f27qiif8fy401x",
+          "capabilityId": "cmuxhoyej003x7qiih44n681w",
+          "defaultSkillVersionId": "cmuxhoyej00407qiiuzzva7vf",
+          "capability": {
+            "name": "私域内容运营",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykg00f37qiip65nrt9j",
+          "capabilityId": "cmuxhoyec003i7qii534icq16",
+          "defaultSkillVersionId": "cmuxhoyec003l7qii7uq8exxj",
+          "capability": {
+            "name": "内容排期管理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykh00f47qii3igd4a8b",
+      "name": "电商活动文案策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykh00f57qiipxtjv0t5",
+          "capabilityId": "cmuxhoydm00247qii50ghyx11",
+          "defaultSkillVersionId": "cmuxhoydm00277qiik2uq9wzw",
+          "capability": {
+            "name": "商品卖点结构化",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykh00f67qiiqwhqudkw",
+          "capabilityId": "cmuxhoyf500517qiitnsq68kl",
+          "defaultSkillVersionId": "cmuxhoyf500547qii6i3xxl7c",
+          "capability": {
+            "name": "促销机制设计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyki00f77qiit0rasl35",
+      "name": "内容合规校对师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyki00f87qii1ae1bapj",
+          "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+          "defaultSkillVersionId": "cmuxhoydw002r7qiirj0t363w",
+          "capability": {
+            "name": "内容电商策略",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyki00f97qiibjed6eng",
+          "capabilityId": "cmuxhoyhw00ab7qii1tx7jsaj",
+          "defaultSkillVersionId": "cmuxhoyhw00ae7qiisgj8hl4i",
+          "capability": {
+            "name": "广告合规审查",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykj00fa7qiiizh67lqc",
+      "name": "直播间经营诊断师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykk00fb7qiiwtxsv8rg",
+          "capabilityId": "cmuxhoyel00427qiie5sgespl",
+          "defaultSkillVersionId": "cmuxhoyel00457qiiqfu9596k",
+          "capability": {
+            "name": "直播间诊断",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykk00fc7qiim7xd1c91",
+          "capabilityId": "cmuxhoych00067qiib57oa2ez",
+          "defaultSkillVersionId": "cmuxhoych00097qiife68x71m",
+          "capability": {
+            "name": "电商漏斗分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykk00fd7qiis2oty57j",
+      "name": "直播商品编排师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykl00fe7qiic6jjc3px",
+          "capabilityId": "cmuxhoyep00477qii9hrw8ji8",
+          "defaultSkillVersionId": "cmuxhoyep004a7qiiamzowk35",
+          "capability": {
+            "name": "直播商品编排",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykl00ff7qiiju3chc7f",
+          "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+          "defaultSkillVersionId": "cmuxhoydu002m7qiiw2643m7r",
+          "capability": {
+            "name": "商品组合规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykl00fg7qiihknddkf4",
+      "name": "主播话术教练",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykm00fh7qiit5dqwu9m",
+          "capabilityId": "cmuxhoyes004c7qiins1bat1y",
+          "defaultSkillVersionId": "cmuxhoyes004f7qiis1m2gixe",
+          "capability": {
+            "name": "主播话术教练",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykm00fi7qiibkoscbkl",
+          "capabilityId": "cmuxhoyea003d7qiiobucgg58",
+          "defaultSkillVersionId": "cmuxhoyea003g7qiixw3bagzs",
+          "capability": {
+            "name": "直播脚本编排",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykn00fj7qiivjs0dxnb",
+      "name": "国内电商投放预算师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykn00fk7qiiltndi19e",
+          "capabilityId": "cmuxhoyeu004h7qiij64vjnzi",
+          "defaultSkillVersionId": "cmuxhoyeu004k7qii4ubzi87c",
+          "capability": {
+            "name": "电商投放预算",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykn00fl7qiijc5iwmlf",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyko00fm7qii8wugguw0",
+      "name": "广告素材测试经理",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyko00fn7qii4ktgkdyo",
+          "capabilityId": "cmuxhoyex004m7qiif09ds48p",
+          "defaultSkillVersionId": "cmuxhoyex004p7qii3nm3vzux",
+          "capability": {
+            "name": "广告素材测试",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykp00fo7qii0kruyaxy",
+          "capabilityId": "cmuxhoycn000g7qiiskdsh2yi",
+          "defaultSkillVersionId": "cmuxhoycn000j7qiimmo61cbb",
+          "capability": {
+            "name": "电商实验设计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykp00fp7qiio0lq6kl0",
+      "name": "搜索投放结构师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykp00fq7qiibiqjk5us",
+          "capabilityId": "cmuxhoyez004r7qiiezmhyov4",
+          "defaultSkillVersionId": "cmuxhoyez004u7qiigwgnzwu8",
+          "capability": {
+            "name": "国内电商搜索投放",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykq00fr7qii25kcryzw",
+          "capabilityId": "cmuxhoyf2004w7qii30aim3ap",
+          "defaultSkillVersionId": "cmuxhoyf2004z7qiiqdetk5pa",
+          "capability": {
+            "name": "广告投放审计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykq00fs7qiim1sd08x0",
+      "name": "投放账户审计师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykr00ft7qiiilei2fzq",
+          "capabilityId": "cmuxhoyf2004w7qii30aim3ap",
+          "defaultSkillVersionId": "cmuxhoyf2004z7qiiqdetk5pa",
+          "capability": {
+            "name": "广告投放审计",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykr00fu7qiiutfzvb2h",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykr00fv7qii8yndjafn",
+      "name": "电商促销机制设计师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyks00fw7qiijr2zn8gu",
+          "capabilityId": "cmuxhoyf500517qiitnsq68kl",
+          "defaultSkillVersionId": "cmuxhoyf500547qii6i3xxl7c",
+          "capability": {
+            "name": "促销机制设计",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyks00fx7qiii8lsghl5",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykt00fy7qiisaspdork",
+      "name": "大促流量统筹师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyku00fz7qii1xv4l9ca",
+          "capabilityId": "cmuxhoyf800567qiijooc51pw",
+          "defaultSkillVersionId": "cmuxhoyf800597qiisl02jj01",
+          "capability": {
+            "name": "活动流量规划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyku00g07qiixa6itsxv",
+          "capabilityId": "cmuxhoyct000q7qiit5qemxat",
+          "defaultSkillVersionId": "cmuxhoyct000t7qii8f8rco75",
+          "capability": {
+            "name": "大促活动复盘",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykv00g17qii4k3ogupc",
+      "name": "分销佣金策略师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykv00g27qiiq61x3zwx",
+          "capabilityId": "cmuxhoyfa005b7qiis2jn4pv6",
+          "defaultSkillVersionId": "cmuxhoyfa005e7qiiawksf9rt",
+          "capability": {
+            "name": "分销佣金设计",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykv00g37qii8jn3ptub",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykw00g47qiig9h0ir3m",
+      "name": "电商售前咨询顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykw00g57qiiqp2trtwv",
+          "capabilityId": "cmuxhoyfd005g7qiiaz2pi6ef",
+          "defaultSkillVersionId": "cmuxhoyfd005j7qii0igluyj2",
+          "capability": {
+            "name": "售前咨询响应",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykw00g67qiik1jwif8y",
+          "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+          "defaultSkillVersionId": "cmuxhoyfv006i7qiiut2ayyhm",
+          "capability": {
+            "name": "客户意图识别",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoykx00g77qii5njj1xm8",
+      "name": "订单物流服务专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykx00g87qiicc57521x",
+          "capabilityId": "cmuxhoyff005l7qiike5ga63l",
+          "defaultSkillVersionId": "cmuxhoyff005o7qiicw5ickkg",
+          "capability": {
+            "name": "订单物流查询",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykx00g97qiijwkgoact",
+          "capabilityId": "cmuxhoyfx006k7qii7cvg2ce2",
+          "defaultSkillVersionId": "cmuxhoyfx006n7qiiembbv2ji",
+          "capability": {
+            "name": "会话总结交接",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyky00ga7qiiagd6o9qo",
+      "name": "售后工单分流师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoykz00gb7qii8g0qhs90",
+          "capabilityId": "cmuxhoyfi005q7qiif4lcf8xf",
+          "defaultSkillVersionId": "cmuxhoyfi005t7qiijc14bw1k",
+          "capability": {
+            "name": "售后工单分流",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoykz00gc7qiiydc46kha",
+          "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+          "defaultSkillVersionId": "cmuxhoyfv006i7qiiut2ayyhm",
+          "capability": {
+            "name": "客户意图识别",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl000gd7qii1w5k3tb4",
+      "name": "退款风险复核师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl000ge7qii9in2zr1w",
+          "capabilityId": "cmuxhoyfk005v7qiit795vb78",
+          "defaultSkillVersionId": "cmuxhoyfk005y7qiimim57s5o",
+          "capability": {
+            "name": "退款风险识别",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl000gf7qiit1nzwu02",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl100gg7qiiarb0x9hb",
+      "name": "高价值客诉处理顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl100gh7qiih26rwqkm",
+          "capabilityId": "cmuxhoyfn00607qii2sz3kaia",
+          "defaultSkillVersionId": "cmuxhoyfn00637qii3uq07ymn",
+          "capability": {
+            "name": "客诉升级处理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl100gi7qiig5zqg35s",
+          "capabilityId": "cmuxhoyg0006p7qiinatgh778",
+          "defaultSkillVersionId": "cmuxhoyg0006s7qiicq8ihedz",
+          "capability": {
+            "name": "客服合规话术",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl200gj7qii1nrpisl0",
+      "name": "客服知识库架构师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl200gk7qii7ns8zhua",
+          "capabilityId": "cmuxhoyfq00657qii5izuvuu0",
+          "defaultSkillVersionId": "cmuxhoyfq00687qii89c9bkxy",
+          "capability": {
+            "name": "客服知识库整理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl200gl7qiix9gipk5s",
+          "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+          "defaultSkillVersionId": "cmuxhoyij00bi7qiio75203do",
+          "capability": {
+            "name": "电商知识库维护",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl300gm7qii8052bloi",
+      "name": "客服会话质检师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl300gn7qiipq34mehw",
+          "capabilityId": "cmuxhoyfs006a7qiigpaz7g3o",
+          "defaultSkillVersionId": "cmuxhoyft006d7qiiyh4l8kfz",
+          "capability": {
+            "name": "客服质检",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl300go7qiiy0w2l1q4",
+          "capabilityId": "cmuxhoyg0006p7qiinatgh778",
+          "defaultSkillVersionId": "cmuxhoyg0006s7qiicq8ihedz",
+          "capability": {
+            "name": "客服合规话术",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl400gp7qiihy3m37nw",
+      "name": "电商客户意图分诊师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl400gq7qiifpeff2an",
+          "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+          "defaultSkillVersionId": "cmuxhoyfv006i7qiiut2ayyhm",
+          "capability": {
+            "name": "客户意图识别",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl400gr7qiihqiwps82",
+          "capabilityId": "cmuxhoyfi005q7qiif4lcf8xf",
+          "defaultSkillVersionId": "cmuxhoyfi005t7qiijc14bw1k",
+          "capability": {
+            "name": "售后工单分流",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl500gs7qii7hyfhapw",
+      "name": "客服交接总结专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl500gt7qiihf6vfkvc",
+          "capabilityId": "cmuxhoyfx006k7qii7cvg2ce2",
+          "defaultSkillVersionId": "cmuxhoyfx006n7qiiembbv2ji",
+          "capability": {
+            "name": "会话总结交接",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl500gu7qiiwqaa86sp",
+          "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+          "defaultSkillVersionId": "cmuxhoyij00bi7qiio75203do",
+          "capability": {
+            "name": "电商知识库维护",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl600gv7qiizvvgtxee",
+      "name": "平台客服合规教练",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl700gw7qiiqt4m3fut",
+          "capabilityId": "cmuxhoyg0006p7qiinatgh778",
+          "defaultSkillVersionId": "cmuxhoyg0006s7qiicq8ihedz",
+          "capability": {
+            "name": "客服合规话术",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl700gx7qiizuyzo1xf",
+          "capabilityId": "cmuxhoyfs006a7qiigpaz7g3o",
+          "defaultSkillVersionId": "cmuxhoyft006d7qiiyh4l8kfz",
+          "capability": {
+            "name": "客服质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl700gy7qiisdj6wz8i",
+      "name": "电商库存预测师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyl800gz7qiiy58jqqzr",
+          "capabilityId": "cmuxhoyg2006u7qii0pfp3il6",
+          "defaultSkillVersionId": "cmuxhoyg2006x7qiixou2tvl6",
+          "capability": {
+            "name": "库存需求预测",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyl800h07qii35rfe2b7",
+          "capabilityId": "cmuxhoyg5006z7qiifmv5eohu",
+          "defaultSkillVersionId": "cmuxhoyg500727qiia0qvz3hf",
+          "capability": {
+            "name": "补货建议",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyl900h17qiiezua8jvd",
+      "name": "补货计划专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyla00h27qii7na05ccd",
+          "capabilityId": "cmuxhoyg5006z7qiifmv5eohu",
+          "defaultSkillVersionId": "cmuxhoyg500727qiia0qvz3hf",
+          "capability": {
+            "name": "补货建议",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyla00h37qiihq9umq8k",
+          "capabilityId": "cmuxhoygm007y7qii0i91ka34",
+          "defaultSkillVersionId": "cmuxhoygm00817qiilow4tf4m",
+          "capability": {
+            "name": "发货时效管理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyla00h47qiimw47ptrt",
+      "name": "滞销品治理顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylb00h57qiis3lav1cm",
+          "capabilityId": "cmuxhoyg700747qii4l6yvks9",
+          "defaultSkillVersionId": "cmuxhoyg700777qiivyueuck1",
+          "capability": {
+            "name": "滞销品治理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylb00h67qiiwma11650",
+          "capabilityId": "cmuxhoyf500517qiitnsq68kl",
+          "defaultSkillVersionId": "cmuxhoyf500547qii6i3xxl7c",
+          "capability": {
+            "name": "促销机制设计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylb00h77qiir2zu5mf2",
+      "name": "供应商评估师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylc00h87qiix7k2en3q",
+          "capabilityId": "cmuxhoyg900797qiiovb5fbbc",
+          "defaultSkillVersionId": "cmuxhoyg9007c7qiiy8fwavmt",
+          "capability": {
+            "name": "供应商评估",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylc00h97qiiukll0hn5",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylc00ha7qiifayhhy0d",
+      "name": "1688货源研究员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyld00hb7qiia531ljfu",
+          "capabilityId": "cmuxhoygc007e7qii04px2ose",
+          "defaultSkillVersionId": "cmuxhoygc007h7qiirff3mvxk",
+          "capability": {
+            "name": "1688货源研究",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyld00hc7qiiaoiwp979",
+          "capabilityId": "cmuxhoyg900797qiiovb5fbbc",
+          "defaultSkillVersionId": "cmuxhoyg9007c7qiiy8fwavmt",
+          "capability": {
+            "name": "供应商评估",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyle00hd7qiikb1o6k96",
+      "name": "采购成本优化师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyle00he7qiixevii80x",
+          "capabilityId": "cmuxhoygf007j7qiigbo4mk3r",
+          "defaultSkillVersionId": "cmuxhoygf007m7qiiybqolaow",
+          "capability": {
+            "name": "采购成本优化",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyle00hf7qiiiwe3ugwc",
+          "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+          "defaultSkillVersionId": "cmuxhoyho009z7qiiyj3ern1y",
+          "capability": {
+            "name": "电商单位经济模型",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylf00hg7qiigent3n56",
+      "name": "仓内作业规划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylf00hh7qii2proerqs",
+          "capabilityId": "cmuxhoygh007o7qiirq9q4h8i",
+          "defaultSkillVersionId": "cmuxhoygh007r7qii0t8c94ek",
+          "capability": {
+            "name": "仓内作业规划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylf00hi7qiife331ijt",
+          "capabilityId": "cmuxhoygj007t7qiiqa6q9k5v",
+          "defaultSkillVersionId": "cmuxhoygj007w7qiirasu4u0t",
+          "capability": {
+            "name": "履约异常处理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylg00hj7qiigrbd2nj9",
+      "name": "履约异常处理师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylg00hk7qiiuumghxpg",
+          "capabilityId": "cmuxhoygj007t7qiiqa6q9k5v",
+          "defaultSkillVersionId": "cmuxhoygj007w7qiirasu4u0t",
+          "capability": {
+            "name": "履约异常处理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylg00hl7qiio3ybhpvr",
+          "capabilityId": "cmuxhoyfn00607qii2sz3kaia",
+          "defaultSkillVersionId": "cmuxhoyfn00637qii3uq07ymn",
+          "capability": {
+            "name": "客诉升级处理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylh00hm7qiimi1vtlvq",
+      "name": "发货时效管理师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyli00hn7qii3rkkuq99",
+          "capabilityId": "cmuxhoygm007y7qii0i91ka34",
+          "defaultSkillVersionId": "cmuxhoygm00817qiilow4tf4m",
+          "capability": {
+            "name": "发货时效管理",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyli00ho7qii1708nj12",
+          "capabilityId": "cmuxhoyff005l7qiike5ga63l",
+          "defaultSkillVersionId": "cmuxhoyff005o7qiicw5ickkg",
+          "capability": {
+            "name": "订单物流查询",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylj00hp7qiii6z0rn69",
+      "name": "退货质检与再售顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylj00hq7qiimjaa4ui3",
+          "capabilityId": "cmuxhoygo00837qii80f69y6p",
+          "defaultSkillVersionId": "cmuxhoygo00867qiix13es0uz",
+          "capability": {
+            "name": "退货质检与再销售",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylj00hr7qiirmj2q1s8",
+          "capabilityId": "cmuxhoyg700747qii4l6yvks9",
+          "defaultSkillVersionId": "cmuxhoyg700777qiivyueuck1",
+          "capability": {
+            "name": "滞销品治理",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylk00hs7qiifbujeeov",
+      "name": "电商客户分层师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylk00ht7qiiua6pbwsg",
+          "capabilityId": "cmuxhoygr00887qiipo8aox75",
+          "defaultSkillVersionId": "cmuxhoygr008b7qiir0g4z5om",
+          "capability": {
+            "name": "客户分层",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylk00hu7qiigvayb3es",
+          "capabilityId": "cmuxhoyh600927qiit9p5syh6",
+          "defaultSkillVersionId": "cmuxhoyh600957qiizw3jbr27",
+          "capability": {
+            "name": "CRM 标签体系",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyll00hv7qiialrhyg2j",
+      "name": "会员生命周期运营师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylm00hw7qiidgkfqman",
+          "capabilityId": "cmuxhoygt008d7qii4ou4t7l4",
+          "defaultSkillVersionId": "cmuxhoygt008g7qiig22j29b7",
+          "capability": {
+            "name": "会员生命周期",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylm00hx7qiimz37jkgy",
+          "capabilityId": "cmuxhoygy008n7qiix64j96xc",
+          "defaultSkillVersionId": "cmuxhoygy008q7qiig5jdu2ut",
+          "capability": {
+            "name": "复购运营",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylm00hy7qiiac9ej9vr",
+      "name": "私域增长运营师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyln00hz7qiin6bbzdck",
+          "capabilityId": "cmuxhoygw008i7qiiwvfqun28",
+          "defaultSkillVersionId": "cmuxhoygw008l7qiiqoiq11hb",
+          "capability": {
+            "name": "私域增长运营",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyln00i07qiiaarnf7j5",
+          "capabilityId": "cmuxhoyh4008x7qii1p8uhid1",
+          "defaultSkillVersionId": "cmuxhoyh400907qii38grgw8p",
+          "capability": {
+            "name": "社群运营",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylo00i17qii1w824ujz",
+      "name": "复购增长顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylo00i27qiil7awcvdj",
+          "capabilityId": "cmuxhoygy008n7qiix64j96xc",
+          "defaultSkillVersionId": "cmuxhoygy008q7qiig5jdu2ut",
+          "capability": {
+            "name": "复购运营",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylo00i37qiihlon7caq",
+          "capabilityId": "cmuxhoyh900977qii27il4r7y",
+          "defaultSkillVersionId": "cmuxhoyh9009a7qii83ak1brb",
+          "capability": {
+            "name": "客户价值分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylp00i47qiiq2ichhte",
+      "name": "优惠券策略师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylp00i57qii3ye00rrv",
+          "capabilityId": "cmuxhoyh1008s7qii1l09jrwi",
+          "defaultSkillVersionId": "cmuxhoyh1008v7qii5rf191li",
+          "capability": {
+            "name": "优惠券策略",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylp00i67qiiqode1owe",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylq00i77qiirtdu5zmx",
+      "name": "电商社群运营师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylq00i87qiibaupznsx",
+          "capabilityId": "cmuxhoyh4008x7qii1p8uhid1",
+          "defaultSkillVersionId": "cmuxhoyh400907qii38grgw8p",
+          "capability": {
+            "name": "社群运营",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylq00i97qiipizmkshm",
+          "capabilityId": "cmuxhoyej003x7qiih44n681w",
+          "defaultSkillVersionId": "cmuxhoyej00407qiiuzzva7vf",
+          "capability": {
+            "name": "私域内容运营",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylr00ia7qiia66wljeq",
+      "name": "CRM 标签治理师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyls00ib7qiidm1ntc2p",
+          "capabilityId": "cmuxhoyh600927qiit9p5syh6",
+          "defaultSkillVersionId": "cmuxhoyh600957qiizw3jbr27",
+          "capability": {
+            "name": "CRM 标签体系",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyls00ic7qiilkv41in5",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylt00id7qiiwo601w61",
+      "name": "客户价值分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylu00ie7qiijzrpye3j",
+          "capabilityId": "cmuxhoyh900977qii27il4r7y",
+          "defaultSkillVersionId": "cmuxhoyh9009a7qii83ak1brb",
+          "capability": {
+            "name": "客户价值分析",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylu00if7qii25ajecd6",
+          "capabilityId": "cmuxhoyd000107qii569s600y",
+          "defaultSkillVersionId": "cmuxhoyd000137qiitrl3prui",
+          "capability": {
+            "name": "留存复购分析",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylu00ig7qiidbiz7gvm",
+      "name": "老客转介绍策划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylv00ih7qiikbkxv931",
+          "capabilityId": "cmuxhoyhc009c7qiiixas6lsm",
+          "defaultSkillVersionId": "cmuxhoyhc009f7qiiqh6pawix",
+          "capability": {
+            "name": "老客转介绍",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylv00ii7qiiimzfz31d",
+          "capabilityId": "cmuxhoyhe009h7qiii27morqz",
+          "defaultSkillVersionId": "cmuxhoyhe009k7qiieglxwcgj",
+          "capability": {
+            "name": "会员权益设计",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylv00ij7qiiartuuy6q",
+      "name": "电商会员权益设计师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylw00ik7qiiwzrgy7g3",
+          "capabilityId": "cmuxhoyhe009h7qiii27morqz",
+          "defaultSkillVersionId": "cmuxhoyhe009k7qiieglxwcgj",
+          "capability": {
+            "name": "会员权益设计",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylw00il7qiij4urfy0u",
+          "capabilityId": "cmuxhoygt008d7qii4ou4t7l4",
+          "defaultSkillVersionId": "cmuxhoygt008g7qiig22j29b7",
+          "capability": {
+            "name": "会员生命周期",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylw00im7qii8mqxpaiz",
+      "name": "平台账务对账专员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylx00in7qiis0u2awo7",
+          "capabilityId": "cmuxhoyhh009m7qiizup0gg30",
+          "defaultSkillVersionId": "cmuxhoyhh009p7qiim4jyqzdr",
+          "capability": {
+            "name": "平台账务对账",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylx00io7qiiqd2denyd",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyly00ip7qiia0rz50ov",
+      "name": "电商现金流规划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoyly00iq7qiifklsmp0b",
+          "capabilityId": "cmuxhoyhl009r7qiidumf1dxr",
+          "defaultSkillVersionId": "cmuxhoyhm009u7qiigzysymhd",
+          "capability": {
+            "name": "电商现金流计划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoyly00ir7qiiic04vsd8",
+          "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+          "defaultSkillVersionId": "cmuxhoyho009z7qiiyj3ern1y",
+          "capability": {
+            "name": "电商单位经济模型",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoylz00is7qii5w68rj8l",
+      "name": "电商单位经济分析师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoylz00it7qiiqw2qy45r",
+          "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+          "defaultSkillVersionId": "cmuxhoyho009z7qiiyj3ern1y",
+          "capability": {
+            "name": "电商单位经济模型",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoylz00iu7qiiozaobxgv",
+          "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+          "defaultSkillVersionId": "cmuxhoycq000o7qiihzfshatj",
+          "capability": {
+            "name": "单品利润测算",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym000iv7qiisc74bsmc",
+      "name": "电商开票资料助手",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym100iw7qii78mrl5fd",
+          "capabilityId": "cmuxhoyhs00a17qiieljubrab",
+          "defaultSkillVersionId": "cmuxhoyhs00a47qiithubzof8",
+          "capability": {
+            "name": "发票与税务资料",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym100ix7qiiurpna3o8",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym100iy7qiiefq1nnwt",
+      "name": "电商平台规则研究员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym200iz7qii5adc0dqx",
+          "capabilityId": "cmuxhoyhu00a67qiixt2l4c2j",
+          "defaultSkillVersionId": "cmuxhoyhu00a97qiiqimgli97",
+          "capability": {
+            "name": "平台规则核查",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym200j07qiinbuutwmz",
+          "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+          "defaultSkillVersionId": "cmuxhoyij00bi7qiio75203do",
+          "capability": {
+            "name": "电商知识库维护",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym300j17qiise9xwohm",
+      "name": "电商广告合规审查师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym300j27qii7j5987pa",
+          "capabilityId": "cmuxhoyhw00ab7qii1tx7jsaj",
+          "defaultSkillVersionId": "cmuxhoyhw00ae7qiisgj8hl4i",
+          "capability": {
+            "name": "广告合规审查",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym300j37qiitcvme5ln",
+          "capabilityId": "cmuxhoyhu00a67qiixt2l4c2j",
+          "defaultSkillVersionId": "cmuxhoyhu00a97qiiqimgli97",
+          "capability": {
+            "name": "平台规则核查",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym400j47qii3br7s0jk",
+      "name": "电商数据隐私顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym400j57qii8ckm8jg2",
+          "capabilityId": "cmuxhoyhz00ag7qiiqbrd6ea4",
+          "defaultSkillVersionId": "cmuxhoyhz00aj7qii56sd5qnq",
+          "capability": {
+            "name": "电商隐私保护",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym400j67qiiq6595evu",
+          "capabilityId": "cmuxhoyhu00a67qiixt2l4c2j",
+          "defaultSkillVersionId": "cmuxhoyhu00a97qiiqimgli97",
+          "capability": {
+            "name": "平台规则核查",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym500j77qii9tt70jvg",
+      "name": "电商交易风控初筛师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym600j87qii5l5ka9o7",
+          "capabilityId": "cmuxhoyi200al7qiimep8gklx",
+          "defaultSkillVersionId": "cmuxhoyi200ao7qiin4vh3m2u",
+          "capability": {
+            "name": "交易风控初筛",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym600j97qiif7lyu5tr",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym600ja7qiiwn5l8n8y",
+      "name": "电商合作协议审阅师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym700jb7qiirlk3hrac",
+          "capabilityId": "cmuxhoyi400aq7qii8yjw77it",
+          "defaultSkillVersionId": "cmuxhoyi400at7qiijmm2jl3j",
+          "capability": {
+            "name": "电商合作协议审阅",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym700jc7qii9zwmhpck",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym800jd7qiig5ve6jqm",
+      "name": "电商经营审计助理",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym800je7qii56v6pr6h",
+          "capabilityId": "cmuxhoyi700av7qii7950ferg",
+          "defaultSkillVersionId": "cmuxhoyi700ay7qiil07ocgab",
+          "capability": {
+            "name": "经营证据归档",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym800jf7qiibcoo0qnq",
+          "capabilityId": "cmuxhoyhh009m7qiizup0gg30",
+          "defaultSkillVersionId": "cmuxhoyhh009p7qiim4jyqzdr",
+          "capability": {
+            "name": "平台账务对账",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoym900jg7qiivssdu2t3",
+      "name": "多平台电商协同经理",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoym900jh7qii711ed3s6",
+          "capabilityId": "cmuxhoyia00b07qiio9xr6lo2",
+          "defaultSkillVersionId": "cmuxhoyia00b37qiifqqcu6a3",
+          "capability": {
+            "name": "多平台经营协同",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoym900ji7qiiitb4rmbt",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyma00jj7qiix4vrhdk2",
+      "name": "电商 SOP 架构师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymb00jk7qiiuffmfhxt",
+          "capabilityId": "cmuxhoyid00b57qii5cyjixl8",
+          "defaultSkillVersionId": "cmuxhoyid00b87qiihkyj00c2",
+          "capability": {
+            "name": "电商 SOP 编排",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymb00jl7qii3kywiu1l",
+          "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+          "defaultSkillVersionId": "cmuxhoyij00bi7qiio75203do",
+          "capability": {
+            "name": "电商知识库维护",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymc00jm7qiin1gky8yo",
+      "name": "电商项目任务规划师",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymd00jn7qiiwzf1de9r",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymd00jo7qiimg55t0me",
+          "capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr",
+          "defaultSkillVersionId": "cmuxhoyiq00bs7qiiqeztop6o",
+          "capability": {
+            "name": "电商目标复盘",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoyme00jp7qiiytaspmvx",
+      "name": "电商知识库管理员",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymf00jq7qiig1uywvj9",
+          "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+          "defaultSkillVersionId": "cmuxhoyij00bi7qiio75203do",
+          "capability": {
+            "name": "电商知识库维护",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymf00jr7qiiyovhgnby",
+          "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+          "defaultSkillVersionId": "cmuxhoyd300187qiil50z0ij3",
+          "capability": {
+            "name": "电商数据质检",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymf00js7qiie3fz1ysf",
+      "name": "电商经营会议秘书",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymg00jt7qiibncucitx",
+          "capabilityId": "cmuxhoyil00bk7qiis0c288dh",
+          "defaultSkillVersionId": "cmuxhoyil00bn7qiir52vlavx",
+          "capability": {
+            "name": "电商会议纪要",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymg00ju7qiiaeh18is0",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymh00jv7qiinecf2t5e",
+      "name": "电商周会复盘教练",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymh00jw7qiibmubh3ug",
+          "capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr",
+          "defaultSkillVersionId": "cmuxhoyiq00bs7qiiqeztop6o",
+          "capability": {
+            "name": "电商目标复盘",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymh00jx7qiibeapadyh",
+          "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+          "defaultSkillVersionId": "cmuxhoyck000e7qiij6xunrtg",
+          "capability": {
+            "name": "电商经营日报",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymh00jy7qiizz9hfdu9",
+      "name": "供应商沟通助手",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymi00jz7qii6mly4e1u",
+          "capabilityId": "cmuxhoyis00bu7qiiminipz4n",
+          "defaultSkillVersionId": "cmuxhoyis00bx7qii9drugzpk",
+          "capability": {
+            "name": "供应商沟通助手",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymi00k07qii1cyttjf4",
+          "capabilityId": "cmuxhoyg900797qiiovb5fbbc",
+          "defaultSkillVersionId": "cmuxhoyg9007c7qiiy8fwavmt",
+          "capability": {
+            "name": "供应商评估",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymj00k17qiivtmsju6x",
+      "name": "电商老板决策助手",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymj00k27qiil5afxl94",
+          "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+          "defaultSkillVersionId": "cmuxhoyc100047qiivsozzx0t",
+          "capability": {
+            "name": "电商经营诊断",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymj00k37qii8mwnojum",
+          "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+          "defaultSkillVersionId": "cmuxhoyih00bd7qii32zsbc1i",
+          "capability": {
+            "name": "电商任务规划",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymk00k47qiisdcxb8r0",
+      "name": "电商新品上市项目经理",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymk00k57qiiesp3yb2t",
+          "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+          "defaultSkillVersionId": "cmuxhoydu002m7qiiw2643m7r",
+          "capability": {
+            "name": "商品组合规划",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymk00k67qiil5pf8pfx",
+          "capabilityId": "cmuxhoyid00b57qii5cyjixl8",
+          "defaultSkillVersionId": "cmuxhoyid00b87qiihkyj00c2",
+          "capability": {
+            "name": "电商 SOP 编排",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    },
+    {
+      "id": "cmuxhoymm00k77qiictpoyp6q",
+      "name": "电商全链路运营顾问",
+      "status": "APPROVED",
+      "bindings": [
+        {
+          "id": "cmuxhoymm00k87qiixcmmza3h",
+          "capabilityId": "cmuxhoyia00b07qiio9xr6lo2",
+          "defaultSkillVersionId": "cmuxhoyia00b37qiifqqcu6a3",
+          "capability": {
+            "name": "多平台经营协同",
+            "type": "SKILL"
+          }
+        },
+        {
+          "id": "cmuxhoymm00k97qiinztw4jej",
+          "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+          "defaultSkillVersionId": "cmuxhoydw002r7qiirj0t363w",
+          "capability": {
+            "name": "内容电商策略",
+            "type": "SKILL"
+          }
+        }
+      ],
+      "readiness": "READY"
+    }
+  ]
+}

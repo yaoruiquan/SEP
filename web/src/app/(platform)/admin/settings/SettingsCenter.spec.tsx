@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import SettingsCenter from './SettingsCenter';
 import BasicSettings from './BasicSettings';
 
-const mocks = vi.hoisted(() => ({ update: vi.fn(), success: vi.fn(), includePolicyRows: true }));
+const mocks = vi.hoisted(() => ({ update: vi.fn(), success: vi.fn(), includePolicyRows: true, includeRewards: false }));
 vi.mock('./ModelRuntimePolicySettings', () => ({ default: () => <div>专用策略编辑器</div> }));
 vi.mock('@/features/model/use-models', () => ({ useUpstreamModels: () => ({ data: [], isFetching: false }) }));
 vi.mock('@/components/ui/toast', () => ({ toast: { success: mocks.success, error: vi.fn() } }));
@@ -18,16 +18,31 @@ vi.mock('@/features/admin/use-admin', () => {
     { key: 'DEPLOY_READ_ONLY', category: 'runtime', label: '部署字段', value: 'safe', secret: false, editable: false, configured: true },
   ];
   const genericOnlyData = data.filter((setting) => setting.key !== 'GATEWAY_MEMBER_RPM' && setting.key !== 'MODEL_RUNTIME_POLICY_REVISION');
+  const rewards = { key: 'CONTRIBUTION_REWARDS_ENABLED', category: 'billing', label: '贡献奖励开关', value: 'false', secret: false, editable: true, configured: true, type: 'boolean' };
+  const dataWithRewards = [...data, rewards];
+  const genericWithRewards = [...genericOnlyData, rewards];
   return {
-    useSettings: () => ({ data: mocks.includePolicyRows ? data : genericOnlyData, isLoading: false }),
+    useSettings: () => ({ data: mocks.includePolicyRows
+      ? (mocks.includeRewards ? dataWithRewards : data)
+      : (mocks.includeRewards ? genericWithRewards : genericOnlyData), isLoading: false }),
     useUpdateSettings: () => ({ mutateAsync: mocks.update, isPending: false }),
   };
 });
 
-beforeEach(() => { vi.resetAllMocks(); mocks.includePolicyRows = true; mocks.update.mockResolvedValue([]); });
+beforeEach(() => { vi.resetAllMocks(); mocks.includePolicyRows = true; mocks.includeRewards = false; mocks.update.mockResolvedValue([]); });
 afterEach(cleanup);
 
 describe('设置中心策略入口兼容', () => {
+  it('贡献奖励默认显示关闭，保存关闭状态不改奖励金额', async () => {
+    mocks.includeRewards = true;
+    render(<BasicSettings />);
+    const rewards = screen.getByRole('switch', { name: '启用贡献奖励' });
+    expect(rewards).not.toBeChecked();
+    expect(screen.getByText('关闭后不产生新奖励，已有余额和历史流水不变。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '保存所有设置' }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ SUB2API_DEFAULT_MODEL: 'test-model', CONTRIBUTION_REWARDS_ENABLED: 'false' }));
+  });
+
   it.each([false, true])('专用策略导航隐藏计数，不依赖通用响应是否包含专用键（%s）', (includePolicyRows) => {
     mocks.includePolicyRows = includePolicyRows;
     render(<SettingsCenter />);

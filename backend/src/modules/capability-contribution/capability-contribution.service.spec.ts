@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CapabilityContributionService } from './capability-contribution.service';
 import { CapabilityValidatorService } from './capability-validator.service';
 
@@ -38,19 +39,24 @@ describe('CapabilityContributionService', () => {
     rPAConfig: { findUnique: jest.fn() },
     rpaVersion: { updateMany: jest.fn(), findMany: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
-    user: { findUnique: jest.fn() },
+    personalWallet: { upsert: jest.fn(), updateMany: jest.fn() },
+    personalWalletTransaction: { findFirst: jest.fn(), create: jest.fn() },
+    user: { findUnique: jest.fn(), findMany: jest.fn() },
+    enterpriseMember: { findMany: jest.fn() },
     $transaction: jest.fn(),
   };
   const validator = new CapabilityValidatorService();
   const skillPackage = { read: jest.fn(), store: jest.fn(), resolveStoredPath: jest.fn() };
   const rpaPackage = { read: jest.fn() };
+  const settings = { getEffectiveValue: jest.fn() };
+  const notifications = { create: jest.fn(), createBatch: jest.fn() };
   const service = new CapabilityContributionService(
     prisma as never,
     enterpriseContext as never,
     validator,
     skillPackage as never,
-    undefined,
-    undefined,
+    settings as never,
+    notifications as never,
     rpaPackage as never,
   );
 
@@ -66,6 +72,12 @@ describe('CapabilityContributionService', () => {
     prisma.capability.update.mockResolvedValue(capability);
     prisma.skillVersion.updateMany.mockResolvedValue({ count: 1 });
     prisma.contributionRewardEvent.createMany.mockResolvedValue({ count: 1 });
+    settings.getEffectiveValue.mockResolvedValue('false');
+    prisma.personalWallet.upsert.mockResolvedValue({ id: 'wallet-1', balance: new Prisma.Decimal(0), version: 0 });
+    prisma.personalWallet.updateMany.mockResolvedValue({ count: 1 });
+    prisma.personalWalletTransaction.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.enterpriseMember.findMany.mockResolvedValue([]);
   });
 
   it.each([
@@ -245,9 +257,9 @@ describe('CapabilityContributionService', () => {
     expect(prisma.capability.findFirst).not.toHaveBeenCalled();
   });
 
-  it('blocks enterprise submission when the Skill does not pass automatic validation', async () => {
+  it('blocks enterprise submission when the Skill body is empty', async () => {
     prisma.capability.findFirst.mockResolvedValue({ ...capability, enterpriseReviewStatus: 'NOT_SUBMITTED' });
-    prisma.skillVersion.findFirst.mockResolvedValue({ content: '只有一段没有结构的正文' });
+    prisma.skillVersion.findFirst.mockResolvedValue({ content: ' \n\t' });
 
     await expect(service.submitEnterpriseReview('user-1', 'cap-1')).rejects.toThrow('自动校验未通过');
     expect(prisma.capability.update).not.toHaveBeenCalled();
@@ -296,6 +308,7 @@ describe('CapabilityContributionService', () => {
   });
 
   it('moves a submitted capability through enterprise review and creates a deduplicated reward event', async () => {
+    settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : undefined);
     enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
     prisma.capability.findFirst
       .mockResolvedValueOnce({ ...capability, enterpriseReviewStatus: 'PENDING' })
@@ -308,7 +321,10 @@ describe('CapabilityContributionService', () => {
     }));
     expect(prisma.contributionRewardEvent.createMany).toHaveBeenCalledWith(expect.objectContaining({
       skipDuplicates: true,
-      data: [expect.objectContaining({ dedupeKey: 'enterprise-approved:cap-1', points: 10 })],
+      data: [expect.objectContaining({ dedupeKey: 'enterprise-approved:cap-1', points: 10, amount: new Prisma.Decimal(10) })],
+    }));
+    expect(prisma.personalWalletTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ amount: new Prisma.Decimal(10), relatedId: 'enterprise-approved:cap-1' }),
     }));
   });
 
@@ -373,6 +389,7 @@ describe('CapabilityContributionService', () => {
   });
 
   it('publishes only after platform admin approval and awards the contributor once', async () => {
+    settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : undefined);
     prisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
     prisma.capability.findUnique.mockResolvedValue({
       ...capability,
@@ -386,7 +403,10 @@ describe('CapabilityContributionService', () => {
     }));
     expect(prisma.contributionRewardEvent.createMany).toHaveBeenCalledWith(expect.objectContaining({
       skipDuplicates: true,
-      data: [expect.objectContaining({ dedupeKey: 'platform-approved:cap-1', points: 50 })],
+      data: [expect.objectContaining({ dedupeKey: 'platform-approved:cap-1', points: 50, amount: new Prisma.Decimal(50) })],
+    }));
+    expect(prisma.personalWalletTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ amount: new Prisma.Decimal(50), relatedId: 'platform-approved:cap-1' }),
     }));
     // scope 约束不能少：漏了它会把 scope=ENTERPRISE 那行也改成 PLATFORM_APPROVED，
     // 结果是「MARKET_PUBLIC 的能力一个平台版本都没有」，别的企业订阅后拿不到正文。
@@ -402,6 +422,61 @@ describe('CapabilityContributionService', () => {
     await expect(service.reviewPlatform('platform-admin', 'cap-1', { decision: 'APPROVE' }))
       .rejects.toBeInstanceOf(ConflictException);
     expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  describe.each(['enterprise', 'platform'] as const)('%s review reward switch', (kind) => {
+    const approve = () => kind === 'enterprise'
+      ? service.reviewEnterprise('admin-1', 'cap-1', { decision: 'APPROVE' })
+      : service.reviewPlatform('platform-admin', 'cap-1', { decision: 'APPROVE' });
+
+    beforeEach(() => {
+      enterpriseContext.resolve.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'ENTERPRISE_ADMIN' });
+      prisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+      const pending = { ...capability, enterpriseReviewStatus: 'PENDING', platformReviewStatus: 'PENDING_REVIEW' };
+      prisma.capability.findFirst.mockResolvedValue(pending);
+      prisma.capability.findUnique.mockResolvedValue(pending);
+      prisma.capability.update.mockResolvedValue({ ...pending, [kind === 'enterprise' ? 'enterpriseReviewStatus' : 'platformReviewStatus']: 'APPROVED' });
+    });
+
+    it.each([undefined, null, 'false', '', 'TRUE', '1', true])('approves without rewards when the switch is %p', async (value) => {
+      settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? value : '75');
+      await expect(approve()).resolves.toEqual(expect.objectContaining({
+        [kind === 'enterprise' ? 'enterpriseReviewStatus' : 'platformReviewStatus']: 'APPROVED',
+      }));
+      expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining(kind === 'enterprise'
+          ? { enterpriseReviewStatus: 'APPROVED' }
+          : { platformReviewStatus: 'APPROVED', status: 'APPROVED', visibility: 'MARKET_PUBLIC' }),
+      }));
+      expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
+      expect(prisma.personalWallet.upsert).not.toHaveBeenCalled();
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+      expect(settings.getEffectiveValue).not.toHaveBeenCalledWith(kind === 'enterprise'
+        ? 'CONTRIBUTION_ENTERPRISE_REWARD_CNY' : 'CONTRIBUTION_PLATFORM_REWARD_CNY');
+      expect(notifications.create).toHaveBeenCalledTimes(1);
+      expect(notifications.create).toHaveBeenCalledWith(expect.objectContaining({
+        type: kind === 'enterprise' ? 'CONTRIBUTION_ENTERPRISE_APPROVED' : 'CONTRIBUTION_PLATFORM_APPROVED',
+        category: 'APPROVAL',
+      }));
+      expect(notifications.create.mock.calls[0][0].message).not.toContain('奖励已入账');
+      expect(notifications.create).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'CONTRIBUTION_REWARD_CREDITED' }));
+      expect(notifications.createBatch).not.toHaveBeenCalled();
+    });
+
+    it('uses the configured amount and sends a reward notification only when explicitly enabled', async () => {
+      const amountKey = kind === 'enterprise' ? 'CONTRIBUTION_ENTERPRISE_REWARD_CNY' : 'CONTRIBUTION_PLATFORM_REWARD_CNY';
+      settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : key === amountKey ? '75' : undefined);
+      await approve();
+      expect(settings.getEffectiveValue).toHaveBeenCalledWith(amountKey);
+      expect(prisma.contributionRewardEvent.createMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: [expect.objectContaining({ amount: new Prisma.Decimal(75) })],
+      }));
+      expect(prisma.personalWalletTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ amount: new Prisma.Decimal(75) }),
+      }));
+      expect(notifications.create).toHaveBeenCalledWith(expect.objectContaining({ type: 'CONTRIBUTION_REWARD_CREDITED' }));
+    });
   });
 
   describe('CapabilityContributionService version review', () => {

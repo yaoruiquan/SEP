@@ -57,11 +57,18 @@ describe('ClientSkillArtifactService', () => {
     expect(artifact.descriptor.installationDirectory).toBe('product-image');
   });
 
+  it.each(['\ufeff\n', '\n\t\n', '\r'])('retains approved Unicode names and source bytes with compatibility prefix %j', async (prefix) => {
+    const content = prefix + '---\nname: 中文-ＡＩ\ndescription: 2026-10-14\nmetadata:\n  version: 1\n  date: 2026-10-14\ndisable-model-invocation: true\n---\n做图';
+    versions.resolveEffectiveVersion.mockResolvedValue(makeVersion({ content }));
+    const artifact = await service.download('user-1', params);
+    expect(artifact.buffer.toString('utf8')).toBe(content);
+    expect(artifact.descriptor).toMatchObject({ installationDirectory: '中文-ＡＩ', approvedContentSha256: digest(content), entrySha256: digest(content), artifactSha256: digest(content) });
+  });
+
   it.each([
     ['', 'INVALID_ENTRY'],
     ['---\nname: Bad_Name\ndescription: test\n---\nbody', 'INVALID_ENTRY'],
     ['---\nname: valid\ndescription: test\ncompatibility: 2\n---\nbody', 'INVALID_ENTRY'],
-    ['\ufeff---\nname: valid\ndescription: test\n---\nbody', 'INVALID_ENTRY'],
     ['broken surrogate \ud800', 'INVALID_ENTRY'],
     ['Read references/checklist.md', 'PACKAGE_REQUIRED'],
     ['[Checklist](./checklist.md)', 'PACKAGE_REQUIRED'],

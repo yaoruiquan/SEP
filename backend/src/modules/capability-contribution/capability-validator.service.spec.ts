@@ -36,10 +36,22 @@ describe('CapabilityValidatorService', () => {
     expect(result.warnings[0].message).toContain('建议');
   });
 
-  it.each(['', ' ', '# 标题\n测试'])('still rejects empty or short content: %p', (content) => {
+  it.each(['', ' ', '\n\t\ufeff'])('rejects empty content: %p', (content) => {
     const result = service.validateSkill(content);
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain('CONTENT_LENGTH');
+  });
+
+  it.each(['做图', '# 标题\n测试', 'api_key = YOUR_API_KEY', 'token=${ACCESS_TOKEN}',
+    'password: <YOUR_PASSWORD>', 'secret = {{SECRET}}', 'api_key=process.env.API_KEY',
+    'api_key=sk-xxxxxxxxxxxxxxxx', 'api_key = "YOUR_API_KEY"', 'api_key = `YOUR_API_KEY`'])('accepts short instructions and placeholders: %s', (content) => {
+    expect(service.validateSkill(content).valid).toBe(true);
+  });
+
+  it('enforces UTF-8 bytes without trimming the byte budget', () => {
+    expect(service.validateSkill('中'.repeat(170666) + 'aa').valid).toBe(true);
+    expect(service.validateSkill('中'.repeat(170667)).issues.map((issue) => issue.code)).toContain('CONTENT_BYTES');
+    expect(service.validateSkill('x' + ' '.repeat(500 * 1024)).valid).toBe(false);
   });
 
   it.each([

@@ -1,18 +1,17 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { SkillVersion } from '@prisma/client';
 import { createHash } from 'crypto';
-import matter from 'gray-matter';
 import {
   ClientSkillArtifact, ClientSkillArtifactAvailable, ClientSkillArtifactBlocked, ClientSkillArtifactParams, ClientSkillArtifactAvailableSchema,
-  SkillArtifactBlockedReason, SkillArtifactFrontmatterSchema,
+  SkillArtifactBlockedReason,
 } from 'shared';
+import { prepareSkillMarkdown } from '../../shared/skill-content';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { SkillPackageService } from '../skill-package/skill-package.service';
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { clientSubscriptionAccessWhere } from './client-subscription-access';
 
-const MAX_ENTRY_BYTES = 500 * 1024;
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 type AvailableArtifact = ClientSkillArtifactAvailable;
 type PreparedArtifact = { descriptor: AvailableArtifact; buffer: Buffer } | { descriptor: ClientSkillArtifactBlocked };
@@ -78,36 +77,10 @@ export class ClientSkillArtifactService {
       }
     }
 
-    if (!version.content.trim() || Buffer.byteLength(version.content, 'utf8') > MAX_ENTRY_BYTES) return blocked('INVALID_ENTRY');
-    let raw = version.content;
-    if (Buffer.from(raw, 'utf8').toString('utf8') !== raw) return blocked('INVALID_ENTRY');
-    let skillName = `sep-${sha256(capabilityId).slice(0, 24)}`;
-    let body = raw;
-    try {
-      if (/^---(?:\r?\n|$)/.test(raw)) {
-        const parsed = matter(raw);
-        const result = SkillArtifactFrontmatterSchema.safeParse(parsed.data);
-        if (!result.success || !parsed.content.trim()) return blocked('INVALID_ENTRY');
-        skillName = result.data.name;
-        body = parsed.content;
-      } else {
-        if (/^\s*---(?:\r?\n|$)/.test(raw) || raw.startsWith('\ufeff')) return blocked('INVALID_ENTRY');
-        const summary = Array.from(raw.trim().replace(/\s+/g, ' ')).slice(0, 300).join('');
-        const description = `Use for tasks matching these approved instructions: ${summary}`;
-        raw = `---\nname: ${JSON.stringify(skillName)}\ndescription: ${JSON.stringify(description)}\n---\n${raw}`;
-      }
-    } catch {
-      return blocked('INVALID_ENTRY');
-    }
-    // Conservative static guard only; download never authorizes script execution.
-    if (/(?:references|scripts|assets)[\\/]/i.test(body) ||
-      /\]\(\s*(?!<?(?:[a-z][a-z0-9+.-]*:|#|\/\/))<?[^\s<>\)]+/i.test(body) ||
-      /^ {0,3}\[[^\]\n]+\]:\s*(?!<?(?:[a-z][a-z0-9+.-]*:|#|\/\/))<?[^\s<>]+/im.test(body)) {
-      return blocked('PACKAGE_REQUIRED');
-    }
-    const buffer = Buffer.from(raw, 'utf8');
-    if (buffer.length > MAX_ENTRY_BYTES) return blocked('INVALID_ENTRY');
-    return available(buffer, { format: 'single-file', installationDirectory: skillName,
+    const prepared = prepareSkillMarkdown(version.content, `sep-${sha256(capabilityId).slice(0, 24)}`);
+    if (prepared.status === 'BLOCKED') return blocked(prepared.reason);
+    const buffer = Buffer.from(prepared.content, 'utf8');
+    return available(buffer, { format: 'single-file', installationDirectory: prepared.skillName,
       entryPath: 'SKILL.md', entrySha256: sha256(buffer), fileCount: 1 });
   }
 }

@@ -7,7 +7,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { EmployeeTrackRecordService } from './employee-track-record.service';
+import { EmployeeReadinessService } from './employee-readiness.service';
 import {
   DigitalEmployeeCreateDto,
   DigitalEmployeeUpdateDto,
@@ -19,6 +21,7 @@ export class DigitalEmployeeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trackRecord: EmployeeTrackRecordService,
+    private readonly readiness: EmployeeReadinessService,
   ) {}
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -231,6 +234,21 @@ export class DigitalEmployeeService {
   }
 
   async update(id: string, dto: DigitalEmployeeUpdateDto) {
+    if (dto.status === 'APPROVED') {
+      return this.readiness.withEmployeeLock(id, async (tx, employee) => {
+        await this.readiness.assertReady(id, tx);
+        return tx.digitalEmployee.update({
+          where: { id },
+          data: {
+            ...dto,
+            ...(dto.avatar !== undefined && dto.avatar !== employee.avatar
+              ? { avatarStyle: 'custom', avatarCustomUrl: dto.avatar, avatarBindings: preservedAvatarBindings(employee) } : {}),
+            publishedAt: new Date(),
+          },
+          include: this.defaultInclude(),
+        });
+      });
+    }
     const employee = await this.findOne(id); // guard: throws NotFoundException if missing
 
     return this.prisma.digitalEmployee.update({
@@ -239,8 +257,6 @@ export class DigitalEmployeeService {
         ...dto,
         ...(dto.avatar !== undefined && dto.avatar !== employee.avatar
           ? { avatarStyle: 'custom', avatarCustomUrl: dto.avatar, avatarBindings: preservedAvatarBindings(employee) } : {}),
-        // Auto-stamp publishedAt when status transitions to APPROVED
-        ...(dto.status === 'APPROVED' && { publishedAt: new Date() }),
       },
       include: this.defaultInclude(),
     });
@@ -256,21 +272,23 @@ export class DigitalEmployeeService {
   // ────────────────────────────────────────────────────────────────────────────
 
   async bindCapability(employeeId: string, dto: BindCapabilityDto) {
-    await this.findOne(employeeId);
-    await this.validateCapabilitiesApproved([dto.capabilityId]);
-    const defaultVersions = await this.getDefaultSkillVersionIds([dto.capabilityId]);
-
     try {
-      return await this.prisma.employeeCapabilityBinding.create({
-        data: {
-          employeeId,
-          capabilityId: dto.capabilityId,
-          priority: dto.priority,
-          defaultSkillVersionId: defaultVersions.get(dto.capabilityId),
-        },
-        include: {
-          capability: { select: { id: true, name: true, type: true, description: true } },
-        },
+      return await this.readiness.withEmployeeLock(employeeId, async (tx, employee) => {
+        await this.validateCapabilitiesApproved([dto.capabilityId], tx);
+        const defaultVersions = await this.getDefaultSkillVersionIds([dto.capabilityId], tx);
+        const binding = await tx.employeeCapabilityBinding.create({
+          data: {
+            employeeId,
+            capabilityId: dto.capabilityId,
+            priority: dto.priority,
+            defaultSkillVersionId: defaultVersions.get(dto.capabilityId),
+          },
+          include: {
+            capability: { select: { id: true, name: true, type: true, description: true } },
+          },
+        });
+        if (employee.status === 'APPROVED') await this.readiness.assertReady(employeeId, tx);
+        return binding;
       });
     } catch (err: any) {
       if (err.code === 'P2002') {
@@ -280,8 +298,8 @@ export class DigitalEmployeeService {
     }
   }
 
-  private async getDefaultSkillVersionIds(capabilityIds: string[]) {
-    const versions = await this.prisma.skillVersion.findMany({
+  private async getDefaultSkillVersionIds(capabilityIds: string[], db: Prisma.TransactionClient = this.prisma) {
+    const versions = await db.skillVersion.findMany({
       where: {
         capabilityId: { in: capabilityIds },
         scope: 'PLATFORM',
@@ -302,18 +320,15 @@ export class DigitalEmployeeService {
   }
 
   async unbindCapability(employeeId: string, capabilityId: string) {
-    await this.findOne(employeeId);
-
-    const binding = await this.prisma.employeeCapabilityBinding.findUnique({
-      where: { employeeId_capabilityId: { employeeId, capabilityId } },
-    });
-
-    if (!binding) {
-      throw new NotFoundException('Capability binding not found');
-    }
-
-    await this.prisma.employeeCapabilityBinding.delete({
-      where: { employeeId_capabilityId: { employeeId, capabilityId } },
+    await this.readiness.withEmployeeLock(employeeId, async (tx, employee) => {
+      const binding = await tx.employeeCapabilityBinding.findUnique({
+        where: { employeeId_capabilityId: { employeeId, capabilityId } },
+      });
+      if (!binding) throw new NotFoundException('Capability binding not found');
+      await tx.employeeCapabilityBinding.delete({
+        where: { employeeId_capabilityId: { employeeId, capabilityId } },
+      });
+      if (employee.status === 'APPROVED') await this.readiness.assertReady(employeeId, tx);
     });
   }
 
@@ -445,8 +460,8 @@ export class DigitalEmployeeService {
     };
   }
 
-  private async validateCapabilitiesApproved(capabilityIds: string[]) {
-    const capabilities = await this.prisma.capability.findMany({
+  private async validateCapabilitiesApproved(capabilityIds: string[], db: Prisma.TransactionClient = this.prisma) {
+    const capabilities = await db.capability.findMany({
       where: { id: { in: capabilityIds } },
       select: { id: true, status: true, name: true },
     });

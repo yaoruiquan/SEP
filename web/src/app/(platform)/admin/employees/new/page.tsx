@@ -27,6 +27,19 @@ import { parseGiftInput } from '@/features/admin/employee-gift';
 import { toast } from '@/components/ui/toast';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DigitalEmployeeCreateDtoSchema } from '../../../../../../../backend/src/shared';
+import { z } from 'zod';
+
+const employeeFormSchema = DigitalEmployeeCreateDtoSchema.pick({
+  name: true,
+  description: true,
+  avatar: true,
+  annualPriceCNY: true,
+  includedComputeCNY: true,
+}).extend({
+  description: z.string().trim().min(1, '描述不能为空')
+    .max(DigitalEmployeeCreateDtoSchema.shape.description.maxLength ?? 2000).optional(),
+});
 
 export default function NewEmployeePage() {
   const router = useRouter();
@@ -99,11 +112,24 @@ export default function NewEmployeePage() {
       return;
     }
 
+    const { avatar, description, ...rest } = formData;
+    const payload = {
+      ...rest,
+      ...(avatar.trim() ? { avatar: avatar.trim() } : {}),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      includedComputeCNY: gift,
+    };
+    const validated = employeeFormSchema.safeParse(payload);
+    if (!validated.success) {
+      toast.error(validated.error.issues[0]?.message || '请检查员工信息');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const employee = await adminApi.createEmployee({
-        ...formData,
-        includedComputeCNY: gift,
+        ...payload,
+        ...validated.data,
       });
 
       // Bind capabilities
@@ -167,6 +193,7 @@ export default function NewEmployeePage() {
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="简要描述该员工的功能和用途"
+              maxLength={2000}
               rows={4}
             />
           </div>

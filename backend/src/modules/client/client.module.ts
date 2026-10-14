@@ -14,8 +14,7 @@ import { SubscriptionRequestModule } from '../subscription-request/subscription-
 import { EnterpriseModelConfigModule } from '../enterprise-model-config/enterprise-model-config.module';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { MediaConfigModule } from '../media-config/media-config.module';
-import { SkillPackageModule } from '../skill-package/skill-package.module';
-import { ClientSkillArtifactService } from './client-skill-artifact.service';
+import { ClientSkillArtifactModule } from './client-skill-artifact.module';
 import { ClientSkillArtifactController } from './client-skill-artifact.controller';
 
 @Module({
@@ -37,9 +36,9 @@ import { ClientSkillArtifactController } from './client-skill-artifact.controlle
     SubscriptionRequestModule,
     EnterpriseModelConfigModule,
     MediaConfigModule,
-    SkillPackageModule,
+    ClientSkillArtifactModule,
   ],
   controllers: [ClientController, ClientSkillArtifactController],
-  providers: [ClientService, GatewayModelPolicyService, ClientSkillArtifactService],
+  providers: [ClientService, GatewayModelPolicyService],
 })
 export class ClientModule {}

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PublishPlatformSkillVersionDtoSchema } from 'shared';
 import { SkillVersionService } from './skill-version.service';
 import { CapabilityValidatorService } from '../capability-contribution/capability-validator.service';
@@ -21,7 +22,7 @@ const base = {
 };
 const dto = { expectedUpdatedAt: time.toISOString(), expectedPlatformVersionId: null };
 
-function setup(overrides: Record<string, unknown> = {}, publicSource = false) {
+function setup(overrides: Record<string, unknown> = {}, publicSource = false, rewardsEnabled: unknown = 'false') {
   let rows = [{ ...base, ...overrides }];
   const capabilities = new Map([
     [sourceCapability.id, { ...sourceCapability, ...(publicSource ? { enterpriseId: null, visibility: 'MARKET_PUBLIC' } : {}) }],
@@ -73,9 +74,10 @@ function setup(overrides: Record<string, unknown> = {}, publicSource = false) {
   });
   const security = { assertReviewable: jest.fn() };
   const wallet = { creditContributionRewardInTx: jest.fn() };
+  const settings = { getEffectiveValue: jest.fn().mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? rewardsEnabled : undefined) };
   const service = new SkillVersionService(prisma as never, {} as never, {} as never, {} as never,
-    new CapabilityValidatorService(), security as never, {} as never, wallet as never);
-  return { prisma, service, security, wallet, rows: () => rows, add: (row: typeof base) => rows.push(row) };
+    new CapabilityValidatorService(), security as never, {} as never, wallet as never, settings as never);
+  return { prisma, service, security, wallet, settings, rows: () => rows, add: (row: typeof base) => rows.push(row) };
 }
 
 describe('One-step platform publication', () => {
@@ -92,7 +94,7 @@ describe('One-step platform publication', () => {
   });
 
   it.each(['PERSONAL', 'ENTERPRISE'])('publishes a %s source atomically without enterprise approval or defaults changes', async (scope) => {
-    const { service, prisma, rows, wallet } = setup({ scope });
+    const { service, prisma, rows, wallet } = setup({ scope }, false, 'true');
     const result = await service.publishPlatformVersion('admin', 'source', dto);
     expect(result).toMatchObject({ scope: 'PLATFORM', status: 'PLATFORM_APPROVED', capabilityId: 'platform-cap',
       sourceVersionId: 'source', parentVersionId: null, version: '1.0.0', content });
@@ -149,7 +151,7 @@ describe('One-step platform publication', () => {
   });
 
   it('retries the same source without duplicate rewards, versions or binding changes', async () => {
-    const { service, prisma, wallet, add } = setup();
+    const { service, prisma, wallet, add } = setup({}, false, 'true');
     const first = await service.publishPlatformVersion('admin', 'source', dto);
     add({ ...base, id: 'later-release', capabilityId: 'platform-cap', scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
       version: '1.0.1', platformReviewedAt: new Date() });
@@ -197,7 +199,7 @@ describe('One-step platform publication', () => {
   });
 
   it('revalidates historical pending content instead of trusting a stored passing validation result', async () => {
-    const { service, prisma } = setup({ scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW', content: 'short',
+    const { service, prisma } = setup({ scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW', content: '   ',
       validatedAt: time, validationResult: { valid: true } }, true);
     await expect(service.publishPlatformVersion('admin', 'source', dto)).rejects.toThrow(BadRequestException);
     expect(prisma.skillVersion.update).not.toHaveBeenCalled();
@@ -205,10 +207,47 @@ describe('One-step platform publication', () => {
   });
 
   it('rolls the version back if reward settlement fails at the end of publication', async () => {
-    const { service, wallet, rows } = setup();
+    const { service, wallet, rows } = setup({}, false, 'true');
     wallet.creditContributionRewardInTx.mockRejectedValue(new BadRequestException('reward unavailable'));
     await expect(service.publishPlatformVersion('admin', 'source', dto)).rejects.toThrow('reward unavailable');
     expect(rows()).toEqual([base]);
+  });
+
+  describe.each(['PERSONAL', 'ENTERPRISE', 'PLATFORM'])('%s publication reward switch', (scope) => {
+    it.each([undefined, null, 'false', '', 'TRUE', '1', true])('publishes without rewards when the switch is %p', async (value) => {
+      const { service, prisma, wallet, settings } = setup({ scope, status: scope === 'PLATFORM' ? 'DRAFT' : base.status }, scope === 'PLATFORM', value);
+      settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? value : '75');
+      wallet.creditContributionRewardInTx.mockRejectedValue(new BadRequestException('reward settlement must not run'));
+      await expect(service.publishPlatformVersion('admin', 'source', dto)).resolves.toEqual(expect.objectContaining({
+        scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      }));
+      expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'APPROVED', visibility: 'MARKET_PUBLIC', platformReviewStatus: 'APPROVED' }),
+      }));
+      expect(prisma.skillVersionReview.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ decision: 'APPROVE', reviewerId: 'admin' }),
+      }));
+      expect(prisma.skillConfig.upsert).toHaveBeenCalled();
+      expect(prisma.employeeCapabilityBinding.updateMany).toHaveBeenCalled();
+      expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
+      expect(wallet.creditContributionRewardInTx).not.toHaveBeenCalled();
+      expect(settings.getEffectiveValue).not.toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
+    });
+  });
+
+  it.each([
+    ['75', 75], [undefined, 50], ['not-a-number', 50], ['0', 50], ['-1', 50],
+  ])('preserves configured amount %p and fallback behavior when explicitly enabled', async (configured, expected) => {
+    const { service, prisma, wallet, settings } = setup({}, false, 'true');
+    settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : configured);
+    await service.publishPlatformVersion('admin', 'source', dto);
+    expect(settings.getEffectiveValue).toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
+    expect(prisma.contributionRewardEvent.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ amount: new Prisma.Decimal(expected), dedupeKey: 'platform-approved:source-cap' })],
+    }));
+    expect(wallet.creditContributionRewardInTx).toHaveBeenCalledWith(
+      prisma, 'author', new Prisma.Decimal(expected), 'platform-approved:source-cap', expect.any(String),
+    );
   });
 
   it('keeps structure warnings nonblocking but rejects invalid content before publication', async () => {
@@ -217,7 +256,7 @@ describe('One-step platform publication', () => {
     expect(valid.prisma.skillVersion.update.mock.calls[0][0].data.validationResult).toMatchObject({
       valid: true, warnings: expect.arrayContaining([expect.objectContaining({ code: 'SECTION_ROLE' })]),
     });
-    const invalid = setup({ content: 'short' });
+    const invalid = setup({ content: '   ' });
     await expect(invalid.service.publishPlatformVersion('admin', 'source', dto)).rejects.toThrow(BadRequestException);
     expect(invalid.prisma.skillVersion.create).not.toHaveBeenCalled();
   });

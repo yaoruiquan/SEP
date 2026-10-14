@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import matter from 'gray-matter';
+import { parseSkillMarkdown, prepareSkillMarkdown } from '../../shared/skill-content';
 import { CapabilityValidatorService } from '../capability-contribution/capability-validator.service';
 import { PackageSecurityService } from '../capability-contribution/package-security.service';
 import { SkillPackageService } from '../skill-package/skill-package.service';
@@ -200,7 +200,7 @@ export async function validatePlatformSource(
 ) {
   let body: string;
   try {
-    body = matter(source.content).content;
+    body = parseSkillMarkdown(source.content).content;
   } catch {
     throw new BadRequestException('SKILL.md frontmatter 格式无效');
   }
@@ -222,6 +222,21 @@ export async function validatePlatformSource(
     if (stored.key !== source.packageKey || stored.fileCount !== source.packageFileCount ||
         stored.content !== body.trimStart()) {
       throw new BadRequestException('技能包正文或文件信息与所选版本不一致');
+    }
+    const installable = await packages.readInstallablePackage(source.packageSha256);
+    if (source.packageKey !== `skills/${source.packageSha256}.zip` ||
+        installable.fileCount !== source.packageFileCount || installable.content !== source.content) {
+      throw new BadRequestException('技能包不能按所选版本安装，不能发布');
+    }
+  } else {
+    const prepared = prepareSkillMarkdown(source.content, 'sep-publication-check');
+    if (prepared.status === 'BLOCKED') {
+      throw new BadRequestException({
+        code: 'SKILL_ARTIFACT_BLOCKED', reason: prepared.reason,
+        message: prepared.reason === 'PACKAGE_REQUIRED'
+          ? '技能引用了本地依赖，请上传完整技能包后发布'
+          : '技能入口不可安装，请检查名称、frontmatter 或 UTF-8 大小',
+      });
     }
   }
   return validation;

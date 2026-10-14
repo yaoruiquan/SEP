@@ -10,7 +10,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
 
-const content = '---\nname: complete-skill\n---\n# Role\nRole description\n# Input\nInput data\n# Output\nOutput data\n# Steps\nExecute the workflow\n';
+const content = '---\nname: complete-skill\ndescription: Complete workflow\n---\n# Role\nRole description\n# Input\nInput data\n# Output\nOutput data\n# Steps\nExecute the workflow\n';
 const time = new Date('2026-10-09T01:00:00.000Z');
 const capability = {
   id: 'private-skill', name: 'Skill', description: 'Description', type: 'SKILL',
@@ -89,7 +89,7 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue(capability), create: jest.fn().mockResolvedValue({ id: 'platform-skill' }),
       update: jest.fn().mockResolvedValue({ id: 'platform-skill' }),
     },
-    skillConfig: { upsert: jest.fn() }, skillVersionReview: { create: jest.fn() },
+    skillConfig: { upsert: jest.fn(), findUnique: jest.fn() }, skillVersionReview: { create: jest.fn() },
     employeeCapabilityBinding: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
     enterpriseSkillDefault: { updateMany: jest.fn() }, subscriptionSkillVersion: { updateMany: jest.fn() },
     contributionRewardEvent: { create: jest.fn(), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -100,9 +100,9 @@ function setup() {
   };
   prisma.$transaction.mockImplementation((fn) => fn(prisma));
   const security = { assertReviewable: jest.fn().mockResolvedValue(undefined) };
-  const packages = { readBytes: jest.fn(), read: jest.fn() };
+  const packages = { readBytes: jest.fn(), read: jest.fn(), readInstallablePackage: jest.fn() };
   const validator = new CapabilityValidatorService();
-  const settings = { getEffectiveValue: jest.fn().mockResolvedValue(undefined) };
+  const settings = { getEffectiveValue: jest.fn().mockResolvedValue('false') };
   const wallet = new PersonalWalletService(prisma as never);
   const service = new SkillVersionService(prisma as never, {} as never, {} as never, {} as never,
     validator, security as never, packages as never, wallet, settings as never);
@@ -280,7 +280,7 @@ describe('Platform selected-source publishing', () => {
   it('fails validation before creating a frozen snapshot or independent capability', async () => {
     const { prisma, service } = setup();
     prisma.skillVersion.findUnique.mockImplementation(({ where }) => Promise.resolve(where.sourceVersionId ? null
-      : { ...source, scope: 'PERSONAL', status: 'PERSONAL_ACTIVE', content: '# invalid' }));
+      : { ...source, scope: 'PERSONAL', status: 'PERSONAL_ACTIVE', content: '   ' }));
     await expect(service.adoptEnterpriseVersion('admin', source.id, { mode: 'DRAFT' })).rejects.toThrow(BadRequestException);
     expect(prisma.skillVersion.create).not.toHaveBeenCalled();
     expect(prisma.capability.create).not.toHaveBeenCalled();
@@ -288,8 +288,9 @@ describe('Platform selected-source publishing', () => {
 });
 
 describe('Platform review and first creation', () => {
-  function reviewing(status = 'PENDING_PLATFORM_REVIEW') {
+  function reviewing(status = 'PENDING_PLATFORM_REVIEW', rewardsEnabled: unknown = 'false') {
     const state = setup();
+    state.settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? rewardsEnabled : undefined);
     const version = { ...source, id: 'platform-copy', scope: 'PLATFORM', status, capabilityId: 'platform-skill',
       capability: { ...capability, id: 'platform-skill', enterpriseId: null }, sourceVersionId: source.id,
       sourceVersion: { capability } };
@@ -299,7 +300,7 @@ describe('Platform review and first creation', () => {
   }
 
   it('publishes exactly the reviewed version, creates audit, fills adapter config, and advances only PLATFORM bindings', async () => {
-    const { prisma, service } = reviewing();
+    const { prisma, service } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
     await service.reviewPlatformVersion('admin', 'platform-copy', { decision: 'APPROVE', expectedUpdatedAt: time.toISOString() });
     expect(prisma.skillVersion.update).toHaveBeenCalledTimes(1);
     expect(prisma.skillVersion.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'platform-copy' }, data: expect.objectContaining({ status: 'PLATFORM_APPROVED' }) }));
@@ -326,7 +327,7 @@ describe('Platform review and first creation', () => {
   });
 
   it('keeps the old origin dedupe across later selected versions and credits only the first approval', async () => {
-    const { prisma, service, version } = reviewing();
+    const { prisma, service, version } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
     const keys = new Set<string>();
     prisma.contributionRewardEvent.createMany.mockImplementation(({ data }) => {
       const fresh = !keys.has(data[0].dedupeKey);
@@ -342,7 +343,7 @@ describe('Platform review and first creation', () => {
   });
 
   it('does not credit an origin already rewarded by the legacy contribution path', async () => {
-    const { prisma, service } = reviewing();
+    const { prisma, service } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
     prisma.contributionRewardEvent.createMany.mockResolvedValue({ count: 0 });
     await service.reviewPlatformVersion('admin', 'platform-copy', { decision: 'APPROVE' });
     expect(prisma.personalWallet.upsert).not.toHaveBeenCalled();
@@ -350,7 +351,7 @@ describe('Platform review and first creation', () => {
   });
 
   it('reuses the legacy wallet dedupe id even if the existing ledger predates the reward event', async () => {
-    const { prisma, service } = reviewing();
+    const { prisma, service } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
     prisma.personalWalletTransaction.findFirst.mockResolvedValue({ id: 'old-credit' } as never);
     await service.reviewPlatformVersion('admin', 'platform-copy', { decision: 'APPROVE' });
     expect(prisma.personalWalletTransaction.findFirst).toHaveBeenCalledWith({ where: {
@@ -360,8 +361,8 @@ describe('Platform review and first creation', () => {
   });
 
   it('honors the existing reward setting and fails the approval transaction on wallet conflicts', async () => {
-    const { prisma, service, settings } = reviewing();
-    settings.getEffectiveValue.mockResolvedValue('75' as never);
+    const { prisma, service, settings } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
+    settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? 'true' : '75');
     prisma.personalWallet.updateMany.mockResolvedValue({ count: 0 });
     await expect(service.reviewPlatformVersion('admin', 'platform-copy', { decision: 'APPROVE' })).rejects.toThrow(ConflictException);
     expect(settings.getEffectiveValue).toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
@@ -370,11 +371,32 @@ describe('Platform review and first creation', () => {
   });
 
   it('retains an independent platform capability origin mapping when approving a platform-created successor', async () => {
-    const { prisma, service, version } = reviewing();
+    const { prisma, service, version } = reviewing('PENDING_PLATFORM_REVIEW', 'true');
     version.sourceVersion = null as never;
     prisma.skillVersion.findFirst.mockResolvedValueOnce(version).mockResolvedValueOnce({ sourceVersion: { capability } } as never);
     await service.reviewPlatformVersion('admin', version.id, { decision: 'APPROVE' });
     expect(prisma.contributionRewardEvent.createMany.mock.calls[0][0].data[0].dedupeKey).toBe('platform-approved:private-skill');
+  });
+
+  it.each([undefined, null, 'false', '', 'TRUE', '1', true])('publishes the reviewed version without events or wallet writes when rewards are %p', async (value) => {
+    const { prisma, service, settings } = reviewing('PENDING_PLATFORM_REVIEW', value);
+    settings.getEffectiveValue.mockImplementation(async (key) => key === 'CONTRIBUTION_REWARDS_ENABLED' ? value : '75');
+    await expect(service.reviewPlatformVersion('admin', 'platform-copy', { decision: 'APPROVE', expectedUpdatedAt: time.toISOString() }))
+      .resolves.toEqual(expect.objectContaining({ status: 'PLATFORM_APPROVED' }));
+    expect(prisma.capability.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVED', platformReviewStatus: 'APPROVED', visibility: 'MARKET_PUBLIC' }),
+    }));
+    expect(prisma.skillVersionReview.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ versionId: 'platform-copy', decision: 'APPROVE', reviewerId: 'admin' }),
+    }));
+    expect(prisma.skillConfig.upsert).toHaveBeenCalled();
+    expect(prisma.employeeCapabilityBinding.updateMany).toHaveBeenCalled();
+    expect(prisma.contributionRewardEvent.create).not.toHaveBeenCalled();
+    expect(prisma.contributionRewardEvent.createMany).not.toHaveBeenCalled();
+    expect(prisma.personalWallet.upsert).not.toHaveBeenCalled();
+    expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+    expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+    expect(settings.getEffectiveValue).not.toHaveBeenCalledWith('CONTRIBUTION_PLATFORM_REWARD_CNY');
   });
 
   it('rejects only the platform copy without touching the source or a previously public capability', async () => {
@@ -411,7 +433,7 @@ describe('Platform review and first creation', () => {
 
   it('does not approve invalid selected Markdown or let an unrelated historic draft affect validation', async () => {
     const { service, prisma, version } = reviewing();
-    version.content = '# Invalid';
+    version.content = '   ';
     await expect(service.reviewPlatformVersion('admin', version.id, { decision: 'APPROVE' })).rejects.toThrow(BadRequestException);
     expect(prisma.skillVersion.findMany).not.toHaveBeenCalled();
     expect(prisma.skillVersion.update).not.toHaveBeenCalled();
@@ -423,6 +445,20 @@ describe('Platform review and first creation', () => {
     expect(await service.createPlatformVersion('admin', 'new-skill', { content })).toMatchObject({ status: 'PENDING_PLATFORM_REVIEW', version: '1.0.0' });
     prisma.skillVersion.count.mockResolvedValue(1);
     await expect(service.createPlatformVersion('admin', 'new-skill', { content })).rejects.toThrow(ConflictException);
+    expect(prisma.skillVersion.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks the reviewed legacy template hash under the capability lock before creating a version', async () => {
+    const { prisma, service } = setup();
+    prisma.capability.findUnique.mockResolvedValue({ ...capability, enterpriseId: null });
+    prisma.skillConfig.findUnique.mockResolvedValue({ template: content });
+    const expectedTemplateSha256 = createHash('sha256').update(content).digest('hex');
+    await service.createPlatformVersion('admin', 'new-skill', { content }, { expectedTemplateSha256 });
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.skillConfig.findUnique.mock.invocationCallOrder[0]);
+    expect(prisma.skillVersion.create).toHaveBeenCalledTimes(1);
+    prisma.skillConfig.findUnique.mockResolvedValue({ template: `${content}\nchanged` });
+    await expect(service.createPlatformVersion('admin', 'new-skill', { content }, { expectedTemplateSha256 }))
+      .rejects.toThrow('历史模板已变化');
     expect(prisma.skillVersion.create).toHaveBeenCalledTimes(1);
   });
 
@@ -473,8 +509,8 @@ describe('Selected skill package security', () => {
   });
 
   it.each([
-    ['# 短正文', '至少需要 20 个字符'],
-    ['api_key = example-secret-value', '正文疑似包含 API 密钥、Token 或密码'],
+    ['   ', '正文不能为空'],
+    ['api_key = live-secret-value-123456789', '正文疑似包含 API 密钥、Token 或密码'],
   ])('includes safe failure reasons in the message without echoing the source: %s', async (content, reason) => {
     const { validator, security } = setup();
     const error = await validatePlatformSource({ ...source, content }, validator, security as never)
@@ -486,13 +522,37 @@ describe('Selected skill package security', () => {
     expect(JSON.stringify((error as BadRequestException).getResponse())).not.toContain(content);
   });
 
-  it('checks the existing scan, stored bytes hash, Markdown, key and file count for the selected package', async () => {
+  it('checks the scan, stored bytes, content identity and actual package installability', async () => {
+    const { validator, security, packages } = setup();
+    const body = content.split('---\n')[2];
+    const selected = { ...packaged, content: body };
+    packages.readBytes.mockResolvedValue(bytes);
+    packages.read.mockResolvedValue({ key: packaged.packageKey, fileCount: 2, content: body });
+    packages.readInstallablePackage.mockResolvedValue({ fileCount: 2, content: body });
+    await expect(validatePlatformSource(selected, validator, security as never, packages as never)).resolves.toMatchObject({ valid: true });
+    expect(security.assertReviewable).toHaveBeenCalledWith(sha256, 'SKILL');
+    expect(packages.readBytes).toHaveBeenCalledWith(packaged.packageKey);
+    expect(packages.readInstallablePackage).toHaveBeenCalledWith(sha256);
+  });
+
+  it('blocks a formerly parseable but un-installable ZIP before approval', async () => {
     const { validator, security, packages } = setup();
     packages.readBytes.mockResolvedValue(bytes);
     packages.read.mockResolvedValue({ key: packaged.packageKey, fileCount: 2, content: content.split('---\n')[2] });
-    await expect(validatePlatformSource(packaged, validator, security as never, packages as never)).resolves.toMatchObject({ valid: true });
-    expect(security.assertReviewable).toHaveBeenCalledWith(sha256, 'SKILL');
-    expect(packages.readBytes).toHaveBeenCalledWith(packaged.packageKey);
+    packages.readInstallablePackage.mockRejectedValue(new BadRequestException('Multiple SKILL.md entries'));
+    await expect(validatePlatformSource(packaged, validator, security as never, packages as never)).rejects.toThrow('Multiple SKILL.md entries');
+  });
+
+  it('accepts short Chinese instructions, BOM and output examples, but requires real local dependencies', async () => {
+    const { validator, security } = setup();
+    for (const content of ['汇总订单', '\ufeff\n---\nname: 订单汇总\ndescription: 中文\n---\n汇总订单',
+      '输出 `result.md`；保存到 assets/output.png；访问 https://example.com/assets/logo.png']) {
+      await expect(validatePlatformSource({ ...source, content }, validator, security as never)).resolves.toMatchObject({ valid: true });
+    }
+    await expect(validatePlatformSource({ ...source, content: '读取 references/policy.md 后汇总订单' }, validator, security as never))
+      .rejects.toMatchObject({ response: expect.objectContaining({ reason: 'PACKAGE_REQUIRED' }) });
+    await expect(validatePlatformSource({ ...source, content: '---\nname: ../unsafe\ndescription: invalid\n---\n汇总订单' }, validator, security as never))
+      .rejects.toMatchObject({ response: expect.objectContaining({ reason: 'INVALID_ENTRY' }) });
   });
 
   it.each(['scan', 'hash', 'body', 'key', 'count', 'incomplete'])('fails closed for %s mismatch', async (failure) => {

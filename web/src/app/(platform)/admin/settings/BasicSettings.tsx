@@ -83,6 +83,7 @@ export default function BasicSettings() {
             {tooltip && <p className="text-xs text-muted-foreground">{tooltip}</p>}
           </div>
           <Switch
+            aria-label={label}
             disabled={disabled}
             checked={value === 'true'}
             onCheckedChange={(checked) =>
@@ -256,9 +257,10 @@ export default function BasicSettings() {
       <Card>
         <CardHeader>
           <CardTitle>贡献奖励</CardTitle>
-          <CardDescription>审核通过后直接以人民币入账贡献者个人钱包；金额只影响新奖励，历史流水不变。</CardDescription>
+          <CardDescription>关闭后不产生新奖励，已有余额和历史流水不变。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
+          {renderField('CONTRIBUTION_REWARDS_ENABLED', '启用贡献奖励', 'switch')}
           {renderField('CONTRIBUTION_ENTERPRISE_REWARD_CNY', '企业审核奖励（元）', 'number', '默认 10 元')}
           {renderField('CONTRIBUTION_PLATFORM_REWARD_CNY', '平台审核奖励（元）', 'number', '默认 50 元')}
         </CardContent>

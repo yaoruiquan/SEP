@@ -28,6 +28,33 @@ beforeEach(() => {
 });
 afterEach(() => { useAuthStore.getState().clear(); vi.unstubAllGlobals(); });
 describe('ops SKILL 首次创建认证契约', () => {
+  it.each([
+    { name: '测试技能', description: '短描述' },
+    { name: 'a'.repeat(100), description: 'x'.repeat(2000) },
+  ])('接受能力名称和描述预算边界 %o', async (values) => {
+    mount(); await upload();
+    fireEvent.change(screen.getByLabelText('能力名称'), { target: { value: values.name } });
+    fireEvent.change(screen.getByLabelText('能力描述'), { target: { value: values.description } });
+    fireEvent.click(screen.getByRole('button', { name: '创建并进入平台待审' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/admin/skills'));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject(values);
+    expect(screen.getByLabelText('能力名称')).toHaveAttribute('maxLength', '100');
+    expect(screen.getByLabelText('能力描述')).toHaveAttribute('maxLength', '2000');
+  });
+  it.each([
+    { name: ' ', description: '短描述' },
+    { name: '测试技能', description: ' \n ' },
+    { name: 'a'.repeat(101), description: '短描述' },
+    { name: '测试技能', description: 'x'.repeat(2001) },
+  ])('拒绝空白和超出能力预算的字段 %o', async (values) => {
+    mount(); await upload();
+    fireEvent.change(screen.getByLabelText('能力名称'), { target: { value: values.name } });
+    fireEvent.change(screen.getByLabelText('能力描述'), { target: { value: values.description } });
+    fireEvent.click(screen.getByRole('button', { name: '创建并进入平台待审' }));
+    await waitFor(() => expect(document.querySelector('p.text-red-600')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+  });
   it('上传和 generic 创建均带内存 token，完整传包 metadata 和首版正文，进入待审', async () => {
     mount(); fill(); await upload();
     fireEvent.click(screen.getByRole('button', { name: '创建并进入平台待审' }));

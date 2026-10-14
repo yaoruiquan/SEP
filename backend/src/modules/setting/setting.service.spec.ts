@@ -50,6 +50,19 @@ describe('SettingService', () => {
     await expect(service.getEffectiveValue(SETTING_KEYS.DEFAULT_EMPLOYEE_GIFT_PERCENTAGE)).resolves.toBe('10');
   });
 
+  it('defaults contribution rewards off and stores an explicit pause through normal settings', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findUnique.mockResolvedValue(null);
+    await expect(service.getEffectiveValue(SETTING_KEYS.CONTRIBUTION_REWARDS_ENABLED)).resolves.toBe('false');
+    await service.updateMany({ CONTRIBUTION_REWARDS_ENABLED: 'false' });
+    expect(prisma.systemSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { key: 'CONTRIBUTION_REWARDS_ENABLED' },
+      create: expect.objectContaining({ value: 'false', isSecret: false }),
+      update: expect.objectContaining({ value: 'false' }),
+    }));
+    await expect(service.updateMany({ CONTRIBUTION_REWARDS_ENABLED: 'yes' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('stores secrets encrypted and never exposes plaintext in admin list', async () => {
     const { service, prisma } = fixture();
     prisma.systemSetting.findUnique.mockResolvedValue(null);

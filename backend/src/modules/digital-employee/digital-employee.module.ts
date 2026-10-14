@@ -10,9 +10,10 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { CapabilityModule } from '../capability/capability.module';
 import { SettingModule } from '../setting/setting.module';
 import { GatewayPolicyModule } from '../gateway/gateway-policy.module';
+import { EmployeeReadinessModule } from './employee-readiness.module';
 
 @Module({
-  imports: [PrismaModule, CapabilityModule, SettingModule, GatewayPolicyModule],
+  imports: [PrismaModule, CapabilityModule, SettingModule, GatewayPolicyModule, EmployeeReadinessModule],
   controllers: [DigitalEmployeeController, MarketController, PackageController],
   providers: [
     DigitalEmployeeService,
