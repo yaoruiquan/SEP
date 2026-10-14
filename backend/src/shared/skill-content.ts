@@ -2,8 +2,10 @@ import { createRequire } from 'module';
 import { SkillArtifactFrontmatterSchema, SkillArtifactNameSchema } from './client-skill-artifact.dto';
 import { SKILL_CONTENT_MAX_BYTES, SkillContentSchema } from './skill-content-schema';
 
+// Resolve at runtime so webpack cannot replace gray-matter's path with a module ID.
+const runtimeRequire = createRequire(__filename);
 // Reuse gray-matter's installed YAML engine; no new dependency or default timestamp coercion.
-const yaml = createRequire(require.resolve('gray-matter'))('js-yaml');
+const yaml = createRequire(runtimeRequire.resolve('gray-matter'))('js-yaml');
 const coreSchema = new yaml.Schema({
   include: [yaml.FAILSAFE_SCHEMA],
   implicit: [
