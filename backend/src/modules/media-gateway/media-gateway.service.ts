@@ -17,7 +17,7 @@ import {
   MediaGatewayMockAdapter, MEDIA_MOCK_CONFIG_VERSION, MEDIA_MOCK_PNG,
   MEDIA_MOCK_PNG_SHA256, MEDIA_MOCK_PROFILE_IDS, MediaMockProfileId,
 } from './media-gateway-mock.adapter';
-import { MediaGatewayStore, RequestRecord } from './media-gateway.store';
+import { MediaGatewayStore, RequestRecord, mediaStorageUnavailable } from './media-gateway.store';
 
 const REFERENCE_TTL_MS = 15 * 60_000;
 const QUOTE_TTL_MS = 60_000;
@@ -53,14 +53,14 @@ export class MediaGatewayService {
     const member = await this.prisma.enterpriseMember.findFirst({
       where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' } },
       select: { departmentId: true },
-    });
+    }).catch(() => mediaStorageUnavailable());
     if (!member) mediaGatewayError(403, 'MEDIA_FORBIDDEN', '当前成员无媒体访问权限');
     const subscription = await this.prisma.subscription.findFirst({
       where: clientSubscriptionAccessWhere({
         enterpriseId: claims.enterpriseId, memberId: claims.memberId,
         departmentId: member.departmentId, role: 'MEMBER',
       }, claims.subscriptionId), select: { id: true },
-    });
+    }).catch(() => mediaStorageUnavailable());
     if (!subscription) mediaGatewayError(403, 'MEDIA_FORBIDDEN', '订阅已失效或授权已撤销');
   }
 
@@ -135,7 +135,22 @@ export class MediaGatewayService {
       },
     });
     if (!claim.created) return this.replay(claims, dto, claim.record);
-    const record = await this.recover(claim.record);
+    let record = await this.recover(claim.record);
+    if (record.receipt.status !== 'SUBMITTING') return this.snapshot(record);
+    try {
+      await this.authorize(claims);
+    } catch (error) {
+      // No dispatch occurred; keep the claimed ID with a definite failure, not an ambiguous submission.
+      const response = error instanceof HttpException
+        ? error.getResponse() as { error?: { code?: MediaGatewayErrorCode } } : undefined;
+      record.receipt.status = 'FAILED';
+      record.receipt.errorCode = response?.error?.code ?? 'MEDIA_STORAGE_UNAVAILABLE';
+      record.receipt.pollAfterMs = null;
+      record.receipt.recovery = { canQuery: false, canCancel: false, canDownload: false };
+      await this.store.save(record);
+      throw error;
+    }
+    record = await this.recover(record);
     if (record.receipt.status !== 'SUBMITTING') return this.snapshot(record);
     const receipt = record.receipt;
     try {

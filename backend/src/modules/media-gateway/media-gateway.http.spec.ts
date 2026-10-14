@@ -94,6 +94,54 @@ describe('media gateway mock HTTP contracts', () => {
     expect(revoked.body.error.code).toBe('MEDIA_FORBIDDEN');
   });
 
+  it.each(['enterpriseMember', 'subscription'] as const)('returns storage 503 for the %s authorization query without exposing DB details', async (kind) => {
+    const spy = jest.spyOn(adapter, 'submit');
+    prisma[kind].findFirst.mockRejectedValueOnce(new Error('private database detail'));
+    const result = await get('/requests/by-client-id/request-1').expect(503);
+    expect(result.body.error).toMatchObject({ code: 'MEDIA_STORAGE_UNAVAILABLE', type: 'server_error', source: 'platform' });
+    expect(JSON.stringify(result.body)).not.toContain('private database detail');
+    expect(store.state.requests.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each(['enterpriseMember', 'subscription'] as const)('preserves claim-time %s revocation as 403 and replays the failed receipt after restoration', async (kind) => {
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      prisma[kind].findFirst.mockResolvedValueOnce(null);
+      return result;
+    });
+    const { dto, result } = await submit('mock-async');
+    expect(result.status).toBe(403);
+    expect(result.body.error.code).toBe('MEDIA_FORBIDDEN');
+    const saved = (await store.findByClientId(claims.enterpriseId, dto.clientRequestId))!;
+    const terminal = await get(`/requests/by-client-id/${dto.clientRequestId}`).expect(200);
+    expect(terminal.body).toMatchObject({ receiptId: saved.receipt.receiptId, status: 'FAILED', errorCode: 'MEDIA_FORBIDDEN',
+      pollAfterMs: null, recovery: { canQuery: false, canCancel: false, canDownload: false } });
+    expect((await post('/requests').send(dto).expect(200)).body).toEqual(terminal.body);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each(['enterpriseMember', 'subscription'] as const)('returns storage 503 and retains the ID when the claimed %s authorization query fails', async (kind) => {
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      prisma[kind].findFirst.mockRejectedValueOnce(new Error('private database detail'));
+      return result;
+    });
+    const { dto, result } = await submit('mock-async');
+    expect(result.status).toBe(503);
+    expect(result.body.error.code).toBe('MEDIA_STORAGE_UNAVAILABLE');
+    expect(JSON.stringify(result.body)).not.toContain('private database detail');
+    const replay = await post('/requests').send(dto).expect(200);
+    expect(replay.body).toMatchObject({ status: 'FAILED', errorCode: 'MEDIA_STORAGE_UNAVAILABLE', pollAfterMs: null,
+      recovery: { canQuery: false, canCancel: false, canDownload: false } });
+    expect(store.state.requests.size).toBe(1);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('runs static reference -> quote -> synchronous receipt -> verified binary download', async () => {
     const profiles = await get('/profiles').expect(200);
     expect(profiles.body).toMatchObject({ mock: true, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED' });

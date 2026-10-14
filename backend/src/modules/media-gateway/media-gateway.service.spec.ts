@@ -89,6 +89,89 @@ describe('MediaGatewayService mock workflow', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it.each(['enterpriseMember', 'subscription'] as const)('maps %s authorization query failures to storage 503 before claiming', async (kind) => {
+    const dto = payload(); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'authorization-db-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    prisma[kind].findFirst.mockRejectedValueOnce(new Error('private database detail'));
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    expect(store.state.requests.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each(['subscription expiry', 'grant expiry', 'member revocation', 'grant revocation'])('blocks dispatch after claim-delayed %s and retains the failed ID', async (change) => {
+    const start = Date.now();
+    jest.useFakeTimers({ now: start });
+    try {
+      if (change.endsWith('expiry')) {
+        const expiresAt = start + 500;
+        prisma.subscription.findFirst.mockImplementation(async ({ where }) => {
+          const checkedAt = change === 'subscription expiry'
+            ? where.OR[1].endDate.gt : where.grants.some.AND[0].OR[1].expiresAt.gt;
+          return checkedAt.getTime() < expiresAt ? { id: 'sub-1' } : null;
+        });
+      }
+      const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+      const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'delayed-authorization' });
+      const spy = jest.spyOn(adapter, 'submit');
+      const originalClaim = store.claim.bind(store);
+      jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+        const result = await originalClaim(claim);
+        jest.setSystemTime(start + 1000);
+        if (change === 'member revocation') prisma.enterpriseMember.findFirst.mockResolvedValue(null);
+        if (change === 'grant revocation') prisma.subscription.findFirst.mockResolvedValue(null);
+        return result;
+      });
+      await error(service.submit(claims, input), 403, 'MEDIA_FORBIDDEN');
+      const saved = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+      expect(saved.receipt).toMatchObject({ status: 'FAILED', errorCode: 'MEDIA_FORBIDDEN', pollAfterMs: null,
+        outputs: [], recovery: { canQuery: false, canCancel: false, canDownload: false } });
+      prisma.enterpriseMember.findFirst.mockResolvedValue({ departmentId: 'department-1' });
+      prisma.subscription.findFirst.mockResolvedValue({ id: 'sub-1' });
+      expect(await instance().submit(claims, input)).toEqual(saved.receipt);
+      expect(store.state.requests.size).toBe(1);
+      expect(spy).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
+  it.each(['enterpriseMember', 'subscription'] as const)('retains a failed claim when the pre-dispatch %s query fails', async (kind) => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'claimed-authorization-db-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      prisma[kind].findFirst.mockRejectedValueOnce(new Error('private database detail'));
+      return result;
+    });
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    const saved = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+    expect(saved.receipt).toMatchObject({ status: 'FAILED', errorCode: 'MEDIA_STORAGE_UNAVAILABLE', pollAfterMs: null,
+      recovery: { canQuery: false, canCancel: false, canDownload: false } });
+    expect(await instance().submit(claims, input)).toEqual(saved.receipt);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the claim recoverable if persisting a pre-dispatch rejection fails', async () => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'rejection-save-failure' });
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      prisma.subscription.findFirst.mockResolvedValueOnce(null);
+      return result;
+    });
+    jest.spyOn(store, 'save').mockImplementationOnce(async () => mediaStorageUnavailable());
+    await error(service.submit(claims, input), 503, 'MEDIA_STORAGE_UNAVAILABLE');
+    const saved = (await store.findByClientId(claims.enterpriseId, input.clientRequestId))!;
+    expect(saved.receipt.status).toBe('SUBMITTING');
+    expect((await instance().submit(claims, input)).receiptId).toBe(saved.receipt.receiptId);
+    jest.spyOn(Date, 'now').mockReturnValue(saved.submissionDeadline.getTime() + 1);
+    expect((await instance().submit(claims, input)).status).toBe('SUBMISSION_UNKNOWN');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('validates fixture uploads without retaining user bytes or accepting extra fields', async () => {
     const ref = await service.uploadReference(claims, referenceFile());
     expect(ref).toMatchObject({ mock: true, width: 1, height: 1, byteLength: MEDIA_MOCK_PNG.length });
@@ -546,6 +629,24 @@ describe('MediaGatewayService mock workflow', () => {
     });
     expect(await service.submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN' });
     expect((await store.findByClientId(claims.enterpriseId, input.clientRequestId))?.receipt.status).toBe('SUBMISSION_UNKNOWN');
+    expect(await instance().submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch when reauthorization consumes the remaining submission deadline', async () => {
+    const dto = payload('mock-async'); const quote = await service.quote(claims, dto);
+    const input = MediaGatewayRequestSchema.parse({ ...dto, quoteId: quote.quoteId, clientRequestId: 'delayed-reauthorization' });
+    const spy = jest.spyOn(adapter, 'submit');
+    const originalClaim = store.claim.bind(store);
+    jest.spyOn(store, 'claim').mockImplementationOnce(async (claim) => {
+      const result = await originalClaim(claim);
+      prisma.subscription.findFirst.mockImplementationOnce(async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(result.record.submissionDeadline.getTime() + 1);
+        return { id: 'sub-1' };
+      });
+      return result;
+    });
+    expect(await service.submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN', errorCode: 'SUBMISSION_UNKNOWN' });
     expect(await instance().submit(claims, input)).toMatchObject({ status: 'SUBMISSION_UNKNOWN' });
     expect(spy).not.toHaveBeenCalled();
   });
