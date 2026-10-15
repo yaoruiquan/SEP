@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-15",
+  "scope": {
+    "fixEmployees": { "population": 5, "sampled": 1, "notSampled": 4 },
+    "mergeGroups": { "population": 40, "sampled": 1, "notSampled": 39 }
+  },
+  "client": {
+    "app": "sep-client",
+    "enterprise": "示例科技有限公司",
+    "member": "甲总",
+    "model": "deepseek-v4.1-flash",
+    "rewardsEnabled": false,
+    "billingOrSubscriptionSetupChanged": false
+  },
+  "samples": [
+    {
+      "category": "FIX",
+      "employeeId": "cmt2lfhi500297qarn8kakp0b",
+      "employeeName": "商品内容与详情页策划",
+      "taskId": "eb1bbcd3-f75b-4484-8343-b5a8085b4ecf",
+      "runId": "ab142ef9-86ed-4ba7-bdd5-1ed2130de828",
+      "status": "PASS",
+      "observed": [
+        "客户端显示 100% 和‘已完成’。",
+        "交付 3 个商品标题、5 个卖点、6 屏详情页文案及待确认清单。",
+        "事实保留 550ml、304 不锈钢、黑白两色、280g、标价 69 元原口径，并标注材质部位、重量口径、价格有效性等缺口。",
+        "明确未提供保温测试、检测认证、销量、评价、优惠活动、尺寸和配件，不编造保温、防漏、认证、促销或适配结论。",
+        "明确仅交付文字和素材需求，未生成图片、未上架、未修改店铺。"
+      ]
+    },
+    {
+      "category": "MERGE",
+      "source": { "id": "cmuxhoyjv00ds7qiiah2mxz03", "name": "电商视觉需求策划师" },
+      "target": { "id": "cmt2lfhi500297qarn8kakp0b", "name": "商品内容与详情页策划" },
+      "taskId": "eb1bbcd3-f75b-4484-8343-b5a8085b4ecf",
+      "runId": "e567f291-457d-440d-8b35-bf6a6640833c",
+      "status": "PASS",
+      "observed": [
+        "客户端显示 100% 和‘已完成’，并明确已加载‘电商视觉需求单’能力模块。",
+        "交付目标、信息层级、逐条卖点证据、构图描述、素材缺口、可判定验收项。",
+        "明确当前没有图片、Logo 或检测文件，未声称看过不存在的素材。",
+        "明确实拍素材和授权到齐前不能执行构图落地、两色出图、缩略图验证等工作。",
+        "明确仅交付文字需求单，不生成图片或文件、不访问或修改店铺，并排除保温、防漏、认证、销量、评价、促销和适配结论。"
+      ]
+    }
+  ],
+  "archive": {
+    "archivedThisRun": 0,
+    "status": "NOT_EXECUTED",
+    "reason": "当前为企业客户端账号，未进入管理员市场入口归档流程；未伪造管理员权限、未直接改数据库状态。"
+  },
+  "conclusion": "两个指定样本均通过客户端真实对话交付。该结论仅适用于 1/5 个 FIX 样本和 1/40 个 MERGE 样本，不外推到未测员工或入口。"
+}
