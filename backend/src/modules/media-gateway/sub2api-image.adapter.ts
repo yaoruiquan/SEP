@@ -114,8 +114,10 @@ export class Sub2apiImageAdapter {
       const response = await fetch(connection.base + path, { ...options, headers: {
         ...options.headers, Authorization: `Bearer ${connection.key}`, Accept: 'application/json',
       }, redirect: 'error', signal: AbortSignal.timeout(timeout) });
-      const rawId = response.headers.get('x-request-id');
-      requestId = rawId && /^[A-Za-z0-9_.:-]{1,256}$/.test(rawId) ? rawId : null;
+      // sub2api bills by its client correlation ID; X-Request-ID may belong to the upstream.
+      const clientId = response.headers.get('x-client-request-id');
+      const rawId = clientId === null ? response.headers.get('x-request-id') : `client:${clientId}`;
+      requestId = rawId && /^[A-Za-z0-9_.:-]{1,256}$/.test(rawId) && clientId !== '' ? rawId : null;
       if (requestId && onRequestId) {
         try { await onRequestId(requestId); }
         catch {

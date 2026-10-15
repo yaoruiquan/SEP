@@ -100,6 +100,29 @@ describe('Sub2apiImageAdapter', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
+  it('persists and queries the sub2api client billing ID instead of the upstream request ID', async () => {
+    const upstream = response({ data: [{ b64_json: REQUEST_PNG_BASE64 }] }, { requestId: 'upstream-request-id' });
+    upstream.headers.set('x-client-request-id', 'gateway-client-id');
+    fetchMock.mockResolvedValueOnce(upstream);
+    const onRequestId = jest.fn(async () => {});
+    await expect(adapter.execute(input(), [], onRequestId)).resolves.toMatchObject({ requestId: 'client:gateway-client-id' });
+    expect(onRequestId).toHaveBeenCalledWith('client:gateway-client-id');
+    fetchMock.mockResolvedValueOnce(response(usage({ request_id: 'client:gateway-client-id' })));
+    await expect(adapter.usage('client:gateway-client-id')).resolves.toMatchObject({ status: 'settled' });
+    expect(fetchMock.mock.calls[1][0]).toBe('https://media.example.test/v1/sub2api/usage?request_id=client%3Agateway-client-id');
+  });
+
+  it.each(['', 'invalid client id', 'first, second', 'x'.repeat(250)])('never falls back to an unrelated request ID for an invalid client billing header %#', async clientId => {
+    const upstream = response({ data: [{ b64_json: REQUEST_PNG_BASE64 }] }, { requestId: REQUEST_ID });
+    upstream.headers.set('x-client-request-id', clientId);
+    fetchMock.mockResolvedValueOnce(upstream);
+    const onRequestId = jest.fn(async () => {});
+    const failure = await expectCode(adapter.execute(input(), [], onRequestId), 502, 'SUBMISSION_UNKNOWN');
+    expect(failure).toMatchObject({ requestId: null, definitelyRejected: false });
+    expect(onRequestId).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts a current quoted non-token price matching the request', async () => {
     fetchMock.mockResolvedValueOnce(response(price()));
     const result = await adapter.pricing(input());

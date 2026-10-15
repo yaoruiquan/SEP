@@ -1,0 +1,56 @@
+{
+  "observedAt": "2026-10-15T06:46:23.894Z",
+  "deployedRevision": "a2d9020cc9c9386934f05546dbb2d67be6a92628",
+  "imageTag": "2026.10.15-1",
+  "activeColor": "blue",
+  "paidRequests": 0,
+  "http": [
+    { "path": "/health", "status": 200 },
+    { "path": "/", "status": 200 },
+    { "path": "/admin/accounts", "status": 200 }
+  ],
+  "pricing": [
+    {
+      "operation": "generate",
+      "httpStatus": 200,
+      "object": "sub2api.image_pricing",
+      "pricingStatus": "unavailable",
+      "amountUsd": null,
+      "billingMode": "image",
+      "pricingSource": "fallback"
+    },
+    {
+      "operation": "edit",
+      "httpStatus": 200,
+      "object": "sub2api.image_pricing",
+      "pricingStatus": "unavailable",
+      "amountUsd": null,
+      "billingMode": "image",
+      "pricingSource": "fallback"
+    }
+  ],
+  "usageProbe": {
+    "httpStatus": 200,
+    "object": "sub2api.request_usage",
+    "status": "pending",
+    "actualCostUsd": null,
+    "provesSettlement": false
+  },
+  "scopedReadOnlyPricingCheck": {
+    "matchedKeyCount": 1,
+    "independentImageRate": true,
+    "imageRateMultiplier": "2.19",
+    "imagePrice1k": null,
+    "imagePrice2k": null,
+    "imagePrice4k": null,
+    "hasChannel": false,
+    "writes": 0
+  },
+  "acceptance": {
+    "realGeneration": false,
+    "realReferenceEdit": false,
+    "realSettlement": false,
+    "electron": false,
+    "blocker": "EXPLICIT_IMAGE_PRICING_REQUIRED"
+  }
+}
