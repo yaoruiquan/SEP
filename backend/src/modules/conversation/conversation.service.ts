@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { withEmployeeAvatar } from '../../common/employee-avatar';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -112,14 +113,50 @@ export class ConversationService {
   }
 
   async findAll(userId: string, source: ConversationSource = 'CHAT') {
+    const enterpriseContext = source === 'CHAT'
+      ? await this.enterpriseContext.resolveOrNull(userId)
+      : null;
+    const now = new Date();
+    const employeeWhere: Prisma.DigitalEmployeeWhereInput | undefined = source !== 'CHAT'
+      ? undefined
+      : enterpriseContext
+        ? {
+          OR: [
+            { status: { not: 'ARCHIVED' } },
+            {
+              status: 'ARCHIVED',
+              subscriptions: {
+                some: {
+                  enterpriseId: enterpriseContext.enterpriseId,
+                  status: 'ACTIVE',
+                  OR: [{ endDate: null }, { endDate: { gt: now } }],
+                  grants: {
+                    some: {
+                      OR: [
+                        { memberId: enterpriseContext.memberId },
+                        ...(enterpriseContext.departmentId
+                          ? [{ departmentId: enterpriseContext.departmentId }]
+                          : []),
+                      ],
+                      AND: [{
+                        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                      }],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }
+        : { status: { not: 'ARCHIVED' } };
     const sessions = await this.prisma.conversationSession.findMany({
       // 归档会话通过 status 隐藏；历史消息仍保留在数据库中，供审计和必要时恢复。
-      // 普通对话也排除已下架员工，避免员工后续下架时旧会话重新进入会话中心。
+      // 已下架员工仅对仍持有本企业有效订阅及成员/部门授权的用户保留历史会话可见性。
       where: {
         userId,
         source,
         status: 'ACTIVE',
-        ...(source === 'CHAT' ? { employee: { is: { status: { not: 'ARCHIVED' } } } } : {}),
+        ...(employeeWhere ? { employee: { is: employeeWhere } } : {}),
       },
       orderBy: { updatedAt: 'desc' },
       select: {

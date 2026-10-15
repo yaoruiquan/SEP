@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-15",
+  "backend": "http://127.0.0.1:3001/api",
+  "status": "BLOCKED_LOGIN_REQUIRED",
+  "observed": "Dedicated Electron client opened on the login page; selecting the saved audit account did not restore a password. Previous CDP connection was refused.",
+  "screenshot": "login-required.png",
+  "fixEmployeesPending": 5,
+  "mergeGroupsPending": 40,
+  "newClientTasksRun": 0,
+  "businessAcceptance": "NOT_RUN",
+  "archivedEmployeesThisRun": 0,
+  "authenticationBypassed": false,
+  "billingOrSubscriptionSetupChanged": false
+}

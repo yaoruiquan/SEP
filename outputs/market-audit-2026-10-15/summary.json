@@ -1,0 +1,35 @@
+{
+  "auditedAt": "2026-10-15T02:09:14.058Z",
+  "generatedAt": "2026-10-15T02:37:37.426Z",
+  "environment": "本地数据库；只读事务；不代表生产市场实况",
+  "total": 107,
+  "archivedCount": 47,
+  "counts": {
+    "KEEP": 62,
+    "FIX": 5,
+    "MERGE": 40,
+    "PAUSE": 0
+  },
+  "domesticFitCounts": {
+    "DIRECT": 97,
+    "GENERAL_TRANSFER": 10
+  },
+  "businessCounts": {
+    "PASS": 0,
+    "UNTESTED": 103,
+    "FAIL": 2,
+    "CONDITIONAL": 2
+  },
+  "enabledBindings": 210,
+  "uniqueCapabilities": 96,
+  "staticReady": 107,
+  "parsedArtifacts": 96,
+  "historicalRuntimeTasks": 4,
+  "currentReadHashesMatched": 8,
+  "subscriptions": 20,
+  "employeesWithSubscriptions": 17,
+  "publicMarketMatched": true,
+  "changedRecommendations": 58,
+  "scope": "本轮全员静态审阅；复用4个已有客户端实测，不是107位全员真机验收",
+  "sideEffects": "未发布、改名、下架、迁移订阅、操作奖励、部署、提交或推送"
+}

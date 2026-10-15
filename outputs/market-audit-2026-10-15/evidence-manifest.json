@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-10-15T02:37:37.439Z",
+  "files": [
+    {
+      "path": "snapshot.json",
+      "sha256": "79fb83616fe6ce2b12a87d5aab962f4d57f8bf5d08301e2e42a2e1168ccd63c7",
+      "byteLength": 748305
+    },
+    {
+      "path": "verification.json",
+      "sha256": "9bd350535e45df872823c3c83474d41a2a47e66ea0299701c377f2947dcd9ded",
+      "byteLength": 39799
+    },
+    {
+      "path": "public-market-check.json",
+      "sha256": "bddcdbcb3bbc66d8d69c19b6460f6144dac9a2f41a36887edc2ae9d1ae42f29c",
+      "byteLength": 25828
+    },
+    {
+      "path": "employees.json",
+      "sha256": "fdbd8e8b38261f5361c109b98f61b9e8fd96920fb0866992885a87f381cf154f",
+      "byteLength": 852348
+    },
+    {
+      "path": "employees.csv",
+      "sha256": "d0a459e80d7398277663d2c74a18ad904aece4ac1439c1c5620fd47bc2f10a37",
+      "byteLength": 184410
+    },
+    {
+      "path": "summary.json",
+      "sha256": "5095d560658b8cfbc705b53fda0ac2d6527355e7ea76aec825aa4119101189c3",
+      "byteLength": 964
+    },
+    {
+      "path": "decision-diff.json",
+      "sha256": "837f2ce6ba1dbdc452ecc7d876e470e9961a42a55d3c42aa515d1251d5d79fa0",
+      "byteLength": 44659
+    },
+    {
+      "path": "review-a.json",
+      "sha256": "e0059b18fafb4ecf772695255596094c071de3b8803c9be4dbead673d938a329",
+      "byteLength": 73026
+    },
+    {
+      "path": "review-b.json",
+      "sha256": "b4a86200c99c8576ee64a696af1989926e06e710574eebfe243b4caf14e80b5f",
+      "byteLength": 63337
+    },
+    {
+      "path": "review-c.json",
+      "sha256": "8e62a3f31e7ad465b4b8a577d9f08a44f3ad7f83c9153e14da0f91de45572858",
+      "byteLength": 62460
+    },
+    {
+      "path": "review-overrides.json",
+      "sha256": "30448b6e84fc917cb60cc836063b485437d266aaf876d86ac860923cd9b8b94e",
+      "byteLength": 5450
+    },
+    {
+      "path": "逐员工证据.md",
+      "sha256": "bbf634f4dd4239b625f62ef680512a1236bff151249e74f3a41a0b04160dabfc",
+      "byteLength": 493790
+    },
+    {
+      "path": "正式技能正文与制品.md",
+      "sha256": "ae26f25b89b0567b295e64f0867aed5837058692a08279d2117caa23f028f936",
+      "byteLength": 214144
+    },
+    {
+      "path": "capture.mjs",
+      "sha256": "e91c1353eedf173224559fbd01bde1e49bc62cbf5e3c783969206e7d2aa74a51",
+      "byteLength": 6145
+    },
+    {
+      "path": "verify.mjs",
+      "sha256": "5710305ccfc063d18342b280bfaf1c7e45e30430701b02f389285c7a655a13f2",
+      "byteLength": 6972
+    },
+    {
+      "path": "check-public.mjs",
+      "sha256": "06253b5100bb9f48c6f0b6aaad322592b4273b0ece2383366b514fb5fc25fd3e",
+      "byteLength": 1574
+    },
+    {
+      "path": "build-report.mjs",
+      "sha256": "0304ff026b746c55829eb64bb1e9af04e0374e79ba8fc48e099ca0d61190c2ff",
+      "byteLength": 26255
+    },
+    {
+      "path": "review-validation.mjs",
+      "sha256": "e85eab8e7a9a792087bbe7471aa182beb5f6c68e0ec7a28b6e190810b3159540",
+      "byteLength": 2931
+    },
+    {
+      "path": "review-validation.test.mjs",
+      "sha256": "9fc5a13e99d8b898b941e2135d897aa7f04add39ff303f02852a1de2192a95bb",
+      "byteLength": 5965
+    },
+    {
+      "path": "../../docs/progress/2026-10-15-国内电商市场员工逐一核查与取舍清单.md",
+      "sha256": "cba34efdbca13f4a522406d9633849edeff8783b0e36b76c9122accee3c28f70",
+      "byteLength": 100225
+    }
+  ]
+}

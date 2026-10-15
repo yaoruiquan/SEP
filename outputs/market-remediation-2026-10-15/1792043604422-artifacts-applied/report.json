@@ -1,0 +1,1617 @@
+{
+  "checkedAt": "2026-10-15T05:53:24.422Z",
+  "preview": false,
+  "method": "Read-only local database; real backend artifacts and unchanged client approvedEntry parser; no installation, conversation or model calls",
+  "businessAcceptance": "NOT_RUN",
+  "employees": [
+    {
+      "employeeId": "cmszr2p58005c7qr50b1ollys",
+      "name": "抖音运营策略师",
+      "skills": 1,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhh2001k7qarjhnng753",
+      "name": "国内电商运营专家",
+      "skills": 8,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhhm001p7qararq7eri4",
+      "name": "直播电商增长教练",
+      "skills": 1,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhhr001u7qarlu6o5soq",
+      "name": "私域复购运营师",
+      "skills": 1,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhhy00217qarjqkheyh3",
+      "name": "电商投放优化师",
+      "skills": 5,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhi500297qarn8kakp0b",
+      "name": "商品内容与详情页策划",
+      "skills": 4,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmt2lfhif002h7qarp4ujz52i",
+      "name": "电商售后与退货专员",
+      "skills": 10,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyiw00by7qii2euifms1",
+      "name": "电商经营总监",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyj200c17qii36vrhedf",
+      "name": "电商经营日报官",
+      "skills": 5,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyj400c47qiid35cqgt3",
+      "name": "电商漏斗诊断师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyj500c77qiiedosp3nj",
+      "name": "电商利润增长顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyj600ca7qiijvyl79kp",
+      "name": "电商数据质检专员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyj900cd7qiizi2hlo04",
+      "name": "电商渠道归因分析师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyja00cg7qii82yipz10",
+      "name": "电商复购分析师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjb00cj7qiiqeiq160f",
+      "name": "电商活动复盘官",
+      "skills": 4,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjd00cm7qiiepa1usm3",
+      "name": "电商实验增长师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyje00cp7qii0ck8zbva",
+      "name": "电商经营驾驶舱顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjg00cs7qii4vg435dg",
+      "name": "店铺异常监控员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjg00cv7qiibmxpidpe",
+      "name": "电商目标拆解师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjh00cy7qii5034ilpo",
+      "name": "电商成本结构分析师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjj00d17qiibp3p4f6s",
+      "name": "多店铺经营分析师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjk00d47qiies2601si",
+      "name": "电商管理层汇报顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjl00d77qiir438vvmq",
+      "name": "国内电商选品研究员",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjn00da7qiic27cvt9v",
+      "name": "爆品机会评估师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjo00dd7qii6v04jtin",
+      "name": "竞品价格策略师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjp00dg7qii8mj8phyh",
+      "name": "用户需求挖掘师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjr00dj7qiibsb4jel6",
+      "name": "商品评价洞察师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "name": "商品资料治理师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyju00dp7qiisxoedyr7",
+      "name": "商品卖点策略师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjv00ds7qiiah2mxz03",
+      "name": "电商视觉需求策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjw00dv7qiiiun3vyj7",
+      "name": "SKU 生命周期顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "name": "店铺商品组合顾问",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk000e17qii66i7vwxm",
+      "name": "内容电商增长策划师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk200e47qii6hpdjl2o",
+      "name": "小红书种草策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk300e77qiimnayxrg3",
+      "name": "抖音短视频策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk400ea7qiidbs9n833",
+      "name": "快手信任内容顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk600ed7qii9k3lwwfs",
+      "name": "电商视频脚本导演",
+      "skills": 4,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk700eg7qiiea9aj7xu",
+      "name": "直播脚本总编",
+      "skills": 5,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk800ej7qiiqqktt2lq",
+      "name": "电商内容排期经理",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyk900em7qiidjmt4umf",
+      "name": "达人合作策划师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykb00ep7qiifbeksncc",
+      "name": "评论区转化运营师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykc00es7qiiwkwoospd",
+      "name": "品牌电商内容架构师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykd00ev7qiijoijgs3f",
+      "name": "商品测评内容策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyke00ey7qii1x63eqxt",
+      "name": "电商直播切片策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykg00f17qiio1u8z26d",
+      "name": "私域内容编辑",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykh00f47qii3igd4a8b",
+      "name": "电商活动文案策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyki00f77qiit0rasl35",
+      "name": "内容合规校对师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykj00fa7qiiizh67lqc",
+      "name": "直播间经营诊断师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykk00fd7qiis2oty57j",
+      "name": "直播商品编排师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykl00fg7qiihknddkf4",
+      "name": "主播话术教练",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykn00fj7qiivjs0dxnb",
+      "name": "国内电商投放预算师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyko00fm7qii8wugguw0",
+      "name": "广告素材测试经理",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykp00fp7qiio0lq6kl0",
+      "name": "搜索投放结构师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykq00fs7qiim1sd08x0",
+      "name": "投放账户审计师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykr00fv7qii8yndjafn",
+      "name": "电商促销机制设计师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykt00fy7qiisaspdork",
+      "name": "大促流量统筹师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykv00g17qii4k3ogupc",
+      "name": "分销佣金策略师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykw00g47qiig9h0ir3m",
+      "name": "电商售前咨询顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoykx00g77qii5njj1xm8",
+      "name": "订单物流服务专员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyky00ga7qiiagd6o9qo",
+      "name": "售后工单分流师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl000gd7qii1w5k3tb4",
+      "name": "退款风险复核师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl100gg7qiiarb0x9hb",
+      "name": "高价值客诉处理顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl200gj7qii1nrpisl0",
+      "name": "客服知识库架构师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl300gm7qii8052bloi",
+      "name": "客服会话质检师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl400gp7qiihy3m37nw",
+      "name": "电商客户意图分诊师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl500gs7qii7hyfhapw",
+      "name": "客服交接总结专员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl600gv7qiizvvgtxee",
+      "name": "平台客服合规教练",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl700gy7qiisdj6wz8i",
+      "name": "电商库存预测师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyl900h17qiiezua8jvd",
+      "name": "补货计划专员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyla00h47qiimw47ptrt",
+      "name": "滞销品治理顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylb00h77qiir2zu5mf2",
+      "name": "供应商评估师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylc00ha7qiifayhhy0d",
+      "name": "1688货源研究员",
+      "skills": 4,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyle00hd7qiikb1o6k96",
+      "name": "采购成本优化师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylf00hg7qiigent3n56",
+      "name": "仓内作业规划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylg00hj7qiigrbd2nj9",
+      "name": "履约异常处理师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylh00hm7qiimi1vtlvq",
+      "name": "发货时效管理师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylj00hp7qiii6z0rn69",
+      "name": "退货质检与再售顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylk00hs7qiifbujeeov",
+      "name": "电商客户分层师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyll00hv7qiialrhyg2j",
+      "name": "会员生命周期运营师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylm00hy7qiiac9ej9vr",
+      "name": "私域增长运营师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylo00i17qii1w824ujz",
+      "name": "复购增长顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylp00i47qiiq2ichhte",
+      "name": "优惠券策略师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylq00i77qiirtdu5zmx",
+      "name": "电商社群运营师",
+      "skills": 5,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylr00ia7qiia66wljeq",
+      "name": "CRM 标签治理师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylt00id7qiiwo601w61",
+      "name": "客户价值分析师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylu00ig7qiidbiz7gvm",
+      "name": "老客转介绍策划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylv00ij7qiiartuuy6q",
+      "name": "电商会员权益设计师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylw00im7qii8mqxpaiz",
+      "name": "平台账务对账专员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyly00ip7qiia0rz50ov",
+      "name": "电商现金流规划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoylz00is7qii5w68rj8l",
+      "name": "电商单位经济分析师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym000iv7qiisc74bsmc",
+      "name": "电商开票资料助手",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym100iy7qiiefq1nnwt",
+      "name": "电商平台规则研究员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym300j17qiise9xwohm",
+      "name": "电商广告合规审查师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym400j47qii3br7s0jk",
+      "name": "电商数据隐私顾问",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym500j77qii9tt70jvg",
+      "name": "电商交易风控初筛师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym600ja7qiiwn5l8n8y",
+      "name": "电商合作协议审阅师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym800jd7qiig5ve6jqm",
+      "name": "电商经营审计助理",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoym900jg7qiivssdu2t3",
+      "name": "多平台电商协同经理",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyma00jj7qiix4vrhdk2",
+      "name": "电商 SOP 架构师",
+      "skills": 3,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymc00jm7qiin1gky8yo",
+      "name": "电商项目任务规划师",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoyme00jp7qiiytaspmvx",
+      "name": "电商知识库管理员",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymf00js7qiie3fz1ysf",
+      "name": "电商经营会议秘书",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymh00jv7qiinecf2t5e",
+      "name": "电商周会复盘教练",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymh00jy7qiizz9hfdu9",
+      "name": "供应商沟通助手",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymj00k17qiivtmsju6x",
+      "name": "电商老板决策助手",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymk00k47qiisdcxb8r0",
+      "name": "电商新品上市项目经理",
+      "skills": 2,
+      "status": "PASS"
+    },
+    {
+      "employeeId": "cmuxhoymm00k77qiictpoyp6q",
+      "name": "电商全链路运营顾问",
+      "skills": 2,
+      "status": "PASS"
+    }
+  ],
+  "artifacts": [
+    {
+      "capabilityId": "cmszr2p56005a7qr5xitkx1xw",
+      "versionId": "cmv94hcm2000p7q9jr7cf7hxo",
+      "name": "Douyin Strategist",
+      "installationDirectory": "sep-fa25c4829a01b03e53af19ea",
+      "approvedContentSha256": "57ac513cf12b8d0b712a21081bb24b8d3b2290289eb125bb3665437bd6bac1d9",
+      "artifactSha256": "57ac513cf12b8d0b712a21081bb24b8d3b2290289eb125bb3665437bd6bac1d9",
+      "byteLength": 6182,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhgs001i7qar4u8acc1u",
+      "versionId": "cmv7r838100027qdnt2ntdn0j",
+      "name": "China E-Commerce Operator",
+      "installationDirectory": "sep-abc4b58d6e235d1dab0cb846",
+      "approvedContentSha256": "89f72dfdb6f47d979393e14fa3cb34ae3dc5627c696fcb414db616498f747a3d",
+      "artifactSha256": "58a54c478b80c0ea59b856d99d05ff269e157dad065306dcf58a6896fed3439a",
+      "byteLength": 18021,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyf800567qiijooc51pw",
+      "versionId": "cmuxhoyf800597qiisl02jj01",
+      "name": "活动流量规划",
+      "installationDirectory": "活动流量规划",
+      "approvedContentSha256": "01f41e540bd11901fd8a7bbd98c655f34947f34af29766a1c026007d5579d6c2",
+      "artifactSha256": "01f41e540bd11901fd8a7bbd98c655f34947f34af29766a1c026007d5579d6c2",
+      "byteLength": 1137,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyct000q7qiit5qemxat",
+      "versionId": "cmuxhoyct000t7qii8f8rco75",
+      "name": "大促活动复盘",
+      "installationDirectory": "大促活动复盘",
+      "approvedContentSha256": "557c4ce7e8d4684ae49d3f69b327ae05833a77f4960d82e03daf76c40bfbb676",
+      "artifactSha256": "557c4ce7e8d4684ae49d3f69b327ae05833a77f4960d82e03daf76c40bfbb676",
+      "byteLength": 1165,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoych00067qiib57oa2ez",
+      "versionId": "cmuxhoych00097qiife68x71m",
+      "name": "电商漏斗分析",
+      "installationDirectory": "电商漏斗分析",
+      "approvedContentSha256": "1ee53a553a64e14bce5194672e6f9d0dddbb7e89fc37d642e45c541781236bdf",
+      "artifactSha256": "1ee53a553a64e14bce5194672e6f9d0dddbb7e89fc37d642e45c541781236bdf",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyc100017qiiyym4lprb",
+      "versionId": "cmuxhoyc100047qiivsozzx0t",
+      "name": "电商经营诊断",
+      "installationDirectory": "电商经营诊断",
+      "approvedContentSha256": "517f91f1a2332e6bc2e08ad80d6c6223a8bca38e576432765fec7219904a91f0",
+      "artifactSha256": "517f91f1a2332e6bc2e08ad80d6c6223a8bca38e576432765fec7219904a91f0",
+      "byteLength": 1169,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr",
+      "versionId": "cmuxhoyiq00bs7qiiqeztop6o",
+      "name": "电商目标复盘",
+      "installationDirectory": "电商目标复盘",
+      "approvedContentSha256": "26583d98d9b309baabfd9869570aef7a5b418c0832b2651d84463c27f1545353",
+      "artifactSha256": "26583d98d9b309baabfd9869570aef7a5b418c0832b2651d84463c27f1545353",
+      "byteLength": 1141,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyih00ba7qiivc0s26ej",
+      "versionId": "cmuxhoyih00bd7qii32zsbc1i",
+      "name": "电商任务规划",
+      "installationDirectory": "电商任务规划",
+      "approvedContentSha256": "029a03def324ed5c8345de458d3e54e6d180ede196a0ee55599a863f0f250045",
+      "artifactSha256": "029a03def324ed5c8345de458d3e54e6d180ede196a0ee55599a863f0f250045",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoycq000l7qiisv8yk6mq",
+      "versionId": "cmuxhoycq000o7qiihzfshatj",
+      "name": "单品利润测算",
+      "installationDirectory": "单品利润测算",
+      "approvedContentSha256": "ba1c3c6723e9d35310d52c3bfa008f04c36a6bcbafadc74b80a194015c2f27af",
+      "artifactSha256": "ba1c3c6723e9d35310d52c3bfa008f04c36a6bcbafadc74b80a194015c2f27af",
+      "byteLength": 1179,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhhi001n7qar5qltbb1d",
+      "versionId": "cmv7r83al000k7qdnpxf47zjv",
+      "name": "Livestream Commerce Coach",
+      "installationDirectory": "sep-dcbe02e5b8f7ca7e76a43bdc",
+      "approvedContentSha256": "4dacaa59c91ea522fe7f52ad44965c62175a59bf970b0cf7b3518cb15712bcba",
+      "artifactSha256": "fcd3633e5fa9641c97c83bb4b66edfb16f362ef75b21e0cabec9ee6a7967f2fb",
+      "byteLength": 2431,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+      "versionId": "cmv94hcmr000v7q9j4ymvpw3i",
+      "name": "Private Domain Operator",
+      "installationDirectory": "sep-3918e14bb3eacf67903e37da",
+      "approvedContentSha256": "dc24d657d6806e9ef5cdce919633dbccbe6ae1d9c877a375e94dbd49b3bafae2",
+      "artifactSha256": "dc24d657d6806e9ef5cdce919633dbccbe6ae1d9c877a375e94dbd49b3bafae2",
+      "byteLength": 10194,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhhv001x7qard9g0fm8q",
+      "versionId": "cmv7r83bu000q7qdnef9ekg5b",
+      "name": "PPC Campaign Strategist",
+      "installationDirectory": "sep-7241382c062002b03646aa3c",
+      "approvedContentSha256": "d37f7a3bd698bb7adf576c3d374babbb67d1d8080a3b7e46c20df585aec9b173",
+      "artifactSha256": "de197ef8eaf62e98e20f2ee8b9be29dca7228ee54821e34bcb9cd4617080bd0c",
+      "byteLength": 2192,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhhw001z7qarijpfrkio",
+      "versionId": "cmv7r83e700187qdnqxk56e5p",
+      "name": "Tracking & Measurement Specialist",
+      "installationDirectory": "sep-4ed12b1527bf67771e19debb",
+      "approvedContentSha256": "374f0ceab77518e9e97cc3b6001ced44e414ea4dbfde34325358f008cc45e7c3",
+      "artifactSha256": "64afb16db31d3079ee09ba13f632d05d7c99c0cc611d35ea656d14f03a750f0c",
+      "byteLength": 2108,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyf2004w7qii30aim3ap",
+      "versionId": "cmuxhoyf2004z7qiiqdetk5pa",
+      "name": "广告投放审计",
+      "installationDirectory": "广告投放审计",
+      "approvedContentSha256": "1cf4169959193e217b9ba6a4ec859c87bf88998447b3d3904d9d6fe35a3479fb",
+      "artifactSha256": "1cf4169959193e217b9ba6a4ec859c87bf88998447b3d3904d9d6fe35a3479fb",
+      "byteLength": 1131,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+      "versionId": "cmv94hck400077q9jct911cwc",
+      "name": "电商数据质检",
+      "installationDirectory": "电商数据质检",
+      "approvedContentSha256": "1a95a171a30eecdd5c51aaa77c7106aec6c7e69ece7505b81866fcd9ac6edde9",
+      "artifactSha256": "1a95a171a30eecdd5c51aaa77c7106aec6c7e69ece7505b81866fcd9ac6edde9",
+      "byteLength": 4279,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyez004r7qiiezmhyov4",
+      "versionId": "cmuxhoyez004u7qiigwgnzwu8",
+      "name": "国内电商搜索投放",
+      "installationDirectory": "国内电商搜索投放",
+      "approvedContentSha256": "73edd8c7f39b1f2752d6a6a1331b812961102660a2da4a689e293e7117810cd5",
+      "artifactSha256": "73edd8c7f39b1f2752d6a6a1331b812961102660a2da4a689e293e7117810cd5",
+      "byteLength": 1187,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+      "versionId": "cmv94hckw000d7q9ja97osbcq",
+      "name": "Content Creator",
+      "installationDirectory": "sep-8b26f07eaec154c2b3d0e56a",
+      "approvedContentSha256": "43e11cdc63f3f0ea7ecf88a308739d9e7bf7e56cc455d574bd70a80bbd2dbcfc",
+      "artifactSha256": "43e11cdc63f3f0ea7ecf88a308739d9e7bf7e56cc455d574bd70a80bbd2dbcfc",
+      "byteLength": 4659,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+      "versionId": "cmv94hclf000j7q9j57w2dva1",
+      "name": "Visual Storyteller",
+      "installationDirectory": "sep-50c3e7373602d27651a6f470",
+      "approvedContentSha256": "e99bde954f812bfe3f5d392b202ce91ad60cc5d62ae291275db8b9fab51cd571",
+      "artifactSha256": "e99bde954f812bfe3f5d392b202ce91ad60cc5d62ae291275db8b9fab51cd571",
+      "byteLength": 4936,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydo00297qii6u0waviz",
+      "versionId": "cmuxhoydo002c7qii0jo5sugs",
+      "name": "电商视觉需求单",
+      "installationDirectory": "电商视觉需求单",
+      "approvedContentSha256": "8a35e022b4de214d1d9a185720c6230df6f91a3585ba0c57cdf8a5202ed9ad7a",
+      "artifactSha256": "8a35e022b4de214d1d9a185720c6230df6f91a3585ba0c57cdf8a5202ed9ad7a",
+      "byteLength": 1170,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydm00247qii50ghyx11",
+      "versionId": "cmuxhoydm00277qiik2uq9wzw",
+      "name": "商品卖点结构化",
+      "installationDirectory": "商品卖点结构化",
+      "approvedContentSha256": "97630bcf9ea9cd3b0ee88e9186e16204ff6434eb1db9cef1631a26816392bef4",
+      "artifactSha256": "97630bcf9ea9cd3b0ee88e9186e16204ff6434eb1db9cef1631a26816392bef4",
+      "byteLength": 1182,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhi9002d7qarng6pacwo",
+      "versionId": "cmv7r83dt00127qdnkreol8xr",
+      "name": "Retail Customer Returns",
+      "installationDirectory": "sep-0af6c6b52a5f3d7308e6d0ca",
+      "approvedContentSha256": "609c76e55deb03bbaae33e79a5bc8185742e538ed2802a96152eec3ec2b02053",
+      "artifactSha256": "f926784db8c8227a210d1afb2cdc306d724b35be99516e37469933bfe0d85b0f",
+      "byteLength": 2252,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmt2lfhia002f7qarn6jzpz5v",
+      "versionId": "cmv7r83a9000e7qdnurvij25m",
+      "name": "Customer Service",
+      "installationDirectory": "sep-47d495c84c62926fb536bb13",
+      "approvedContentSha256": "c8a0e596ff30dcf54897cc202abab5d97e530423fa3585ec4e53f1b06d64aedb",
+      "artifactSha256": "dfe8d9b97900f36d12087e4e36dcc7fbf411b75e8a891f21a311cf5aa9ea4ae5",
+      "byteLength": 2198,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfv006f7qii4wktccqu",
+      "versionId": "cmuxhoyfv006i7qiiut2ayyhm",
+      "name": "客户意图识别",
+      "installationDirectory": "客户意图识别",
+      "approvedContentSha256": "8c6753fe8e210d4e300bd68928053ba60e63c826394fc840cdd82f20d7859f7f",
+      "artifactSha256": "8c6753fe8e210d4e300bd68928053ba60e63c826394fc840cdd82f20d7859f7f",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfi005q7qiif4lcf8xf",
+      "versionId": "cmuxhoyfi005t7qiijc14bw1k",
+      "name": "售后工单分流",
+      "installationDirectory": "售后工单分流",
+      "approvedContentSha256": "ce4a2d09357607eb5c59bdf4804434de4b80b3fd064137310b8e0603ad6fb4b3",
+      "artifactSha256": "ce4a2d09357607eb5c59bdf4804434de4b80b3fd064137310b8e0603ad6fb4b3",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyff005l7qiike5ga63l",
+      "versionId": "cmuxhoyff005o7qiicw5ickkg",
+      "name": "订单物流查询",
+      "installationDirectory": "订单物流查询",
+      "approvedContentSha256": "5877d4e4bc6c0c386f3aa1be793e9aceb9a931b7ce79bf33144ea2d42e833f15",
+      "artifactSha256": "5877d4e4bc6c0c386f3aa1be793e9aceb9a931b7ce79bf33144ea2d42e833f15",
+      "byteLength": 1191,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfx006k7qii7cvg2ce2",
+      "versionId": "cmuxhoyfx006n7qiiembbv2ji",
+      "name": "会话总结交接",
+      "installationDirectory": "会话总结交接",
+      "approvedContentSha256": "667b7435b7f33fc476d7301cc5e3bc9ee313fed72f6396d7c3b3afc51065790a",
+      "artifactSha256": "667b7435b7f33fc476d7301cc5e3bc9ee313fed72f6396d7c3b3afc51065790a",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfk005v7qiit795vb78",
+      "versionId": "cmuxhoyfk005y7qiimim57s5o",
+      "name": "退款风险识别",
+      "installationDirectory": "退款风险识别",
+      "approvedContentSha256": "99fe0c7bf15ab8a644843ad664e3f2e42ad01ea492d5bf41b4f30d902bec5268",
+      "artifactSha256": "99fe0c7bf15ab8a644843ad664e3f2e42ad01ea492d5bf41b4f30d902bec5268",
+      "byteLength": 1185,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyi700av7qii7950ferg",
+      "versionId": "cmuxhoyi700ay7qiil07ocgab",
+      "name": "经营证据归档",
+      "installationDirectory": "经营证据归档",
+      "approvedContentSha256": "cd18f29bb398b9821e3bcf21318751d68f5d478d22e402a58bb10bb4fb7d677c",
+      "artifactSha256": "cd18f29bb398b9821e3bcf21318751d68f5d478d22e402a58bb10bb4fb7d677c",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfn00607qii2sz3kaia",
+      "versionId": "cmuxhoyfn00637qii3uq07ymn",
+      "name": "客诉升级处理",
+      "installationDirectory": "客诉升级处理",
+      "approvedContentSha256": "143bde5ce7a71288c972f86cfd9f9b1ad34ce02b58a6830f4c9b242b4be09aef",
+      "artifactSha256": "143bde5ce7a71288c972f86cfd9f9b1ad34ce02b58a6830f4c9b242b4be09aef",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyg0006p7qiinatgh778",
+      "versionId": "cmuxhoyg0006s7qiicq8ihedz",
+      "name": "客服合规话术",
+      "installationDirectory": "客服合规话术",
+      "approvedContentSha256": "a19240dcc414ba8944c04d4452eaeff255b3224acef3d5bcaf85dd05c9080dfc",
+      "artifactSha256": "a19240dcc414ba8944c04d4452eaeff255b3224acef3d5bcaf85dd05c9080dfc",
+      "byteLength": 1155,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+      "versionId": "cmv94hciq00017q9jv4fxvaet",
+      "name": "电商经营日报",
+      "installationDirectory": "电商经营日报",
+      "approvedContentSha256": "5d44051772e2e0dbbbd70cf433fa82ffb55f45a7042652c5e8c6be550378c4f5",
+      "artifactSha256": "5d44051772e2e0dbbbd70cf433fa82ffb55f45a7042652c5e8c6be550378c4f5",
+      "byteLength": 4042,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyil00bk7qiis0c288dh",
+      "versionId": "cmuxhoyil00bn7qiir52vlavx",
+      "name": "电商会议纪要",
+      "installationDirectory": "电商会议纪要",
+      "approvedContentSha256": "7545f5f0753af457fa975411c1a681cc06a58732a0c342037cedf9a55a987394",
+      "artifactSha256": "7545f5f0753af457fa975411c1a681cc06a58732a0c342037cedf9a55a987394",
+      "byteLength": 1125,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoycx000v7qiikxbh9cox",
+      "versionId": "cmuxhoycx000y7qiipmydbjst",
+      "name": "渠道归因分析",
+      "installationDirectory": "渠道归因分析",
+      "approvedContentSha256": "8bd9f4679b904a79aa1c420905b9c39aee67114c5dddf8a926141e4a89b84697",
+      "artifactSha256": "8bd9f4679b904a79aa1c420905b9c39aee67114c5dddf8a926141e4a89b84697",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyho009w7qiiymq9605h",
+      "versionId": "cmuxhoyho009z7qiiyj3ern1y",
+      "name": "电商单位经济模型",
+      "installationDirectory": "电商单位经济模型",
+      "approvedContentSha256": "3f471290af67e4758a2be881efb8c510d2579c71078979c2ae4b679142db385a",
+      "artifactSha256": "3f471290af67e4758a2be881efb8c510d2579c71078979c2ae4b679142db385a",
+      "byteLength": 1175,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyd000107qii569s600y",
+      "versionId": "cmuxhoyd000137qiitrl3prui",
+      "name": "留存复购分析",
+      "installationDirectory": "留存复购分析",
+      "approvedContentSha256": "79467acc14ecb4d91391572801dc1c6df736f99bcda7169429e96f34fbf6bce3",
+      "artifactSha256": "79467acc14ecb4d91391572801dc1c6df736f99bcda7169429e96f34fbf6bce3",
+      "byteLength": 1173,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyh900977qii27il4r7y",
+      "versionId": "cmuxhoyh9009a7qii83ak1brb",
+      "name": "客户价值分析",
+      "installationDirectory": "客户价值分析",
+      "approvedContentSha256": "ba912f13f4236c08328422c20e78903a3461e8085d4f706734aa462f41a78cb7",
+      "artifactSha256": "ba912f13f4236c08328422c20e78903a3461e8085d4f706734aa462f41a78cb7",
+      "byteLength": 1131,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoycn000g7qiiskdsh2yi",
+      "versionId": "cmuxhoycn000j7qiimmo61cbb",
+      "name": "电商实验设计",
+      "installationDirectory": "电商实验设计",
+      "approvedContentSha256": "7d15b1be5004b6a6f0ba273c9e8969d95c0c17c4ba78c37ad906b0a15943d88e",
+      "artifactSha256": "7d15b1be5004b6a6f0ba273c9e8969d95c0c17c4ba78c37ad906b0a15943d88e",
+      "byteLength": 1183,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygf007j7qiigbo4mk3r",
+      "versionId": "cmuxhoygf007m7qiiybqolaow",
+      "name": "采购成本优化",
+      "installationDirectory": "采购成本优化",
+      "approvedContentSha256": "d7c23d1c3262942a3f275d60c70fbda5b7cc3cab8e6faae417b6e479c2e478e8",
+      "artifactSha256": "d7c23d1c3262942a3f275d60c70fbda5b7cc3cab8e6faae417b6e479c2e478e8",
+      "byteLength": 1161,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyia00b07qiio9xr6lo2",
+      "versionId": "cmuxhoyia00b37qiifqqcu6a3",
+      "name": "多平台经营协同",
+      "installationDirectory": "多平台经营协同",
+      "approvedContentSha256": "022f1e7fd6d7673790d8b93134101668c14fc03b690863a6e3a331ab8e1e8d62",
+      "artifactSha256": "022f1e7fd6d7673790d8b93134101668c14fc03b690863a6e3a331ab8e1e8d62",
+      "byteLength": 1190,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyd5001a7qiicg7mwifb",
+      "versionId": "cmuxhoyd5001d7qiig6w4rjoo",
+      "name": "商品趋势挖掘",
+      "installationDirectory": "商品趋势挖掘",
+      "approvedContentSha256": "bc02c32cb4904cc1c485bbedaf8506e13be800f81b55f769564f98c42de22756",
+      "artifactSha256": "bc02c32cb4904cc1c485bbedaf8506e13be800f81b55f769564f98c42de22756",
+      "byteLength": 1179,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyd8001f7qiizianabc6",
+      "versionId": "cmuxhoyd8001i7qiinxsc4l0p",
+      "name": "商品机会评分",
+      "installationDirectory": "商品机会评分",
+      "approvedContentSha256": "e6edb1052c39d2a4ce550a0efa810662b5aa7c3fd437632094f8ac8e80bfb939",
+      "artifactSha256": "e6edb1052c39d2a4ce550a0efa810662b5aa7c3fd437632094f8ac8e80bfb939",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyde001p7qiit758o2at",
+      "versionId": "cmuxhoyde001s7qii4x63o0bg",
+      "name": "用户需求挖掘",
+      "installationDirectory": "用户需求挖掘",
+      "approvedContentSha256": "08be54542ca369208fd54417a88d2457fa84217c981cbe65cd7d235e09a63d3f",
+      "artifactSha256": "08be54542ca369208fd54417a88d2457fa84217c981cbe65cd7d235e09a63d3f",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyda001k7qii1bc4buop",
+      "versionId": "cmuxhoyda001n7qiilhp7k026",
+      "name": "竞品价格监测",
+      "installationDirectory": "竞品价格监测",
+      "approvedContentSha256": "58ff8fff8d8f5200c87fcf0bd81c9447b5f105d97e696808d007a51c8c2ed7d7",
+      "artifactSha256": "58ff8fff8d8f5200c87fcf0bd81c9447b5f105d97e696808d007a51c8c2ed7d7",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydg001u7qiic5uhx8eh",
+      "versionId": "cmuxhoydg001x7qiizngxrvfg",
+      "name": "电商评论洞察",
+      "installationDirectory": "电商评论洞察",
+      "approvedContentSha256": "3d006caf6fabb5853007fe4051d7a14e75efd6b7f8f9681dd2d000aa20383366",
+      "artifactSha256": "3d006caf6fabb5853007fe4051d7a14e75efd6b7f8f9681dd2d000aa20383366",
+      "byteLength": 1169,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydr002e7qii360byrbz",
+      "versionId": "cmuxhoydr002h7qiin8w0uv1w",
+      "name": "SKU 生命周期管理",
+      "installationDirectory": "SKU 生命周期管理",
+      "approvedContentSha256": "ccc623197ee386ee10288b0a8715bf5e4b959a3ac2734d06e33a3e4fc254eaf0",
+      "artifactSha256": "ccc623197ee386ee10288b0a8715bf5e4b959a3ac2734d06e33a3e4fc254eaf0",
+      "byteLength": 1177,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydi001z7qiir36r50xi",
+      "versionId": "cmuxhoydi00227qiieftzdoib",
+      "name": "商品资料治理",
+      "installationDirectory": "商品资料治理",
+      "approvedContentSha256": "ed9139e70ab17dac05a4b4703e548868a0e9dbcb8ec5d49b091b5c85ce5a0c72",
+      "artifactSha256": "ed9139e70ab17dac05a4b4703e548868a0e9dbcb8ec5d49b091b5c85ce5a0c72",
+      "byteLength": 1179,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydu002j7qiip25j65dc",
+      "versionId": "cmuxhoydu002m7qiiw2643m7r",
+      "name": "商品组合规划",
+      "installationDirectory": "商品组合规划",
+      "approvedContentSha256": "96a8def678c7d57efba490c7b3e6186b60598cd00448d15e3211f222f904627d",
+      "artifactSha256": "96a8def678c7d57efba490c7b3e6186b60598cd00448d15e3211f222f904627d",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydw002o7qiiaob8t70b",
+      "versionId": "cmuxhoydw002r7qiirj0t363w",
+      "name": "内容电商策略",
+      "installationDirectory": "内容电商策略",
+      "approvedContentSha256": "1dea6145ab476872abb58af1ad4127c010a90999dad3d9871781a1a3905661c8",
+      "artifactSha256": "1dea6145ab476872abb58af1ad4127c010a90999dad3d9871781a1a3905661c8",
+      "byteLength": 1155,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyec003i7qii534icq16",
+      "versionId": "cmuxhoyec003l7qii7uq8exxj",
+      "name": "内容排期管理",
+      "installationDirectory": "内容排期管理",
+      "approvedContentSha256": "d05be2b56c146037018136a2b2e6c892ebb2e5c5753f6ddd1a279f29795e1ec3",
+      "artifactSha256": "d05be2b56c146037018136a2b2e6c892ebb2e5c5753f6ddd1a279f29795e1ec3",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoydz002t7qii9qs87zt1",
+      "versionId": "cmuxhoydz002w7qiie14n4wey",
+      "name": "小红书种草策划",
+      "installationDirectory": "小红书种草策划",
+      "approvedContentSha256": "4953e2b355ab1053f34db689d368e10c46d736b6c4cde0e2ad33c170c38ba3e1",
+      "artifactSha256": "4953e2b355ab1053f34db689d368e10c46d736b6c4cde0e2ad33c170c38ba3e1",
+      "byteLength": 1152,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyeh003s7qiitbs2a0hj",
+      "versionId": "cmuxhoyeh003v7qiif09obey8",
+      "name": "评论区运营",
+      "installationDirectory": "评论区运营",
+      "approvedContentSha256": "5f28cea0095b4faeeb4e26386273615ea74e6ffe19627fbdb07063a85c51bdb6",
+      "artifactSha256": "5f28cea0095b4faeeb4e26386273615ea74e6ffe19627fbdb07063a85c51bdb6",
+      "byteLength": 1128,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoye1002y7qii2gzuo5m9",
+      "versionId": "cmuxhoye100317qiihdaehvgs",
+      "name": "抖音短视频策划",
+      "installationDirectory": "抖音短视频策划",
+      "approvedContentSha256": "3464e5b5f979f72ab5cd6e9c8b8b2602d7543ee14ea7b72a1adbeb1cff90c4dc",
+      "artifactSha256": "3464e5b5f979f72ab5cd6e9c8b8b2602d7543ee14ea7b72a1adbeb1cff90c4dc",
+      "byteLength": 1132,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoye600387qii6oh4bemo",
+      "versionId": "cmuxhoye6003b7qiia2kcrtpe",
+      "name": "电商视频脚本",
+      "installationDirectory": "电商视频脚本",
+      "approvedContentSha256": "8e75d6ab4a98db8d7fe7d6933ead3fa0b9d50dd8f1c67f15d00ab6fabea3885b",
+      "artifactSha256": "8e75d6ab4a98db8d7fe7d6933ead3fa0b9d50dd8f1c67f15d00ab6fabea3885b",
+      "byteLength": 1173,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoye400337qiiu3tk5r3m",
+      "versionId": "cmuxhoye400367qii9wsu9k7z",
+      "name": "快手内容策划",
+      "installationDirectory": "快手内容策划",
+      "approvedContentSha256": "bec2b7805a1fad97e7a16b46bf7df961523bcf69791e8bd9ec7db412eb001d28",
+      "artifactSha256": "bec2b7805a1fad97e7a16b46bf7df961523bcf69791e8bd9ec7db412eb001d28",
+      "byteLength": 1131,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyea003d7qiiobucgg58",
+      "versionId": "cmuxhoyea003g7qiixw3bagzs",
+      "name": "直播脚本编排",
+      "installationDirectory": "直播脚本编排",
+      "approvedContentSha256": "a34043a19baaaa26c948b14dbd8e5c792d23fc42af2aa21fc23f907428080f55",
+      "artifactSha256": "a34043a19baaaa26c948b14dbd8e5c792d23fc42af2aa21fc23f907428080f55",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyep00477qii9hrw8ji8",
+      "versionId": "cmuxhoyep004a7qiiamzowk35",
+      "name": "直播商品编排",
+      "installationDirectory": "直播商品编排",
+      "approvedContentSha256": "bc96d7d9c2ebc1c66d806bedbe878d7103a88a4ef9ffaeb6e3a1011d3602a36a",
+      "artifactSha256": "bc96d7d9c2ebc1c66d806bedbe878d7103a88a4ef9ffaeb6e3a1011d3602a36a",
+      "byteLength": 1151,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyes004c7qiins1bat1y",
+      "versionId": "cmuxhoyes004f7qiis1m2gixe",
+      "name": "主播话术教练",
+      "installationDirectory": "主播话术教练",
+      "approvedContentSha256": "b3509b2fdf6aed40cbcc016c3063cee7a095301f7553f49f0fd2cb061d883279",
+      "artifactSha256": "b3509b2fdf6aed40cbcc016c3063cee7a095301f7553f49f0fd2cb061d883279",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyef003n7qiigd8l0so0",
+      "versionId": "cmuxhoyef003q7qiiviilsduz",
+      "name": "达人合作策划",
+      "installationDirectory": "达人合作策划",
+      "approvedContentSha256": "774ce451040d546a4cb2b856d5b650b5dfb5cad456be797d7fa50676439e351f",
+      "artifactSha256": "774ce451040d546a4cb2b856d5b650b5dfb5cad456be797d7fa50676439e351f",
+      "byteLength": 1147,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfa005b7qiis2jn4pv6",
+      "versionId": "cmuxhoyfa005e7qiiawksf9rt",
+      "name": "分销佣金设计",
+      "installationDirectory": "分销佣金设计",
+      "approvedContentSha256": "d3361a5d90ba1a1f1f0f17fb8aeb18746ce309dbded2f149138b9e1c7caa7500",
+      "artifactSha256": "d3361a5d90ba1a1f1f0f17fb8aeb18746ce309dbded2f149138b9e1c7caa7500",
+      "byteLength": 1163,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyej003x7qiih44n681w",
+      "versionId": "cmuxhoyej00407qiiuzzva7vf",
+      "name": "私域内容运营",
+      "installationDirectory": "私域内容运营",
+      "approvedContentSha256": "ecb0490f23e3ae5abf824b7aede9d59af786b0332c29d0f947d94decc1e51e82",
+      "artifactSha256": "ecb0490f23e3ae5abf824b7aede9d59af786b0332c29d0f947d94decc1e51e82",
+      "byteLength": 1127,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyf500517qiitnsq68kl",
+      "versionId": "cmuxhoyf500547qii6i3xxl7c",
+      "name": "促销机制设计",
+      "installationDirectory": "促销机制设计",
+      "approvedContentSha256": "87838aa25568e6d97b5f433f30e67a6cf939760bcb34aa2f09beb93525c1cf7e",
+      "artifactSha256": "87838aa25568e6d97b5f433f30e67a6cf939760bcb34aa2f09beb93525c1cf7e",
+      "byteLength": 1155,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhw00ab7qii1tx7jsaj",
+      "versionId": "cmuxhoyhw00ae7qiisgj8hl4i",
+      "name": "广告合规审查",
+      "installationDirectory": "广告合规审查",
+      "approvedContentSha256": "05f7e2f9d90250ab43a5971e80b4b948de915a4f22aeddf3af8780e344cb6a30",
+      "artifactSha256": "05f7e2f9d90250ab43a5971e80b4b948de915a4f22aeddf3af8780e344cb6a30",
+      "byteLength": 1157,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyel00427qiie5sgespl",
+      "versionId": "cmuxhoyel00457qiiqfu9596k",
+      "name": "直播间诊断",
+      "installationDirectory": "直播间诊断",
+      "approvedContentSha256": "ffd88c69e0aadff74b7f8af6dfad4b114710b5127e4eb68ead466f97fba21917",
+      "artifactSha256": "ffd88c69e0aadff74b7f8af6dfad4b114710b5127e4eb68ead466f97fba21917",
+      "byteLength": 1140,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyeu004h7qiij64vjnzi",
+      "versionId": "cmuxhoyeu004k7qii4ubzi87c",
+      "name": "电商投放预算",
+      "installationDirectory": "电商投放预算",
+      "approvedContentSha256": "f4ca8555cb60a07f45dbf43ffb2b20673a0ff70f45ac1deea74690978bd171a8",
+      "artifactSha256": "f4ca8555cb60a07f45dbf43ffb2b20673a0ff70f45ac1deea74690978bd171a8",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyex004m7qiif09ds48p",
+      "versionId": "cmuxhoyex004p7qii3nm3vzux",
+      "name": "广告素材测试",
+      "installationDirectory": "广告素材测试",
+      "approvedContentSha256": "127bdfef85c3890b88f7a00d59680fb69898be66779ede5d1e90d39090f6a67a",
+      "artifactSha256": "127bdfef85c3890b88f7a00d59680fb69898be66779ede5d1e90d39090f6a67a",
+      "byteLength": 1161,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyh1008s7qii1l09jrwi",
+      "versionId": "cmuxhoyh1008v7qii5rf191li",
+      "name": "优惠券策略",
+      "installationDirectory": "优惠券策略",
+      "approvedContentSha256": "657ff82469ec61f1080720fc3cc691994dc08aa633520bf4d378c2e80339e710",
+      "artifactSha256": "657ff82469ec61f1080720fc3cc691994dc08aa633520bf4d378c2e80339e710",
+      "byteLength": 1146,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfd005g7qiiaz2pi6ef",
+      "versionId": "cmuxhoyfd005j7qii0igluyj2",
+      "name": "售前咨询响应",
+      "installationDirectory": "售前咨询响应",
+      "approvedContentSha256": "34a0dada6ffff6e6db6c9dce5195019ae317f0adc98ef127d1d5c70cc5caee77",
+      "artifactSha256": "34a0dada6ffff6e6db6c9dce5195019ae317f0adc98ef127d1d5c70cc5caee77",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfq00657qii5izuvuu0",
+      "versionId": "cmuxhoyfq00687qii89c9bkxy",
+      "name": "客服知识库整理",
+      "installationDirectory": "客服知识库整理",
+      "approvedContentSha256": "06c14e63bbc6d0b8891b05cf84ffdb5c709a14b25138ba1c903e0b0cf815b3df",
+      "artifactSha256": "06c14e63bbc6d0b8891b05cf84ffdb5c709a14b25138ba1c903e0b0cf815b3df",
+      "byteLength": 1168,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyij00bf7qiiffylcaih",
+      "versionId": "cmuxhoyij00bi7qiio75203do",
+      "name": "电商知识库维护",
+      "installationDirectory": "电商知识库维护",
+      "approvedContentSha256": "cd4d396dd423eb3f298fa08cc108b978da89e347d0af062f0dbe7a8b17a8ed41",
+      "artifactSha256": "cd4d396dd423eb3f298fa08cc108b978da89e347d0af062f0dbe7a8b17a8ed41",
+      "byteLength": 1170,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyfs006a7qiigpaz7g3o",
+      "versionId": "cmuxhoyft006d7qiiyh4l8kfz",
+      "name": "客服质检",
+      "installationDirectory": "客服质检",
+      "approvedContentSha256": "83c67060078960792c22fb5a9dc75e24599a15a7f5d30f53083a80166b955c35",
+      "artifactSha256": "83c67060078960792c22fb5a9dc75e24599a15a7f5d30f53083a80166b955c35",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyg2006u7qii0pfp3il6",
+      "versionId": "cmuxhoyg2006x7qiixou2tvl6",
+      "name": "库存需求预测",
+      "installationDirectory": "库存需求预测",
+      "approvedContentSha256": "ca68a11d0e7858cca93571666294ad8c419cac1f1841f6394f8229ef92ba0e98",
+      "artifactSha256": "ca68a11d0e7858cca93571666294ad8c419cac1f1841f6394f8229ef92ba0e98",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyg5006z7qiifmv5eohu",
+      "versionId": "cmuxhoyg500727qiia0qvz3hf",
+      "name": "补货建议",
+      "installationDirectory": "补货建议",
+      "approvedContentSha256": "aa8855c42cee65cfea15e0f0ff75971c9262c9a267a6e7584a4e300c426407a5",
+      "artifactSha256": "aa8855c42cee65cfea15e0f0ff75971c9262c9a267a6e7584a4e300c426407a5",
+      "byteLength": 1107,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygm007y7qii0i91ka34",
+      "versionId": "cmuxhoygm00817qiilow4tf4m",
+      "name": "发货时效管理",
+      "installationDirectory": "发货时效管理",
+      "approvedContentSha256": "7f2bbeea7caea6ab91cf0d61c75c1e788f3f4b85cbcc2addfc318ffff62f5487",
+      "artifactSha256": "7f2bbeea7caea6ab91cf0d61c75c1e788f3f4b85cbcc2addfc318ffff62f5487",
+      "byteLength": 1119,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyg700747qii4l6yvks9",
+      "versionId": "cmuxhoyg700777qiivyueuck1",
+      "name": "滞销品治理",
+      "installationDirectory": "滞销品治理",
+      "approvedContentSha256": "2f71e22cc68a4b39f00fb7041bb09358233ccd36f36b2b25beed01fc944df7c9",
+      "artifactSha256": "2f71e22cc68a4b39f00fb7041bb09358233ccd36f36b2b25beed01fc944df7c9",
+      "byteLength": 1146,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyg900797qiiovb5fbbc",
+      "versionId": "cmuxhoyg9007c7qiiy8fwavmt",
+      "name": "供应商评估",
+      "installationDirectory": "供应商评估",
+      "approvedContentSha256": "77a3db5f7d5acd3754540db3e28788cbdddc62d4243d9a598020643a8881bb28",
+      "artifactSha256": "77a3db5f7d5acd3754540db3e28788cbdddc62d4243d9a598020643a8881bb28",
+      "byteLength": 1146,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygc007e7qii04px2ose",
+      "versionId": "cmuxhoygc007h7qiirff3mvxk",
+      "name": "1688货源研究",
+      "installationDirectory": "1688货源研究",
+      "approvedContentSha256": "393a305050c0ff19b48e84343f4df492122562cdf5c0e9fc340bc4456eeabd31",
+      "artifactSha256": "393a305050c0ff19b48e84343f4df492122562cdf5c0e9fc340bc4456eeabd31",
+      "byteLength": 1167,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyis00bu7qiiminipz4n",
+      "versionId": "cmuxhoyis00bx7qii9drugzpk",
+      "name": "供应商沟通助手",
+      "installationDirectory": "供应商沟通助手",
+      "approvedContentSha256": "7fbdff3aad8d6256f35a4bf950ec514c0b76ff7ac35f48eb0d73d1ae5c54f429",
+      "artifactSha256": "7fbdff3aad8d6256f35a4bf950ec514c0b76ff7ac35f48eb0d73d1ae5c54f429",
+      "byteLength": 1158,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygh007o7qiirq9q4h8i",
+      "versionId": "cmuxhoygh007r7qii0t8c94ek",
+      "name": "仓内作业规划",
+      "installationDirectory": "仓内作业规划",
+      "approvedContentSha256": "1597720118a9df7c48d264764196153cec726a6d96f65815f9b908eca6d3df6a",
+      "artifactSha256": "1597720118a9df7c48d264764196153cec726a6d96f65815f9b908eca6d3df6a",
+      "byteLength": 1113,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygj007t7qiiqa6q9k5v",
+      "versionId": "cmuxhoygj007w7qiirasu4u0t",
+      "name": "履约异常处理",
+      "installationDirectory": "履约异常处理",
+      "approvedContentSha256": "13920c5a73d9afae5d183a3199b95cb7276e5ba70917836a3c82d2eec5ab017c",
+      "artifactSha256": "13920c5a73d9afae5d183a3199b95cb7276e5ba70917836a3c82d2eec5ab017c",
+      "byteLength": 1155,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygo00837qii80f69y6p",
+      "versionId": "cmuxhoygo00867qiix13es0uz",
+      "name": "退货质检与再销售",
+      "installationDirectory": "退货质检与再销售",
+      "approvedContentSha256": "a9f96f07343990c95dfeae184e1e9002d12de1c451ecf45eebe472a339584c92",
+      "artifactSha256": "a9f96f07343990c95dfeae184e1e9002d12de1c451ecf45eebe472a339584c92",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygr00887qiipo8aox75",
+      "versionId": "cmuxhoygr008b7qiir0g4z5om",
+      "name": "客户分层",
+      "installationDirectory": "客户分层",
+      "approvedContentSha256": "e4605c2983d5a29a294fda057f22a869d6f2c5d16557c5960ac4d00271cc307f",
+      "artifactSha256": "e4605c2983d5a29a294fda057f22a869d6f2c5d16557c5960ac4d00271cc307f",
+      "byteLength": 1125,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyh600927qiit9p5syh6",
+      "versionId": "cmuxhoyh600957qiizw3jbr27",
+      "name": "CRM 标签体系",
+      "installationDirectory": "CRM 标签体系",
+      "approvedContentSha256": "3ac42dd6ec42c3c60974069f06065feeb7dc4203657fa068f3cf2dd059f999d5",
+      "artifactSha256": "3ac42dd6ec42c3c60974069f06065feeb7dc4203657fa068f3cf2dd059f999d5",
+      "byteLength": 1143,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygt008d7qii4ou4t7l4",
+      "versionId": "cmuxhoygt008g7qiig22j29b7",
+      "name": "会员生命周期",
+      "installationDirectory": "会员生命周期",
+      "approvedContentSha256": "d94a9232a7eedfd91be46b5d9a0f7d0a1fcf944e8b46dcb4758a30179bef9a69",
+      "artifactSha256": "d94a9232a7eedfd91be46b5d9a0f7d0a1fcf944e8b46dcb4758a30179bef9a69",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygy008n7qiix64j96xc",
+      "versionId": "cmuxhoygy008q7qiig5jdu2ut",
+      "name": "复购运营",
+      "installationDirectory": "复购运营",
+      "approvedContentSha256": "ba5495896e553c24e39ca60ca660ab11ab1b698cffea682237fdf432c3f1d8f7",
+      "artifactSha256": "ba5495896e553c24e39ca60ca660ab11ab1b698cffea682237fdf432c3f1d8f7",
+      "byteLength": 1131,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoygw008i7qiiwvfqun28",
+      "versionId": "cmuxhoygw008l7qiiqoiq11hb",
+      "name": "私域增长运营",
+      "installationDirectory": "私域增长运营",
+      "approvedContentSha256": "fc7c1a81dca043a9265cdc9c1dd61a6a08c8063ba5777d354dacc408b3ac0cea",
+      "artifactSha256": "fc7c1a81dca043a9265cdc9c1dd61a6a08c8063ba5777d354dacc408b3ac0cea",
+      "byteLength": 1155,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyh4008x7qii1p8uhid1",
+      "versionId": "cmuxhoyh400907qii38grgw8p",
+      "name": "社群运营",
+      "installationDirectory": "社群运营",
+      "approvedContentSha256": "3a4715bb129d37fb5291d83bd6ab268db2e90df5529a59f80fd3e8d834995b10",
+      "artifactSha256": "3a4715bb129d37fb5291d83bd6ab268db2e90df5529a59f80fd3e8d834995b10",
+      "byteLength": 1119,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhc009c7qiiixas6lsm",
+      "versionId": "cmuxhoyhc009f7qiiqh6pawix",
+      "name": "老客转介绍",
+      "installationDirectory": "老客转介绍",
+      "approvedContentSha256": "5fec56821c6b98dcf39dac35131ee95420bcfc2fb8c6e05980adb91c68554a7d",
+      "artifactSha256": "5fec56821c6b98dcf39dac35131ee95420bcfc2fb8c6e05980adb91c68554a7d",
+      "byteLength": 1140,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhe009h7qiii27morqz",
+      "versionId": "cmuxhoyhe009k7qiieglxwcgj",
+      "name": "会员权益设计",
+      "installationDirectory": "会员权益设计",
+      "approvedContentSha256": "1dc82ed1aabe8dd250e597337bb7357f03c3914d0eeb4d40217b1b25f65d0a5a",
+      "artifactSha256": "1dc82ed1aabe8dd250e597337bb7357f03c3914d0eeb4d40217b1b25f65d0a5a",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhh009m7qiizup0gg30",
+      "versionId": "cmuxhoyhh009p7qiim4jyqzdr",
+      "name": "平台账务对账",
+      "installationDirectory": "平台账务对账",
+      "approvedContentSha256": "05e4a2c799ccba3ed862dd326630ddf85eb7f26a27a80ba2418a5bb04a103e1f",
+      "artifactSha256": "05e4a2c799ccba3ed862dd326630ddf85eb7f26a27a80ba2418a5bb04a103e1f",
+      "byteLength": 1161,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhl009r7qiidumf1dxr",
+      "versionId": "cmuxhoyhm009u7qiigzysymhd",
+      "name": "电商现金流计划",
+      "installationDirectory": "电商现金流计划",
+      "approvedContentSha256": "b448c63ca4b1488607befdf5d669a35cb39db01392aa0910f53d37d82aeaa469",
+      "artifactSha256": "b448c63ca4b1488607befdf5d669a35cb39db01392aa0910f53d37d82aeaa469",
+      "byteLength": 1146,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhs00a17qiieljubrab",
+      "versionId": "cmuxhoyhs00a47qiithubzof8",
+      "name": "发票与税务资料",
+      "installationDirectory": "发票与税务资料",
+      "approvedContentSha256": "076e37c2e8bd3892165ce7eb047bf1255c925b547f29094a9ef126275e4b80de",
+      "artifactSha256": "076e37c2e8bd3892165ce7eb047bf1255c925b547f29094a9ef126275e4b80de",
+      "byteLength": 1182,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhu00a67qiixt2l4c2j",
+      "versionId": "cmuxhoyhu00a97qiiqimgli97",
+      "name": "平台规则核查",
+      "installationDirectory": "平台规则核查",
+      "approvedContentSha256": "cd23bd9d3de5eb09d4a980da2b45f07478e76ce32531b8c00fd25fc155594219",
+      "artifactSha256": "cd23bd9d3de5eb09d4a980da2b45f07478e76ce32531b8c00fd25fc155594219",
+      "byteLength": 1149,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyhz00ag7qiiqbrd6ea4",
+      "versionId": "cmuxhoyhz00aj7qii56sd5qnq",
+      "name": "电商隐私保护",
+      "installationDirectory": "电商隐私保护",
+      "approvedContentSha256": "85435353155d295282bc257ab0232294f9baa9dce59c3f530c68220ea4155455",
+      "artifactSha256": "85435353155d295282bc257ab0232294f9baa9dce59c3f530c68220ea4155455",
+      "byteLength": 1161,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyi200al7qiimep8gklx",
+      "versionId": "cmuxhoyi200ao7qiin4vh3m2u",
+      "name": "交易风控初筛",
+      "installationDirectory": "交易风控初筛",
+      "approvedContentSha256": "80327957fb244cefcf7f844d0a3b838adca70ebf2b98c249f63709bd1c7ffd5a",
+      "artifactSha256": "80327957fb244cefcf7f844d0a3b838adca70ebf2b98c249f63709bd1c7ffd5a",
+      "byteLength": 1173,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyi400aq7qii8yjw77it",
+      "versionId": "cmuxhoyi400at7qiijmm2jl3j",
+      "name": "电商合作协议审阅",
+      "installationDirectory": "电商合作协议审阅",
+      "approvedContentSha256": "4d9f0cdbb463a68cd9b0a65d2a3cb9f2dc3d4353a1e2c32a53b5fb391d101ac1",
+      "artifactSha256": "4d9f0cdbb463a68cd9b0a65d2a3cb9f2dc3d4353a1e2c32a53b5fb391d101ac1",
+      "byteLength": 1179,
+      "status": "PASS"
+    },
+    {
+      "capabilityId": "cmuxhoyid00b57qii5cyjixl8",
+      "versionId": "cmuxhoyid00b87qiihkyj00c2",
+      "name": "电商 SOP 编排",
+      "installationDirectory": "电商 SOP 编排",
+      "approvedContentSha256": "e6fd9e3b95ed1b8369461afe90d39a0bc17b6bbf72888e8b3e1dcc97dd8d67aa",
+      "artifactSha256": "e6fd9e3b95ed1b8369461afe90d39a0bc17b6bbf72888e8b3e1dcc97dd8d67aa",
+      "byteLength": 1134,
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "employees": 107,
+    "artifacts": 96,
+    "revisedArtifacts": 6
+  }
+}

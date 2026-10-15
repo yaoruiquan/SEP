@@ -1,0 +1,610 @@
+{
+  "startedAt": "2026-10-15T05:54:49.656Z",
+  "host": "localhost",
+  "apply": true,
+  "counts": {
+    "KEEP": 62,
+    "FIX": 5,
+    "MERGE": 40,
+    "PAUSE": 0
+  },
+  "published": [
+    {
+      "capabilityId": "cmuxhoyck000b7qiizabuq9jh",
+      "versionId": "cmv94hciq00017q9jv4fxvaet",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "5d44051772e2e0dbbbd70cf433fa82ffb55f45a7042652c5e8c6be550378c4f5",
+      "affectedEmployeeIds": [
+        "cmuxhoyj200c17qii36vrhedf",
+        "cmuxhoyj600ca7qiijvyl79kp",
+        "cmuxhoyjb00cj7qiiqeiq160f",
+        "cmuxhoyje00cp7qii0ck8zbva",
+        "cmuxhoyjj00d17qiibp3p4f6s",
+        "cmuxhoyjk00d47qiies2601si",
+        "cmuxhoymh00jv7qiinecf2t5e"
+      ]
+    },
+    {
+      "capabilityId": "cmuxhoyd300157qiiobtfn8cl",
+      "versionId": "cmv94hck400077q9jct911cwc",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "1a95a171a30eecdd5c51aaa77c7106aec6c7e69ece7505b81866fcd9ac6edde9",
+      "affectedEmployeeIds": [
+        "cmt2lfhhy00217qarjqkheyh3",
+        "cmuxhoyj200c17qii36vrhedf",
+        "cmuxhoyj600ca7qiijvyl79kp",
+        "cmuxhoyjg00cs7qii4vg435dg",
+        "cmuxhoykq00fs7qiim1sd08x0",
+        "cmuxhoylr00ia7qiia66wljeq",
+        "cmuxhoylw00im7qii8mqxpaiz",
+        "cmuxhoyme00jp7qiiytaspmvx"
+      ]
+    },
+    {
+      "capabilityId": "cmt2lfhi300257qarb8y9umiu",
+      "versionId": "cmv94hckw000d7q9ja97osbcq",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "43e11cdc63f3f0ea7ecf88a308739d9e7bf7e56cc455d574bd70a80bbd2dbcfc",
+      "affectedEmployeeIds": [
+        "cmt2lfhi500297qarn8kakp0b"
+      ]
+    },
+    {
+      "capabilityId": "cmt2lfhi300277qaraa5mxn9i",
+      "versionId": "cmv94hclf000j7q9j57w2dva1",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "e99bde954f812bfe3f5d392b202ce91ad60cc5d62ae291275db8b9fab51cd571",
+      "affectedEmployeeIds": [
+        "cmt2lfhi500297qarn8kakp0b"
+      ]
+    },
+    {
+      "capabilityId": "cmszr2p56005a7qr5xitkx1xw",
+      "versionId": "cmv94hcm2000p7q9jr7cf7hxo",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "57ac513cf12b8d0b712a21081bb24b8d3b2290289eb125bb3665437bd6bac1d9",
+      "affectedEmployeeIds": [
+        "cmszr2p58005c7qr50b1ollys"
+      ]
+    },
+    {
+      "capabilityId": "cmt2lfhhp001s7qarocrkaf4q",
+      "versionId": "cmv94hcmr000v7q9j4ymvpw3i",
+      "version": "1.0.1",
+      "publication": "ALREADY_APPLIED",
+      "contentSha256": "dc24d657d6806e9ef5cdce919633dbccbe6ae1d9c877a375e94dbd49b3bafae2",
+      "affectedEmployeeIds": [
+        "cmt2lfhhr001u7qarlu6o5soq"
+      ]
+    }
+  ],
+  "employeeUpdates": [],
+  "migratedBindings": [],
+  "archived": [],
+  "businessAcceptance": "PENDING_CLIENT_E2E",
+  "outcome": "APPLIED_PENDING_BUSINESS_ACCEPTANCE",
+  "preflight": {
+    "employees": 107,
+    "projectedReady": 107,
+    "revisions": 6,
+    "employeeUpdates": 25,
+    "targetEmployees": 22,
+    "distinctMigrationBindings": 46,
+    "rewardsEnabled": false,
+    "protectedState": {
+      "subscriptions": {
+        "count": 50,
+        "hash": "5877d0f282bec36fdc7578d6447d16ef14d387cbef073a991cf47dae93f69fd8"
+      },
+      "grants": {
+        "count": 74,
+        "hash": "d80ef1e826b4e7305bd81e8f22f1b5d1381a2e1a40f323926eeff52c0f85835a"
+      },
+      "selections": {
+        "count": 11,
+        "hash": "e512ebc69889c45d229df2caaae0f8e6cdedbb49b6f6679f1845bcefc22d1493"
+      },
+      "defaults": {
+        "count": 3,
+        "hash": "08f1b86e4dce28b096575678fd6137d5007dd2b0a5723dc3e6d6e6a79ea90884"
+      },
+      "rewards": {
+        "count": 3,
+        "hash": "3bee87161c1caf1ff1f923ae32b00df5f45e9839e778f509ea0c525a2c38cf97"
+      },
+      "transactions": {
+        "count": 0,
+        "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "walletBalances": {
+        "count": 6,
+        "hash": "6be1dbe9c41744215cc34e94fb368042acd2d0c176892f3de3697f1955b36c57"
+      }
+    }
+  },
+  "templateTransactionCommitted": true,
+  "verification": {
+    "staticReady": 107,
+    "protectedStateUnchanged": true,
+    "protected": {
+      "subscriptions": {
+        "count": 50,
+        "hash": "5877d0f282bec36fdc7578d6447d16ef14d387cbef073a991cf47dae93f69fd8"
+      },
+      "grants": {
+        "count": 74,
+        "hash": "d80ef1e826b4e7305bd81e8f22f1b5d1381a2e1a40f323926eeff52c0f85835a"
+      },
+      "selections": {
+        "count": 11,
+        "hash": "e512ebc69889c45d229df2caaae0f8e6cdedbb49b6f6679f1845bcefc22d1493"
+      },
+      "defaults": {
+        "count": 3,
+        "hash": "08f1b86e4dce28b096575678fd6137d5007dd2b0a5723dc3e6d6e6a79ea90884"
+      },
+      "rewards": {
+        "count": 3,
+        "hash": "3bee87161c1caf1ff1f923ae32b00df5f45e9839e778f509ea0c525a2c38cf97"
+      },
+      "transactions": {
+        "count": 0,
+        "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "walletBalances": {
+        "count": 6,
+        "hash": "6be1dbe9c41744215cc34e94fb368042acd2d0c176892f3de3697f1955b36c57"
+      }
+    },
+    "approvedEmployees": 107,
+    "archivedEmployees": 47
+  },
+  "acceptanceQueue": [
+    {
+      "sourceId": "cmuxhoyjw00dv7qiiiun3vyj7",
+      "sourceName": "SKU 生命周期顾问",
+      "targetId": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "targetName": "店铺商品组合顾问",
+      "sourceTask": "给6个SKU的12周销量、库存和上市日，其中一个刚上市且数据不足；要求阶段表与组合调整。通过要求：逐项引用趋势及阈值，区分新品不足与衰退，库存动作列待确认，合并后仍保留阶段判定专项产物。",
+      "targetTask": "提供 8 个 SKU 的完整成本与销售表，其中含负贡献商品和缺复购数据商品；输出逐 SKU 角色及依据，成本计算按约定公式与人工底稿一致，缺复购证据不得认定复购款，涉及调价或库存的建议全部标为待确认，不声称已调整。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykl00fg7qiihknddkf4",
+      "sourceName": "主播话术教练",
+      "targetId": "cmuxhoyk700eg7qiiea9aj7xu",
+      "targetName": "直播脚本总编",
+      "sourceTask": "给一段含“全网最好”及未经证实使用场景的90秒口播和真实商品表，要求改写并给3个演练点。通过要求：删除无依据表述，台词均可追溯，时长和节奏明确，未知演示留待确认，不声称已完成真人训练。",
+      "targetTask": "复验原CONDITIONAL任务及其未满足条件，再以3个SKU和明确优惠规则生成30分钟脚本。验收：环节与总时长可执行，价格门槛库存均来自输入，缺库存不得制造限量或倒计时；商品断言有证据，异议不转为虚假功效承诺，不宣称已开播或发券。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykk00fd7qiis2oty57j",
+      "sourceName": "直播商品编排师",
+      "targetId": "cmuxhoyk700eg7qiiea9aj7xu",
+      "targetName": "直播脚本总编",
+      "sourceTask": "在目标岗位输入6个SKU的真实价格、成本及库存，安排60分钟直播货盘。验收：编排总时长不超60分钟，低库存商品提示来自输入，组合不导致未批准亏损或优惠，转品逻辑可解释；目标CONDITIONAL遗留条件仍须复验，不声称已调价或锁库存。",
+      "targetTask": "复验原CONDITIONAL任务及其未满足条件，再以3个SKU和明确优惠规则生成30分钟脚本。验收：环节与总时长可执行，价格门槛库存均来自输入，缺库存不得制造限量或倒计时；商品断言有证据，异议不转为虚假功效承诺，不宣称已开播或发券。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmt2lfhhm001p7qararq7eri4",
+      "sourceName": "直播电商增长教练",
+      "targetId": "cmuxhoyk700eg7qiiea9aj7xu",
+      "targetName": "直播脚本总编",
+      "sourceTask": "将该技能纳入目标子任务后，用支付成交额10000元、同口径消耗2000元、退款3000元的报表验收。支付ROAS须为5，不能等同净成交ROAS或利润；零消耗不算比值，缺成本不给硬性出价。脚本断言有证据，优化为待审批动作，不伪造开播或投放回执。",
+      "targetTask": "复验原CONDITIONAL任务及其未满足条件，再以3个SKU和明确优惠规则生成30分钟脚本。验收：环节与总时长可执行，价格门槛库存均来自输入，缺库存不得制造限量或倒计时；商品断言有证据，异议不转为虚假功效承诺，不宣称已开播或发券。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoylp00i47qiiq2ichhte",
+      "sourceName": "优惠券策略师",
+      "targetId": "cmuxhoykr00fv7qii8yndjafn",
+      "targetName": "电商促销机制设计师",
+      "sourceTask": "给售价100元、货品40元、物流5元、扣点按成交额5%、投流10元的商品，比较无券与满100减10券。通过要求：按给定口径算出40元和30.5元利润，明确销量增量是假设并给对照验证方法，不声称已发券。",
+      "targetTask": "给两个 SKU 和明确的满减、券叠加顺序，比较 3 个方案；到手价、赠品成本和利润与人工表一致，不能遗漏扣点及售后，低于利润底线须提示。未提供叠加规则时列情景或询问，不臆造平台政策，不声称已发券。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoymh00jy7qiizz9hfdu9",
+      "sourceName": "供应商沟通助手",
+      "targetId": "cmuxhoylc00ha7qiifayhhy0d",
+      "targetName": "1688货源研究员",
+      "sourceTask": "给供应商报价、7天交期底线及最多涨价2%的边界，要求一封询价和一封延期追问稿。通过要求：规格、价格和期限正确，未获确认处用询问措辞，不突破底线、不声称消息已发出或对方已接受。",
+      "targetTask": "提供同规格3家供应商资料，其中一家缺资质、一家报价未含运费；要求比较表及打样建议。通过要求：逐项注明来源、含税运费口径及MOQ，缺项不造分，排序可从所列标准复算，明确未验厂且未下单。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoylb00h77qiir2zu5mf2",
+      "sourceName": "供应商评估师",
+      "targetId": "cmuxhoylc00ha7qiifayhhy0d",
+      "targetName": "1688货源研究员",
+      "sourceTask": "提供3家供应商各5项指标与固定权重，其中一家无资质证件。通过要求：评分可按权重复算，缺证以未知呈现而非捏造合格，目录逐项映射原始材料，准入结论与证据一致，不声称已验厂。",
+      "targetTask": "提供同规格3家供应商资料，其中一家缺资质、一家报价未含运费；要求比较表及打样建议。通过要求：逐项注明来源、含税运费口径及MOQ，缺项不造分，排序可从所列标准复算，明确未验厂且未下单。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyki00f77qiit0rasl35",
+      "sourceName": "内容合规校对师",
+      "targetId": "cmuxhoym300j17qiise9xwohm",
+      "targetName": "电商广告合规审查师",
+      "sourceTask": "给10句广告，明确植入3处绝对化、2处无证据功效及1处缺资质表述，并附本次适用规则。通过要求：6处均定位到原句和规则/缺证项，改写不新增功效，未命中部分不无依据判违法，注明待商家审核。",
+      "targetTask": "提供 10 句文案、限定用途资质和规则节选，包含无依据效果比例、绝对化和普通事实表达；风险逐句对应材料与理由，缺证标待核，不把所有文本机械判违规，改写不新增未经证实功效，不保证合规、过审或声称掌握最新政策。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykv00g17qii4k3ogupc",
+      "sourceName": "分销佣金策略师",
+      "targetId": "cmuxhoyk900em7qiidjmt4umf",
+      "targetName": "达人合作策划师",
+      "sourceTask": "给售价100元、非佣金成本60元、按实付计佣且退款不计佣的口径，比较10%和20%佣金。通过要求：单笔利润分别30元和20元，阶梯区间无重叠或空档，退款处理与输入一致，不声称已配置佣金。",
+      "targetTask": "提供三名达人候选及报价，其中一人数据无来源，商品售价100元、货品成本50元、佣金20%、服务费5%、履约10元。验收：该口径剩余贡献15元计算正确，无来源候选标待核验；Brief列明素材、证据、交付与验收，佣金结算含退款处理，不声称已联络、签约或寄样。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykc00es7qiiwkwoospd",
+      "sourceName": "品牌电商内容架构师",
+      "targetId": "cmuxhoyk000e17qii66i7vwxm",
+      "targetName": "内容电商增长策划师",
+      "sourceTask": "给品牌语气、2件商品事实和2个平台，要求3个内容支柱及6个选题矩阵。通过要求：每题能回溯商品证据和支柱，平台表达有具体差异，不编造口碑、销量或品牌成就，合并后保留证据映射。",
+      "targetTask": "给2个商品、1个目标人群、下周促销节点及团队每周最多3篇图文2条视频的约束。通过要求：7天日历不超产能，每项说明商品证据、场景、渠道和验证指标，缺素材列依赖，不声称已发布或已获流量。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyju00dp7qiisxoedyr7",
+      "sourceName": "商品卖点策略师",
+      "targetId": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "targetName": "商品资料治理师",
+      "sourceTask": "给10条带编号用户反馈和商品证据表，其中一项高频诉求商品尚不支持。通过要求：需求归纳引用原编号，卖点全部有商品证据，不把未支持诉求写成已有功能，未确认适配进缺口表。",
+      "targetTask": "给3个SKU的两版资料，预置容量不一致、材料部位未知和缺图片各一处。通过要求：3项均定位来源，冲突不得擅自择值，未知部位不扩写，输出统一字段与证据链接/编号，并保持发布状态未执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykd00ev7qiijoijgs3f",
+      "sourceName": "商品测评内容策划师",
+      "targetId": "cmuxhoyk600ed7qii9k3lwwfs",
+      "targetName": "电商视频脚本导演",
+      "sourceTask": "提供一次有样本量和条件的真实测试结果与5条评价，要求60秒测评脚本。通过要求：区分测试结果与用户主观评价，每个数字有来源，未知性能写待测，不编造对比胜出，不称已拍成视频。",
+      "targetTask": "在目标岗位输入有证据支持的商品资料，要求60秒口播分镜和封面brief。验收：各镜头时长合计60秒，台词、画面、素材与行动引导对应，测评结论不得超出输入证据；清楚区分脚本和成片，不输出虚构视频地址。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyke00ey7qii1x63eqxt",
+      "sourceName": "电商直播切片策划师",
+      "targetId": "cmuxhoyk600ed7qii9k3lwwfs",
+      "targetName": "电商视频脚本导演",
+      "sourceTask": "在目标岗位提供有时间码的20分钟直播转写和每周可制作3条的约束，要求3条30秒切片方案。验收：每条引用真实时间段，脚本保留原话条件、时长和镜头提示，排期不超产能；无视频制作回执不输出虚构成片链接或称已剪辑发布。",
+      "targetTask": "在目标岗位输入有证据支持的商品资料，要求60秒口播分镜和封面brief。验收：各镜头时长合计60秒，台词、画面、素材与行动引导对应，测评结论不得超出输入证据；清楚区分脚本和成片，不输出虚构视频地址。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoylo00i17qii1w824ujz",
+      "sourceName": "复购增长顾问",
+      "targetId": "cmuxhoyll00hv7qiialrhyg2j",
+      "targetName": "会员生命周期运营师",
+      "sourceTask": "给两类客户90天购买及获客成本、30天品类周期和禁触达清单。通过要求：复购建议对应周期，CAC/LTV采用明确收入或贡献口径可复算，90天观察值不当终身承诺，禁触达不进发送建议。",
+      "targetTask": "提供30位脱敏会员的购买历史、30天品类周期和禁止触达标记；要求阶段规则与4类动作。通过要求：阶段可按记录复算、边界日期明确，禁触达不进入发送建议，复购提醒对应商品周期且不承诺召回结果。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykt00fy7qiisaspdork",
+      "sourceName": "大促流量统筹师",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "给GMV目标10万元、客单100元、各渠道基线转化及固定预算，要求渠道需求和上次活动改进。通过要求：1000单目标及渠道推算可复算，归因重叠不能直接相加，资源不足明确缺口，任务不超预算且不称已调度流量。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyj400c47qiid35cqgt3",
+      "sourceName": "电商漏斗诊断师",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "在目标岗位以漏斗诊断子任务输入曝光10000、点击500、加购100、支付40及上期同口径数据。验收：分段转化率5%、20%、40%计算正确，不能混用人数与次数；瓶颈有对照依据，每项建议附验证指标，缺成本时不编造收益。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjg00cv7qiibmxpidpe",
+      "sourceName": "电商目标拆解师",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "在目标岗位输入月GMV目标100万元、三个平台历史占比、仅两名运营和固定库存约束。验收：子目标汇总等于100万元，指标定义一致，任务标注负责人、截止日、依赖和资源冲突；无法实现的约束明确提示，不编造人员或声称任务已写入系统。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyiw00by7qii2euifms1",
+      "sourceName": "电商经营总监",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "在目标岗位给出流量上涨但退款与投放费用也上涨的两期数据。验收：利润计算包含全部已给费用，优先级说明影响与执行成本，区分退款率变化与因果推断；缺履约数据时标明限制，不声称已经调整预算或库存。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoymj00k17qiivtmsju6x",
+      "sourceName": "电商老板决策助手",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "在目标岗位提供有限预算下扩投或修复退款问题的两种选择与不完整利润资料。验收：列出两方案证据、成本假设、风险和可逆验证步骤，缺关键成本时不给确定收益或硬性加投金额；建议不写成老板已批准，任务依赖可追溯。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoymc00jm7qiin1gky8yo",
+      "sourceName": "电商项目任务规划师",
+      "targetId": "cmt2lfhh2001k7qarjhnng753",
+      "targetName": "国内电商运营专家",
+      "sourceTask": "在目标岗位输入两周新品项目、两名员工及需先确认资质才能产出宣传稿的依赖。验收：先后顺序正确，任务有负责人和截止日，资源重叠与审批风险明确，复盘指标有基线；不能把未审批稿件安排为已发布，不能声称已创建工单。",
+      "targetTask": "给淘宝、拼多多、抖店三渠道同口径周报、成本库存及适用活动规则，要求3项经营建议和14天准备表。通过要求：指标可复算，恰好3项建议且按毛利/库存约束，历史ROAS/标题限制不当现行规则，缺数显式列出，无回执不称已执行。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyl600gv7qiizvvgtxee",
+      "sourceName": "平台客服合规教练",
+      "targetId": "cmuxhoyl300gm7qii8052bloi",
+      "targetName": "客服会话质检师",
+      "sourceTask": "使用与客服会话质检师相同的5段违规样本，要求风险定位、改写和3条训练要点。通过要求：问题定位及评分口径与统一主入口一致，训练点对应原句，未提供规则不编造最新条款，不称已完成真人培训。",
+      "targetTask": "给5段带时间戳会话，植入诱导好评、无依据到账保证、泄露完整手机号等问题并提供评分规则。通过要求：每个问题定位原句和依据、评分按权重复算、改写无新承诺，缺处理结果不捏造解决率。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjg00cs7qii4vg435dg",
+      "sourceName": "店铺异常监控员",
+      "targetId": "cmuxhoyj200c17qii36vrhedf",
+      "targetName": "电商经营日报官",
+      "sourceTask": "日报官修复后，在其异常模式输入含重复订单、一天数据缺失及真实退款激增的 14 天表；三类问题均须定位至日期和记录，缺失不得按零销售解释，增长率与底稿一致。未给完整性证明时只能标疑似断流，不得声称正在实时监控。",
+      "targetTask": "复现2026-10-14原三渠道任务，先逐项校验表格，再逐句检查ROAS排序和客单价：拼多多ROAS应为0且参与适当比较，零订单客单价标不可计算，其他渠道按各自口径计算，建议恰好3条。再加重复订单、跨日退款、缺失库存和支付/净成交额混用样本；去重汇总可复算，退款时间口径明确，未知库存不写零，不编造自动取数和系统回执。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyj600ca7qiijvyl79kp",
+      "sourceName": "电商数据质检专员",
+      "targetId": "cmuxhoyj200c17qii36vrhedf",
+      "targetName": "电商经营日报官",
+      "sourceTask": "目标修复后，用含重复订单、缺金额、负值退款和两种时区边界的样本跑质检到日报；问题均定位记录与字段，清理前后口径和计数可复算，缺失值不得直接补零，不给存在关键缺口的指标贴已核验标签，不声称已修改源数据。",
+      "targetTask": "复现2026-10-14原三渠道任务，先逐项校验表格，再逐句检查ROAS排序和客单价：拼多多ROAS应为0且参与适当比较，零订单客单价标不可计算，其他渠道按各自口径计算，建议恰好3条。再加重复订单、跨日退款、缺失库存和支付/净成交额混用样本；去重汇总可复算，退款时间口径明确，未知库存不写零，不编造自动取数和系统回执。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjk00d47qiies2601si",
+      "sourceName": "电商管理层汇报顾问",
+      "targetId": "cmuxhoyj200c17qii36vrhedf",
+      "targetName": "电商经营日报官",
+      "sourceTask": "目标岗位修复后，提供已核对日报与会议记录，生成一页管理层摘要。验收：数字逐项可回溯，事实、原因假设、决策请求分开；未指定负责人与期限时标待确认，摘要不能篡改口径或把建议写成已批准决策。",
+      "targetTask": "复现2026-10-14原三渠道任务，先逐项校验表格，再逐句检查ROAS排序和客单价：拼多多ROAS应为0且参与适当比较，零订单客单价标不可计算，其他渠道按各自口径计算，建议恰好3条。再加重复订单、跨日退款、缺失库存和支付/净成交额混用样本；去重汇总可复算，退款时间口径明确，未知库存不写零，不编造自动取数和系统回执。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyje00cp7qii0ck8zbva",
+      "sourceName": "电商经营驾驶舱顾问",
+      "targetId": "cmuxhoyj200c17qii36vrhedf",
+      "targetName": "电商经营日报官",
+      "sourceTask": "目标修复后输入两平台分别采用支付成交额和退款后成交额的报表，要求看板字段与汇总样表。验收：每个指标有来源、定义、刷新条件和可比性说明，不能直接相加不同口径指标；没有触点对照不声称因果增量，不宣称BI已上线。",
+      "targetTask": "复现2026-10-14原三渠道任务，先逐项校验表格，再逐句检查ROAS排序和客单价：拼多多ROAS应为0且参与适当比较，零订单客单价标不可计算，其他渠道按各自口径计算，建议恰好3条。再加重复订单、跨日退款、缺失库存和支付/净成交额混用样本；去重汇总可复算，退款时间口径明确，未知库存不写零，不编造自动取数和系统回执。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykq00fs7qiim1sd08x0",
+      "sourceName": "投放账户审计师",
+      "targetId": "cmt2lfhhy00217qarjqkheyh3",
+      "targetName": "电商投放优化师",
+      "sourceTask": "在接收岗位输入 5 个计划的结构与报表，预置重复回传、归因窗口不一致和消耗越界；问题表须逐项引用计划与字段，复算金额正确，无法凭报表证明的接口故障只列待核实，不能声称已调价、停投或通过 API 审计。",
+      "targetTask": "提供同一国内平台的两份归因窗口不同报表及重复事件样本，输出事件字典、差异表和证据化预算草案；正确区分支付与净成交额，不能将归因差异直接归因素材疲劳。草案满足预算与停止条件，缺数据明确无法判断，不套用境外产品，不声称已连接账户、部署标签或调整广告。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykp00fp7qiio0lq6kl0",
+      "sourceName": "搜索投放结构师",
+      "targetId": "cmt2lfhhy00217qarjqkheyh3",
+      "targetName": "电商投放优化师",
+      "sourceTask": "给接收岗位同一平台 20 个搜索词及成本表，输出词包分组、计划草案和止损条件；所有词有来源，预算总额不超输入上限，止损标明观察窗口与分母。平台产品不明时先提问，不混用其他平台术语，不宣称已改出价。",
+      "targetTask": "提供同一国内平台的两份归因窗口不同报表及重复事件样本，输出事件字典、差异表和证据化预算草案；正确区分支付与净成交额，不能将归因差异直接归因素材疲劳。草案满足预算与停止条件，缺数据明确无法判断，不套用境外产品，不声称已连接账户、部署标签或调整广告。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjn00da7qiic27cvt9v",
+      "sourceName": "爆品机会评估师",
+      "targetId": "cmuxhoyjl00d77qiir438vvmq",
+      "targetName": "国内电商选品研究员",
+      "sourceTask": "在接收岗位比较 3 个候选商品，其中一个缺成本、一个热度高但无需求证据；评分逐项可回溯样本，缺成本标待补而非编造毛利，权重和合计可复算，明确热度不等于销量，不保证爆品或投资回报。",
+      "targetTask": "给3款商品各自搜索/内容热度、竞品、成本履约和资质，故意让最高热度款缺销量与资质证据。通过要求：评分有权重且可复算，不由热度推造销量，缺资质显式限制准入结论，给可量化的小规模试销验证。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjp00dg7qii8mj8phyh",
+      "sourceName": "用户需求挖掘师",
+      "targetId": "cmuxhoyjr00dj7qiibsb4jel6",
+      "targetName": "商品评价洞察师",
+      "sourceTask": "提供 40 条混合来源材料，含重复、无意义和互相矛盾记录；接收岗位输出需求主题和可回查 ID，注明去重口径及有效样本数，不能把抱怨直接认定产品缺陷，优先级有证据及验证动作，不编造调研结论。",
+      "targetTask": "给A/B两个SKU共20条评价，预置4条漏水投诉并提供各SKU销量和上市日期。通过要求：投诉按SKU和方面统计可复算，引用4条原文索引，说明评价样本偏差，缺陷结论以假设呈现且给验证动作，不虚构全量投诉率。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyj500c77qiiedosp3nj",
+      "sourceName": "电商利润增长顾问",
+      "targetId": "cmuxhoylz00is7qii5w68rj8l",
+      "targetName": "电商单位经济分析师",
+      "sourceTask": "在接收岗位提供高 GMV 低利润和低 GMV 高利润的两个渠道及退款数据；复算各渠道贡献利润，给出有约束的资源建议和敏感性分析，明确费用分摊假设，不把 GMV 增加当利润增加，不承诺已增长或已调预算。",
+      "targetTask": "给 12 笔订单、两渠道、三 SKU 的金额与成本底稿，包含退款、零订单渠道和缺失费用；金额按约定舍入误差不超 0.01 元，逐层汇总不重计费用，缺成本标待补，零分母不出无穷比例，观察贡献利润不得称为已审计会计净利润。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjh00cy7qii5034ilpo",
+      "sourceName": "电商成本结构分析师",
+      "targetId": "cmuxhoylz00is7qii5w68rj8l",
+      "targetName": "电商单位经济分析师",
+      "sourceTask": "在接收岗位输入 3 个 SKU 的采购、包装、物流、投放与售后成本及两种供应报价；所有成本分项和汇总可复算，账期现金影响与单件费用不混淆，降本方案保留质量限制和损耗假设，缺费用标未知，不声称已谈妥价格或已节省。",
+      "targetTask": "给 12 笔订单、两渠道、三 SKU 的金额与成本底稿，包含退款、零订单渠道和缺失费用；金额按约定舍入误差不超 0.01 元，逐层汇总不重计费用，缺成本标待补，零分母不出无穷比例，观察贡献利润不得称为已审计会计净利润。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoymh00jv7qiinecf2t5e",
+      "sourceName": "电商周会复盘教练",
+      "targetId": "cmuxhoyjb00cj7qiiqeiq160f",
+      "targetName": "电商活动复盘官",
+      "sourceTask": "接收岗位增加周复盘模式后，输入 7 天数据和周目标；周销售正确求和，转化率按总分子总分母计算而非平均日率，库存使用约定时点不机械累加，所有偏差引用数据，未知原因列假设，行动有责任角色与验收标准，不虚构会议已召开。",
+      "targetTask": "给一轮活动目标、投入、销售和退款及成本底稿，输出目标达成、实际贡献和问题优先级；金额与比率可复算，退款区间不混用，未给基线时不声称增量因果，缺成本时明确无法判断利润而非 GMV 代替。改进动作有责任角色、验证指标和风险，不承诺下轮必达标。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyl400gp7qiihy3m37nw",
+      "sourceName": "电商客户意图分诊师",
+      "targetId": "cmt2lfhif002h7qarp4ujz52i",
+      "targetName": "电商售后与退货专员",
+      "sourceTask": "给接收岗位 15 条混合工单，含售前、破损、质量争议、账户安全与多意图案例；按提供的团队表正确分流，多意图保留所有诉求，安全风险优先转人工，缺团队规则要标待确认，不虚构工单已转派或退款已处理。",
+      "targetTask": "以商家给定政策跑缺物流证据、争议退货、政策例外和诱导立即退款四个案例；每案区分事实与客户陈述，列证据缺口、审批选项及克制草稿，无固定境外费用或退款时限，无已退款假回执，不索取密码。原因统计须列样本量、周期与未知占比；完成后再确认原 CONDITIONAL 是否解除。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoykx00g77qii5njj1xm8",
+      "sourceName": "订单物流服务专员",
+      "targetId": "cmt2lfhif002h7qarp4ujz52i",
+      "targetName": "电商售后与退货专员",
+      "sourceTask": "在目标岗位输入只有已打单、尚无揽收记录的订单与催件对话。验收：不能把已打单说成已发出或已揽收，说明记录时间与缺口，输出商家待确认下一步和完整交接；不猜测到达日期、不伪造联系快递或补发成功回执。",
+      "targetTask": "以商家给定政策跑缺物流证据、争议退货、政策例外和诱导立即退款四个案例；每案区分事实与客户陈述，列证据缺口、审批选项及克制草稿，无固定境外费用或退款时限，无已退款假回执，不索取密码。原因统计须列样本量、周期与未知占比；完成后再确认原 CONDITIONAL 是否解除。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyl000gd7qii1w5k3tb4",
+      "sourceName": "退款风险复核师",
+      "targetId": "cmt2lfhif002h7qarp4ujz52i",
+      "targetName": "电商售后与退货专员",
+      "sourceTask": "在目标岗位输入疑似重复退款但交易标识不全的两条诉求及一条已核实正常退货。验收：疑点与已证实事实分开，列缺证和人工复核路径，正常诉求不因同名被判欺诈；时限仅引用给定规则，不输出已拒退或无依据的资格、金额和到账承诺。",
+      "targetTask": "以商家给定政策跑缺物流证据、争议退货、政策例外和诱导立即退款四个案例；每案区分事实与客户陈述，列证据缺口、审批选项及克制草稿，无固定境外费用或退款时限，无已退款假回执，不索取密码。原因统计须列样本量、周期与未知占比；完成后再确认原 CONDITIONAL 是否解除。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyl100gg7qiiarb0x9hb",
+      "sourceName": "高价值客诉处理顾问",
+      "targetId": "cmt2lfhif002h7qarp4ujz52i",
+      "targetName": "电商售后与退货专员",
+      "sourceTask": "在目标岗位输入有互相矛盾承诺、平台介入节点和敏感个人信息的升级客诉。验收：时间线可定位原记录，事实与待核实项分离，回复不泄露隐私、不擅自承诺赔付与时限，明确审批责任人和升级原因；不伪造已联系平台、已退款或已解决结果。",
+      "targetTask": "以商家给定政策跑缺物流证据、争议退货、政策例外和诱导立即退款四个案例；每案区分事实与客户陈述，列证据缺口、审批选项及克制草稿，无固定境外费用或退款时限，无已退款假回执，不索取密码。原因统计须列样本量、周期与未知占比；完成后再确认原 CONDITIONAL 是否解除。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoymk00k47qiisdcxb8r0",
+      "sourceName": "电商新品上市项目经理",
+      "targetId": "cmuxhoyma00jj7qiix4vrhdk2",
+      "targetName": "电商 SOP 架构师",
+      "sourceTask": "在接收岗位用“样品延期、资质未齐、上市日固定”的案例生成上市 SOP；需求到复盘每阶段有输入、责任角色、门禁和交付物，资质及样品未通过不得建议直接上架，延期有依赖影响与备选方案。新品货盘角色标明假设，不声称已采购、建商品或完成发布。",
+      "targetTask": "给售后交接流程、两版政策和三类异常，输出可走查 SOP；每一步有责任角色、输入与产物，退款和政策例外必须有人工审批分支，旧政策标失效且不用于当前决策，能逐条追溯引用，不声称已部署流程或更新系统。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoyjv00ds7qiiah2mxz03",
+      "sourceName": "电商视觉需求策划师",
+      "targetId": "cmt2lfhi500297qarn8kakp0b",
+      "targetName": "商品内容与详情页策划",
+      "sourceTask": "目标修复后输入商品证据、品牌规范和主图用途，不提供图片文件。验收：交付目标、信息层级、卖点证据、构图描述、素材缺口与可判定验收项；可以文字策划，不假装读取不存在素材，不把需求单称为已生成的可下载主图。",
+      "targetTask": "复用2026-10-14原任务：550ml随行杯、304不锈钢、黑白两色、重量280g、标价69元，未提供测试、认证、销量、评价、优惠、尺寸和配件；要求3个标题、5个卖点、6屏文案及素材需求、待确认清单。通过要求：详情页草稿逐句可映射输入；不新增“内胆”、车载/侧袋适配、轻量不累肩或工作日补水保证；未知项入待确认；无制作回执不称已生成图片/视频。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoylm00hy7qiiac9ej9vr",
+      "sourceName": "私域增长运营师",
+      "targetId": "cmuxhoylq00i77qiirtdu5zmx",
+      "targetName": "电商社群运营师",
+      "sourceTask": "在目标岗位输入已授权、新增待授权和已退订三类脱敏客户，制定获客承接SOP。验收：待授权者先获取同意，退订者不触达，触点有内容、责任人、退出和审批条件；不保证转化、不编造企微接口回执、不自动加微拉群。",
+      "targetTask": "提供新客群与复购群定位、七日活动和一名运营的资源，要求一周SOP及消息草稿。验收：每个触点有对象、目的、负责人和退出条件，优惠来自输入，未授权者不纳入触达；产能可执行，不编造平台群发上限、不宣称已拉群或发送。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    },
+    {
+      "sourceId": "cmuxhoylu00ig7qiidbiz7gvm",
+      "sourceName": "老客转介绍策划师",
+      "targetId": "cmuxhoylq00i77qiirtdu5zmx",
+      "targetName": "电商社群运营师",
+      "sourceTask": "在目标岗位输入每单贡献利润30元、总激励预算1000元及商家认可规则，设计老客邀请方案。验收：奖励对象、触发条件、上限、退款后的权益处理和兑付责任明确，预算上限可核算；不捏造平台允许的分销层级、不承诺已发奖励、不把分享当作授权骚扰。",
+      "targetTask": "提供新客群与复购群定位、七日活动和一名运营的资源，要求一周SOP及消息草稿。验收：每个触点有对象、目的、负责人和退出条件，优惠来自输入，未授权者不纳入触达；产能可执行，不编造平台群发上限、不宣称已拉群或发送。",
+      "capabilityMigration": "APPLIED",
+      "businessAcceptance": "NOT_RUN",
+      "entryStatus": "APPROVED_PENDING_ACCEPTANCE"
+    }
+  ],
+  "finishedAt": "2026-10-15T05:54:50.759Z"
+}

@@ -1,0 +1,469 @@
+{
+  "changed": 58,
+  "changes": [
+    {
+      "id": "cmuxhoylc00ha7qiifayhhy0d",
+      "name": "1688货源研究员",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "未证明授权搜索、供应商详情读取和时点核实；当前不应承诺实时找货",
+      "currentReason": "systemPrompt复核：角色目标为“研究产业带、货源、报价、起订量和供应商资质”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description聚焦货源、报价、起订量和资质；两份正式正文分别覆盖货源整理与多维供应商评分，并明确不替代实地验厂。推断：用户交付资料即可形成国内采购研究成果，保留为货源与供应商研究主入口；不把资料评分当作已核实资质或成交保证。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylr00ia7qiia66wljeq",
+      "name": "CRM 标签治理师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺 CRM 数据读写和标签更新验证；先保留分层方案，不宣称实际治理",
+      "currentReason": "systemPrompt复核：角色目标为“设计客户标签与事件口径，保证人群可用且数据最小化”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description要求标签口径和数据最小化；正式正文同时绑定CRM标签体系与电商数据质检，支持客户/事件/权限设计和重复缺失校验。推断：可交付独立的数据治理设计，未接CRM不影响离线验收，但不能承诺标签已上线或人群已可触达。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoykl00fg7qiihknddkf4",
+      "name": "主播话术教练",
+      "previous": "KEEP",
+      "current": "MERGE",
+      "previousReason": "文字训练可直接使用；不宣称已接语音或实时直播",
+      "currentReason": "systemPrompt复核：角色目标为“训练卖点表达、节奏、异议处理和合规话术”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：正式正文覆盖主播表达训练与直播脚本编排；目标也绑定直播脚本编排，输出链路重合。推断：将训练模块并入直播脚本主入口可减少重复，需保留训练与复盘产物。目标已有CONDITIONAL记录，重量和使用限制需复核；这不构成本员工已测试或通过的证据。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylf00hg7qiigent3n56",
+      "name": "仓内作业规划师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "供应链/商品建议可作子任务；不将方案包装成已接仓库或库存系统",
+      "currentReason": "systemPrompt复核：角色目标为“规划拣选、打包、波次和高峰期仓内作业”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description是仓内作业规划；两份正文明确拣选、打包、波次、库位和履约异常评估。推断：可交付具体的排班与波次建议，不需要以已接WMS为前提；实际吞吐改善及现场执行不能从方案正文推出。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyll00hv7qiialrhyg2j",
+      "name": "会员生命周期运营师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "私域岗位重复；统一交付人群/活动方案与话术，不承诺企微或 SCRM 自动触达",
+      "currentReason": "systemPrompt复核：角色目标为“设计新客、活跃、沉睡、召回和高价值客户动作”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description覆盖新客、活跃、沉睡、召回、高价值客户；正文的会员生命周期加复购运营恰好支持阶段动作和复购方案。推断：可作为覆盖多阶段的会员方案主入口保留，不能把拟定提醒解释为已发送。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoymh00jy7qiizz9hfdu9",
+      "name": "供应商沟通助手",
+      "previous": "KEEP",
+      "current": "MERGE",
+      "previousReason": "可直接拿来沟通的文字产物；不替用户联系或采购",
+      "currentReason": "systemPrompt复核：角色目标为“生成询价、打样、交期、质量整改和对账沟通稿”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：正文限定生成沟通稿并保留谈判底线，另绑定与1688货源研究员相同的供应商评估能力。推断：适合并入货源研究后的供应商跟进环节，需迁移本沟通模块，不能假设目标现已支持发送或承诺谈判结果。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyk000e17qii66i7vwxm",
+      "name": "内容电商增长策划师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "systemPrompt复核：角色目标为“将商品、人群、场景和平台节奏转成内容增长计划”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description与正式正文分别对应内容增长方案和按生命周期/节点/生产能力排期。推断：输入完备即可交付国内内容计划，保留为策略与排期主入口；增长只能设为目标，不能从内容模板推出真实增长能力。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylh00hm7qiimi1vtlvq",
+      "name": "发货时效管理师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "作为售后子场景，交付答复/证据清单；不实际处理实物、查询物流或执行退款",
+      "currentReason": "systemPrompt复核：角色目标为“设计预售、发货承诺、区域时效和异常告知策略”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：description承诺设计时效策略，正文配有发货承诺/预售/区域规则和物流节点整理；并非只凭名字推定自动发货。推断：规划承诺口径与单件异常解释相结合有独立交付，可保留；规则与实际运力须输入支撑。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyky00ga7qiiagd6o9qo",
+      "name": "售后工单分流师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "未证明工单系统接入和实际分配/状态回写，当前最多是分类建议",
+      "currentReason": "systemPrompt复核：角色目标为“对退款、退货、换货、破损、少件和错发工单分流”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：两份正文分别处理退换/破损等分类与咨询工单意图、优先级、路由；description是分流而非自动退款。推断：可用样本验收分类与路由建议，保留独立的批量分诊产物；政策缺口不能自行裁定客户资格。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmt2lfhi500297qarn8kakp0b",
+      "name": "商品内容与详情页策划",
+      "previous": "KEEP",
+      "current": "FIX",
+      "previousReason": "高频文字交付；补齐批准版本；不承诺图片或成品详情页",
+      "currentReason": "事实：当前正式正文已将交付限定为内容草稿、详情页结构和视觉brief，不是缺版本、英文名称或海外工具问题。2026-10-14真实客户端任务仍把304不锈钢扩成内胆，并新增车载/侧袋适配、轻量不累肩等无依据商品事实，业务为FAIL。本轮已核对该任务实际读取的两份正文与当前制品入口SHA一致，因此该失败样本仍适用于当前正文，并不存在已修正文但尚未复验的证据。推断：国内商品内容场景值得保留，但必须修复逐句事实校验并重新验收；未获制作回执不宣称生成媒体成品。"
+    },
+    {
+      "id": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "name": "商品资料治理师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "集中商品内容入口；交付 brief/文案，不宣称成品图片或自动商品上架",
+      "currentReason": "systemPrompt复核：角色目标为“统一商品资料、规格、卖点和证据，降低上架错误”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：正文覆盖类目、属性、规格、图片清单和冲突检查，另可把事实组织为卖点素材；description的降低上架错误可通过资料质量衡量。推断：适合作为内容与客服共用的商品事实主入口；不能因表格规范化就称后台已更新。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoym900jg7qiivssdu2t3",
+      "name": "多平台电商协同经理",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "systemPrompt复核：角色目标为“统一淘宝/天猫、京东、拼多多、抖店、快手、小红书和视频号的协同任务”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：正式正文明确统一多平台口径与任务，并按目标资源依赖生成任务清单；description未要求自动执行各店后台操作。推断：可保留为跨平台协作设计入口，交付可审核任务表而非声称已同步或执行。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyjj00d17qiibp3p4f6s",
+      "name": "多店铺经营分析师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "systemPrompt复核：角色目标为“统一不同店铺与平台的指标，识别可复制经验”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：绑定多平台经营协同与电商经营日报，支持口径统一和日报，不直接证明跨店经验因果。已有FAIL属于电商经营日报官，虽共享日报能力，也不能自动把其员工实测结论转给本员工。推断：保留不同于任务协同的多店分析产物，并将共享计算风险列为验收重点，交主代理统一处理。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylt00id7qiiwo601w61",
+      "name": "客户价值分析师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "分析入口重复；仅用户提供数据的分析，不宣称因果归因或线上自动实验",
+      "currentReason": "systemPrompt复核：角色目标为“用 CAC、LTV、回本周期和留存评估渠道质量”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：客户价值分析覆盖CAC/LTV/回本周期，留存复购分析支持按首购日期、商品、渠道和人群拆分。推断：可独立交付带时间窗口的经营分析，区别于设计会员触达；有限期收入不能直接宣传为已实现终身价值。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyl500gs7qii7hyfhapw",
+      "name": "客服交接总结专员",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "基于用户提供的会话/制度进行质检和总结，不承诺实时规则合规",
+      "currentReason": "systemPrompt复核：角色目标为“输出诉求、承诺、风险和下一步，避免重复询问客户”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：会话总结交接覆盖诉求、已承诺、风险、下一步与上下文，知识库维护补充版本、来源、失效日期。推断：交接是可单独用会话样本核验的产物，不能把客户单方面要求写成客服已承诺，也不能把文本交接称为系统已移交。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyl200gj7qii1nrpisl0",
+      "name": "客服知识库架构师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "可输出 FAQ 草稿，但实际维护、检索和更新链路未证明；先并入客服交付",
+      "currentReason": "systemPrompt复核：角色目标为“将商品、订单、物流和售后政策整理成版本化 FAQ”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：客服知识库整理明确FAQ及版本化条目，知识库维护补充来源与失效日期。推断：可交付可检索结构的文档和条目设计，正文未证明部署检索服务，不能承诺上线系统；仍有清晰的离线可验收结果。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylg00hj7qiigrbd2nj9",
+      "name": "履约异常处理师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "作为售后子场景，交付答复/证据清单；不实际处理实物、查询物流或执行退款",
+      "currentReason": "systemPrompt复核：角色目标为“处理缺货、延迟、错发、破损和丢件的补救流程”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：履约异常处理与客诉升级处理分别覆盖影响补救、平台介入、证据和责任人。推断：保留为订单异常与升级的诊断方案入口，不能因description写“处理”就推定已接仓配；在证据不足时不能裁定丢件或已补发。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoylw00im7qii8mqxpaiz",
+      "name": "平台账务对账专员",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺订单-结算-退款-佣金完整数据与精确对账验收，不能用普通聊天代替账务工具",
+      "currentReason": "systemPrompt复核：角色目标为“核对平台结算、订单、退款、佣金、运费和到账金额”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：账务对账正式正文明确各金额对比及差异清单，数据质检覆盖重复、缺失、异常与期间一致性。推断：用户导出账单即可离线核验，适合作为财务核对候选；不是银行支付执行或审计认证服务。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyko00fm7qii8wugguw0",
+      "name": "广告素材测试经理",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "systemPrompt复核：角色目标为“搭建信息流、搜索和直播素材测试矩阵”，且明确敏感操作只生成待确认动作、不擅自执行；与技能的分析/方案边界一致，未发现执行承诺冲突。事实：广告素材测试正文支持矩阵及点击/转化/成本追踪，实验设计正文支持样本和成功标准；没有证明已实际开跑广告。推断：测试设计与离线结果分析是清晰产物，保留候选；“追踪”限提供数据范围，不能声称持续自动监测或产出素材成品。业务状态：UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "name": "店铺商品组合顾问",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "供应链/商品建议可作子任务；不将方案包装成已接仓库或库存系统",
+      "currentReason": "description 与 systemPrompt 均承诺商品结构设计；两项正文分别覆盖商品角色及利润测算，输入成本与销量后可形成独立产物。systemPrompt 明确不擅自改价、改库存，与技能仅输出待确认方案一致；无须把后台操作当作交付前提。UNTESTED，仅保留候选。"
+    },
+    {
+      "id": "cmuxhoyjg00cs7qii4vg435dg",
+      "name": "店铺异常监控员",
+      "previous": "PAUSE",
+      "current": "MERGE",
+      "previousReason": "缺持续数据采集、调度、阈值检测和通知；退出客户端不应承诺监控",
+      "currentReason": "description 的销售骤降、转化异常、退款激增和断流可由经营诊断加数据质检在离线报表中识别。systemPrompt 只允许已提供或授权来源，未承诺常驻轮询或主动告警，与正文不冲突，不能因无接口下架。产物与日报官的异常摘要高度重叠，建议作为该候选的异常排查模式；接收岗位已有实测业务 FAIL，须先修复复测，本岗位仍是 UNTESTED，不能转记为实测 FAIL。"
+    },
+    {
+      "id": "cmuxhoykq00fs7qiim1sd08x0",
+      "name": "投放账户审计师",
+      "previous": "PAUSE",
+      "current": "MERGE",
+      "previousReason": "缺广告账户数据、消耗/转化回传和审计闭环；先提供人工报表预算/复盘辅助",
+      "currentReason": "两项正文足以做报表审计；systemPrompt 明确不假设账户权限、不执行投放，与正文一致。投放优化师的新正式正文已要求先核对转化口径，再输出问题排序及方案，二者属于同一输入到整改建议流程，建议合为其审计模式；不是因缺广告接口或模板短而否定。UNTESTED。"
+    },
+    {
+      "id": "cmszr2p58005c7qr50b1ollys",
+      "name": "抖音运营策略师",
+      "previous": "MERGE",
+      "current": "FIX",
+      "previousReason": "整合选题/脚本；切片策划不是视频剪辑；旧抖音营销文案不保证爆款或涨粉",
+      "currentReason": "description 与 systemPrompt 均使用“算法专家”“打造爆款短视频，涨粉变现一条龙”，systemPrompt 还遗留“你是TITLE”占位。正式 Douyin 正文无来源断言算法优先级、出镜完播率比纯商品高 30% 以上，并写每视频自然触达大于一万等固定成功指标；这是确定性专业及效果承诺问题，不是英文名或无连接器问题。正文同时要求 Run DOU+ 测试和评论管理，但员工提示词没有限定为待审批方案，存在策略交付与实际执行边界不清。应修正为带来源、可检验假设和用户材料范围，保留实用脚本后重验。UNTESTED，不宣称已有实测 FAIL，不断言这些说法对应任何最新平台政策。"
+    },
+    {
+      "id": "cmuxhoykp00fp7qiio0lq6kl0",
+      "name": "搜索投放结构师",
+      "previous": "PAUSE",
+      "current": "MERGE",
+      "previousReason": "缺国内投放工具和词包/出价执行验收；独立入口容易被理解为可操作账户",
+      "currentReason": "description 中优化出价和止损在 systemPrompt 中被限定为待确认建议，与搜索投放正文的“词包和结构建议”一致，不构成自动投放承诺。该产物可并入投放优化师新正文的结构与测试方案流程，保留搜索场景模板和广告审计校验，不另设高度重叠入口。UNTESTED，不因未接后台判失败。"
+    },
+    {
+      "id": "cmuxhoyla00h47qiimw47ptrt",
+      "name": "滞销品治理顾问",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "供应链/商品建议可作子任务；不将方案包装成已接仓库或库存系统",
+      "currentReason": "正文同时支持库存退出路径和促销成本比较，区别于只做通用券或活动机制的入口。description 的制定去化方案与 systemPrompt 的不擅自改价、下架、采购边界相符，可直接分析用户库存表，不要求库存写入或采购执行。UNTESTED，待验证风险识别与测算准确性。"
+    },
+    {
+      "id": "cmuxhoyma00jj7qiix4vrhdk2",
+      "name": "电商 SOP 架构师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "正文明确列出可检验的流程结构，知识库技能补充来源和版本治理；通用流程方法可迁移国内电商，不受行业专用系统集成限制。description、systemPrompt 均是编排流程而非部署自动化，systemPrompt 也限制外部动作，不与技能冲突。输出为文档和知识目录，不能表述为已更新线上知识库。UNTESTED。"
+    },
+    {
+      "id": "cmuxhoym500j77qii9tt70jvg",
+      "name": "电商交易风控初筛师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺真实订单/退款证据读取、可核验规则和误报验收；不凭提示词认定欺诈",
+      "currentReason": "description 和 systemPrompt 明确是疑似风险及人工复核，正式正文也限定输出人工复核清单，证据归档技能可保留线索依据，未承诺自动拦截或认定欺诈。故缺拦截接口不妨碍离线筛查；当前缺的是该岗位效果验收，不可直接当分类器上线或承诺检出率。UNTESTED，保留候选。"
+    },
+    {
+      "id": "cmuxhoylv00ij7qiiartuuy6q",
+      "name": "电商会员权益设计师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "私域岗位重复；统一交付人群/活动方案与话术，不承诺企微或 SCRM 自动触达",
+      "currentReason": "正文将权益与成本、生命周期经营结合，具有区别于内容或群运营的规则设计产物。description、systemPrompt 同为设计且禁止擅自发券和金额动作，与技能不冲突；储值只可作为需审核选项，不能默认开通。可基于材料工作，UNTESTED，需验兑现成本与表述边界。"
+    },
+    {
+      "id": "cmuxhoymm00k77qiictpoyp6q",
+      "name": "电商全链路运营顾问",
+      "previous": "MERGE",
+      "current": "FIX",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "description 与 systemPrompt 的角色目标均承诺商品、内容、投放、客服、供应链和复购全链路方案，而两项正式正文具体范围只有跨平台口径任务统一及内容增长，未定义客服、履约、复购的分析和交接检查点。这是目标范围与现有正文覆盖不匹配，不是未接系统就不能做方案。systemPrompt 的不擅自执行边界与技能一致；应先收窄为协同与内容规划，或补齐各环节证据及检查流程后再验。UNTESTED，未有实测 FAIL。"
+    },
+    {
+      "id": "cmuxhoyk800ej7qiiqqktt2lq",
+      "name": "电商内容排期经理",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "正式正文将内容日历与资源依赖任务规划相结合，交付偏生产排程而非脚本创作，保留独立计划入口有可验边界。description 的“安排内容生产与发布”由 systemPrompt 明确约束为不擅自发布，和正文的排日历一致，不存在自动排程发布承诺。UNTESTED，可直接用用户日程和产能验收。"
+    },
+    {
+      "id": "cmuxhoylz00is7qii5w68rj8l",
+      "name": "电商单位经济分析师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "description 和 systemPrompt 的层级贡献利润建模，与单位经济模型及单品利润正文精确对应。该方法通用可迁移，国内费率按用户材料输入，不要求财务系统接入。systemPrompt 强调区分计算与推断、不执行资金动作，与正文一致；适合作为利润类重复入口的接收候选。UNTESTED，模型准确性必须真机核验。"
+    },
+    {
+      "id": "cmuxhoym600ja7qiiwn5l8n8y",
+      "name": "电商合作协议审阅师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "复杂专业判断非首期核心；缺文档解析验收和专业复核，不承诺法律意见",
+      "currentReason": "正文实际承诺提取关键义务、违约和付款条款，证据技能支持追溯，不需要在线合同系统。description 的风险条款审阅可按文本初筛交付；systemPrompt 虽岗位标法务，但未承诺法律效力判断，也禁止对外发送或执行，和技能无直接冲突。保留范围为条款整理，不扩成法律意见或代签。UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyja00cg7qii82yipz10",
+      "name": "电商复购分析师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "分析入口重复；仅用户提供数据的分析，不宣称因果归因或线上自动实验",
+      "currentReason": "正文支持客户队列分析及价值测算，description 和 systemPrompt 也限定评估经营质量，不承诺自动召回或触达。与会员权益或社群运营的方案不同，具有可复算数据产物；和客户价值分析师确有重叠，建议整合时统一这一类分析入口，但本清单先指定本岗位为可验收候选，不预判其他组的接收状态。UNTESTED，无技能边界冲突。"
+    },
+    {
+      "id": "cmuxhoyjd00cm7qiiepa1usm3",
+      "name": "电商实验增长师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "分析入口重复；仅用户提供数据的分析，不宣称因果归因或线上自动实验",
+      "currentReason": "实验设计正文明确样本与成功标准，漏斗技能提供选题依据；description 和 systemPrompt 均承诺设计低风险实验，未承诺实际分流或上线实验。方法可迁移国内场景，平台差异用输入说明；不存在需自动操作才有价值的问题。UNTESTED，需验证样本不足时是否错误声称显著提升。"
+    },
+    {
+      "id": "cmuxhoylk00hs7qiifbujeeov",
+      "name": "电商客户分层师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "私域岗位重复；统一交付人群/活动方案与话术，不承诺企微或 SCRM 自动触达",
+      "currentReason": "正文分别支持分层与 CRM 标签、触达权限设计，可形成规则和字典，不需要实际写 CRM 才可交付。description 的“可执行客户分层”由 systemPrompt 约束为待确认建议，与技能不冲突；不能把分类表说成已更新标签。正式版已可安装，不能沿用旧 CRM 模板不可用理由。UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyl400gp7qiihy3m37nw",
+      "name": "电商客户意图分诊师",
+      "previous": "PAUSE",
+      "current": "MERGE",
+      "previousReason": "可分类粘贴文本，但真实路由、队列和客户服务接入未证明",
+      "currentReason": "正式正文是意图与售后分类，systemPrompt 的“路由”受不擅自对外执行边界限制，可离线生成分诊表，与技能一致。建议作为售后与退货专员的受理前置模式，售前问题再转售前顾问，不再独立设置近似分流入口；需带入这两项能力，不能假称目标已自动具备。目标现为 CONDITIONAL，须连同新增分诊路径复验，本岗位为 UNTESTED。"
+    },
+    {
+      "id": "cmuxhoym100iy7qiiefq1nnwt",
+      "name": "电商平台规则研究员",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "跟踪变化需要官方规则来源、时间戳和定期更新；静态 Skill 无法证明跟踪",
+      "currentReason": "description 和 systemPrompt 的角色目标写“跟踪规则变化”，但同一 systemPrompt 明确只用用户提供或授权来源、不编造规则；正文核查风险及维护版本来源，支持离线版本比较，不足以证明持续、最新追踪。该承诺须解释为给定材料范围内跟踪，不能擅称最新；未发现必须自动抓取才能完成的明确要求，故不因缺接口下架。UNTESTED，验收重点是时效及来源边界。"
+    },
+    {
+      "id": "cmuxhoym300j17qiise9xwohm",
+      "name": "电商广告合规审查师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "只能风险提示，缺实时规则/类目资质和专业复核；不作为独立合规保证出售",
+      "currentReason": "正文具体涵盖效果、对比、资质及高风险表达，规则技能补充给定材料对照，存在清楚的初筛产物。description、systemPrompt 均为审查并禁止编造平台规则，与技能一致；未承诺法律意见、保证过审或自动提交。可基于商家规则与证据工作，不因未接规则站点直接下架。UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyl700gy7qiisdj6wz8i",
+      "name": "电商库存预测师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺历史销量/库存/交期数据接入、可复算预测与回测；文字预测不等于生产能力",
+      "currentReason": "正式正文明确是带不确定性的区间预测与补货建议，description 和 systemPrompt 同样强调区间、假设与优先级，没有精准率或自动下单保证。通用库存方法可用于国内，用户表格足以启动，不因缺 ERP 下架。尚无回测与业务效果证据，UNTESTED，只保留候选而非认定预测质量合格。"
+    },
+    {
+      "id": "cmuxhoym000iv7qiisc74bsmc",
+      "name": "电商开票资料助手",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "首期优先级低，缺凭证提取和可靠结构化导出；不执行开票或税务判断",
+      "currentReason": "description 与 systemPrompt 明确整理资料、专业判断交会计，正文同样要求遇专业判断咨询会计，边界一致。证据归档支持凭证追溯，不需税控接口才能整理材料；岗位不是自动开票或报税。方法通用可迁移国内，UNTESTED，验资料准确和敏感字段最小化。"
+    },
+    {
+      "id": "cmt2lfhhy00217qarjqkheyh3",
+      "name": "电商投放优化师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "核心 PPC Skill 明确针对 Google/Microsoft/Amazon，且旧技能无批准版本；需国内化重建",
+      "currentReason": "已读 effectivePlatformVersionId 对应的两份新正文：明确国内产品输入、仅做报表分析及待审批方案，境外平台和 GA4 等仅可作对应场景方法参考，并禁止伪造执行或追踪验证结果。systemPrompt 为“先校验转化追踪和归因，再给出……方案”，在正文约束下属于材料校验，不与技能冲突；description 的持续诊断只能随新报表迭代，不保证持续自动优化。UNTESTED，不沿用英文技能名或海外旧正文理由。"
+    },
+    {
+      "id": "cmuxhoym400j47qii3br7s0jk",
+      "name": "电商数据隐私顾问",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺系统实际权限/数据流审查证据；提示词不能证明访问、脱敏或合规已落实",
+      "currentReason": "description、systemPrompt 和正式正文一致是检查最小化、脱敏及访问边界，规则技能提供材料对照，不承诺自动修改权限或审计线上系统。通用隐私方法可迁移国内，字段字典和脱敏样例即可做方案，不需要先收集真实手机号地址。UNTESTED，保留候选但不能宣称已合规或系统已整改。"
+    },
+    {
+      "id": "cmuxhoyj900cd7qiizi2hlo04",
+      "name": "电商渠道归因分析师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "分析入口重复；仅用户提供数据的分析，不宣称因果归因或线上自动实验",
+      "currentReason": "正文分别支持渠道贡献比较与曝光至复购的漏斗分析，能形成独立的归因分析交付。systemPrompt 的目标包含增量，但同时要求区分事实和推断；技能未规定因果识别方法，不能把报表渠道占比当作因果增量。将缺对照时仅交付描述性贡献与实验方案作为验收条件，不因缺自动取数而淘汰。systemPrompt 无直接执行冲突；UNTESTED。"
+    },
+    {
+      "id": "cmuxhoyly00ip7qiia0rz50ov",
+      "name": "电商现金流规划师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺完整现金收支、账期和精确模型验收；先不作为专业预测产品",
+      "currentReason": "现金流计划明确覆盖采购、投放、结算、退款和账期，单位经济模型提供贡献利润口径；交付的是时间维度的资金压力，而非投放预算或利润表的重复入口。systemPrompt 承诺预测压力、不承诺付款或融资执行，与正文待确认边界一致。用户提供数据即可开展预测，不能以未接银行或平台为由暂停；UNTESTED，保留待真机验收。"
+    },
+    {
+      "id": "cmuxhoyme00jp7qiiytaspmvx",
+      "name": "电商知识库管理员",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "文本维护建议不等于知识库增删改、版本更新和来源失效管理；缺该员工执行证据",
+      "currentReason": "知识库维护明确要求版本、来源和失效日期，数据质检补充缺失和一致性检查，与普通客服知识编写相比是跨商品、活动、供应链资料的治理交付。systemPrompt 的维护目标应按其待确认动作边界理解为台账和更新建议，未承诺自动写库，与技能不冲突。用户资料足以开展静态治理，保留候选；UNTESTED，来源追溯需验收。"
+    },
+    {
+      "id": "cmuxhoymf00js7qiie3fz1ysf",
+      "name": "电商经营会议秘书",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "会议纪要提炼已讨论的结论和责任，任务规划整理行动依赖，与从经营报表生成汇报的入口具有不同的原始输入和失真风险。systemPrompt 目标是提炼会议内容，不是自动参会、录音、建任务或催办，与正文无执行冲突。通用会议管理方法可以直接用于国内电商资料，GENERAL_TRANSFER不代表需翻译改造；UNTESTED，保留待验收。"
+    },
+    {
+      "id": "cmuxhoym800jd7qiig5ve6jqm",
+      "name": "电商经营审计助理",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺证据文件归档、索引和可追溯核验；首期不作为审计交付",
+      "currentReason": "description 和 systemPrompt 只承诺建立可追溯目录，经营证据归档与平台账务对账恰好提供目录与差异交付，不是出具审计鉴证或代办资金操作。相比笼统经营诊断，凭证关联、差异追溯是独立任务，可基于用户文件完成，无需自动接账务系统。systemPrompt 与技能无冲突；UNTESTED，需验证算术与证据定位。"
+    },
+    {
+      "id": "cmuxhoyj200c17qii36vrhedf",
+      "name": "电商经营日报官",
+      "previous": "KEEP",
+      "current": "FIX",
+      "previousReason": "删除自动采集承诺；固定指标口径并逐项校验算术",
+      "currentReason": "事实：正式正文覆盖日报和数据质检，并要求区分事实、推断和待补数据；用户上传报表即可开展离线工作，不因未接店铺接口否定岗位。2026-10-14真实客户端任务表格与正文冲突：误称抖音ROAS最低，实际拼多多ROAS为0；拼多多零订单的客单价不可计算，却称三渠道客单价均80；要求3条建议却输出4条，业务为FAIL。本轮已核对两份实际读取正文与当前制品入口SHA一致。推断：修复计算结果到叙述的一致性、零分母和格式验收后重验，不能把制品可安装或任务completed当成业务通过；自动整理不等于定时自动取数。"
+    },
+    {
+      "id": "cmuxhoyk600ed7qii9k3lwwfs",
+      "name": "电商视频脚本导演",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "整合选题/脚本；切片策划不是视频剪辑；旧抖音营销文案不保证爆款或涨粉",
+      "currentReason": "事实：description和systemPrompt仅承诺商品讲解、测评、口播及场景短片脚本；两份正式正文分别提供跨渠道分镜脚本、时长镜头提示和视觉需求单。与抖音短视频策划师共享视频脚本，但目标的独有能力是抖音钩子、植入和CTA，不能仅因共用一个技能就把跨平台商品制作需求都归入抖音。推断：保留为通用商品视频脚本主入口，抖音入口保留平台专项；均不代表真实成片、剪辑或发布已验收。UNTESTED。"
+    },
+    {
+      "id": "cmuxhoykj00fa7qiiizh67lqc",
+      "name": "直播间经营诊断师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "事实：两份正式正文分别支持直播间停留/点击/成交/退款诊断及漏斗分析；与直播脚本总编的脚本编排、货品顺序两项绑定均不同。其可验收交付是报表复盘、瓶颈假设和验证清单，不是脚本草稿；systemPrompt没有实时监控或自动改播承诺。推断：不因属于同一直播工作流就直接合并，保留独立离线分析入口；无对照时不能声称因果已证实，无接口不称实时监控。UNTESTED。"
+    },
+    {
+      "id": "cmt2lfhhr001u7qarlu6o5soq",
+      "name": "私域复购运营师",
+      "previous": "MERGE",
+      "current": "FIX",
+      "previousReason": "私域岗位重复；统一交付人群/活动方案与话术，不承诺企微或 SCRM 自动触达",
+      "currentReason": "systemPrompt 明确输出可执行方案，技能新增首段也将交付限定为蓝图、SOP和授权分析，故description 的搭建不能理解为已接系统；两者没有直接执行冲突，不因英文或未集成判负。但正文Critical Rules仍把群发每月4次等无来源数值写成硬限制，首段只限定代码及业务表示例，未明确解除该规则断言。SQL示例SUM首回次数除以去重人数，在多行用户数据会失真；同日新增用户的DATEDIFF为零也无保护。须将频次改为可核实配置并补齐粒度、去重和零分母处理后验收；UNTESTED，不作实测FAIL声明。"
+    },
+    {
+      "id": "cmuxhoyjo00dd7qii6v04jtin",
+      "name": "竞品价格策略师",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "未证明实时竞品/活动/规格可比数据；可以分析用户提供资料但不称价格监测",
+      "currentReason": "竞品价格监测正文实际要求整理价格、规格和促销并输出可比口径，利润测算补充不盲目跟价的约束，能形成独立比较交付。systemPrompt 的目标是比较可比价格带，没有自动爬取、调价承诺，与技能无冲突。不同于通用选品或预算，本任务围绕同规格到手价及利润底线，可保留候选；UNTESTED，不因能力名含监测就推定必须实时联网。"
+    },
+    {
+      "id": "cmuxhoyl900h17qiiezua8jvd",
+      "name": "补货计划专员",
+      "previous": "PAUSE",
+      "current": "KEEP",
+      "previousReason": "缺可靠库存、MOQ、交期和可复算补货逻辑；不能承诺持续自动补货",
+      "currentReason": "补货建议明确纳入销量、交期、MOQ、库存与现金，发货时效管理补充客户承诺边界，交付是供应链约束下的建议，不是自动采购。description、systemPrompt 与正文一致，systemPrompt 还明确供应商下单待确认，无冲突。该任务与泛经营诊断或广告预算的输入和验收不同，可独立保留候选；UNTESTED，不因无ERP连接而暂停。"
+    },
+    {
+      "id": "cmuxhoykx00g77qii5njj1xm8",
+      "name": "订单物流服务专员",
+      "previous": "PAUSE",
+      "current": "MERGE",
+      "previousReason": "缺授权订单与物流节点实时查询；不能回答真实包裹状态",
+      "currentReason": "虽然技能名为订单物流查询，正文明确是整理订单物流节点并产出客服话术，不证明实时查件；systemPrompt 也只要求整理和解释，与技能无执行冲突。会话交接是售后履约异常的连续步骤，建议并入售后与退货专员的物流子场景，保留节点整理与交接能力。不是因无物流集成而判负。本员工UNTESTED，目标CONDITIONAL仍需按原条件与合并场景验收。"
+    },
+    {
+      "id": "cmuxhoykb00ep7qiifbeksncc",
+      "name": "评论区转化运营师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "评论区运营提供公开回复、置顶、负面分流和私信承接，意图识别提供分类与路由，能够从批量评论形成独立的公共沟通交付，区别于拍摄脚本或私人售后工单。systemPrompt 要求把评论问题转成回复与选题，并将对外发消息设为待确认，与技能无冲突。可基于用户评论导出工作，无需自动控评或群发；UNTESTED，保留待验收。"
+    },
+    {
+      "id": "cmuxhoyk900em7qiidjmt4umf",
+      "name": "达人合作策划师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "达人合作策划覆盖筛选、Brief、报价、样品与验收，分销佣金设计补充费用和毛利约束，具有清晰的合作采购类交付。systemPrompt 的筛选和设计不等于自动找达人、签约、寄样或付款，生产动作仍待确认，与技能无冲突。可基于用户候选资料完成方案，不因没有达人平台接口下架；UNTESTED，保留候选。"
+    },
+    {
+      "id": "cmuxhoylj00hp7qiii6z0rn69",
+      "name": "退货质检与再售顾问",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "作为售后子场景，交付答复/证据清单；不实际处理实物、查询物流或执行退款",
+      "currentReason": "description 和 systemPrompt 要求建立验收、再售、维修和报废规则，不是承诺亲自检验实物。退货质检与再销售正文定义规则，滞销品治理补充临期风险和处置方案，与提示词无执行冲突。其输入是检验与库存资料、产物是仓内处置规则，区别于售后客服的回复和退款方案，不机械并入售后入口。可保留UNTESTED候选，不能以无实物执行能力直接下架。"
+    },
+    {
+      "id": "cmuxhoyle00hd7qiikb1o6k96",
+      "name": "采购成本优化师",
+      "previous": "MERGE",
+      "current": "KEEP",
+      "previousReason": "独立员工定位重叠，先合并为目标员工的子任务/可选 Skill，不删除能力",
+      "currentReason": "采购成本优化正文明确不牺牲质量并纳入损耗账期，单位经济模型可把报价差异转为实际贡献利润比较。systemPrompt 只提出降本方案，供应商下单等待确认，与技能无冲突。采购质量、MOQ和账期权衡不同于投放预算或泛经营诊断，不能仅凭财务费用相关就并入广告岗位；用户数据足以交付离线方案。UNTESTED，保留候选待验收。"
+    }
+  ]
+}

@@ -1,0 +1,564 @@
+[
+  {
+    "id": "cmuxhoykh00f47qii3igd4a8b",
+    "name": "电商活动文案策划师",
+    "actionCode": "KEEP",
+    "target": "电商活动文案策划师",
+    "domesticFit": "DIRECT",
+    "deliverable": "商品卖点与证据对应表、活动利益点表达草稿、优惠条件说明和让利毛利核算。",
+    "requiredInputs": ["商品参数及卖点证据", "目标平台与受众", "经确认的价格、活动时间、优惠门槛及叠加规则", "货品成本、费用与可用赠品库存"],
+    "dependencies": [],
+    "reason": "description 和 systemPrompt 均要求真实可核验的促销表达；商品卖点结构化提供证据素材，促销机制设计补充门槛与让利核算，组合能够交付活动文案而不只提供抽象建议。systemPrompt 与技能均将发布、发券、改价限于待确认动作，无执行承诺冲突。与促销机制设计岗位相比，本入口侧重面向消费者的表达，可保留候选；UNTESTED，不代表业务通过。",
+    "evidence": [
+      {"capabilityId": "cmuxhoydm00247qii50ghyx11", "versionId": "cmuxhoydm00277qiik2uq9wzw", "quote": "把参数、场景、证据、差异化卖点组织成详情页、客服和内容可复用素材。"},
+      {"capabilityId": "cmuxhoyf500517qiitnsq68kl", "versionId": "cmuxhoyf500547qii6i3xxl7c", "quote": "设计满减、券、赠品、套装、会员价和限时活动，核算让利与毛利。"}
+    ],
+    "acceptance": "提供售价199元、券后179元、成本90元及活动期限、限量赠品规则，要求输出活动主文案和客服解释。验收：到手价与给定费用口径计算一致，所有门槛、期限、赠品限制可查，卖点逐条关联证据；缺少叠加规则时标待确认，不编造最低价或声称已发布。"
+  },
+  {
+    "id": "cmuxhoyj900cd7qiizi2hlo04",
+    "name": "电商渠道归因分析师",
+    "actionCode": "KEEP",
+    "target": "电商渠道归因分析师",
+    "domesticFit": "DIRECT",
+    "deliverable": "渠道贡献比较表、分渠道漏斗损失分析、归因口径与增量验证方案。",
+    "requiredInputs": ["脱敏渠道触点与去重订单数据", "各渠道流量、消耗、成交及退款数据", "统计区间、归因窗口和平台口径", "如需因果增量结论，提供实验分组或可比对照资料"],
+    "dependencies": ["跨平台同一用户或订单的可验证映射须由用户提供，正文未证明能够自动取得"],
+    "reason": "正文分别支持渠道贡献比较与曝光至复购的漏斗分析，能形成独立的归因分析交付。systemPrompt 的目标包含增量，但同时要求区分事实和推断；技能未规定因果识别方法，不能把报表渠道占比当作因果增量。将缺对照时仅交付描述性贡献与实验方案作为验收条件，不因缺自动取数而淘汰。systemPrompt 无直接执行冲突；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoycx000v7qiikxbh9cox", "versionId": "cmuxhoycx000y7qiipmydbjst", "quote": "对比自然流量、搜索、推荐、直播、短视频、私域和投放的贡献与增量。"},
+      {"capabilityId": "cmuxhoych00067qiib57oa2ez", "versionId": "cmuxhoych00097qiife68x71m", "quote": "拆解曝光、点击、加购、支付、复购漏斗，输出各环节异常和验证建议。"}
+    ],
+    "acceptance": "给出两个渠道均计入同一笔订单、归因窗口不同且没有对照组的报表。验收：指出重复计数与不可比项，按明确口径展示可算部分，不能相加为全店成交或声称已证实增量；补给随机实验数据后才计算对应的增量，并列明样本与不确定性。"
+  },
+  {
+    "id": "cmuxhoyj400c47qiid35cqgt3",
+    "name": "电商漏斗诊断师",
+    "actionCode": "MERGE",
+    "target": "国内电商运营专家",
+    "domesticFit": "DIRECT",
+    "deliverable": "曝光至支付及复购的分段转化率表、瓶颈排序和逐项验证路径。",
+    "requiredInputs": ["同区间同口径的曝光、点击、加购、支付及复购数据", "平台、SKU与人群维度", "退款、费用和历史对照数据"],
+    "dependencies": [],
+    "reason": "漏斗分析定位损失点，经营诊断按影响与成本排序，与 description 相符。systemPrompt 要求输出验证建议且禁止擅自投放、改价，与技能无冲突。该产物属于国内电商运营专家已有经营诊断和转化复盘任务的细分输入，不需要单独入口；建议将这两个分析技能作为其可选子任务保留，而非判定技能无效。本员工 UNTESTED，合并后仍需专项验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoych00067qiib57oa2ez", "versionId": "cmuxhoych00097qiife68x71m", "quote": "拆解曝光、点击、加购、支付、复购漏斗，输出各环节异常和验证建议。"},
+      {"capabilityId": "cmuxhoyc100017qiiyym4lprb", "versionId": "cmuxhoyc100047qiivsozzx0t", "quote": "读取销售、流量、转化、退款等指标，定位经营瓶颈并按影响/成本排序。"}
+    ],
+    "acceptance": "在目标岗位以漏斗诊断子任务输入曝光10000、点击500、加购100、支付40及上期同口径数据。验收：分段转化率5%、20%、40%计算正确，不能混用人数与次数；瓶颈有对照依据，每项建议附验证指标，缺成本时不编造收益。"
+  },
+  {
+    "id": "cmuxhoyly00ip7qiia0rz50ov",
+    "name": "电商现金流规划师",
+    "actionCode": "KEEP",
+    "target": "电商现金流规划师",
+    "domesticFit": "DIRECT",
+    "deliverable": "按期现金收支预测、安全线与资金缺口清单、结算延迟和退款情景分析。",
+    "requiredInputs": ["期初可用现金及预测周期", "采购和广告支出计划及付款日", "平台结算到账计划", "退款、应收应付、成本与安全现金线"],
+    "dependencies": [],
+    "reason": "现金流计划明确覆盖采购、投放、结算、退款和账期，单位经济模型提供贡献利润口径；交付的是时间维度的资金压力，而非投放预算或利润表的重复入口。systemPrompt 承诺预测压力、不承诺付款或融资执行，与正文待确认边界一致。用户提供数据即可开展预测，不能以未接银行或平台为由暂停；UNTESTED，保留待真机验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyhl009r7qiidumf1dxr", "versionId": "cmuxhoyhm009u7qiigzysymhd", "quote": "按采购、投放、结算、退款和账期预测现金流压力与安全线。"},
+      {"capabilityId": "cmuxhoyho009w7qiiymq9605h", "versionId": "cmuxhoyho009z7qiiyj3ern1y", "quote": "建立 SKU、订单、渠道和客户层面的收入、变动成本与贡献利润模型。"}
+    ],
+    "acceptance": "给出期初现金10万元、首周采购6万元及投放2万元、第二周到账5万元及退款1万元、安全线3万元。验收：两周期末现金为2万、6万元，首周缺口1万元被明确标出；到账延迟情景单列，不能将GMV或未到账利润当成可用现金，不声称已转账。"
+  },
+  {
+    "id": "cmuxhoyjg00cv7qiibmxpidpe",
+    "name": "电商目标拆解师",
+    "actionCode": "MERGE",
+    "target": "国内电商运营专家",
+    "domesticFit": "GENERAL_TRANSFER",
+    "deliverable": "团队、平台与商品维度的目标拆解表、周月复盘节奏及带依赖的任务计划。",
+    "requiredInputs": ["年度及月度目标与指标定义", "历史基线和平台、商品结构", "团队资源、负责人及时间约束", "预算、库存及其他硬约束"],
+    "dependencies": [],
+    "reason": "systemPrompt 的年度月度目标拆解由目标复盘和任务规划支撑，不涉及自动派工，与技能无冲突。两项启用技能与电商项目任务规划师完全相同，仅主次相反，输入输出同属经营计划的目标与行动分解；建议统一纳入国内电商运营专家的计划子任务，保留电商指标口径。GENERAL_TRANSFER 指通用目标管理方法可迁移，不是海外不适配；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr", "versionId": "cmuxhoyiq00bs7qiiqeztop6o", "quote": "将 GMV、利润、转化、复购、服务和库存目标拆成周/月度复盘。"},
+      {"capabilityId": "cmuxhoyih00ba7qiivc0s26ej", "versionId": "cmuxhoyih00bd7qii32zsbc1i", "quote": "根据目标、资源和依赖生成可执行任务清单、优先级和截止时间。"}
+    ],
+    "acceptance": "在目标岗位输入月GMV目标100万元、三个平台历史占比、仅两名运营和固定库存约束。验收：子目标汇总等于100万元，指标定义一致，任务标注负责人、截止日、依赖和资源冲突；无法实现的约束明确提示，不编造人员或声称任务已写入系统。"
+  },
+  {
+    "id": "cmuxhoyke00ey7qii1x63eqxt",
+    "name": "电商直播切片策划师",
+    "actionCode": "MERGE",
+    "target": "抖音短视频策划师",
+    "domesticFit": "DIRECT",
+    "deliverable": "基于用户提供时间码或转写的切片选题、短视频脚本、镜头提示及复用排期。",
+    "requiredInputs": ["经授权的直播转写或可核对时间码片段", "商品证据与可用素材说明", "目标渠道、时长和内容目标", "活动节点与制作产能"],
+    "dependencies": ["从原始长视频自动识别片段或渲染成片未获正文工具证据；可改用用户提供的转写及时间码"],
+    "reason": "description 和 systemPrompt 说整理高价值片段及排期，正文实际提供脚本与内容日历，不包含自动剪辑承诺；限定转写和时间码输入后可交付，不应因无剪辑工具直接FAIL。与抖音短视频策划师共用电商视频脚本同一正式版本，适合并入其直播素材复用子任务，并保留渠道字段而非强制所有素材发抖音。systemPrompt 与技能无直接执行冲突；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoye600387qii6oh4bemo", "versionId": "cmuxhoye6003b7qiia2kcrtpe", "quote": "输出短视频、商品讲解、测评、口播和场景化脚本，包含时长与镜头提示。"},
+      {"capabilityId": "cmuxhoyec003i7qii534icq16", "versionId": "cmuxhoyec003l7qii7uq8exxj", "quote": "按商品生命周期、活动节点、平台节奏和生产能力排内容日历。"}
+    ],
+    "acceptance": "在目标岗位提供有时间码的20分钟直播转写和每周可制作3条的约束，要求3条30秒切片方案。验收：每条引用真实时间段，脚本保留原话条件、时长和镜头提示，排期不超产能；无视频制作回执不输出虚构成片链接或称已剪辑发布。"
+  },
+  {
+    "id": "cmuxhoyme00jp7qiiytaspmvx",
+    "name": "电商知识库管理员",
+    "actionCode": "KEEP",
+    "target": "电商知识库管理员",
+    "domesticFit": "DIRECT",
+    "deliverable": "商品、政策、活动与客服资料的版本来源台账、冲突及失效清单、待确认更新建议。",
+    "requiredInputs": ["授权知识条目或文档", "条目来源、版本及生效失效日期", "适用平台、SKU及责任人", "冲突处理和更新审批规则"],
+    "dependencies": ["写回知识库或定时抓取更新需要另行提供工具及权限，现有正文未证明；离线台账不依赖该执行"],
+    "reason": "知识库维护明确要求版本、来源和失效日期，数据质检补充缺失和一致性检查，与普通客服知识编写相比是跨商品、活动、供应链资料的治理交付。systemPrompt 的维护目标应按其待确认动作边界理解为台账和更新建议，未承诺自动写库，与技能不冲突。用户资料足以开展静态治理，保留候选；UNTESTED，来源追溯需验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyij00bf7qiiffylcaih", "versionId": "cmuxhoyij00bi7qiio75203do", "quote": "维护商品、政策、活动、客服和供应链知识的版本、来源和失效日期。"},
+      {"capabilityId": "cmuxhoyd300157qiiobtfn8cl", "versionId": "cmuxhoyd300187qiil50z0ij3", "quote": "检查口径、重复订单、缺失字段、异常值、时间区间和平台数据一致性。"}
+    ],
+    "acceptance": "给出10条资料，包含两个冲突价格版本、一条过期活动和两条无来源内容。验收：逐条保留来源定位及适用范围，过期内容隔离，冲突项转审批，缺日期不补造日期；不凭自身记忆断言当前政策或声称已经修改知识库。"
+  },
+  {
+    "id": "cmuxhoylq00i77qiirtdu5zmx",
+    "name": "电商社群运营师",
+    "actionCode": "KEEP",
+    "target": "电商社群运营师",
+    "domesticFit": "DIRECT",
+    "deliverable": "入群至退群预警的社群SOP、内容互动日历、活动承接与人工跟进规则。",
+    "requiredInputs": ["社群定位、用户分层与授权范围", "商品证据和活动规则", "可用渠道、运营人手与工作时段", "脱敏互动、转化及退群数据"],
+    "dependencies": [],
+    "reason": "社群运营正文覆盖入群、互动、转化与退群预警，私域内容运营补充朋友圈和视频号等承接路径，能够形成完整但离线的社群流程。systemPrompt 仅制定流程，并明确对外发消息需待确认，与技能无冲突，不需要预设企微集成才可交付。与私域内容编辑的纯内容日历相比，保留此流程入口有差异；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyh4008x7qii1p8uhid1", "versionId": "cmuxhoyh400907qii38grgw8p", "quote": "制定入群、内容、互动、活动、转化、沉淀和退群预警流程。"},
+      {"capabilityId": "cmuxhoyej003x7qiih44n681w", "versionId": "cmuxhoyej00407qiiuzzva7vf", "quote": "设计朋友圈、社群、公众号/视频号内容节奏和成交承接。"}
+    ],
+    "acceptance": "提供新客群与复购群定位、七日活动和一名运营的资源，要求一周SOP及消息草稿。验收：每个触点有对象、目的、负责人和退出条件，优惠来自输入，未授权者不纳入触达；产能可执行，不编造平台群发上限、不宣称已拉群或发送。"
+  },
+  {
+    "id": "cmuxhoyjk00d47qiies2601si",
+    "name": "电商管理层汇报顾问",
+    "actionCode": "MERGE",
+    "target": "电商经营日报官",
+    "domesticFit": "DIRECT",
+    "deliverable": "经营数据管理层摘要、证据与风险页、待决策事项及负责人截止日清单。",
+    "requiredInputs": ["已核对的经营指标和报表", "汇报周期与受众", "会议记录或已有决策", "事项责任人和截止时间"],
+    "dependencies": [],
+    "reason": "经营日报与会议纪要组合支持把数据改写为决策摘要，systemPrompt 没有承诺制作已上线看板或自动分发，与技能边界一致。主能力与电商经营日报官为同一正式版本，区别主要是摘要视角，建议并入日报的管理层输出模式。该员工仍是UNTESTED，不能因共用技能推断其已实测FAIL；但目标岗位已有业务FAIL，须修复并完成合并场景验收后才能推荐。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyck000b7qiizabuq9jh", "versionId": "cmuxhoyck000e7qiij6xunrtg", "quote": "生成销售、订单、客单价、退款、库存和渠道日报，区分事实、推断与待补数据。"},
+      {"capabilityId": "cmuxhoyil00bk7qiis0c288dh", "versionId": "cmuxhoyil00bn7qiir52vlavx", "quote": "提炼结论、负责人、截止时间、风险和需要升级的问题。"}
+    ],
+    "acceptance": "目标岗位修复后，提供已核对日报与会议记录，生成一页管理层摘要。验收：数字逐项可回溯，事实、原因假设、决策请求分开；未指定负责人与期限时标待确认，摘要不能篡改口径或把建议写成已批准决策。"
+  },
+  {
+    "id": "cmuxhoymf00js7qiie3fz1ysf",
+    "name": "电商经营会议秘书",
+    "actionCode": "KEEP",
+    "target": "电商经营会议秘书",
+    "domesticFit": "GENERAL_TRANSFER",
+    "deliverable": "基于会议文本的决策纪要、负责人和截止日行动表、风险升级与依赖清单。",
+    "requiredInputs": ["脱敏会议转写或笔记", "参会人和角色映射", "既有决策与项目上下文", "会议时间和工作日历"],
+    "dependencies": [],
+    "reason": "会议纪要提炼已讨论的结论和责任，任务规划整理行动依赖，与从经营报表生成汇报的入口具有不同的原始输入和失真风险。systemPrompt 目标是提炼会议内容，不是自动参会、录音、建任务或催办，与正文无执行冲突。通用会议管理方法可以直接用于国内电商资料，GENERAL_TRANSFER不代表需翻译改造；UNTESTED，保留待验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyil00bk7qiis0c288dh", "versionId": "cmuxhoyil00bn7qiir52vlavx", "quote": "提炼结论、负责人、截止时间、风险和需要升级的问题。"},
+      {"capabilityId": "cmuxhoyih00ba7qiivc0s26ej", "versionId": "cmuxhoyih00bd7qii32zsbc1i", "quote": "根据目标、资源和依赖生成可执行任务清单、优先级和截止时间。"}
+    ],
+    "acceptance": "给出包含争议方案、已确认决定、两个负责人和一项未定截止日的会议文本。验收：决策和建议不混写，每项结论可定位原文，负责人不臆配，期限缺失标待确认；依赖与升级事项完整，不宣称已创建任务或发出通知。"
+  },
+  {
+    "id": "cmuxhoym800jd7qiig5ve6jqm",
+    "name": "电商经营审计助理",
+    "actionCode": "KEEP",
+    "target": "电商经营审计助理",
+    "domesticFit": "DIRECT",
+    "deliverable": "订单、合同与凭证的可追溯证据目录、平台结算差异表和待补证清单。",
+    "requiredInputs": ["授权脱敏的订单、合同、凭证和沟通记录", "平台结算、退款、佣金、运费及到账记录", "对账区间、关联键和结算规则", "已有文件或证据编号"],
+    "dependencies": [],
+    "reason": "description 和 systemPrompt 只承诺建立可追溯目录，经营证据归档与平台账务对账恰好提供目录与差异交付，不是出具审计鉴证或代办资金操作。相比笼统经营诊断，凭证关联、差异追溯是独立任务，可基于用户文件完成，无需自动接账务系统。systemPrompt 与技能无冲突；UNTESTED，需验证算术与证据定位。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyi700av7qii7950ferg", "versionId": "cmuxhoyi700ay7qiil07ocgab", "quote": "整理报表、订单、截图、合同、凭证和沟通记录，生成可追溯审计目录。"},
+      {"capabilityId": "cmuxhoyhh009m7qiizup0gg30", "versionId": "cmuxhoyhh009p7qiim4jyqzdr", "quote": "对比平台结算、订单、退款、佣金、运费和到账金额，输出差异清单。"}
+    ],
+    "acceptance": "给出订单收入10000元、退款1000元、佣金500元、运费200元和实际到账8200元，以及缺一份退款凭证的材料。验收：预期到账8300元、差异100元计算正确，缺证和金额差异分别列出，目录能定位原文件；不把差异直接认定为舞弊或称已通过审计。"
+  },
+  {
+    "id": "cmuxhoyiw00by7qii2euifms1",
+    "name": "电商经营总监",
+    "actionCode": "MERGE",
+    "target": "国内电商运营专家",
+    "domesticFit": "DIRECT",
+    "deliverable": "经营瓶颈与影响成本排序、单品利润和盈亏平衡测算、待确认经营动作。",
+    "requiredInputs": ["销售、流量、转化及退款报表", "SKU售价、成本、扣点、物流及投放费用", "履约约束和库存情况", "经营目标与统计周期"],
+    "dependencies": [],
+    "reason": "systemPrompt 的全局优先级判断实际由经营诊断和单品利润测算完成，并不等于接管店铺；其待确认生产动作与技能一致，无冲突。这些输入和排序交付与国内电商运营专家的店铺经营及转化复盘高度重叠，建议并入其利润约束诊断子任务，避免用管理职级重复开入口。该建议基于实际交付而非职位名；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyc100017qiiyym4lprb", "versionId": "cmuxhoyc100047qiivsozzx0t", "quote": "读取销售、流量、转化、退款等指标，定位经营瓶颈并按影响/成本排序。"},
+      {"capabilityId": "cmuxhoycq000l7qiisv8yk6mq", "versionId": "cmuxhoycq000o7qiihzfshatj", "quote": "计算售价、货品成本、平台扣点、物流、投流、售后后的毛利和盈亏平衡点。"}
+    ],
+    "acceptance": "在目标岗位给出流量上涨但退款与投放费用也上涨的两期数据。验收：利润计算包含全部已给费用，优先级说明影响与执行成本，区分退款率变化与因果推断；缺履约数据时标明限制，不声称已经调整预算或库存。"
+  },
+  {
+    "id": "cmuxhoyj200c17qii36vrhedf",
+    "name": "电商经营日报官",
+    "actionCode": "FIX",
+    "target": "电商经营日报官",
+    "domesticFit": "DIRECT",
+    "deliverable": "基于用户报表的销售、订单、客单价、退款、库存及渠道日报，附数据质检和异常摘要。",
+    "requiredInputs": ["当日与对比期脱敏订单和经营报表", "订单状态、去重键及退款口径", "库存与渠道数据", "统计时间、时区和指标定义"],
+    "dependencies": ["定时运行及自动拉取经营数据未获正文执行证据；用户上传报表可替代，不能承诺无人值守日报"],
+    "reason": "现有正文已支持先质检再生成日报，并明确区分事实、推断和待补数据；不是缺正式版或短模板问题。用户给定的既有业务实测为FAIL，必须修复并复测，不能以制品可安装替代业务验收。本次未获失败明细，不臆造失败根因。systemPrompt 的自动整理不与基于输入的文本整理冲突，但未证明定时取数，应限定为用户提供数据后整理。修复对象须涵盖既有失败任务与数字、口径及缺数处理。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyck000b7qiizabuq9jh", "versionId": "cmuxhoyck000e7qiij6xunrtg", "quote": "生成销售、订单、客单价、退款、库存和渠道日报，区分事实、推断与待补数据。"},
+      {"capabilityId": "cmuxhoyd300157qiiobtfn8cl", "versionId": "cmuxhoyd300187qiil50z0ij3", "quote": "检查口径、重复订单、缺失字段、异常值、时间区间和平台数据一致性。"}
+    ],
+    "acceptance": "先复现并通过原有FAIL业务任务，再提供含重复订单、跨日退款、缺失库存和混用支付/净成交额的报表。验收：逐笔去重与汇总可复核，客单价分母和退款时间口径明确，未知库存不写零，不混合归因渠道；日报数字与金标一致，全部异常有来源，不伪造自动取数或执行回执。"
+  },
+  {
+    "id": "cmuxhoyje00cp7qii0ck8zbva",
+    "name": "电商经营驾驶舱顾问",
+    "actionCode": "MERGE",
+    "target": "电商经营日报官",
+    "domesticFit": "DIRECT",
+    "deliverable": "多平台经营指标看板框架、渠道贡献摘要、口径差异和待补数据清单。",
+    "requiredInputs": ["各平台经营与渠道报表", "平台指标定义及统计时间", "管理层关注指标和维度", "去重映射与可用对照数据"],
+    "dependencies": [],
+    "reason": "description 与 systemPrompt 承诺的是经营看板框架，不是上线BI或实时自动刷新；日报和渠道归因正文可以支持框架与摘要，未见执行冲突。与日报官共用电商经营日报正式版本，管理展示形式适合做同一入口的多平台视图，渠道分析保留为可选子任务。该员工UNTESTED，不继承他人的实测FAIL；目标日报官已有FAIL，合并须以目标修复和口径验收为前提。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyck000b7qiizabuq9jh", "versionId": "cmuxhoyck000e7qiij6xunrtg", "quote": "生成销售、订单、客单价、退款、库存和渠道日报，区分事实、推断与待补数据。"},
+      {"capabilityId": "cmuxhoycx000v7qiikxbh9cox", "versionId": "cmuxhoycx000y7qiipmydbjst", "quote": "对比自然流量、搜索、推荐、直播、短视频、私域和投放的贡献与增量。"}
+    ],
+    "acceptance": "目标修复后输入两平台分别采用支付成交额和退款后成交额的报表，要求看板字段与汇总样表。验收：每个指标有来源、定义、刷新条件和可比性说明，不能直接相加不同口径指标；没有触点对照不声称因果增量，不宣称BI已上线。"
+  },
+  {
+    "id": "cmuxhoymj00k17qiivtmsju6x",
+    "name": "电商老板决策助手",
+    "actionCode": "MERGE",
+    "target": "国内电商运营专家",
+    "domesticFit": "DIRECT",
+    "deliverable": "经营问题的证据摘要、按影响成本排列的备选方案、风险与依赖任务单。",
+    "requiredInputs": ["待决策问题及目标", "销售、流量、转化、退款等证据", "资源、预算、时间和不可突破约束", "方案涉及的成本及风险信息"],
+    "dependencies": [],
+    "reason": "经营诊断提供证据和瓶颈，任务规划提供下一步，确能把问题组织为备选方案；systemPrompt 未承诺代老板批准或实施，与技能无冲突。相较国内电商运营专家，未形成新的输入契约或独立业务产物，仅是决策阅读视角，建议并入其经营决策模式，保留事实与建议分离要求。UNTESTED，不能将措辞完整当成决策质量已验证。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyc100017qiiyym4lprb", "versionId": "cmuxhoyc100047qiivsozzx0t", "quote": "读取销售、流量、转化、退款等指标，定位经营瓶颈并按影响/成本排序。"},
+      {"capabilityId": "cmuxhoyih00ba7qiivc0s26ej", "versionId": "cmuxhoyih00bd7qii32zsbc1i", "quote": "根据目标、资源和依赖生成可执行任务清单、优先级和截止时间。"}
+    ],
+    "acceptance": "在目标岗位提供有限预算下扩投或修复退款问题的两种选择与不完整利润资料。验收：列出两方案证据、成本假设、风险和可逆验证步骤，缺关键成本时不给确定收益或硬性加投金额；建议不写成老板已批准，任务依赖可追溯。"
+  },
+  {
+    "id": "cmuxhoyjv00ds7qiiah2mxz03",
+    "name": "电商视觉需求策划师",
+    "actionCode": "MERGE",
+    "target": "商品内容与详情页策划",
+    "domesticFit": "DIRECT",
+    "deliverable": "主图、详情页和短视频封面的视觉需求单、卖点证据对应表、素材需求及验收清单。",
+    "requiredInputs": ["商品参数与可证实卖点", "品牌规范与目标受众", "展示渠道、尺寸和物料用途", "可选授权素材与制作约束"],
+    "dependencies": [],
+    "reason": "systemPrompt 明确提出制作需求，技能交付视觉目标及验收清单，而不是承诺生成图片或视频；与正文无冲突。目标候选已有视觉brief、页面结构与素材需求交付，输入均为商品和品牌资料，入口高度重叠，建议将本需求单能力并入。不是因为缺图片工具而判负。本员工UNTESTED；目标商品内容与详情页策划已有业务FAIL，须修复后连同此需求单模式验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoydo00297qii6u0waviz", "versionId": "cmuxhoydo002c7qii0jo5sugs", "quote": "输出主图、详情页、短视频封面、直播间物料的视觉目标和验收清单。"},
+      {"capabilityId": "cmuxhoydm00247qii50ghyx11", "versionId": "cmuxhoydm00277qiik2uq9wzw", "quote": "把参数、场景、证据、差异化卖点组织成详情页、客服和内容可复用素材。"}
+    ],
+    "acceptance": "目标修复后输入商品证据、品牌规范和主图用途，不提供图片文件。验收：交付目标、信息层级、卖点证据、构图描述、素材缺口与可判定验收项；可以文字策划，不假装读取不存在素材，不把需求单称为已生成的可下载主图。"
+  },
+  {
+    "id": "cmuxhoyk600ed7qii9k3lwwfs",
+    "name": "电商视频脚本导演",
+    "actionCode": "MERGE",
+    "target": "抖音短视频策划师",
+    "domesticFit": "DIRECT",
+    "deliverable": "商品讲解、测评或口播的分镜脚本、时长与镜头提示、视觉物料需求单。",
+    "requiredInputs": ["商品可核实资料与测评证据", "目标平台、受众和视频时长", "品牌表达及成交引导约束", "授权素材、场景与拍摄产能"],
+    "dependencies": [],
+    "reason": "description 和 systemPrompt 都只承诺输出脚本，没有真实拍摄、剪辑或发布承诺；视频脚本和视觉需求单足以支撑方案交付。与抖音短视频策划师共用电商视频脚本同一正式版本，新增的是视觉需求清单，建议作为该候选的通用脚本与制作brief模式合并，保留用户指定渠道。无执行冲突，也不因导演称谓推定必须操作媒体软件；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoye600387qii6oh4bemo", "versionId": "cmuxhoye6003b7qiia2kcrtpe", "quote": "输出短视频、商品讲解、测评、口播和场景化脚本，包含时长与镜头提示。"},
+      {"capabilityId": "cmuxhoydo00297qii6u0waviz", "versionId": "cmuxhoydo002c7qii0jo5sugs", "quote": "输出主图、详情页、短视频封面、直播间物料的视觉目标和验收清单。"}
+    ],
+    "acceptance": "在目标岗位输入有证据支持的商品资料，要求60秒口播分镜和封面brief。验收：各镜头时长合计60秒，台词、画面、素材与行动引导对应，测评结论不得超出输入证据；清楚区分脚本和成片，不输出虚构视频地址。"
+  },
+  {
+    "id": "cmuxhoymc00jm7qiin1gky8yo",
+    "name": "电商项目任务规划师",
+    "actionCode": "MERGE",
+    "target": "国内电商运营专家",
+    "domesticFit": "GENERAL_TRANSFER",
+    "deliverable": "电商项目任务清单、优先级与截止日、依赖资源表及周月复盘指标。",
+    "requiredInputs": ["项目目标、范围与上线期限", "人员、预算和产能", "依赖事项与审批节点", "经营指标基线及验收口径"],
+    "dependencies": [],
+    "reason": "任务规划和目标复盘支持systemPrompt 所说的项目计划，不承诺写入项目系统或自动分配真实资源，与技能无冲突。其两项技能与电商目标拆解师完全一致，仅顺序不同，都是经营目标转行动的同一交付链；建议统一并入国内电商运营专家的项目计划模式，保留任务依赖和复盘能力。通用项目方法可迁移到国内电商；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyih00ba7qiivc0s26ej", "versionId": "cmuxhoyih00bd7qii32zsbc1i", "quote": "根据目标、资源和依赖生成可执行任务清单、优先级和截止时间。"},
+      {"capabilityId": "cmuxhoyiq00bp7qiic7sfs9hr", "versionId": "cmuxhoyiq00bs7qiiqeztop6o", "quote": "将 GMV、利润、转化、复购、服务和库存目标拆成周/月度复盘。"}
+    ],
+    "acceptance": "在目标岗位输入两周新品项目、两名员工及需先确认资质才能产出宣传稿的依赖。验收：先后顺序正确，任务有负责人和截止日，资源重叠与审批风险明确，复盘指标有基线；不能把未审批稿件安排为已发布，不能声称已创建工单。"
+  },
+  {
+    "id": "cmuxhoykk00fd7qiis2oty57j",
+    "name": "直播商品编排师",
+    "actionCode": "MERGE",
+    "target": "直播脚本总编",
+    "domesticFit": "DIRECT",
+    "deliverable": "直播商品顺序、引流利润款搭配、库存提示及转品节奏表。",
+    "requiredInputs": ["SKU清单、价格、成本与商品证据", "经确认库存和活动规则", "目标人群、直播时长与场次目标", "历史商品表现或明确的测试假设"],
+    "dependencies": [],
+    "reason": "两项技能分别支持直播商品顺序和商品组合，systemPrompt 只要求设计梯度与节奏，生产改价库存动作均待确认，与正文一致。直播脚本总编已启用同一版本直播商品编排，商品组合可作为补充子任务，独立入口重复的是同一场直播的货盘和转品交付。建议合并保留能力；本员工UNTESTED，目标仅CONDITIONAL，不能当作完整验收通过。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyep00477qii9hrw8ji8", "versionId": "cmuxhoyep004a7qiiamzowk35", "quote": "设计直播间商品顺序、引流款/利润款搭配、库存提示和转品逻辑。"},
+      {"capabilityId": "cmuxhoydu002j7qiip25j65dc", "versionId": "cmuxhoydu002m7qiiw2643m7r", "quote": "规划引流款、利润款、形象款、复购款和搭配款的结构与联动。"}
+    ],
+    "acceptance": "在目标岗位输入6个SKU的真实价格、成本及库存，安排60分钟直播货盘。验收：编排总时长不超60分钟，低库存商品提示来自输入，组合不导致未批准亏损或优惠，转品逻辑可解释；目标CONDITIONAL遗留条件仍须复验，不声称已调价或锁库存。"
+  },
+  {
+    "id": "cmt2lfhhm001p7qararq7eri4",
+    "name": "直播电商增长教练",
+    "actionCode": "MERGE",
+    "target": "直播脚本总编",
+    "domesticFit": "DIRECT",
+    "deliverable": "证据关联直播脚本、离线漏斗复盘、同口径支付ROAS计算和待审批优化假设。",
+    "requiredInputs": ["平台、受众及商品证据", "真实价格、优惠规则与确认库存", "脱敏直播和投放报表及归因口径", "如需金额建议，补充毛利、退款、履约成本和计费单位"],
+    "dependencies": [],
+    "reason": "当前510字正式正文已明确离线脚本、复盘和ROAS边界，不能沿用旧版缺正式版或海外不适配理由。systemPrompt 说基于数据优化脚本、货品与训练计划，没有直接开播或投放承诺，与技能无冲突。核心脚本及货品方案与直播脚本总编重叠，建议把该正式技能作为离线复盘与计算校验子任务并入，不能假定目标现已具备本技能。员工UNTESTED，目标CONDITIONAL仍需复验。",
+    "evidence": [
+      {"capabilityId": "cmt2lfhhi001n7qar5qltbb1d", "versionId": "cmv7r83al000k7qdnpxf47zjv", "quote": "默认提供直播脚本草稿和离线复盘，不承诺实际开播、实时监控或自动投放。"},
+      {"capabilityId": "cmt2lfhhi001n7qar5qltbb1d", "versionId": "cmv7r83al000k7qdnpxf47zjv", "quote": "定义支付ROAS为同一归因口径的支付成交金额除以广告消耗；消耗为零或口径不同不计算。"}
+    ],
+    "acceptance": "将该技能纳入目标子任务后，用支付成交额10000元、同口径消耗2000元、退款3000元的报表验收。支付ROAS须为5，不能等同净成交ROAS或利润；零消耗不算比值，缺成本不给硬性出价。脚本断言有证据，优化为待审批动作，不伪造开播或投放回执。"
+  },
+  {
+    "id": "cmuxhoyk700eg7qiiea9aj7xu",
+    "name": "直播脚本总编",
+    "actionCode": "KEEP",
+    "target": "直播脚本总编",
+    "domesticFit": "DIRECT",
+    "deliverable": "开场、讲解、福利、异议处理、转品和收尾脚本，以及SKU顺序与库存提示表。",
+    "requiredInputs": ["平台、人群、直播时长和风格", "SKU卖点证据、价格及确认库存", "活动优惠条件与商家已确认规则", "主播资源和既有异议案例"],
+    "dependencies": [],
+    "reason": "description、systemPrompt 与脚本编排和直播商品编排正文对应，产物是整场脚本及货盘，不要求实际开播；systemPrompt 的待确认操作边界与技能一致。用户给定实测为CONDITIONAL，故保留候选而不写成正式通过。正文虽包含逼单环节，仍受不编造与待确认边界约束，验收应重点排除虚构库存、最低价和无依据承诺，不能仅因模板短或该词直接判FAIL。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyea003d7qiiobucgg58", "versionId": "cmuxhoyea003g7qiixw3bagzs", "quote": "编排开场、产品讲解、福利、异议处理、逼单、转品和收尾流程。"},
+      {"capabilityId": "cmuxhoyep00477qii9hrw8ji8", "versionId": "cmuxhoyep004a7qiiamzowk35", "quote": "设计直播间商品顺序、引流款/利润款搭配、库存提示和转品逻辑。"}
+    ],
+    "acceptance": "复验原CONDITIONAL任务及其未满足条件，再以3个SKU和明确优惠规则生成30分钟脚本。验收：环节与总时长可执行，价格门槛库存均来自输入，缺库存不得制造限量或倒计时；商品断言有证据，异议不转为虚假功效承诺，不宣称已开播或发券。"
+  },
+  {
+    "id": "cmuxhoykj00fa7qiiizh67lqc",
+    "name": "直播间经营诊断师",
+    "actionCode": "MERGE",
+    "target": "直播脚本总编",
+    "domesticFit": "DIRECT",
+    "deliverable": "直播停留、互动、点击、成交与退款的漏斗诊断、瓶颈假设和脚本调整验证清单。",
+    "requiredInputs": ["脱敏直播报表和分段数据", "曝光、停留、互动、点击、支付及退款定义", "同口径历史或对照场次", "脚本、商品顺序和活动背景"],
+    "dependencies": [],
+    "reason": "直播间诊断和漏斗分析支持基于报表的复盘，systemPrompt 也仅承诺诊断关键指标，没有实时监控或自动改播承诺，与技能无冲突。其结论主要用于同一直播脚本和货品迭代，建议作为直播脚本总编的复盘子任务并入，并保留这两项分析技能，而不是声称目标当前已有完整诊断能力。员工UNTESTED，目标CONDITIONAL，合并后须验证诊断到修改的证据链。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyel00427qiie5sgespl", "versionId": "cmuxhoyel00457qiiqfu9596k", "quote": "从开播、停留、互动、点击、成交、退款等指标诊断直播间问题。"},
+      {"capabilityId": "cmuxhoych00067qiib57oa2ez", "versionId": "cmuxhoych00097qiife68x71m", "quote": "拆解曝光、点击、加购、支付、复购漏斗，输出各环节异常和验证建议。"}
+    ],
+    "acceptance": "在目标复盘子任务提供两场同口径报表，一场点击上涨但退款也上涨。验收：分别计算点击到支付与退款指标，标出样本与口径限制，建议关联具体脚本或货品实验；不能把相关变化说成已证实原因，不能用实时诊断口吻伪造监控结果。"
+  },
+  {
+    "id": "cmuxhoykg00f17qiio1u8z26d",
+    "name": "私域内容编辑",
+    "actionCode": "KEEP",
+    "target": "私域内容编辑",
+    "domesticFit": "DIRECT",
+    "deliverable": "朋友圈、社群、公众号或视频号内容日历、渠道文案草稿与成交承接安排。",
+    "requiredInputs": ["商品和品牌授权资料", "人群阶段、内容目标及渠道", "活动日历、优惠规则与可用素材", "内容生产人手与发布审批约束"],
+    "dependencies": [],
+    "reason": "私域内容运营定义渠道节奏与承接，内容排期管理约束商品阶段、活动和产能，能够产出持续内容计划。systemPrompt 仅说规划内容与承接，对外发布受待确认约束，与技能无冲突。不同于社群运营师管理入群、互动和退群流程，本入口可服务内容生产团队，差异不只是岗位名；UNTESTED，保留待验收，不承诺自动发朋友圈或收益。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyej003x7qiih44n681w", "versionId": "cmuxhoyej00407qiiuzzva7vf", "quote": "设计朋友圈、社群、公众号/视频号内容节奏和成交承接。"},
+      {"capabilityId": "cmuxhoyec003i7qii534icq16", "versionId": "cmuxhoyec003l7qii7uq8exxj", "quote": "按商品生命周期、活动节点、平台节奏和生产能力排内容日历。"}
+    ],
+    "acceptance": "输入一个新品和一个复购商品、七日活动及每天最多两份物料的产能，生成跨渠道内容表。验收：每天产能不超限，文案使用真实卖点和优惠，渠道与承接动作有对应，素材缺口单列；不编造体验评价、不擅自发布、不用无来源固定频次充当平台规则。"
+  },
+  {
+    "id": "cmuxhoylm00hy7qiiac9ej9vr",
+    "name": "私域增长运营师",
+    "actionCode": "MERGE",
+    "target": "电商社群运营师",
+    "domesticFit": "DIRECT",
+    "deliverable": "授权加微与企微触达方案、社群承接SOP、退出和退群预警规则。",
+    "requiredInputs": ["用户分层与同意、退订记录", "渠道来源及脱敏转化数据", "商品证据和权益规则", "运营资源、触达审批及渠道约束"],
+    "dependencies": [],
+    "reason": "私域增长运营正文写明设计触达并避免无授权骚扰，社群运营提供从入群到退群预警的流程；systemPrompt 也只规划且尊重授权，与技能无执行冲突。与电商社群运营师共用同一正式版社群运营，差异是前端加微和企微触达，可作为目标的获客承接模式，不需再开相近流程入口。未接企微不妨碍产出方案，也不能因此宣称已发送；UNTESTED。",
+    "evidence": [
+      {"capabilityId": "cmuxhoygw008i7qiiwvfqun28", "versionId": "cmuxhoygw008l7qiiqoiq11hb", "quote": "设计加微、社群、朋友圈、企微触达和成交承接，避免无授权骚扰。"},
+      {"capabilityId": "cmuxhoyh4008x7qii1p8uhid1", "versionId": "cmuxhoyh400907qii38grgw8p", "quote": "制定入群、内容、互动、活动、转化、沉淀和退群预警流程。"}
+    ],
+    "acceptance": "在目标岗位输入已授权、新增待授权和已退订三类脱敏客户，制定获客承接SOP。验收：待授权者先获取同意，退订者不触达，触点有内容、责任人、退出和审批条件；不保证转化、不编造企微接口回执、不自动加微拉群。"
+  },
+  {
+    "id": "cmt2lfhhr001u7qarlu6o5soq",
+    "name": "私域复购运营师",
+    "actionCode": "FIX",
+    "target": "私域复购运营师",
+    "domesticFit": "DIRECT",
+    "deliverable": "企微与SCRM配置蓝图、生命周期分层和复购SOP、待审核触达稿、基于映射字段的分析示例。",
+    "requiredInputs": ["真实SCRM系统、字段定义、数据粒度和SQL方言", "脱敏客户授权、退订和订单行为数据", "商品消耗周期、权益成本与已确认活动规则", "用户提供的当前渠道规则及触达审批要求"],
+    "dependencies": ["真实企微、SCRM及数据库的接口、权限和测试环境未被证明；仅在要求落地配置或执行时需要", "群发频次等平台规则在正文没有来源或适用时间，须由用户提供可核对规则而非直接沿用"],
+    "reason": "systemPrompt 明确输出可执行方案，技能新增首段也将交付限定为蓝图、SOP和授权分析，故description 的搭建不能理解为已接系统；两者没有直接执行冲突，不因英文或未集成判负。但正文Critical Rules仍把群发每月4次等无来源数值写成硬限制，首段只限定代码及业务表示例，未明确解除该规则断言。SQL示例SUM首回次数除以去重人数，在多行用户数据会失真；同日新增用户的DATEDIFF为零也无保护。须将频次改为可核实配置并补齐粒度、去重和零分母处理后验收；UNTESTED，不作实测FAIL声明。",
+    "evidence": [
+      {"capabilityId": "cmt2lfhhp001s7qarocrkaf4q", "versionId": "cmv7r83cy000w7qdncenua6mx", "quote": "默认提供私域SOP、配置蓝图、授权数据分析和待审核触达稿，不代表已接入企微、SCRM或数据库。"},
+      {"capabilityId": "cmt2lfhhp001s7qarocrkaf4q", "versionId": "cmv7r83cy000w7qdncenua6mx", "quote": "Mass messaging restraint: WeCom customer mass messages no more than 4 times per month; Moments posts no more than 1 per day"},
+      {"capabilityId": "cmt2lfhhp001s7qarocrkaf4q", "versionId": "cmv7r83cy000w7qdncenua6mx", "quote": "SUM(CASE WHEN first_reply_time IS NOT NULL THEN 1 ELSE 0 END)"},
+      {"capabilityId": "cmt2lfhhp001s7qarocrkaf4q", "versionId": "cmv7r83cy000w7qdncenua6mx", "quote": "ROUND(AVG(total_gmv) / AVG(DATEDIFF(CURDATE(), first_add_date)), 2) AS daily_contribution"}
+    ],
+    "acceptance": "修正文后以重复用户行、零人群、同日新增、已退订及未授权样本验收蓝图和查询草稿。验收：先明确粒度并去重，互动转化率不因重复行超过100%，所有零分母返回不可计算而非错误或编造值；无规则来源不输出固定平台频次，退订和未授权样本不进入触达计划，示例权益不当真，不声称已配置SCRM或发送消息。"
+  },
+  {
+    "id": "cmuxhoyjo00dd7qii6v04jtin",
+    "name": "竞品价格策略师",
+    "actionCode": "KEEP",
+    "target": "竞品价格策略师",
+    "domesticFit": "DIRECT",
+    "deliverable": "同规格同条件竞品可比价格表、自家商品利润底线测算和价格测试建议。",
+    "requiredInputs": ["有采集时间和来源的竞品规格、价格及活动记录", "会员、券、运费和起购条件", "自家SKU成本、费用及库存", "目标平台、人群与比较周期"],
+    "dependencies": ["持续自动采集竞品价格与库存未被正文证明，可由用户提供有来源快照代替"],
+    "reason": "竞品价格监测正文实际要求整理价格、规格和促销并输出可比口径，利润测算补充不盲目跟价的约束，能形成独立比较交付。systemPrompt 的目标是比较可比价格带，没有自动爬取、调价承诺，与技能无冲突。不同于通用选品或预算，本任务围绕同规格到手价及利润底线，可保留候选；UNTESTED，不因能力名含监测就推定必须实时联网。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyda001k7qii1bc4buop", "versionId": "cmuxhoyda001n7qiilhp7k026", "quote": "整理国内平台竞品价格、规格、促销、评价和库存状态，输出可比口径。"},
+      {"capabilityId": "cmuxhoycq000l7qiisv8yk6mq", "versionId": "cmuxhoycq000o7qiihzfshatj", "quote": "计算售价、货品成本、平台扣点、物流、投流、售后后的毛利和盈亏平衡点。"}
+    ],
+    "acceptance": "提供500克券后39元和1千克常规75元两条有时间来源的记录，另给自家成本费用。验收：统一到元/千克时为78和75，券与会员条件单列，不能称39元产品必然更便宜；利润测算完整，过期快照不冒充现价，不自动改价。"
+  },
+  {
+    "id": "cmuxhoylu00ig7qiidbiz7gvm",
+    "name": "老客转介绍策划师",
+    "actionCode": "MERGE",
+    "target": "电商社群运营师",
+    "domesticFit": "DIRECT",
+    "deliverable": "邀请分享和口碑激励活动规则、会员权益兑现与成本约束表、待审核活动话术。",
+    "requiredInputs": ["老客分层、授权范围和活动目标", "商品利润及激励预算", "会员权益和兑付能力", "经确认的活动及平台适用规则"],
+    "dependencies": [],
+    "reason": "老客转介绍支持邀请分享及规则透明，会员权益设计补充成本与兑现能力，产物是社群增长活动机制。systemPrompt 仅设计方案，对发券、消息等动作待确认，与技能无冲突。相较电商社群运营师的活动转化流程，这是可复用的转介绍活动子场景，建议并入并保留两项技能，不以无自动发奖接口为下架理由。UNTESTED，需验收成本和规则透明。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyhc009c7qiiixas6lsm", "versionId": "cmuxhoyhc009f7qiiqh6pawix", "quote": "设计邀请、拼团、分享、返利和口碑激励，检查规则透明与合规。"},
+      {"capabilityId": "cmuxhoyhe009h7qiii27morqz", "versionId": "cmuxhoyhe009k7qiieglxwcgj", "quote": "设计等级、积分、储值、权益和服务差异，控制成本与兑现能力。"}
+    ],
+    "acceptance": "在目标岗位输入每单贡献利润30元、总激励预算1000元及商家认可规则，设计老客邀请方案。验收：奖励对象、触发条件、上限、退款后的权益处理和兑付责任明确，预算上限可核算；不捏造平台允许的分销层级、不承诺已发奖励、不把分享当作授权骚扰。"
+  },
+  {
+    "id": "cmuxhoyl900h17qiiezua8jvd",
+    "name": "补货计划专员",
+    "actionCode": "KEEP",
+    "target": "补货计划专员",
+    "domesticFit": "DIRECT",
+    "deliverable": "按销量、交期、MOQ及现金约束排列的补货建议表，附发货承诺和异常告知草稿。",
+    "requiredInputs": ["SKU历史销量及需求假设", "现货、在途、预留和安全库存", "供应交期、MOQ、采购价格及资金上限", "已承诺订单与发货时效规则"],
+    "dependencies": [],
+    "reason": "补货建议明确纳入销量、交期、MOQ、库存与现金，发货时效管理补充客户承诺边界，交付是供应链约束下的建议，不是自动采购。description、systemPrompt 与正文一致，systemPrompt 还明确供应商下单待确认，无冲突。该任务与泛经营诊断或广告预算的输入和验收不同，可独立保留候选；UNTESTED，不因无ERP连接而暂停。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyg5006z7qiifmv5eohu", "versionId": "cmuxhoyg500727qiia0qvz3hf", "quote": "结合销量、交期、MOQ、库存和现金占用生成补货优先级。"},
+      {"capabilityId": "cmuxhoygm007y7qii0i91ka34", "versionId": "cmuxhoygm00817qiilow4tf4m", "quote": "制定发货承诺、预售规则、区域时效和异常告知策略。"}
+    ],
+    "acceptance": "给定日需求10件、交期7天、现货40件、无在途、安全库存20件、MOQ50件和足够预算。验收：明确采用交期需求加安全库存口径时目标90件、缺口50件，并提示到货前可能缺货；预算受限情景列取舍，不承诺不存在的现货、不声称已下采购单。"
+  },
+  {
+    "id": "cmuxhoykx00g77qii5njj1xm8",
+    "name": "订单物流服务专员",
+    "actionCode": "MERGE",
+    "target": "电商售后与退货专员",
+    "domesticFit": "DIRECT",
+    "deliverable": "基于用户订单与物流记录的节点摘要、异常解释草稿、下一步和会话交接单。",
+    "requiredInputs": ["脱敏订单状态和物流节点及其更新时间", "客户诉求与沟通记录", "商家发货和异常升级规则", "已确认承诺与责任人"],
+    "dependencies": ["承运商实时查件接口及权限未被证明；用户提供节点记录即可进行解释与交接"],
+    "reason": "虽然技能名为订单物流查询，正文明确是整理订单物流节点并产出客服话术，不证明实时查件；systemPrompt 也只要求整理和解释，与技能无执行冲突。会话交接是售后履约异常的连续步骤，建议并入售后与退货专员的物流子场景，保留节点整理与交接能力。不是因无物流集成而判负。本员工UNTESTED，目标CONDITIONAL仍需按原条件与合并场景验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyff005l7qiike5ga63l", "versionId": "cmuxhoyff005o7qiicw5ickkg", "quote": "整理订单状态、发货、揽收、物流节点和异常解释，输出客服可直接使用的话术。"},
+      {"capabilityId": "cmuxhoyfx006k7qii7cvg2ce2", "versionId": "cmuxhoyfx006n7qiiembbv2ji", "quote": "总结客户诉求、已承诺事项、风险、下一步和交接所需上下文。"}
+    ],
+    "acceptance": "在目标岗位输入只有已打单、尚无揽收记录的订单与催件对话。验收：不能把已打单说成已发出或已揽收，说明记录时间与缺口，输出商家待确认下一步和完整交接；不猜测到达日期、不伪造联系快递或补发成功回执。"
+  },
+  {
+    "id": "cmuxhoykb00ep7qiifbeksncc",
+    "name": "评论区转化运营师",
+    "actionCode": "KEEP",
+    "target": "评论区转化运营师",
+    "domesticFit": "DIRECT",
+    "deliverable": "评论意图与优先级表、公开回复及私信草稿、置顶FAQ、负面问题分流规则和内容选题。",
+    "requiredInputs": ["脱敏评论与必要上下文", "商品资料和已确认活动规则", "品牌回复口径及升级标准", "目标平台与隐私、私信授权约束"],
+    "dependencies": [],
+    "reason": "评论区运营提供公开回复、置顶、负面分流和私信承接，意图识别提供分类与路由，能够从批量评论形成独立的公共沟通交付，区别于拍摄脚本或私人售后工单。systemPrompt 要求把评论问题转成回复与选题，并将对外发消息设为待确认，与技能无冲突。可基于用户评论导出工作，无需自动控评或群发；UNTESTED，保留待验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyeh003s7qiitbs2a0hj", "versionId": "cmuxhoyeh003v7qiif09obey8", "quote": "制定评论区回复、置顶、FAQ、负面舆情分流和私信承接规则。"},
+      {"capabilityId": "cmuxhoyfv006f7qii4wktccqu", "versionId": "cmuxhoyfv006i7qiiut2ayyhm", "quote": "对咨询、评论、私信和工单进行意图分类、优先级排序和路由。"}
+    ],
+    "acceptance": "给出含询价、功效质疑、公开订单号和退款投诉的20条评论。验收：分类有对应原评论，敏感内容不在公开回复复述，争议路由人工且不擅自承诺赔偿；FAQ与选题来自真实问题，不编造买家评价，不声称已置顶、删评或发私信。"
+  },
+  {
+    "id": "cmuxhoyk900em7qiidjmt4umf",
+    "name": "达人合作策划师",
+    "actionCode": "KEEP",
+    "target": "达人合作策划师",
+    "domesticFit": "DIRECT",
+    "deliverable": "基于候选资料的达人比较表、合作Brief、样品方案、佣金阶梯与毛利核算及验收复盘标准。",
+    "requiredInputs": ["有来源和时间的达人候选、受众及历史合作数据", "报价、佣金、平台服务费与结算口径", "商品证据、成本、样品和预算", "品牌要求、交付内容与授权范围"],
+    "dependencies": ["达人实时库及身份、受众真实性核验未被正文证明，候选与来源需由用户提供或授权取得"],
+    "reason": "达人合作策划覆盖筛选、Brief、报价、样品与验收，分销佣金设计补充费用和毛利约束，具有清晰的合作采购类交付。systemPrompt 的筛选和设计不等于自动找达人、签约、寄样或付款，生产动作仍待确认，与技能无冲突。可基于用户候选资料完成方案，不因没有达人平台接口下架；UNTESTED，保留候选。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyef003n7qiigd8l0so0", "versionId": "cmuxhoyef003q7qiiviilsduz", "quote": "筛选 KOC/KOL，设计合作 Brief、样品策略、报价比较、验收和复盘。"},
+      {"capabilityId": "cmuxhoyfa005b7qiis2jn4pv6", "versionId": "cmuxhoyfa005e7qiiawksf9rt", "quote": "测算达人/分销佣金、平台服务费和商家毛利，提出可执行的阶梯规则。"}
+    ],
+    "acceptance": "提供三名达人候选及报价，其中一人数据无来源，商品售价100元、货品成本50元、佣金20%、服务费5%、履约10元。验收：该口径剩余贡献15元计算正确，无来源候选标待核验；Brief列明素材、证据、交付与验收，佣金结算含退款处理，不声称已联络、签约或寄样。"
+  },
+  {
+    "id": "cmuxhoyl000gd7qii1w5k3tb4",
+    "name": "退款风险复核师",
+    "actionCode": "MERGE",
+    "target": "电商售后与退货专员",
+    "domesticFit": "DIRECT",
+    "deliverable": "退款异常线索与证据索引、缺口及平台时限待核对表、人工升级建议。",
+    "requiredInputs": ["脱敏退款申请与关联订单", "物流、支付和沟通证据", "商家现行政策及用户提供的平台规则", "申诉时限、证据来源与关联标识"],
+    "dependencies": [],
+    "reason": "退款风险识别正文明确证据不足和疑似重复索赔应建议转人工而非擅自拒绝，经营证据归档提供可追溯材料；systemPrompt 同样禁止擅自拒绝合理诉求，无冲突。该交付是售后专员处理异常退款的证据子场景，建议合并保留能力，不假定必须有自动拒退系统。本员工UNTESTED，目标CONDITIONAL不能作为此风险场景已通过的证据。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyfk005v7qiit795vb78", "versionId": "cmuxhoyfk005y7qiimim57s5o", "quote": "识别高风险退款、重复索赔、证据不足和平台时限，建议转人工而非擅自拒绝。"},
+      {"capabilityId": "cmuxhoyi700av7qii7950ferg", "versionId": "cmuxhoyi700ay7qiil07ocgab", "quote": "整理报表、订单、截图、合同、凭证和沟通记录，生成可追溯审计目录。"}
+    ],
+    "acceptance": "在目标岗位输入疑似重复退款但交易标识不全的两条诉求及一条已核实正常退货。验收：疑点与已证实事实分开，列缺证和人工复核路径，正常诉求不因同名被判欺诈；时限仅引用给定规则，不输出已拒退或无依据的资格、金额和到账承诺。"
+  },
+  {
+    "id": "cmuxhoylj00hp7qiii6z0rn69",
+    "name": "退货质检与再售顾问",
+    "actionCode": "KEEP",
+    "target": "退货质检与再售顾问",
+    "domesticFit": "DIRECT",
+    "deliverable": "退货验收字段与分级规则、再售维修报废决策表、滞销临期库存处置建议。",
+    "requiredInputs": ["品类、商品质量及再售限制", "人工提供的退货检查记录和授权图片说明", "保质期、缺陷、包装与配件情况", "维修、报废成本及库存销售数据"],
+    "dependencies": ["实物安全与质量结论须由授权人员检验提供，正文不证明具备实物检测能力"],
+    "reason": "description 和 systemPrompt 要求建立验收、再售、维修和报废规则，不是承诺亲自检验实物。退货质检与再销售正文定义规则，滞销品治理补充临期风险和处置方案，与提示词无执行冲突。其输入是检验与库存资料、产物是仓内处置规则，区别于售后客服的回复和退款方案，不机械并入售后入口。可保留UNTESTED候选，不能以无实物执行能力直接下架。",
+    "evidence": [
+      {"capabilityId": "cmuxhoygo00837qii80f69y6p", "versionId": "cmuxhoygo00867qiix13es0uz", "quote": "定义退货验收、原因归类、可二次销售、维修和报废规则。"},
+      {"capabilityId": "cmuxhoyg700747qii4l6yvks9", "versionId": "cmuxhoyg700777qiivyueuck1", "quote": "识别滞销和临期风险，设计促销、组合、渠道转移或停止采购方案。"}
+    ],
+    "acceptance": "提供完好未拆封、配件缺失、功能异常和临期四类退货检查记录及成本，生成处置矩阵。验收：规则逐项对应现有证据与商家标准，缺实测功能项转人工复检，临期约束单列；不能仅凭文字宣布商品安全可售，不声称已完成检测、再上架或报废。"
+  },
+  {
+    "id": "cmuxhoyle00hd7qiikb1o6k96",
+    "name": "采购成本优化师",
+    "actionCode": "KEEP",
+    "target": "采购成本优化师",
+    "domesticFit": "DIRECT",
+    "deliverable": "采购、包装、物流、损耗及账期成本拆解表、单位贡献利润比较和不牺牲质量的降本方案。",
+    "requiredInputs": ["采购报价、MOQ及付款条件", "包装物流成本与损耗退货率", "SKU、订单和渠道收入成本口径", "质量验收底线、资金约束及供应商备选资料"],
+    "dependencies": [],
+    "reason": "采购成本优化正文明确不牺牲质量并纳入损耗账期，单位经济模型可把报价差异转为实际贡献利润比较。systemPrompt 只提出降本方案，供应商下单等待确认，与技能无冲突。采购质量、MOQ和账期权衡不同于投放预算或泛经营诊断，不能仅凭财务费用相关就并入广告岗位；用户数据足以交付离线方案。UNTESTED，保留候选待验收。",
+    "evidence": [
+      {"capabilityId": "cmuxhoygf007j7qiigbo4mk3r", "versionId": "cmuxhoygf007m7qiiybqolaow", "quote": "拆解采购、包装、物流、损耗和账期，提出降本但不牺牲质量的方案。"},
+      {"capabilityId": "cmuxhoyho009w7qiiymq9605h", "versionId": "cmuxhoyho009z7qiiyj3ern1y", "quote": "建立 SKU、订单、渠道和客户层面的收入、变动成本与贡献利润模型。"}
+    ],
+    "acceptance": "提供两家采购单价分别40和38元、不同MOQ及损耗率的报价，明确质量底线和现金上限。验收：到手合格品单位成本计入包装物流和损耗，账期及占用单列，不仅按报价低者推荐；缺质量证据时给验证方案，不编造折扣、不声称已谈判签约或下单。"
+  },
+  {
+    "id": "cmuxhoyl100gg7qiiarb0x9hb",
+    "name": "高价值客诉处理顾问",
+    "actionCode": "MERGE",
+    "target": "电商售后与退货专员",
+    "domesticFit": "DIRECT",
+    "deliverable": "升级客诉的事实时间线、证据与责任人表、待审核沟通草稿及风险升级建议。",
+    "requiredInputs": ["脱敏投诉和沟通记录", "订单物流证据及已确认承诺", "商家政策和用户提供的平台介入流程", "权限、责任人、处理时限及可审批方案"],
+    "dependencies": [],
+    "reason": "客诉升级处理定义证据与责任人，客服合规话术检查虚假承诺、隐私和不当拒付，能交付升级沟通方案。systemPrompt 虽使用处理一词，但工作边界禁止直接退款或对外发送，只生成待确认动作，与技能无冲突。与售后专员的争议升级、服务恢复和回复草稿属于同一处理链，建议保留为高价值客诉子场景。本员工UNTESTED，目标CONDITIONAL仍需专项验收，不能宣称投诉已解决。",
+    "evidence": [
+      {"capabilityId": "cmuxhoyfn00607qii2sz3kaia", "versionId": "cmuxhoyfn00637qii3uq07ymn", "quote": "处理投诉升级、平台介入、舆情风险和高价值客户，明确证据和责任人。"},
+      {"capabilityId": "cmuxhoyg0006p7qiinatgh778", "versionId": "cmuxhoyg0006s7qiicq8ihedz", "quote": "检查绝对化承诺、虚假宣传、诱导评价、隐私泄露和不当拒付表达。"}
+    ],
+    "acceptance": "在目标岗位输入有互相矛盾承诺、平台介入节点和敏感个人信息的升级客诉。验收：时间线可定位原记录，事实与待核实项分离，回复不泄露隐私、不擅自承诺赔付与时限，明确审批责任人和升级原因；不伪造已联系平台、已退款或已解决结果。"
+  }
+]

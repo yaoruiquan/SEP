@@ -1,0 +1,759 @@
+{
+  "checkedAt": "2026-10-15T02:37:31.815Z",
+  "endpoint": "http://localhost:3001/api/market/employees",
+  "method": "无认证只读 GET；仅保存市场身份及订阅计数白名单",
+  "status": 200,
+  "count": 107,
+  "allMatched": true,
+  "employees": [
+    {
+      "id": "cmuxhoylc00ha7qiifayhhy0d",
+      "name": "1688货源研究员",
+      "description": "研究产业带、货源、报价、起订量和供应商资质。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylr00ia7qiia66wljeq",
+      "name": "CRM 标签治理师",
+      "description": "设计客户标签与事件口径，保证人群可用且数据最小化。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjw00dv7qiiiun3vyj7",
+      "name": "SKU 生命周期顾问",
+      "description": "规划新品试销、成长、成熟和退出阶段的动作。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykl00fg7qiihknddkf4",
+      "name": "主播话术教练",
+      "description": "训练卖点表达、节奏、异议处理和合规话术。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylf00hg7qiigent3n56",
+      "name": "仓内作业规划师",
+      "description": "规划拣选、打包、波次和高峰期仓内作业。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylp00i47qiiq2ichhte",
+      "name": "优惠券策略师",
+      "description": "设计新客、复购、加购和召回券并评估增量成本。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyll00hv7qiialrhyg2j",
+      "name": "会员生命周期运营师",
+      "description": "设计新客、活跃、沉睡、召回和高价值客户动作。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymh00jy7qiizz9hfdu9",
+      "name": "供应商沟通助手",
+      "description": "生成询价、打样、交期、质量整改和对账沟通稿。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylb00h77qiir2zu5mf2",
+      "name": "供应商评估师",
+      "description": "按质量、交期、价格、资质和稳定性建立供应商评分。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyki00f77qiit0rasl35",
+      "name": "内容合规校对师",
+      "description": "在内容发布前检查夸大、绝对化和高风险宣传表达。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk000e17qii66i7vwxm",
+      "name": "内容电商增长策划师",
+      "description": "将商品、人群、场景和平台节奏转成内容增长计划。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykv00g17qii4k3ogupc",
+      "name": "分销佣金策略师",
+      "description": "测算达人和分销佣金，兼顾激励、利润与规则透明。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylh00hm7qiimi1vtlvq",
+      "name": "发货时效管理师",
+      "description": "设计预售、发货承诺、区域时效和异常告知策略。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykc00es7qiiwkwoospd",
+      "name": "品牌电商内容架构师",
+      "description": "搭建品牌内容支柱、商品表达和平台内容矩阵。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyky00ga7qiiagd6o9qo",
+      "name": "售后工单分流师",
+      "description": "对退款、退货、换货、破损、少件和错发工单分流。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhi500297qarn8kakp0b",
+      "name": "商品内容与详情页策划",
+      "description": "提炼商品卖点，规划详情页信息架构、视觉叙事和短视频内容，使内容服务于理解与转化。",
+      "subscriptions": 2,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyju00dp7qiisxoedyr7",
+      "name": "商品卖点策略师",
+      "description": "把参数和用户需求转成真实、可验证的商品卖点。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykd00ev7qiijoijgs3f",
+      "name": "商品测评内容策划师",
+      "description": "用真实测评和用户证据降低购买不确定性。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjr00dj7qiibsb4jel6",
+      "name": "商品评价洞察师",
+      "description": "定位 SKU 差评原因、产品缺陷和生命周期风险。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "name": "商品资料治理师",
+      "description": "统一商品资料、规格、卖点和证据，降低上架错误。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykn00fj7qiivjs0dxnb",
+      "name": "国内电商投放预算师",
+      "description": "以毛利、库存和目标成本控制国内平台投放预算。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhh2001k7qarjhnng753",
+      "name": "国内电商运营专家",
+      "description": "负责淘宝、天猫、拼多多、京东及抖店的店铺经营、商品优化、大促规划与转化复盘。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjl00d77qiir438vvmq",
+      "name": "国内电商选品研究员",
+      "description": "从需求、竞争、毛利、履约和合规评估商品机会。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylo00i17qii1w824ujz",
+      "name": "复购增长顾问",
+      "description": "依据复购周期和客户价值设计复购提醒与推荐。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym900jg7qiivssdu2t3",
+      "name": "多平台电商协同经理",
+      "description": "统一淘宝/天猫、京东、拼多多、抖店、快手、小红书和视频号的协同任务。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjj00d17qiibp3p4f6s",
+      "name": "多店铺经营分析师",
+      "description": "统一不同店铺与平台的指标，识别可复制经验。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykt00fy7qiisaspdork",
+      "name": "大促流量统筹师",
+      "description": "统筹内容、直播、搜索、达人和私域的活动流量。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylt00id7qiiwo601w61",
+      "name": "客户价值分析师",
+      "description": "用 CAC、LTV、回本周期和留存评估渠道质量。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl500gs7qii7hyfhapw",
+      "name": "客服交接总结专员",
+      "description": "输出诉求、承诺、风险和下一步，避免重复询问客户。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl300gm7qii8052bloi",
+      "name": "客服会话质检师",
+      "description": "评估客服准确性、完整性、时效、礼貌与合规性。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl200gj7qii1nrpisl0",
+      "name": "客服知识库架构师",
+      "description": "将商品、订单、物流和售后政策整理成版本化 FAQ。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk200e47qii6hpdjl2o",
+      "name": "小红书种草策划师",
+      "description": "规划小红书笔记、评论承接和种草转化路径。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylg00hj7qiigrbd2nj9",
+      "name": "履约异常处理师",
+      "description": "处理缺货、延迟、错发、破损和丢件的补救流程。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl600gv7qiizvvgtxee",
+      "name": "平台客服合规教练",
+      "description": "审核诱导评价、过度承诺、隐私泄露和不当拒付表达。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylw00im7qii8mqxpaiz",
+      "name": "平台账务对账专员",
+      "description": "核对平台结算、订单、退款、佣金、运费和到账金额。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyko00fm7qii8wugguw0",
+      "name": "广告素材测试经理",
+      "description": "搭建信息流、搜索和直播素材测试矩阵。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "name": "店铺商品组合顾问",
+      "description": "设计引流、利润、形象、复购和搭配商品结构。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjg00cs7qii4vg435dg",
+      "name": "店铺异常监控员",
+      "description": "关注销售骤降、转化异常、退款激增和数据断流。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk400ea7qiidbs9n833",
+      "name": "快手信任内容顾问",
+      "description": "围绕信任、真实体验和直播承接规划快手内容。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykq00fs7qiim1sd08x0",
+      "name": "投放账户审计师",
+      "description": "检查账户结构、消耗、转化回传和异常花费。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk300e77qiimnayxrg3",
+      "name": "抖音短视频策划师",
+      "description": "设计抖音短视频钩子、脚本、镜头和成交 CTA。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmszr2p58005c7qr50b1ollys",
+      "name": "抖音运营策略师",
+      "description": "抖音算法专家，帮你打造爆款短视频，涨粉变现一条龙。",
+      "subscriptions": 2,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykp00fp7qiio0lq6kl0",
+      "name": "搜索投放结构师",
+      "description": "优化国内电商搜索投放的词包、计划、出价和止损。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyla00h47qiimw47ptrt",
+      "name": "滞销品治理顾问",
+      "description": "识别滞销、临期和资金占用，制定去化方案。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjn00da7qiic27cvt9v",
+      "name": "爆品机会评估师",
+      "description": "筛选有需求证据但尚未充分满足的商品机会。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjp00dg7qii8mj8phyh",
+      "name": "用户需求挖掘师",
+      "description": "从评论、咨询、搜索词和退货原因提炼产品改进方向。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyma00jj7qiix4vrhdk2",
+      "name": "电商 SOP 架构师",
+      "description": "把目标拆成角色、输入、步骤、检查点、异常分支和交付物。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym500j77qii9tt70jvg",
+      "name": "电商交易风控初筛师",
+      "description": "识别异常下单、薅券、重复退款和疑似刷单，输出人工复核清单。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylv00ij7qiiartuuy6q",
+      "name": "电商会员权益设计师",
+      "description": "设计等级、积分、权益和服务差异并控制履约成本。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykr00fv7qii8yndjafn",
+      "name": "电商促销机制设计师",
+      "description": "设计券、满减、套装、赠品和会员价并核算毛利。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymm00k77qiictpoyp6q",
+      "name": "电商全链路运营顾问",
+      "description": "从商品、内容、投放、客服、供应链和复购给出全链路方案。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk800ej7qiiqqktt2lq",
+      "name": "电商内容排期经理",
+      "description": "按商品生命周期和活动节点安排内容生产与发布。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyj500c77qiiedosp3nj",
+      "name": "电商利润增长顾问",
+      "description": "围绕贡献利润而不是单纯 GMV 优化商品和渠道组合。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylz00is7qii5w68rj8l",
+      "name": "电商单位经济分析师",
+      "description": "建立 SKU、订单、渠道和客户层面的贡献利润模型。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym600ja7qiiwn5l8n8y",
+      "name": "电商合作协议审阅师",
+      "description": "提取达人、供应商、代运营和仓配协议的风险条款。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymh00jv7qiinecf2t5e",
+      "name": "电商周会复盘教练",
+      "description": "将 GMV、利润、转化、复购、服务和库存变成周复盘。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykw00g47qiig9h0ir3m",
+      "name": "电商售前咨询顾问",
+      "description": "准确识别客户需求，回答规格、适配、价格和发货问题。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhif002h7qarp4ujz52i",
+      "name": "电商售后与退货专员",
+      "description": "处理退换货、客诉与服务恢复，完善售后 SOP、风险识别和退货原因分析。",
+      "subscriptions": 2,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyja00cg7qii82yipz10",
+      "name": "电商复购分析师",
+      "description": "用留存、复购和生命周期价值评估客户经营质量。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjd00cm7qiiepa1usm3",
+      "name": "电商实验增长师",
+      "description": "设计低风险实验，明确样本、指标、周期和停止条件。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylk00hs7qiifbujeeov",
+      "name": "电商客户分层师",
+      "description": "按价值、行为、需求和风险建立可执行客户分层。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl400gp7qiihy3m37nw",
+      "name": "电商客户意图分诊师",
+      "description": "按意图、紧急度、金额和风险将客户问题路由给正确团队。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym100iy7qiiefq1nnwt",
+      "name": "电商平台规则研究员",
+      "description": "跟踪商品、广告、评价、直播、售后和活动规则变化。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym300j17qiise9xwohm",
+      "name": "电商广告合规审查师",
+      "description": "审查效果承诺、绝对化表述、资质和高风险类目广告。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl700gy7qiisdj6wz8i",
+      "name": "电商库存预测师",
+      "description": "预测销量与库存风险，输出区间、假设和补货优先级。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym000iv7qiisc74bsmc",
+      "name": "电商开票资料助手",
+      "description": "整理开票、税务资料和平台凭证，专业判断交由会计确认。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjh00cy7qii5034ilpo",
+      "name": "电商成本结构分析师",
+      "description": "拆解商品、投放、平台、物流和售后成本。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhhy00217qarjqkheyh3",
+      "name": "电商投放优化师",
+      "description": "规划站内外投放结构、预算与归因体系，持续诊断并提升电商投放的增量转化效率。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyj600ca7qiijvyl79kp",
+      "name": "电商数据质检专员",
+      "description": "检查多平台报表、订单和指标口径，减少错误决策。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym400j47qii3br7s0jk",
+      "name": "电商数据隐私顾问",
+      "description": "检查订单、地址、手机号和会员数据的访问与脱敏边界。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymk00k47qiisdcxb8r0",
+      "name": "电商新品上市项目经理",
+      "description": "编排新品从需求、打样、资料、内容、库存到复盘的流程。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjb00cj7qiiqeiq160f",
+      "name": "电商活动复盘官",
+      "description": "复盘大促投入、目标达成、利润和下一轮改进。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykh00f47qii3igd4a8b",
+      "name": "电商活动文案策划师",
+      "description": "围绕活动机制产出清晰、真实、可核验的促销表达。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyj900cd7qiizi2hlo04",
+      "name": "电商渠道归因分析师",
+      "description": "比较搜索、推荐、直播、内容、投放和私域的增量贡献。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyj400c47qiid35cqgt3",
+      "name": "电商漏斗诊断师",
+      "description": "定位曝光到支付各环节的损失点，输出验证路径。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyly00ip7qiia0rz50ov",
+      "name": "电商现金流规划师",
+      "description": "预测采购、投放、结算和退款造成的现金流压力。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjg00cv7qiibmxpidpe",
+      "name": "电商目标拆解师",
+      "description": "把年度和月度目标拆成团队、平台、商品与动作。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyke00ey7qii1x63eqxt",
+      "name": "电商直播切片策划师",
+      "description": "把直播高价值片段整理成短视频和复用排期。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyme00jp7qiiytaspmvx",
+      "name": "电商知识库管理员",
+      "description": "维护商品、政策、活动、客服和供应链知识的来源与失效日期。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylq00i77qiirtdu5zmx",
+      "name": "电商社群运营师",
+      "description": "制定入群、内容、互动、活动、转化和沉淀流程。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjk00d47qiies2601si",
+      "name": "电商管理层汇报顾问",
+      "description": "将经营数据整理成结论、风险、决策和待办的管理汇报。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymf00js7qiie3fz1ysf",
+      "name": "电商经营会议秘书",
+      "description": "提炼经营会议结论、负责人、截止时间和风险。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoym800jd7qiig5ve6jqm",
+      "name": "电商经营审计助理",
+      "description": "建立订单、报表、合同、凭证和沟通记录的可追溯目录。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyiw00by7qii2euifms1",
+      "name": "电商经营总监",
+      "description": "从销售、流量、利润和履约全局判断店铺经营优先级。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyj200c17qii36vrhedf",
+      "name": "电商经营日报官",
+      "description": "自动整理经营日报，先核对口径再给出异常摘要。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyje00cp7qii0ck8zbva",
+      "name": "电商经营驾驶舱顾问",
+      "description": "把多平台数据汇总成管理层可读的经营看板框架。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymj00k17qiivtmsju6x",
+      "name": "电商老板决策助手",
+      "description": "将复杂经营问题转成证据、选项、风险和下一步。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjv00ds7qiiah2mxz03",
+      "name": "电商视觉需求策划师",
+      "description": "为主图、详情页和短视频物料提出清晰制作需求。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk600ed7qii9k3lwwfs",
+      "name": "电商视频脚本导演",
+      "description": "输出商品讲解、测评、口播和场景短片脚本。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoymc00jm7qiin1gky8yo",
+      "name": "电商项目任务规划师",
+      "description": "根据目标、资源和依赖生成可执行的电商项目计划。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykk00fd7qiis2oty57j",
+      "name": "直播商品编排师",
+      "description": "设计直播商品顺序、价格梯度、库存提示和转品节奏。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhhm001p7qararq7eri4",
+      "name": "直播电商增长教练",
+      "description": "为抖音、快手、淘宝直播和视频号设计直播脚本、货品节奏、主播训练及转化漏斗优化方案。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk700eg7qiiea9aj7xu",
+      "name": "直播脚本总编",
+      "description": "编排直播开场、产品讲解、福利、转品和收尾。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykj00fa7qiiizh67lqc",
+      "name": "直播间经营诊断师",
+      "description": "诊断停留、互动、点击、成交和退款等直播关键指标。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykg00f17qiio1u8z26d",
+      "name": "私域内容编辑",
+      "description": "规划朋友圈、社群和视频号的持续内容与承接。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylm00hy7qiiac9ej9vr",
+      "name": "私域增长运营师",
+      "description": "规划加微、社群、企微触达和成交承接，尊重用户授权。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmt2lfhhr001u7qarlu6o5soq",
+      "name": "私域复购运营师",
+      "description": "搭建企业微信与 SCRM 私域体系，按用户分层规划社群运营、生命周期触达与复购增长。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyjo00dd7qii6v04jtin",
+      "name": "竞品价格策略师",
+      "description": "比较淘宝、京东、拼多多、抖店等同类商品的可比价格带。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylu00ig7qiidbiz7gvm",
+      "name": "老客转介绍策划师",
+      "description": "设计邀请、分享和口碑激励，检查规则透明。",
+      "subscriptions": 1,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl900h17qiiezua8jvd",
+      "name": "补货计划专员",
+      "description": "结合交期、MOQ、安全库存和现金占用生成补货建议。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykx00g77qii5njj1xm8",
+      "name": "订单物流服务专员",
+      "description": "整理订单和物流节点，给出清晰的客户解释与下一步。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoykb00ep7qiifbeksncc",
+      "name": "评论区转化运营师",
+      "description": "把评论区问题转成公开回复、私信承接和内容选题。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyk900em7qiidjmt4umf",
+      "name": "达人合作策划师",
+      "description": "筛选达人、设计合作 Brief、佣金和验收规则。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl000gd7qii1w5k3tb4",
+      "name": "退款风险复核师",
+      "description": "识别高风险退款并整理证据，不能擅自拒绝合理诉求。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoylj00hp7qiii6z0rn69",
+      "name": "退货质检与再售顾问",
+      "description": "建立退货验收、再销售、维修和报废规则。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyle00hd7qiikb1o6k96",
+      "name": "采购成本优化师",
+      "description": "拆解采购、包装、物流、损耗和账期，提出降本方案。",
+      "subscriptions": 0,
+      "matched": true
+    },
+    {
+      "id": "cmuxhoyl100gg7qiiarb0x9hb",
+      "name": "高价值客诉处理顾问",
+      "description": "处理升级投诉、平台介入和高价值客户的沟通与留痕。",
+      "subscriptions": 0,
+      "matched": true
+    }
+  ]
+}

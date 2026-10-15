@@ -627,6 +627,59 @@ export class SkillVersionService {
     });
   }
 
+  /** 维护修订只创建待审副本，正式发布仍须调用 publishPlatformVersion。 */
+  async createPlatformRevision(userId: string, capabilityId: string, dto: {
+    content: string;
+    changeSummary: string;
+    expectedPlatformVersionId: string;
+    expectedContentSha256: string;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      const actor = await tx.user.findUnique({ where: { id: userId }, select: { role: true, status: true } });
+      if (!actor || actor.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
+        throw new ForbiddenException('仅有效平台管理员可创建平台修订');
+      }
+      await tx.$queryRaw`SELECT id FROM capabilities WHERE id = ${capabilityId} FOR UPDATE`;
+      const capability = await tx.capability.findUnique({ where: { id: capabilityId } });
+      if (!capability) throw new NotFoundException('技能不存在');
+      if (capability.type !== 'SKILL' || capability.enterpriseId !== null || capability.status !== 'APPROVED') {
+        throw new BadRequestException('仅已批准的平台 SKILL 可创建修订');
+      }
+      const head = await tx.skillVersion.findFirst({ where: {
+        capabilityId, scope: 'PLATFORM', status: 'PLATFORM_APPROVED',
+      }, select: { id: true, content: true, packageKey: true, packageSha256: true,
+        packageFileCount: true, packageFilename: true }, orderBy: PLATFORM_RELEASE_ORDER });
+      if (!head || head.id !== dto.expectedPlatformVersionId ||
+          createHash('sha256').update(head.content).digest('hex') !== dto.expectedContentSha256) {
+        throw new ConflictException('当前平台版本或正文已变化，请重新审阅后修订');
+      }
+      if (head.packageKey !== null || head.packageSha256 !== null ||
+          head.packageFileCount !== null || head.packageFilename !== null) {
+        throw new BadRequestException('仅单文件平台技能可创建维护修订，不能丢弃原技能包');
+      }
+      const packageFields = { packageKey: null, packageSha256: null, packageFileCount: null, packageFilename: null };
+      const validation = await validatePlatformSource({ content: dto.content, ...packageFields },
+        this.platformValidator, this.platformSecurity, this.platformPackages);
+      // 幂等只认当前 head 的同内容待审子版本，不能复用已发布版本或旧 head 的修订。
+      const existing = await tx.skillVersion.findFirst({ where: {
+        capabilityId, scope: 'PLATFORM', status: 'PENDING_PLATFORM_REVIEW', enterpriseId: null,
+        sourceVersionId: null, parentVersionId: head.id, content: dto.content,
+        changeSummary: dto.changeSummary, ...packageFields,
+      }, select: { ...VERSION_SUMMARY_SELECT, content: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+      if (existing) return existing;
+      const siblings = await tx.skillVersion.findMany({ where: { capabilityId, scope: 'PLATFORM' }, select: { version: true } });
+      const now = new Date();
+      return tx.skillVersion.create({ data: {
+        capabilityId, scope: 'PLATFORM', enterpriseId: null, parentVersionId: head.id,
+        version: nextSemver(siblings.map((row) => row.version)), content: dto.content,
+        changeSummary: dto.changeSummary, createdById: userId,
+        status: 'PENDING_PLATFORM_REVIEW', submittedAt: now, ...packageFields,
+        validationResult: validation as unknown as Prisma.InputJsonValue, validatedAt: now,
+      }, select: { ...VERSION_SUMMARY_SELECT, content: true } });
+    }, { timeout: 30_000 });
+  }
+
   async submitAdminPlatformReview(versionId: string, dto: SubmitAdminPlatformReviewDto = {}) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM skill_versions WHERE id = ${versionId} FOR UPDATE`;
