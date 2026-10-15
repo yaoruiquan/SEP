@@ -1,0 +1,28 @@
+[
+  {
+    "operation": "generate",
+    "httpStatus": 200,
+    "object": "sub2api.request_usage",
+    "schema_version": 1,
+    "currency": "USD",
+    "requestIdSha256": "2c3ea063c485dcde7d86b6725e1ace88d5c5052a24fd67c677384ea51909d961",
+    "status": "settled",
+    "model": "gpt-image-2",
+    "actual_cost_usd": "0.2934600000",
+    "image_count": 1,
+    "pending_reason": ""
+  },
+  {
+    "operation": "edit",
+    "httpStatus": 200,
+    "object": "sub2api.request_usage",
+    "schema_version": 1,
+    "currency": "USD",
+    "requestIdSha256": "0104f30509c30121c5d4c6980574ca92139052925c336f30495308be304da826",
+    "status": "settled",
+    "model": "gpt-image-2",
+    "actual_cost_usd": "0.2934600000",
+    "image_count": 1,
+    "pending_reason": ""
+  }
+]

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import request from 'supertest';
 import {
   createMediaAcceptanceFixture, mediaAcceptanceHttpBoundary, mediaAcceptanceSettings,
-  openMediaAcceptanceTokenFile, startMediaAcceptanceServer,
+  openMediaAcceptanceTokenFile, recoverMediaAcceptanceFixture, startMediaAcceptanceServer,
 } from './media-real-acceptance-server';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
@@ -61,6 +61,9 @@ describe('local media acceptance safety boundaries', () => {
     { MEDIA_REAL_ACCEPTANCE_BALANCE_CNY: '-1' }, { MEDIA_REAL_ACCEPTANCE_BALANCE_CNY: '10.000001' },
     { MEDIA_REAL_ACCEPTANCE_BALANCE_CNY: '1e1' }, { MEDIA_REAL_ACCEPTANCE_BALANCE_CNY: '0.0000001' },
     { MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION: 'yes' }, { MEDIA_REAL_ACCEPTANCE_FIXTURE: '../business' },
+    { MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE: 'yes' },
+    { MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE: 'true', MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION: 'true' },
+    { MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE: 'true', MEDIA_REAL_ACCEPTANCE_FIXTURE: undefined },
     { MEDIA_REAL_ACCEPTANCE_TOKEN_FILE: 'relative.json' }, { MEDIA_REAL_ACCEPTANCE_TOKEN_FILE: join(__dirname, 'secret.json') },
   ])('rejects unsafe configuration %# without echoing credentials', changes => {
     expect(() => settings(changes)).toThrow();
@@ -95,6 +98,42 @@ describe('local media acceptance safety boundaries', () => {
     expect(tx.user.findUnique).not.toHaveBeenCalled();
     tx.systemSetting.count.mockResolvedValue(0);
     await expect(createMediaAcceptanceFixture(prisma, settings())).rejects.toThrow('already exists');
+  });
+
+  it('reopens only the original local fixture without creating funds or extending its lifetime', async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
+    const tx = {
+      systemSetting: { count: jest.fn().mockResolvedValue(0) },
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'original-user' }) },
+      enterprise: { findMany: jest.fn().mockResolvedValue([{ id: 'original-enterprise', metadata: { localAcceptanceFixture: true, batch: 'unit_20261015' } }]) },
+      enterpriseMember: { findUnique: jest.fn().mockResolvedValue({ id: 'original-member' }) },
+      subscription: { findMany: jest.fn().mockResolvedValue([{ id: 'original-subscription', endDate: expiresAt }]) },
+      device: { findUnique: jest.fn().mockResolvedValue({ id: 'original-device', revokedAt: null }) },
+      mediaModelProfile: { findUnique: jest.fn().mockResolvedValue({ profileId: 'original-profile' }) },
+    };
+    const prisma = { $transaction: (work: (tx: unknown) => unknown) => work(tx) } as unknown as PrismaService;
+    const local = settings({ MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE: 'true' });
+    await expect(createMediaAcceptanceFixture(prisma, local)).rejects.toThrow('cannot create');
+    await expect(recoverMediaAcceptanceFixture(prisma, settings())).rejects.toThrow('Read-only');
+    await expect(recoverMediaAcceptanceFixture(prisma, local)).resolves.toEqual({
+      userId: 'original-user', enterpriseId: 'original-enterprise', memberId: 'original-member',
+      subscriptionId: 'original-subscription', deviceId: 'original-device', profileId: 'original-profile', expiresAt: expiresAt.toISOString(),
+    });
+    expect(tx.subscription.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      status: 'ACTIVE', endDate: { gt: expect.any(Date) },
+    }) }));
+    tx.enterprise.findMany.mockResolvedValue([{ id: 'other-enterprise', metadata: { localAcceptanceFixture: true, batch: 'other' } }]);
+    await expect(recoverMediaAcceptanceFixture(prisma, local)).rejects.toThrow('Existing local fixture');
+    tx.systemSetting.count.mockResolvedValue(1);
+    await expect(recoverMediaAcceptanceFixture(prisma, local)).rejects.toThrow('overrides');
+  });
+
+  it.each(['quotes', 'references', 'requests'])('blocks every POST in fixture recovery: %s', path => {
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const next = jest.fn();
+    mediaAcceptanceHttpBoundary(false, true)({ method: 'POST', path: `/api/gateway/v1/media/real/${path}` } as any, res as any, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(path === 'requests' ? 403 : 404);
   });
 
   it.each([
@@ -167,11 +206,14 @@ integration('real isolated media server (no upstream execution)', () => {
     let server: Awaited<ReturnType<typeof startMediaAcceptanceServer>> | undefined;
     let redisKey: string | undefined;
     let redis: RedisService | undefined;
+    const connections = {
+      MEDIA_REAL_TEST_DATABASE_URL: process.env.MEDIA_REAL_TEST_DATABASE_URL,
+      MEDIA_REAL_TEST_REDIS_URL: process.env.MEDIA_REAL_TEST_REDIS_URL,
+    };
     try {
       server = await startMediaAcceptanceServer({
         NODE_ENV: 'test', MEDIA_REAL_ACCEPTANCE_SERVER: 'true',
-        MEDIA_REAL_TEST_DATABASE_URL: process.env.MEDIA_REAL_TEST_DATABASE_URL,
-        MEDIA_REAL_TEST_REDIS_URL: process.env.MEDIA_REAL_TEST_REDIS_URL,
+        ...connections,
         MEDIA_BASE_URL: 'https://127.0.0.1:9443/v1', MEDIA_API_KEY: 'integration-placeholder-not-a-real-key',
         MEDIA_REAL_ACCEPTANCE_TOKEN_FILE: tokenFile, MEDIA_REAL_ACCEPTANCE_PORT: String(port),
         MEDIA_REAL_ACCEPTANCE_FIXTURE: `spec_${Date.now()}`, MEDIA_REAL_ACCEPTANCE_BALANCE_CNY: '1.250000',
@@ -228,6 +270,16 @@ integration('real isolated media server (no upstream execution)', () => {
       expect(await prisma.subscriptionCredit.count({ where: { enterpriseId: fixture.enterpriseId } })).toBe(0);
       expect(await prisma.enterpriseWallet.count({ where: { enterpriseId: fixture.enterpriseId } })).toBe(0);
       expect(await prisma.systemSetting.count({ where: { key: 'MEDIA_API_KEY' } })).toBe(0);
+      const recovered = await recoverMediaAcceptanceFixture(prisma, mediaAcceptanceSettings({
+        NODE_ENV: 'test', MEDIA_REAL_ACCEPTANCE_SERVER: 'true',
+        ...connections,
+        MEDIA_BASE_URL: 'https://127.0.0.1:9443/v1', MEDIA_API_KEY: 'integration-placeholder-not-a-real-key',
+        MEDIA_REAL_ACCEPTANCE_TOKEN_FILE: join(directory, 'unused.json'),
+        MEDIA_REAL_ACCEPTANCE_FIXTURE: fixture.profileId.slice('acceptance-'.length),
+        MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE: 'true',
+      }));
+      expect(recovered).toEqual(fixture);
+      expect((await prisma.personalWallet.findUniqueOrThrow({ where: { userId: fixture.userId } })).balance.toFixed(6)).toBe('1.250000');
       await prisma.employeeGrant.updateMany({ where: { subscriptionId: fixture.subscriptionId }, data: { expiresAt: new Date(0) } });
       await http.get(`${path}/profiles`).auth(token, { type: 'bearer' }).expect(403);
       await prisma.authSession.update({ where: { id: claims.sid }, data: { revokedAt: new Date() } });

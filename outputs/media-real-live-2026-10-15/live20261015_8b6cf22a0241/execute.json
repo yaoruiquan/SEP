@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "mode": "execute",
+  "outcome": "passed",
+  "budgetCny": "10.000000",
+  "readiness": {
+    "profiles": true,
+    "generateQuote": true,
+    "editQuote": true,
+    "generatePrice": true,
+    "editPrice": true,
+    "usageContract": true
+  },
+  "usageProbeProvesSettlement": false,
+  "electronAccepted": false,
+  "operations": [
+    {
+      "operation": "generate",
+      "submissionPosts": 1,
+      "clientRequestIdSha256": "12eb585cdef563d1e99bbb3e41b5192ea2d4e81a27585e3b4743a4496a4422bb",
+      "quoteAmountCny": "2.112912",
+      "receiptIdSha256": "f3c2f7e7ff577719660c02c891efd37ce4ff1c8a0c08d494cc4126742efd9896",
+      "status": "SUCCEEDED",
+      "billingStatus": "SETTLED",
+      "download": {
+        "sha256": "d5ee4a94f027d873078a8db5c323983ca9570fdf274c66d4b01071c6c2107479",
+        "byteLength": 951049,
+        "width": 1024,
+        "height": 1024
+      },
+      "persistedOutput": {
+        "path": "/Users/yao/LLM/SEP/outputs/media-real-live-2026-10-15/live20261015_8b6cf22a0241/images/generate-f3c2f7e7ff577719660c02c891efd37ce4ff1c8a0c08d494cc4126742efd9896-0664c125ebd86091cd172bae11c7116e24e740a1da5baa3f34ff9e04a053c193.png",
+        "disposition": "created",
+        "sha256": "d5ee4a94f027d873078a8db5c323983ca9570fdf274c66d4b01071c6c2107479",
+        "byteLength": 951049,
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    {
+      "operation": "edit",
+      "submissionPosts": 1,
+      "clientRequestIdSha256": "bc94b9fc3c4d087d5e7b8c545d688d0132a786b600e63c5355505a5920f55492",
+      "quoteAmountCny": "2.112912",
+      "receiptIdSha256": "e63c05d1d5fa0e3cdcd6762427a4b626ecf08dd6720b9ce5bffa0a67a57e7683",
+      "status": "SUCCEEDED",
+      "billingStatus": "SETTLED",
+      "download": {
+        "sha256": "1a6b4c77d436688189f214eed0a235b10092c49b80fdda55bef2cf76f9ec6d05",
+        "byteLength": 964920,
+        "width": 1024,
+        "height": 1024
+      },
+      "persistedOutput": {
+        "path": "/Users/yao/LLM/SEP/outputs/media-real-live-2026-10-15/live20261015_8b6cf22a0241/images/edit-e63c05d1d5fa0e3cdcd6762427a4b626ecf08dd6720b9ce5bffa0a67a57e7683-9520bb11f7829d11d431776e4ff067ae985ea25430cd2a2ad63c81a7b9164c72.png",
+        "disposition": "created",
+        "sha256": "1a6b4c77d436688189f214eed0a235b10092c49b80fdda55bef2cf76f9ec6d05",
+        "byteLength": 964920,
+        "width": 1024,
+        "height": 1024
+      }
+    }
+  ],
+  "checks": [
+    {
+      "route": "profiles",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "route": "generate_quote",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "route": "upstream_generate_pricing",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "route": "upstream_edit_pricing",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "route": "upstream_usage",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "route": "generate_by_client_id",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "route": "generate_request",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "route": "generate_content",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "route": "reference",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "route": "edit_quote",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "route": "edit_by_client_id",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "route": "edit_request",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "route": "edit_content",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "blockers": []
+}

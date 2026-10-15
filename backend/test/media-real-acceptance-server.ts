@@ -26,6 +26,8 @@ import type { PrismaService } from '../src/prisma/prisma.service';
  * Optional: MEDIA_REAL_ACCEPTANCE_PORT=3012, MEDIA_REAL_ACCEPTANCE_FIXTURE=<batch>,
  * MEDIA_REAL_ACCEPTANCE_BALANCE_CNY=0 (maximum 10),
  * MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION=true (default: requests POST is blocked).
+ * MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE=true reopens only an existing fixture,
+ * with GET-only HTTP, no new balance/grants or extended subscription lifetime.
  * Schema must already exist. A fixture name is single-use; restart never refills it.
  */
 export class MediaAcceptanceConfigurationError extends Error {}
@@ -78,6 +80,13 @@ export function mediaAcceptanceSettings(env: Environment) {
   if (env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION !== undefined && !['true', 'false'].includes(env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION)) {
     invalid('MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION must be true or false');
   }
+  if (env.MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE !== undefined && !['true', 'false'].includes(env.MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE)) {
+    invalid('MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE must be true or false');
+  }
+  const recoverFixture = env.MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE === 'true';
+  if (recoverFixture && (env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION === 'true' || !env.MEDIA_REAL_ACCEPTANCE_FIXTURE)) {
+    invalid('Recovery requires an explicit existing fixture and forbids execution');
+  }
   const tokenFile = env.MEDIA_REAL_ACCEPTANCE_TOKEN_FILE;
   const withinRepo = tokenFile && relative(repoRoot, resolve(tokenFile));
   if (!tokenFile || !isAbsolute(tokenFile) || !withinRepo || (!withinRepo.startsWith('..' + '/') && !isAbsolute(withinRepo))) {
@@ -85,7 +94,7 @@ export function mediaAcceptanceSettings(env: Environment) {
   }
   return {
     databaseUrl: database.href, redisUrl: redis.href, port, fixture, tokenFile,
-    balanceCny: new Decimal(balance).toFixed(6), allowExecution: env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION === 'true',
+    balanceCny: new Decimal(balance).toFixed(6), allowExecution: env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION === 'true', recoverFixture,
     // This allowlist intentionally excludes all inherited business/cloud/payment credentials.
     runtime: {
       NODE_ENV: env.NODE_ENV, DATABASE_URL: database.href, REDIS_URL: redis.href,
@@ -123,19 +132,44 @@ export async function openMediaAcceptanceTokenFile(path: string) {
   };
 }
 
-export function mediaAcceptanceHttpBoundary(allowExecution: boolean): RequestHandler {
+export function mediaAcceptanceHttpBoundary(allowExecution: boolean, recoveryOnly = false): RequestHandler {
   return (req, res, next) => {
     const path = req.path.replace(/\/+$/, '').toLowerCase();
     const root = '/api/gateway/v1/media/real';
     const read = req.method === 'GET' && (path === `${root}/profiles` || path.startsWith(`${root}/requests/`));
     const prepare = req.method === 'POST' && [`${root}/quotes`, `${root}/references`].includes(path);
     const submit = req.method === 'POST' && path === `${root}/requests`;
-    if (read || prepare || (submit && allowExecution)) return next();
+    if (read || (!recoveryOnly && (prepare || (submit && allowExecution)))) return next();
     res.status(submit ? 403 : 404).json({ error: { code: submit ? 'LOCAL_EXECUTION_DISABLED' : 'LOCAL_ROUTE_DISABLED' } });
   };
 }
 
+export async function recoverMediaAcceptanceFixture(prisma: PrismaService, local: MediaAcceptanceSettings) {
+  if (!local.recoverFixture || local.allowExecution) invalid('Read-only fixture recovery required');
+  const prefix = `media-real-acceptance-${local.fixture}`;
+  return prisma.$transaction(async tx => {
+    if (await tx.systemSetting.count({ where: { key: { in: [
+      'MEDIA_BASE_URL', 'MEDIA_API_KEY', 'CLIENT_TOKEN_TTL_MINUTES', 'USD_TO_CNY_RATE',
+    ] } } })) invalid('Isolated DB has connection/TTL/rate overrides');
+    const user = await tx.user.findUnique({ where: { email: `${prefix}@fixture.invalid` }, select: { id: true } });
+    const enterprises = await tx.enterprise.findMany({ where: { name: `${prefix} LOCAL FIXTURE` }, select: { id: true, metadata: true } });
+    const enterprise = enterprises.length === 1 ? enterprises[0] : null;
+    const metadata = enterprise?.metadata;
+    if (!user || !enterprise || !metadata || typeof metadata !== 'object' || Array.isArray(metadata) ||
+        metadata.localAcceptanceFixture !== true || metadata.batch !== local.fixture) invalid('Existing local fixture required');
+    const member = await tx.enterpriseMember.findUnique({ where: { userId_enterpriseId: { userId: user.id, enterpriseId: enterprise.id } }, select: { id: true } });
+    const subscriptions = await tx.subscription.findMany({ where: { enterpriseId: enterprise.id, name: prefix,
+      employee: { name: prefix }, status: 'ACTIVE', endDate: { gt: new Date() } }, select: { id: true, endDate: true } });
+    const device = await tx.device.findUnique({ where: { userId_fingerprint: { userId: user.id, fingerprint: prefix } }, select: { id: true, revokedAt: true } });
+    const profile = await tx.mediaModelProfile.findUnique({ where: { profileId: `acceptance-${local.fixture}` }, select: { profileId: true } });
+    if (!member || subscriptions.length !== 1 || !device || device.revokedAt || !profile) invalid('Existing local fixture is unavailable');
+    return { userId: user.id, enterpriseId: enterprise.id, memberId: member.id, subscriptionId: subscriptions[0].id,
+      deviceId: device.id, profileId: profile.profileId, expiresAt: subscriptions[0].endDate!.toISOString() };
+  }, { isolationLevel: 'Serializable', timeout: 15_000 });
+}
+
 export async function createMediaAcceptanceFixture(prisma: PrismaService, local: MediaAcceptanceSettings) {
+  if (local.recoverFixture) invalid('Recovery cannot create or refill a fixture');
   const prefix = `media-real-acceptance-${local.fixture}`;
   const expiresAt = new Date(Date.now() + 60 * 60_000);
   return prisma.$transaction(async tx => {
@@ -236,13 +270,14 @@ export async function startMediaAcceptanceServer(env: Environment = process.env)
     moduleRef = await Test.createTestingModule({ imports: [config, security.SecurityModule, client.ClientModule, media.MediaGatewayModule] }).compile();
     app = moduleRef.createNestApplication({ logger: false, bodyParser: false });
     app.setGlobalPrefix('api');
-    app.use(mediaAcceptanceHttpBoundary(local.allowExecution));
+    app.use(mediaAcceptanceHttpBoundary(local.allowExecution, local.recoverFixture));
     app.use(requestContextMiddleware, basicRateLimitMiddleware, createJsonBodyMiddleware(), cookieParser());
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
     await app.init();
     await app.get(redis.RedisService).redis.ping();
-    const fixture = await createMediaAcceptanceFixture(app.get(prisma.PrismaService), local);
+    const database = app.get(prisma.PrismaService);
+    const fixture = await (local.recoverFixture ? recoverMediaAcceptanceFixture : createMediaAcceptanceFixture)(database, local);
     sessions = app.get(session.SessionService);
     const created = await sessions.createSession({ userId: fixture.userId, clientType: 'DESKTOP', deviceId: fixture.deviceId, refreshTtlSeconds: 3600 });
     sessionId = created.sessionId;
@@ -251,8 +286,10 @@ export async function startMediaAcceptanceServer(env: Environment = process.env)
     // Neither session refresh tokens nor upstream credentials are delivered or logged.
     await app.listen(local.port, '127.0.0.1');
     const baseUrl = `http://127.0.0.1:${local.port}/api`;
+    const wallet = await database.personalWallet.findUniqueOrThrow({ where: { userId: fixture.userId }, select: { balance: true } });
     await delivery.write({ baseUrl, employmentToken: tokens.employmentToken, expiresIn: tokens.expiresIn,
-      ...fixture, balanceCny: local.balanceCny, localFixtureOnly: true, executionEnabled: local.allowExecution });
+      ...fixture, balanceCny: wallet.balance.toFixed(6), localFixtureOnly: true, executionEnabled: local.allowExecution,
+      recoveryOnly: local.recoverFixture });
     return { app, fixture, baseUrl, close };
   } catch (error) { await close(); throw error; }
 }

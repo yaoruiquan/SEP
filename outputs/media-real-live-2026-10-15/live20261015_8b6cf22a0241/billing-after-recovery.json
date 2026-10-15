@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "scope": "isolated-local-fixture-with-real-upstream-billing",
+  "runId": "live20261015_8b6cf22a0241",
+  "observedAt": "2026-10-15T08:12:15.294Z",
+  "initialSyntheticBalanceCny": "10.000000",
+  "walletBalanceCny": "5.774176",
+  "totalConsumeCny": "4.225824",
+  "requestCount": 2,
+  "reservations": [
+    {
+      "receiptIdSha256": "f3c2f7e7ff577719660c02c891efd37ce4ff1c8a0c08d494cc4126742efd9896",
+      "status": "SETTLED",
+      "reservedCny": "2.112912",
+      "settledUsd": "0.29346",
+      "settledCny": "2.112912",
+      "usdToCnyRate": "7.2",
+      "creditCny": "0",
+      "memberWalletCny": "0",
+      "personalCny": "2.112912"
+    },
+    {
+      "receiptIdSha256": "e63c05d1d5fa0e3cdcd6762427a4b626ecf08dd6720b9ce5bffa0a67a57e7683",
+      "status": "SETTLED",
+      "reservedCny": "2.112912",
+      "settledUsd": "0.29346",
+      "settledCny": "2.112912",
+      "usdToCnyRate": "7.2",
+      "creditCny": "0",
+      "memberWalletCny": "0",
+      "personalCny": "2.112912"
+    }
+  ],
+  "transactions": [
+    {
+      "idSha256": "a636608afa658609c71057f28917acd0275b792799cc92607c0c3c0fdb3a924e",
+      "relatedIdSha256": "f3c2f7e7ff577719660c02c891efd37ce4ff1c8a0c08d494cc4126742efd9896",
+      "type": "CONSUME",
+      "amount": "-2.112912",
+      "balanceBefore": "10",
+      "balanceAfter": "7.887088"
+    },
+    {
+      "idSha256": "a5e997900b38e651ece45df132e974660b5aa96c7f709a586a3bf50be1a7d2ec",
+      "relatedIdSha256": "e63c05d1d5fa0e3cdcd6762427a4b626ecf08dd6720b9ce5bffa0a67a57e7683",
+      "type": "CONSUME",
+      "amount": "-2.112912",
+      "balanceBefore": "7.887088",
+      "balanceAfter": "5.774176"
+    }
+  ],
+  "usages": [
+    {
+      "idSha256": "a4618cc3f46f8478aa20d2183266b2b315b4ff34f850b6bef4392a3aad42d5c2",
+      "idempotencyKeySha256": "9eaf264459e0a648855b11a930e8886eb2d462dbd81ce7ced4795d4c290beb1a",
+      "costCny": "2.112912",
+      "personalPaidCny": "2.112912"
+    },
+    {
+      "idSha256": "db306d69019a6fbd05a92c446411336f192a80ba4afc6d0f64b38e51c8116b39",
+      "idempotencyKeySha256": "186034bc8f32d1b8ec5367b7846b5c8c75abfb72ab250266822041482ddd4d26",
+      "costCny": "2.112912",
+      "personalPaidCny": "2.112912"
+    }
+  ],
+  "checks": {
+    "afterHttpAndElectronRecovery": true,
+    "noNewRequests": true,
+    "noDuplicateTransactions": true,
+    "noDuplicateUsages": true,
+    "unchangedBalance": true
+  }
+}
