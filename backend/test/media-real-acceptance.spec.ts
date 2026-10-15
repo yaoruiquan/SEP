@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import * as files from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import {
   mediaRealAcceptanceCli, runMediaRealAcceptance,
   type MediaRealAcceptanceOptions,
+  type MediaRealAcceptanceOutput,
 } from './media-real-acceptance';
 import type { MediaRealReceipt } from '../src/shared/media-real.dto';
 
@@ -218,6 +221,7 @@ describe('real-image acceptance HTTP runner', () => {
     }
     expect(result.operations.every(op => op.billingStatus === 'SETTLED' && op.submissionPosts === 1)).toBe(true);
     expect(result.operations[0].download).toEqual({ sha256: digest(png), byteLength: png.length, width: 1024, height: 1024 });
+    expect(result.operations.every(op => op.persistedOutput === undefined)).toBe(true);
     expect(h.dependencies.claimSubmission.mock.calls).toEqual([['generate', 'run1-generate'], ['edit', 'run1-edit']]);
     const serialized = JSON.stringify(result);
     for (const sensitive of [options.employmentToken, options.upstreamApiKey, 'run1-generate', 'receipt-generate', 'ceramic mug', 'creativeBrief', 'rawbody']) {
@@ -238,12 +242,31 @@ describe('real-image acceptance HTTP runner', () => {
   it.each([
     { billing_mode: 'token' }, { pricing_status: 'unavailable' }, { amount_usd: null }, { amount_usd: '000.00' },
     { pricing_source: 'fallback-v1' }, { pricing_source: 'default' }, { expires_at: iso(-1) },
+    { pricing_source: 'fallback', pricing_authority: 'unknown' },
+    { pricing_source: 'fallback-v1', pricing_authority: 'sub2api_customer_billing' },
+    { pricing_source: 'Fallback', pricing_authority: 'sub2api_customer_billing' },
+    { pricing_source: 'fallback', pricing_authority: null },
+    { pricing_source: 'unknown', pricing_authority: 'sub2api_customer_billing' },
+    { pricing_source: 'default', pricing_authority: 'sub2api_customer_billing' },
+    { pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing', amount_usd: '0.00' },
+    { pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing', billing_mode: 'token' },
+    { pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing', pricing_status: 'unavailable' },
     { expires_at: iso(120_001) }, { observed_at: iso(5001) }, { model: 'other' }, { n: 2 },
     { size: '1x1' }, { quality: 'high' }, { operation: 'other' },
   ])('blocks all submissions on unsupported/unready upstream pricing %j', async patch => {
     const h = harness(c => c.url.pathname.endsWith('/images/pricing') ? json({ ...price(c.body!.operation), ...patch }) : undefined);
     const result = await runMediaRealAcceptance(executing(), h.dependencies);
     expect(result.blockers.length).toBeGreaterThan(0); expect(paid(h.calls)).toHaveLength(0);
+  });
+
+  it.each(['image', 'per_request'])('accepts authoritative deterministic customer-billing fallback (%s) read-only', async billingMode => {
+    const h = harness(c => c.url.pathname.endsWith('/images/pricing') ? json({ ...price(c.body!.operation),
+      pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing', billing_mode: billingMode,
+    }) : undefined);
+    const result = await runMediaRealAcceptance(options, h.dependencies);
+    expect(result.outcome).toBe('read-only'); expect(result.blockers).toEqual([]);
+    expect(result.readiness.generatePrice).toBe(true); expect(result.readiness.editPrice).toBe(true);
+    expect(paid(h.calls)).toHaveLength(0); expect(h.dependencies.claimSubmission).not.toHaveBeenCalled();
   });
 
   it('does not substitute legacy pricing, missing readiness credentials, or fake settled probe usage', async () => {
@@ -372,6 +395,60 @@ describe('real-image acceptance HTTP runner', () => {
     expect(h.calls.every(c => c.url.pathname.includes('/requests/receipt-'))).toBe(true);
     expect(h.dependencies.claimSubmission).not.toHaveBeenCalled();
   });
+
+  it('does not invoke opt-in persistence in default read-only mode', async () => {
+    const h = harness(); const persistOutput = jest.fn();
+    const result = await runMediaRealAcceptance(options, { ...h.dependencies, persistOutput });
+    expect(result.outcome).toBe('read-only'); expect(persistOutput).not.toHaveBeenCalled();
+    expect(result.operations.every(op => !op.download && !op.persistedOutput)).toBe(true);
+  });
+
+  it('persists original-ID recovery outputs without any submission, quote, upload or claim', async () => {
+    const h = harness();
+    h.saved.set('generate', receipt('generate')); h.saved.set('edit', receipt('edit'));
+    const persistOutput = jest.fn(async (output: MediaRealAcceptanceOutput) => {
+      expect(output).toEqual({ operation: output.operation, receiptIdSha256: digest(`receipt-${output.operation}`),
+        outputIdSha256: digest('output1'), bytes: png, sha256: digest(png), byteLength: png.length, width: 1024, height: 1024 });
+      return { path: `/synthetic/${output.operation}.png`, disposition: 'verified-existing' as const };
+    });
+    const result = await runMediaRealAcceptance({ baseUrl: options.baseUrl, employmentToken: options.employmentToken,
+      resume: true, runId: 'run1', receiptIds: { generate: 'receipt-generate', edit: 'receipt-edit' },
+    }, { ...h.dependencies, persistOutput });
+    expect(result.outcome).toBe('passed'); expect(persistOutput).toHaveBeenCalledTimes(2);
+    expect(h.calls).toHaveLength(4); expect(h.calls.every(c => c.init.method === 'GET')).toBe(true);
+    expect(h.dependencies.claimSubmission).not.toHaveBeenCalled();
+    for (const op of result.operations) expect(op.persistedOutput).toEqual({ path: `/synthetic/${op.operation}.png`,
+      disposition: 'verified-existing', sha256: digest(png), byteLength: png.length, width: 1024, height: 1024 });
+    expect(JSON.stringify(result)).not.toContain('receipt-generate');
+  });
+
+  it('isolates hook byte mutations from the generated PNG used as edit reference', async () => {
+    const h = harness();
+    const persistOutput = jest.fn(async (output: MediaRealAcceptanceOutput) => {
+      output.bytes.fill(0);
+      return { path: `/synthetic/${output.operation}.png`, disposition: 'created' as const };
+    });
+    const result = await runMediaRealAcceptance(executing(), { ...h.dependencies, persistOutput });
+    expect(result.outcome).toBe('passed'); expect(persistOutput).toHaveBeenCalledTimes(2);
+    const form = h.calls.find(c => c.url.pathname.endsWith('/references'))!.init.body as FormData;
+    expect(Buffer.from(await (form.get('file') as Blob).arrayBuffer())).toEqual(png);
+  });
+
+  it.each(['throws', 'relative-path', 'invalid-disposition'])(
+    'fails closed when opt-in persistence %s, without claiming disk success or submitting edit', async kind => {
+      const h = harness();
+      const persistOutput = jest.fn(async () => {
+        if (kind === 'throws') throw new Error('synthetic-upstream-key private filesystem error');
+        return { path: kind === 'relative-path' ? 'relative.png' : '/synthetic/image.png',
+          disposition: kind === 'invalid-disposition' ? 'saved' : 'created' } as any;
+      });
+      const result = await runMediaRealAcceptance(executing(), { ...h.dependencies, persistOutput });
+      expect(result.outcome).toBe('incomplete'); expect(result.blockers).toEqual(['ARTIFACT_PERSISTENCE_FAILED']);
+      expect(result.operations[0].download).toBeDefined(); expect(result.operations[0].persistedOutput).toBeUndefined();
+      expect(paid(h.calls)).toHaveLength(1); expect(h.calls.some(c => c.url.pathname.endsWith('/references'))).toBe(false);
+      expect(JSON.stringify(result)).not.toContain('synthetic-');
+    },
+  );
 
   it('resume by client ID tolerates initial 404 and independently recovers edit if generate fails', async () => {
     const h = harness();
@@ -599,5 +676,149 @@ describe('CLI safety boundary (filesystem and HTTP injected by Jest)', () => {
     await mediaRealAcceptanceCli(environment);
     expect(stderr.mock.calls).toEqual([['MEDIA_REAL_ACCEPTANCE_CLI_FAILED\n'], ['MEDIA_REAL_ACCEPTANCE_CLI_FAILED\n']]);
     expect(stdout).not.toHaveBeenCalled(); expect(process.exitCode).toBe(1);
+  });
+
+  describe('opt-in PNG persistence (real temporary files, synthetic HTTP only)', () => {
+    const actualFiles = jest.requireActual<typeof files>('node:fs/promises');
+    let directory: string;
+    let invocation: number;
+    let h: ReturnType<typeof harness>;
+    const artifactPath = (operation: Operation) => join(directory, 'artifacts',
+      `${operation}-${digest(`receipt-${operation}`)}-${digest('output1')}.png`);
+    const invoke = async (patch: NodeJS.ProcessEnv = {}) => {
+      await mediaRealAcceptanceCli({ ...environment, MEDIA_REAL_ACCEPTANCE_RESUME: 'true',
+        MEDIA_BASE_URL: undefined, MEDIA_API_KEY: undefined,
+        MEDIA_REAL_ACCEPTANCE_GENERATE_RECEIPT_ID: 'receipt-generate',
+        MEDIA_REAL_ACCEPTANCE_EDIT_RECEIPT_ID: 'receipt-edit',
+        MEDIA_REAL_ACCEPTANCE_OUTPUT: join(directory, `evidence-${++invocation}.json`),
+        MEDIA_REAL_ACCEPTANCE_ARTIFACT_DIR: join(directory, 'artifacts'), ...patch });
+      return JSON.parse(await actualFiles.readFile(join(directory, `evidence-${invocation}.json`), 'utf8'));
+    };
+    beforeEach(async () => {
+      directory = await actualFiles.mkdtemp(join(tmpdir(), 'sep-media-acceptance-'));
+      invocation = 0;
+      h = harness(); h.saved.set('generate', receipt('generate')); h.saved.set('edit', receipt('edit'));
+      openMock.mockImplementation(actualFiles.open); mkdirMock.mockImplementation(actualFiles.mkdir);
+      jest.spyOn(globalThis, 'fetch').mockImplementation(h.dependencies.fetch);
+      jest.spyOn(Date, 'now').mockReturnValue(time);
+    });
+    afterEach(async () => { await actualFiles.rm(directory, { recursive: true, force: true }); });
+
+    it('exclusively creates verified private PNGs, then verifies same-content re-entry using original IDs', async () => {
+      for (const disposition of ['created', 'verified-existing']) {
+        const result = await invoke();
+        expect(result.outcome).toBe('passed'); expect(result.blockers).toEqual([]);
+        for (const op of result.operations) {
+          expect(op.submissionPosts).toBe(0);
+          expect(op.persistedOutput).toEqual({ path: artifactPath(op.operation), disposition,
+            sha256: digest(png), byteLength: png.length, width: 1024, height: 1024 });
+          const bytes = await actualFiles.readFile(op.persistedOutput.path);
+          expect(bytes).toEqual(png); expect(digest(bytes)).toBe(op.persistedOutput.sha256);
+          expect((await actualFiles.stat(op.persistedOutput.path)).mode & 0o777).toBe(0o600);
+        }
+        expect(process.exitCode).toBe(0);
+      }
+      expect(openMock).toHaveBeenCalledWith(artifactPath('generate'), 'wx+', 0o600);
+      expect(h.calls).toHaveLength(8); expect(h.calls.every(c => c.init.method === 'GET')).toBe(true);
+      expect(h.dependencies.claimSubmission).not.toHaveBeenCalled();
+      const saved = (await actualFiles.readdir(directory)).filter(name => name.endsWith('.json'));
+      for (const filename of saved) {
+        const text = await actualFiles.readFile(join(directory, filename), 'utf8');
+        expect(text).not.toContain(options.employmentToken); expect(text).not.toContain(options.upstreamApiKey);
+        expect(text).not.toContain('receipt-generate'); expect(text).not.toContain('run1-generate');
+      }
+    });
+
+    it('keeps downloads explicitly memory-only when the directory is not configured', async () => {
+      const result = await invoke({ MEDIA_REAL_ACCEPTANCE_ARTIFACT_DIR: undefined });
+      expect(result.outcome).toBe('passed');
+      expect(result.operations.every(op => op.download && !op.persistedOutput)).toBe(true);
+      expect(await actualFiles.readdir(directory)).toEqual(['evidence-1.json']);
+    });
+
+    it('does not create the configured artifact directory in default read-only mode', async () => {
+      const result = await invoke({ MEDIA_REAL_ACCEPTANCE_RESUME: undefined,
+        MEDIA_REAL_ACCEPTANCE_GENERATE_RECEIPT_ID: undefined, MEDIA_REAL_ACCEPTANCE_EDIT_RECEIPT_ID: undefined,
+        MEDIA_BASE_URL: options.upstreamBaseUrl, MEDIA_API_KEY: options.upstreamApiKey });
+      expect(result.outcome).toBe('read-only'); expect(result.blockers).toEqual([]);
+      expect(await actualFiles.readdir(directory)).toEqual(['evidence-1.json']);
+      expect(paid(h.calls)).toHaveLength(0);
+    });
+
+    it.each(['different-size', 'different-hash', 'symlink', 'directory'])(
+      'refuses existing %s without overwriting it and independently recovers edit', async kind => {
+        await actualFiles.mkdir(join(directory, 'artifacts'));
+        const existing = Buffer.from(png);
+        if (kind === 'different-hash') existing[existing.length - 1] ^= 1;
+        if (kind === 'directory') await actualFiles.mkdir(artifactPath('generate'));
+        else if (kind === 'symlink') {
+          await actualFiles.writeFile(join(directory, 'original.png'), png);
+          await actualFiles.symlink(join(directory, 'original.png'), artifactPath('generate'));
+        } else await actualFiles.writeFile(artifactPath('generate'), kind === 'different-size' ? Buffer.from('untouched') : existing);
+        const result = await invoke();
+        expect(result.outcome).toBe('incomplete'); expect(result.blockers).toEqual(['ARTIFACT_CONFLICT']);
+        expect(result.operations[0].download).toBeDefined(); expect(result.operations[0].persistedOutput).toBeUndefined();
+        expect(result.operations[1].persistedOutput.disposition).toBe('created');
+        if (kind === 'symlink') {
+          expect((await actualFiles.lstat(artifactPath('generate'))).isSymbolicLink()).toBe(true);
+          expect(await actualFiles.readFile(join(directory, 'original.png'))).toEqual(png);
+        } else if (kind === 'directory') expect((await actualFiles.stat(artifactPath('generate'))).isDirectory()).toBe(true);
+        else expect(await actualFiles.readFile(artifactPath('generate'))).toEqual(kind === 'different-size' ? Buffer.from('untouched') : existing);
+        expect(h.calls.every(c => c.init.method === 'GET')).toBe(true); expect(process.exitCode).toBe(1);
+      },
+    );
+
+    it('does not claim disk success if exclusive creation fails', async () => {
+      openMock.mockImplementation(async (path, flags, mode) => {
+        if (String(path).endsWith('.png')) throw new Error('synthetic-employment-token filesystem error');
+        return actualFiles.open(path, flags, mode);
+      });
+      const result = await invoke();
+      expect(result.outcome).toBe('incomplete'); expect(result.blockers).toEqual(['ARTIFACT_PERSISTENCE_FAILED']);
+      expect(result.operations.every(op => op.download && !op.persistedOutput)).toBe(true);
+      expect(JSON.stringify(result)).not.toContain('synthetic-'); expect(process.exitCode).toBe(1);
+    });
+
+    it.each(['writeFile', 'sync', 'directory-sync'])(
+      'does not claim disk success after %s failure and never retries a model submission', async failure => {
+        openMock.mockImplementation(async (path, flags, mode) => {
+          const file = await actualFiles.open(path, flags, mode);
+          if ((failure === 'directory-sync' && String(path) === join(directory, 'artifacts')) ||
+            (failure !== 'directory-sync' && String(path).endsWith('.png'))) {
+            const method = failure === 'writeFile' ? 'writeFile' : 'sync';
+            jest.spyOn(file, method).mockRejectedValue(new Error('synthetic-employment-token write/sync error'));
+          }
+          return file;
+        });
+        const result = await invoke();
+        expect(result.outcome).toBe('incomplete'); expect(result.blockers).toEqual(['ARTIFACT_PERSISTENCE_FAILED']);
+        expect(result.operations.every(op => op.download && !op.persistedOutput)).toBe(true);
+        expect(h.calls.every(c => c.init.method === 'GET')).toBe(true);
+        expect(JSON.stringify(result)).not.toContain('synthetic-'); expect(process.exitCode).toBe(1);
+      },
+    );
+
+    it.each(['hash', 'size', 'png', 'dimensions', 'identity'])(
+      'never persists unverified %s output during original-ID recovery', async invalid => {
+        const bytes = invalid === 'png' ? Buffer.from('not a PNG') : invalid === 'dimensions' ? makePng(1, 1) : png;
+        const bad = harness(c => {
+          if (c.url.pathname.endsWith('/content')) return content(bytes, {
+            ...(invalid === 'hash' ? { 'X-SHA256': '0'.repeat(64) } : {}),
+            ...(invalid === 'size' ? { 'Content-Length': '1' } : {}),
+          });
+          return undefined;
+        });
+        for (const operation of ['generate', 'edit'] as const) bad.saved.set(operation, receipt(operation, {
+          ...(invalid === 'identity' ? { clientRequestId: 'other-run' } : {}),
+          outputs: [{ ...output, byteLength: bytes.length, sha256: digest(bytes) }],
+        }));
+        jest.mocked(globalThis.fetch).mockImplementation(bad.dependencies.fetch);
+        const result = await invoke();
+        expect(result.outcome).toBe('incomplete'); expect(result.blockers.length).toBeGreaterThan(0);
+        expect(result.operations.every(op => !op.persistedOutput)).toBe(true);
+        expect(await actualFiles.readdir(directory)).toEqual(['evidence-1.json']);
+        expect(bad.calls.every(c => c.init.method === 'GET')).toBe(true);
+      },
+    );
   });
 });

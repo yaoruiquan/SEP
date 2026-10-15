@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { MediaRuntimeProfileSchema } from '../src/shared/media.dto';
 import { MediaGatewayIdSchema } from '../src/shared/media-gateway.dto';
@@ -20,6 +21,8 @@ import { inspectMediaPng } from '../src/modules/media-gateway/media-png';
  * MEDIA_REAL_ACCEPTANCE_BUDGET_CNY (explicit total cap for generate + edit, six decimals maximum).
  * Recover: MEDIA_REAL_ACCEPTANCE_RESUME=true, same RUN_ID, no EXECUTE or budget needed.
  * Optional original IDs: MEDIA_REAL_ACCEPTANCE_GENERATE_RECEIPT_ID / _EDIT_RECEIPT_ID.
+ * Optional PNG persistence: MEDIA_REAL_ACCEPTANCE_ARTIFACT_DIR (execute/resume only).
+ * Without that directory, downloads are verified in memory only, never saved.
  * Each invocation needs a new evidence filename. Never delete attempt markers to retry an ID.
  * No SEP startup, login, fixtures, DB access, direct upstream image calls, or Electron acceptance.
  */
@@ -42,6 +45,7 @@ const priceSchema = z.object({
   model: z.literal('gpt-image-2'), operation: z.enum(['generate', 'edit']), size: z.literal('1024x1024'),
   n: z.literal(1), quality: z.literal('medium'), billing_mode: z.enum(['image', 'per_request']),
   pricing_status: z.literal('quoted'), pricing_source: z.string().trim().min(1),
+  pricing_authority: z.literal('sub2api_customer_billing').optional(),
   amount_usd: z.string().regex(/^\d+(?:\.\d{1,12})?$/), pricing_version: z.string().trim().min(1).max(128),
   effective_rate_multiplier: z.number().finite().nonnegative(),
   observed_at: z.string().datetime({ offset: true }), expires_at: z.string().datetime({ offset: true }),
@@ -75,6 +79,25 @@ export interface MediaRealAcceptanceDependencies {
   sleep?: (milliseconds: number) => Promise<void>;
   /** Must durably claim an ID before returning true. False means query-only forever. */
   claimSubmission?: (operation: Operation, clientRequestId: string) => Promise<boolean>;
+  /** Explicit opt-in. Receives only validated PNG bytes and credential-free identities.
+   * Must verify durable on-disk bytes before returning; never overwrite different content. */
+  persistOutput?: (output: MediaRealAcceptanceOutput) => Promise<MediaRealAcceptancePersistence>;
+}
+
+export interface MediaRealAcceptanceOutput {
+  operation: Operation;
+  receiptIdSha256: string;
+  outputIdSha256: string;
+  bytes: Buffer;
+  sha256: string;
+  byteLength: number;
+  width: number;
+  height: number;
+}
+
+export interface MediaRealAcceptancePersistence {
+  path: string;
+  disposition: 'created' | 'verified-existing';
 }
 
 interface OperationEvidence {
@@ -85,7 +108,11 @@ interface OperationEvidence {
   submissionPosts: number;
   status?: MediaRealReceipt['status'];
   billingStatus?: MediaRealReceipt['billingStatus'];
+  /** Integrity-checked in memory; does not imply disk persistence. */
   download?: { sha256: string; byteLength: number; width: number; height: number };
+  persistedOutput?: MediaRealAcceptancePersistence & {
+    sha256: string; byteLength: number; width: number; height: number;
+  };
 }
 
 export interface MediaRealAcceptanceEvidence {
@@ -239,6 +266,21 @@ export async function runMediaRealAcceptance(
       try { dimensions = inspectMediaPng(bytes); } catch { fail('INVALID_PNG'); }
       if (dimensions.width !== 1024 || dimensions.height !== 1024) fail('INVALID_OUTPUT');
       op.download = { sha256: sha256(bytes), byteLength: bytes.length, ...dimensions };
+      if (dependencies.persistOutput) {
+        try {
+          const saved = await dependencies.persistOutput({
+            operation: op.operation, receiptIdSha256: sha256(receipt.receiptId), outputIdSha256: sha256(output.outputId),
+            bytes: Buffer.from(bytes), ...op.download,
+          });
+          if (!saved || !isAbsolute(saved.path) || !['created', 'verified-existing'].includes(saved.disposition)) {
+            fail('ARTIFACT_PERSISTENCE_FAILED');
+          }
+          op.persistedOutput = { path: saved.path, disposition: saved.disposition, ...op.download };
+        } catch (error) {
+          if (error instanceof AcceptanceFailure) throw error;
+          fail('ARTIFACT_PERSISTENCE_FAILED');
+        }
+      }
       return bytes;
     };
     const recover = async (
@@ -348,7 +390,9 @@ export async function runMediaRealAcceptance(
           const value = parsed(priceSchema, await json(`upstream_${operation}_pricing`, `${upstream}/sub2api/images/pricing`, key, [200], 'POST',
             JSON.stringify({ model: 'gpt-image-2', operation, size: parameters.size, n: 1, quality: parameters.quality })));
           if (value.operation !== operation || /^0+(?:\.0+)?$/.test(value.amount_usd) ||
-            /fallback|default|unknown/i.test(value.pricing_source) || Date.parse(value.expires_at) <= now() ||
+            (/fallback|default|unknown/i.test(value.pricing_source) &&
+              !(value.pricing_source === 'fallback' && value.pricing_authority === 'sub2api_customer_billing')) ||
+            Date.parse(value.expires_at) <= now() ||
             Date.parse(value.expires_at) > now() + 120_000 || Date.parse(value.observed_at) > now() + 5000) fail('INVALID_UPSTREAM_PRICE');
           evidence.readiness[operation === 'generate' ? 'generatePrice' : 'editPrice'] = true;
         } catch (error) { addBlocker(error); }
@@ -425,7 +469,43 @@ export async function runMediaRealAcceptance(
   return evidence;
 }
 
-/** Only this boundary reads environment variables or writes sanitized evidence/attempt markers. */
+async function persistPng(directory: string, output: MediaRealAcceptanceOutput): Promise<MediaRealAcceptancePersistence> {
+  const path = resolve(directory, `${output.operation}-${output.receiptIdSha256}-${output.outputIdSha256}.png`);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  let file: Awaited<ReturnType<typeof open>>;
+  let disposition: MediaRealAcceptancePersistence['disposition'] = 'created';
+  try { file = await open(path, 'wx+', 0o600); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    disposition = 'verified-existing';
+    // Do not follow symlinks or block on non-regular files when checking re-entry.
+    try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+    catch { fail('ARTIFACT_CONFLICT'); }
+  }
+  try {
+    if (disposition === 'created') { await file.writeFile(output.bytes); await file.sync(); }
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size !== output.byteLength) fail('ARTIFACT_CONFLICT');
+    const bytes = Buffer.alloc(output.byteLength);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset);
+      if (!bytesRead) fail('ARTIFACT_CONFLICT');
+      offset += bytesRead;
+    }
+    if (sha256(bytes) !== output.sha256) fail('ARTIFACT_CONFLICT');
+    const dimensions = inspectMediaPng(bytes);
+    if (dimensions.width !== output.width || dimensions.height !== output.height) fail('ARTIFACT_CONFLICT');
+    if (disposition === 'verified-existing') await file.sync();
+  } finally { await file.close(); }
+  const parent = await open(dirname(directory), 'r');
+  try { await parent.sync(); } finally { await parent.close(); }
+  const folder = await open(directory, 'r');
+  try { await folder.sync(); } finally { await folder.close(); }
+  return { path, disposition };
+}
+
+/** Only this boundary reads environment variables or writes evidence, markers and opt-in PNGs. */
 export async function mediaRealAcceptanceCli(environment: NodeJS.ProcessEnv = process.env): Promise<void> {
   const secrets = [environment.SEP_EMPLOYMENT_TOKEN, environment.MEDIA_API_KEY].filter((value): value is string => !!value);
   const serialize = (value: unknown) => {
@@ -453,10 +533,12 @@ export async function mediaRealAcceptanceCli(environment: NodeJS.ProcessEnv = pr
     // A fixed, credential-free namespace prevents changing evidence filenames from replaying an ID.
     const attemptDirectory = resolve(__dirname, '../../outputs/media-real-acceptance-attempts');
     const target = environment.MEDIA_REAL_ACCEPTANCE_OUTPUT;
+    const artifactDirectory = environment.MEDIA_REAL_ACCEPTANCE_ARTIFACT_DIR;
     if (!target) fail('EVIDENCE_OUTPUT_REQUIRED');
     await mkdir(dirname(resolve(target)), { recursive: true });
     output = await open(resolve(target), 'wx', 0o600);
     const evidence = await runMediaRealAcceptance(options, {
+      ...(artifactDirectory ? { persistOutput: (png: MediaRealAcceptanceOutput) => persistPng(resolve(artifactDirectory), png) } : {}),
       claimSubmission: async (_operation, clientId) => {
         await mkdir(attemptDirectory, { recursive: true });
         const parent = await open(dirname(attemptDirectory), 'r');

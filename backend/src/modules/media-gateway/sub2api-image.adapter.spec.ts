@@ -134,9 +134,21 @@ describe('Sub2apiImageAdapter', () => {
     expect(new Headers(options.headers).get('authorization')).toBe(`Bearer ${API_KEY}`);
   });
 
+  it('accepts an effective fallback charge explicitly attested by sub2api customer billing', async () => {
+    fetchMock.mockResolvedValueOnce(response(price({ pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing' })));
+    await expect(adapter.pricing(input())).resolves.toMatchObject({
+      pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing', amount_usd: '0.040000',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['unknown', { pricing_status: 'unavailable', amount_usd: null }],
     ['fallback source', { pricing_source: 'unknown-default-fallback' }],
+    ['unattested fallback', { pricing_source: 'fallback' }],
+    ['unknown authority', { pricing_source: 'fallback', pricing_authority: 'supplier_estimate' }],
+    ['unknown source despite authority', { pricing_source: 'unknown-default-fallback', pricing_authority: 'sub2api_customer_billing' }],
+    ['token billing despite authority', { billing_mode: 'token', pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing' }],
     ['token billing', { billing_mode: 'token' }],
     ['missing amount', { amount_usd: null }],
     ['wrong model', { model: 'other-image-model' }],

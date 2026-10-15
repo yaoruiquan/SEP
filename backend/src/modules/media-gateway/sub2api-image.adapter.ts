@@ -10,6 +10,7 @@ const PricingSchema = z.object({
   model: z.literal('gpt-image-2'), operation: z.enum(['generate', 'edit']), size: z.string(), n: z.number().int(),
   quality: z.enum(['low', 'medium', 'high']), billing_mode: z.enum(['image', 'per_request', 'token']),
   pricing_status: z.enum(['quoted', 'unavailable']), pricing_source: z.string().min(1),
+  pricing_authority: z.literal('sub2api_customer_billing').optional(),
   amount_usd: z.string().regex(/^\d+(?:\.\d{1,12})?$/).nullable(), pricing_version: z.string().min(1).max(128),
   effective_rate_multiplier: z.number().finite().nonnegative(),
   observed_at: z.string().datetime({ offset: true }), expires_at: z.string().datetime({ offset: true }),
@@ -47,7 +48,8 @@ export class Sub2apiImageAdapter {
       price.n !== input.parameters.count || price.quality !== input.parameters.quality || price.pricing_status !== 'quoted' ||
       price.billing_mode === 'token' || price.amount_usd === null || Date.parse(price.expires_at) <= Date.now() ||
       Date.parse(price.expires_at) > Date.now() + 120_000 || Date.parse(price.observed_at) > Date.now() + 5000 ||
-      /fallback|default|unknown/i.test(price.pricing_source)) unavailable();
+      (/fallback|default|unknown/i.test(price.pricing_source) &&
+        !(price.pricing_source === 'fallback' && price.pricing_authority === 'sub2api_customer_billing'))) unavailable();
     return price;
   }
 
