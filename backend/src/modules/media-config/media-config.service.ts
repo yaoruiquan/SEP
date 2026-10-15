@@ -3,8 +3,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MediaModelProfile, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -31,6 +33,7 @@ export class MediaConfigService {
     private readonly prisma: PrismaService,
     private readonly settingService: SettingService,
     private readonly enterpriseContext: EnterpriseContextService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   private profileView(row: MediaModelProfile): MediaProfile {
@@ -144,6 +147,25 @@ export class MediaConfigService {
     return rows.map((row) => this.profileView(row));
   }
 
+  private async realConnectionUsable(): Promise<boolean> {
+    const [baseUrl, apiKey] = await Promise.all([
+      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL),
+      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY),
+    ]);
+    if (!baseUrl?.trim() || !apiKey?.trim() || /[\r\n]/.test(apiKey)) return false;
+    try {
+      const url = new URL(baseUrl.trim());
+      return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
+    } catch {
+      return false;
+    }
+  }
+
+  private async realRuntimeEnabled(): Promise<boolean> {
+    if (this.config?.get<string>('MEDIA_GATEWAY_REAL_ENABLED') !== 'true') return false;
+    return this.realConnectionUsable();
+  }
+
   async getAvailableProfiles(userId: string) {
     await this.enterpriseContext.resolve(userId);
     return (await this.availableProfiles()).map(({ modelId: _modelId, ...profile }) => profile);
@@ -198,27 +220,37 @@ export class MediaConfigService {
   async getRuntimeMedia(enterpriseId: string): Promise<MediaRuntime> {
     const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
     const policy = this.parsePolicy(config?.mediaPolicy);
+    const realEnabled = await this.realRuntimeEnabled();
     const profiles = (await this.availableProfiles())
       .filter((profile) => policy.enabledProfileIds.includes(profile.profileId))
+      .filter((profile) => !realEnabled || (profile.modelId === 'gpt-image-2' && profile.executionMode === 'sync-response'))
       .map((profile) => ({
         profileId: profile.profileId, kind: profile.kind, displayName: profile.displayName,
         configVersion: profile.configVersion, executionMode: profile.executionMode,
-        operations: profile.operations.filter((operation) => policy.allowedOperations.includes(operation)),
+        operations: profile.operations.filter((operation) => policy.allowedOperations.includes(operation))
+          .filter((operation) => !realEnabled || operation === 'generate' || profile.capabilities.supportsReferenceImage),
         capabilities: {
           ...profile.capabilities,
-          maxOutputs: Math.min(policy.maxOutputs, profile.capabilities.maxOutputs),
+          maxOutputs: Math.min(policy.maxOutputs, profile.capabilities.maxOutputs, realEnabled ? 4 : 8),
           maxWidth: policy.maxWidth, maxHeight: policy.maxHeight,
           sizes: profile.capabilities.sizes.filter((size) => {
             const [width, height] = size.split('x').map(Number);
-            return width <= policy.maxWidth && height <= policy.maxHeight;
+            const standard = ['1024x1024', '1536x1024', '1024x1536'];
+            return (!realEnabled || standard.includes(size)) && width <= policy.maxWidth && height <= policy.maxHeight;
           }),
         },
       }))
       .filter((profile) => profile.operations.length > 0 && profile.capabilities.sizes.length > 0);
+    const tools = realEnabled
+      ? [
+        ...(profiles.some((profile) => profile.operations.includes('generate')) ? ['image_generate'] : []),
+        ...(profiles.some((profile) => profile.operations.includes('edit')) ? ['image_edit'] : []),
+      ]
+      : [];
     return {
       protocolVersion: 1,
-      executionAvailable: false,
-      tools: [], profiles,
+      executionAvailable: realEnabled && profiles.length > 0,
+      tools, profiles,
       defaultProfileId: profiles.some((profile) => profile.profileId === policy.defaultProfileId)
         ? policy.defaultProfileId : null,
     };

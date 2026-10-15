@@ -2109,3 +2109,4 @@ export * from './client-employee.dto';
 export * from './subscription-usage.dto';
 export * from './client-skill-artifact.dto';
 export * from './media-gateway.dto';
+export * from './media-real.dto';

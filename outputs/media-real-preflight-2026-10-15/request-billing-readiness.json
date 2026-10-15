@@ -1,0 +1,21 @@
+{
+  "observedAt": "2026-10-15T05:48:30.157Z",
+  "targetHost": "longdaoai.cn",
+  "readOnly": true,
+  "chargeableExecutions": 0,
+  "readyForPaidExecution": false,
+  "results": [
+    {
+      "path": "/v1/sub2api/images/pricing",
+      "method": "POST",
+      "status": 404,
+      "schemaVerified": false
+    },
+    {
+      "path": "/v1/sub2api/usage?request_id=sep-readonly-preflight-20261015",
+      "method": "GET",
+      "status": 404,
+      "schemaVerified": false
+    }
+  ]
+}

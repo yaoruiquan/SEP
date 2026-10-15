@@ -70,6 +70,9 @@ describe("MemberAllowanceService", () => {
       computeUsageRecord: {
         aggregate: jest.fn().mockResolvedValue(emptyUsage),
       },
+      mediaRealBillingReservation: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { creditCny: null, memberWalletCny: null } }),
+      },
       enterpriseWallet: { findUnique: jest.fn(), updateMany: jest.fn() },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
@@ -322,6 +325,34 @@ describe("MemberAllowanceService", () => {
   });
 
   describe("planCharge —— 扣费事务内给出企业资金上限", () => {
+    it("pending image funds exhaust the shared chat enterprise budget", async () => {
+      prisma.memberComputeAllowance.findUnique.mockResolvedValue(allowance(1));
+      prisma.mediaRealBillingReservation.aggregate.mockResolvedValue({
+        _sum: { creditCny: d("0.600000"), memberWalletCny: d("0.400000") },
+      });
+
+      const plan = await service.planCharge(prisma, { enterpriseId: "ent-1", userId: "user-1" });
+
+      expect(plan.enterpriseCapCNY?.toFixed(6)).toBe("0.000000");
+      expect(plan.regularRemainingCNY.toFixed(6)).toBe("0.000000");
+    });
+
+    it("pending image funds count once against both daily and monthly chat limits", async () => {
+      prisma.memberComputeAllowance.findUnique.mockResolvedValue(
+        allowance(300, { dailyLimitCNY: d(50), monthlyLimitCNY: d(300) }),
+      );
+      used(20);
+      prisma.mediaRealBillingReservation.aggregate.mockResolvedValue({
+        _sum: { creditCny: d(10), memberWalletCny: d(5) },
+      });
+
+      const plan = await service.planCharge(prisma, { enterpriseId: "ent-1", userId: "user-1" });
+
+      expect(plan.dailyRemainingCNY?.toFixed(6)).toBe("15.000000");
+      expect(plan.monthlyRemainingCNY?.toFixed(6)).toBe("265.000000");
+      expect(plan.enterpriseCapCNY?.toFixed(6)).toBe("15.000000");
+    });
+
     it("日/月限额并行时取剩余值更小的一项", async () => {
       prisma.memberComputeAllowance.findUnique.mockResolvedValue(
         allowance(300, { dailyLimitCNY: d(50), monthlyLimitCNY: d(300) }),
@@ -450,6 +481,11 @@ describe("MemberAllowanceService", () => {
       prisma.memberComputeAllowance.findUnique.mockResolvedValue(allowance(50));
       const tx = {
         ...prisma,
+        mediaRealBillingReservation: {
+          aggregate: jest.fn().mockResolvedValue({
+            _sum: { creditCny: d(2), memberWalletCny: d(3) },
+          }),
+        },
         computeUsageRecord: {
           aggregate: jest.fn().mockResolvedValue({
             _sum: {
@@ -468,7 +504,9 @@ describe("MemberAllowanceService", () => {
 
       expect(tx.computeUsageRecord.aggregate).toHaveBeenCalled();
       expect(prisma.computeUsageRecord.aggregate).not.toHaveBeenCalled();
-      expect(plan.enterpriseCapCNY!.toFixed(2)).toBe("20.00");
+      expect(tx.mediaRealBillingReservation.aggregate).toHaveBeenCalled();
+      expect(prisma.mediaRealBillingReservation.aggregate).not.toHaveBeenCalled();
+      expect(plan.enterpriseCapCNY!.toFixed(2)).toBe("15.00");
     });
   });
 

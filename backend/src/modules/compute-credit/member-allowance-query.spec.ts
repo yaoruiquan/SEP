@@ -66,6 +66,9 @@ describe("MemberAllowanceQueryService", () => {
         }),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      mediaRealBillingReservation: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { creditCny: null, memberWalletCny: null } }),
+      },
     };
 
     const module: TestingModule = await Test.createTestingModule({

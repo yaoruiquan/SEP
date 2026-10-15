@@ -30,10 +30,16 @@ export const USED_SUM_SELECT = {
 
 // ── 已用金额 ───────────────────────────────────────────────────────────────
 
-/** 某成员在 [from, to) 区间内花掉的企业资金。 */
+/** 区间内已用企业资金，加上跨周期仍未决的企业资金冻结。历史结转须显式排除冻结。 */
 export async function sumEnterpriseUsed(
   client: AllowanceClient,
-  params: { enterpriseId: string; userId: string; from: Date; to: Date },
+  params: {
+    enterpriseId: string;
+    userId: string;
+    from: Date;
+    to: Date;
+    includePendingReservations?: boolean;
+  },
 ): Promise<Decimal> {
   const agg = await client.computeUsageRecord.aggregate({
     where: {
@@ -43,7 +49,19 @@ export async function sumEnterpriseUsed(
     },
     _sum: USED_SUM_SELECT,
   });
-  return sumUsed(agg._sum);
+  const used = sumUsed(agg._sum);
+  if (params.includePendingReservations === false) return used;
+
+  // 未决冻结跨周期占用额度；个人自费不占企业限额，已结算记录仅从用量表计入。
+  const pending = await client.mediaRealBillingReservation.aggregate({
+    where: {
+      enterpriseId: params.enterpriseId,
+      userId: params.userId,
+      status: { in: ["RESERVED", "RECONCILING"] },
+    },
+    _sum: { creditCny: true, memberWalletCny: true },
+  });
+  return used.add(pending._sum.creditCny ?? 0).add(pending._sum.memberWalletCny ?? 0);
 }
 
 // ── 周期窗口与结转 ─────────────────────────────────────────────────────────
@@ -243,6 +261,7 @@ async function computeCarryIn(
       userId: allowance.userId,
       from: previous.start,
       to: previous.end,
+      includePendingReservations: false,
     }),
   ]);
 

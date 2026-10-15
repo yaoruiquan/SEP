@@ -3,7 +3,7 @@ import { MediaConfigService } from './media-config.service';
 import { Prisma } from '@prisma/client';
 import { CreateMediaProfileDtoSchema, MediaRuntimeSchema, SETTING_KEYS } from 'shared';
 
-function fixture() {
+function fixture(config?: any) {
   const row = {
     id: 'row-1', profileId: 'product-image', kind: 'image', displayName: '商品图片',
     modelId: 'private-model-id', configVersion: 'cfg_1', operations: ['generate', 'edit'],
@@ -35,7 +35,7 @@ function fixture() {
     resolve: jest.fn().mockResolvedValue({ enterpriseId: 'ent-1', role: 'ENTERPRISE_ADMIN' }),
     assertEnterpriseAdmin: jest.fn(),
   };
-  return { service: new MediaConfigService(prisma, settings, context), prisma, settings, context, row };
+  return { service: new MediaConfigService(prisma, settings, context, config), prisma, settings, context, row };
 }
 
 describe('MediaConfigService', () => {
@@ -160,5 +160,59 @@ describe('MediaConfigService', () => {
     expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ profiles: [], defaultProfileId: null });
     settings.getEffectiveValue.mockResolvedValue(undefined);
     expect((await service.getRuntimeMedia('ent-1')).profiles).toEqual([]);
+  });
+
+  it('enables only real-compatible profiles when the exact switch and usable HTTPS connection are present', async () => {
+    const config = { get: jest.fn(() => 'true') };
+    const { service, prisma, row } = fixture(config);
+    row.modelId = 'gpt-image-2';
+    row.capabilities = {
+      supportsReferenceImage: true, maxOutputs: 8,
+      sizes: ['1024x1024', '1536x1024', '1024x1536', '2048x2048'],
+    };
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: {
+      enabledProfileIds: ['product-image'], defaultProfileId: 'product-image',
+      allowedOperations: ['generate', 'edit'], maxOutputs: 8, maxWidth: 1536, maxHeight: 1536,
+    } });
+
+    const runtime = await service.getRuntimeMedia('ent-1');
+    expect(MediaRuntimeSchema.safeParse(runtime).success).toBe(true);
+    expect(runtime).toMatchObject({
+      executionAvailable: true, tools: ['image_generate', 'image_edit'], defaultProfileId: 'product-image',
+      profiles: [{ operations: ['generate', 'edit'], capabilities: {
+        maxOutputs: 4, sizes: ['1024x1024', '1536x1024', '1024x1536'],
+      } }],
+    });
+    const json = JSON.stringify(runtime);
+    for (const secret of ['gpt-image-2', 'test-secret', 'relay.example']) expect(json).not.toContain(secret);
+  });
+
+  it('keeps execution closed unless the real switch is exactly true', async () => {
+    const config = { get: jest.fn(() => 'TRUE') };
+    const { service, row } = fixture(config);
+    row.modelId = 'gpt-image-2';
+
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [] });
+  });
+
+  it('fails closed for unusable real connection or profiles outside the real execution contract', async () => {
+    const config = { get: jest.fn(() => 'true') };
+    const { service, settings, prisma, row } = fixture(config);
+    row.modelId = 'gpt-image-2';
+    settings.getEffectiveValue.mockImplementation(async (key: string) =>
+      key === SETTING_KEYS.MEDIA_BASE_URL ? 'http://relay.example/v1' : 'test-secret');
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [] });
+
+    settings.getEffectiveValue.mockImplementation(async (key: string) =>
+      key === SETTING_KEYS.MEDIA_BASE_URL ? 'https://relay.example/v1' : 'test-secret');
+    row.modelId = 'private-model-id';
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [], profiles: [] });
+    row.modelId = 'gpt-image-2';
+    row.executionMode = 'async-query';
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [], profiles: [] });
+
+    row.executionMode = 'sync-response';
+    prisma.mediaModelProfile.findMany.mockResolvedValue([]);
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [], profiles: [] });
   });
 });
