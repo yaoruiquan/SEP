@@ -141,15 +141,9 @@ export class GatewayModelPolicyService {
         'MODEL_OUTPUT_LIMIT_INVALID', '模型 maxOutputTokens 配置无效', 'model',
       ));
     }
-    const defaultMaxTokens = snapshot?.values.GATEWAY_DEFAULT_MAX_TOKENS ?? this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096);
-    const effectiveCap = cap ?? defaultMaxTokens;
-    const maxTokens = request.max_tokens ?? Math.min(defaultMaxTokens, effectiveCap);
-    if (!snapshot && (!Number.isSafeInteger(maxTokens) || maxTokens <= 0 || maxTokens > effectiveCap)) {
-      throw new BadRequestException(platformErrorResponse(
-        'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens',
-      ));
-    }
-    const normalized = snapshot ? this.normalize(request, model, snapshot) : { ...request, max_tokens: maxTokens };
+    // Defaults only fill an omitted budget. Explicit budgets use the independent
+    // platform ceiling, including callers that do not capture a policy snapshot.
+    const normalized = this.normalize(request, model, snapshot);
     let serialized: string;
     try {
       serialized = JSON.stringify(normalized);
@@ -169,18 +163,18 @@ export class GatewayModelPolicyService {
     return { request: normalized, inputBytes };
   }
 
-  resolveOutputLimit(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot): number {
-    const platform = snapshot.values.MODEL_MAX_OUTPUT_TOKENS;
+  resolveOutputLimit(model: GatewayModelCapabilities, snapshot?: ModelRuntimePolicySnapshot): number {
+    const platform = snapshot?.values.MODEL_MAX_OUTPUT_TOKENS ?? this.positiveConfig('MODEL_MAX_OUTPUT_TOKENS', 32768);
     const capability = model.maxOutputTokens;
     if (!Number.isSafeInteger(platform) || platform <= 0 ||
         (capability != null && (!Number.isSafeInteger(capability) || capability <= 0))) {
       throw new ServiceUnavailableException({ error: { message: '模型输出能力配置无效', type: 'server_error',
-        code: 'MODEL_OUTPUT_POLICY_INVALID', source: 'platform', policyVersion: snapshot.version } });
+        code: 'MODEL_OUTPUT_POLICY_INVALID', source: 'platform', ...(snapshot ? { policyVersion: snapshot.version } : {}) } });
     }
     return Math.min(platform, capability ?? platform);
   }
 
-  normalizeInternal(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot, requested: number): number {
+  normalizeInternal(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot | undefined, requested: number): number {
     this.validateOutput(requested);
     return Math.min(requested, this.resolveOutputLimit(model, snapshot));
   }
@@ -190,7 +184,7 @@ export class GatewayModelPolicyService {
   }
 
   normalize<T extends object>(body: T & { max_tokens?: unknown }, model: GatewayModelCapabilities,
-    snapshot: ModelRuntimePolicySnapshot): T & { max_tokens: number } {
+    snapshot?: ModelRuntimePolicySnapshot): T & { max_tokens: number } {
     const limit = this.resolveOutputLimit(model, snapshot);
     const requested = body.max_tokens;
     if (requested !== undefined) {
@@ -198,11 +192,11 @@ export class GatewayModelPolicyService {
       if ((requested as number) > limit) {
         throw new BadRequestException({ error: { message: `max_tokens 不得超过模型有效输出上限 ${limit}`,
           type: 'invalid_request_error', code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', source: 'platform',
-          param: 'max_tokens', limit, policyVersion: snapshot.version } });
+          param: 'max_tokens', limit, ...(snapshot ? { policyVersion: snapshot.version } : {}) } });
       }
     }
     const output = requested === undefined
-      ? this.normalizeInternal(model, snapshot, snapshot.values.GATEWAY_DEFAULT_MAX_TOKENS)
+      ? this.normalizeInternal(model, snapshot, snapshot?.values.GATEWAY_DEFAULT_MAX_TOKENS ?? this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096))
       : requested as number;
     return { ...body, max_tokens: output };
   }

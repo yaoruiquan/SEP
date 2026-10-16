@@ -241,7 +241,8 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 | `GATEWAY_MEMBER_RPM` | `120` | 成员聚合请求限额 |
 | `GATEWAY_ENTERPRISE_RPM` | `600` | 企业聚合请求限额 |
 | `GATEWAY_ENTERPRISE_TOKEN_BUDGET` | `0` | 默认关闭保守 token 流量预算；不是资金预占或上游精确 TPM |
-| `GATEWAY_DEFAULT_MAX_TOKENS` | `4096` | 未指定输出上限时的默认值，仍受模型能力约束 |
+| `GATEWAY_DEFAULT_MAX_TOKENS` | `4096` | 仅在请求未指定 `max_tokens` 时填充，与模型有效上限取较小值；不作为显式请求的硬上限 |
+| `MODEL_MAX_OUTPUT_TOKENS` | `32768` | 独立的平台单次输出上限，与已知模型 `maxOutputTokens` 取较小值；不是供应商能力声明 |
 | `GATEWAY_HTTP_JSON_LIMIT` | `4mb` | 仅 POST `/api/gateway/v1/chat/completions` 的 HTTP JSON 解析上限；其他 REST 默认仍为 2 MiB |
 | `GATEWAY_MAX_REQUEST_BYTES` | `4194304` | Gateway 模型策略的序列化输入上限（字节），不覆盖全局 HTTP body 限制 |
 | `GATEWAY_JSON_MAX_BYTES` | `8388608` | 上游普通 JSON 响应上限（字节） |
@@ -254,6 +255,16 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 原 `GATEWAY_MODEL_RATE_LIMIT=60`、`GATEWAY_MODEL_RATE_WINDOW_MS=60000` 的企业 + 成员 + 订阅 RPM 继续独立执行，不会被新增成员/企业聚合 RPM 替代；请求必须同时满足这些限制。认证失败限流则独立用于未通过认证的请求，不占用有效身份的准入预算。
 
 请求大小分为 HTTP 原始 JSON 和规范化后的序列化模型请求两个预算，两者默认均为 4 MiB。空白、转义、默认输出字段注入会导致字节数不同；任一超限均明确返回 413，分别使用 `REQUEST_BODY_TOO_LARGE` 和 `MODEL_REQUEST_TOO_LARGE`，不保证原始 body 正好 4 MiB 的请求一定满足规范化预算。调整时应同时核对入口代理上限，不能仅扩大一个阶段。网关不接受未声明的协议字段，返回 400 / `INVALID_PARAMETER` 和具体字段路径，不再静默删除参数。
+
+### 输出预算与平台上限
+
+单服务、蓝绿和开发 Compose 均透传 `MODEL_MAX_OUTPUT_TOKENS`。默认输出预算与硬上限分别配置，默认值为 4096 和 32768。请求捕获运行策略快照后，数据库中的策略覆盖值优先于环境变量；配置了数据库覆盖时，仅修改 Compose 或环境变量不会覆盖它。
+
+有效上限为 `min(MODEL_MAX_OUTPUT_TOKENS, 模型 maxOutputTokens)`；模型未提供能力时使用平台上限。缺失能力不表示供应商支持 32768，供应商仍可能拒绝更大的预算。模型能力只能按已验证的供应商说明设置。
+
+例如模型能力未知、平台上限为 32768 时：省略 `max_tokens` 使用 4096；显式传 4096 保留 4096；传 8192 或 16384 按原值转发；传 32769 在调用上游之前返回 HTTP 400，错误包含 `code=MODEL_OUTPUT_LIMIT_EXCEEDED`、`param=max_tokens`、`limit=32768`，快照路径还包含 `policyVersion`。模型已知上限为 2048 时，有效上限仍为 2048。
+
+客户端显式请求 4096 时，提高平台上限不会自动扩大这次请求的输出预算，也不能保证修复仅思考、无正文的问题。思考控制和原始结束状态仍须由中转层正确支持与记录。上述代码和 Compose 配置需发布并重建后端容器才影响旧生产版本，修改工作区文件不会改变运行中的实例。
 
 ### Gateway 排空契约
 

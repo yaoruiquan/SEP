@@ -179,14 +179,47 @@ describe('GatewayModelPolicyService', () => {
   it('caps an omitted max_tokens, but rejects an explicit limit beyond the model cap', async () => {
     prisma.platformModel.findFirst.mockResolvedValue({ maxOutputTokens: 2048, supportedFeatures: null });
     expect((await service.prepare(identity, request())).request.max_tokens).toBe(2048);
-    await expectPlatformError(service.prepare(identity, request({ max_tokens: 2049 })), 400,
-      'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens');
+    await expect(service.prepare(identity, request({ max_tokens: 2049 }))).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', param: 'max_tokens', limit: 2048 } },
+    });
     expect((await service.prepare(identity, request({ max_tokens: 2048 }))).request.max_tokens).toBe(2048);
   });
 
-  it('bounds explicit output budgets by the platform default when the model cap is unknown', async () => {
+  it('keeps an explicit 4096 budget but accepts larger budgets independently of the default', async () => {
+    for (const max_tokens of [4096, 8192, 16384, 32768]) {
+      const dto = request({ max_tokens });
+      expect((await service.prepare(identity, dto)).request.max_tokens).toBe(max_tokens);
+      expect(dto.max_tokens).toBe(max_tokens);
+    }
+    expect((await service.prepare(identity, request())).request.max_tokens).toBe(4096);
+  });
+
+  it.each([null, 65536])('enforces the independent platform ceiling with model capability %p', async (maxOutputTokens) => {
+    prisma.platformModel.findFirst.mockResolvedValue({ maxOutputTokens, supportedFeatures: null });
+    jest.spyOn(config, 'get').mockImplementation((key: string) => (
+      key === 'MODEL_MAX_OUTPUT_TOKENS' ? '8192' : undefined
+    ) as never);
+    expect((await service.prepare(identity, request({ max_tokens: 8192 }))).request.max_tokens).toBe(8192);
+    await expect(service.prepare(identity, request({ max_tokens: 8193 }))).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', param: 'max_tokens', limit: 8192, source: 'platform' } },
+    });
+  });
+
+  it('clamps only the omitted default to the platform ceiling', async () => {
+    jest.spyOn(config, 'get').mockImplementation((key: string) => (
+      key === 'MODEL_MAX_OUTPUT_TOKENS' ? 2048 : undefined
+    ) as never);
+    expect((await service.prepare(identity, request())).request.max_tokens).toBe(2048);
+    await expect(service.prepare(identity, request({ max_tokens: 4096 }))).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', limit: 2048 } },
+    });
+  });
+
+  it('rejects budgets above the independent platform ceiling when model metadata is unknown', async () => {
     expect((await service.prepare(identity, request({ max_tokens: 4096 }))).request.max_tokens).toBe(4096);
-    await expect(service.prepare(identity, request({ max_tokens: 4097 }))).rejects.toThrow(BadRequestException);
+    await expect(service.prepare(identity, request({ max_tokens: 32769 }))).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', limit: 32768 } },
+    });
     await expect(service.prepare(identity, request({ max_tokens: Number.MAX_SAFE_INTEGER }))).rejects.toThrow(BadRequestException);
   });
 
@@ -196,7 +229,7 @@ describe('GatewayModelPolicyService', () => {
       { type: 'function', function: { name: 'ls' } },
     ] }));
     expect(prepared.request.max_tokens).toBe(4096);
-    await expect(service.prepare(identity, request({ max_tokens: 8192 }))).rejects.toThrow(BadRequestException);
+    expect((await service.prepare(identity, request({ max_tokens: 8192 }))).request.max_tokens).toBe(8192);
   });
 
   it('uses configured defaults and rejects invalid configuration', async () => {
@@ -279,12 +312,13 @@ describe('GatewayModelPolicyService', () => {
       'MODEL_FEATURE_UNSUPPORTED', `该模型不支持 ${feature}`, param);
   });
 
-  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER])('returns output budget errors for %s', async (max_tokens) => {
-    await expectPlatformError(service.prepare(identity, { ...request(), max_tokens }), 400,
-      'OUTPUT_BUDGET_EXCEEDED', 'max_tokens 必须为正整数且不能超过模型或平台输出上限', 'max_tokens');
+  it.each([0, -1, 1.5, NaN, Infinity, '4096', null])('rejects invalid explicit output %p', async (max_tokens) => {
+    await expect(service.prepare(identity, { ...request(), max_tokens } as never)).rejects.toMatchObject({
+      status: 400, response: { error: { code: 'INVALID_PARAMETER', param: 'max_tokens' } },
+    });
   });
 
-  it.each(['GATEWAY_DEFAULT_MAX_TOKENS', 'GATEWAY_MAX_REQUEST_BYTES'])('identifies invalid %s configuration', async (key) => {
+  it.each(['GATEWAY_DEFAULT_MAX_TOKENS', 'MODEL_MAX_OUTPUT_TOKENS', 'GATEWAY_MAX_REQUEST_BYTES'])('identifies invalid %s configuration', async (key) => {
     jest.spyOn(config, 'get').mockImplementation((name: string) => (name === key ? -1 : undefined) as never);
     await expectPlatformError(service.prepare(identity, request()), 500, 'GATEWAY_CONFIG_INVALID',
       `${key} must be an integer between 1 and 2147483647`, null, 'server_error');

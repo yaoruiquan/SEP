@@ -158,6 +158,33 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(admission.reserve).toHaveBeenCalledTimes(2);
   });
 
+  it.each([4096, 8192, 16384, 32768])('forwards explicit output budget %s with unknown model capability', async (max_tokens) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(completion), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    await request(app.getHttpServer()).post(endpoint).send({ ...body, max_tokens }).expect(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(max_tokens);
+    expect(admission.reserve.mock.calls[0][3]).toBe(max_tokens);
+  });
+
+  it.each([
+    [null, 8192, 8192],
+    [65536, 8192, 8192],
+    [2048, 32768, 2048],
+  ])('returns the effective output ceiling before execution for model=%p platform=%s', async (maxOutputTokens, platformLimit, limit) => {
+    policies.getSnapshot.mockResolvedValue(policySnapshot({ MODEL_MAX_OUTPUT_TOKENS: platformLimit }));
+    model.findFirst.mockResolvedValue({ maxOutputTokens, supportedFeatures: null });
+    const res = await request(app.getHttpServer()).post(endpoint).send({ ...body, max_tokens: limit + 1 }).expect(400);
+    expect(res.body.error).toMatchObject({
+      code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', source: 'platform', param: 'max_tokens', limit, policyVersion: 7,
+    });
+    expect(res.body.requestId).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(executions.start).not.toHaveBeenCalled();
+    expect(admission.acquire).not.toHaveBeenCalled();
+    expect(admission.reserve).not.toHaveBeenCalled();
+  });
+
   it('uses distinct server executions and usage journal entries for repeated client IDs', async () => {
     fetchMock.mockImplementation(async () => new Response(JSON.stringify(completion), {
       headers: { 'Content-Type': 'application/json', 'x-request-id': 'upstream-request' },
