@@ -260,6 +260,8 @@ model EnterpriseMember {
   grants               EmployeeGrant[]
   subscriptionRequests SubscriptionRequest[] @relation("SubscriptionRequestRequester")
   ledDepartments       Department[]          @relation("DepartmentLeader")
+  knowledgeMemberGrants KnowledgeMemberGrant[] @relation("KnowledgeMemberGrantee")
+  issuedKnowledgeGrants KnowledgeMemberGrant[] @relation("KnowledgeMemberGranter")
 
   @@unique([userId, enterpriseId])
   @@index([enterpriseId])
@@ -2620,6 +2622,7 @@ model KnowledgeBase {
   enterpriseId String
   name         String
   description  String?  @db.Text
+  revision     Int      @default(1)
   createdBy    String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -2628,6 +2631,7 @@ model KnowledgeBase {
   creator    User                 @relation("KnowledgeBaseCreator", fields: [createdBy], references: [id])
   documents  Document[]
   grants     KnowledgeGrant[]
+  memberGrants KnowledgeMemberGrant[]
   textChunks TextChunk[]
   usageLogs  KnowledgeUsageLog[]
   searchLogs KnowledgeSearchLog[]
@@ -2725,6 +2729,26 @@ model KnowledgeGrant {
   @@index([subscriptionId])
   @@index([departmentId])
   @@map("knowledge_grants")
+}
+
+/// Explicit member access. Legacy KnowledgeGrant rows are retained, never migrated into these grants.
+model KnowledgeMemberGrant {
+  id                String   @id @default(cuid())
+  knowledgeBaseId   String
+  memberId          String
+  grantedByMemberId String?
+  grantedByName     String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  knowledgeBase KnowledgeBase     @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  member        EnterpriseMember  @relation("KnowledgeMemberGrantee", fields: [memberId], references: [id], onDelete: Cascade)
+  grantedBy     EnterpriseMember? @relation("KnowledgeMemberGranter", fields: [grantedByMemberId], references: [id], onDelete: SetNull)
+
+  @@unique([memberId, knowledgeBaseId])
+  @@index([knowledgeBaseId, createdAt])
+  @@index([grantedByMemberId])
+  @@map("knowledge_member_grants")
 }
 
 model TextChunk {

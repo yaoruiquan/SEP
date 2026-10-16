@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, GoneException, ConflictException, UnsupportedMediaTypeException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeQueueService } from './knowledge-queue.service';
-import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { KnowledgeAccessPolicy } from './knowledge-access-policy';
+import type { KnowledgePageQuery } from 'shared';
 import { VectorService } from './vector.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -12,7 +13,7 @@ export class DocumentService {
   constructor(
     private prisma: PrismaService,
     private queue: KnowledgeQueueService,
-    private enterpriseContext: EnterpriseContextService,
+    private policy: KnowledgeAccessPolicy,
     private vector: VectorService,
   ) {}
 
@@ -43,21 +44,21 @@ export class DocumentService {
   ) {
     await this.assertAdminAccess(knowledgeBaseId, userId);
 
+    if (file.size <= 0 || (file.buffer && file.buffer.byteLength === 0)) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: '不能上传空文件' });
+    }
+
     // 验证文件类型（Phase C1：新增图片 OCR 支持）
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
       'text/plain',
       'text/markdown',
-      'image/png',
-      'image/jpeg',
-      'image/jpg',
     ];
 
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Unsupported file type. Supported: PDF, Word, TXT, Markdown, PNG, JPEG',
+    if (!allowedTypes.includes(file.mimetype) || !['.pdf', '.docx', '.txt', '.md'].includes(path.extname(file.originalname).toLowerCase())) {
+      throw new UnsupportedMediaTypeException(
+        'Supported file types: PDF, DOCX, TXT, Markdown',
       );
     }
 
@@ -112,10 +113,7 @@ export class DocumentService {
       throw error;
     }
 
-    // `storagePath` is an internal infrastructure detail. Keep it available
-    // to backend processing, but never expose an absolute server path to clients.
-    const { storagePath: _storagePath, ...publicDocument } = document;
-    return publicDocument;
+    return this.getDocumentForUser(knowledgeBaseId, document.id, userId);
   }
 
   /**
@@ -137,9 +135,7 @@ export class DocumentService {
         updatedAt: true,
         uploader: {
           select: {
-            id: true,
             name: true,
-            email: true,
           },
         },
       },
@@ -163,18 +159,15 @@ export class DocumentService {
         fileSize: true,
         mimeType: true,
         status: true,
-        uploadedBy: true,
         createdAt: true,
         updatedAt: true,
         version: true,
-        lastError: true,
+        lastError: false,
         processedAt: true,
-        embeddingModel: true,
+        embeddingModel: false,
         uploader: {
           select: {
-            id: true,
             name: true,
-            email: true,
           },
         },
       },
@@ -185,6 +178,24 @@ export class DocumentService {
     }
 
     return document;
+  }
+
+  /** Transitional read-only preview over processed chunks, not a versioned parser-block API. */
+  async preview(knowledgeBaseId: string, id: string, userId: string, query: Pick<KnowledgePageQuery, 'page' | 'pageSize'>) {
+    await this.assertReadAccess(knowledgeBaseId, userId);
+    const document = await this.prisma.document.findFirst({
+      where: { id, knowledgeBaseId }, select: { id: true, originalName: true, status: true },
+    });
+    if (!document) this.policy.notFound();
+    if (document.status !== 'READY') throw new ConflictException({ code: 'DOCUMENT_NOT_READY', message: '文档尚未处理完成' });
+    const where = { knowledgeBaseId, documentId: id, document: { status: 'READY' as const } };
+    const [chunks, total] = await Promise.all([
+      this.prisma.textChunk.findMany({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.pageSize, take: query.pageSize, select: { id: true, content: true } }),
+      this.prisma.textChunk.count({ where }),
+    ]);
+    return { documentId: id, documentName: document.originalName, previewKind: 'PROCESSED_CHUNKS' as const,
+      items: chunks.map(chunk => ({ chunkId: chunk.id, text: chunk.content })), page: query.page, pageSize: query.pageSize, total };
   }
 
   /**
@@ -225,35 +236,11 @@ export class DocumentService {
     userId: string,
   ): Promise<{ path: string; filename: string }> {
     await this.assertReadAccess(knowledgeBaseId, userId);
-    const document = await this.prisma.document.findUnique({
-      where: { id, knowledgeBaseId },
-    });
-
-    if (!document) {
-      throw new NotFoundException('Document not found');
-    }
-
-    // 验证文件存在
-    try {
-      await fs.access(document.storagePath);
-    } catch {
-      throw new NotFoundException('File not found on disk');
-    }
-
-    return {
-      path: document.storagePath,
-      filename: document.originalName,
-    };
+    throw new GoneException({ code: 'KNOWLEDGE_OPERATION_RETIRED', message: '原始文件下载已停用，请使用只读预览' });
   }
 
   async assertAdminAccess(knowledgeBaseId: string, userId: string): Promise<void> {
-    const context = await this.enterpriseContext.resolve(userId);
-    this.enterpriseContext.assertEnterpriseAdmin(context);
-    const knowledgeBase = await this.prisma.knowledgeBase.findFirst({
-      where: { id: knowledgeBaseId, enterpriseId: context.enterpriseId },
-      select: { id: true },
-    });
-    if (!knowledgeBase) throw new NotFoundException('Knowledge base not found');
+    await this.policy.assertManage(userId, knowledgeBaseId);
   }
 
   async assertDocumentAdminAccess(
@@ -270,11 +257,6 @@ export class DocumentService {
   }
 
   private async assertReadAccess(knowledgeBaseId: string, userId: string): Promise<void> {
-    const context = await this.enterpriseContext.resolve(userId);
-    const knowledgeBase = await this.prisma.knowledgeBase.findFirst({
-      where: { id: knowledgeBaseId, enterpriseId: context.enterpriseId },
-      select: { id: true },
-    });
-    if (!knowledgeBase) throw new NotFoundException('Knowledge base not found');
+    await this.policy.assertRead(userId, knowledgeBaseId);
   }
 }

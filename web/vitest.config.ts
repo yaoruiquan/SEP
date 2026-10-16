@@ -13,6 +13,6 @@ export default defineConfig({
   },
   resolve: {
     // 与 tsconfig 的 paths 保持一致
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: { '@': path.resolve(__dirname, './src'), shared: path.resolve(__dirname, '../backend/src/shared') },
   },
 });

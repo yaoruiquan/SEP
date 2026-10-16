@@ -700,23 +700,92 @@ export interface KnowledgeBase {
   id: string;
   name: string;
   description: string | null;
+  revision: number;
+  documentCount: number;
+  readyDocumentCount: number;
   createdAt: string;
   updatedAt: string;
-  creator: { name: string | null; email: string };
-  _count?: {
-    documents?: number;
-    textChunks?: number;
-    grants?: number;
+  permissions: {
+    canView: boolean;
+    canSearch: boolean;
+    canManage: boolean;
+    canUpload: boolean;
+    canManageGrants: boolean;
   };
 }
 
-/** 知识库详情（GET /knowledge/:id），_count 字段均存在且为数值 */
-export interface KnowledgeBaseDetail extends Omit<KnowledgeBase, '_count'> {
-  _count: {
-    documents: number;
-    textChunks: number;
-    grants: number;
+export type KnowledgeBaseDetail = KnowledgeBase;
+
+export interface KnowledgePage<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface KnowledgeLimits {
+  allowedExtensions: string[];
+  maxFileBytes: number;
+  maxFilesPerRequest: number;
+  maxQueryCharacters: number;
+  maxSearchKnowledgeBases: number;
+  maxTopK: number;
+  maxResultTokens: number;
+}
+
+export interface KnowledgeBaseList extends KnowledgePage<KnowledgeBase> {
+  viewer: { memberId: string; enterpriseId: string; role: 'ADMIN' | 'EMPLOYEE' };
+  capabilities: { canCreateKnowledgeBase: boolean; canListGrantCandidates: boolean };
+  limits: KnowledgeLimits;
+}
+
+export interface KnowledgeMemberDisplay {
+  memberId: string;
+  name: string;
+  avatarUrl: string | null;
+  position: string | null;
+  departmentName: string | null;
+}
+
+export interface KnowledgeMemberGrant {
+  id: string;
+  member: KnowledgeMemberDisplay;
+  grantedAt: string;
+  grantedBy: { memberId: string | null; name: string };
+}
+
+export type KnowledgeProcessingStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
+
+/** 本批文档读写暂沿用旧上传/状态接口，不伪造不可用的版本能力。 */
+export interface KnowledgeDocument {
+  id: string;
+  originalName: string;
+  fileSize: number;
+  mimeType: string;
+  status: KnowledgeProcessingStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastError?: string | null;
+  permissions?: { canDelete: boolean; canReprocess: boolean };
+}
+
+export interface KnowledgePreviewBlock {
+  blockId: string;
+  type: 'HEADING' | 'PARAGRAPH' | 'TABLE' | 'LIST' | 'CODE';
+  text: string;
+  location: {
+    pageStart: number | null;
+    pageEnd: number | null;
+    sectionPath: string[];
+    blockStart: number;
+    blockEnd: number;
   };
+}
+
+export interface KnowledgeDocumentPreview extends KnowledgePage<{ chunkId: string; text: string }> {
+  documentId: string;
+  documentName: string;
+  previewKind: 'PROCESSED_CHUNKS';
 }
 
 // ── Cost Analytics (Phase 3) ──────────────────────────────────────────────────

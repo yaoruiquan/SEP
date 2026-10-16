@@ -183,8 +183,8 @@ function filenameFromContentDisposition(value: string | null): string {
   }
 }
 
-/** 上传 multipart 表单（员工包发布）。不设 Content-Type，让浏览器带 boundary。 */
-export async function uploadForm<T>(path: string, form: FormData): Promise<T> {
+/** 上传 multipart 表单。不设 Content-Type，让浏览器带 boundary。401 时仅刷新并重放一次。 */
+export async function uploadForm<T>(path: string, form: FormData, skipAuthRetry = false): Promise<T> {
   const token = authAccessor.getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
@@ -192,6 +192,12 @@ export async function uploadForm<T>(path: string, form: FormData): Promise<T> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
+
+  if (res.status === 401 && !skipAuthRetry) {
+    if (await tryRefresh()) return uploadForm<T>(path, form, true);
+    authAccessor.clear();
+    throw new ApiError(401, 'Unauthorized');
+  }
 
   const text = await res.text();
   const data = text ? safeJson(text) : undefined;

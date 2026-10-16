@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -37,10 +36,6 @@ type FormState = {
   defaultChatModel: string;
   allowedChatModels: string[];
   allowUserSwitchModel: boolean;
-  embeddingModel: string;
-  rerankModel: string | null;
-  embeddingBatchSize: number;
-  embeddingTimeoutMs: number;
   employeeModelPolicy: EmployeeModelPolicy;
   employeeDefaultModel: string | null;
   plannerModel: string;
@@ -51,10 +46,6 @@ function toFormState(config: EnterpriseModelConfig): FormState {
     defaultChatModel: config.defaultChatModel,
     allowedChatModels: config.allowedChatModels,
     allowUserSwitchModel: config.allowUserSwitchModel,
-    embeddingModel: config.embeddingModel,
-    rerankModel: config.rerankModel,
-    embeddingBatchSize: config.embeddingBatchSize,
-    embeddingTimeoutMs: config.embeddingTimeoutMs,
     employeeModelPolicy: config.employeeModelPolicy,
     employeeDefaultModel: config.employeeDefaultModel,
     // null → 空串：Radix Select 的 value 不能是 null，用 FOLLOW_PLATFORM 当哨兵
@@ -65,7 +56,7 @@ function toFormState(config: EnterpriseModelConfig): FormState {
 /**
  * 模型配置表单。
  *
- * 四个 Tab：会话模型 / 知识库模型 / 员工模型 / 编排模型。
+ * 三个 Tab：会话模型 / 员工模型 / 编排模型。知识库处理参数由平台统一维护。
  *
  * 「预算控制」已删除（2026-09-05）：它的拦截读的是对话链路早已不写的
  * compute_transactions，告警读的 cost_daily_rollups 在本地与生产都是 0 行，
@@ -103,9 +94,8 @@ export function ModelConfigForm({
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="chat">会话模型</TabsTrigger>
-          <TabsTrigger value="knowledge">知识库模型</TabsTrigger>
           <TabsTrigger value="employee">员工模型</TabsTrigger>
           <TabsTrigger value="planner">编排模型</TabsTrigger>
         </TabsList>
@@ -179,72 +169,7 @@ export function ModelConfigForm({
           </section>
         </TabsContent>
 
-        {/* ── Tab 2: 知识库模型 ───────────────────────────────────────── */}
-        <TabsContent value="knowledge" className="mt-4 space-y-6">
-          <section className="space-y-4 rounded-lg border border-border bg-card p-6">
-            <div>
-              <h3 className="text-lg font-semibold">Embedding 模型</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                文档向量化由平台统一部署，变更模型后需要全量重建向量索引
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="embedding-model">模型</Label>
-              <Input id="embedding-model" value={form.embeddingModel} disabled />
-              <p className="text-xs text-muted-foreground">
-                当前生效值来自平台环境变量 EMBEDDING_MODEL，企业成员不可修改。
-              </p>
-            </div>
-          </section>
-
-          <section className="space-y-4 rounded-lg border border-border bg-card p-6">
-            <div>
-              <h3 className="text-lg font-semibold">Rerank 模型（可选）</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                检索后重排序模型，留空则不使用
-              </p>
-            </div>
-            <Input
-              value={form.rerankModel ?? ''}
-              onChange={(e) => patch({ rerankModel: e.target.value || null })}
-              placeholder="留空表示不使用"
-              disabled={readOnly}
-            />
-          </section>
-
-          <section className="grid gap-4 rounded-lg border border-border bg-card p-6 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="batch-size">向量化批大小</Label>
-              <Input
-                id="batch-size"
-                type="number"
-                min={1}
-                max={512}
-                value={form.embeddingBatchSize}
-                disabled
-              />
-              <p className="text-xs text-muted-foreground">
-                平台部署参数 EMBEDDING_BATCH_SIZE
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="timeout">向量化超时（毫秒）</Label>
-              <Input
-                id="timeout"
-                type="number"
-                min={1000}
-                step={1000}
-                value={form.embeddingTimeoutMs}
-                disabled
-              />
-              <p className="text-xs text-muted-foreground">
-                平台部署参数 EMBEDDING_TIMEOUT_MS
-              </p>
-            </div>
-          </section>
-        </TabsContent>
-
-        {/* ── Tab 3: 员工模型 ─────────────────────────────────────────── */}
+        {/* ── Tab 2: 员工模型 ───────────────────────────────────────── */}
         <TabsContent value="employee" className="mt-4 space-y-6">
           <section className="space-y-4 rounded-lg border border-border bg-card p-6">
             <div>
@@ -306,7 +231,7 @@ export function ModelConfigForm({
           </section>
         </TabsContent>
 
-        {/* ── Tab 4: 编排模型 ─────────────────────────────────────────── */}
+        {/* ── Tab 3: 编排模型 ─────────────────────────────────────────── */}
         <TabsContent value="planner" className="mt-4 space-y-6">
           <section className="space-y-4 rounded-lg border border-border bg-card p-6">
             <div>

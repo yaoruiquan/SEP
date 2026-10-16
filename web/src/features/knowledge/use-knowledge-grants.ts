@@ -1,81 +1,47 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useKnowledgeCacheScope, knowledgeQueryOptions } from './knowledge-cache';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { EmployeeAvatarAsset } from '@/lib/types';
+import type { KnowledgeMemberDisplay, KnowledgeMemberGrant, KnowledgePage } from '@/lib/types';
+import { knowledgeQuery, type KnowledgeListParams } from './use-knowledge-bases';
 
-// ── 类型 ──────────────────────────────────────────────────────────────────────
-
-export interface KnowledgeGrant {
-  id: string;
-  knowledgeBaseId: string;
-  subscriptionId: string | null;
-  departmentId: string | null;
-  createdAt: string;
-  subscription?: {
-    id: string;
-    /** 企业自定义称呼，可能为空 */
-    name: string | null;
-    employee: { id: string; name: string };
-  } | null;
-  department?: {
-    id: string;
-    name: string;
-  } | null;
-}
-
-/** 授权对象：雇佣关系。收敛后即「本企业在册的某个硅基员工」 */
-export interface GrantableSubscription {
-  id: string;
-  name: string;
-  status: string;
-  employee: {
-    id: string;
-    name: string;
-    avatar: string | null;
-    avatarAsset?: EmployeeAvatarAsset | null;
-  };
-}
-
-// ── Hooks ─────────────────────────────────────────────────────────────────────
-
-/** 知识库授权列表 */
-export function useKnowledgeGrants(knowledgeBaseId: string | null) {
-  return useQuery<KnowledgeGrant[]>({
-    queryKey: ['knowledge-grants', knowledgeBaseId],
-    queryFn: () => api.get<KnowledgeGrant[]>(`/knowledge-bases/${knowledgeBaseId}/grants`),
-    enabled: !!knowledgeBaseId,
+export function useKnowledgeGrants(id: string | null, params: KnowledgeListParams = {}, enabled = true) {
+  const scope = useKnowledgeCacheScope();
+  return useQuery<KnowledgePage<KnowledgeMemberGrant>>({
+    queryKey: ['knowledge-grants', id, params, scope],
+    queryFn: () => api.get(`/knowledge-bases/${id}/grants?${knowledgeQuery(params)}`),
+    enabled: !!id && enabled,
+    ...knowledgeQueryOptions,
   });
 }
 
-/** 企业雇佣关系列表（用于选择授权对象） */
-export function useGrantableSubscriptions() {
-  return useQuery<GrantableSubscription[]>({
-    queryKey: ['subscriptions'],
-    queryFn: () => api.get<GrantableSubscription[]>('/subscriptions'),
+export function useGrantableMembers(params: KnowledgeListParams = {}, enabled = true) {
+  const scope = useKnowledgeCacheScope();
+  return useQuery<KnowledgePage<KnowledgeMemberDisplay>>({
+    queryKey: ['knowledge-grant-candidates', params, scope],
+    queryFn: () => api.get(`/enterprise/members?view=knowledge-grant&${knowledgeQuery(params)}`),
+    enabled,
+    ...knowledgeQueryOptions,
   });
 }
 
-/** 创建授权 */
-export function useCreateGrant(knowledgeBaseId: string) {
+export function useCreateGrant(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { subscriptionId?: string; departmentId?: string }) =>
-      api.post<KnowledgeGrant>(`/knowledge-bases/${knowledgeBaseId}/grants`, payload),
+    mutationFn: (payload: { memberIds: string[] }) => api.post(`/knowledge-bases/${id}/grants`, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['knowledge-grants', knowledgeBaseId] });
-      qc.invalidateQueries({ queryKey: ['knowledge-bases', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-grants', id] });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
     },
   });
 }
 
-/** 删除授权 */
-export function useDeleteGrant(knowledgeBaseId: string) {
+export function useDeleteGrant(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (grantId: string) =>
-      api.delete<{ success: boolean }>(`/knowledge-bases/grants/${grantId}`),
+    mutationFn: (memberId: string) => api.delete(`/knowledge-bases/${id}/grants/${memberId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['knowledge-grants', knowledgeBaseId] });
-      qc.invalidateQueries({ queryKey: ['knowledge-bases', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-grants', id] });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
     },
   });
 }

@@ -1,73 +1,94 @@
-import { Test } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, GoneException } from '@nestjs/common';
 import { KnowledgeService } from './knowledge.service';
-import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { VectorService } from './vector.service';
+import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 
-const ADMIN_CTX = {
-  enterpriseId: 'ent-a',
-  memberId: 'm-admin',
-  role: 'ENTERPRISE_ADMIN' as const,
-  departmentId: 'd-1',
-};
+const ADMIN = { enterpriseId: 'ent-a', id: 'm-admin', memberId: 'm-admin', role: 'ENTERPRISE_ADMIN', departmentId: null };
 
-describe('KnowledgeService', () => {
-  let service: KnowledgeService;
+describe('KnowledgeService member contracts', () => {
   let prisma: any;
-  let ctx: any;
-
-  beforeEach(async () => {
-    prisma = {
-      subscription: { findUnique: jest.fn(), findFirst: jest.fn() },
-      knowledgeGrant: { findMany: jest.fn().mockResolvedValue([]) },
-      knowledgeBase: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
+  let tx: any;
+  let service: KnowledgeService;
+  beforeEach(() => {
+    tx = {
+      enterpriseMember: { findFirst: jest.fn().mockResolvedValue(ADMIN),
+        findUnique: jest.fn().mockResolvedValue({ ...ADMIN, user: { name: '管理员' } }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'm-1' }, { id: 'm-2' }]) },
+      knowledgeBase: { findFirst: jest.fn().mockResolvedValue({ id: 'kb-a' }), update: jest.fn().mockResolvedValue({}) },
+      knowledgeMemberGrant: { createMany: jest.fn().mockResolvedValue({ count: 1 }), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
-    ctx = { resolve: jest.fn().mockResolvedValue(ADMIN_CTX) };
-
-    const mod = await Test.createTestingModule({
-      providers: [
-        KnowledgeService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: EnterpriseContextService, useValue: ctx },
-        { provide: VectorService, useValue: { invalidateCache: jest.fn() } },
-      ],
-    }).compile();
-
-    service = mod.get(KnowledgeService);
+    prisma = {
+      knowledgeBase: { findFirst: jest.fn().mockResolvedValue({ id: 'kb-a' }),
+        findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      document: { count: jest.fn().mockResolvedValue(0) },
+      knowledgeGrant: { create: jest.fn(), delete: jest.fn(), findMany: jest.fn() },
+      $transaction: jest.fn(async callback => callback(tx)),
+    };
+    const context = { resolve: jest.fn().mockResolvedValue(ADMIN) } as any;
+    service = new KnowledgeService(prisma, new KnowledgeAccessPolicy(prisma, context), { invalidateCache: jest.fn() } as any);
   });
 
-  describe('listGrantsBySubscription —— 按雇佣关系反查可读知识库', () => {
-    it('本企业的雇佣关系：返回该关系上的知识库授权', async () => {
-      prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
-      const rows = [
-        { id: 'g1', knowledgeBase: { id: 'kb1', name: '产品手册' } },
-      ];
-      prisma.knowledgeGrant.findMany.mockResolvedValue(rows);
+  it('returns pagination envelope with real-member viewer and capabilities', async () => {
+    const result = await service.list('u-admin');
+    expect(result).toMatchObject({ items: [], page: 1, pageSize: 20, total: 0,
+      viewer: { memberId: 'm-admin', enterpriseId: 'ent-a', role: 'ADMIN' },
+      capabilities: { canCreateKnowledgeBase: true, canListGrantCandidates: true } });
+    expect(result.limits.allowedExtensions).toEqual(['.pdf', '.docx', '.txt', '.md']);
+  });
 
-      await expect(service.listGrantsBySubscription('u1', 'sub-1')).resolves.toEqual({ grants: rows });
-      expect(prisma.knowledgeGrant.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { subscriptionId: 'sub-1' } }),
-      );
+  it('ordinary-member list query counts only explicit grants before pagination', async () => {
+    const policy = new KnowledgeAccessPolicy(prisma, { resolve: jest.fn().mockResolvedValue({ ...ADMIN, role: 'MEMBER' }) } as any);
+    service = new KnowledgeService(prisma, policy, {} as any);
+    const result = await service.list('u-a', { page: 2, pageSize: 10, keyword: 'policy' });
+    expect(prisma.knowledgeBase.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      skip: 10, take: 10, where: expect.objectContaining({ enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-admin' } } }),
+    }));
+    expect(result.capabilities.canCreateKnowledgeBase).toBe(false);
+  });
+
+  it('validates the entire grant batch before any insert', async () => {
+    tx.enterpriseMember.findMany.mockResolvedValue([{ id: 'm-1' }]);
+    await expect(service.createGrant('u-admin', 'kb-a', { memberIds: ['m-1', 'foreign'] })).rejects.toThrow(BadRequestException);
+    expect(tx.knowledgeMemberGrant.createMany).not.toHaveBeenCalled();
+    expect(tx.knowledgeBase.update).not.toHaveBeenCalled();
+  });
+
+  it('uses a single transaction and unique conflict skipping for repeated grants', async () => {
+    tx.knowledgeMemberGrant.createMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    await expect(service.createGrant('u-admin', 'kb-a', { memberIds: ['m-1', 'm-2'] })).resolves.toEqual({
+      addedMemberIds: ['m-1'], existingMemberIds: ['m-2'],
     });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.knowledgeMemberGrant.createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
+    expect(prisma.knowledgeGrant.create).not.toHaveBeenCalled();
+  });
 
-    it('别家企业的雇佣关系：抛 Forbidden，不能返空数组糊过去', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+  it('rechecks membership inside grant transaction and returns 403 before writing', async () => {
+    tx.enterpriseMember.findFirst.mockResolvedValue(null);
+    await expect(service.createGrant('u-admin', 'kb-a', { memberIds: ['m-1'] })).rejects.toThrow(ForbiddenException);
+    expect(tx.knowledgeMemberGrant.createMany).not.toHaveBeenCalled();
+  });
 
-      await expect(
-        service.listGrantsBySubscription('u1', 'sub-other'),
-      ).rejects.toThrow(ForbiddenException);
-      // 越权时绝不能落到查询 —— 否则改一行 where 就漏数据
-      expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
-    });
+  it('rejects admin demotion observed after locking before grant or revoke writes', async () => {
+    tx.enterpriseMember.findUnique.mockResolvedValue({ ...ADMIN, role: 'MEMBER' });
+    await expect(service.createGrant('u-admin', 'kb-a', { memberIds: ['m-1'] })).rejects.toThrow(ForbiddenException);
+    await expect(service.revokeMemberGrant('u-admin', 'kb-a', 'm-1')).rejects.toThrow(ForbiddenException);
+    expect(tx.knowledgeMemberGrant.createMany).not.toHaveBeenCalled();
+    expect(tx.knowledgeMemberGrant.deleteMany).not.toHaveBeenCalled();
+  });
 
-    it('雇佣关系不存在：同样抛 Forbidden，不泄漏 id 是否存在', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+  it('validates target members only after shared row locks and does not revise duplicate-only batches', async () => {
+    tx.knowledgeMemberGrant.createMany.mockResolvedValue({ count: 0 });
+    await service.createGrant('u-admin', 'kb-a', { memberIds: ['m-1', 'm-2'] });
+    const lockOrder = tx.$queryRaw.mock.invocationCallOrder[1];
+    expect(lockOrder).toBeLessThan(tx.enterpriseMember.findMany.mock.invocationCallOrder[0]);
+    expect(tx.knowledgeBase.update).not.toHaveBeenCalled();
+  });
 
-      await expect(
-        service.listGrantsBySubscription('u1', 'sub-ghost'),
-      ).rejects.toThrow(ForbiddenException);
-      expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
-    });
+  it('does not allow legacy grant endpoints to read or mutate old audit rows', async () => {
+    await expect(service.listGrantsBySubscription('u-admin', 'sub-a')).rejects.toThrow(GoneException);
+    await expect(service.deleteGrant('u-admin', 'old-g')).rejects.toThrow(GoneException);
+    expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
+    expect(prisma.knowledgeGrant.delete).not.toHaveBeenCalled();
   });
 });

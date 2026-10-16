@@ -105,7 +105,7 @@ const NAV_GROUPS: NavGroup[] = [
       // 而「迭代」正是技术词；「技能库 / 知识库」在同一组里天然对称，一眼看得懂各是什么。
       { href: '/capabilities', label: nav.capabilities, icon: Library },
       // 知识库是企业的文档资产，与技能库并列
-      { href: '/knowledge', label: nav.knowledge, icon: BookOpen },
+      { href: '/knowledge', label: nav.knowledge, icon: BookOpen, adminOnly: true },
       //
       // 能力贡献中心：把企业的技能投到平台市场。
       //

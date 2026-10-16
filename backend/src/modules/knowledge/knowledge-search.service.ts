@@ -1,9 +1,11 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
 import { LexicalSearchService } from './lexical-search.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { KnowledgeAccessPolicy } from './knowledge-access-policy';
+import type { KnowledgeMemberSearchDto } from 'shared';
 
 export interface SearchResult {
   content: string;
@@ -11,6 +13,8 @@ export interface SearchResult {
   score: number;
   knowledgeBaseId: string;
   chunkId: string;
+  documentId?: string;
+  documentName?: string;
 }
 
 export interface SearchResponse {
@@ -32,6 +36,7 @@ export class KnowledgeSearchService {
     private vector: VectorService,
     private lexical: LexicalSearchService,
     private enterpriseContext: EnterpriseContextService,
+    private policy: KnowledgeAccessPolicy,
   ) {}
 
   /**
@@ -51,7 +56,7 @@ export class KnowledgeSearchService {
     );
 
     // 1. 安全边界：获取授权 + 企业隔离
-    const context = await this.enterpriseContext.resolve(userId);
+    const context = await this.policy.resolve(userId);
     const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
       where: {
@@ -80,7 +85,7 @@ export class KnowledgeSearchService {
     // 2. 获取授权的知识库（企业前置过滤）
     const grants = await this.prisma.knowledgeGrant.findMany({
       where: {
-        knowledgeBase: { enterpriseId },
+        knowledgeBase: this.policy.readableWhere(context),
         OR: [
           {
             subscriptionId,
@@ -146,7 +151,49 @@ export class KnowledgeSearchService {
       ),
     );
 
+    results = await this.authorizedResults(userId, kbIds, results);
     return { count: results.length, results, strategy: actualStrategy, durationMs };
+  }
+
+  /** First-batch search over explicit member access; versioned sources are a later delivery. */
+  async searchForMember(userId: string, dto: KnowledgeMemberSearchDto): Promise<SearchResponse> {
+    const started = Date.now();
+    const viewer = await this.policy.resolve(userId);
+    const bases = await this.prisma.knowledgeBase.findMany({ where: {
+      ...this.policy.readableWhere(viewer), ...(dto.knowledgeBaseIds ? { id: { in: dto.knowledgeBaseIds } } : {}),
+    }, select: { id: true } });
+    if (dto.knowledgeBaseIds && bases.length !== dto.knowledgeBaseIds.length) this.policy.notFound();
+    const kbIds = bases.map(base => base.id);
+    if (!kbIds.length) return { count: 0, results: [], strategy: 'lexical', durationMs: Date.now() - started };
+    try {
+      const strategy = await this.resolveStrategy('auto');
+      const candidates = strategy === 'hybrid'
+        ? await this.searchHybrid(dto.query, viewer.enterpriseId, kbIds, dto.topK, 0.7)
+        : await this.searchLexical(dto.query, viewer.enterpriseId, kbIds, dto.topK);
+      const results = await this.authorizedResults(userId, kbIds, candidates);
+      return { count: results.length, results, strategy, durationMs: Date.now() - started };
+    } catch (error) {
+      if (error instanceof ForbiddenException || error instanceof NotFoundException) throw error;
+      this.logger.error('Member knowledge retrieval failed');
+      throw new ServiceUnavailableException({ code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '知识库检索暂时不可用' });
+    }
+  }
+
+  private async authorizedResults(userId: string, knowledgeBaseIds: string[], results: SearchResult[]): Promise<SearchResult[]> {
+    if (!results.length) return [];
+    const viewer = await this.policy.resolve(userId);
+    const chunks = await this.prisma.textChunk.findMany({ where: {
+      id: { in: results.map(result => result.chunkId) }, knowledgeBaseId: { in: knowledgeBaseIds },
+      knowledgeBase: this.policy.readableWhere(viewer), document: { status: 'READY' },
+    }, select: { id: true, content: true, source: true, knowledgeBaseId: true,
+      document: { select: { id: true, originalName: true } } } });
+    const allowed = new Map(chunks.map(chunk => [chunk.id, chunk]));
+    return results.flatMap(result => {
+      const chunk = allowed.get(result.chunkId);
+      return chunk?.document ? [{ ...result, content: chunk.content, source: chunk.source,
+        knowledgeBaseId: chunk.knowledgeBaseId, documentId: chunk.document.id,
+        documentName: chunk.document.originalName }] : [];
+    });
   }
 
   /**
@@ -196,7 +243,7 @@ export class KnowledgeSearchService {
     const embeddingAvailable = await this.embedding.isAvailable();
     if (!embeddingAvailable) {
       this.logger.warn('Embedding service unavailable, returning empty results');
-      return [];
+      throw new ServiceUnavailableException({ code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '向量检索暂时不可用' });
     }
 
     const embeddingResult = await this.embedding.embed(query);
@@ -216,7 +263,7 @@ export class KnowledgeSearchService {
     // 补充 chunk 内容
     const chunkIds = filtered.map((r) => r.chunkId);
     const chunks = await this.prisma.textChunk.findMany({
-      where: { id: { in: chunkIds } },
+      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, knowledgeBase: { enterpriseId }, document: { status: 'READY' } },
       select: { id: true, content: true, source: true, knowledgeBaseId: true },
     });
 
@@ -281,7 +328,7 @@ export class KnowledgeSearchService {
     // 批量加载 chunk 内容
     const chunkIds = topResults.map((r) => r.chunkId);
     const chunks = await this.prisma.textChunk.findMany({
-      where: { id: { in: chunkIds } },
+      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, knowledgeBase: { enterpriseId }, document: { status: 'READY' } },
       select: { id: true, content: true, source: true, knowledgeBaseId: true },
     });
 
@@ -344,26 +391,28 @@ export class KnowledgeSearchService {
     topK: number = 5,
     scoreThreshold: number = 0.7,
     strategy: SearchStrategy = 'auto',
+    userId?: string,
   ): Promise<SearchResult[]> {
-    // 获取企业 ID（用于缓存键）
-    const kb = await this.prisma.knowledgeBase.findFirst({
-      where: { id: { in: knowledgeBaseIds } },
-      select: { enterpriseId: true },
+    if (!userId) throw new ForbiddenException('检索必须提供有效成员身份');
+    const viewer = await this.policy.resolve(userId);
+    const bases = await this.prisma.knowledgeBase.findMany({
+      where: { id: { in: knowledgeBaseIds }, ...this.policy.readableWhere(viewer) }, select: { id: true },
     });
-
-    if (!kb) throw new NotFoundException('知识库不存在');
+    if (bases.length !== new Set(knowledgeBaseIds).size) this.policy.notFound();
 
     // 策略解析
     const actualStrategy = await this.resolveStrategy(strategy);
 
     // 执行检索
+    let results: SearchResult[];
     switch (actualStrategy) {
       case 'lexical':
-        return this.searchLexical(query, kb.enterpriseId, knowledgeBaseIds, topK);
+        results = await this.searchLexical(query, viewer.enterpriseId, knowledgeBaseIds, topK); break;
       case 'vector':
-        return this.searchVector(query, kb.enterpriseId, knowledgeBaseIds, topK, scoreThreshold);
+        results = await this.searchVector(query, viewer.enterpriseId, knowledgeBaseIds, topK, scoreThreshold); break;
       case 'hybrid':
-        return this.searchHybrid(query, kb.enterpriseId, knowledgeBaseIds, topK, scoreThreshold);
+        results = await this.searchHybrid(query, viewer.enterpriseId, knowledgeBaseIds, topK, scoreThreshold); break;
     }
+    return this.authorizedResults(userId, knowledgeBaseIds, results);
   }
 }

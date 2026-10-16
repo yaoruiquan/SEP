@@ -5,15 +5,15 @@ import { z } from 'zod';
 // ============================================================================
 
 export const KnowledgeBaseCreateDtoSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-});
+  name: z.string().trim().min(1).max(80),
+  description: z.string().max(1000).optional(),
+}).strict();
 export type KnowledgeBaseCreateDto = z.infer<typeof KnowledgeBaseCreateDtoSchema>;
 
 export const KnowledgeBaseUpdateDtoSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  description: z.string().max(500).optional().nullable(),
-});
+  name: z.string().trim().min(1).max(80).optional(),
+  description: z.string().max(1000).optional(),
+}).strict().refine(data => Object.keys(data).length > 0, 'At least one field is required');
 export type KnowledgeBaseUpdateDto = z.infer<typeof KnowledgeBaseUpdateDtoSchema>;
 
 export const DocumentUploadDtoSchema = z.object({
@@ -27,7 +27,7 @@ export type DocumentUploadDto = z.infer<typeof DocumentUploadDtoSchema>;
 export const KnowledgeGrantCreateDtoSchema = z.object({
   subscriptionId: z.string().optional(),
   departmentId: z.string().optional(),
-}).refine(data => data.subscriptionId || data.departmentId, {
+}).strict().refine(data => data.subscriptionId || data.departmentId, {
   message: 'Either subscriptionId or departmentId must be provided',
 });
 export type KnowledgeGrantCreateDto = z.infer<typeof KnowledgeGrantCreateDtoSchema>;
@@ -43,7 +43,7 @@ export const TestSearchDtoSchema = z.object({
   scoreThreshold: z.number().min(0).max(1).optional().default(0.5),
   useRerank: z.boolean().optional().default(false),
   strategy: z.enum(['lexical', 'vector', 'hybrid', 'auto']).optional().default('auto'),
-});
+}).strict();
 export type TestSearchDto = z.infer<typeof TestSearchDtoSchema>;
 
 /** 批量重处理请求 */
@@ -54,3 +54,47 @@ export const BatchReprocessDtoSchema = z.object({
   statuses: z.array(z.enum(['PENDING', 'PROCESSING', 'FAILED'])).optional(),
 });
 export type BatchReprocessDto = z.infer<typeof BatchReprocessDtoSchema>;
+
+const KnowledgeIdSchema = z.string().trim().min(1).max(128);
+export const KnowledgePageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(1000000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  keyword: z.string().trim().max(100).optional(),
+}).strict();
+export type KnowledgePageQuery = z.infer<typeof KnowledgePageQuerySchema>;
+
+export const KnowledgePreviewQuerySchema = KnowledgePageQuerySchema.omit({ keyword: true });
+export const KnowledgeChunkQuerySchema = z.object({ search: z.string().trim().max(100).optional() }).strict();
+export const KnowledgeGrantCandidateQuerySchema = KnowledgePageQuerySchema.extend({ view: z.literal('knowledge-grant') });
+export type KnowledgeGrantCandidateQuery = z.infer<typeof KnowledgeGrantCandidateQuerySchema>;
+export const KnowledgeMemberGrantCreateDtoSchema = z.object({
+  memberIds: z.array(KnowledgeIdSchema).min(1).max(100)
+    .refine(ids => new Set(ids).size === ids.length, 'Member IDs must be unique'),
+}).strict();
+export type KnowledgeMemberGrantCreateDto = z.infer<typeof KnowledgeMemberGrantCreateDtoSchema>;
+/** Legacy bodies are parsed only to return controlled 410; never persisted. */
+export const KnowledgeGrantMutationDtoSchema = z.union([KnowledgeMemberGrantCreateDtoSchema, KnowledgeGrantCreateDtoSchema]);
+export type KnowledgeGrantMutationDto = z.infer<typeof KnowledgeGrantMutationDtoSchema>;
+export const KnowledgeMemberSearchDtoSchema = z.object({
+  query: z.string().trim().min(1).max(1000),
+  knowledgeBaseIds: z.array(KnowledgeIdSchema).min(1).max(100)
+    .refine(ids => new Set(ids).size === ids.length, 'Knowledge base IDs must be unique').optional(),
+  topK: z.number().int().min(1).max(20).default(5),
+}).strict();
+export type KnowledgeMemberSearchDto = z.infer<typeof KnowledgeMemberSearchDtoSchema>;
+export const KnowledgeEmptyBodySchema = z.object({}).strict();
+
+export const KNOWLEDGE_LIMITS = {
+  allowedExtensions: ['.pdf', '.docx', '.txt', '.md'], maxFileBytes: 10 * 1024 * 1024,
+  maxFilesPerRequest: 1, maxQueryCharacters: 1000, maxSearchKnowledgeBases: 100,
+  maxTopK: 20, maxResultTokens: 6000,
+};
+
+export function knowledgeMemberDisplay(member: {
+  id: string; position: string | null; user: { name: string | null; avatar: string | null };
+  department: { name: string } | null;
+}) {
+  return { memberId: member.id, name: member.user.name?.trim() || '企业成员',
+    avatarUrl: member.user.avatar, position: member.position,
+    departmentName: member.department?.name ?? null };
+}

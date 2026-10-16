@@ -1,190 +1,61 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Search, FileText, Users, Calendar, Edit, Trash2, BookOpen } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, Edit, Plus, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { EmptyState, CenteredSpinner } from '@/components/ui/feedback';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { CenteredSpinner, ErrorState } from '@/components/ui/feedback';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useKnowledgeBases, useDeleteKnowledgeBase } from '@/features/knowledge/use-knowledge-bases';
 import { KnowledgeDialog } from '@/features/knowledge/knowledge-dialog';
-import { useRouter } from 'next/navigation';
+import { KnowledgeAdminOnly, KnowledgeError, KnowledgeIconButton, KnowledgePagination, knowledgeError } from '@/features/knowledge/knowledge-ui';
 import type { KnowledgeBase } from '@/lib/types';
 
 export default function KnowledgePage() {
-  const router = useRouter();
-  const { data: knowledgeBases = [], isLoading } = useKnowledgeBases();
-  const deleteMutation = useDeleteKnowledgeBase();
+  return <KnowledgeAdminOnly><KnowledgeList /></KnowledgeAdminOnly>;
+}
 
-  const [search, setSearch] = useState('');
+function KnowledgeList() {
+  const [keyword, setKeyword] = useState('');
+  const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<KnowledgeBase | null>(null);
+  const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const bases = useKnowledgeBases({ keyword, page });
+  const remove = useDeleteKnowledgeBase();
 
-  const filteredKbs = knowledgeBases.filter((kb) =>
-    kb.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const handleEdit = (kb: KnowledgeBase) => {
-    setEditingKb(kb);
-    setDialogOpen(true);
-  };
-
-  const handleDeleteClick = (kb: KnowledgeBase) => {
-    setDeletingId(kb.id);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deletingId) return;
-    await deleteMutation.mutateAsync(deletingId);
-    setDeletingId(null);
-  };
-
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingKb(null);
-  };
-
-  const handleCardClick = (id: string) => {
-    router.push(`/knowledge/${id}`);
-  };
-
-  if (isLoading) {
-    return <CenteredSpinner label="加载知识库..." />;
+  async function confirmDelete() {
+    if (!deleting) return;
+    setError(null);
+    try {
+      await remove.mutateAsync(deleting.id);
+      setDeleting(null);
+      if (bases.data?.items.length === 1 && page > 1) setPage(page - 1);
+    } catch (cause) { setError(knowledgeError(cause)); }
   }
 
-  return (
-    <div className="container mx-auto max-w-6xl p-6">
-      {/* 页头 */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-gtext-primary">
-            <BookOpen className="h-6 w-6 text-primary" />
-            知识库
-          </h1>
-          <p className="mt-1 text-sm text-gtext-muted">
-            管理企业知识，为硅基员工提供专业知识支持
-          </p>
-        </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          新建知识库
-        </Button>
-      </div>
+  if (bases.isError) return <KnowledgeError error={bases.error} retry={() => { void bases.refetch(); }} />;
+  if (!bases.data) return <CenteredSpinner label="加载知识库…" />;
+  if (bases.data.viewer.role !== 'ADMIN') return <ErrorState title="仅企业管理员可管理知识库" message="请在客户端使用已获授权的知识库。" />;
 
-      {/* 搜索框 */}
-      <div className="mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" />
-          <Input
-            placeholder="搜索知识库..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-      </div>
-
-      {/* 知识库列表 */}
-      {filteredKbs.length === 0 ? (
-        <EmptyState
-          icon={<FileText className="h-12 w-12" />}
-          title={search ? '未找到匹配的知识库' : '还没有知识库'}
-          description={
-            search
-              ? '试试其他关键词'
-              : '创建第一个知识库，上传文档或添加知识内容，让硅基员工更专业'
-          }
-          action={
-            !search && (
-              <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                新建知识库
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredKbs.map((kb) => (
-            <Card
-              key={kb.id}
-              className="cursor-pointer p-5 transition-all hover:border-primary hover:shadow-md"
-              onClick={() => handleCardClick(kb.id)}
-            >
-              <div className="mb-3 flex items-start justify-between">
-                <h3 className="flex-1 text-lg font-semibold text-gtext-primary">
-                  {kb.name}
-                </h3>
-                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(kb)}
-                    className="h-8 w-8 p-0"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteClick(kb)}
-                    className="h-8 w-8 p-0 text-danger hover:text-danger"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {kb.description && (
-                <p className="mb-4 line-clamp-2 text-sm text-gtext-secondary">
-                  {kb.description}
-                </p>
-              )}
-
-              <div className="flex items-center gap-4 text-xs text-gtext-muted">
-                <div className="flex items-center gap-1">
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>{kb._count?.documents ?? 0} 个文档</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Users className="h-3.5 w-3.5" />
-                  <span>授权 {kb._count?.grants ?? 0} 个员工</span>
-                </div>
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-glassline flex items-center justify-between text-xs text-gtext-muted">
-                <span>创建人: {kb.creator.name || kb.creator.email}</span>
-                <span>
-                  更新于 {new Date(kb.updatedAt).toLocaleDateString('zh-CN')}
-                </span>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* 新建/编辑对话框 */}
-      <KnowledgeDialog
-        open={dialogOpen}
-        knowledgeBase={editingKb}
-        onClose={handleCloseDialog}
-      />
-
-      {/* 删除确认对话框 */}
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="确认删除知识库"
-        description="删除后所有文档、文本片段和授权记录将被永久删除，且无法恢复。"
-        variant="danger"
-        confirmText="删除"
-        onConfirm={handleDeleteConfirm}
-      />
-    </div>
-  );
+  return <div className="mx-auto w-full min-w-0 max-w-6xl space-y-5 p-4 md:p-6">
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-semibold"><BookOpen className="h-6 w-6 text-primary" />企业知识库</h1><p className="mt-1 text-sm text-gtext-muted">统一管理企业资料和成员权限，网页与客户端共享同一份知识。</p></div>
+      {bases.data.capabilities.canCreateKnowledgeBase && <Button onClick={() => { setEditing(null); setDialogOpen(true); }}><Plus className="mr-2 h-4 w-4" />新建知识库</Button>}
+    </header>
+    <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gtext-muted" /><Input aria-label="搜索知识库" placeholder="搜索知识库名称或说明" maxLength={100} value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} className="pl-9" /></div>
+    <div className="min-w-0 rounded-lg border border-glassline"><Table className="min-w-[720px] table-fixed"><TableHeader><TableRow><TableHead className="w-[45%]">知识库</TableHead><TableHead className="w-24">文档</TableHead><TableHead className="w-24">已就绪</TableHead><TableHead className="w-32">更新时间</TableHead><TableHead className="w-24 text-right">操作</TableHead></TableRow></TableHeader><TableBody>
+      {bases.data.items.map((kb) => <TableRow key={kb.id}><TableCell><Link href={`/knowledge/${kb.id}`} className="break-all font-medium text-primary hover:underline">{kb.name}</Link><p className="mt-1 line-clamp-2 break-words text-xs text-gtext-muted">{kb.description || '暂无说明'}</p></TableCell><TableCell>{kb.documentCount}</TableCell><TableCell>{kb.readyDocumentCount}</TableCell><TableCell className="text-xs text-gtext-muted">{new Date(kb.updatedAt).toLocaleDateString('zh-CN')}</TableCell><TableCell><div className="flex justify-end gap-1">
+        {kb.permissions.canManage && <><KnowledgeIconButton label={`编辑 ${kb.name}`} icon={Edit} onClick={() => { setEditing(kb); setDialogOpen(true); }} /><KnowledgeIconButton label={`删除 ${kb.name}`} icon={Trash2} danger onClick={() => { setDeleting(kb); setError(null); }} /></>}
+      </div></TableCell></TableRow>)}
+      {!bases.data.items.length && <TableRow><TableCell colSpan={5} className="py-14 text-center text-gtext-muted">{keyword ? '没有匹配的知识库，请更换关键词。' : '暂无知识库，创建后即可上传企业资料。'}</TableCell></TableRow>}
+    </TableBody></Table></div>
+    <KnowledgePagination {...bases.data} onPage={setPage} disabled={bases.isFetching} />
+    <KnowledgeDialog open={dialogOpen} knowledgeBase={editing} onClose={() => { setDialogOpen(false); setEditing(null); }} />
+    <Dialog open={!!deleting} onOpenChange={(open) => !open && !remove.isPending && setDeleting(null)}><DialogContent><DialogHeader><DialogTitle>删除知识库</DialogTitle><DialogDescription className="break-all">确定删除「{deleting?.name}」及其中的文档和成员授权？此操作无法撤销。</DialogDescription></DialogHeader>
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={remove.isPending} onClick={() => setDeleting(null)}>取消</Button><Button variant="danger" disabled={remove.isPending} onClick={confirmDelete}>{remove.isPending ? '删除中…' : '确认删除'}</Button></div>
+    </DialogContent></Dialog>
+  </div>;
 }

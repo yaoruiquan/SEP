@@ -45,6 +45,9 @@ import {
 import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
 import { MemberService } from "./member.service";
+import { KnowledgeGrantCandidateQuerySchema } from 'shared';
+import { BadRequestException, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { InvitationService } from "./invitation.service";
 import { GrantService } from "./grant.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
@@ -184,7 +187,15 @@ export class EnterpriseController {
   async listMembers(
     @Request() req: AuthedRequest,
     @Query("departmentId") departmentId?: string,
+    @Query() query?: Record<string, unknown>,
+    @Res({ passthrough: true }) response?: Response,
   ) {
+    if (query?.view !== undefined) {
+      if (query.view !== 'knowledge-grant') throw new BadRequestException('未知成员视图');
+      response?.setHeader('Cache-Control', 'no-store');
+      const parsed = new ZodValidationPipe(KnowledgeGrantCandidateQuerySchema).transform(query);
+      return this.members.listKnowledgeGrantCandidates(req.user.id, parsed);
+    }
     return this.members.list(req.user.id, departmentId);
   }
 

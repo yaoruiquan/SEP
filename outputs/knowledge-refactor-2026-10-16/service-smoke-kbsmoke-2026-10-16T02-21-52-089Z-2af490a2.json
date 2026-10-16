@@ -1,0 +1,762 @@
+{
+  "runId": "kbsmoke-2026-10-16T02-21-52-089Z-2af490a2",
+  "startedAt": "2026-10-16T02:21:52.090Z",
+  "scope": "Real isolated PostgreSQL, direct service calls",
+  "connection": {
+    "database": "sep_kb_refactor_20261016",
+    "username": "sep",
+    "host": "127.0.0.1",
+    "port": 5432,
+    "container": "sep-postgres",
+    "passwordSource": "docker printenv -> process memory",
+    "passwordPersisted": false
+  },
+  "runtime": {
+    "node": "v26.7.0",
+    "loader": "backend ts-node/register/transpile-only + tsconfig-paths/register"
+  },
+  "sourceHashesBefore": {
+    "backend/prisma/schema.prisma": "f9ab3e2d81a580d8c4736fdd3bdf75aa95b26a1f01e539b898ecc343e3ae9ba2",
+    "backend/src/prisma/prisma.service.ts": "174f38d01fd5e96c93b0687efc77ce4e01edccda00d08344f1ac001e10eb61ee",
+    "backend/src/modules/enterprise/enterprise-context.service.ts": "ebb55429745b8f4937d2060b376db97142502dd844b34d97e4a67abe7532fac1",
+    "backend/src/modules/knowledge/knowledge-access-policy.ts": "b22ecf540b8c0caeafa65dd2c92de219dfcae5128afc7540165f370f6a0266ca",
+    "backend/src/modules/knowledge/knowledge.service.ts": "ddf7e2619a89bff0a24ee20d80b48748ca2982eb242d43c7d1239582f13a34d0",
+    "backend/src/modules/knowledge/document.service.ts": "4893708f1a8b308bfad5c1dfa93d9831a1db3bfbb0d2533d5e4d62f5ae13e275",
+    "backend/src/modules/knowledge/knowledge-search.service.ts": "0fb13d89fb231594edd3c70afe3c5dfa4375812dd89bc8fbbbf093d7f44c9124",
+    "backend/src/modules/knowledge/lexical-search.service.ts": "b1df5cbceff10f29c2df309e714f50ea8fdb3b8c3e2f975c5b38d69ec768e97c",
+    "backend/src/modules/knowledge/text-tokenizer.service.ts": "e6ce376587ba6368822f14092cd58e2a84e919f14cc832865ed0c624bc4ef51f",
+    "backend/src/modules/knowledge/bm25-scorer.service.ts": "7152597a4d18340785c44cf877cbf3d971825365939c9008fbad566bc58033b5",
+    "backend/src/shared/knowledge.dto.ts": "5a777dbc659a014f390ce1e4390547b10a4d35532c381693d7da6bcd24b81f40"
+  },
+  "checks": [
+    {
+      "id": "admin-A-lists-only-own-KB",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 12,
+      "observed": {
+        "total": 1,
+        "ownEnterpriseOnly": true
+      }
+    },
+    {
+      "id": "admin-B-lists-only-own-KB",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "total": 1,
+        "ownEnterpriseOnly": true
+      }
+    },
+    {
+      "id": "admin-own-KB-detail",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "canManage": true,
+        "documentCount": 2,
+        "readyDocumentCount": 1
+      }
+    },
+    {
+      "id": "admin-cross-enterprise-detail-404",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "memberA-ungranted-list-empty",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 3,
+      "observed": {
+        "total": 0,
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "memberA-ungranted-detail-404",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "memberA-ungranted-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "memberA-ungranted-explicit-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "memberA-ungranted-search-empty",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "count": 0
+      }
+    },
+    {
+      "id": "managerA-ungranted-list-empty",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "total": 0,
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "managerA-ungranted-detail-404",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "managerA-ungranted-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "managerA-ungranted-explicit-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "managerA-ungranted-search-empty",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "count": 0
+      }
+    },
+    {
+      "id": "cross-enterprise-mixed-grant-batch-400-and-full-rollback",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 8,
+      "observed": {
+        "status": 400,
+        "code": "MEMBER_SELECTION_INVALID",
+        "before": {
+          "revision": 1,
+          "grantCount": 0
+        },
+        "after": {
+          "revision": 1,
+          "grantCount": 0
+        },
+        "noPartialGrant": true
+      }
+    },
+    {
+      "id": "same-enterprise-grant-batch-persists-and-increments-revision-once",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 9,
+      "observed": {
+        "addedCount": 2,
+        "before": {
+          "revision": 1,
+          "grantCount": 0
+        },
+        "after": {
+          "revision": 2,
+          "grantCount": 2
+        }
+      }
+    },
+    {
+      "id": "duplicate-grant-no-extra-row-or-revision",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 7,
+      "observed": {
+        "existingCount": 2,
+        "before": {
+          "revision": 2,
+          "grantCount": 2
+        },
+        "after": {
+          "revision": 2,
+          "grantCount": 2
+        }
+      }
+    },
+    {
+      "id": "memberA-granted-list",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "total": 1,
+        "canCreateKnowledgeBase": false
+      }
+    },
+    {
+      "id": "memberA-granted-detail-read-only",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "canView": true,
+        "canSearch": true,
+        "canManage": false,
+        "canUpload": false,
+        "canManageGrants": false
+      }
+    },
+    {
+      "id": "memberA-cannot-grant-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 403,
+        "code": "KNOWLEDGE_ADMIN_REQUIRED"
+      }
+    },
+    {
+      "id": "memberA-ready-document-preview",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 3,
+      "observed": {
+        "previewKind": "PROCESSED_CHUNKS",
+        "total": 1,
+        "exactFixtureText": true
+      }
+    },
+    {
+      "id": "memberA-real-lexical-search-ready-only",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 6,
+      "observed": {
+        "strategy": "lexical",
+        "count": 1,
+        "score": 0.5753641449035617,
+        "pendingAndOtherEnterpriseExcluded": true,
+        "realPgTrgmAndBM25": true
+      }
+    },
+    {
+      "id": "memberA-cross-enterprise-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "memberA-cross-enterprise-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "managerA-granted-list",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "total": 1,
+        "canCreateKnowledgeBase": false
+      }
+    },
+    {
+      "id": "managerA-granted-detail-read-only",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "canView": true,
+        "canSearch": true,
+        "canManage": false,
+        "canUpload": false,
+        "canManageGrants": false
+      }
+    },
+    {
+      "id": "managerA-cannot-grant-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 403,
+        "code": "KNOWLEDGE_ADMIN_REQUIRED"
+      }
+    },
+    {
+      "id": "managerA-ready-document-preview",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "previewKind": "PROCESSED_CHUNKS",
+        "total": 1,
+        "exactFixtureText": true
+      }
+    },
+    {
+      "id": "managerA-real-lexical-search-ready-only",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "strategy": "lexical",
+        "count": 1,
+        "score": 0.5753641449035617,
+        "pendingAndOtherEnterpriseExcluded": true,
+        "realPgTrgmAndBM25": true
+      }
+    },
+    {
+      "id": "managerA-cross-enterprise-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "managerA-cross-enterprise-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "preview-pending-document-409",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 409,
+        "code": "DOCUMENT_NOT_READY"
+      }
+    },
+    {
+      "id": "preview-page-after-last-is-empty",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "total": 1,
+        "page": 2,
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "revoke-member-grant-removes-row-and-increments-revision",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 7,
+      "observed": {
+        "before": {
+          "revision": 2,
+          "grantCount": 2
+        },
+        "after": {
+          "revision": 3,
+          "grantCount": 1
+        }
+      }
+    },
+    {
+      "id": "revoked-member-list-empty",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "total": 0,
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "revoked-member-detail-404",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "revoked-member-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "revoked-member-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "repeated-revoke-does-not-increment-revision",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 6,
+      "observed": {
+        "before": {
+          "revision": 3,
+          "grantCount": 1
+        },
+        "after": {
+          "revision": 3,
+          "grantCount": 1
+        }
+      }
+    },
+    {
+      "id": "regrant-before-departure",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 8,
+      "observed": {
+        "readable": true,
+        "membershipGrantCount": 1
+      }
+    },
+    {
+      "id": "membership-delete-database-cascades-grants",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 4,
+      "observed": {
+        "deletedMembership": "cmvacdk0q00097qh648bv5o6b",
+        "beforeGrantCount": 1,
+        "afterGrantCount": 0,
+        "otherMemberGrantPreserved": true
+      }
+    },
+    {
+      "id": "departed-member-has-no-enterprise-context-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "rejoin-creates-new-memberId-without-old-grants",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "oldMemberId": "cmvacdk0q00097qh648bv5o6b",
+        "newMemberId": "cmvacdk4f00167qh69werxvdh",
+        "grantCount": 0
+      }
+    },
+    {
+      "id": "rejoined-member-list-empty",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "total": 0,
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "rejoined-member-detail-404",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "rejoined-member-preview-404",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "rejoined-member-search-404",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 404,
+        "code": "KNOWLEDGE_RESOURCE_NOT_FOUND"
+      }
+    },
+    {
+      "id": "manager-still-reads-after-other-member-departure",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "unaffected": true
+      }
+    },
+    {
+      "id": "global-ADMIN-fixture-has-no-membership",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 2,
+      "observed": {
+        "globalRole": "ADMIN",
+        "membershipCount": 0
+      }
+    },
+    {
+      "id": "global-ADMIN-no-membership-list-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "global-ADMIN-no-membership-detail-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "global-ADMIN-no-membership-grant-403",
+      "area": "permission",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "global-ADMIN-no-membership-preview-403",
+      "area": "preview",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "global-ADMIN-no-membership-search-403",
+      "area": "search",
+      "status": "passed",
+      "durationMs": 1,
+      "observed": {
+        "status": 403,
+        "code": "ENTERPRISE_MEMBERSHIP_REQUIRED"
+      }
+    },
+    {
+      "id": "no-upload-or-model-or-vector-or-queue-calls",
+      "area": "boundary",
+      "status": "passed",
+      "durationMs": 0,
+      "observed": {
+        "embeddingAvailabilityChecks": 2,
+        "forbiddenDependencyCalls": 0,
+        "physicalUploadsCreated": 0
+      }
+    }
+  ],
+  "fixtures": {
+    "enterpriseA": "cmvacdk0c00007qh6myzniwzq",
+    "enterpriseB": "cmvacdk0g00017qh6uauqbnos",
+    "departmentA": "cmvacdk0h00037qh642moelmb",
+    "users": {
+      "adminA": "cmvacdk0k00047qh63q3f84ie",
+      "memberA": "cmvacdk0q00077qh6d1aq4g6c",
+      "managerA": "cmvacdk0r000a7qh6r1h6zlk5",
+      "adminB": "cmvacdk0s000d7qh6ze1c516j",
+      "memberB": "cmvacdk0t000g7qh6juzp8upx",
+      "globalAdmin": "cmvacdk0u000j7qh60als2zft"
+    },
+    "members": {
+      "adminA": "cmvacdk0o00067qh6d546624k",
+      "memberA": "cmvacdk0q00097qh648bv5o6b",
+      "managerA": "cmvacdk0s000c7qh61tee5xys",
+      "adminB": "cmvacdk0t000f7qh6l3ic20of",
+      "memberB": "cmvacdk0t000i7qh61lr1iqo2"
+    },
+    "knowledgeBases": {
+      "A": "cmvacdk0w000l7qh6hfvj8bjo",
+      "B": "cmvacdk14000n7qh6se1oy80j"
+    },
+    "documents": {
+      "readyA": "cmvacdk16000p7qh6q5u2gemg",
+      "pendingA": "cmvacdk1a000t7qh6x27onv7q",
+      "readyB": "cmvacdk1c000x7qh6r8eeg03v"
+    },
+    "chunks": {
+      "readyA": "cmvacdk17000r7qh6zv1ks1kz",
+      "pendingA": "cmvacdk1b000v7qh68xplhmmv",
+      "readyB": "cmvacdk1d000z7qh6pc2w2lhy"
+    },
+    "rejoinedMember": "cmvacdk4f00167qh69werxvdh"
+  },
+  "boundaries": {
+    "realDatabase": true,
+    "realPrismaAndPolicy": true,
+    "realLexicalAndBM25": true,
+    "httpCovered": false,
+    "uploadsCovered": false,
+    "modelCallsCovered": false,
+    "vectorCovered": false,
+    "parsedDocumentPipelineCovered": false,
+    "fixturesRetained": true
+  },
+  "limitations": [
+    "Direct service calls do not cover HTTP guards, controllers, DTO validation, browser behavior or SSE.",
+    "READY documents/chunks are synthetic rows; upload, parsing, queues, embeddings and vector search are not exercised.",
+    "Membership departure is a direct Prisma delete, proving the database cascade; enterprise member removal API is not exercised.",
+    "No concurrent race/load tests. Synthetic fixture rows are retained only in the isolated database."
+  ],
+  "preflight": {
+    "database": "sep_kb_refactor_20261016",
+    "username": "sep",
+    "appliedMigrations": 89,
+    "assertedBeforeWrites": true,
+    "extensions": [
+      {
+        "extname": "pg_trgm"
+      },
+      {
+        "extname": "vector"
+      }
+    ]
+  },
+  "finalDatabaseState": {
+    "A": {
+      "revision": 4,
+      "grantCount": 1
+    },
+    "B": {
+      "revision": 1,
+      "grantCount": 0
+    },
+    "syntheticEnterpriseCount": 2,
+    "syntheticUserCount": 6,
+    "documentCount": 3,
+    "chunkCount": 3
+  },
+  "sourceHashesAfter": {
+    "backend/prisma/schema.prisma": "f9ab3e2d81a580d8c4736fdd3bdf75aa95b26a1f01e539b898ecc343e3ae9ba2",
+    "backend/src/prisma/prisma.service.ts": "174f38d01fd5e96c93b0687efc77ce4e01edccda00d08344f1ac001e10eb61ee",
+    "backend/src/modules/enterprise/enterprise-context.service.ts": "ebb55429745b8f4937d2060b376db97142502dd844b34d97e4a67abe7532fac1",
+    "backend/src/modules/knowledge/knowledge-access-policy.ts": "b22ecf540b8c0caeafa65dd2c92de219dfcae5128afc7540165f370f6a0266ca",
+    "backend/src/modules/knowledge/knowledge.service.ts": "ddf7e2619a89bff0a24ee20d80b48748ca2982eb242d43c7d1239582f13a34d0",
+    "backend/src/modules/knowledge/document.service.ts": "4893708f1a8b308bfad5c1dfa93d9831a1db3bfbb0d2533d5e4d62f5ae13e275",
+    "backend/src/modules/knowledge/knowledge-search.service.ts": "0fb13d89fb231594edd3c70afe3c5dfa4375812dd89bc8fbbbf093d7f44c9124",
+    "backend/src/modules/knowledge/lexical-search.service.ts": "b1df5cbceff10f29c2df309e714f50ea8fdb3b8c3e2f975c5b38d69ec768e97c",
+    "backend/src/modules/knowledge/text-tokenizer.service.ts": "e6ce376587ba6368822f14092cd58e2a84e919f14cc832865ed0c624bc4ef51f",
+    "backend/src/modules/knowledge/bm25-scorer.service.ts": "7152597a4d18340785c44cf877cbf3d971825365939c9008fbad566bc58033b5",
+    "backend/src/shared/knowledge.dto.ts": "5a777dbc659a014f390ce1e4390547b10a4d35532c381693d7da6bcd24b81f40"
+  },
+  "sourceChangedDuringRun": [],
+  "dependencyCounters": {
+    "embeddingAvailabilityChecks": 2,
+    "forbiddenDependencyCalls": 0
+  },
+  "finishedAt": "2026-10-16T02:21:52.304Z",
+  "summary": {
+    "total": 55,
+    "passed": 55,
+    "failed": 0,
+    "byArea": {
+      "permission": {
+        "total": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      "preview": {
+        "total": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "search": {
+        "total": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "boundary": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    "status": "passed"
+  }
+}

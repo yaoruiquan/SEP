@@ -1,89 +1,81 @@
-import { Test } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { KnowledgeSearchService } from './knowledge-search.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { EmbeddingService } from './embedding.service';
-import { VectorService } from './vector.service';
-import { LexicalSearchService } from './lexical-search.service';
-import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { KnowledgeAccessPolicy } from './knowledge-access-policy';
+
+const MEMBER = { enterpriseId: 'ent-a', memberId: 'm-a', role: 'MEMBER', departmentId: 'dept-a' };
+const candidate = { chunkId: 'c-a', content: 'stale cache', source: 'doc-a', knowledgeBaseId: 'kb-a', score: 0.9 };
 
 describe('KnowledgeSearchService authorization and logging', () => {
   let service: KnowledgeSearchService;
   let prisma: any;
   let context: any;
   let lexical: any;
-
-  beforeEach(async () => {
+  beforeEach(() => {
     prisma = {
       subscription: { findFirst: jest.fn() },
-      knowledgeGrant: { findMany: jest.fn() },
+      knowledgeGrant: { findMany: jest.fn().mockResolvedValue([{ knowledgeBaseId: 'kb-a' }]) },
+      knowledgeBase: { findMany: jest.fn().mockResolvedValue([{ id: 'kb-a' }]) },
       knowledgeSearchLog: { create: jest.fn().mockResolvedValue({}) },
-      textChunk: { findMany: jest.fn() },
+      textChunk: { findMany: jest.fn().mockResolvedValue([{
+        id: 'c-a', content: '退款规则', source: 'doc-a', knowledgeBaseId: 'kb-a',
+        document: { id: 'doc-a', originalName: '政策.txt' },
+      }]) },
     };
-    context = {
-      resolve: jest.fn().mockResolvedValue({
-        enterpriseId: 'ent-a',
-        departmentId: 'dept-a',
-      }),
-    };
-    lexical = { search: jest.fn() };
-
-    const module = await Test.createTestingModule({
-      providers: [
-        KnowledgeSearchService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: EmbeddingService, useValue: { isAvailable: jest.fn() } },
-        { provide: VectorService, useValue: {} },
-        { provide: LexicalSearchService, useValue: lexical },
-        { provide: EnterpriseContextService, useValue: context },
-      ],
-    }).compile();
-
-    service = module.get(KnowledgeSearchService);
+    context = { resolve: jest.fn().mockResolvedValue(MEMBER) };
+    lexical = { search: jest.fn().mockResolvedValue([candidate]) };
+    service = new KnowledgeSearchService(prisma, { isAvailable: jest.fn().mockResolvedValue(false) } as any,
+      {} as any, lexical, context, new KnowledgeAccessPolicy(prisma, context));
   });
 
-  it('rejects a subscription belonging to another enterprise before reading grants', async () => {
-    // Prisma's enterpriseId predicate hides a cross-tenant row as not found.
+  it('rejects a foreign subscription before reading legacy knowledge grants', async () => {
     prisma.subscription.findFirst.mockResolvedValue(null);
-
-    await expect(service.search('退款政策', 'user-a', 'sub-b', 5, 0.7, 'lexical'))
-      .rejects.toThrow(ForbiddenException);
-
+    await expect(service.search('退款', 'u-a', 'sub-b', 5, 0.7, 'lexical')).rejects.toThrow(ForbiddenException);
     expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
-    expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'sub-b', enterpriseId: 'ent-a', status: 'ACTIVE' }),
-    }));
   });
 
-  it('filters grants by enterprise and records a real search result', async () => {
+  it('intersects old chat subscription grants with current member-readable bases', async () => {
     prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
-    prisma.knowledgeGrant.findMany.mockResolvedValue([{ knowledgeBaseId: 'kb-a' }]);
-    lexical.search.mockResolvedValue([{
-      chunkId: 'chunk-a',
-      content: '退款规则',
-      source: 'doc-a',
-      knowledgeBaseId: 'kb-a',
-      score: 0.92,
-    }]);
+    const result = await service.search('退款', 'u-a', 'sub-a', 5, 0.7, 'lexical');
+    expect(prisma.knowledgeGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      knowledgeBase: { enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } } },
+    }) }));
+    expect(result.results[0]).toMatchObject({ content: '退款规则', documentId: 'doc-a', documentName: '政策.txt' });
+  });
 
-    const result = await service.search('退款政策', 'user-a', 'sub-a', 5, 0.7, 'lexical');
+  it('rejects the entire explicit scope if any base is ungranted or foreign', async () => {
+    await expect(service.searchForMember('u-a', { query: '退款', knowledgeBaseIds: ['kb-a', 'secret'], topK: 5 }))
+      .rejects.toThrow(NotFoundException);
+    expect(lexical.search).not.toHaveBeenCalled();
+  });
 
-    expect(result.results[0]).toEqual(expect.objectContaining({
-      source: 'doc-a',
-      knowledgeBaseId: 'kb-a',
-    }));
-    expect(prisma.knowledgeGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        knowledgeBase: { enterpriseId: 'ent-a' },
-      }),
-    }));
-    expect(prisma.knowledgeSearchLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        knowledgeBaseId: 'kb-a',
-        enterpriseId: 'ent-a',
-        hitCount: 1,
-        strategy: 'lexical',
-      }),
-    }));
+  it('searches all member-readable bases without a subscription', async () => {
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result.results[0]).toMatchObject({ documentId: 'doc-a', documentName: '政策.txt' });
+    expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
+    expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
+    expect(prisma.knowledgeBase.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
+      enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } },
+    } }));
+  });
+
+  it('does not return cache content after revoke or a document losing READY status', async () => {
+    prisma.textChunk.findMany.mockResolvedValue([]);
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result.results).toEqual([]);
+    expect(prisma.textChunk.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      document: { status: 'READY' }, knowledgeBase: { enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } } },
+    }) }));
+  });
+
+  it('closes the internal direct search bypass unless a current member identity is provided', async () => {
+    await expect(service.searchByKnowledgeBase('q', ['kb-a'])).rejects.toThrow(ForbiddenException);
+    expect(lexical.search).not.toHaveBeenCalled();
+  });
+
+  it('reports dependency failure as 503 instead of a successful empty result', async () => {
+    lexical.search.mockRejectedValue(new Error('database credentials or internal error'));
+    await expect(service.searchForMember('u-a', { query: '退款', topK: 5 })).rejects.toMatchObject({
+      status: 503, response: { code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '知识库检索暂时不可用' },
+    });
   });
 });

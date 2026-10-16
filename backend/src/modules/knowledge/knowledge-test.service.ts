@@ -12,6 +12,8 @@ export interface TestSearchResult {
   source: string;
   score: number;
   knowledgeBaseId: string;
+  documentId?: string;
+  documentName?: string;
 }
 
 export interface TestSearchResponse {
@@ -70,6 +72,7 @@ export class KnowledgeTestService {
     knowledgeBaseId: string,
     enterpriseId: string,
     dto: TestSearchDto,
+    userId: string,
   ): Promise<TestSearchResponse> {
     // 验证知识库归属
     const kb = await this.prisma.knowledgeBase.findFirst({
@@ -84,6 +87,7 @@ export class KnowledgeTestService {
       dto.topK,
       dto.scoreThreshold,
       dto.strategy || 'auto',
+      userId,
     );
     const durationMs = Date.now() - start;
 
@@ -117,6 +121,8 @@ export class KnowledgeTestService {
         source: r.source,
         score: r.score,
         knowledgeBaseId: r.knowledgeBaseId,
+        documentId: r.documentId,
+        documentName: r.documentName,
       })),
     };
   }
@@ -132,7 +138,7 @@ export class KnowledgeTestService {
     });
     if (!kb) throw new NotFoundException('知识库不存在或无权访问');
 
-    const documents = await this.prisma.document.findMany({
+    const rows = await this.prisma.document.findMany({
       where: { knowledgeBaseId },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -148,6 +154,11 @@ export class KnowledgeTestService {
       },
     });
 
+    const documents = rows.map(doc => ({ ...doc,
+      lastError: doc.status === 'FAILED' ? '文档处理失败，请重试或更换文件' : null,
+      embeddingModel: null,
+    }));
+
     const counts = documents.reduce(
       (acc, doc) => {
         const key = doc.status.toLowerCase() as keyof typeof acc;
@@ -157,7 +168,7 @@ export class KnowledgeTestService {
       { pending: 0, processing: 0, ready: 0, failed: 0 },
     );
 
-    const vectorized = documents.filter((doc) => doc.embeddingModel !== null).length;
+    const vectorized = rows.filter((doc) => doc.embeddingModel !== null).length;
 
     return {
       total: documents.length,

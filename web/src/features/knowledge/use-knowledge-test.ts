@@ -1,3 +1,4 @@
+import { useKnowledgeCacheScope, knowledgeQueryOptions } from './knowledge-cache';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 
@@ -9,6 +10,8 @@ export interface TestSearchResult {
   source: string;
   score: number;
   knowledgeBaseId: string;
+  documentId?: string | null;
+  documentName?: string | null;
 }
 
 export interface TestSearchResponse {
@@ -77,14 +80,16 @@ export function useDocumentStatus(
   knowledgeBaseId: string | null,
   opts?: { refetchInterval?: number | false },
 ) {
+  const scope = useKnowledgeCacheScope();
   return useQuery<DocumentStatusSummary>({
-    queryKey: ['knowledge-document-status', knowledgeBaseId],
+    queryKey: ['knowledge-document-status', knowledgeBaseId, scope],
     queryFn: () =>
       api.get<DocumentStatusSummary>(
         `/knowledge-bases/${knowledgeBaseId}/documents/status`,
       ),
     enabled: !!knowledgeBaseId,
-    refetchInterval: opts?.refetchInterval ?? false,
+    ...knowledgeQueryOptions,
+    refetchInterval: opts?.refetchInterval ?? ((query) => query.state.error ? false : query.state.data?.documents.some((doc) => doc.status === 'PENDING' || doc.status === 'PROCESSING') ? 3000 : false),
   });
 }
 
@@ -122,13 +127,15 @@ export function useBatchReprocess(knowledgeBaseId: string) {
 
 /** 检索分析数据 */
 export function useKnowledgeAnalytics(knowledgeBaseId: string | null, days = 30) {
+  const scope = useKnowledgeCacheScope();
   return useQuery<AnalyticsData>({
-    queryKey: ['knowledge-analytics', knowledgeBaseId, days],
+    queryKey: ['knowledge-analytics', knowledgeBaseId, days, scope],
     queryFn: () =>
       api.get<AnalyticsData>(
         `/knowledge-bases/${knowledgeBaseId}/analytics?days=${days}`,
       ),
     enabled: !!knowledgeBaseId,
+    ...knowledgeQueryOptions,
   });
 }
 
@@ -137,8 +144,8 @@ export function useTestSearch(knowledgeBaseId: string) {
   return useMutation({
     mutationFn: (payload: {
       query: string;
-      topK: number;
-      scoreThreshold: number;
+      topK?: number;
+      scoreThreshold?: number;
       useRerank?: boolean;
     }) =>
       api.post<TestSearchResponse>(

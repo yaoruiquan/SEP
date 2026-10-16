@@ -10,6 +10,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { MemberService } from './member.service';
@@ -46,6 +47,9 @@ describe('MemberService', () => {
     };
     // 事务内的 client 用同一个 tx 对象，便于断言事务里发生了什么
     tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      knowledgeMemberGrant: { findMany: jest.fn().mockResolvedValue([]) },
+      knowledgeBase: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       user: { create: jest.fn().mockResolvedValue({ id: 'user-new' }) },
       enterpriseMember: {
         create: jest.fn((a: any) =>
@@ -66,6 +70,27 @@ describe('MemberService', () => {
       assertEnterpriseAdmin: jest.fn(),
     };
     svc = new MemberService(prisma, ctxSvc);
+  });
+
+  describe('knowledge grant candidate projection', () => {
+    it('paginates within the current enterprise and never selects email or user IDs', async () => {
+      prisma.enterpriseMember.findMany.mockResolvedValue([{ id: 'm-a', position: null,
+        user: { name: '  ', avatar: null }, department: { name: '财务' } }]);
+      const result = await svc.listKnowledgeGrantCandidates('u1', { view: 'knowledge-grant', page: 2, pageSize: 10, keyword: '财务' });
+      expect(result).toEqual({ items: [{ memberId: 'm-a', name: '企业成员', avatarUrl: null, position: null, departmentName: '财务' }], page: 2, pageSize: 10, total: 2 });
+      expect(ctxSvc.assertEnterpriseAdmin).toHaveBeenCalledWith(ACME);
+      const args = prisma.enterpriseMember.findMany.mock.calls[0][0];
+      expect(args).toMatchObject({ where: { enterpriseId: 'ent-acme' }, skip: 10, take: 10 });
+      expect(args.select.user.select).toEqual({ name: true, avatar: true });
+      expect(JSON.stringify(args.where)).not.toContain('email');
+      expect(prisma.enterpriseMember.count).toHaveBeenCalledWith({ where: args.where });
+    });
+    it('checks admin privileges before running either pagination query', async () => {
+      ctxSvc.assertEnterpriseAdmin.mockImplementation(() => { throw new ForbiddenException(); });
+      await expect(svc.listKnowledgeGrantCandidates('u1', { view: 'knowledge-grant', page: 1, pageSize: 20 })).rejects.toThrow(ForbiddenException);
+      expect(prisma.enterpriseMember.findMany).not.toHaveBeenCalled();
+      expect(prisma.enterpriseMember.count).not.toHaveBeenCalled();
+    });
   });
 
   describe('list', () => {
@@ -252,6 +277,28 @@ describe('MemberService', () => {
         where: { memberId: 'mem-staff' },
       });
       expect(res.reclaimedGrants).toBe(3);
+    });
+
+    it('increments each affected knowledge revision when offboarding cascades member grants', async () => {
+      prisma.enterpriseMember.findUnique.mockResolvedValue(staff);
+      tx.knowledgeMemberGrant.findMany.mockResolvedValue([
+        { knowledgeBaseId: 'kb-a' }, { knowledgeBaseId: 'kb-b' },
+      ]);
+      await svc.remove('u1', 'mem-staff');
+      expect(tx.knowledgeMemberGrant.findMany).toHaveBeenCalledWith({
+        where: { memberId: 'mem-staff' }, select: { knowledgeBaseId: true },
+      });
+      expect(tx.knowledgeBase.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['kb-a', 'kb-b'] } }, data: { revision: { increment: 1 } },
+      });
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.knowledgeMemberGrant.findMany.mock.invocationCallOrder[0]);
+      expect(tx.enterpriseMember.delete.mock.invocationCallOrder[0]).toBeLessThan(tx.knowledgeBase.updateMany.mock.invocationCallOrder[0]);
+    });
+
+    it('does not change knowledge revisions when the leaving member has no grants', async () => {
+      prisma.enterpriseMember.findUnique.mockResolvedValue(staff);
+      await svc.remove('u1', 'mem-staff');
+      expect(tx.knowledgeBase.updateMany).not.toHaveBeenCalled();
     });
 
     it('❗不回收授权给部门的席位（那属于部门，不随离职人员消失）', async () => {

@@ -22,6 +22,7 @@ import { KnowledgeReindexService } from './knowledge-reindex.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 
 @Module({
   imports: [PrismaModule, EnterpriseModule, ScheduleModule.forRoot()],
@@ -33,6 +34,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     SearchController,
   ],
   providers: [
+    KnowledgeAccessPolicy,
     KnowledgeService,
     DocumentService,
     TextChunkService,

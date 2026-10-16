@@ -1,90 +1,59 @@
+import { useKnowledgeCacheScope, knowledgeQueryOptions } from './knowledge-cache';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { KnowledgeBase, KnowledgeBaseDetail } from '@/lib/types';
+import type { KnowledgeBase, KnowledgeBaseDetail, KnowledgeBaseList } from '@/lib/types';
 
-interface CreateKnowledgeBaseDto {
-  name: string;
-  description?: string;
+export interface KnowledgeListParams { page?: number; pageSize?: number; keyword?: string }
+
+export function knowledgeQuery(params: KnowledgeListParams = {}) {
+  const query = new URLSearchParams({ page: String(params.page ?? 1), pageSize: String(params.pageSize ?? 20) });
+  if (params.keyword?.trim()) query.set('keyword', params.keyword.trim());
+  return query.toString();
 }
 
-interface UpdateKnowledgeBaseDto {
-  name?: string;
-  description?: string;
-}
-
-/**
- * 获取知识库列表
- */
-export function useKnowledgeBases() {
-  return useQuery<KnowledgeBase[]>({
-    queryKey: ['knowledge-bases'],
-    queryFn: async () => {
-      const data = await api.get<KnowledgeBase[]>('/knowledge-bases');
-      return data;
-    },
+export function useKnowledgeBases(params: KnowledgeListParams = {}, enabled = true) {
+  const scope = useKnowledgeCacheScope();
+  return useQuery<KnowledgeBaseList>({
+    queryKey: ['knowledge-bases', 'list', params, scope],
+    queryFn: () => api.get(`/knowledge-bases?${knowledgeQuery(params)}`),
+    enabled,
+    ...knowledgeQueryOptions,
+    // Keep pagination smooth without carrying data across identity boundaries.
+    placeholderData: (previous, query) => query?.queryKey.at(-1) === scope ? previous : undefined,
   });
 }
 
-/**
- * 获取知识库详情
- */
-export function useKnowledgeBase(id: string | null) {
+export function useKnowledgeBase(id: string | null, enabled = true) {
+  const scope = useKnowledgeCacheScope();
   return useQuery<KnowledgeBaseDetail>({
-    queryKey: ['knowledge-bases', id],
-    queryFn: async () => {
-      if (!id) throw new Error('No knowledge base ID');
-      const data = await api.get<KnowledgeBaseDetail>(`/knowledge-bases/${id}`);
-      return data;
-    },
-    enabled: !!id,
+    queryKey: ['knowledge-bases', 'detail', id, scope],
+    queryFn: () => api.get(`/knowledge-bases/${id}`),
+    enabled: !!id && enabled,
+    ...knowledgeQueryOptions,
   });
 }
 
-/**
- * 创建知识库
- */
 export function useCreateKnowledgeBase() {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: CreateKnowledgeBaseDto) => {
-      return await api.post<KnowledgeBase>('/knowledge-bases', data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
-    },
+    mutationFn: (data: { name: string; description?: string }) => api.post<KnowledgeBase>('/knowledge-bases', data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['knowledge-bases'] }); },
   });
 }
 
-/**
- * 更新知识库
- */
 export function useUpdateKnowledgeBase() {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: UpdateKnowledgeBaseDto }) => {
-      return await api.patch<KnowledgeBase>(`/knowledge-bases/${id}`, data);
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases', variables.id] });
-    },
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string | null } }) =>
+      api.patch<KnowledgeBase>(`/knowledge-bases/${id}`, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['knowledge-bases'] }); },
   });
 }
 
-/**
- * 删除知识库
- */
 export function useDeleteKnowledgeBase() {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/knowledge-bases/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
-    },
+    mutationFn: (id: string) => api.delete(`/knowledge-bases/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['knowledge-bases'] }); },
   });
 }

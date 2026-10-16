@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { KnowledgeBaseCreateDtoSchema } from 'shared/knowledge.dto';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -15,13 +17,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useCreateKnowledgeBase, useUpdateKnowledgeBase } from './use-knowledge-bases';
+import { knowledgeError } from './knowledge-ui';
 
-const knowledgeBaseSchema = z.object({
-  name: z.string().min(1, '知识库名称不能为空').max(100, '名称最多 100 个字符'),
-  description: z.string().max(500, '描述最多 500 个字符').optional(),
-});
-
-type KnowledgeBaseFormData = z.infer<typeof knowledgeBaseSchema>;
+type KnowledgeBaseFormData = z.infer<typeof KnowledgeBaseCreateDtoSchema>;
 
 /** 编辑弹窗只读取名称/描述，结构子集同时兼容列表页与详情页的知识库类型。 */
 interface EditableKnowledgeBase {
@@ -37,6 +35,7 @@ interface KnowledgeDialogProps {
 }
 
 export function KnowledgeDialog({ open, knowledgeBase, onClose }: KnowledgeDialogProps) {
+  const [saveError, setSaveError] = useState<string | null>(null);
   const createMutation = useCreateKnowledgeBase();
   const updateMutation = useUpdateKnowledgeBase();
 
@@ -46,12 +45,13 @@ export function KnowledgeDialog({ open, knowledgeBase, onClose }: KnowledgeDialo
     reset,
     formState: { errors, isSubmitting },
   } = useForm<KnowledgeBaseFormData>({
-    resolver: zodResolver(knowledgeBaseSchema),
+    resolver: zodResolver(KnowledgeBaseCreateDtoSchema),
   });
 
   // 当对话框打开或编辑的知识库变化时，重置表单
   useEffect(() => {
     if (open) {
+      setSaveError(null);
       if (knowledgeBase) {
         reset({
           name: knowledgeBase.name,
@@ -64,6 +64,7 @@ export function KnowledgeDialog({ open, knowledgeBase, onClose }: KnowledgeDialo
   }, [open, knowledgeBase, reset]);
 
   const onSubmit = async (data: KnowledgeBaseFormData) => {
+    setSaveError(null);
     try {
       if (knowledgeBase) {
         // 更新
@@ -77,19 +78,20 @@ export function KnowledgeDialog({ open, knowledgeBase, onClose }: KnowledgeDialo
       }
       onClose();
     } catch (error) {
-      // 错误已经在 mutation 中处理了
-      console.error('Failed to save knowledge base:', error);
+      setSaveError(knowledgeError(error));
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={open} onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{knowledgeBase ? '编辑知识库' : '新建知识库'}</DialogTitle>
+          <DialogDescription>资料和成员权限将在网页与客户端同步。</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          {saveError && <p role="alert" className="text-sm text-danger">{saveError}</p>}
           {/* 名称 */}
           <div className="space-y-2">
             <Label htmlFor="name">
@@ -121,7 +123,7 @@ export function KnowledgeDialog({ open, knowledgeBase, onClose }: KnowledgeDialo
 
           {/* 操作按钮 */}
           <div className="flex justify-end gap-2 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               取消
             </Button>
             <Button type="submit" disabled={isSubmitting}>

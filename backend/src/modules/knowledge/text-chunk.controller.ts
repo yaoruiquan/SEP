@@ -9,20 +9,27 @@ import {
   Query,
   UseGuards,
   Request,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { KnowledgeNoStoreInterceptor } from './knowledge-no-store.interceptor';
+import { KnowledgeChunkQuerySchema } from 'shared';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { KnowledgeAuthGuard } from './knowledge-auth.guard';
 import { TextChunkService } from './text-chunk.service';
 import { CreateTextChunkDto, UpdateTextChunkDto } from './dto/text-chunk.dto';
 
 @ApiTags('Knowledge - Text Chunks')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(KnowledgeAuthGuard)
+@UseInterceptors(KnowledgeNoStoreInterceptor)
+@ApiResponse({ status: 404, description: '资源不存在或不可访问' })
 @Controller('knowledge-bases/:knowledgeBaseId/chunks')
 export class TextChunkController {
   constructor(private textChunkService: TextChunkService) {}
 
   @Post()
+  @ApiResponse({ status: 410, description: '手工写入已停用' })
   @ApiOperation({ summary: '创建文本片段' })
   async createTextChunk(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
@@ -34,16 +41,18 @@ export class TextChunkController {
   }
 
   @Get()
+  @ApiResponse({ status: 200, description: '只读已处理片段列表' })
   @ApiOperation({ summary: '获取知识库的文本片段列表' })
   async listTextChunks(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
     @Request() req,
-    @Query('search') search?: string,
+    @Query(new ZodValidationPipe(KnowledgeChunkQuerySchema)) query?: { search?: string },
   ) {
-    return this.textChunkService.listTextChunks(knowledgeBaseId, req.user.id, search);
+    return this.textChunkService.listTextChunks(knowledgeBaseId, req.user.id, query?.search);
   }
 
   @Get(':id')
+  @ApiResponse({ status: 200, description: '只读已处理片段' })
   @ApiOperation({ summary: '获取文本片段详情' })
   async getTextChunk(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
@@ -54,6 +63,7 @@ export class TextChunkController {
   }
 
   @Patch(':id')
+  @ApiResponse({ status: 410, description: '手工写入已停用' })
   @ApiOperation({ summary: '更新文本片段' })
   async updateTextChunk(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
@@ -65,6 +75,7 @@ export class TextChunkController {
   }
 
   @Delete(':id')
+  @ApiResponse({ status: 410, description: '手工写入已停用' })
   @ApiOperation({ summary: '删除文本片段' })
   async deleteTextChunk(
     @Param('knowledgeBaseId') knowledgeBaseId: string,

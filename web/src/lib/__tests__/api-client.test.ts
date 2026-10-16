@@ -493,6 +493,36 @@ describe('uploadForm', () => {
     expect(result).toEqual({ id: 'pkg-123', uploaded: true });
   });
 
+  it('refreshes once and replays the same form with the new token', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['content']), 'knowledge.txt');
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'new-token' }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 201, text: async () => '{"id":"doc-1"}' });
+    vi.mocked(authAccessor.getToken).mockReturnValueOnce('old-token').mockReturnValue('new-token');
+
+    await expect(uploadForm('/knowledge-bases/kb-1/documents/upload', form)).resolves.toEqual({ id: 'doc-1' });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[2][1]).toMatchObject({ headers: { Authorization: 'Bearer new-token' }, body: form });
+    expect(mockFetch.mock.calls[2][1].headers).not.toHaveProperty('Content-Type');
+  });
+
+  it('clears authentication when upload refresh fails without resending the file', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    await expect(uploadForm('/upload', new FormData())).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(authAccessor.clear).toHaveBeenCalledOnce();
+  });
+
+  it('does not refresh indefinitely if the retried upload is unauthorized', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'new-token' }) });
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401, text: async () => '{"message":"Unauthorized"}' });
+    await expect(uploadForm('/upload', new FormData())).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
   it('should throw ApiError on upload failure', async () => {
     const form = new FormData();
     mockFetch.mockResolvedValueOnce({

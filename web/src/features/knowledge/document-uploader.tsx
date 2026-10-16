@@ -1,226 +1,93 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { Upload, X, FileText, AlertCircle, CheckCircle } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { KnowledgeLimits } from '@/lib/types';
 import { useUploadDocument } from './use-documents';
-import { cn } from '@/lib/utils';
+import { KnowledgeIconButton, knowledgeError } from './knowledge-ui';
 
-interface DocumentUploaderProps {
-  knowledgeBaseId: string;
-  onUploadComplete?: () => void;
+interface UploadItem { id: string; file: File; status: 'pending' | 'uploading' | 'success' | 'error'; error?: string }
+
+export function validateKnowledgeFile(file: File, limits: KnowledgeLimits) {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  if (!limits.allowedExtensions.some((allowed) => allowed.replace(/^\./, '').toLowerCase() === extension)) return '文件格式不支持';
+  if (!file.size) return '不能上传空文件';
+  if (file.size > limits.maxFileBytes) return `文件超过大小限制（${formatKnowledgeBytes(limits.maxFileBytes)}）`;
+  return null;
 }
 
-interface FileWithProgress {
-  file: File;
-  progress: number;
-  status: 'pending' | 'uploading' | 'success' | 'error';
-  error?: string;
+export function formatKnowledgeBytes(bytes: number) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
 }
 
-export function DocumentUploader({ knowledgeBaseId, onUploadComplete }: DocumentUploaderProps) {
-  const [files, setFiles] = useState<FileWithProgress[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const uploadMutation = useUploadDocument(knowledgeBaseId);
+export function DocumentUploader({ knowledgeBaseId, limits, onUploadComplete }: {
+  knowledgeBaseId: string; limits: KnowledgeLimits; onUploadComplete?: () => void;
+}) {
+  const [items, setItems] = useState<UploadItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const active = useRef(false);
+  const upload = useUploadDocument(knowledgeBaseId);
 
-  const acceptedTypes = [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword',
-    'text/plain',
-    'text/markdown',
-    'image/png',
-    'image/jpeg',
-  ];
-
-  const acceptedExtensions = '.pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg';
-
-  const handleFiles = useCallback((newFiles: FileList | null) => {
-    if (!newFiles) return;
-
-    const fileArray = Array.from(newFiles);
-    const validFiles = fileArray.filter((file) => {
-      // 检查文件类型
-      if (!acceptedTypes.includes(file.type) && !file.name.match(/\.(pdf|doc|docx|txt|md|png|jpe?g)$/i)) {
-        return false;
-      }
-      // 检查文件大小（10MB）
-      if (file.size > 10 * 1024 * 1024) {
-        return false;
-      }
-      return true;
-    });
-
-    const filesWithProgress: FileWithProgress[] = validFiles.map((file) => ({
-      file,
-      progress: 0,
-      status: 'pending',
-    }));
-
-    setFiles((prev) => [...prev, ...filesWithProgress]);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      handleFiles(e.dataTransfer.files);
-    },
-    [handleFiles]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const removeFile = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const uploadFiles = async () => {
-    for (let i = 0; i < files.length; i++) {
-      const fileWithProgress = files[i];
-      if (fileWithProgress.status !== 'pending') continue;
-
-      // 更新状态为上传中
-      setFiles((prev) =>
-        prev.map((f, idx) =>
-          idx === i ? { ...f, status: 'uploading' as const, progress: 0 } : f
-        )
-      );
-
-      try {
-        await uploadMutation.mutateAsync(fileWithProgress.file);
-
-        // 上传成功
-        setFiles((prev) =>
-          prev.map((f, idx) =>
-            idx === i ? { ...f, status: 'success' as const, progress: 100 } : f
-          )
-        );
-      } catch (error: any) {
-        // 上传失败
-        setFiles((prev) =>
-          prev.map((f, idx) =>
-            idx === i
-              ? {
-                  ...f,
-                  status: 'error' as const,
-                  error: error?.message || '上传失败',
-                }
-              : f
-          )
-        );
-      }
+  function addFiles(files: File[]) {
+    if (active.current) return;
+    setError(null);
+    const queued = items.filter((item) => item.status !== 'success').length;
+    if (files.length + queued > limits.maxFilesPerRequest) {
+      setError(`每批最多选择 ${limits.maxFilesPerRequest} 个文件，请分批上传。`);
+      return;
     }
+    setItems((current) => [...current.filter((item) => item.status !== 'success'), ...files.map((file) => {
+      const validation = validateKnowledgeFile(file, limits);
+      return { id: crypto.randomUUID(), file, status: validation ? 'error' as const : 'pending' as const, error: validation ?? undefined };
+    })]);
+  }
 
-    // 所有文件处理完毕
-    const hasSuccess = files.some((f) => f.status === 'success');
-    if (hasSuccess && onUploadComplete) {
-      onUploadComplete();
+  async function startUpload() {
+    if (active.current) return;
+    active.current = true;
+    setBusy(true);
+    const pending = items.filter((item) => item.status === 'pending');
+    let accepted = false;
+    try {
+      for (const item of pending) {
+        setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'uploading' } : entry));
+        try {
+          await upload.mutateAsync(item.file);
+          accepted = true;
+          setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'success', error: undefined } : entry));
+        } catch (cause) {
+          setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'error', error: knowledgeError(cause) } : entry));
+        }
+      }
+    } finally {
+      active.current = false;
+      setBusy(false);
+      if (accepted) onUploadComplete?.();
     }
-  };
+  }
 
-  const pendingCount = files.filter((f) => f.status === 'pending').length;
-  const successCount = files.filter((f) => f.status === 'success').length;
-
-  return (
-    <div className="space-y-4">
-      {/* 拖拽区域 */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        className={cn(
-          'border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer',
-          isDragging
-            ? 'border-primary bg-primary/5'
-            : 'border-glassline hover:border-primary/50'
-        )}
-        onClick={() => document.getElementById('file-input')?.click()}
-      >
-        <Upload className="mx-auto h-12 w-12 text-gtext-muted mb-4" />
-        <p className="text-gtext-primary font-medium mb-2">
-          点击或拖拽文件到这里上传
-        </p>
-        <p className="text-sm text-gtext-muted">
-          支持 PDF、Word、TXT、Markdown、图片（PNG/JPG，OCR 识别文字）格式，单个文件最大 10MB
-        </p>
-        <input
-          id="file-input"
-          type="file"
-          multiple
-          accept={acceptedExtensions}
-          onChange={(e) => handleFiles(e.target.files)}
-          className="hidden"
-        />
+  return <section aria-label="上传文档" className="space-y-3 rounded-lg border border-glassline p-4">
+    <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles(Array.from(event.dataTransfer.files)); }} className="flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0 text-sm"><p className="font-medium">上传企业资料</p>
+        <p className="mt-1 break-words text-xs text-gtext-muted">{limits.allowedExtensions.join('、')} · 单文件不超过 {formatKnowledgeBytes(limits.maxFileBytes)} · 每批最多 {limits.maxFilesPerRequest} 个</p>
       </div>
-
-      {/* 文件列表 */}
-      {files.length > 0 && (
-        <div className="space-y-2">
-          {files.map((fileWithProgress, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-3 p-3 border border-glassline rounded-lg"
-            >
-              <FileText className="h-8 w-8 text-primary flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gtext-primary truncate">
-                  {fileWithProgress.file.name}
-                </p>
-                <p className="text-xs text-gtext-muted">
-                  {(fileWithProgress.file.size / 1024).toFixed(1)} KB
-                </p>
-                {fileWithProgress.status === 'error' && (
-                  <p className="text-xs text-danger mt-1 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {fileWithProgress.error}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {fileWithProgress.status === 'success' && (
-                  <CheckCircle className="h-5 w-5 text-success" />
-                )}
-                {fileWithProgress.status === 'uploading' && (
-                  <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                )}
-                {(fileWithProgress.status === 'pending' ||
-                  fileWithProgress.status === 'error') && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeFile(index)}
-                    className="h-8 w-8 p-0"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 上传按钮 */}
-      {pendingCount > 0 && (
-        <div className="flex items-center justify-between pt-4 border-t border-glassline">
-          <p className="text-sm text-gtext-muted">
-            {pendingCount} 个文件待上传
-            {successCount > 0 && `，${successCount} 个已完成`}
-          </p>
-          <Button onClick={uploadFiles} disabled={uploadMutation.isPending}>
-            {uploadMutation.isPending ? '上传中...' : '开始上传'}
-          </Button>
-        </div>
-      )}
+      <label className={`inline-flex shrink-0 items-center gap-2 rounded-md border border-glassline px-3 py-2 text-sm ${busy ? 'opacity-50' : 'cursor-pointer hover:bg-muted'}`}>
+        <Upload className="h-4 w-4" />选择文件
+        <input type="file" aria-label="选择上传文件" multiple disabled={busy} className="sr-only" accept={limits.allowedExtensions.map((ext) => `.${ext.replace(/^\./, '')}`).join(',')} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+      </label>
     </div>
-  );
+    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    {items.length > 0 && <ul className="divide-y divide-glassline">{items.map((item) => <li key={item.id} className="flex items-start gap-2 py-2 text-sm">
+      <div className="min-w-0 flex-1"><p className="break-all">{item.file.name}</p>
+        <p className={`text-xs ${item.status === 'error' ? 'text-danger' : 'text-gtext-muted'}`} role={item.status === 'error' ? 'alert' : undefined}>
+          {item.status === 'uploading' ? '正在上传…' : item.status === 'success' ? '已上传，等待后台处理' : item.error ?? '待上传'}
+        </p>
+      </div>
+      {item.status === 'error' && !validateKnowledgeFile(item.file, limits) && <Button variant="ghost" size="sm" disabled={busy} onClick={() => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'pending', error: undefined } : entry))}>重新排队</Button>}
+      <KnowledgeIconButton label={`移除 ${item.file.name}`} icon={X} disabled={busy} onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))} />
+    </li>)}</ul>}
+    {items.some((item) => item.status === 'pending' || item.status === 'uploading') && <div className="flex justify-end"><Button disabled={busy} onClick={startUpload}>{busy ? '上传中…' : '开始上传'}</Button></div>}
+  </section>;
 }

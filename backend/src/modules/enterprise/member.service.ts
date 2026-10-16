@@ -7,7 +7,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
-import { MemberCreateDto, MemberUpdateDto } from "shared";
+import { MemberCreateDto, MemberUpdateDto, knowledgeMemberDisplay, type KnowledgeGrantCandidateQuery } from "shared";
 import { EnterpriseContextService } from "./enterprise-context.service";
 import { InvitationService } from "./invitation.service";
 
@@ -44,6 +44,25 @@ export class MemberService {
         },
       },
     });
+  }
+
+  /** Administrator-only safe projection for knowledge grants; legacy list remains unchanged. */
+  async listKnowledgeGrantCandidates(userId: string, query: KnowledgeGrantCandidateQuery) {
+    const context = await this.ctx.resolve(userId);
+    this.ctx.assertEnterpriseAdmin(context);
+    const where = { enterpriseId: context.enterpriseId,
+      ...(query.keyword ? { OR: [
+        { user: { name: { contains: query.keyword, mode: 'insensitive' as const } } },
+        { position: { contains: query.keyword, mode: 'insensitive' as const } },
+      ] } : {}) };
+    const [members, total] = await Promise.all([
+      this.prisma.enterpriseMember.findMany({ where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], skip: (query.page - 1) * query.pageSize, take: query.pageSize,
+        select: { id: true, position: true, user: { select: { name: true, avatar: true } },
+          department: { select: { name: true } } } }),
+      this.prisma.enterpriseMember.count({ where }),
+    ]);
+    return { items: members.map(knowledgeMemberDisplay), page: query.page, pageSize: query.pageSize, total };
   }
 
   /**
@@ -229,6 +248,11 @@ export class MemberService {
     const memberId = member.id;
 
     return this.prisma.$transaction(async (tx) => {
+      // 与知识库授权时的成员共享锁串行，避免枚举授权后又被并发新增。
+      await tx.$queryRaw`SELECT id FROM enterprise_members WHERE id = ${memberId} FOR UPDATE`;
+      const knowledgeGrants = await tx.knowledgeMemberGrant.findMany({
+        where: { memberId }, select: { knowledgeBaseId: true },
+      });
       // 待审批的使用申请随人一起终结 —— 留着会让审批人批出一条
       // requesterId 为空的悬空申请。已审批的保留：requesterId 已被
       // SetNull 置空，但 requesterEmail/Name 快照在创建时已写入，审计链不断。
@@ -248,6 +272,12 @@ export class MemberService {
       // 这里不重复置空，只把名单带进响应 —— 部门无主是需要管理员
       // 补动作的状态，静默处理会留下没人负责的部门。
       await tx.enterpriseMember.delete({ where: { id: memberId } });
+      const knowledgeBaseIds = [...new Set(knowledgeGrants.map((grant) => grant.knowledgeBaseId))];
+      if (knowledgeBaseIds.length) {
+        await tx.knowledgeBase.updateMany({
+          where: { id: { in: knowledgeBaseIds } }, data: { revision: { increment: 1 } },
+        });
+      }
 
       return {
         id: memberId,

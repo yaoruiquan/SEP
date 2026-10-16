@@ -1,97 +1,58 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useKnowledgeCacheScope, knowledgeQueryOptions } from './knowledge-cache';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, uploadForm } from '@/lib/api-client';
+import type { KnowledgeDocument, KnowledgeDocumentPreview } from '@/lib/types';
 
-interface Document {
-  id: string;
-  filename: string;
-  originalName: string;
-  mimeType: string;
-  fileSize: number;
-  status: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
-  createdAt: string;
-  updatedAt: string;
-  uploader: {
-    id: string;
-    name: string | null;
-    email: string;
-  };
+export function hasDocumentTasks(documents?: { status: string }[]) {
+  return documents?.some((doc) => doc.status === 'PENDING' || doc.status === 'PROCESSING') ?? false;
 }
 
-/**
- * 获取知识库的文档列表
- */
-export function useDocuments(knowledgeBaseId: string | null) {
-  return useQuery<Document[]>({
-    queryKey: ['documents', knowledgeBaseId],
-    queryFn: async () => {
-      if (!knowledgeBaseId) throw new Error('No knowledge base ID');
-      const data = await api.get<Document[]>(`/knowledge-bases/${knowledgeBaseId}/documents`);
-      return data;
-    },
-    enabled: !!knowledgeBaseId,
+export function useDocuments(knowledgeBaseId: string | null, enabled = true) {
+  const scope = useKnowledgeCacheScope();
+  return useQuery<KnowledgeDocument[]>({
+    queryKey: ['documents', knowledgeBaseId, scope],
+    queryFn: () => api.get(`/knowledge-bases/${knowledgeBaseId}/documents`),
+    enabled: !!knowledgeBaseId && enabled,
+    ...knowledgeQueryOptions,
+    refetchInterval: (query) => query.state.error ? false : hasDocumentTasks(query.state.data) ? 3000 : false,
   });
 }
 
-/**
- * 获取单个文档详情
- */
-export function useDocument(knowledgeBaseId: string | null, documentId: string | null) {
-  return useQuery<Document>({
-    queryKey: ['documents', knowledgeBaseId, documentId],
-    queryFn: async () => {
-      if (!knowledgeBaseId || !documentId) throw new Error('Missing IDs');
-      const data = await api.get<Document>(
-        `/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`
-      );
-      return data;
-    },
-    enabled: !!knowledgeBaseId && !!documentId,
+export function useDocumentPreview(knowledgeBaseId: string, documentId: string | null, page = 1) {
+  const scope = useKnowledgeCacheScope();
+  return useQuery<KnowledgeDocumentPreview>({
+    queryKey: ['knowledge-preview', knowledgeBaseId, documentId, page, scope],
+    queryFn: () => api.get(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/preview?page=${page}&pageSize=20`),
+    enabled: !!documentId,
+    ...knowledgeQueryOptions,
   });
 }
 
-/**
- * 上传文档
- */
 export function useUploadDocument(knowledgeBaseId: string) {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      return await uploadForm<Document>(
-        `/knowledge-bases/${knowledgeBaseId}/documents/upload`,
-        formData
-      );
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return uploadForm<KnowledgeDocument>(`/knowledge-bases/${knowledgeBaseId}/documents/upload`, form);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-document-status', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
     },
   });
 }
 
-/**
- * 删除文档
- */
 export function useDeleteDocument(knowledgeBaseId: string) {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (documentId: string) => {
-      await api.delete(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`);
-    },
+    mutationFn: (documentId: string) => api.delete(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-document-status', knowledgeBaseId] });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      qc.removeQueries({ queryKey: ['knowledge-preview', knowledgeBaseId] });
     },
   });
-}
-
-/**
- * 下载文档
- */
-export function downloadDocument(knowledgeBaseId: string, documentId: string) {
-  // 直接用浏览器下载，因为有认证
-  window.open(`/api/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/download`, '_blank');
 }

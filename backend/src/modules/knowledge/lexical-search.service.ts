@@ -118,6 +118,7 @@ export class LexicalSearchService {
         similarity(tc.content, ${query}) as similarity
       FROM text_chunks tc
       INNER JOIN knowledge_bases kb ON tc."knowledgeBaseId" = kb.id
+      INNER JOIN documents d ON tc."documentId" = d.id AND d.status = 'READY'
       WHERE kb."enterpriseId" = ${enterpriseId}
         AND kb.id = ANY(${knowledgeBaseIds}::text[])
         AND tc.tokens IS NOT NULL

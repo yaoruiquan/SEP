@@ -6,6 +6,7 @@ import { tryRefresh } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
 import { ThemeProvider } from '@/lib/theme-provider';
 import { Toaster } from '@/components/ui/toast';
+import { watchKnowledgeIdentity } from '@/features/knowledge/knowledge-cache';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -21,6 +22,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       }),
   );
+
+  useEffect(() => watchKnowledgeIdentity(queryClient), [queryClient]);
 
   const setHydrated = useAuthStore((s) => s.setHydrated);
   const booted = useRef(false);
