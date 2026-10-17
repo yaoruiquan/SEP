@@ -2623,6 +2623,7 @@ model KnowledgeBase {
   name         String
   description  String?  @db.Text
   revision     Int      @default(1)
+  deletedAt    DateTime?
   createdBy    String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -2653,7 +2654,14 @@ model Document {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  // Phase 2 新增：处理增强字段（均为可空，保持向后兼容）
+  revision        Int       @default(1)
+  activeVersionId String?
+  latestVersionId String?
+  deletedAt       DateTime?
+  versions        DocumentVersion[]
+  processingJobs  KnowledgeProcessingJob[]
+
+  // Legacy projection retained during migration
   version        Int       @default(1)
   lastError      String?   @db.Text
   processedAt    DateTime?
@@ -2755,6 +2763,11 @@ model TextChunk {
   id              String   @id @default(cuid())
   knowledgeBaseId String
   documentId      String? // Phase 2: 关联文档（手动创建为 null）
+  versionId       String?
+  indexGeneration Int      @default(0)
+  ordinal         Int?
+  tokenCount      Int?
+  version         DocumentVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
   title           String?
   content         String   @db.Text
   source          String // "manual" or document ID
@@ -2778,6 +2791,7 @@ model TextChunk {
 
   @@index([knowledgeBaseId])
   @@index([documentId])
+  @@unique([versionId, indexGeneration, ordinal])
   @@map("text_chunks")
 }
 
@@ -3580,4 +3594,85 @@ model ClientTaskMirrorEvent {
   @@index([mirrorId, createdAt])
   @@index([participationId, sequence])
   @@map("client_task_mirror_events")
+}
+
+
+/// Immutable original; processing state belongs to its current generation.
+model DocumentVersion {
+  id              String @id @default(cuid())
+  documentId      String
+  version         Int
+  originalName    String
+  mimeType        String
+  fileSize        Int
+  storagePath     String
+  sha256          String
+  status          DocumentStatus @default(PENDING)
+  stage           String @default("QUEUED")
+  generation      Int @default(1)
+  published       Boolean @default(false)
+  profile         Json?
+  lastError       String?
+  errorCode       String?
+  retryable       Boolean @default(true)
+  attempts        Int @default(0)
+  processedChunks Int @default(0)
+  totalChunks     Int?
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunks          TextChunk[]
+  blocks          KnowledgeParsedBlock[]
+  @@unique([documentId, version])
+  @@index([documentId, published])
+  @@map("document_versions")
+}
+
+model KnowledgeParsedBlock {
+  id        String @id @default(cuid())
+  versionId String
+  ordinal   Int
+  text      String @db.Text
+  page      Int?
+  section   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  version   DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  @@unique([versionId, ordinal])
+  @@map("knowledge_parsed_blocks")
+}
+
+/// Database outbox and durable job. Redis is only a delivery mechanism.
+model KnowledgeProcessingJob {
+  id           String @id @default(cuid())
+  documentId   String
+  versionId    String?
+  generation   Int @default(1)
+  kind         String @default("PROCESS")
+  status       String @default("PENDING")
+  attempts     Int @default(0)
+  fence        Int @default(0)
+  leaseUntil   DateTime?
+  nextRunAt    DateTime @default(now())
+  errorCode    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  @@unique([versionId, generation])
+  @@index([status, nextRunAt])
+  @@map("knowledge_processing_jobs")
+}
+
+model KnowledgeIdempotency {
+  id              String @id @default(cuid())
+  userId          String
+  knowledgeBaseId String
+  key             String
+  requestHash     String
+  result          Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@unique([userId, knowledgeBaseId, key])
+  @@map("knowledge_idempotencies")
 }

@@ -6,6 +6,8 @@ import { LexicalSearchService } from './lexical-search.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 import type { KnowledgeMemberSearchDto } from 'shared';
+import { isPublishedChunk, isVectorCompatibleChunk, publicationSelect, publishedChunkWhere, vectorChunkWhere } from './knowledge-publication';
+import type { EmbeddingProfile } from './embedding.service';
 
 export interface SearchResult {
   content: string;
@@ -25,6 +27,7 @@ export interface SearchResponse {
 }
 
 type SearchStrategy = 'lexical' | 'vector' | 'hybrid' | 'auto';
+type SearchCandidate = SearchResult & { vectorProfile?: EmbeddingProfile; lexicalScore?: number };
 
 @Injectable()
 export class KnowledgeSearchService {
@@ -113,7 +116,7 @@ export class KnowledgeSearchService {
     const actualStrategy = await this.resolveStrategy(strategy);
 
     // 4. 执行检索
-    let results: SearchResult[];
+    let results: SearchCandidate[];
 
     switch (actualStrategy) {
       case 'lexical':
@@ -155,7 +158,7 @@ export class KnowledgeSearchService {
     return { count: results.length, results, strategy: actualStrategy, durationMs };
   }
 
-  /** First-batch search over explicit member access; versioned sources are a later delivery. */
+  /** Search over explicit member access and the current published document versions. */
   async searchForMember(userId: string, dto: KnowledgeMemberSearchDto): Promise<SearchResponse> {
     const started = Date.now();
     const viewer = await this.policy.resolve(userId);
@@ -179,21 +182,25 @@ export class KnowledgeSearchService {
     }
   }
 
-  private async authorizedResults(userId: string, knowledgeBaseIds: string[], results: SearchResult[]): Promise<SearchResult[]> {
+  private async authorizedResults(userId: string, knowledgeBaseIds: string[], results: SearchCandidate[]): Promise<SearchResult[]> {
     if (!results.length) return [];
     const viewer = await this.policy.resolve(userId);
     const chunks = await this.prisma.textChunk.findMany({ where: {
       id: { in: results.map(result => result.chunkId) }, knowledgeBaseId: { in: knowledgeBaseIds },
-      knowledgeBase: this.policy.readableWhere(viewer), document: { status: 'READY' },
+      ...publishedChunkWhere(this.policy.readableWhere(viewer)),
     }, select: { id: true, content: true, source: true, knowledgeBaseId: true,
-      document: { select: { id: true, originalName: true } } } });
-    const allowed = new Map(chunks.map(chunk => [chunk.id, chunk]));
+      ...publicationSelect } });
+    const allowed = new Map(chunks.filter(isPublishedChunk).map(chunk => [chunk.id, chunk]));
     return results.flatMap(result => {
       const chunk = allowed.get(result.chunkId);
-      return chunk?.document ? [{ ...result, content: chunk.content, source: chunk.source,
+      if (!chunk?.document) return [];
+      const { vectorProfile, lexicalScore, ...publicResult } = result;
+      const compatible = !vectorProfile || isVectorCompatibleChunk(chunk, vectorProfile);
+      if (!compatible && lexicalScore === undefined) return [];
+      return [{ ...publicResult, score: compatible ? result.score : lexicalScore!, content: chunk.content, source: chunk.source,
         knowledgeBaseId: chunk.knowledgeBaseId, documentId: chunk.document.id,
-        documentName: chunk.document.originalName }] : [];
-    });
+        documentName: chunk.document.originalName }];
+    }).sort((a, b) => b.score - a.score);
   }
 
   /**
@@ -217,7 +224,7 @@ export class KnowledgeSearchService {
     enterpriseId: string,
     kbIds: string[],
     topK: number,
-  ): Promise<SearchResult[]> {
+  ): Promise<SearchCandidate[]> {
     const lexicalResults = await this.lexical.search(query, enterpriseId, kbIds, topK);
 
     return lexicalResults.map((r) => ({
@@ -238,7 +245,7 @@ export class KnowledgeSearchService {
     kbIds: string[],
     topK: number,
     scoreThreshold: number,
-  ): Promise<SearchResult[]> {
+  ): Promise<SearchCandidate[]> {
     // 检查服务可用性
     const embeddingAvailable = await this.embedding.isAvailable();
     if (!embeddingAvailable) {
@@ -246,6 +253,7 @@ export class KnowledgeSearchService {
       throw new ServiceUnavailableException({ code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '向量检索暂时不可用' });
     }
 
+    const profile = this.embedding.getProfile();
     const embeddingResult = await this.embedding.embed(query);
     const queryVector = embeddingResult.embedding;
 
@@ -254,7 +262,7 @@ export class KnowledgeSearchService {
       enterpriseId,
       kbIds,
       topK,
-      this.embedding.getModel(),
+      profile,
     );
 
     // 过滤低分
@@ -263,11 +271,11 @@ export class KnowledgeSearchService {
     // 补充 chunk 内容
     const chunkIds = filtered.map((r) => r.chunkId);
     const chunks = await this.prisma.textChunk.findMany({
-      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, knowledgeBase: { enterpriseId }, document: { status: 'READY' } },
-      select: { id: true, content: true, source: true, knowledgeBaseId: true },
+      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, ...vectorChunkWhere({ enterpriseId }, profile) },
+      select: { id: true, content: true, source: true, knowledgeBaseId: true, ...publicationSelect },
     });
 
-    const chunkMap = new Map(chunks.map((c) => [c.id, c]));
+    const chunkMap = new Map(chunks.filter(chunk => isVectorCompatibleChunk(chunk, profile)).map((c) => [c.id, c]));
 
     return filtered
       .map((r) => {
@@ -279,9 +287,10 @@ export class KnowledgeSearchService {
           source: chunk.source,
           knowledgeBaseId: chunk.knowledgeBaseId,
           score: r.score,
+          vectorProfile: profile,
         };
       })
-      .filter((r): r is SearchResult => r !== null);
+      .filter((r): r is NonNullable<typeof r> => r !== null);
   }
 
   /**
@@ -293,7 +302,7 @@ export class KnowledgeSearchService {
     kbIds: string[],
     topK: number,
     scoreThreshold: number,
-  ): Promise<SearchResult[]> {
+  ): Promise<SearchCandidate[]> {
     // 检查服务可用性，降级为 lexical
     const embeddingAvailable = await this.embedding.isAvailable();
     if (!embeddingAvailable) {
@@ -302,6 +311,7 @@ export class KnowledgeSearchService {
     }
 
     // 并行执行词法和向量检索
+    const profile = this.embedding.getProfile();
     const [lexicalResults, vectorResults] = await Promise.all([
       this.lexical.search(query, enterpriseId, kbIds, topK * 2),
       (async () => {
@@ -311,28 +321,27 @@ export class KnowledgeSearchService {
           enterpriseId,
           kbIds,
           topK * 2,
-          this.embedding.getModel(),
+          profile,
         );
       })(),
     ]);
 
-    // RRF 融合
-    const merged = this.reciprocalRankFusion(
-      lexicalResults.map((r) => ({ chunkId: r.chunkId, score: r.score })),
-      vectorResults.map((r) => ({ chunkId: r.chunkId, score: r.score })),
-    );
-
-    // 取 top K
-    const topResults = merged.slice(0, topK);
-
-    // 批量加载 chunk 内容
-    const chunkIds = topResults.map((r) => r.chunkId);
+    // Revalidate before fusion so incompatible vectors cannot affect lexical ranking.
+    const chunkIds = [...new Set([...lexicalResults, ...vectorResults].map(result => result.chunkId))];
     const chunks = await this.prisma.textChunk.findMany({
-      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, knowledgeBase: { enterpriseId }, document: { status: 'READY' } },
-      select: { id: true, content: true, source: true, knowledgeBaseId: true },
+      where: { id: { in: chunkIds }, knowledgeBaseId: { in: kbIds }, ...publishedChunkWhere({ enterpriseId }) },
+      select: { id: true, content: true, source: true, knowledgeBaseId: true, ...publicationSelect },
     });
 
-    const chunkMap = new Map(chunks.map((c) => [c.id, c]));
+    const chunkMap = new Map(chunks.filter(isPublishedChunk).map((c) => [c.id, c]));
+    const validLexical = lexicalResults.filter(result => chunkMap.has(result.chunkId));
+    const validVector = vectorResults.filter(result => {
+      const chunk = chunkMap.get(result.chunkId);
+      return chunk && isVectorCompatibleChunk(chunk, profile);
+    });
+    const vectorIds = new Set(validVector.map(result => result.chunkId));
+    const lexicalScores = new Map(this.reciprocalRankFusion(validLexical, []).map(result => [result.chunkId, result.score]));
+    const topResults = this.reciprocalRankFusion(validLexical, validVector).slice(0, topK);
 
     return topResults
       .map((r) => {
@@ -344,9 +353,10 @@ export class KnowledgeSearchService {
           source: chunk.source,
           knowledgeBaseId: chunk.knowledgeBaseId,
           score: r.score,
+          ...(vectorIds.has(r.chunkId) ? { vectorProfile: profile, lexicalScore: lexicalScores.get(r.chunkId) } : {}),
         };
       })
-      .filter((r): r is SearchResult => r !== null);
+      .filter((r): r is NonNullable<typeof r> => r !== null);
   }
 
   /**
@@ -404,7 +414,7 @@ export class KnowledgeSearchService {
     const actualStrategy = await this.resolveStrategy(strategy);
 
     // 执行检索
-    let results: SearchResult[];
+    let results: SearchCandidate[];
     switch (actualStrategy) {
       case 'lexical':
         results = await this.searchLexical(query, viewer.enterpriseId, knowledgeBaseIds, topK); break;

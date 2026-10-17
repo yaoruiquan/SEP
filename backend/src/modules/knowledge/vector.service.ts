@@ -1,9 +1,12 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
+import { isVectorCompatibleChunk, publicationSelect, publishedChunkSql, vectorChunkWhere, vectorProfileSql } from './knowledge-publication';
+import type { EmbeddingProfile } from './embedding.service';
 
 /**
  * Vector 存储服务 - Phase 2 重构
- * LRU 缓存（内存）+ Postgres bytea（持久化）
+ * pgvector + bounded BYTEA compatibility search, without cross-request publication caches.
  */
 
 interface SearchResult {
@@ -26,12 +29,6 @@ export class VectorService {
   private pgvectorFailureCount = 0;
   private lastPgvectorError: string | null = null;
 
-  // LRU 缓存：enterpriseId + 授权知识库集合 -> Map<chunkId, vector>
-  private cache = new Map<string, Map<string, CachedVector>>();
-  private cacheOrder = new Map<string, number>();
-  private readonly maxCacheSize = 5; // 最多缓存 5 个企业
-  private readonly maxMemoryMB = 600; // 最大内存占用 600MB
-
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -42,9 +39,13 @@ export class VectorService {
     enterpriseId: string,
     knowledgeBaseIds: string[],
     topK: number,
-    embeddingModel?: string,
+    profile?: EmbeddingProfile,
   ): Promise<SearchResult[]> {
     const startTime = Date.now();
+    if (profile && (profile.dimension !== queryVector.length || profile.distance !== 'cosine'
+      || !profile.model || !profile.tokenizer)) {
+      throw new ServiceUnavailableException('Embedding query profile is incompatible with the query vector');
+    }
 
     // The database-native path is the default after the pgvector migration.
     // Keeping the legacy path makes rolling upgrades and old test databases safe.
@@ -55,7 +56,7 @@ export class VectorService {
           enterpriseId,
           knowledgeBaseIds,
           topK,
-          embeddingModel,
+          profile,
         );
         this.logger.log(
           `pgvector search completed in ${Date.now() - startTime}ms (${results.length} results)`,
@@ -81,30 +82,15 @@ export class VectorService {
       this.pgvectorMode = 'legacy';
     }
 
-    // 1. 尝试从缓存读取
-    const cacheKey = this.buildCacheKey(enterpriseId, knowledgeBaseIds, embeddingModel);
-    const cached = this.cache.get(cacheKey);
-    if (cached) {
-      this.logger.debug(`Cache HIT for scope ${cacheKey}`);
-      this.updateCacheOrder(cacheKey);
-      return this.searchInMemory(queryVector, cached, knowledgeBaseIds, topK);
-    }
-
-    // 2. 缓存未命中，从 Postgres 加载
-    this.logger.debug(`Cache MISS for enterprise ${enterpriseId}, loading from DB`);
-    const vectors = await this.loadVectorsFromDB(enterpriseId, knowledgeBaseIds, embeddingModel);
-
-    // 3. 写入缓存
-    this.addToCache(cacheKey, vectors);
-
-    // 4. 执行检索
+    // Publication can change in another process. Never reuse a local publication snapshot.
+    const vectors = await this.loadVectorsFromDB(enterpriseId, knowledgeBaseIds, queryVector.length, profile);
     const results = this.searchInMemory(queryVector, vectors, knowledgeBaseIds, topK);
 
     this.logger.log(
       `Vector search completed in ${Date.now() - startTime}ms (${results.length} results)`
     );
 
-    return results;
+    return this.recheckResults(results, enterpriseId, knowledgeBaseIds, profile);
   }
 
   /**
@@ -116,34 +102,12 @@ export class VectorService {
     enterpriseId: string,
     knowledgeBaseIds: string[],
     topK: number,
-    embeddingModel?: string,
+    profile?: EmbeddingProfile,
   ): Promise<SearchResult[]> {
     if (queryVector.length !== 1024) {
       throw new Error(`pgvector expects 1024 dimensions, got ${queryVector.length}`);
     }
     const literal = this.toVectorLiteral(queryVector);
-    if (embeddingModel) {
-      const filteredRows = await (this.prisma as any).$queryRaw<Array<{ id: string; knowledgeBaseId: string; score: number }>>`
-        SELECT
-          tc.id,
-          tc."knowledgeBaseId",
-          1 - (tc."embeddingVector" <=> ${literal}::vector) AS score
-        FROM text_chunks tc
-        INNER JOIN knowledge_bases kb ON tc."knowledgeBaseId" = kb.id
-        WHERE kb."enterpriseId" = ${enterpriseId}
-          AND kb.id = ANY(${knowledgeBaseIds}::text[])
-          AND tc."embeddingVector" IS NOT NULL
-          AND tc."embeddingModel" = ${embeddingModel}
-        ORDER BY tc."embeddingVector" <=> ${literal}::vector
-        LIMIT ${topK}
-      `;
-      return filteredRows.map((row) => ({
-        chunkId: row.id,
-        knowledgeBaseId: row.knowledgeBaseId,
-        score: Number(row.score),
-      } as SearchResult));
-    }
-
     const rows = await (this.prisma as any).$queryRaw<Array<{ id: string; knowledgeBaseId: string; score: number }>>`
       SELECT
         tc.id,
@@ -151,23 +115,38 @@ export class VectorService {
         1 - (tc."embeddingVector" <=> ${literal}::vector) AS score
       FROM text_chunks tc
       INNER JOIN knowledge_bases kb ON tc."knowledgeBaseId" = kb.id
+      INNER JOIN documents d ON tc."documentId" = d.id
+      LEFT JOIN document_versions dv ON tc."versionId" = dv.id
       WHERE kb."enterpriseId" = ${enterpriseId}
         AND kb.id = ANY(${knowledgeBaseIds}::text[])
+        AND ${publishedChunkSql}
+        AND ${vectorProfileSql(profile)}
         AND tc."embeddingVector" IS NOT NULL
       ORDER BY tc."embeddingVector" <=> ${literal}::vector
       LIMIT ${topK}
     `;
 
-    return rows.map((row) => ({
+    return this.recheckResults(rows.map((row) => ({
       chunkId: row.id,
       knowledgeBaseId: row.knowledgeBaseId,
       score: Number(row.score),
-    } as SearchResult));
+    } as SearchResult)), enterpriseId, knowledgeBaseIds, profile);
+  }
+
+  private async recheckResults(results: SearchResult[], enterpriseId: string, knowledgeBaseIds: string[], profile?: EmbeddingProfile) {
+    if (!results.length) return [];
+    const chunks = await this.prisma.textChunk.findMany({
+      where: { ...vectorChunkWhere({ enterpriseId, id: { in: knowledgeBaseIds } }, profile),
+        id: { in: results.map(result => result.chunkId) } },
+      select: { id: true, knowledgeBaseId: true, ...publicationSelect },
+    });
+    const allowed = new Set(chunks.filter(chunk => isVectorCompatibleChunk(chunk, profile)).map(chunk => chunk.id));
+    return results.filter(result => allowed.has(result.chunkId));
   }
 
   /** Store a vector in the native pgvector column after the Prisma row exists. */
-  async upsertVector(chunkId: string, vector: Float32Array): Promise<void> {
-    if (vector.length !== 1024 || typeof (this.prisma as any).$executeRaw !== 'function') {
+  async upsertVector(chunkId: string, vector: Float32Array, executor: Pick<Prisma.TransactionClient, '$executeRaw'> = this.prisma): Promise<void> {
+    if (vector.length !== 1024 || typeof executor.$executeRaw !== 'function') {
       if (vector.length !== 1024) {
         throw new Error(`pgvector expects 1024 dimensions, got ${vector.length}`);
       }
@@ -175,10 +154,12 @@ export class VectorService {
     }
     const literal = this.toVectorLiteral(vector);
     try {
-      await (this.prisma as any).$executeRaw`
+      await executor.$executeRaw`
         UPDATE text_chunks SET "embeddingVector" = ${literal}::vector WHERE id = ${chunkId}
       `;
     } catch (error) {
+      // A failed statement aborts a PostgreSQL transaction; the caller must roll it back.
+      if (executor !== this.prisma) throw error;
       if (!this.isCompatibilityError(error)) throw error;
       this.logger.warn(`pgvector column unavailable for chunk ${chunkId}; keeping BYTEA compatibility storage`);
     }
@@ -209,21 +190,19 @@ export class VectorService {
   private async loadVectorsFromDB(
     enterpriseId: string,
     knowledgeBaseIds: string[],
-    embeddingModel?: string,
+    dimension: number,
+    profile?: EmbeddingProfile,
   ): Promise<Map<string, CachedVector>> {
     const chunks = await this.prisma.textChunk.findMany({
       where: {
-        knowledgeBase: {
-          enterpriseId,
-          id: { in: knowledgeBaseIds },
-        },
+        ...vectorChunkWhere({ enterpriseId, id: { in: knowledgeBaseIds } }, profile),
         embedding: { not: null },
-        ...(embeddingModel ? { embeddingModel } : {}),
       },
       select: {
         id: true,
         embedding: true,
         knowledgeBaseId: true,
+        ...publicationSelect,
       },
       take: this.maxLegacyFallbackCandidates + 1,
     });
@@ -237,12 +216,12 @@ export class VectorService {
     const vectorMap = new Map<string, CachedVector>();
 
     for (const chunk of chunks) {
-      if (chunk.embedding) {
+      if (chunk.embedding && isVectorCompatibleChunk(chunk, profile)) {
         // Buffer → Float32Array
         const vector = new Float32Array(
           new Uint8Array(chunk.embedding).buffer
         );
-        vectorMap.set(chunk.id, { knowledgeBaseId: chunk.knowledgeBaseId, vector });
+        if (vector.length === dimension) vectorMap.set(chunk.id, { knowledgeBaseId: chunk.knowledgeBaseId, vector });
       }
     }
 
@@ -299,76 +278,12 @@ export class VectorService {
     return denominator === 0 ? 0 : dotProduct / denominator;
   }
 
-  /**
-   * 添加到 LRU 缓存
-   */
-  private addToCache(cacheKey: string, vectors: Map<string, CachedVector>): void {
-    // 检查内存占用
-    const vectorSizeMB = Array.from(vectors.values()).reduce(
-      (bytes, item) => bytes + item.vector.byteLength,
-      0,
-    ) / (1024 * 1024);
-
-    if (vectorSizeMB > this.maxMemoryMB) {
-      this.logger.warn(
-        `Vector scope ${cacheKey} too large (${vectorSizeMB.toFixed(2)}MB), skipping cache`
-      );
-      return;
-    }
-
-    // LRU 驱逐
-    if (this.cache.size >= this.maxCacheSize) {
-      const oldestKey = this.getOldestCacheKey();
-      if (oldestKey) {
-        this.cache.delete(oldestKey);
-        this.cacheOrder.delete(oldestKey);
-        this.logger.debug(`Evicted enterprise ${oldestKey} from cache`);
-      }
-    }
-
-    this.cache.set(cacheKey, vectors);
-    this.cacheOrder.set(cacheKey, Date.now());
-  }
-
-  /**
-   * 更新缓存访问时间
-   */
-  private updateCacheOrder(cacheKey: string): void {
-    this.cacheOrder.set(cacheKey, Date.now());
-  }
-
-  /**
-   * 获取最久未使用的缓存键
-   */
-  private getOldestCacheKey(): string | undefined {
-    let oldestKey: string | undefined;
-    let oldestTime = Infinity;
-
-    for (const [key, time] of this.cacheOrder.entries()) {
-      if (time < oldestTime) {
-        oldestTime = time;
-        oldestKey = key;
-      }
-    }
-
-    return oldestKey;
-  }
-
-  /**
-   * 使缓存失效（文档更新后调用）
-   */
+  /** Retained for callers; publication-sensitive caches are disabled. */
   invalidateCache(enterpriseId: string, knowledgeBaseId?: string): void {
     if (knowledgeBaseId) {
       this.logger.log(`Invalidating cache for KB ${knowledgeBaseId}`);
     } else {
       this.logger.log(`Invalidating cache for enterprise ${enterpriseId}`);
-    }
-
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(`${enterpriseId}:`)) {
-        this.cache.delete(key);
-        this.cacheOrder.delete(key);
-      }
     }
   }
 
@@ -376,18 +291,10 @@ export class VectorService {
    * 获取缓存统计
    */
   getCacheStats() {
-    const entries = Array.from(this.cache.entries()).map(([scope, vectors]) => ({
-      scope,
-      vectorCount: vectors.size,
-      sizeMB: (Array.from(vectors.values()).reduce(
-        (bytes, item) => bytes + item.vector.byteLength,
-        0,
-      ) / (1024 * 1024)).toFixed(2),
-    }));
-
     return {
-      cachedEnterprises: this.cache.size,
-      maxSize: this.maxCacheSize,
+      cacheEnabled: false,
+      cachedEnterprises: 0,
+      maxSize: 0,
       pgvector: {
         mode: this.pgvectorMode,
         searchCount: this.pgvectorSearchCount,
@@ -396,12 +303,8 @@ export class VectorService {
         maxLegacyFallbackCandidates: this.maxLegacyFallbackCandidates,
         lastError: this.lastPgvectorError,
       },
-      entries,
+      entries: [],
     };
-  }
-
-  private buildCacheKey(enterpriseId: string, knowledgeBaseIds: string[], embeddingModel?: string): string {
-    return `${enterpriseId}:${embeddingModel ?? '*'}:${[...new Set(knowledgeBaseIds)].sort().join(',')}`;
   }
 
   private isCompatibilityError(error: unknown): boolean {

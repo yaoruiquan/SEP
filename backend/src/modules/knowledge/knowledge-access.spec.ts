@@ -84,7 +84,7 @@ describe('Knowledge resource access boundaries', () => {
     prisma.textChunk.count.mockResolvedValue(1);
     const service = new DocumentService(prisma, {} as any, policy, {} as any);
     await expect(service.preview('kb-a', 'doc-a', 'u-a', { page: 1, pageSize: 20 })).resolves.toEqual({
-      documentId: 'doc-a', documentName: '政策.txt', previewKind: 'PROCESSED_CHUNKS',
+      documentId: 'doc-a', documentName: '政策.txt', previewKind: 'PROCESSED_CHUNKS', versionId: null,
       items: [{ chunkId: 'c-a', text: '<script>plain text</script>' }], page: 1, pageSize: 20, total: 1,
     });
   });

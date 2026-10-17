@@ -23,6 +23,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { EnterpriseModule } from '../enterprise/enterprise.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
+import { KnowledgeUploadGuard } from './knowledge-upload.guard';
 
 @Module({
   imports: [PrismaModule, EnterpriseModule, ScheduleModule.forRoot()],
@@ -35,6 +36,7 @@ import { KnowledgeAccessPolicy } from './knowledge-access-policy';
   ],
   providers: [
     KnowledgeAccessPolicy,
+    KnowledgeUploadGuard,
     KnowledgeService,
     DocumentService,
     TextChunkService,

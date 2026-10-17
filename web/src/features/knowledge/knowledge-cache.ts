@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/auth-store';
 
 type Identity = Pick<ReturnType<typeof useAuthStore.getState>, 'user' | 'enterprise' | 'roleInEnterprise'>;
-const prefixes = new Set(['knowledge-bases', 'knowledge-base', 'documents', 'knowledge-preview',
+const prefixes = new Set(['knowledge-bases', 'knowledge-base', 'documents', 'knowledge-preview', 'knowledge-document-versions',
   'knowledge-document-status', 'knowledge-grants', 'knowledge-grant-candidates', 'knowledge-analytics', 'text-chunks']);
 
 function scope(state: Identity) {

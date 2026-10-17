@@ -756,13 +756,38 @@ export interface KnowledgeMemberGrant {
 
 export type KnowledgeProcessingStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
 
-/** 本批文档读写暂沿用旧上传/状态接口，不伪造不可用的版本能力。 */
+export interface KnowledgeDocumentVersion {
+  id: string;
+  version: number;
+  status: KnowledgeProcessingStatus;
+  originalName: string;
+  createdAt: string;
+}
+
+/** 后端安全投影，不包含存储路径、解析原文或上游异常。 */
+export interface KnowledgeDocumentVersionDetail extends KnowledgeDocumentVersion {
+  stage: string | null;
+  lastError: string | null;
+  errorCode: string | null;
+  retryable: boolean;
+  attempts: number;
+  processedChunks: number;
+  totalChunks: number | null;
+}
+
 export interface KnowledgeDocument {
   id: string;
   originalName: string;
   fileSize: number;
   mimeType: string;
   status: KnowledgeProcessingStatus;
+  revision: number;
+  etag: string;
+  activeVersionId: string | null;
+  latestVersionId: string | null;
+  searchable: boolean;
+  activeVersion: KnowledgeDocumentVersion | null;
+  latestVersion: KnowledgeDocumentVersionDetail | null;
   createdAt: string;
   updatedAt: string;
   lastError?: string | null;
@@ -783,9 +808,10 @@ export interface KnowledgePreviewBlock {
 }
 
 export interface KnowledgeDocumentPreview extends KnowledgePage<{ chunkId: string; text: string }> {
+  versionId: string | null;
   documentId: string;
   documentName: string;
-  previewKind: 'PROCESSED_CHUNKS';
+  previewKind: 'PROCESSED_CHUNKS' | 'PARSED_BLOCKS';
 }
 
 // ── Cost Analytics (Phase 3) ──────────────────────────────────────────────────

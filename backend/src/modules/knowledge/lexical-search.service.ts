@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TextTokenizer } from './text-tokenizer.service';
 import { BM25Scorer } from './bm25-scorer.service';
+import { isPublishedChunk, publicationSelect, publishedChunkSql, publishedChunkWhere } from './knowledge-publication';
 
 /**
  * 词法检索服务 - Phase 2
@@ -118,15 +119,27 @@ export class LexicalSearchService {
         similarity(tc.content, ${query}) as similarity
       FROM text_chunks tc
       INNER JOIN knowledge_bases kb ON tc."knowledgeBaseId" = kb.id
-      INNER JOIN documents d ON tc."documentId" = d.id AND d.status = 'READY'
+      INNER JOIN documents d ON tc."documentId" = d.id
+      LEFT JOIN document_versions dv ON tc."versionId" = dv.id
       WHERE kb."enterpriseId" = ${enterpriseId}
         AND kb.id = ANY(${knowledgeBaseIds}::text[])
+        AND ${publishedChunkSql}
         AND tc.tokens IS NOT NULL
         AND similarity(tc.content, ${query}) > 0.01
       ORDER BY similarity DESC
       LIMIT ${limit}
     `;
 
-    return chunks;
+    if (!chunks.length) return [];
+    const current = await this.prisma.textChunk.findMany({
+      where: { ...publishedChunkWhere({ enterpriseId, id: { in: knowledgeBaseIds } }),
+        id: { in: chunks.map(chunk => chunk.id) } },
+      select: { id: true, content: true, tokens: true, source: true, knowledgeBaseId: true, ...publicationSelect },
+    });
+    const allowed = new Map(current.filter(isPublishedChunk).map(chunk => [chunk.id, chunk]));
+    return chunks.flatMap(chunk => {
+      const fresh = allowed.get(chunk.id);
+      return fresh ? [{ ...chunk, ...fresh }] : [];
+    });
   }
 }

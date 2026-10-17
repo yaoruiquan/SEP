@@ -184,17 +184,29 @@ function filenameFromContentDisposition(value: string | null): string {
 }
 
 /** 上传 multipart 表单。不设 Content-Type，让浏览器带 boundary。401 时仅刷新并重放一次。 */
-export async function uploadForm<T>(path: string, form: FormData, skipAuthRetry = false): Promise<T> {
+export async function uploadForm<T>(
+  path: string,
+  form: FormData,
+  opts: Pick<RequestOptions, 'headers' | 'skipAuthRetry'> | boolean = {},
+): Promise<T> {
+  const { headers, skipAuthRetry = false } = typeof opts === 'boolean' ? { skipAuthRetry: opts } : opts;
+  const requestHeaders = new Headers(headers);
+  // multipart 的 boundary 必须由浏览器生成。
+  requestHeaders.delete('Content-Type');
   const token = authAccessor.getToken();
+  if (token) requestHeaders.delete('Authorization');
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...Object.fromEntries(requestHeaders.entries()),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: form,
   });
 
   if (res.status === 401 && !skipAuthRetry) {
-    if (await tryRefresh()) return uploadForm<T>(path, form, true);
+    if (await tryRefresh()) return uploadForm<T>(path, form, { headers, skipAuthRetry: true });
     authAccessor.clear();
     throw new ApiError(401, 'Unauthorized');
   }

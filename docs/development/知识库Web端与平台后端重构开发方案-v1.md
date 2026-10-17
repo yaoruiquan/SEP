@@ -2,7 +2,7 @@
 
 初稿日期：2026-10-15。范围修订：2026-10-16。初稿代码基线：本地工作区 `ea90907`，包含工作区当时已有修改；不是线上部署基线。
 
-状态：目标方案与分批实施记录。2026-10-16 已完成第 9.1 节第一批代码和专项验证；完整客户端 V1、生产发布及真实模型链路尚未验收，具体差异见文末。
+状态：目标方案与分批实施记录。2026-10-16 完成第 9.1 节第一批；2026-10-17 已实现第二批文档版本、可靠处理及对应 Web 管理功能，验证边界见文末第二批记录。完整客户端 V1、生产发布及真实模型链路尚未验收。
 
 2026-10-16 用户确认先做平台托管模式，并要求按重新评估的网页管理方案调整文档、开始开发。本次以此更新 Web 范围；客户端仍保留原契约中的全部管理和使用能力。不包含本地知识库、企业内网部署或“只上传向量”的模式。
 
@@ -602,6 +602,8 @@ Web 管理重构仍须启动本地页面做 Playwright 实测与截图，覆盖�
 
 #### 后续开发与使用条件
 
+> 以下保留第一批结束时的历史状态；其中版本处理和 Web 版本管理已有第二批实现，以文末 2026-10-17 记录为准，不代表这些功能现在仍完全未开发。
+
 1. **启用前需协调前后端升级并迁移实际环境。** 当前已运行的旧后端进程未切换到新 schema；不能直接把当前 Web 页面当作已完成真实后端联调。迁移先备份、确认授权名单；旧库不会自动授予普通成员，管理员需重新显式授权。此次未操作业务库或生产环境。
 2. **下一批优先做文档版本和可靠处理。** 不可变版本、原子发布、上传新版本、ETag/If-Match、持久化幂等、outbox/租约/代次、删除与失败恢复均未交付；当前重试仍是旧可变文档流程，不具备失败新版本保留旧 active 的承诺。
 3. **检索和来源契约继续升级。** 尚缺完整四状态/partial/降级协议、统一累计 token 预算、真实定位及稳定版本化 sourceId、历史来源保留。当前只读预览是处理片段，不是原始文件阅读器；不伪造页码或 versionId。
@@ -626,3 +628,60 @@ Web 管理重构仍须启动本地页面做 Playwright 实测与截图，覆盖�
 更新后的隔离数据库 smoke **56 项全部通过**，增加真实数据库上的文档响应投影检查，并将离职验证改为真实 `MemberService.remove`，同时检查级联撤权和 revision 递增。证据：[review 后服务验证](../../outputs/knowledge-refactor-2026-10-16/service-smoke-kbsmoke-2026-10-16T02-52-33-465Z-e307a971.json)。该测试仍为直接服务调用，不覆盖 HTTP 或真实上传、解析、向量化链路。
 
 本次 Git 提交范围为知识库第一批实现、必要的契约/开发文档、回归测试与验收证据。工作区其他模型网关、部署配置及调研产物不包含在本批提交中；业务数据库与生产环境未变更。
+
+### 2026-10-17 第二批：文档版本与可靠处理
+
+本批接续第一批实现文档版本、后台可靠处理和 Web 对应管理操作，属于第 9 节 C/E 的一部分；不表示完整客户端 V1 或整个知识库已经完成。用户选择的平台托管边界不变：原件、解析文字和向量均由平台保存，不提供本地-only 或“仅向量上云即安全”的承诺。
+
+#### 已实现与代码入口
+
+| 范围 | 本批实现 |
+| --- | --- |
+| 版本模型 | `DocumentVersion` 保存不可变原件元数据与独立处理状态；文档使用 `activeVersionId/latestVersionId` 区分生效版和最新版本。另增加结构化解析块、持久作业、幂等记录及软删除字段。迁移：`20261016093000_knowledge_document_versions` |
+| 上传/替换/重试 | 首次上传同时持久化原件、版本与作业后返回 202；同名上传仍为新文档，替换必须指定文档。一个文档至多一个待处理版本；与生效版哈希相同返回 200 + `unchanged=true`。可重试失败版沿用原件并创建新 generation，不在 HTTP 中直接处理 |
+| 并发与网络重放 | 文档写操作要求 `If-Match` 强 ETag 和 `Idempotency-Key`；事务中重查权限并锁定资源。ETag 覆盖安全表示，包括阶段与进度，不只包含 revision；409/412 后前端刷新并要求重新确认，不自动覆盖。幂等键相同但请求内容变化返回冲突 |
+| 可靠作业 | PostgreSQL 作业表作为 outbox，BullMQ 仅做可重复投递；120 秒租约、30 秒心跳、fence/generation 隔离过期 worker。自动尝试最多 3 次，等待后重投；格式/空文档等确定性失败不重试。tokenizer 未就绪等运行配置故障有限重试，之后由管理员修复配置再人工重试 |
+| 私有原件与清理 | 新原件不放公开 uploads；私有目录/文件权限 0700/0600，并执行文件与目录 fsync。删除先取消/隔离处理并使内容不可读，再持久清理作业。定时扫描 24 小时以上的无引用原件；数据库引用查询失败时不删除，单轮最多扫描 10000 个、删除 100 个 |
+| 解析和切分 | 复用已有依赖验证文本 PDF、DOCX、UTF-8 TXT/MD，单文件 10 MiB。PDF 使用真实页码；其他格式页码为 null。解析 worker 有超时、输入/页数/解压上限和外部资源防护；保留数字。真实本地 tokenizer 每片不超过 800 token，最多 20000 片；不下载模型权重，不退化成字符数假 token |
+| 模型与发布 | embedding 只经 sub2api；校验批量返回数量、索引、维度和有限值。当前原生向量列要求 1024 维。完成全部切片、词法 tokens、BYTEA/pgvector 和 profile 校验后，事务切换 active；新版失败不移除旧 active，不将 embedding 失败标记 READY |
+| 检索与旧入口保护 | 词法/向量查询及返回前复核软删除、生效版本、已发布 generation；版本向量校验 model/dimension/tokenizer/distance。旧 reindex 不得原地修改已版本化内容；旧直接 processor 和旧 enqueue 拒绝调用。完整客户端检索/来源响应另批交付 |
+| Web 管理 | 四个页签不变。文档列表展示生效版/最新版、真实阶段、进度和安全错误；增加版本记录、指定上传新版、重试和并发冲突提示。新版失败仍可预览旧生效版，预览翻页固定 versionId；待处理状态自动轮询 |
+
+主要文件：`backend/src/modules/knowledge/document.service.ts`、`document-processor.service.ts`、`knowledge-queue.service.ts`、`knowledge-private-storage.ts`、`knowledge-publication.ts`、parser/chunker/embedding 与检索服务；`backend/prisma/schema.prisma`；`web/src/features/knowledge/` 中的文档列表、版本弹窗、预览和 hooks；共享 DTO、Web API headers helper 及类型。
+
+#### 本批实际接口与过渡边界
+
+本批没有宣称第 5 节目标路由全部交付。当前 Web 使用以下已实现接口（均省略 `/api`）：
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `POST K/documents/upload` | 过渡上传路径，已完整接入新上传用例、管理 guard、幂等和可靠作业，202；最终 `POST K/documents` 仍待契约批统一切换 |
+| `POST D/versions` | `multipart file` + `If-Match` + `Idempotency-Key`，202 或 unchanged 的 200 |
+| `GET D` / `GET D/versions` | 安全文档详情/版本列表；详情 body 返回 etag，详情及成功上传/重试响应同时返回 ETag header |
+| `POST D/reprocess` | 过渡重试路径，仅接收空对象和写入头，持久化新代次后 202；不是旧直接重建流程 |
+| `DELETE D` | 两个写入头，立即不可见并创建清理作业，204 无 body |
+| `GET D/preview` | 当前生效版本解析纯文本分页，支持固定 versionId，切版返回冲突；不是原件下载或历史来源接口 |
+
+列表仍沿用过渡数组/前端筛选方式，版本记录未加独立分页；最终分页、capabilities、limits 和所有统一写入契约不能据此视为完成。幂等记录当前按用户+库+key 唯一且未设置 TTL；前端每次独立操作使用新 key，同一次不确定网络重放保留原 key。旧 READY/FAILED 数据首次管理变更时按原 docId 接入版本模型，不伪造历史 PDF 页码或历史 embedding profile。旧 READY 接入版本模型时，仅写入明确的历史来源标记 `{kind: 'legacy-adopted', compatibility: 'model-only'}`，保留旧路径按模型名称匹配的兼容能力，并继续检查生效版本、发布状态、代次和删除状态；这不代表旧向量的 tokenizer/模型修订已被验证。新处理版本仍必须匹配完整 profile，普通空值、不完整或错误 profile 不享受此兼容例外。
+
+#### 本地验证与证据
+
+仅对虚构资料和专用隔离库 `sep_kb_refactor_20261016` 执行迁移/验证，没有迁移业务库或生产环境；本批代码可提交，但尚未推送远程。
+
+| 检查 | 实际结果与边界 |
+| --- | --- |
+| 后端专项 | 知识库 + 企业成员服务专项 22 suites / 347 tests 通过，含真实 PDF/DOCX 库、上传 guard/HTTP、成员权限、幂等重试、发布过滤、片段只读边界和 profile 兼容；预期故障注入日志不是线上故障 |
+| HTTP 契约 | 新增 3 个测试文件共 56 项；真实 Nest/controller/guard/Multer/Zod，token 验证、权限和数据库为替身。覆盖上传前管理检查、未知字段、10 MiB、ETag、202/200、204 和冲突传播；不能替代真实 JWT + DB 端到端联调 |
+| 隔离数据库完整领域链 | `node backend/test/knowledge-version-smoke.cjs` 的 14 项场景通过：首次入库、幂等、去重与并发、新版失败保留旧版、人工重试、确定性失败、租约恢复、恢复时替换过期解析块、旧 FAILED 接入、旧 READY 首次版本化及新版失败后旧版向量/词法仍可检索、未发布片段不可见、处理时删除、整库删除。真实私有文件/TXT parser/PostgreSQL/pgvector/词法；embedding 与 tokenizer 为显式测试替身，未覆盖真实 Redis 中断 |
+| 前端专项 | `pnpm --dir web exec vitest run src/features/knowledge src/lib/__tests__/api-client.test.ts`：5 文件 / 81 项通过；包括版本上传/冲突/重放、旧版预览、轮询、权限失效和 legacy FAILED 重试 |
+| 类型与构建 | 前端 `tsc --noEmit --incremental false`、前端生产构建、后端生产构建通过。全仓后端 typecheck 曾被同时开发的 media-gateway 类型/测试错误阻塞，最终重新执行 `pnpm --dir backend typecheck` 已通过 |
+| 静态检查 | 后端知识库范围 ESLint 0 errors / 9 warnings（parser worker require、既有词法 tokenizer 注释等）。前端本批修改文件 ESLint 通过；整个目录检查仍命中未在本批修改的 `knowledge-dialog.tsx:54` 既有 `set-state-in-effect`，未擅自改写建库表单。知识库本批目标范围 `git diff --check` 通过 |
+| 页面证据 | 本地 Web + 模拟 API 的桌面/390px 截图保存在 `output/playwright/knowledge-versions-2026-10-16/`，覆盖版本记录、旧版预览、新版本未变化提示。桌面以 `desktop-versions-stable.png` 为准：等待弹窗动画结束后 opacity=1、运行中动画为 0、无横向溢出，已实际查看；原桌面图为动画中间帧。模拟界面不等于真实上传/模型链路联调 |
+
+#### 启用与尚未完成
+
+1. **协调升级，不与旧 worker 混跑。** 先备份并停止旧知识处理 worker，再执行本批新增迁移、生成 Prisma client、切换前后端与新 worker。维护逻辑会将无版本的旧 PENDING/PROCESSING 标成 FAILED，管理员之后进入新持久重试；未经停止旧 worker 不能安全启用这一步。本次只在隔离库执行 `migrate deploy`，未代操作业务发布。
+2. **部署持久且共享的私有原件卷。** 配置 `KNOWLEDGE_PRIVATE_PATH`；API/worker 多副本必须可访问相同持久路径，不能依赖临时容器本地盘。保留旧原件路径的可达性；缺失旧原件需要管理员补传，不能凭空恢复。私有目录不挂到静态服务。
+3. **先配好模型和 tokenizer，再真实验收。** `.env.example` 已改为统一 sub2api 出口及 tokenizer/私有目录配置；准备与模型相同修订的本地 tokenizer 文件，配置 `EMBEDDING_TOKENIZER_PATH`。固定 model/tokenizer 的不可变修订和 1024 维/cosine。示例 `BAAI/bge-m3` 是可变别名，不构成生产已固定权重或网关已支持的证据。当前未调用真实 embedding，缺少这些条件时文档不会假装处理成功。
+4. **检索与来源是下一批。** 完整四状态、partial/degraded、累计 token 预算、精确版本化 sourceId/location、历史来源保留、最终客户端路由与 DTO 差异收口、客户端联调尚未完成；当前 active 预览不能冒充旧命中来源。旧聊天 RAG 仍是第一批权限收紧后的兼容阶段，未在本批擅自重写。
+5. **生产治理尚有待办。** 企业总容量原子配额、企业/用户限流、版本/幂等保留期、孤儿扫描大目录轮转、持久任务可观测告警及故障恢复运维闭环未完整交付；真实 sub2api、真实 Redis 故障注入、多实例长期恢复、生产发布/回退和性能验收待执行。不可把本批标为整个 Phase C 或产品生产验收完成。

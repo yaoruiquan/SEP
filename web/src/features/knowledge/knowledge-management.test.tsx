@@ -161,7 +161,8 @@ describe('members, search and read-only previews', () => {
     unmount();
     vi.mocked(api.get).mockRejectedValue(new ApiError(409, '文档尚未处理完成'));
     view(<DocumentPreview knowledgeBaseId="kb" documentId="pending" onClose={vi.fn()} />);
-    expect(await screen.findByText('文档尚未处理完成')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('生效版本已变更');
+    expect(screen.getByRole('button', { name: '刷新文档列表' })).toBeInTheDocument();
     expect(screen.queryByText('暂无可预览的正文。')).not.toBeInTheDocument();
   });
 });

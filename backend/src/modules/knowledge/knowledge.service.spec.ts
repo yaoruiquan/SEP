@@ -15,6 +15,9 @@ describe('KnowledgeService member contracts', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'm-1' }, { id: 'm-2' }]) },
       knowledgeBase: { findFirst: jest.fn().mockResolvedValue({ id: 'kb-a' }), update: jest.fn().mockResolvedValue({}) },
       knowledgeMemberGrant: { createMany: jest.fn().mockResolvedValue({ count: 1 }), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      document: { findMany: jest.fn().mockResolvedValue([{ id: 'doc' }, { id: 'already-deleted' }]), updateMany: jest.fn() },
+      documentVersion: { updateMany: jest.fn() },
+      knowledgeProcessingJob: { updateMany: jest.fn(), createMany: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
     prisma = {
@@ -26,6 +29,63 @@ describe('KnowledgeService member contracts', () => {
     };
     const context = { resolve: jest.fn().mockResolvedValue(ADMIN) } as any;
     service = new KnowledgeService(prisma, new KnowledgeAccessPolicy(prisma, context), { invalidateCache: jest.fn() } as any);
+  });
+
+  it('filters deleted KBs and document counts before pagination and presentation', async () => {
+    prisma.knowledgeBase.findMany.mockResolvedValue([{ id: 'kb-a', name: 'KB', revision: 1, _count: { documents: 1 } }]);
+    await service.list('u-admin');
+    expect(prisma.knowledgeBase.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ deletedAt: null }),
+      select: expect.objectContaining({ _count: { select: { documents: { where: { deletedAt: null } } } } }),
+    }));
+    expect(prisma.knowledgeBase.count).toHaveBeenCalledWith({ where: expect.objectContaining({ deletedAt: null }) });
+    expect(prisma.document.count).toHaveBeenCalledWith({ where: expect.objectContaining({
+      deletedAt: null, knowledgeBase: { deletedAt: null },
+    }) });
+  });
+
+  it('locks and soft-deletes the KB, unpublishes versions and fences jobs before creating durable cleanup', async () => {
+    await service.delete('u-admin', 'kb-a');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw.mock.calls[0][0].join('')).toContain('knowledge_bases');
+    expect(tx.$queryRaw.mock.calls[1][0].join('')).toContain('documents');
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(tx.document.updateMany.mock.invocationCallOrder[0]);
+    expect(tx.knowledgeBase.update).toHaveBeenCalledWith({ where: { id: 'kb-a' }, data: { deletedAt: expect.any(Date), revision: { increment: 1 } } });
+    expect(tx.document.updateMany).toHaveBeenCalledWith({ where: { knowledgeBaseId: 'kb-a' },
+      data: { deletedAt: expect.any(Date), activeVersionId: null, revision: { increment: 1 } } });
+    expect(tx.documentVersion.updateMany).toHaveBeenCalledWith({ where: { document: { knowledgeBaseId: 'kb-a' } }, data: { published: false } });
+    expect(tx.knowledgeProcessingJob.updateMany).toHaveBeenCalledWith({
+      where: { document: { knowledgeBaseId: 'kb-a' }, status: { in: ['PENDING', 'RUNNING'] } },
+      data: { status: 'CANCELLED', fence: { increment: 1 }, leaseUntil: null },
+    });
+    expect(tx.knowledgeProcessingJob.createMany).toHaveBeenCalledWith({ data: [
+      { documentId: 'doc', kind: 'CLEANUP' }, { documentId: 'already-deleted', kind: 'CLEANUP' },
+    ] });
+    expect(tx.knowledgeProcessingJob.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.knowledgeProcessingJob.createMany.mock.invocationCallOrder[0]);
+  });
+
+  it('rolls back instead of unlinking files or invalidating after cleanup persistence fails', async () => {
+    tx.knowledgeProcessingJob.createMany.mockRejectedValue(new Error('job insert failed'));
+    await expect(service.delete('u-admin', 'kb-a')).rejects.toThrow('job insert failed');
+    expect((service as any).vector.invalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('rechecks admin and KB deletion status after taking the KB lock', async () => {
+    tx.enterpriseMember.findFirst.mockResolvedValueOnce({ ...ADMIN, role: 'MEMBER' });
+    await expect(service.delete('u-admin', 'kb-a')).rejects.toThrow(ForbiddenException);
+    expect(tx.document.updateMany).not.toHaveBeenCalled();
+    tx.knowledgeBase.findFirst.mockResolvedValue(null);
+    await expect(service.delete('u-admin', 'kb-a')).rejects.toMatchObject({ status: 404 });
+    expect(tx.knowledgeProcessingJob.createMany).not.toHaveBeenCalled();
+  });
+
+  it('filters grants by undeleted KB for both list and count', async () => {
+    prisma.knowledgeMemberGrant = { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) };
+    await service.listGrants('u-admin', 'kb-a');
+    for (const method of ['findMany', 'count']) expect(prisma.knowledgeMemberGrant[method]).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ knowledgeBase: { deletedAt: null } }) }),
+    );
   });
 
   it('returns pagination envelope with real-member viewer and capabilities', async () => {

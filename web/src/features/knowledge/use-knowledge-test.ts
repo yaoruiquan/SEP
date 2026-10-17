@@ -1,6 +1,8 @@
 import { useKnowledgeCacheScope, knowledgeQueryOptions } from './knowledge-cache';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, ApiError } from '@/lib/api-client';
+import type { KnowledgeDocument } from '@/lib/types';
+import { documentHeaders, documentPollingInterval, isDocumentAccessError, useRefreshDocuments, type DocumentOperation } from './use-documents';
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -89,23 +91,22 @@ export function useDocumentStatus(
       ),
     enabled: !!knowledgeBaseId,
     ...knowledgeQueryOptions,
-    refetchInterval: opts?.refetchInterval ?? ((query) => query.state.error ? false : query.state.data?.documents.some((doc) => doc.status === 'PENDING' || doc.status === 'PROCESSING') ? 3000 : false),
+    refetchInterval: (query) => isDocumentAccessError(query.state.error) ? false : opts?.refetchInterval ?? documentPollingInterval(query.state.data?.documents, query.state.error),
   });
 }
 
-/** 单文档重处理 */
+/** 单文档重处理，复用调用方创建的操作以保证网络重放幂等。 */
 export function useReprocessDocument(knowledgeBaseId: string) {
-  const qc = useQueryClient();
+  const refresh = useRefreshDocuments(knowledgeBaseId);
   return useMutation({
-    mutationFn: (documentId: string) =>
-      api.post<{ message: string }>(
-        `/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/reprocess`,
+    mutationFn: async (operation: DocumentOperation) =>
+      api.post<KnowledgeDocument>(
+        `/knowledge-bases/${knowledgeBaseId}/documents/${operation.documentId}/reprocess`,
         {},
+        { headers: await documentHeaders(knowledgeBaseId, operation) },
       ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['knowledge-document-status', knowledgeBaseId] });
-      qc.invalidateQueries({ queryKey: ['documents', knowledgeBaseId] });
-    },
+    onSuccess: refresh,
+    onError: (error) => { if (error instanceof ApiError && (error.status === 409 || error.status === 412)) refresh(); },
   });
 }
 

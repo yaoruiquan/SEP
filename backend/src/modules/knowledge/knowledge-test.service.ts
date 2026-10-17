@@ -139,7 +139,7 @@ export class KnowledgeTestService {
     if (!kb) throw new NotFoundException('知识库不存在或无权访问');
 
     const rows = await this.prisma.document.findMany({
-      where: { knowledgeBaseId },
+      where: { knowledgeBaseId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -151,13 +151,22 @@ export class KnowledgeTestService {
         version: true,
         createdAt: true,
         updatedAt: true,
+        activeVersionId: true,
+        latestVersionId: true,
+        revision: true,
+        versions: { select: { id: true, version: true, status: true, stage: true, errorCode: true, lastError: true,
+          retryable: true, attempts: true, processedChunks: true, totalChunks: true } },
       },
     });
 
-    const documents = rows.map(doc => ({ ...doc,
-      lastError: doc.status === 'FAILED' ? '文档处理失败，请重试或更换文件' : null,
-      embeddingModel: null,
-    }));
+    const documents = rows.map(({ versions, ...doc }) => {
+      const latest = versions.find(v => v.id === doc.latestVersionId);
+      return { ...doc, status: latest?.status ?? doc.status, version: latest?.version ?? doc.version,
+        stage: latest?.stage ?? null, retryable: latest?.retryable ?? doc.status === 'FAILED',
+        lastError: latest?.lastError ?? (doc.status === 'FAILED' ? '文档处理失败，请重试或更换文件' : null),
+        errorCode: latest?.errorCode ?? null, processedChunks: latest?.processedChunks ?? 0,
+        totalChunks: latest?.totalChunks ?? null, embeddingModel: null };
+    });
 
     const counts = documents.reduce(
       (acc, doc) => {

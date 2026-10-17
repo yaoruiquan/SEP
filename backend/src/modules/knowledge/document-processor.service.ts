@@ -1,230 +1,192 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { Prisma, KnowledgeProcessingJob } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentParserService } from './document-parser.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
 import { TextTokenizer } from './text-tokenizer.service';
 import { TextChunker } from './text-chunker.util';
+import { KnowledgePrivateStorage } from './knowledge-private-storage';
+
+const LEASE_MS = 120_000;
+const MAX_ATTEMPTS = 3;
+class LostLease extends Error {}
+class ProcessingFailure extends Error {
+  constructor(readonly code: string, message: string, readonly retryable: boolean) { super(message); }
+}
+type ClaimedJob = KnowledgeProcessingJob;
 
 @Injectable()
 export class DocumentProcessorService {
   private readonly logger = new Logger(DocumentProcessorService.name);
+  private readonly storage = new KnowledgePrivateStorage();
+  constructor(private prisma: PrismaService, private parser: DocumentParserService,
+    private embedding: EmbeddingService, private vector: VectorService, private tokenizer: TextTokenizer) {}
 
-  constructor(
-    private prisma: PrismaService,
-    private parser: DocumentParserService,
-    private embedding: EmbeddingService,
-    private vector: VectorService,
-    private tokenizer: TextTokenizer,
-  ) {}
+  /** Only durable version jobs may process originals; never rebuild a live document in place. */
+  async processDocument(_documentId: string) {
+    throw new ConflictException({ code: 'VERSION_JOB_REQUIRED', message: '请通过文档版本作业处理' });
+  }
+  async reprocessDocument(_documentId: string) {
+    throw new ConflictException({ code: 'VERSION_JOB_REQUIRED', message: '请通过版本重试接口处理' });
+  }
 
-  /**
-   * 处理文档：解析 → 分块 → 向量化 → 存储（Phase 2 重构）
-   */
-  async processDocument(documentId: string) {
-    this.logger.log(`Processing document: ${documentId}`);
-
+  async processJob(jobId: string) {
+    const job = await this.claim(jobId);
+    if (!job) return;
+    let heartbeat: Promise<unknown> = Promise.resolve();
+    const timer = setInterval(() => {
+      heartbeat = heartbeat.then(() => this.prisma.knowledgeProcessingJob.updateMany({
+        where: { id: job.id, fence: job.fence, status: 'RUNNING', leaseUntil: { gt: new Date() } },
+        data: { leaseUntil: new Date(Date.now() + LEASE_MS) },
+      })).catch(() => undefined);
+    }, LEASE_MS / 4);
+    timer.unref();
     try {
-      // 1. 获取文档信息
-      const document = await this.prisma.document.findUnique({
-        where: { id: documentId },
+      if (job.kind === 'CLEANUP') { await this.cleanup(job); return; }
+      const version = await this.prisma.documentVersion.findUniqueOrThrow({ where: { id: job.versionId! } });
+      const document = await this.prisma.document.findUniqueOrThrow({ where: { id: job.documentId }, include: { knowledgeBase: true } });
+      let parsed: Awaited<ReturnType<DocumentParserService['parseDocument']>>;
+      try { parsed = await this.parser.parseDocument(version.storagePath, version.mimeType); }
+      catch { throw new ProcessingFailure('INVALID_DOCUMENT', '文件无法解析，请检查文件或上传新版本', false); }
+      if (!parsed.text.trim()) throw new ProcessingFailure('EMPTY_DOCUMENT', '文件中没有可提取的文字，请上传包含文字的文件', false);
+      const blocks = parsed.blocks;
+      await this.guarded(job, async tx => {
+        await tx.documentVersion.update({ where: { id: version.id }, data: { stage: 'CHUNKING' } });
       });
-
-      if (!document) {
-        throw new Error('Document not found');
-      }
-
-      // 更新状态为处理中（并清除上一次的失败原因）
-      await this.prisma.document.update({
-        where: { id: documentId },
-        data: { status: 'PROCESSING', lastError: null },
+      let chunks: Array<{ content: string; tokenCount: number }>;
+      try { chunks = blocks.flatMap(block => TextChunker.chunkByTokens(this.parser.cleanText(block.text), 800)); }
+      catch { throw new ProcessingFailure('TOKENIZER_UNAVAILABLE', '分词器未就绪，请联系管理员配置后重试', true); }
+      if (!chunks.length || chunks.length > 20000) throw new ProcessingFailure('DOCUMENT_LIMIT', '文件内容为空或超出处理限制，请拆分文件', false);
+      const profile = this.embedding.getProfile();
+      if (profile.dimension !== 1024) throw new ProcessingFailure('EMBEDDING_PROFILE_MISMATCH', '向量模型配置不兼容，请联系管理员', false);
+      await this.guarded(job, async tx => {
+        await tx.documentVersion.update({ where: { id: version.id }, data: { stage: 'EMBEDDING',
+          totalChunks: chunks.length, processedChunks: 0, profile: { ...profile } } });
+        // A recovered attempt may produce fewer blocks; replace its unpublished snapshot atomically.
+        await tx.knowledgeParsedBlock.deleteMany({ where: { versionId: version.id } });
+        await tx.knowledgeParsedBlock.createMany({ data: blocks.map(block => ({ versionId: version.id,
+          ordinal: block.ordinal, text: block.text, page: block.page ?? null, section: block.section ?? null })) });
+        await tx.textChunk.deleteMany({ where: { versionId: version.id, indexGeneration: job.generation } });
       });
-
-      // 2. 解析文档
-      this.logger.log(`Parsing document: ${document.originalName}`);
-      const parsed = await this.parser.parseDocument(
-        document.storagePath,
-        document.mimeType,
-      );
-
-      // 清理文本
-      const cleanedText = this.parser.cleanText(parsed.text);
-
-      if (!cleanedText || cleanedText.length < 10) {
-        throw new Error('Document contains no meaningful text');
+      const batchSize = this.embedding.getBatchSize();
+      for (let offset = 0; offset < chunks.length; offset += batchSize) {
+        const batch = chunks.slice(offset, offset + batchSize);
+        let vectors: Awaited<ReturnType<EmbeddingService['embedBatch']>>;
+        try { vectors = await this.embedding.embedBatch(batch.map(chunk => chunk.content)); }
+        catch { throw new ProcessingFailure('EMBEDDING_UNAVAILABLE', '向量处理暂时不可用，系统将有限重试，旧版不受影响', true); }
+        if (vectors.length !== batch.length || JSON.stringify(profile) !== JSON.stringify(this.embedding.getProfile())) {
+          throw new ProcessingFailure('EMBEDDING_PROFILE_MISMATCH', '向量结果或模型配置不兼容，请联系管理员', false);
+        }
+        await this.guarded(job, async tx => {
+          for (let index = 0; index < batch.length; index++) {
+            const vector = vectors[index].embedding;
+            if (vector.length !== profile.dimension || Array.from(vector).some(value => !Number.isFinite(value))) {
+              throw new ProcessingFailure('INVALID_EMBEDDING', '向量结果无效，请联系管理员', false);
+            }
+            const chunk = await tx.textChunk.create({ data: { documentId: document.id, knowledgeBaseId: document.knowledgeBaseId,
+              versionId: version.id, indexGeneration: job.generation, ordinal: offset + index,
+              tokenCount: batch[index].tokenCount, content: batch[index].content, source: document.originalName,
+              tags: [], createdBy: document.uploadedBy, embedding: new Uint8Array(new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength)),
+              embeddingModel: profile.model, tokens: this.tokenizer.tokenize(batch[index].content) } });
+            const literal = `[${Array.from(vector).join(',')}]`;
+            await tx.$executeRaw`UPDATE text_chunks SET "embeddingVector"=${literal}::vector WHERE id=${chunk.id}`;
+          }
+          await tx.documentVersion.update({ where: { id: version.id }, data: { processedChunks: offset + batch.length } });
+        });
       }
-
-      this.logger.log(`Extracted ${cleanedText.length} characters`);
-
-      // 3. 文本分块
-      const chunks = TextChunker.chunkByParagraphs(cleanedText, 1000);
-      this.logger.log(`Split into ${chunks.length} chunks`);
-
-      if (chunks.length === 0) {
-        throw new Error('Failed to chunk document');
-      }
-
-      // BullMQ 重试可能发生在上一次部分写入之后，先清理旧片段保证幂等。
-      await this.prisma.textChunk.deleteMany({ where: { documentId } });
-
-      // 删除旧片段后立即失效缓存，避免后续降级或失败时仍返回旧向量。
-      const kb = await this.prisma.knowledgeBase.findUnique({
-        where: { id: document.knowledgeBaseId },
-        select: { enterpriseId: true },
+      await this.guarded(job, async tx => {
+        await tx.documentVersion.update({ where: { id: version.id }, data: { stage: 'PUBLISHING' } });
       });
-      if (kb) {
-        this.vector.invalidateCache(kb.enterpriseId, document.knowledgeBaseId);
-      }
-
-      // 4. 检查 Embedding 服务是否可用
-      const embeddingAvailable = await this.embedding.isAvailable();
-
-      if (!embeddingAvailable) {
-        this.logger.warn('Embedding service not available, storing chunks without vectors');
-        await this.storeChunksWithoutVectors(document, chunks);
-        return;
-      }
-
-      // 5. 生成向量
-      this.logger.log('Generating embeddings...');
-      const embeddingResults = await this.embedding.embedBatch(chunks);
-      const model = this.embedding.getModel();
-
-      // 6. 分词（用于 BM25）
-      const tokenizedChunks = chunks.map((chunk) => this.tokenizer.tokenize(chunk));
-
-      // 7. 存储文本片段 + 向量到数据库（Phase 2：单一存储）
-      await Promise.all(
-        chunks.map((content, index) => {
-          const embeddingBuffer = Buffer.from(embeddingResults[index].embedding.buffer) as any;
-
-          return this.prisma.textChunk.create({
-            data: {
-              knowledgeBaseId: document.knowledgeBaseId,
-              documentId: document.id,
-              content,
-              source: document.filename,
-              tags: [],
-              createdBy: document.uploadedBy,
-              embedding: embeddingBuffer,
-              embeddingModel: model,
-              tokens: tokenizedChunks[index],
-            },
-          }).then(async (chunk) => {
-            await this.vector.upsertVector(chunk.id, embeddingResults[index].embedding);
-            return chunk;
-          });
-        }),
-      );
-
-      this.logger.log(`Stored ${chunks.length} text chunks with embeddings and tokens`);
-
-      // 8. 更新文档状态为完成
-      await this.prisma.document.update({
-        where: { id: documentId },
-        data: {
-          status: 'READY',
-          lastError: null,
-          processedAt: new Date(),
-          embeddingModel: model,
-        },
+      await this.guarded(job, async tx => {
+        const current = await tx.documentVersion.findUniqueOrThrow({ where: { id: version.id } });
+        const count = await tx.textChunk.count({ where: { versionId: version.id, indexGeneration: job.generation,
+          embeddingModel: profile.model, embedding: { not: null } } });
+        const [native] = await tx.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM text_chunks
+          WHERE "versionId"=${version.id} AND "indexGeneration"=${job.generation} AND "embeddingVector" IS NOT NULL`;
+        if (count !== chunks.length || Number(native.count) !== chunks.length || current.processedChunks !== count ||
+          !this.sameProfile(current.profile, profile)) {
+          throw new ProcessingFailure('INCOMPLETE_INDEX', '索引尚未完整建立，请重试', true);
+        }
+        await tx.documentVersion.updateMany({ where: { documentId: document.id }, data: { published: false } });
+        await tx.documentVersion.update({ where: { id: version.id }, data: { status: 'READY', stage: 'DONE',
+          published: true, processedAt: new Date(), errorCode: null, lastError: null } });
+        await tx.document.update({ where: { id: document.id }, data: { activeVersionId: version.id, status: 'READY',
+          version: version.version, processedAt: new Date(), embeddingModel: profile.model, revision: { increment: 1 } } });
+        await tx.knowledgeProcessingJob.update({ where: { id: job.id }, data: { status: 'DONE', leaseUntil: null } });
       });
-
-      this.logger.log(`Document processing completed: ${documentId}`);
+      this.vector.invalidateCache(document.knowledgeBase.enterpriseId, document.knowledgeBaseId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to process document ${documentId}: ${message}`);
+      if (!(error instanceof LostLease)) await this.fail(job, error);
+    } finally { clearInterval(timer); await heartbeat; }
+  }
 
-      // 更新文档状态为失败 + 记录失败原因
-      await this.prisma.document.updateMany({
-        where: { id: documentId },
-        data: { status: 'FAILED', lastError: message.slice(0, 2000) },
+  private sameProfile(stored: Prisma.JsonValue, current: ReturnType<EmbeddingService['getProfile']>) {
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false;
+    return Object.entries(current).every(([key, value]) => stored[key] === value);
+  }
+
+  private async claim(id: string): Promise<ClaimedJob | null> {
+    const candidate = await this.prisma.knowledgeProcessingJob.findUnique({ where: { id } });
+    if (!candidate) return null;
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM documents WHERE id=${candidate.documentId} FOR UPDATE`;
+      const now = new Date();
+      const changed = await tx.knowledgeProcessingJob.updateMany({ where: { id, attempts: { lt: MAX_ATTEMPTS },
+        OR: [{ status: 'PENDING', nextRunAt: { lte: now } }, { status: 'RUNNING', leaseUntil: { lte: now } }] },
+        data: { status: 'RUNNING', attempts: { increment: 1 }, fence: { increment: 1 }, leaseUntil: new Date(Date.now() + LEASE_MS) } });
+      if (!changed.count) return null;
+      const job = await tx.knowledgeProcessingJob.findUniqueOrThrow({ where: { id } });
+      const d = await tx.document.findUniqueOrThrow({ where: { id: job.documentId }, include: { knowledgeBase: true } });
+      const version = job.versionId ? await tx.documentVersion.findUnique({ where: { id: job.versionId } }) : null;
+      if (job.kind !== 'CLEANUP' && (d.deletedAt || d.knowledgeBase.deletedAt || d.latestVersionId !== job.versionId ||
+        version?.generation !== job.generation || version?.published)) {
+        await tx.knowledgeProcessingJob.update({ where: { id }, data: { status: 'CANCELLED', leaseUntil: null } });
+        return null;
+      }
+      if (version) await tx.documentVersion.update({ where: { id: version.id }, data: { status: 'PROCESSING', stage: 'PARSING',
+        attempts: job.attempts, errorCode: null, lastError: null } });
+      return job;
+    });
+  }
+
+  private async guarded<T>(job: ClaimedJob, operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM documents WHERE id=${job.documentId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM knowledge_processing_jobs WHERE id=${job.id} FOR UPDATE`;
+      const live = await tx.knowledgeProcessingJob.findUniqueOrThrow({ where: { id: job.id } });
+      const d = await tx.document.findUniqueOrThrow({ where: { id: job.documentId }, include: { knowledgeBase: true } });
+      if (live.fence !== job.fence || live.status !== 'RUNNING' || !live.leaseUntil || live.leaseUntil <= new Date()) throw new LostLease();
+      if (job.kind !== 'CLEANUP') {
+        const v = await tx.documentVersion.findUnique({ where: { id: job.versionId! } });
+        if (d.deletedAt || d.knowledgeBase.deletedAt || d.latestVersionId !== job.versionId || v?.generation !== job.generation) throw new LostLease();
+      } else if (!d.deletedAt) throw new LostLease();
+      return operation(tx);
+    }, { timeout: 30_000 });
+  }
+
+  private async cleanup(job: ClaimedJob) {
+    const d = await this.prisma.document.findUniqueOrThrow({ where: { id: job.documentId }, include: { versions: true } });
+    if (!d.deletedAt) throw new LostLease();
+    for (const file of new Set([d.storagePath, ...d.versions.map(v => v.storagePath)])) await this.storage.remove(file);
+    await this.guarded(job, async tx => {
+      await tx.textChunk.deleteMany({ where: { documentId: d.id } });
+      await tx.knowledgeParsedBlock.deleteMany({ where: { version: { documentId: d.id } } });
+      await tx.knowledgeProcessingJob.update({ where: { id: job.id }, data: { status: 'DONE', leaseUntil: null } });
+    });
+  }
+
+  private async fail(job: ClaimedJob, error: unknown) {
+    const failure = error instanceof ProcessingFailure ? error : new ProcessingFailure('PROCESSING_UNAVAILABLE', '后台处理暂时失败，请稍后重试', true);
+    try {
+      await this.guarded(job, async tx => {
+        const retry = failure.retryable && job.attempts < MAX_ATTEMPTS;
+        await tx.knowledgeProcessingJob.update({ where: { id: job.id }, data: { status: retry ? 'PENDING' : 'FAILED',
+          errorCode: failure.code, leaseUntil: null, nextRunAt: new Date(Date.now() + 2000 * 2 ** job.attempts) } });
+        if (job.versionId) await tx.documentVersion.update({ where: { id: job.versionId }, data: {
+          status: retry ? 'PENDING' : 'FAILED', stage: retry ? 'RETRY_WAIT' : 'FAILED',
+          lastError: failure.message, errorCode: failure.code, retryable: failure.retryable } });
       });
-
-      throw error;
-    }
-  }
-
-  /**
-   * 当 Embedding 服务不可用时，只存储文本片段 + tokens
-   */
-  private async storeChunksWithoutVectors(document: any, chunks: string[]) {
-    const tokenizedChunks = chunks.map((chunk) => this.tokenizer.tokenize(chunk));
-
-    await Promise.all(
-      chunks.map((content, index) =>
-        this.prisma.textChunk.create({
-          data: {
-            knowledgeBaseId: document.knowledgeBaseId,
-            documentId: document.id,
-            content,
-            source: document.filename,
-            tags: [],
-            createdBy: document.uploadedBy,
-            tokens: tokenizedChunks[index],
-          },
-        }),
-      ),
-    );
-
-    const degradationReason = 'Embedding 服务不可用，已降级为仅词法检索存储（无向量）';
-    await this.prisma.document.update({
-      where: { id: document.id },
-      data: {
-        status: 'READY',
-        lastError: degradationReason,
-        processedAt: new Date(),
-        embeddingModel: null,
-      },
-    });
-
-    // B3：可用性可见性 —— 记录降级原因（日志 + lastError）
-    this.logger.warn(
-      `[embedding unavailable] Document ${document.id} stored without vectors: ${degradationReason}`,
-    );
-  }
-
-  /**
-   * 重新处理文档（Phase A2：状态守卫 + 原子抢占）
-   *
-   * 仅 READY / FAILED 可重处理；PROCESSING 直接抛 409。
-   * 用 updateMany 条件更新原子抢占为 PROCESSING，count=0 视为抢占失败，
-   * 避免与正在处理中的任务竞态产生脏 chunks。
-   */
-  async reprocessDocument(documentId: string) {
-    const document = await this.prisma.document.findUnique({
-      where: { id: documentId },
-      include: { knowledgeBase: true },
-    });
-
-    if (!document) {
-      throw new NotFoundException(`Document ${documentId} not found`);
-    }
-
-    // 状态守卫 + 原子抢占（仅当 READY / FAILED 时才允许）
-    const claimed = await this.prisma.document.updateMany({
-      where: { id: documentId, status: { in: ['READY', 'FAILED'] } },
-      data: { status: 'PROCESSING', lastError: null },
-    });
-
-    if (claimed.count === 0) {
-      throw new ConflictException('文档正在处理中');
-    }
-
-    // 删除关联的文本片段（Phase 2：通过 documentId 删除）
-    await this.prisma.textChunk.deleteMany({
-      where: { documentId },
-    });
-
-    // 使缓存失效
-    this.vector.invalidateCache(document.knowledgeBase.enterpriseId, document.knowledgeBaseId);
-
-    // 重新处理（processDocument 内部会幂等地再次置为 PROCESSING）
-    await this.processDocument(documentId);
+    } catch (secondary) { if (!(secondary instanceof LostLease)) this.logger.error('Unable to persist knowledge job failure; lease recovery will retry'); }
   }
 }

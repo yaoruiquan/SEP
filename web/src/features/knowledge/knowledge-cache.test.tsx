@@ -14,12 +14,15 @@ it('clears only knowledge caches on identity/role change, not an ordinary token 
   const client = new QueryClient();
   useAuthStore.setState({ user: { id: 'user-a', name: null, email: 'a@example.com', avatar: null, role: 'USER' }, enterprise: { id: 'enterprise-a', name: '企业A' }, roleInEnterprise: 'ENTERPRISE_ADMIN' });
   client.setQueryData(['knowledge-preview', 'kb', 'doc'], { text: '企业机密' });
+  client.setQueryData(['knowledge-document-versions', 'kb', 'doc'], [{ id: 'private-version' }]);
   client.setQueryData(['subscriptions'], ['employee']);
   const unsubscribe = watchKnowledgeIdentity(client);
   useAuthStore.setState({ token: 'refreshed' });
   expect(client.getQueryData(['knowledge-preview', 'kb', 'doc'])).toBeDefined();
+  expect(client.getQueryData(['knowledge-document-versions', 'kb', 'doc'])).toBeDefined();
   useAuthStore.setState({ roleInEnterprise: 'MEMBER' });
   expect(client.getQueryData(['knowledge-preview', 'kb', 'doc'])).toBeUndefined();
+  expect(client.getQueryData(['knowledge-document-versions', 'kb', 'doc'])).toBeUndefined();
   expect(client.getQueryData(['subscriptions'])).toEqual(['employee']);
   unsubscribe(); client.clear();
 });

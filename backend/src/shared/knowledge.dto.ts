@@ -63,7 +63,9 @@ export const KnowledgePageQuerySchema = z.object({
 }).strict();
 export type KnowledgePageQuery = z.infer<typeof KnowledgePageQuerySchema>;
 
-export const KnowledgePreviewQuerySchema = KnowledgePageQuerySchema.omit({ keyword: true });
+export const KnowledgePreviewQuerySchema = KnowledgePageQuerySchema.omit({ keyword: true }).extend({
+  versionId: z.string().min(1).max(100).optional(),
+});
 export const KnowledgeChunkQuerySchema = z.object({ search: z.string().trim().max(100).optional() }).strict();
 export const KnowledgeGrantCandidateQuerySchema = KnowledgePageQuerySchema.extend({ view: z.literal('knowledge-grant') });
 export type KnowledgeGrantCandidateQuery = z.infer<typeof KnowledgeGrantCandidateQuerySchema>;

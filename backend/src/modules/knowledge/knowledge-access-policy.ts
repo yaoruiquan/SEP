@@ -19,7 +19,7 @@ export class KnowledgeAccessPolicy {
   isAdmin(viewer: EnterpriseContext) { return viewer.role === 'ENTERPRISE_ADMIN'; }
 
   readableWhere(viewer: EnterpriseContext): Prisma.KnowledgeBaseWhereInput {
-    return { enterpriseId: viewer.enterpriseId,
+    return { enterpriseId: viewer.enterpriseId, deletedAt: null,
       ...(!this.isAdmin(viewer) ? { memberGrants: { some: { memberId: viewer.memberId } } } : {}) };
   }
 

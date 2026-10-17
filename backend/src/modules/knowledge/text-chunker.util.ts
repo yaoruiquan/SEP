@@ -1,8 +1,166 @@
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+export class TokenizerUnavailableException extends ServiceUnavailableException {
+  readonly code = 'TOKENIZER_UNAVAILABLE';
+  readonly retryable = false;
+
+  constructor() {
+    super({
+      code: 'TOKENIZER_UNAVAILABLE',
+      message: 'Local embedding tokenizer is unavailable; configure matching tokenizer files and retry manually',
+      retryable: false,
+    });
+  }
+}
+
+export interface TokenBudgetTokenizer {
+  /** Persist this identifier alongside the embedding profile. */
+  id: string;
+  encode(text: string): ArrayLike<number>;
+}
+
+export interface TokenChunkOptions {
+  maxTokens: number;
+  overlapTokens?: number;
+  reserveTokens?: number;
+}
+
+export interface TokenChunk {
+  text: string;
+  tokenCount: number;
+  /** UTF-16 offsets into the unchanged source text. */
+  startOffset: number;
+  endOffset: number;
+}
+
 /**
  * 文本分块工具
  * 将长文本分割成适合向量化的小块
  */
 export class TextChunker {
+  private static tokenizer: TokenBudgetTokenizer | undefined;
+
+  static resetTokenizer(): void {
+    this.tokenizer = undefined;
+  }
+
+  static async initializeTokenizer(directory: string, id: string): Promise<void> {
+    this.resetTokenizer();
+    try {
+      this.tokenizer = await this.loadTokenizer(directory, id);
+    } catch {
+      throw new TokenizerUnavailableException();
+    }
+  }
+
+  /** Load only pre-provisioned local tokenizer files, never model weights or remote assets. */
+  static async loadTokenizer(directory: string, id: string): Promise<TokenBudgetTokenizer> {
+    if (!isAbsolute(directory) || !id?.trim()) {
+      throw new BadRequestException('An absolute local tokenizer directory and identifier are required');
+    }
+    // Keep native ESM import under the backend's CommonJS TypeScript compilation.
+    const importESM = new Function('url', 'return import(url)') as
+      (url: string) => Promise<typeof import('@xenova/transformers')>;
+    const { AutoTokenizer, PreTrainedTokenizer } = await importESM(pathToFileURL(require.resolve('@xenova/transformers')).href);
+    const [definition, configuration] = await Promise.all([
+      readFile(join(directory, 'tokenizer.json'), 'utf8').then((data) => JSON.parse(data)),
+      readFile(join(directory, 'tokenizer_config.json'), 'utf8').then((data) => JSON.parse(data)),
+    ]);
+    // Match AutoTokenizer's local constructor selection without its global
+    // localModelPath/cache resolution or any possibility of remote fallback.
+    const name = configuration.tokenizer_class?.replace(/Fast$/, '') || 'PreTrainedTokenizer';
+    const Tokenizer = name === 'PreTrainedTokenizer' ? PreTrainedTokenizer :
+      AutoTokenizer.TOKENIZER_CLASS_MAPPING[name as keyof typeof AutoTokenizer.TOKENIZER_CLASS_MAPPING];
+    if (!Tokenizer) throw new BadRequestException('Unsupported local tokenizer class');
+    const tokenizer = new Tokenizer(definition, configuration);
+    return {
+      id,
+      encode: (text) => tokenizer.encode(text, null, { add_special_tokens: true }),
+    };
+  }
+
+  static countTokens(text: string, tokenizer: TokenBudgetTokenizer = this.tokenizer): number {
+    if (!tokenizer?.id?.trim() || typeof tokenizer.encode !== 'function') {
+      throw new TokenizerUnavailableException();
+    }
+    const count = tokenizer.encode(text).length;
+    if (!Number.isSafeInteger(count) || count < 0 || (text.length > 0 && count === 0)) {
+      throw new BadRequestException('Tokenizer returned an invalid token count');
+    }
+    return count;
+  }
+
+  static chunkByTokens(text: string, maxTokens = 800): Array<{ content: string; tokenCount: number }> {
+    return this.chunkByTokenBudget(text, this.tokenizer, { maxTokens })
+      .map(({ text: content, tokenCount }) => ({ content, tokenCount }));
+  }
+
+  static chunkByTokenBudget(
+    text: string,
+    tokenizer: TokenBudgetTokenizer,
+    options: TokenChunkOptions = { maxTokens: 512 },
+  ): TokenChunk[] {
+    const { maxTokens, overlapTokens = 0, reserveTokens = 0 } = options;
+    if (![maxTokens, overlapTokens, reserveTokens].every(Number.isSafeInteger) ||
+        maxTokens <= 0 || overlapTokens < 0 || reserveTokens < 0 ||
+        reserveTokens >= maxTokens || overlapTokens >= maxTokens - reserveTokens) {
+      throw new BadRequestException('Invalid token chunk budget or overlap');
+    }
+    if (!text?.trim()) return [];
+    const budget = maxTokens - reserveTokens;
+    // Boundaries are Unicode code points; do not split UTF-16 surrogate pairs.
+    const offsets = [0];
+    for (const character of text) offsets.push(offsets[offsets.length - 1] + character.length);
+    const slice = (start: number, end: number) => text.slice(offsets[start], offsets[end]);
+    const count = (start: number, end: number) => this.countTokens(slice(start, end), tokenizer);
+    const chunks: TokenChunk[] = [];
+    let start = 0;
+    let previousEnd = 0;
+    while (start < offsets.length - 1) {
+      // Exponential probing keeps encoding work bounded to roughly one chunk.
+      let low = start;
+      let high = Math.min(start + 16, offsets.length - 1);
+      while (count(start, high) <= budget) {
+        low = high;
+        if (high === offsets.length - 1) break;
+        high = Math.min(start + (high - start) * 2, offsets.length - 1);
+      }
+      while (low + 1 < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (count(start, middle) <= budget) low = middle;
+        else high = middle;
+      }
+      const end = low;
+      if (end <= previousEnd && start < previousEnd) {
+        start = previousEnd;
+        continue;
+      }
+      if (end <= start) {
+        throw new BadRequestException('Token budget cannot fit the next Unicode code point');
+      }
+      chunks.push({ text: slice(start, end), tokenCount: count(start, end),
+        startOffset: offsets[start], endOffset: offsets[end] });
+      if (end === offsets.length - 1) break;
+      previousEnd = end;
+      const chunkStart = start;
+      start = end;
+      if (overlapTokens > 0) {
+        let left = chunkStart + 1;
+        let right = end;
+        while (left < right) {
+          const middle = Math.floor((left + right) / 2);
+          if (count(middle, end) <= overlapTokens) right = middle;
+          else left = middle + 1;
+        }
+        start = left;
+      }
+    }
+    return chunks;
+  }
+
   /**
    * 将文本分块
    * @param text 原始文本

@@ -470,6 +470,27 @@ describe('uploadForm', () => {
     vi.mocked(authAccessor.getToken).mockReturnValue('test-token');
   });
 
+  it('preserves revision and idempotency headers across auth replay without a multipart content type', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['version']), 'version.txt');
+    mockFetch.mockResolvedValueOnce({ status: 401 });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'new-token' }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => JSON.stringify({ id: 'doc', unchanged: true }) });
+
+    await uploadForm('/knowledge-bases/kb/documents/doc/versions', form, {
+      headers: { 'If-Match': '"kbdoc-opaque-safe-snapshot"', 'Idempotency-Key': 'same-operation', 'Content-Type': 'multipart/form-data' },
+    });
+
+    for (const index of [0, 2]) {
+      const request = mockFetch.mock.calls[index][1];
+      const headers = new Headers(request.headers);
+      expect(request.body).toBe(form);
+      expect(headers.get('If-Match')).toBe('"kbdoc-opaque-safe-snapshot"');
+      expect(headers.get('Idempotency-Key')).toBe('same-operation');
+      expect(headers.has('Content-Type')).toBe(false);
+    }
+  });
+
   it('should upload FormData successfully', async () => {
     const form = new FormData();
     form.append('file', new Blob(['content']), 'test.zip');

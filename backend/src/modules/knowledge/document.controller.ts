@@ -11,6 +11,8 @@ import {
   BadRequestException,
   Query,
   HttpCode,
+  Headers,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
@@ -20,7 +22,7 @@ import { Body } from '@nestjs/common';
 import { KnowledgeNoStoreInterceptor } from './knowledge-no-store.interceptor';
 import { KnowledgeAuthGuard } from './knowledge-auth.guard';
 import { DocumentService } from './document.service';
-import { DocumentProcessorService } from './document-processor.service';
+import { KnowledgeUploadGuard } from './knowledge-upload.guard';
 
 @ApiTags('Knowledge - Documents')
 @ApiBearerAuth()
@@ -31,12 +33,13 @@ import { DocumentProcessorService } from './document-processor.service';
 export class DocumentController {
   constructor(
     private documentService: DocumentService,
-    private processor: DocumentProcessorService,
   ) {}
 
   @Post('upload')
+  @UseGuards(KnowledgeUploadGuard)
+  @HttpCode(202)
   @ApiOperation({ summary: '上传文档到知识库' })
-  @ApiResponse({ status: 201, description: '第一批兼容上传：安全旧文档字段，未版本化' })
+  @ApiResponse({ status: 202, description: '原件和持久化版本作业已接收，不代表可检索' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -61,15 +64,47 @@ export class DocumentController {
     @UploadedFile() file: Express.Multer.File,
     @Body(new ZodValidationPipe(KnowledgeEmptyBodySchema)) _body: Record<string, never>,
     @Request() req,
+    @Headers('idempotency-key') idempotencyKey: string,
+    @Res({ passthrough: true }) response: import('express').Response,
   ) {
     const userId = req.user.id; // JWT strategy sets req.user.id
     if (!file) throw new BadRequestException('No file uploaded');
-    return this.documentService.uploadDocument(knowledgeBaseId, file, userId);
+    const result = await this.documentService.uploadDocument(knowledgeBaseId, file, userId, { idempotencyKey });
+    response.setHeader('ETag', result.etag);
+    return result;
+  }
+
+  @Post(':id/versions')
+  @UseGuards(KnowledgeUploadGuard)
+  @HttpCode(202)
+  @ApiOperation({ summary: '上传指定文档的新版本，处理成功后原子生效' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 202, description: '新版已接收，旧版继续生效' })
+  @ApiResponse({ status: 200, description: '内容与生效版相同，unchanged=true' })
+  @ApiResponse({ status: 412, description: 'revision 冲突' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async uploadVersion(@Param('knowledgeBaseId') kbId: string, @Param('id') id: string,
+    @Request() req, @UploadedFile() file: Express.Multer.File,
+    @Headers('if-match') ifMatch: string, @Headers('idempotency-key') idempotencyKey: string,
+    @Body(new ZodValidationPipe(KnowledgeEmptyBodySchema)) _body: Record<string, never>,
+    @Res({ passthrough: true }) response: import('express').Response) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const result = await this.documentService.uploadVersion(kbId, id, file, req.user.id, { ifMatch, idempotencyKey });
+    if (result.unchanged) response.status(200);
+    response.setHeader('ETag', result.etag);
+    return result;
+  }
+
+  @Get(':id/versions')
+  @ApiOperation({ summary: '文档版本记录，不返回原件路径或哈希' })
+  @ApiResponse({ status: 200, description: '安全版本数组' })
+  async listVersions(@Param('knowledgeBaseId') kbId: string, @Param('id') id: string, @Request() req) {
+    return this.documentService.listVersions(kbId, id, req.user.id);
   }
 
   @Get()
   @ApiOperation({ summary: '获取知识库的文档列表' })
-  @ApiResponse({ status: 200, description: '第一批兼容文档数组，未版本化' })
+  @ApiResponse({ status: 200, description: '文档与当前生效版、最新版本及处理阶段' })
   async listDocuments(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
     @Request() req,
@@ -79,21 +114,24 @@ export class DocumentController {
 
   @Get(':id')
   @ApiOperation({ summary: '获取文档详情' })
-  @ApiResponse({ status: 200, description: '安全文档详情，未版本化' })
+  @ApiResponse({ status: 200, description: '安全版本化文档详情，包含当前强 ETag' })
   async getDocument(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
     @Param('id') id: string,
     @Request() req,
+    @Res({ passthrough: true }) response: import('express').Response,
   ) {
-    return this.documentService.getDocumentForUser(knowledgeBaseId, id, req.user.id);
+    const result = await this.documentService.getDocumentForUser(knowledgeBaseId, id, req.user.id);
+    response.setHeader('ETag', result.etag);
+    return result;
   }
 
   @Get(':id/preview')
-  @ApiOperation({ summary: '已处理片段的分页只读预览（非版本化解析块）' })
-  @ApiResponse({ status: 200, description: 'documentId/documentName/previewKind=PROCESSED_CHUNKS/items[{chunkId,text}]/page/pageSize/total' })
+  @ApiOperation({ summary: '当前生效版本解析块的分页只读预览，分页时固定 versionId' })
+  @ApiResponse({ status: 200, description: '安全解析块、真实页码（如有）及当前 versionId；旧数据兼容处理片段' })
   @ApiResponse({ status: 409, description: 'DOCUMENT_NOT_READY' })
   async preview(@Param('knowledgeBaseId') kbId: string, @Param('id') id: string, @Request() req,
-    @Query(new ZodValidationPipe(KnowledgePreviewQuerySchema)) query: Pick<KnowledgePageQuery, 'page' | 'pageSize'>) {
+    @Query(new ZodValidationPipe(KnowledgePreviewQuerySchema)) query: Pick<KnowledgePageQuery, 'page' | 'pageSize'> & { versionId?: string }) {
     return this.documentService.preview(kbId, id, req.user.id, query);
   }
 
@@ -109,21 +147,21 @@ export class DocumentController {
   }
 
   @Post(':id/reprocess')
+  @HttpCode(202)
   @ApiOperation({ summary: '重新处理文档（重新解析和向量化）' })
-  @ApiResponse({ status: 201, description: '兼容重处理结果，不承诺不可变版本或幂等' })
+  @ApiResponse({ status: 202, description: '同版本新处理代次已持久化' })
   async reprocessDocument(
     @Param('knowledgeBaseId') knowledgeBaseId: string,
     @Param('id') id: string,
     @Request() req,
     @Body(new ZodValidationPipe(KnowledgeEmptyBodySchema)) _body: Record<string, never>,
+    @Headers('if-match') ifMatch: string,
+    @Headers('idempotency-key') idempotencyKey: string,
+    @Res({ passthrough: true }) response: import('express').Response,
   ) {
-    await this.documentService.assertDocumentAdminAccess(
-      knowledgeBaseId,
-      id,
-      req.user.id,
-    );
-    await this.processor.reprocessDocument(id);
-    return { message: 'Document reprocessing started' };
+    const result = await this.documentService.retry(knowledgeBaseId, id, req.user.id, { ifMatch, idempotencyKey });
+    response.setHeader('ETag', result.etag);
+    return result;
   }
 
   @Delete(':id')
@@ -134,7 +172,9 @@ export class DocumentController {
     @Param('knowledgeBaseId') knowledgeBaseId: string,
     @Param('id') id: string,
     @Request() req,
+    @Headers('if-match') ifMatch: string,
+    @Headers('idempotency-key') idempotencyKey: string,
   ) {
-    await this.documentService.deleteDocument(knowledgeBaseId, id, req.user.id);
+    await this.documentService.deleteDocument(knowledgeBaseId, id, req.user.id, { ifMatch, idempotencyKey });
   }
 }

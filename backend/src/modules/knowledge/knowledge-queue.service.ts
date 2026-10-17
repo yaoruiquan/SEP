@@ -1,192 +1,88 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentProcessorService } from './document-processor.service';
 import { resolveRedisOptions } from '../../redis/redis-connection';
+import { KnowledgePrivateStorage } from './knowledge-private-storage';
 
-/**
- * 知识库文档处理队列（Phase A1）
- *
- * 用 BullMQ 队列替代原来 fire-and-forget 的并发处理：
- *   - 上传成功后仅入队，由 Worker 串行消费（concurrency=2），
- *     避免并发上传同时打爆单实例 TEI。
- *   - 进程重启后，启动时扫描卡死在 PROCESSING 超过 10 分钟的文档重新入队。
- *
- * 队列名：knowledge-processing；job = { documentId }；失败重试 2 次（共 3 次尝试）。
- */
+const QUEUE_NAME = 'knowledge-version-processing';
 
-export interface KnowledgeProcessingJob {
-  documentId: string;
-}
-
-const QUEUE_NAME = 'knowledge-processing';
-const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 分钟
-
+/** The durable DB job is the outbox; periodic delivery is deliberately at-least-once. */
 @Injectable()
 export class KnowledgeQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KnowledgeQueueService.name);
-
-  private queue?: Queue<KnowledgeProcessingJob>;
-  private worker?: Worker<KnowledgeProcessingJob>;
-  private queueReady = false;
-
-  constructor(
-    private readonly config: ConfigService,
-    private readonly prisma: PrismaService,
-    private readonly processor: DocumentProcessorService,
-  ) {}
-
-  isReady(): boolean {
-    return this.queueReady;
-  }
-
+  private queue?: Queue<{ jobId: string }>;
+  private worker?: Worker<{ jobId: string }>;
+  private timer?: ReturnType<typeof setInterval>;
+  private dispatching?: Promise<void>;
+  private ready = false;
+  private lastMaintenance = 0;
+  private readonly storage = new KnowledgePrivateStorage();
+  constructor(private config: ConfigService, private prisma: PrismaService, private processor: DocumentProcessorService) {}
+  isReady() { return this.ready; }
   async onModuleInit() {
     const connection = resolveRedisOptions(this.config);
-
-    this.queue = new Queue<KnowledgeProcessingJob>(QUEUE_NAME, { connection });
-
-    this.worker = new Worker<KnowledgeProcessingJob>(
-      QUEUE_NAME,
-      async (job: Job<KnowledgeProcessingJob>) => {
-        this.logger.log(`Worker picked up document ${job.data.documentId}`);
-        await this.processor.processDocument(job.data.documentId);
-      },
-      {
-        connection,
-        concurrency: 2, // 2 核 CPU，蓝图设计值
-      },
-    );
-
-    this.worker.on('completed', (job) => {
-      this.logger.log(`Document ${job.data.documentId} processed successfully`);
-    });
-
-    this.worker.on('failed', (job, err) => {
-      this.logger.error(
-        `Document ${job?.data?.documentId} finally failed: ${err.message}`,
-      );
-      // 安全兜底：极端情况下（例如文档已被删除导致 processor 自身 catch 无法落库），
-      // 在此把终态落库为 FAILED + lastError。
-      if (job?.data?.documentId) {
-        this.markFailed(job.data.documentId, err).catch((markErr) =>
-          this.logger.error(
-            `Failed to mark document ${job.data.documentId} FAILED: ${markErr.message}`,
-          ),
-        );
-      }
-    });
-    this.queue.on('error', (error) => {
-      this.queueReady = false;
-      this.logger.error(`Knowledge queue error: ${error.message}`);
-    });
-    this.worker.on('error', (error) => {
-      this.queueReady = false;
-      this.logger.error(`Knowledge worker error: ${error.message}`);
-    });
-    try {
-      await this.queue.waitUntilReady();
-      this.queueReady = true;
-    } catch (error) {
-      this.queueReady = false;
-      this.logger.error(`Knowledge queue unavailable: ${(error as Error).message}`);
-      if (this.config.get('NODE_ENV') === 'production') throw error;
-    }
-
-    this.logger.log(
-      `Knowledge processing queue initialized (concurrency=2, queue=${QUEUE_NAME})`,
-    );
-
-    // 启动时恢复卡死任务（fire-and-forget，不阻塞启动）
-    void this.recoverStuckDocuments().catch((err) =>
-      this.logger.error(`Failed to recover stuck documents: ${err.message}`),
-    );
+    this.queue = new Queue(QUEUE_NAME, { connection });
+    this.worker = new Worker(QUEUE_NAME, job => this.processor.processJob(job.data.jobId), { connection, concurrency: 2 });
+    this.queue.on('error', () => { this.ready = false; });
+    this.worker.on('error', () => { this.ready = false; });
+    this.worker.on('failed', () => this.logger.warn('Knowledge delivery failed; durable job remains recoverable'));
+    this.timer = setInterval(() => this.dispatch(), 5000);
+    this.timer.unref();
+    this.dispatch();
   }
-
-  async onModuleDestroy() {
-    await Promise.allSettled([
-      this.worker?.close(),
-      this.queue?.close(),
-    ]);
+  private dispatch() {
+    if (this.dispatching) return;
+    this.dispatching = this.deliver().catch(() => { this.ready = false; })
+      .finally(() => { this.dispatching = undefined; });
   }
-
-  /**
-   * 将文档入队处理。
-   * 失败重试 2 次（共 3 次尝试），指数退避 2s。
-   */
-  async enqueue(documentId: string) {
-    if (!this.queueReady || !this.queue) {
-      if (this.config.get('NODE_ENV') === 'production') {
-        throw new ServiceUnavailableException('文档处理队列暂不可用，请稍后重试');
-      }
-      throw new ServiceUnavailableException('文档处理队列未初始化');
-    }
-    try {
-      return await this.queue.add(
-      'process-document',
-      { documentId },
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-        removeOnComplete: 100, // 保留最近 100 个成功任务
-        removeOnFail: 500, // 保留最近 500 个失败任务
-      },
-      );
-    } catch (error) {
-      this.queueReady = false;
-      throw new ServiceUnavailableException('文档处理队列暂不可用，请稍后重试', { cause: error as Error });
-    }
-  }
-
-  /**
-   * 把文档标记为 FAILED + lastError（兜底）。
-   */
-  private async markFailed(documentId: string, err: Error): Promise<void> {
-    await this.prisma.document
-      .updateMany({
-        where: { id: documentId },
-        data: {
-          status: 'FAILED',
-          lastError: err?.message ? String(err.message).slice(0, 2000) : 'Processing failed',
-        },
-      })
-      .catch(() => undefined); // 文档不存在时静默，避免掩盖原始错误
-  }
-
-  /**
-   * 恢复卡死任务：扫描 PROCESSING 超过 10 分钟的文档，重置为 PENDING 并重新入队。
-   */
-  private async recoverStuckDocuments(): Promise<void> {
-    const cutoff = new Date(Date.now() - STUCK_THRESHOLD_MS);
-
-    const stuck = await this.prisma.document.findMany({
-      where: {
-        status: 'PROCESSING',
-        updatedAt: { lt: cutoff },
-      },
-      select: { id: true, updatedAt: true },
-    });
-
-    if (stuck.length === 0) {
-      return;
-    }
-
-    this.logger.warn(`Found ${stuck.length} stuck PROCESSING document(s), re-enqueueing`);
-
-    for (const doc of stuck) {
-      // 先重置为 PENDING，避免 UI 长期显示「处理中」
-      await this.prisma.document.updateMany({
-        where: { id: doc.id },
-        data: { status: 'PENDING', lastError: null },
+  async deliver() {
+    if (!this.queue) return;
+    try { await this.maintain(); }
+    catch { this.logger.warn('Knowledge maintenance failed; continuing durable job delivery'); }
+    // Expired last attempts must reach a visible terminal state, not remain RUNNING forever.
+    const expired = await this.prisma.knowledgeProcessingJob.findMany({ where: {
+      status: 'RUNNING', leaseUntil: { lte: new Date() }, attempts: { gte: 3 },
+    }, take: 100 });
+    for (const job of expired) {
+      await this.prisma.$transaction(async tx => {
+        const changed = await tx.knowledgeProcessingJob.updateMany({ where: { id: job.id, status: 'RUNNING',
+          fence: job.fence, leaseUntil: { lte: new Date() } }, data: { status: 'FAILED', leaseUntil: null, fence: { increment: 1 }, errorCode: 'LEASE_EXHAUSTED' } });
+        if (changed.count && job.versionId) await tx.documentVersion.updateMany({ where: { id: job.versionId, generation: job.generation, published: false },
+          data: { status: 'FAILED', stage: 'FAILED', errorCode: 'LEASE_EXHAUSTED', lastError: '任务多次中断，请重试', retryable: true } });
       });
-      await this.enqueue(doc.id);
-      this.logger.log(`Re-enqueued stuck document ${doc.id}`);
     }
+    const jobs = await this.prisma.knowledgeProcessingJob.findMany({ where: { attempts: { lt: 3 }, OR: [
+      { status: 'PENDING', nextRunAt: { lte: new Date() } }, { status: 'RUNNING', leaseUntil: { lte: new Date() } },
+    ] }, orderBy: { nextRunAt: 'asc' }, take: 100 });
+    for (const job of jobs) {
+      // A fresh delivery id avoids a failed/completed Bull job blocking lease recovery.
+      await this.queue.add('process-version', { jobId: job.id }, { removeOnComplete: true, removeOnFail: true });
+    }
+    this.ready = true;
+  }
+  private async maintain() {
+    if (Date.now() - this.lastMaintenance < 60 * 60 * 1000) return;
+    // Deployment must stop old workers first. Do not let old in-place tasks remain stuck forever.
+    await this.prisma.document.updateMany({ where: { deletedAt: null, latestVersionId: null,
+      status: { in: ['PENDING', 'PROCESSING'] } }, data: { status: 'FAILED',
+      lastError: '旧处理任务已停止，请通过版本重试重新处理' } });
+    await this.storage.sweepUnreferenced(async storagePath => {
+      const [original, version] = await Promise.all([
+        this.prisma.document.findFirst({ where: { storagePath }, select: { id: true } }),
+        this.prisma.documentVersion.findFirst({ where: { storagePath }, select: { id: true } }),
+      ]);
+      return !!(original || version);
+    });
+    this.lastMaintenance = Date.now();
+  }
+  async enqueue(_documentId: string) {
+    throw new ServiceUnavailableException('旧文档队列已停用，请使用持久化版本作业');
+  }
+  async onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+    await this.dispatching;
+    await Promise.allSettled([this.worker?.close(), this.queue?.close()]);
   }
 }

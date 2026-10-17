@@ -6,7 +6,6 @@ import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 import { EnterpriseContext } from '../enterprise/enterprise-context.service';
 import { KNOWLEDGE_LIMITS, knowledgeMemberDisplay } from 'shared';
 import type { KnowledgeBaseCreateDto, KnowledgeBaseUpdateDto, KnowledgePageQuery, KnowledgeMemberGrantCreateDto } from 'shared';
-import * as fs from 'fs/promises';
 
 const memberSelect = {
   id: true, position: true, user: { select: { name: true, avatar: true } },
@@ -14,7 +13,7 @@ const memberSelect = {
 } satisfies Prisma.EnterpriseMemberSelect;
 const baseSelect = {
   id: true, name: true, description: true, revision: true, createdAt: true, updatedAt: true,
-  _count: { select: { documents: true } },
+  _count: { select: { documents: { where: { deletedAt: null } } } },
 } satisfies Prisma.KnowledgeBaseSelect;
 
 @Injectable()
@@ -23,7 +22,11 @@ export class KnowledgeService {
     private readonly vector: VectorService) {}
 
   private async present(kb: Prisma.KnowledgeBaseGetPayload<{ select: typeof baseSelect }>, viewer: EnterpriseContext) {
-    const readyDocumentCount = await this.prisma.document.count({ where: { knowledgeBaseId: kb.id, status: 'READY' } });
+    const readyDocumentCount = await this.prisma.document.count({ where: { knowledgeBaseId: kb.id, deletedAt: null,
+      knowledgeBase: { deletedAt: null }, OR: [
+        { activeVersionId: null, status: 'READY' },
+        { activeVersionId: { not: null }, versions: { some: { published: true, status: 'READY' } } },
+      ] } });
     return { id: kb.id, name: kb.name, description: kb.description ?? '', revision: kb.revision,
       documentCount: kb._count.documents, readyDocumentCount, createdAt: kb.createdAt,
       updatedAt: kb.updatedAt, permissions: this.policy.permissions(viewer) };
@@ -72,15 +75,33 @@ export class KnowledgeService {
 
   async delete(userId: string, id: string) {
     const viewer = await this.policy.assertManage(userId, id);
-    const documents = await this.prisma.document.findMany({ where: { knowledgeBaseId: id }, select: { storagePath: true } });
-    await this.prisma.knowledgeBase.delete({ where: { id } });
+    await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM knowledge_bases WHERE id = ${id} FOR UPDATE`;
+      const member = await tx.enterpriseMember.findFirst({ where: { userId }, orderBy: { createdAt: 'asc' } });
+      if (!member) throw new ForbiddenException({ code: 'ENTERPRISE_MEMBERSHIP_REQUIRED', message: '需要有效企业成员身份' });
+      this.policy.requireAdmin({ ...member, memberId: member.id });
+      const base = await tx.knowledgeBase.findFirst({ where: { id, enterpriseId: member.enterpriseId, deletedAt: null } });
+      if (!base) this.policy.notFound();
+      // Workers lock documents before publishing. Keep the same order when fencing their jobs.
+      await tx.$queryRaw`SELECT id FROM documents WHERE "knowledgeBaseId" = ${id} ORDER BY id FOR UPDATE`;
+      const documents = await tx.document.findMany({ where: { knowledgeBaseId: id }, select: { id: true } });
+      const deletedAt = new Date();
+      await tx.knowledgeBase.update({ where: { id }, data: { deletedAt, revision: { increment: 1 } } });
+      await tx.document.updateMany({ where: { knowledgeBaseId: id },
+        data: { deletedAt, activeVersionId: null, revision: { increment: 1 } } });
+      await tx.documentVersion.updateMany({ where: { document: { knowledgeBaseId: id } }, data: { published: false } });
+      await tx.knowledgeProcessingJob.updateMany({ where: { document: { knowledgeBaseId: id }, status: { in: ['PENDING', 'RUNNING'] } },
+        data: { status: 'CANCELLED', fence: { increment: 1 }, leaseUntil: null } });
+      if (documents.length) await tx.knowledgeProcessingJob.createMany({
+        data: documents.map(document => ({ documentId: document.id, kind: 'CLEANUP' })),
+      });
+    });
     this.vector.invalidateCache(viewer.enterpriseId, id);
-    await Promise.all(documents.map(document => fs.unlink(document.storagePath).catch(() => undefined)));
   }
 
   async listGrants(userId: string, knowledgeBaseId: string, query: KnowledgePageQuery = { page: 1, pageSize: 20 }) {
     await this.policy.assertManage(userId, knowledgeBaseId);
-    const where: Prisma.KnowledgeMemberGrantWhereInput = { knowledgeBaseId,
+    const where: Prisma.KnowledgeMemberGrantWhereInput = { knowledgeBaseId, knowledgeBase: { deletedAt: null },
       ...(query.keyword ? { member: { OR: [{ user: { name: { contains: query.keyword, mode: 'insensitive' } } },
         { position: { contains: query.keyword, mode: 'insensitive' } }] } } : {}) };
     const [rows, total] = await Promise.all([
@@ -103,7 +124,7 @@ export class KnowledgeService {
       const current = await tx.enterpriseMember.findUnique({ where: { id: viewer.id } });
       if (!current) throw new ForbiddenException({ code: 'ENTERPRISE_MEMBERSHIP_REQUIRED', message: '需要有效企业成员身份' });
       this.policy.requireAdmin({ ...current, memberId: current.id });
-      const kb = await tx.knowledgeBase.findFirst({ where: { id: knowledgeBaseId, enterpriseId: current.enterpriseId } });
+      const kb = await tx.knowledgeBase.findFirst({ where: { id: knowledgeBaseId, enterpriseId: current.enterpriseId, deletedAt: null } });
       if (!kb) this.policy.notFound();
       await tx.$queryRaw`SELECT id FROM enterprise_members WHERE id IN (${Prisma.join([...data.memberIds].sort())}) ORDER BY id FOR SHARE`;
       const members = await tx.enterpriseMember.findMany({ where: { id: { in: data.memberIds }, enterpriseId: current.enterpriseId }, select: { id: true } });
@@ -132,7 +153,7 @@ export class KnowledgeService {
       const current = await tx.enterpriseMember.findUnique({ where: { id: viewer.id } });
       if (!current) throw new ForbiddenException({ code: 'ENTERPRISE_MEMBERSHIP_REQUIRED', message: '需要有效企业成员身份' });
       this.policy.requireAdmin({ ...current, memberId: current.id });
-      const kb = await tx.knowledgeBase.findFirst({ where: { id: knowledgeBaseId, enterpriseId: current.enterpriseId } });
+      const kb = await tx.knowledgeBase.findFirst({ where: { id: knowledgeBaseId, enterpriseId: current.enterpriseId, deletedAt: null } });
       const member = await tx.enterpriseMember.findFirst({ where: { id: memberId, enterpriseId: current.enterpriseId }, select: { id: true } });
       if (!kb || !member) this.policy.notFound();
       const deleted = await tx.knowledgeMemberGrant.deleteMany({ where: { knowledgeBaseId, memberId } });

@@ -4,12 +4,19 @@ import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 
 const MEMBER = { enterpriseId: 'ent-a', memberId: 'm-a', role: 'MEMBER', departmentId: 'dept-a' };
 const candidate = { chunkId: 'c-a', content: 'stale cache', source: 'doc-a', knowledgeBaseId: 'kb-a', score: 0.9 };
+const profile = { model: 'model', dimension: 1024, tokenizer: 'tokenizer-v1', distance: 'cosine' as const };
+const adoptedProfile = { kind: 'legacy-adopted', compatibility: 'model-only' };
+const versioned = (row: any) => ({ ...row, versionId: 'v-old', indexGeneration: 2,
+  document: { ...row.document, activeVersionId: 'v-old', status: 'FAILED' },
+  version: { id: 'v-old', documentId: 'doc-a', generation: 2, published: true, status: 'READY', profile: { ...profile } } });
 
 describe('KnowledgeSearchService authorization and logging', () => {
   let service: KnowledgeSearchService;
   let prisma: any;
   let context: any;
   let lexical: any;
+  let embedding: any;
+  let vector: any;
   beforeEach(() => {
     prisma = {
       subscription: { findFirst: jest.fn() },
@@ -18,13 +25,20 @@ describe('KnowledgeSearchService authorization and logging', () => {
       knowledgeSearchLog: { create: jest.fn().mockResolvedValue({}) },
       textChunk: { findMany: jest.fn().mockResolvedValue([{
         id: 'c-a', content: '退款规则', source: 'doc-a', knowledgeBaseId: 'kb-a',
-        document: { id: 'doc-a', originalName: '政策.txt' },
+        documentId: 'doc-a', versionId: null, indexGeneration: 0, version: null,
+        embeddingModel: profile.model,
+        knowledgeBase: { deletedAt: null },
+        document: { id: 'doc-a', originalName: '政策.txt', knowledgeBaseId: 'kb-a',
+          deletedAt: null, activeVersionId: null, status: 'READY' },
       }]) },
     };
     context = { resolve: jest.fn().mockResolvedValue(MEMBER) };
     lexical = { search: jest.fn().mockResolvedValue([candidate]) };
-    service = new KnowledgeSearchService(prisma, { isAvailable: jest.fn().mockResolvedValue(false) } as any,
-      {} as any, lexical, context, new KnowledgeAccessPolicy(prisma, context));
+    embedding = { isAvailable: jest.fn().mockResolvedValue(false), getModel: () => 'model',
+      getProfile: jest.fn().mockReturnValue(profile),
+      embed: jest.fn().mockResolvedValue({ embedding: new Float32Array(1024) }) };
+    vector = { search: jest.fn().mockResolvedValue([candidate]) };
+    service = new KnowledgeSearchService(prisma, embedding, vector, lexical, context, new KnowledgeAccessPolicy(prisma, context));
   });
 
   it('rejects a foreign subscription before reading legacy knowledge grants', async () => {
@@ -37,7 +51,7 @@ describe('KnowledgeSearchService authorization and logging', () => {
     prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
     const result = await service.search('退款', 'u-a', 'sub-a', 5, 0.7, 'lexical');
     expect(prisma.knowledgeGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
-      knowledgeBase: { enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } } },
+      knowledgeBase: { enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } } },
     }) }));
     expect(result.results[0]).toMatchObject({ content: '退款规则', documentId: 'doc-a', documentName: '政策.txt' });
   });
@@ -54,7 +68,7 @@ describe('KnowledgeSearchService authorization and logging', () => {
     expect(prisma.subscription.findFirst).not.toHaveBeenCalled();
     expect(prisma.knowledgeGrant.findMany).not.toHaveBeenCalled();
     expect(prisma.knowledgeBase.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
-      enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } },
+      enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } },
     } }));
   });
 
@@ -63,8 +77,137 @@ describe('KnowledgeSearchService authorization and logging', () => {
     const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
     expect(result.results).toEqual([]);
     expect(prisma.textChunk.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
-      document: { status: 'READY' }, knowledgeBase: { enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } } },
+      document: { deletedAt: null }, knowledgeBase: { AND: [
+        { enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } } }, { deletedAt: null },
+      ] },
     }) }));
+  });
+
+  it('keeps the old published active when latest processing fails, but rejects an outdated generation', async () => {
+    const row = (await prisma.textChunk.findMany())[0];
+    const active = versioned(row);
+    prisma.textChunk.findMany.mockResolvedValue([active]);
+    expect((await service.searchForMember('u-a', { query: '退款', topK: 5 })).count).toBe(1);
+    prisma.textChunk.findMany.mockResolvedValue([{ ...active, indexGeneration: 1 }]);
+    expect((await service.searchForMember('u-a', { query: '退款', topK: 5 })).results).toEqual([]);
+  });
+
+  it.each(['search', 'searchForMember', 'searchByKnowledgeBase'] as const)('rechecks publication for %s', async entry => {
+    const row = (await prisma.textChunk.findMany())[0];
+    prisma.textChunk.findMany.mockResolvedValue([{ ...row, document: { ...row.document, activeVersionId: 'v-new' } }]);
+    prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
+    const result = entry === 'search' ? (await service.search('退款', 'u-a', 'sub-a', 5, 0.7, 'lexical')).results
+      : entry === 'searchForMember' ? (await service.searchForMember('u-a', { query: '退款', topK: 5 })).results
+      : await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, 'lexical', 'u-a');
+    expect(result).toEqual([]);
+  });
+
+  it.each(['vector', 'hybrid'] as const)('%s retains authorized hydration and rejects a switch before final results', async strategy => {
+    embedding.isAvailable.mockResolvedValue(true);
+    const row = (await prisma.textChunk.findMany())[0];
+    const active = versioned(row);
+    prisma.textChunk.findMany.mockClear().mockResolvedValue([active]);
+    const results = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a');
+    expect(results).toHaveLength(1);
+    expect(embedding.getProfile).toHaveBeenCalled();
+    expect(vector.search).toHaveBeenCalledWith(expect.any(Float32Array), 'ent-a', ['kb-a'],
+      strategy === 'hybrid' ? 10 : 5, profile);
+    expect(results[0]).not.toHaveProperty('vectorProfile');
+    expect(results[0]).not.toHaveProperty('lexicalScore');
+    expect(prisma.textChunk.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ knowledgeBaseId: { in: ['kb-a'] },
+        knowledgeBase: { AND: [
+          { enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } } }, { deletedAt: null },
+        ] },
+      }),
+    }));
+    prisma.textChunk.findMany.mockResolvedValueOnce([active]).mockResolvedValueOnce([
+      { ...active, document: { ...active.document, activeVersionId: 'v-new' } },
+    ]);
+    await expect(service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a')).resolves.toEqual([]);
+  });
+
+  it.each(['vector', 'hybrid'] as const)('%s preserves adopted old active vectors after latest failure and rechecks publication', async strategy => {
+    embedding.isAvailable.mockResolvedValue(true);
+    const base = versioned((await prisma.textChunk.findMany())[0]);
+    const active = { ...base, version: { ...base.version, profile: { ...adoptedProfile } } };
+    prisma.textChunk.findMany.mockClear().mockResolvedValue([active]);
+    const results = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a');
+    expect(results).toHaveLength(1);
+    expect(results[0].score).toBeCloseTo(strategy === 'vector' ? candidate.score : 2 / 61);
+    expect(results[0]).not.toHaveProperty('vectorProfile');
+    expect(results[0]).not.toHaveProperty('lexicalScore');
+    expect(prisma.textChunk.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      knowledgeBase: { AND: [
+        { enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } } }, { deletedAt: null },
+      ] },
+    }) }));
+    prisma.textChunk.findMany.mockResolvedValueOnce([active]).mockResolvedValueOnce([
+      { ...active, indexGeneration: active.indexGeneration + 1 },
+    ]);
+    await expect(service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a')).resolves.toEqual([]);
+  });
+
+  it.each(['model', 'marker'] as const)('removes adopted vector contributions after a final %s change but retains lexical', async change => {
+    embedding.isAvailable.mockResolvedValue(true);
+    const base = versioned((await prisma.textChunk.findMany())[0]);
+    const active = { ...base, version: { ...base.version, profile: { ...adoptedProfile } } };
+    const changed = change === 'model' ? { ...active, embeddingModel: 'other' }
+      : { ...active, version: { ...active.version, profile: null } };
+    for (const strategy of ['vector', 'hybrid'] as const) {
+      prisma.textChunk.findMany.mockResolvedValueOnce([active]).mockResolvedValueOnce([changed]);
+      const results = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a');
+      if (strategy === 'vector') expect(results).toEqual([]);
+      else {
+        expect(results).toHaveLength(1);
+        expect(results[0].score).toBeCloseTo(1 / 61);
+        expect(results[0]).not.toHaveProperty('vectorProfile');
+        expect(results[0]).not.toHaveProperty('lexicalScore');
+      }
+    }
+  });
+
+  it.each([
+    ['model', 'other-model'], ['dimension', 768], ['tokenizer', 'tokenizer-v2'], ['distance', 'dot'],
+  ])('rejects vector %s mismatch while retaining lexical results without vector boost', async (field, value) => {
+    embedding.isAvailable.mockResolvedValue(true);
+    const active = versioned((await prisma.textChunk.findMany())[0]);
+    active.version.profile = { ...profile, [field]: value };
+    prisma.textChunk.findMany.mockResolvedValue([active]);
+    await expect(service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, 'vector', 'u-a')).resolves.toEqual([]);
+    const hybrid = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, 'hybrid', 'u-a');
+    expect(hybrid).toHaveLength(1);
+    expect(hybrid[0].score).toBeCloseTo(1 / 61);
+    expect(hybrid[0]).not.toHaveProperty('vectorProfile');
+    expect(hybrid[0]).not.toHaveProperty('lexicalScore');
+    const lexicalResults = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, 'lexical', 'u-a');
+    expect(lexicalResults).toHaveLength(1);
+    expect(lexicalResults[0].score).toBe(candidate.score);
+  });
+
+  it.each(['vector', 'hybrid'] as const)('%s rechecks profile after hydration and removes incompatible vector contributions', async strategy => {
+    embedding.isAvailable.mockResolvedValue(true);
+    const active = versioned((await prisma.textChunk.findMany())[0]);
+    const changed = { ...active, version: { ...active.version, profile: { ...profile, tokenizer: 'changed' } } };
+    prisma.textChunk.findMany.mockResolvedValueOnce([active]).mockResolvedValueOnce([changed]);
+    const results = await service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, strategy, 'u-a');
+    if (strategy === 'vector') expect(results).toEqual([]);
+    else {
+      expect(results).toHaveLength(1);
+      expect(results[0].score).toBeCloseTo(1 / 61);
+      expect(results[0]).not.toHaveProperty('vectorProfile');
+      expect(results[0]).not.toHaveProperty('lexicalScore');
+    }
+  });
+
+  it('rejects a vector-only hybrid candidate if its profile changes before final authorization', async () => {
+    embedding.isAvailable.mockResolvedValue(true);
+    lexical.search.mockResolvedValue([]);
+    const active = versioned((await prisma.textChunk.findMany())[0]);
+    prisma.textChunk.findMany.mockResolvedValueOnce([active]).mockResolvedValueOnce([
+      { ...active, version: { ...active.version, profile: null } },
+    ]);
+    await expect(service.searchByKnowledgeBase('退款', ['kb-a'], 5, 0.7, 'hybrid', 'u-a')).resolves.toEqual([]);
   });
 
   it('closes the internal direct search bypass unless a current member identity is provided', async () => {

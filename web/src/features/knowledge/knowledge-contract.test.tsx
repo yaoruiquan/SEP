@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '@/lib/api-client';
 import { useKnowledgeBases, useKnowledgeBase } from './use-knowledge-bases';
 import { useCreateGrant, useDeleteGrant, useGrantableMembers, useKnowledgeGrants } from './use-knowledge-grants';
-import { hasDocumentTasks, useDocuments, useDocumentPreview } from './use-documents';
+import { hasDocumentTasks, useDocuments, useDocumentPreview, useDocumentVersions } from './use-documents';
+import { useDocumentStatus } from './use-knowledge-test';
 
 vi.mock('@/lib/api-client', async (original) => ({
   ...await original<typeof import('@/lib/api-client')>(),
@@ -89,6 +90,44 @@ describe('knowledge API boundary', () => {
     expect(hasDocumentTasks(result.current.data)).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
     expect(result.current.data?.[0].status).toBe('READY');
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  const pollingHooks = {
+    documents: function useDocumentsPolling() { return useDocuments('kb'); },
+    versions: function useVersionsPolling() { return useDocumentVersions('kb', 'doc'); },
+    status: function useStatusPolling() { return useDocumentStatus('kb'); },
+  };
+  it.each(Object.keys(pollingHooks) as (keyof typeof pollingHooks)[])('resumes %s polling after a transient failure', async (kind) => {
+    vi.useFakeTimers();
+    const processing = [{ id: 'doc', status: 'PROCESSING' }];
+    const ready = [{ id: 'doc', status: 'READY' }];
+    vi.mocked(api.get)
+      .mockResolvedValueOnce(kind === 'status' ? { documents: processing } : processing)
+      .mockRejectedValueOnce(new ApiError(503, 'temporarily unavailable'))
+      .mockResolvedValue(kind === 'status' ? { documents: ready } : ready);
+    const usePolling = pollingHooks[kind];
+    const { result } = renderHook(() => {
+      const query = usePolling();
+      return { isError: query.isError, isSuccess: query.isSuccess };
+    }, { wrapper: wrapper() });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(result.current.isError).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(result.current.isSuccess).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(api.get).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([403, 404])('stops version polling after access is lost with %i', async (status) => {
+    vi.useFakeTimers();
+    vi.mocked(api.get).mockResolvedValueOnce([{ id: 'v2', status: 'PROCESSING' }]).mockRejectedValue(new ApiError(status, 'access lost'));
+    const { result } = renderHook(() => useDocumentVersions('kb', 'doc'), { wrapper: wrapper() });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(result.current.isError).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
     expect(api.get).toHaveBeenCalledTimes(2);
   });

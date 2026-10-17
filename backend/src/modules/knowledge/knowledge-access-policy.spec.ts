@@ -16,13 +16,13 @@ describe('KnowledgeAccessPolicy member boundary', () => {
   it('filters ordinary members by explicit member grant, never legacy grants', async () => {
     const viewer = await policy.resolve('u-a');
     expect(policy.readableWhere(viewer)).toEqual({
-      enterpriseId: 'ent-a', memberGrants: { some: { memberId: 'm-a' } },
+      enterpriseId: 'ent-a', deletedAt: null, memberGrants: { some: { memberId: 'm-a' } },
     });
   });
 
   it('allows only enterprise administrators implicit full-enterprise access', () => {
     expect(policy.readableWhere({ ...member, role: 'ENTERPRISE_ADMIN' } as any))
-      .toEqual({ enterpriseId: 'ent-a' });
+      .toEqual({ enterpriseId: 'ent-a', deletedAt: null });
     expect(policy.readableWhere({ ...member, role: 'DEPT_MANAGER' } as any))
       .toHaveProperty('memberGrants');
   });

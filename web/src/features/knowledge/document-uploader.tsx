@@ -54,7 +54,7 @@ export function DocumentUploader({ knowledgeBaseId, limits, onUploadComplete }: 
       for (const item of pending) {
         setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'uploading' } : entry));
         try {
-          await upload.mutateAsync(item.file);
+          await upload.mutateAsync({ file: item.file, idempotencyKey: item.id });
           accepted = true;
           setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'success', error: undefined } : entry));
         } catch (cause) {
