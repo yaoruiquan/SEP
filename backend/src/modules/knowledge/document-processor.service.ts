@@ -54,8 +54,18 @@ export class DocumentProcessorService {
       await this.guarded(job, async tx => {
         await tx.documentVersion.update({ where: { id: version.id }, data: { stage: 'CHUNKING' } });
       });
-      let chunks: Array<{ content: string; tokenCount: number }>;
-      try { chunks = blocks.flatMap(block => TextChunker.chunkByTokens(this.parser.cleanText(block.text), 800)); }
+      let chunks: Array<{ content: string; tokenCount: number; pageStart: number | null; pageEnd: number | null;
+        sectionPath: string[]; blockStart: number; blockEnd: number }>;
+      try {
+        chunks = blocks.flatMap(block => TextChunker.chunkByTokens(this.parser.cleanText(block.text), 800).map(chunk => ({
+          ...chunk,
+          pageStart: block.page ?? null,
+          pageEnd: block.page ?? null,
+          sectionPath: block.section ? [block.section] : [],
+          blockStart: block.ordinal,
+          blockEnd: block.ordinal,
+        })));
+      }
       catch { throw new ProcessingFailure('TOKENIZER_UNAVAILABLE', '分词器未就绪，请联系管理员配置后重试', true); }
       if (!chunks.length || chunks.length > 20000) throw new ProcessingFailure('DOCUMENT_LIMIT', '文件内容为空或超出处理限制，请拆分文件', false);
       const profile = this.embedding.getProfile();
@@ -87,6 +97,8 @@ export class DocumentProcessorService {
             const chunk = await tx.textChunk.create({ data: { documentId: document.id, knowledgeBaseId: document.knowledgeBaseId,
               versionId: version.id, indexGeneration: job.generation, ordinal: offset + index,
               tokenCount: batch[index].tokenCount, content: batch[index].content, source: document.originalName,
+              pageStart: batch[index].pageStart, pageEnd: batch[index].pageEnd,
+              sectionPath: batch[index].sectionPath, blockStart: batch[index].blockStart, blockEnd: batch[index].blockEnd,
               tags: [], createdBy: document.uploadedBy, embedding: new Uint8Array(new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength)),
               embeddingModel: profile.model, tokens: this.tokenizer.tokenize(batch[index].content) } });
             const literal = `[${Array.from(vector).join(',')}]`;
@@ -108,9 +120,11 @@ export class DocumentProcessorService {
           !this.sameProfile(current.profile, profile)) {
           throw new ProcessingFailure('INCOMPLETE_INDEX', '索引尚未完整建立，请重试', true);
         }
-        await tx.documentVersion.updateMany({ where: { documentId: document.id }, data: { published: false } });
+        const retiredAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await tx.documentVersion.updateMany({ where: { documentId: document.id, id: { not: version.id }, published: true },
+          data: { published: false, retiredAt } });
         await tx.documentVersion.update({ where: { id: version.id }, data: { status: 'READY', stage: 'DONE',
-          published: true, processedAt: new Date(), errorCode: null, lastError: null } });
+          published: true, publishedAt: new Date(), retiredAt: null, processedAt: new Date(), errorCode: null, lastError: null } });
         await tx.document.update({ where: { id: document.id }, data: { activeVersionId: version.id, status: 'READY',
           version: version.version, processedAt: new Date(), embeddingModel: profile.model, revision: { increment: 1 } } });
         await tx.knowledgeProcessingJob.update({ where: { id: job.id }, data: { status: 'DONE', leaseUntil: null } });

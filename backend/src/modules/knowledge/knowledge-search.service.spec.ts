@@ -22,8 +22,9 @@ describe('KnowledgeSearchService authorization and logging', () => {
       subscription: { findFirst: jest.fn() },
       knowledgeGrant: { findMany: jest.fn().mockResolvedValue([{ knowledgeBaseId: 'kb-a' }]) },
       knowledgeBase: { findMany: jest.fn().mockResolvedValue([{ id: 'kb-a' }]) },
+      document: { findMany: jest.fn().mockResolvedValue([{ activeVersionId: null, status: 'READY', versions: [] }]) },
       knowledgeSearchLog: { create: jest.fn().mockResolvedValue({}) },
-      textChunk: { findMany: jest.fn().mockResolvedValue([{
+      textChunk: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([{
         id: 'c-a', content: '退款规则', source: 'doc-a', knowledgeBaseId: 'kb-a',
         documentId: 'doc-a', versionId: null, indexGeneration: 0, version: null,
         embeddingModel: profile.model,
@@ -219,6 +220,55 @@ describe('KnowledgeSearchService authorization and logging', () => {
     lexical.search.mockRejectedValue(new Error('database credentials or internal error'));
     await expect(service.searchForMember('u-a', { query: '退款', topK: 5 })).rejects.toMatchObject({
       status: 503, response: { code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '知识库检索暂时不可用' },
+    });
+  });
+
+  it('returns the client search contract and marks lexical fallback when embeddings are unavailable', async () => {
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result).toMatchObject({ status: 'MATCHED', actualStrategy: 'LEXICAL', degraded: true,
+      degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE', partial: false, count: 1 });
+    expect(result.searchId).toMatch(/^search_/);
+    expect(result.results[0]).toMatchObject({ sourceId: 'c-a', chunkId: 'c-a', documentId: 'doc-a',
+      documentName: '政策.txt', versionId: 'c-a', tokenCount: 0, truncated: false,
+      location: { pageStart: null, pageEnd: null, sectionPath: [], blockStart: 0, blockEnd: 0 } });
+  });
+
+  it('returns NO_ACCESS without executing retrieval when no readable base exists', async () => {
+    prisma.knowledgeBase.findMany.mockResolvedValue([]);
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result).toMatchObject({ status: 'NO_ACCESS', actualStrategy: null, degraded: false, count: 0 });
+    expect(lexical.search).not.toHaveBeenCalled();
+  });
+
+  it('returns NOT_READY when readable bases contain no published document', async () => {
+    prisma.document.findMany.mockResolvedValue([{ activeVersionId: null, status: 'PROCESSING', versions: [] }]);
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result).toMatchObject({ status: 'NOT_READY', actualStrategy: null, degraded: false, partial: false, count: 0 });
+    expect(lexical.search).not.toHaveBeenCalled();
+  });
+
+  it('marks a scope partial when some documents have no published version', async () => {
+    prisma.document.findMany.mockResolvedValue([
+      { activeVersionId: null, status: 'READY', versions: [] },
+      { activeVersionId: null, status: 'PROCESSING', versions: [] },
+    ]);
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result.partial).toBe(true);
+    expect(result.status).toBe('MATCHED');
+  });
+
+  it('returns the current source after rechecking ownership and publication', async () => {
+    prisma.textChunk.findFirst.mockResolvedValue({
+      id: 'c-a', knowledgeBaseId: 'kb-a', documentId: 'doc-a', versionId: 'v-a', content: '退款规则',
+      pageStart: 2, pageEnd: 2, sectionPath: ['售后'], blockStart: 4, blockEnd: 4,
+      knowledgeBase: { deletedAt: null },
+      document: { id: 'doc-a', knowledgeBaseId: 'kb-a', originalName: '政策.txt', deletedAt: null,
+        activeVersionId: 'v-a', status: 'READY' },
+      version: { id: 'v-a', documentId: 'doc-a', published: true, publishedAt: new Date(), retiredAt: null, status: 'READY' },
+    });
+    await expect(service.getSource('u-a', 'kb-a', 'c-a')).resolves.toMatchObject({
+      sourceId: 'c-a', versionId: 'v-a', isCurrent: true, content: '退款规则',
+      location: { pageStart: 2, sectionPath: ['售后'], blockStart: 4 },
     });
   });
 });

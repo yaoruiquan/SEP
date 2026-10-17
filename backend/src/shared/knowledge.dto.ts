@@ -84,6 +84,55 @@ export const KnowledgeMemberSearchDtoSchema = z.object({
   topK: z.number().int().min(1).max(20).default(5),
 }).strict();
 export type KnowledgeMemberSearchDto = z.infer<typeof KnowledgeMemberSearchDtoSchema>;
+
+export type KnowledgeSearchStatus = 'MATCHED' | 'NO_MATCH' | 'NO_ACCESS' | 'NOT_READY';
+export type KnowledgeSearchStrategy = 'HYBRID' | 'LEXICAL';
+
+export interface KnowledgeSourceLocation {
+  pageStart: number | null;
+  pageEnd: number | null;
+  sectionPath: string[];
+  blockStart: number;
+  blockEnd: number;
+}
+
+export interface KnowledgeSearchResult {
+  sourceId: string;
+  knowledgeBaseId: string;
+  knowledgeBaseName: string;
+  documentId: string;
+  documentName: string;
+  versionId: string;
+  chunkId: string;
+  content: string;
+  tokenCount: number;
+  truncated: boolean;
+  location: KnowledgeSourceLocation;
+}
+
+export interface KnowledgeSearchResponse {
+  searchId: string;
+  status: KnowledgeSearchStatus;
+  actualStrategy: KnowledgeSearchStrategy | null;
+  degraded: boolean;
+  degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE' | null;
+  durationMs: number;
+  count: number;
+  partial: boolean;
+  results: KnowledgeSearchResult[];
+}
+
+export interface KnowledgeSourceResponse {
+  sourceId: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  documentName: string;
+  versionId: string;
+  chunkId: string;
+  content: string;
+  location: KnowledgeSourceLocation;
+  isCurrent: boolean;
+}
 export const KnowledgeEmptyBodySchema = z.object({}).strict();
 
 export const KNOWLEDGE_LIMITS = {

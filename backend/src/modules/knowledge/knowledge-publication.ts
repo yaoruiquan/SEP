@@ -64,15 +64,33 @@ function isLegacyAdoptedProfile(stored: Prisma.JsonValue | undefined): boolean {
 
 export const publicationSelect = {
   documentId: true, versionId: true, indexGeneration: true, embeddingModel: true,
-  knowledgeBase: { select: { deletedAt: true } },
+  pageStart: true, pageEnd: true, sectionPath: true, blockStart: true, blockEnd: true,
+  tokenCount: true,
+  knowledgeBase: { select: { name: true, deletedAt: true } },
   document: { select: { id: true, originalName: true, knowledgeBaseId: true,
     deletedAt: true, activeVersionId: true, status: true } },
-  version: { select: { id: true, documentId: true, published: true, status: true, generation: true, profile: true } },
+  version: { select: { id: true, documentId: true, published: true, publishedAt: true, retiredAt: true,
+    status: true, generation: true, profile: true } },
 } satisfies Prisma.TextChunkSelect;
 
-type PublicationChunk = Prisma.TextChunkGetPayload<{
-  select: typeof publicationSelect & { knowledgeBaseId: true };
-}>;
+type PublicationChunk = {
+  knowledgeBaseId: string;
+  documentId: string | null;
+  versionId: string | null;
+  indexGeneration: number;
+  embeddingModel: string | null;
+  tokenCount?: number | null;
+  pageStart?: number | null;
+  pageEnd?: number | null;
+  sectionPath?: string[];
+  blockStart?: number;
+  blockEnd?: number;
+  knowledgeBase?: { name?: string | null; deletedAt: Date | null } | null;
+  document?: { id: string; originalName: string; knowledgeBaseId: string; deletedAt: Date | null;
+    activeVersionId: string | null; status: string } | null;
+  version?: { id: string; documentId: string; published: boolean; publishedAt?: Date | null;
+    retiredAt?: Date | null; status: string; generation: number; profile?: Prisma.JsonValue | null } | null;
+};
 
 export function isPublishedChunk(chunk: PublicationChunk): boolean {
   const { document, version } = chunk;

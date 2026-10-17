@@ -1,11 +1,13 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorService } from './vector.service';
 import { LexicalSearchService } from './lexical-search.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
-import type { KnowledgeMemberSearchDto } from 'shared';
+import { KNOWLEDGE_LIMITS, type KnowledgeMemberSearchDto, type KnowledgeSearchResponse,
+  type KnowledgeSearchResult, type KnowledgeSourceResponse } from 'shared';
 import { isPublishedChunk, isVectorCompatibleChunk, publicationSelect, publishedChunkWhere, vectorChunkWhere } from './knowledge-publication';
 import type { EmbeddingProfile } from './embedding.service';
 
@@ -17,6 +19,16 @@ export interface SearchResult {
   chunkId: string;
   documentId?: string;
   documentName?: string;
+  documentVersionId?: string;
+  knowledgeBaseName?: string;
+  tokenCount?: number;
+  location?: {
+    pageStart: number | null;
+    pageEnd: number | null;
+    sectionPath: string[];
+    blockStart: number;
+    blockEnd: number;
+  };
 }
 
 export interface SearchResponse {
@@ -25,6 +37,9 @@ export interface SearchResponse {
   strategy: 'lexical' | 'vector' | 'hybrid';
   durationMs?: number;
 }
+
+type Readiness = { hasReady: boolean; partial: boolean };
+class QueryEmbeddingUnavailable extends Error {}
 
 type SearchStrategy = 'lexical' | 'vector' | 'hybrid' | 'auto';
 type SearchCandidate = SearchResult & { vectorProfile?: EmbeddingProfile; lexicalScore?: number };
@@ -158,28 +173,74 @@ export class KnowledgeSearchService {
     return { count: results.length, results, strategy: actualStrategy, durationMs };
   }
 
-  /** Search over explicit member access and the current published document versions. */
-  async searchForMember(userId: string, dto: KnowledgeMemberSearchDto): Promise<SearchResponse> {
+  /** Search over explicit member access and return the client contract. */
+  async searchForMember(userId: string, dto: KnowledgeMemberSearchDto): Promise<KnowledgeSearchResponse> {
     const started = Date.now();
     const viewer = await this.policy.resolve(userId);
     const bases = await this.prisma.knowledgeBase.findMany({ where: {
       ...this.policy.readableWhere(viewer), ...(dto.knowledgeBaseIds ? { id: { in: dto.knowledgeBaseIds } } : {}),
-    }, select: { id: true } });
+    }, select: { id: true, name: true } });
     if (dto.knowledgeBaseIds && bases.length !== dto.knowledgeBaseIds.length) this.policy.notFound();
     const kbIds = bases.map(base => base.id);
-    if (!kbIds.length) return { count: 0, results: [], strategy: 'lexical', durationMs: Date.now() - started };
+    const empty = (status: 'NO_ACCESS' | 'NOT_READY', partial = false): KnowledgeSearchResponse => ({
+      searchId: `search_${randomUUID()}`,
+      status, actualStrategy: null, degraded: false, degradationReason: null,
+      durationMs: Date.now() - started, count: 0, partial, results: [],
+    });
+    if (!kbIds.length) return empty(dto.knowledgeBaseIds ? 'NOT_READY' : 'NO_ACCESS');
+
+    const readiness = await this.getReadiness(kbIds);
+    if (!readiness.hasReady) return empty('NOT_READY');
+
+    let actualStrategy: 'HYBRID' | 'LEXICAL' = 'HYBRID';
+    let degraded = false;
+    let degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE' | null = null;
     try {
-      const strategy = await this.resolveStrategy('auto');
-      const candidates = strategy === 'hybrid'
-        ? await this.searchHybrid(dto.query, viewer.enterpriseId, kbIds, dto.topK, 0.7)
-        : await this.searchLexical(dto.query, viewer.enterpriseId, kbIds, dto.topK);
-      const results = await this.authorizedResults(userId, kbIds, candidates);
-      return { count: results.length, results, strategy, durationMs: Date.now() - started };
+      if (!(await this.embedding.isAvailable())) {
+        actualStrategy = 'LEXICAL';
+        degraded = true;
+        degradationReason = 'QUERY_EMBEDDING_UNAVAILABLE';
+      }
+      let candidates: SearchCandidate[];
+      try {
+        candidates = actualStrategy === 'HYBRID'
+          ? await this.searchHybrid(dto.query, viewer.enterpriseId, kbIds, dto.topK, 0.7)
+          : await this.searchLexical(dto.query, viewer.enterpriseId, kbIds, dto.topK);
+      } catch (error) {
+        if (!(error instanceof QueryEmbeddingUnavailable)) throw error;
+        actualStrategy = 'LEXICAL';
+        degraded = true;
+        degradationReason = 'QUERY_EMBEDDING_UNAVAILABLE';
+        candidates = await this.searchLexical(dto.query, viewer.enterpriseId, kbIds, dto.topK);
+      }
+      const authorized = await this.authorizedResults(userId, kbIds, candidates);
+      const results = this.applyTokenBudget(authorized);
+      return {
+        searchId: `search_${randomUUID()}`,
+        status: results.length ? 'MATCHED' : 'NO_MATCH',
+        actualStrategy, degraded, degradationReason,
+        durationMs: Date.now() - started, count: results.length,
+        partial: readiness.partial, results,
+      };
     } catch (error) {
       if (error instanceof ForbiddenException || error instanceof NotFoundException) throw error;
       this.logger.error('Member knowledge retrieval failed');
       throw new ServiceUnavailableException({ code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '知识库检索暂时不可用' });
     }
+  }
+
+  private async getReadiness(knowledgeBaseIds: string[]): Promise<Readiness> {
+    const documentStore = (this.prisma as any).document;
+    if (!documentStore?.findMany) return { hasReady: true, partial: false };
+    const documents = await documentStore.findMany({
+      where: { knowledgeBaseId: { in: knowledgeBaseIds }, deletedAt: null },
+      select: { activeVersionId: true, status: true, versions: {
+        where: { published: true, status: 'READY' }, select: { id: true }, take: 1,
+      } },
+    });
+    const ready = documents.filter((document: { activeVersionId: string | null; status: string; versions: unknown[] }) =>
+      document.status === 'READY' && (document.activeVersionId === null || document.versions.length > 0));
+    return { hasReady: ready.length > 0, partial: ready.length > 0 && ready.length < documents.length };
   }
 
   private async authorizedResults(userId: string, knowledgeBaseIds: string[], results: SearchCandidate[]): Promise<SearchResult[]> {
@@ -199,8 +260,69 @@ export class KnowledgeSearchService {
       if (!compatible && lexicalScore === undefined) return [];
       return [{ ...publicResult, score: compatible ? result.score : lexicalScore!, content: chunk.content, source: chunk.source,
         knowledgeBaseId: chunk.knowledgeBaseId, documentId: chunk.document.id,
-        documentName: chunk.document.originalName }];
+        documentName: chunk.document.originalName, documentVersionId: chunk.versionId ?? chunk.document.activeVersionId ?? chunk.id,
+        knowledgeBaseName: chunk.knowledgeBase?.name ?? '', tokenCount: chunk.tokenCount ?? 0,
+        location: { pageStart: chunk.pageStart ?? null, pageEnd: chunk.pageEnd ?? null,
+          sectionPath: chunk.sectionPath ?? [], blockStart: chunk.blockStart ?? 0, blockEnd: chunk.blockEnd ?? 0 } }];
     }).sort((a, b) => b.score - a.score);
+  }
+
+  private applyTokenBudget(results: SearchResult[]): KnowledgeSearchResult[] {
+    let remaining = KNOWLEDGE_LIMITS.maxResultTokens;
+    const output: KnowledgeSearchResult[] = [];
+    results.forEach(result => {
+      if (remaining <= 0) return [];
+      const originalTokenCount = Math.max(0, result.tokenCount ?? 0);
+      if (originalTokenCount <= remaining || originalTokenCount === 0) {
+        remaining -= originalTokenCount;
+        output.push({ sourceId: result.chunkId, knowledgeBaseId: result.knowledgeBaseId,
+          knowledgeBaseName: result.knowledgeBaseName ?? '', documentId: result.documentId!,
+          documentName: result.documentName!, versionId: result.documentVersionId!, chunkId: result.chunkId,
+          content: result.content, tokenCount: originalTokenCount, truncated: false, location: result.location! });
+        return;
+      }
+      const characterCount = Math.max(1, Math.floor(result.content.length * remaining / originalTokenCount));
+      const content = result.content.slice(0, characterCount);
+      const tokenCount = remaining;
+      remaining = 0;
+      output.push({ sourceId: result.chunkId, knowledgeBaseId: result.knowledgeBaseId,
+        knowledgeBaseName: result.knowledgeBaseName ?? '', documentId: result.documentId!,
+        documentName: result.documentName!, versionId: result.documentVersionId!, chunkId: result.chunkId,
+        content, tokenCount, truncated: true, location: result.location! });
+    });
+    return output;
+  }
+
+  async getSource(userId: string, knowledgeBaseId: string, sourceId: string): Promise<KnowledgeSourceResponse> {
+    const viewer = await this.policy.resolve(userId);
+    const row = await this.prisma.textChunk.findFirst({
+      where: { id: sourceId, knowledgeBaseId, knowledgeBase: this.policy.readableWhere(viewer) },
+      select: { id: true, knowledgeBaseId: true, documentId: true, versionId: true, content: true,
+        pageStart: true, pageEnd: true, sectionPath: true, blockStart: true, blockEnd: true,
+        knowledgeBase: { select: { deletedAt: true } },
+        document: { select: { id: true, knowledgeBaseId: true, originalName: true, deletedAt: true,
+          activeVersionId: true, status: true } },
+        version: { select: { id: true, documentId: true, published: true, publishedAt: true, retiredAt: true, status: true } } },
+    });
+    if (!row?.document || row.knowledgeBase.deletedAt || row.document.deletedAt ||
+      row.document.knowledgeBaseId !== knowledgeBaseId || row.documentId !== row.document.id ||
+      (row.versionId !== null && row.version?.documentId !== row.document.id)) this.policy.notFound();
+
+    const now = new Date();
+    const isCurrent = row.document.activeVersionId === row.versionId ||
+      (row.versionId === null && row.document.activeVersionId === null && row.document.status === 'READY');
+    const versionReadable = row.versionId === null
+      ? isCurrent
+      : !!row.version && row.version.status === 'READY' &&
+        (isCurrent ? row.version.published : !!row.version.publishedAt) &&
+        (!row.version.retiredAt || row.version.retiredAt > now);
+    if (!versionReadable) this.policy.notFound();
+
+    return { sourceId: row.id, knowledgeBaseId: row.knowledgeBaseId, documentId: row.document.id,
+      documentName: row.document.originalName, versionId: row.versionId ?? row.document.activeVersionId ?? row.id,
+      chunkId: row.id, content: row.content,
+      location: { pageStart: row.pageStart ?? null, pageEnd: row.pageEnd ?? null,
+        sectionPath: row.sectionPath ?? [], blockStart: row.blockStart ?? 0, blockEnd: row.blockEnd ?? 0 }, isCurrent };
   }
 
   /**
@@ -315,7 +437,9 @@ export class KnowledgeSearchService {
     const [lexicalResults, vectorResults] = await Promise.all([
       this.lexical.search(query, enterpriseId, kbIds, topK * 2),
       (async () => {
-        const embeddingResult = await this.embedding.embed(query);
+        let embeddingResult: Awaited<ReturnType<EmbeddingService['embed']>>;
+        try { embeddingResult = await this.embedding.embed(query); }
+        catch { throw new QueryEmbeddingUnavailable(); }
         return this.vector.search(
           embeddingResult.embedding,
           enterpriseId,

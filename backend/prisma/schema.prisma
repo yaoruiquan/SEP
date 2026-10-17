@@ -2767,6 +2767,11 @@ model TextChunk {
   indexGeneration Int      @default(0)
   ordinal         Int?
   tokenCount      Int?
+  pageStart       Int?
+  pageEnd         Int?
+  sectionPath     String[] @default([])
+  blockStart      Int      @default(0)
+  blockEnd        Int      @default(0)
   version         DocumentVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
   title           String?
   content         String   @db.Text
@@ -3611,6 +3616,8 @@ model DocumentVersion {
   stage           String @default("QUEUED")
   generation      Int @default(1)
   published       Boolean @default(false)
+  publishedAt     DateTime?
+  retiredAt       DateTime?
   profile         Json?
   lastError       String?
   errorCode       String?

@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
   Body,
   HttpCode,
   HttpStatus,
@@ -19,15 +21,15 @@ import { KnowledgeNoStoreInterceptor } from './knowledge-no-store.interceptor';
 @ApiBearerAuth()
 @UseGuards(KnowledgeAuthGuard)
 @UseInterceptors(KnowledgeNoStoreInterceptor)
-@Controller('knowledge-bases/search')
+@Controller('knowledge-bases')
 export class SearchController {
   constructor(private readonly searchService: KnowledgeSearchService) {}
 
-  @Post()
+  @Post('search')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '按真实企业成员权限检索知识库（第一批兼容响应）',
-    description: '不接收订阅或员工绑定。响应为旧命中形状加documentId/documentName，不提供版本化来源标识。',
+    summary: '按真实企业成员权限检索知识库',
+    description: '检索范围由当前企业成员权限决定，响应包含版本化来源和可追溯定位。',
   })
   @ApiResponse({ status: 200, description: '返回检索结果列表' })
   @ApiResponse({ status: 401, description: '未授权' })
@@ -38,13 +40,19 @@ export class SearchController {
   ) {
     const searchResponse = await this.searchService.searchForMember(req.user.id, dto);
 
-    return {
-      query: dto.query,
-      strategy: searchResponse.strategy,
-      durationMs: searchResponse.durationMs,
-      results: searchResponse.results,
-      count: searchResponse.count,
-    };
+    return searchResponse;
+  }
+
+  @Get(':knowledgeBaseId/sources/:sourceId')
+  @ApiOperation({ summary: '查看检索来源片段' })
+  @ApiResponse({ status: 200, description: '返回当前或仍保留的历史版本来源片段' })
+  @ApiResponse({ status: 404, description: '来源不存在、已过期或不可访问' })
+  async getSource(
+    @Param('knowledgeBaseId') knowledgeBaseId: string,
+    @Param('sourceId') sourceId: string,
+    @Request() req,
+  ) {
+    return this.searchService.getSource(req.user.id, knowledgeBaseId, sourceId);
   }
 
 }
