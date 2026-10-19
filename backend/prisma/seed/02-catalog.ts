@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import matter from 'gray-matter';
 import { siliconAvatarUrl } from './employee-avatar-map';
+import { employeeDisplayName, employeeNameAliases, historicalEmployeeName } from '../employee-display-names';
 
 const AGENCY_AGENTS_ROOT = path.join(process.env.HOME || '', '.agency-agents');
 
@@ -68,10 +69,10 @@ export interface SeededCatalog {
 export async function backfillFunctionalCategories(prisma: PrismaClient) {
   const employees = await prisma.digitalEmployee.findMany({ select: { id: true, name: true } });
   await prisma.$transaction(employees.flatMap((employee) => {
-    const functionalCategory = HISTORICAL_CATEGORY_BY_NAME[employee.name];
+    const functionalCategory = HISTORICAL_CATEGORY_BY_NAME[historicalEmployeeName(employee.name)];
     return functionalCategory ? [prisma.digitalEmployee.update({ where: { id: employee.id }, data: { functionalCategory } })] : [];
   }));
-  return employees.filter((employee) => !HISTORICAL_CATEGORY_BY_NAME[employee.name] && !CURATED_ECOMMERCE_EMPLOYEES.some((item) => item.name === employee.name)).map((employee) => employee.name);
+  return employees.filter((employee) => !HISTORICAL_CATEGORY_BY_NAME[historicalEmployeeName(employee.name)] && !CURATED_ECOMMERCE_EMPLOYEES.some((item) => item.name === historicalEmployeeName(employee.name))).map((employee) => employee.name);
 }
 
 export async function seedCatalog(prisma: PrismaClient, contributorId: string): Promise<SeededCatalog> {
@@ -82,12 +83,14 @@ export async function seedCatalog(prisma: PrismaClient, contributorId: string): 
     const result = await prisma.$transaction(async (tx) => {
       const skillIds = await Promise.all(employee.skills.map((sourcePath) => ensureSkillCapability(tx, parsedSkills.get(sourcePath)!, contributorId)));
       if (skillIds.length === 0) throw new Error('员工没有可绑定技能: ' + employee.name);
-      const values = { description: employee.description, industry: '电商', position: employee.position, functionalCategory: employee.category, avatar: siliconAvatarUrl(employee.name), systemPrompt: employee.systemPrompt, modelId: 'gpt-4o', maxSteps: 10, version: '1.0.0', annualPriceCNY: employee.monthlyPrice * 12, includedComputeCNY: employee.monthlyPrice * 12 * 0.2 };
-      const existing = await tx.digitalEmployee.findFirst({ where: { name: employee.name }, select: { id: true } });
+      const values = { name: employeeDisplayName(employee.name), description: employee.description, industry: '电商', position: employee.position, functionalCategory: employee.category, avatar: siliconAvatarUrl(employee.name), systemPrompt: employee.systemPrompt, modelId: 'gpt-4o', maxSteps: 10, version: '1.0.0', annualPriceCNY: employee.monthlyPrice * 12, includedComputeCNY: employee.monthlyPrice * 12 * 0.2 };
+      const matches = await tx.digitalEmployee.findMany({ where: { name: { in: employeeNameAliases(employee.name) } }, select: { id: true } });
+      if (matches.length > 1) throw new Error('员工新旧名称有重复记录，须人工确认: ' + employee.name);
+      const existing = matches[0];
       const bindings = skillIds.map((capabilityId, index) => ({ capabilityId, priority: 100 - index, enabled: true }));
       const draft = existing
         ? await tx.digitalEmployee.update({ where: { id: existing.id }, data: { ...values, status: 'DRAFT', publishedAt: null } })
-        : await tx.digitalEmployee.create({ data: { name: employee.name, ...values, status: 'DRAFT' } });
+        : await tx.digitalEmployee.create({ data: { ...values, status: 'DRAFT' } });
       await tx.employeeCapabilityBinding.createMany({
         data: bindings.map((binding) => ({ ...binding, employeeId: draft.id })),
         skipDuplicates: true,

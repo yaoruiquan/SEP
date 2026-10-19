@@ -8,6 +8,8 @@
  * 素材路径：web/public/assets/employees/silicon/<slug>.webp（512/256 两档）
  */
 
+import { EMPLOYEE_DISPLAY_NAMES } from '../employee-display-names';
+
 export const SILICON_AVATAR_DIR = '/assets/employees/silicon';
 
 /** 员工姓名 -> 素材 slug */
@@ -101,6 +103,11 @@ export const SILICON_AVATAR_SLUG_BY_NAME: Record<string, string> = {
   '销售代表': 'sales-representative',
   '销售支持专员': 'sales-support-specialist',
 };
+
+for (const [historical, display] of Object.entries(EMPLOYEE_DISPLAY_NAMES)) {
+  const slug = SILICON_AVATAR_SLUG_BY_NAME[historical];
+  if (slug) SILICON_AVATAR_SLUG_BY_NAME[display] = slug;
+}
 
 /** 备用素材（新增岗位/演示账号），按顺序取用 */
 export const SILICON_SPARE_SLUGS: string[] = [

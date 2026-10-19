@@ -17,6 +17,7 @@ import matter from 'gray-matter';
 import { EMPLOYEES } from './employees-config';
 import { getSkillNameCN } from './skill-name-cn-map';
 import { siliconAvatarUrl } from './employee-avatar-map';
+import { employeeDisplayName } from '../employee-display-names';
 
 const prisma = new PrismaClient();
 
@@ -139,7 +140,7 @@ async function main() {
       // 2. 创建 DigitalEmployee
       const employee = await prisma.digitalEmployee.create({
         data: {
-          name: employeeConfig.name,
+          name: employeeDisplayName(employeeConfig.name),
           description: employeeConfig.bio,
           industry: '通用', // 通用行业
           position: employeeConfig.title,

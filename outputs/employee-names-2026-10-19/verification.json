@@ -1,0 +1,111 @@
+{
+  "verifiedAt": "2026-10-19T02:22:47.546Z",
+  "host": "localhost",
+  "published": 107,
+  "renamed": 101,
+  "unchanged": 6,
+  "publicApi": "PASS",
+  "newNameSearch": "PASS",
+  "repeatApplyChanges": 0,
+  "protectedDataUnchanged": true,
+  "before": {
+    "employeeCapabilityBinding": {
+      "count": 318,
+      "sha256": "2f8cb9dab9de52cffb20be4a92838c8ef8c35e633fb4209f38e18d48a8a0a88d"
+    },
+    "capability": {
+      "count": 158,
+      "sha256": "c949b2225b417ff10d8ca1f303f3be59140ff0a848ac2ba6d19bafcd5ac646eb"
+    },
+    "skillVersion": {
+      "count": 205,
+      "sha256": "30e59226dda7e3077e05687ff605067ff1af7d83101cb22211bbe8f882e76c22"
+    },
+    "skillConfig": {
+      "count": 158,
+      "sha256": "d8e066a8d07a5c14c423a2c3c93519dbdd8e80172b8f87d600d7db123c8d9e6c"
+    },
+    "subscription": {
+      "count": 50,
+      "sha256": "5877d0f282bec36fdc7578d6447d16ef14d387cbef073a991cf47dae93f69fd8"
+    },
+    "employeeGrant": {
+      "count": 74,
+      "sha256": "d80ef1e826b4e7305bd81e8f22f1b5d1381a2e1a40f323926eeff52c0f85835a"
+    },
+    "subscriptionSkillVersion": {
+      "count": 11,
+      "sha256": "e512ebc69889c45d229df2caaae0f8e6cdedbb49b6f6679f1845bcefc22d1493"
+    },
+    "enterpriseSkillDefault": {
+      "count": 3,
+      "sha256": "08f1b86e4dce28b096575678fd6137d5007dd2b0a5723dc3e6d6e6a79ea90884"
+    },
+    "contributionRewardEvent": {
+      "count": 3,
+      "sha256": "3bee87161c1caf1ff1f923ae32b00df5f45e9839e778f509ea0c525a2c38cf97"
+    },
+    "personalWalletTransaction": {
+      "count": 5,
+      "sha256": "0c30906cf6a4dfbd5883f7276b43901c75ec8ac4e0f4ced0e6cb2bb36550b209"
+    },
+    "personalWallet": {
+      "count": 6,
+      "sha256": "39fb950e476e345838ac120b26d33fd9123d4f26cc712324e6f34b826f3cf78a"
+    },
+    "rewardSetting": {
+      "count": 1,
+      "sha256": "024b60f251136598856306abe52e82eddc723d467246c45e635f73ce7dda3eb1"
+    }
+  },
+  "after": {
+    "employeeCapabilityBinding": {
+      "count": 318,
+      "sha256": "2f8cb9dab9de52cffb20be4a92838c8ef8c35e633fb4209f38e18d48a8a0a88d"
+    },
+    "capability": {
+      "count": 158,
+      "sha256": "c949b2225b417ff10d8ca1f303f3be59140ff0a848ac2ba6d19bafcd5ac646eb"
+    },
+    "skillVersion": {
+      "count": 205,
+      "sha256": "30e59226dda7e3077e05687ff605067ff1af7d83101cb22211bbe8f882e76c22"
+    },
+    "skillConfig": {
+      "count": 158,
+      "sha256": "d8e066a8d07a5c14c423a2c3c93519dbdd8e80172b8f87d600d7db123c8d9e6c"
+    },
+    "subscription": {
+      "count": 50,
+      "sha256": "5877d0f282bec36fdc7578d6447d16ef14d387cbef073a991cf47dae93f69fd8"
+    },
+    "employeeGrant": {
+      "count": 74,
+      "sha256": "d80ef1e826b4e7305bd81e8f22f1b5d1381a2e1a40f323926eeff52c0f85835a"
+    },
+    "subscriptionSkillVersion": {
+      "count": 11,
+      "sha256": "e512ebc69889c45d229df2caaae0f8e6cdedbb49b6f6679f1845bcefc22d1493"
+    },
+    "enterpriseSkillDefault": {
+      "count": 3,
+      "sha256": "08f1b86e4dce28b096575678fd6137d5007dd2b0a5723dc3e6d6e6a79ea90884"
+    },
+    "contributionRewardEvent": {
+      "count": 3,
+      "sha256": "3bee87161c1caf1ff1f923ae32b00df5f45e9839e778f509ea0c525a2c38cf97"
+    },
+    "personalWalletTransaction": {
+      "count": 5,
+      "sha256": "0c30906cf6a4dfbd5883f7276b43901c75ec8ac4e0f4ced0e6cb2bb36550b209"
+    },
+    "personalWallet": {
+      "count": 6,
+      "sha256": "39fb950e476e345838ac120b26d33fd9123d4f26cc712324e6f34b826f3cf78a"
+    },
+    "rewardSetting": {
+      "count": 1,
+      "sha256": "024b60f251136598856306abe52e82eddc723d467246c45e635f73ce7dda3eb1"
+    }
+  }
+}

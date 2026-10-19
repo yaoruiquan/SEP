@@ -12,6 +12,7 @@
  */
 import { PrismaClient, Prisma } from '@prisma/client';
 import type { SeededShuyi } from './08-shuyi-accounts';
+import { employeeNameAliases } from '../employee-display-names';
 
 /** 确定性随机：重新清库后再跑 seed，演示数字保持一致。 */
 function mulberry32(seed: number) {
@@ -177,7 +178,7 @@ export async function seedShuyiBusiness(
     // 「财务分析师」各有两条同名 APPROVED 记录（后一批年费 5~7 万、带
     // includedComputeCNY）。不定序就会随机挑中高价那条，钱包数字每次不同。
     const employee = await prisma.digitalEmployee.findFirst({
-      where: { name: plan.employee, status: 'APPROVED' },
+      where: { name: { in: employeeNameAliases(plan.employee) }, status: 'APPROVED' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
         id: true,

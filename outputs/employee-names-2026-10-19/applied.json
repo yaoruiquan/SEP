@@ -1,0 +1,513 @@
+{
+  "apply": true,
+  "employees": 154,
+  "published": 107,
+  "changed": 101,
+  "changes": [
+    {
+      "id": "cmszr2p58005c7qr50b1ollys",
+      "before": "抖音运营策略师",
+      "after": "抖音运营顾问"
+    },
+    {
+      "id": "cmt2lfhh2001k7qarjhnng753",
+      "before": "国内电商运营专家",
+      "after": "店铺运营顾问"
+    },
+    {
+      "id": "cmt2lfhhm001p7qararq7eri4",
+      "before": "直播电商增长教练",
+      "after": "直播运营顾问"
+    },
+    {
+      "id": "cmt2lfhhr001u7qarlu6o5soq",
+      "before": "私域复购运营师",
+      "after": "私域复购顾问"
+    },
+    {
+      "id": "cmt2lfhhy00217qarjqkheyh3",
+      "before": "电商投放优化师",
+      "after": "广告投放顾问"
+    },
+    {
+      "id": "cmt2lfhi500297qarn8kakp0b",
+      "before": "商品内容与详情页策划",
+      "after": "商品文案策划"
+    },
+    {
+      "id": "cmt2lfhif002h7qarp4ujz52i",
+      "before": "电商售后与退货专员",
+      "after": "售后助手"
+    },
+    {
+      "id": "cmuxhoyiw00by7qii2euifms1",
+      "before": "电商经营总监",
+      "after": "店铺经营顾问"
+    },
+    {
+      "id": "cmuxhoyj200c17qii36vrhedf",
+      "before": "电商经营日报官",
+      "after": "店铺日报助手"
+    },
+    {
+      "id": "cmuxhoyj400c47qiid35cqgt3",
+      "before": "电商漏斗诊断师",
+      "after": "店铺转化分析师"
+    },
+    {
+      "id": "cmuxhoyj500c77qiiedosp3nj",
+      "before": "电商利润增长顾问",
+      "after": "利润提升顾问"
+    },
+    {
+      "id": "cmuxhoyj600ca7qiijvyl79kp",
+      "before": "电商数据质检专员",
+      "after": "经营数据检查助手"
+    },
+    {
+      "id": "cmuxhoyj900cd7qiizi2hlo04",
+      "before": "电商渠道归因分析师",
+      "after": "渠道效果分析师"
+    },
+    {
+      "id": "cmuxhoyja00cg7qii82yipz10",
+      "before": "电商复购分析师",
+      "after": "复购数据分析师"
+    },
+    {
+      "id": "cmuxhoyjb00cj7qiiqeiq160f",
+      "before": "电商活动复盘官",
+      "after": "活动复盘顾问"
+    },
+    {
+      "id": "cmuxhoyjd00cm7qiiepa1usm3",
+      "before": "电商实验增长师",
+      "after": "运营对比测试顾问"
+    },
+    {
+      "id": "cmuxhoyje00cp7qii0ck8zbva",
+      "before": "电商经营驾驶舱顾问",
+      "after": "经营看板顾问"
+    },
+    {
+      "id": "cmuxhoyjg00cs7qii4vg435dg",
+      "before": "店铺异常监控员",
+      "after": "店铺异常分析师"
+    },
+    {
+      "id": "cmuxhoyjg00cv7qiibmxpidpe",
+      "before": "电商目标拆解师",
+      "after": "经营目标规划助手"
+    },
+    {
+      "id": "cmuxhoyjh00cy7qii5034ilpo",
+      "before": "电商成本结构分析师",
+      "after": "经营成本分析师"
+    },
+    {
+      "id": "cmuxhoyjj00d17qiibp3p4f6s",
+      "before": "多店铺经营分析师",
+      "after": "多店经营分析师"
+    },
+    {
+      "id": "cmuxhoyjk00d47qiies2601si",
+      "before": "电商管理层汇报顾问",
+      "after": "经营汇报助手"
+    },
+    {
+      "id": "cmuxhoyjl00d77qiir438vvmq",
+      "before": "国内电商选品研究员",
+      "after": "电商选品顾问"
+    },
+    {
+      "id": "cmuxhoyjn00da7qiic27cvt9v",
+      "before": "爆品机会评估师",
+      "after": "爆品潜力分析师"
+    },
+    {
+      "id": "cmuxhoyjo00dd7qii6v04jtin",
+      "before": "竞品价格策略师",
+      "after": "竞品定价顾问"
+    },
+    {
+      "id": "cmuxhoyjp00dg7qii8mj8phyh",
+      "before": "用户需求挖掘师",
+      "after": "用户需求分析师"
+    },
+    {
+      "id": "cmuxhoyjr00dj7qiibsb4jel6",
+      "before": "商品评价洞察师",
+      "after": "商品评价分析师"
+    },
+    {
+      "id": "cmuxhoyjs00dm7qiid4wtpc6p",
+      "before": "商品资料治理师",
+      "after": "商品资料助手"
+    },
+    {
+      "id": "cmuxhoyju00dp7qiisxoedyr7",
+      "before": "商品卖点策略师",
+      "after": "商品卖点策划"
+    },
+    {
+      "id": "cmuxhoyjv00ds7qiiah2mxz03",
+      "before": "电商视觉需求策划师",
+      "after": "商品图片策划"
+    },
+    {
+      "id": "cmuxhoyjw00dv7qiiiun3vyj7",
+      "before": "SKU 生命周期顾问",
+      "after": "商品上下架顾问"
+    },
+    {
+      "id": "cmuxhoyjz00dy7qii1cyhtxbl",
+      "before": "店铺商品组合顾问",
+      "after": "商品组合顾问"
+    },
+    {
+      "id": "cmuxhoyk000e17qii66i7vwxm",
+      "before": "内容电商增长策划师",
+      "after": "带货内容策划"
+    },
+    {
+      "id": "cmuxhoyk200e47qii6hpdjl2o",
+      "before": "小红书种草策划师",
+      "after": "小红书内容策划"
+    },
+    {
+      "id": "cmuxhoyk300e77qiimnayxrg3",
+      "before": "抖音短视频策划师",
+      "after": "抖音短视频策划"
+    },
+    {
+      "id": "cmuxhoyk400ea7qiidbs9n833",
+      "before": "快手信任内容顾问",
+      "after": "快手内容策划"
+    },
+    {
+      "id": "cmuxhoyk600ed7qii9k3lwwfs",
+      "before": "电商视频脚本导演",
+      "after": "商品视频编剧"
+    },
+    {
+      "id": "cmuxhoyk700eg7qiiea9aj7xu",
+      "before": "直播脚本总编",
+      "after": "直播脚本策划"
+    },
+    {
+      "id": "cmuxhoyk800ej7qiiqqktt2lq",
+      "before": "电商内容排期经理",
+      "after": "内容排期助手"
+    },
+    {
+      "id": "cmuxhoyk900em7qiidjmt4umf",
+      "before": "达人合作策划师",
+      "after": "达人合作策划"
+    },
+    {
+      "id": "cmuxhoykb00ep7qiifbeksncc",
+      "before": "评论区转化运营师",
+      "after": "评论区运营顾问"
+    },
+    {
+      "id": "cmuxhoykc00es7qiiwkwoospd",
+      "before": "品牌电商内容架构师",
+      "after": "品牌内容策划"
+    },
+    {
+      "id": "cmuxhoykd00ev7qiijoijgs3f",
+      "before": "商品测评内容策划师",
+      "after": "商品测评策划"
+    },
+    {
+      "id": "cmuxhoyke00ey7qii1x63eqxt",
+      "before": "电商直播切片策划师",
+      "after": "直播切片策划"
+    },
+    {
+      "id": "cmuxhoykh00f47qii3igd4a8b",
+      "before": "电商活动文案策划师",
+      "after": "活动文案策划"
+    },
+    {
+      "id": "cmuxhoyki00f77qiit0rasl35",
+      "before": "内容合规校对师",
+      "after": "内容合规助手"
+    },
+    {
+      "id": "cmuxhoykj00fa7qiiizh67lqc",
+      "before": "直播间经营诊断师",
+      "after": "直播数据分析师"
+    },
+    {
+      "id": "cmuxhoykk00fd7qiis2oty57j",
+      "before": "直播商品编排师",
+      "after": "直播排品顾问"
+    },
+    {
+      "id": "cmuxhoykn00fj7qiivjs0dxnb",
+      "before": "国内电商投放预算师",
+      "after": "广告预算顾问"
+    },
+    {
+      "id": "cmuxhoyko00fm7qii8wugguw0",
+      "before": "广告素材测试经理",
+      "after": "广告素材测试顾问"
+    },
+    {
+      "id": "cmuxhoykp00fp7qiio0lq6kl0",
+      "before": "搜索投放结构师",
+      "after": "搜索广告顾问"
+    },
+    {
+      "id": "cmuxhoykq00fs7qiim1sd08x0",
+      "before": "投放账户审计师",
+      "after": "广告账户检查助手"
+    },
+    {
+      "id": "cmuxhoykr00fv7qii8yndjafn",
+      "before": "电商促销机制设计师",
+      "after": "促销活动策划"
+    },
+    {
+      "id": "cmuxhoykt00fy7qiisaspdork",
+      "before": "大促流量统筹师",
+      "after": "大促流量策划"
+    },
+    {
+      "id": "cmuxhoykv00g17qii4k3ogupc",
+      "before": "分销佣金策略师",
+      "after": "分销佣金顾问"
+    },
+    {
+      "id": "cmuxhoykw00g47qiig9h0ir3m",
+      "before": "电商售前咨询顾问",
+      "after": "售前咨询助手"
+    },
+    {
+      "id": "cmuxhoykx00g77qii5njj1xm8",
+      "before": "订单物流服务专员",
+      "after": "订单物流助手"
+    },
+    {
+      "id": "cmuxhoyky00ga7qiiagd6o9qo",
+      "before": "售后工单分流师",
+      "after": "售后工单分类助手"
+    },
+    {
+      "id": "cmuxhoyl000gd7qii1w5k3tb4",
+      "before": "退款风险复核师",
+      "after": "退款风险核查助手"
+    },
+    {
+      "id": "cmuxhoyl100gg7qiiarb0x9hb",
+      "before": "高价值客诉处理顾问",
+      "after": "重大客诉助手"
+    },
+    {
+      "id": "cmuxhoyl200gj7qii1nrpisl0",
+      "before": "客服知识库架构师",
+      "after": "客服知识整理助手"
+    },
+    {
+      "id": "cmuxhoyl300gm7qii8052bloi",
+      "before": "客服会话质检师",
+      "after": "客服质检助手"
+    },
+    {
+      "id": "cmuxhoyl400gp7qiihy3m37nw",
+      "before": "电商客户意图分诊师",
+      "after": "客服咨询分类助手"
+    },
+    {
+      "id": "cmuxhoyl500gs7qii7hyfhapw",
+      "before": "客服交接总结专员",
+      "after": "客服交接助手"
+    },
+    {
+      "id": "cmuxhoyl600gv7qiizvvgtxee",
+      "before": "平台客服合规教练",
+      "after": "客服合规顾问"
+    },
+    {
+      "id": "cmuxhoyl700gy7qiisdj6wz8i",
+      "before": "电商库存预测师",
+      "after": "库存预测顾问"
+    },
+    {
+      "id": "cmuxhoyla00h47qiimw47ptrt",
+      "before": "滞销品治理顾问",
+      "after": "库存清货顾问"
+    },
+    {
+      "id": "cmuxhoylc00ha7qiifayhhy0d",
+      "before": "1688货源研究员",
+      "after": "1688货源顾问"
+    },
+    {
+      "id": "cmuxhoyle00hd7qiikb1o6k96",
+      "before": "采购成本优化师",
+      "after": "采购成本顾问"
+    },
+    {
+      "id": "cmuxhoylf00hg7qiigent3n56",
+      "before": "仓内作业规划师",
+      "after": "仓库流程顾问"
+    },
+    {
+      "id": "cmuxhoylg00hj7qiigrbd2nj9",
+      "before": "履约异常处理师",
+      "after": "发货异常助手"
+    },
+    {
+      "id": "cmuxhoylh00hm7qiimi1vtlvq",
+      "before": "发货时效管理师",
+      "after": "发货时效顾问"
+    },
+    {
+      "id": "cmuxhoylj00hp7qiii6z0rn69",
+      "before": "退货质检与再售顾问",
+      "after": "退货验货与再售顾问"
+    },
+    {
+      "id": "cmuxhoylk00hs7qiifbujeeov",
+      "before": "电商客户分层师",
+      "after": "客户分层顾问"
+    },
+    {
+      "id": "cmuxhoyll00hv7qiialrhyg2j",
+      "before": "会员生命周期运营师",
+      "after": "会员运营顾问"
+    },
+    {
+      "id": "cmuxhoylm00hy7qiiac9ej9vr",
+      "before": "私域增长运营师",
+      "after": "私域拉新顾问"
+    },
+    {
+      "id": "cmuxhoylo00i17qii1w824ujz",
+      "before": "复购增长顾问",
+      "after": "老客复购顾问"
+    },
+    {
+      "id": "cmuxhoylp00i47qiiq2ichhte",
+      "before": "优惠券策略师",
+      "after": "优惠券策划"
+    },
+    {
+      "id": "cmuxhoylq00i77qiirtdu5zmx",
+      "before": "电商社群运营师",
+      "after": "社群运营顾问"
+    },
+    {
+      "id": "cmuxhoylr00ia7qiia66wljeq",
+      "before": "CRM 标签治理师",
+      "after": "客户标签助手"
+    },
+    {
+      "id": "cmuxhoylu00ig7qiidbiz7gvm",
+      "before": "老客转介绍策划师",
+      "after": "老客推荐策划"
+    },
+    {
+      "id": "cmuxhoylv00ij7qiiartuuy6q",
+      "before": "电商会员权益设计师",
+      "after": "会员权益策划"
+    },
+    {
+      "id": "cmuxhoylw00im7qii8mqxpaiz",
+      "before": "平台账务对账专员",
+      "after": "平台对账助手"
+    },
+    {
+      "id": "cmuxhoyly00ip7qiia0rz50ov",
+      "before": "电商现金流规划师",
+      "after": "现金流规划顾问"
+    },
+    {
+      "id": "cmuxhoylz00is7qii5w68rj8l",
+      "before": "电商单位经济分析师",
+      "after": "商品利润分析师"
+    },
+    {
+      "id": "cmuxhoym000iv7qiisc74bsmc",
+      "before": "电商开票资料助手",
+      "after": "开票资料助手"
+    },
+    {
+      "id": "cmuxhoym100iy7qiiefq1nnwt",
+      "before": "电商平台规则研究员",
+      "after": "平台规则顾问"
+    },
+    {
+      "id": "cmuxhoym300j17qiise9xwohm",
+      "before": "电商广告合规审查师",
+      "after": "广告合规助手"
+    },
+    {
+      "id": "cmuxhoym400j47qii3br7s0jk",
+      "before": "电商数据隐私顾问",
+      "after": "客户隐私保护顾问"
+    },
+    {
+      "id": "cmuxhoym500j77qii9tt70jvg",
+      "before": "电商交易风控初筛师",
+      "after": "订单风险初筛助手"
+    },
+    {
+      "id": "cmuxhoym600ja7qiiwn5l8n8y",
+      "before": "电商合作协议审阅师",
+      "after": "合作合同审阅助手"
+    },
+    {
+      "id": "cmuxhoym800jd7qiig5ve6jqm",
+      "before": "电商经营审计助理",
+      "after": "经营凭证核对助手"
+    },
+    {
+      "id": "cmuxhoym900jg7qiivssdu2t3",
+      "before": "多平台电商协同经理",
+      "after": "多平台运营顾问"
+    },
+    {
+      "id": "cmuxhoyma00jj7qiix4vrhdk2",
+      "before": "电商 SOP 架构师",
+      "after": "店铺流程助手"
+    },
+    {
+      "id": "cmuxhoymc00jm7qiin1gky8yo",
+      "before": "电商项目任务规划师",
+      "after": "运营任务规划助手"
+    },
+    {
+      "id": "cmuxhoyme00jp7qiiytaspmvx",
+      "before": "电商知识库管理员",
+      "after": "店铺知识整理助手"
+    },
+    {
+      "id": "cmuxhoymf00js7qiie3fz1ysf",
+      "before": "电商经营会议秘书",
+      "after": "经营会议纪要助手"
+    },
+    {
+      "id": "cmuxhoymh00jv7qiinecf2t5e",
+      "before": "电商周会复盘教练",
+      "after": "经营周会顾问"
+    },
+    {
+      "id": "cmuxhoymj00k17qiivtmsju6x",
+      "before": "电商老板决策助手",
+      "after": "老板决策助手"
+    },
+    {
+      "id": "cmuxhoymk00k47qiisdcxb8r0",
+      "before": "电商新品上市项目经理",
+      "after": "新品上市策划"
+    },
+    {
+      "id": "cmuxhoymm00k77qiictpoyp6q",
+      "before": "电商全链路运营顾问",
+      "after": "电商运营方案顾问"
+    }
+  ]
+}
