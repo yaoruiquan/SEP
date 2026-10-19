@@ -51,6 +51,7 @@ for (const [file, services] of [
     if (file !== 'docker-compose.dev.yml') {
       assert.equal(environment.SEP_GATEWAY_DRAIN_TIMEOUT_MS, '${SEP_GATEWAY_DRAIN_TIMEOUT_MS:-}');
       assert.equal(backend.stop_grace_period, '${SEP_STOP_GRACE_SECONDS:-30}s');
+      assert.equal(environment.MEDIA_GATEWAY_REAL_ENABLED, '${MEDIA_GATEWAY_REAL_ENABLED:-false}');
       assert.ok(backend.healthcheck.test.join(' ').includes('3001/health'));
     }
     assert.equal(environment.EMBEDDING_PROVIDER, '${EMBEDDING_PROVIDER:-ollama}');
