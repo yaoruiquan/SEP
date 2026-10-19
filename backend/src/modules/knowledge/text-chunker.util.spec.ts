@@ -129,14 +129,34 @@ describe('TextChunker token budgets', () => {
           const defaults = TextChunker.chunkByTokens(text);
           assert.ok(defaults.every(c => c.tokenCount <= 800));
           assert.ok(defaults.some(c => c.tokenCount > 8));
-          console.log(JSON.stringify({ chunks: chunks.length, defaultChunks: defaults.length, offline: true }));
+          const { createRequire } = require('node:module');
+          const { join, resolve } = require('node:path');
+          const nestRequire = createRequire(require.resolve('@nestjs/cli/package.json'));
+          const webpack = nestRequire('webpack');
+          const output = join(process.argv[2], 'bundle');
+          await new Promise((done, reject) => webpack({
+            mode: 'none', target: 'node', entry: process.argv[1],
+            output: { path: output, filename: 'tokenizer.cjs', library: { type: 'commonjs2' } },
+            resolve: { extensions: ['.ts', '.js'] },
+            externals: [({ request }, callback) => request.startsWith('.') || request.startsWith('/')
+              ? callback() : callback(null, 'commonjs ' + request)],
+            module: { rules: [{ test: /\\.ts$/, loader: nestRequire.resolve('ts-loader'),
+              options: { transpileOnly: true, configFile: resolve('tsconfig.json') } }] },
+          }, (error, stats) => error || stats.hasErrors()
+            ? reject(error || new Error(stats.toString({ all: false, errors: true }))) : done()));
+          const { TextChunker: BundledChunker } = require(join(output, 'tokenizer.cjs'));
+          await BundledChunker.initializeTokenizer(process.argv[2], 'fixture-wordpiece@revision-abc');
+          assert.equal(BundledChunker.countTokens('hello world'), 4);
+          assert.equal(BundledChunker.countTokens('你好世界'), 6);
+          console.log(JSON.stringify({ chunks: chunks.length, defaultChunks: defaults.length, offline: true, bundled: true }));
         })().catch(error => { console.error(error); process.exitCode = 1; });
       `;
       const { stdout } = await execute(process.execPath, ['--require', 'tsx/cjs', '-e', script,
-        resolve(__dirname, 'text-chunker.util.ts'), directory], { cwd: resolve(__dirname, '../../..'), timeout: 20_000 });
-      expect(JSON.parse(stdout)).toMatchObject({ chunks: expect.any(Number), offline: true });
+        resolve(__dirname, 'text-chunker.util.ts'), directory], { cwd: resolve(__dirname, '../../..'), timeout: 30_000,
+        env: { ...process.env, NODE_PATH: resolve(__dirname, '../../../node_modules') } });
+      expect(JSON.parse(stdout.trim().split('\n').at(-1))).toMatchObject({ chunks: expect.any(Number), offline: true, bundled: true });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  }, 25_000);
+  }, 35_000);
 });

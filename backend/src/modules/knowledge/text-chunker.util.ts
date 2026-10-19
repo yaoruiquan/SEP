@@ -2,6 +2,7 @@ import { BadRequestException, ServiceUnavailableException } from '@nestjs/common
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 export class TokenizerUnavailableException extends ServiceUnavailableException {
   readonly code = 'TOKENIZER_UNAVAILABLE';
@@ -64,7 +65,9 @@ export class TextChunker {
     // Keep native ESM import under the backend's CommonJS TypeScript compilation.
     const importESM = new Function('url', 'return import(url)') as
       (url: string) => Promise<typeof import('@xenova/transformers')>;
-    const { AutoTokenizer, PreTrainedTokenizer } = await importESM(pathToFileURL(require.resolve('@xenova/transformers')).href);
+    // Native resolution must survive Nest's Webpack bundle (require.resolve becomes a module ID).
+    const runtimeRequire = createRequire(__filename);
+    const { AutoTokenizer, PreTrainedTokenizer } = await importESM(pathToFileURL(runtimeRequire.resolve('@xenova/transformers')).href);
     const [definition, configuration] = await Promise.all([
       readFile(join(directory, 'tokenizer.json'), 'utf8').then((data) => JSON.parse(data)),
       readFile(join(directory, 'tokenizer_config.json'), 'utf8').then((data) => JSON.parse(data)),
