@@ -207,6 +207,21 @@ run_migrations() {
   success "数据库迁移完成"
 }
 
+check_knowledge_schema() {
+  local postgres db_user
+  postgres=$(find_shared_container postgres)
+  [[ -n "$postgres" ]] || { error "找不到共享 PostgreSQL，无法检查知识库结构"; return 1; }
+  db_user=$(env_value POSTGRES_USER)
+  db_user=${db_user:-sub2api}
+  info "检查知识库原生向量扩展、1024 维字段和有效 HNSW 索引..."
+  docker exec -i "$postgres" psql -X -U "$db_user" -d sep_prod -v ON_ERROR_STOP=1 \
+    --single-transaction -c 'SET TRANSACTION READ ONLY' -f - \
+    < "$SCRIPT_DIR/postgres/verify-knowledge-schema.sql" || {
+      error "知识库实际数据库结构不完整，拒绝启动候选或切流"
+      return 1
+    }
+}
+
 # ── 等待容器健康 ──────────────────────────────────────────────────────────────
 wait_healthy() {
   local container=$1
@@ -734,6 +749,7 @@ cmd_deploy_bluegreen() {
   ensure_upload_volume_permissions "sep-${candidate}-backend:${DEPLOY_TAG}" || return 1
 
   run_migrations || return 1
+  check_knowledge_schema || return 1
 
   info "启动候选环境..."
   # Cleanup is safe only before the first Caddy switch attempt. Partial starts

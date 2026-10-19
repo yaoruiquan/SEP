@@ -6,6 +6,9 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, Server } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { resolve } from 'node:path';
 import AdmZip from 'adm-zip';
 import { DocumentParserService } from './document-parser.service';
 
@@ -76,6 +79,48 @@ describe('DocumentParserService (real libraries and isolated workers)', () => {
     const result = await service.parseDocument(await fixture(text), mimeType);
     expect(result).toEqual({ text, blocks: [{ ordinal: 0, text, page: null }] });
   });
+
+  it('parses TXT, DOCX and PDF after production-style Webpack bundling', async () => {
+    await writeFile(join(directory, 'fixture.txt'), 'Bundled worker text 2026');
+    await writeFile(join(directory, 'fixture.docx'), docxFixture());
+    await writeFile(join(directory, 'fixture.pdf'), pdfFixture());
+    const script = `
+      const assert = require('node:assert/strict');
+      const { createRequire } = require('node:module');
+      const { join, resolve } = require('node:path');
+      const nestRequire = createRequire(require.resolve('@nestjs/cli/package.json'));
+      const webpack = nestRequire('webpack');
+      (async () => {
+        const directory = process.argv[2];
+        await new Promise((done, reject) => webpack({
+          mode: 'none', target: 'node', entry: process.argv[1],
+          output: { path: directory, filename: 'parser.cjs', library: { type: 'commonjs2' } },
+          resolve: { extensions: ['.ts', '.js'] },
+          externals: [({ request }, callback) => request.startsWith('.') || request.startsWith('/')
+            ? callback() : callback(null, 'commonjs ' + request)],
+          module: { rules: [{ test: /\\.ts$/, loader: nestRequire.resolve('ts-loader'),
+            options: { transpileOnly: true, configFile: resolve('tsconfig.json') } }] },
+        }, (error, stats) => error || stats.hasErrors()
+          ? reject(error || new Error(stats.toString({ all: false, errors: true }))) : done()));
+        const { DocumentParserService } = require(join(directory, 'parser.cjs'));
+        const parser = new DocumentParserService();
+        const txt = await parser.parseDocument(join(directory, 'fixture.txt'), 'text/plain');
+        assert.equal(txt.text, 'Bundled worker text 2026');
+        const docx = await parser.parseDocument(join(directory, 'fixture.docx'), '${DOCX}');
+        assert.ok(docx.text.includes('Revenue 2026'));
+        const pdf = await parser.parseDocument(join(directory, 'fixture.pdf'), 'application/pdf');
+        assert.equal(pdf.blocks.length, 2);
+        assert.ok(pdf.text.includes('12345'));
+        console.log(JSON.stringify({ txt: true, docx: true, pdf: true, bundled: true }));
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    `;
+    const { stdout } = await promisify(execFile)(process.execPath, ['-e', script,
+      resolve(__dirname, 'document-parser.service.ts'), directory], {
+      cwd: resolve(__dirname, '../../..'), timeout: 30_000,
+      env: { ...process.env, NODE_PATH: resolve(__dirname, '../../../node_modules') },
+    });
+    expect(JSON.parse(stdout.trim().split('\n').at(-1))).toEqual({ txt: true, docx: true, pdf: true, bundled: true });
+  }, 35_000);
 
   it('extracts DOCX text through the real buffer API without invented page numbers', async () => {
     const result = await service.parseDocument(await fixture(docxFixture()), DOCX);

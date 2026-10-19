@@ -185,6 +185,7 @@ prepare_deploy_revision() { DEPLOY_TAG=test; }
 prune_build_cache() { return 0; }
 ensure_upload_volume_permissions() { return 0; }
 run_migrations() { event migrate; }
+check_knowledge_schema() { event knowledge-schema; return "${MOCK_KNOWLEDGE_SCHEMA_EXIT:-0}"; }
 switch_caddy_upstream() { event "switch $1"; [[ "$MOCK_SWITCH_FAIL" == 0 || ( "$MOCK_SWITCH_FAIL" != 1 && "$MOCK_SWITCH_FAIL" != "$1" ) ]]; }
 observe_candidate() { event "observe $1"; [[ "$MOCK_OBSERVE_FAIL" == 0 ]]; }
 
@@ -357,6 +358,13 @@ no_signal
 
 # Failures before any Caddy switch retire only this invocation's candidate.
 # Successful retirement leaves ordinary deploy able to recreate and retry.
+reset
+MOCK_KNOWLEDGE_SCHEMA_EXIT=1
+expect_failure cmd_deploy_bluegreen
+before migrate knowledge-schema
+if grep -Eq '^(compose-up |switch |mark |TERM )' "$EVENTS"; then fail 'missing vector schema must block startup and leave active services alone'; fi
+unset MOCK_KNOWLEDGE_SCHEMA_EXIT
+
 for fault in start-both start-backend start-web start-none backend-health web-health backend-ready upload web-ready; do
   reset
   MOCK_CANDIDATE_ACTIVE=2 MOCK_READINESS_ACTIVE=2 MOCK_READINESS_HOLD=0

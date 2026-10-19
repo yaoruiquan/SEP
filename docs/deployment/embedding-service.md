@@ -113,7 +113,7 @@ EMBEDDING_DIMENSION=1024
 
 ## 6. PostgreSQL 与迁移
 
-生产数据库必须使用 `pgvector/pgvector:pg16` 或已安装 pgvector 扩展的 PostgreSQL。发布时执行：
+生产数据库必须安装 pgvector 扩展，不能为了安装扩展把已有数据库直接换成其他 PostgreSQL 大版本。2026-10-19 核实共享生产实例为 PostgreSQL 18.4 / Alpine，需沿用其精确基础镜像和数据卷构建带扩展的持久镜像。共享数据库维护必须单独授权，备份并实际恢复演练后再操作；见 [共享 PostgreSQL 维护规程](../../deploy/production/postgres/README.md)。发布时执行：
 
 ```bash
 pnpm --filter backend exec prisma migrate deploy
@@ -129,6 +129,8 @@ SELECT column_name, udt_name FROM information_schema.columns
 SELECT indexname FROM pg_indexes
   WHERE tablename = 'text_chunks' AND indexname LIKE '%hnsw%';
 ```
+
+生产发布脚本还会在迁移之后、候选启动之前执行只读结构断言，检查 `vector(1024)` 和有效的部分 HNSW cosine 索引。迁移记录已经成功但真实 DDL 缺失时，不能改账本绕过；管理员应先在隔离恢复库验证 `deploy/production/postgres/repair-knowledge-vector.sql`，再对生产补齐缺失结构。该操作不回填旧向量或篡改其模型版本。
 
 ## 7. 发布验收
 

@@ -28,6 +28,11 @@ cat > "$TMP_DIR/bin/docker" <<'MOCK_DOCKER'
 set -euo pipefail
 
 if [[ "${1:-}" == exec ]]; then
+  if [[ "${2:-}" == -i && "${3:-}" == mock-postgres && "${4:-}" == psql ]]; then
+    [[ "$*" == *"-d sep_prod"* && "$*" == *"SET TRANSACTION READ ONLY"* ]]
+    cat > "$MOCK_SCHEMA_INPUT"
+    exit "${MOCK_SCHEMA_EXIT:-0}"
+  fi
   shift
   shift
   case "${1:-}" in
@@ -151,6 +156,23 @@ QQ_OAUTH_ENABLED=false
 EOF
 ENV_FILE="$AUTH_ENV_FILE"
 check_env
+
+export MOCK_SCHEMA_INPUT="$TMP_DIR/schema-input"
+find_shared_container() { printf '%s\n' mock-postgres; }
+check_knowledge_schema
+grep -Fq 'vector(1024)' "$MOCK_SCHEMA_INPUT"
+grep -Fq 'i.indisvalid AND i.indisready' "$MOCK_SCHEMA_INPUT"
+export MOCK_SCHEMA_EXIT=1
+if check_knowledge_schema; then
+  printf '%s\n' 'expected missing native schema to block deployment' >&2
+  exit 1
+fi
+unset MOCK_SCHEMA_EXIT
+find_shared_container() { return 0; }
+if check_knowledge_schema; then
+  printf '%s\n' 'expected absent PostgreSQL to block schema checks' >&2
+  exit 1
+fi
 
 sed 's/REFRESH_TOKEN_PEPPER=.*/REFRESH_TOKEN_PEPPER=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' "$AUTH_ENV_FILE" > "$TMP_DIR/invalid-auth.env"
 ENV_FILE="$TMP_DIR/invalid-auth.env"

@@ -7,6 +7,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { Worker } from 'node:worker_threads';
+import { createRequire } from 'node:module';
 
 export interface ParsedBlock {
   /** Zero-based document order; page numbers, when known, are one-based. */
@@ -39,9 +40,9 @@ const LIMITS: Readonly<DocumentParserLimits> = {
 };
 
 // Self-contained so the same worker runs from both TypeScript tests and compiled JS.
-async function parseInWorker(): Promise<void> {
-  const { parentPort, workerData } = require('node:worker_threads') as typeof import('node:worker_threads');
-  const { open } = require('node:fs/promises') as typeof import('node:fs/promises');
+async function parseInWorker(nativeRequire: NodeRequire): Promise<void> {
+  const { parentPort, workerData } = nativeRequire('node:worker_threads') as typeof import('node:worker_threads');
+  const { open } = nativeRequire('node:fs/promises') as typeof import('node:fs/promises');
   const { filePath, mimeType, limits, modules } = workerData as {
     filePath: string;
     mimeType: string;
@@ -72,7 +73,7 @@ async function parseInWorker(): Promise<void> {
 
     let result: ParsedDocument;
     if (mimeType === 'application/pdf') {
-      const { PDFParse } = require(modules.pdf) as typeof import('pdf-parse');
+      const { PDFParse } = nativeRequire(modules.pdf) as typeof import('pdf-parse');
       class NoExternalResource {
         async fetch(): Promise<never> { return fail('EXTERNAL_RESOURCE'); }
       }
@@ -111,8 +112,8 @@ async function parseInWorker(): Promise<void> {
       if (mimeType.startsWith('text/')) {
         text = buffer.toString('utf8');
       } else {
-        const AdmZip = require(modules.zip) as typeof import('adm-zip');
-        const { inflateRawSync } = require('node:zlib') as typeof import('node:zlib');
+        const AdmZip = nativeRequire(modules.zip) as typeof import('adm-zip');
+        const { inflateRawSync } = nativeRequire('node:zlib') as typeof import('node:zlib');
         const zip = new AdmZip(buffer);
         const entries = zip.getEntries();
         if (entries.length > limits.maxZipEntries) fail('LIMIT');
@@ -149,7 +150,7 @@ async function parseInWorker(): Promise<void> {
           safeZip.addFile(name, data);
         }
         if (!names.has('[Content_Types].xml') || !names.has('word/document.xml')) fail('INVALID');
-        const mammoth = require(modules.mammoth) as typeof import('mammoth');
+        const mammoth = nativeRequire(modules.mammoth) as typeof import('mammoth');
         // extractRawText accepts one argument. Buffer input and the library's
         // default externalFileAccess=false prevent external file/image reads.
         text = (await mammoth.extractRawText({ buffer: safeZip.toBuffer() })).value;
@@ -182,14 +183,16 @@ export class DocumentParserService {
       }
       limits[key] = options[key];
     }
-    const worker = new Worker(`(${parseInWorker.toString()})()`, {
+    // Inject Node's require in the worker realm; Webpack's loader cannot be serialized.
+    const runtimeRequire = createRequire(__filename);
+    const worker = new Worker(`(${parseInWorker.toString()})(require)`, {
       eval: true,
       workerData: {
         filePath, mimeType, limits,
         modules: {
-          pdf: require.resolve('pdf-parse'),
-          mammoth: require.resolve('mammoth'),
-          zip: require.resolve('adm-zip'),
+          pdf: runtimeRequire.resolve('pdf-parse'),
+          mammoth: runtimeRequire.resolve('mammoth'),
+          zip: runtimeRequire.resolve('adm-zip'),
         },
       },
       resourceLimits: { maxOldGenerationSizeMb: 256, stackSizeMb: 8 },
