@@ -39,6 +39,8 @@ async function main() {
     step = 'runtime_configuration';
     const secret = process.env.ACCESS_JWT_SECRET;
     assert.ok(secret, 'ACCESS_JWT_SECRET_REQUIRED');
+    const origin = (process.env.CORS_ORIGIN || '').split(',')[0].trim();
+    assert.equal(new URL(origin).protocol, 'https:');
     assert.equal(process.env.EMBEDDING_PROVIDER, 'ollama');
     const model = process.env.EMBEDDING_MODEL;
     const tokenizer = process.env.EMBEDDING_TOKENIZER;
@@ -75,7 +77,8 @@ async function main() {
       const form = body instanceof FormData;
       const response = await fetch(`${base}/api/knowledge-bases${path}`, {
         method, redirect: 'error', signal: AbortSignal.timeout(120000),
-        headers: { Authorization: `Bearer ${token}`, ...(!form && body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers },
+        headers: { Authorization: `Bearer ${token}`, Origin: origin,
+          ...(!form && body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers },
         body: body === undefined ? undefined : form ? body : JSON.stringify(body),
       });
       const text = await response.text();

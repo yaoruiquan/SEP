@@ -417,7 +417,11 @@ switch_caddy_upstream() {
 }
 
 check_service_readiness() {
-  local color=$1 backend web
+  local color=$1 timeout_ms=${2:-5000} backend web
+  [[ "$timeout_ms" =~ ^[1-9][0-9]{0,5}$ && "$timeout_ms" -le 130000 ]] || {
+    error "就绪检查超时必须为 1 至 130000 毫秒"
+    return 1
+  }
   if [[ "$color" == "legacy" ]]; then
     backend=sep-backend
     web=sep-web
@@ -426,7 +430,7 @@ check_service_readiness() {
     web="sep-${color}-web"
   fi
 
-  docker exec "$backend" node -e "fetch('http://127.0.0.1:3001/api/health/ready', {signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || return 1
+  docker exec "$backend" node -e "fetch('http://127.0.0.1:3001/api/health/ready', {signal: AbortSignal.timeout(${timeout_ms})}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || return 1
   docker exec "$backend" node -e '
     const fs = require("node:fs");
     const path = require("node:path");
@@ -677,7 +681,8 @@ restore_target_ready() {
   wait_service_healthy "$web" || return 1
   resume_gateway "$backend" || return 1
   color=$([[ "$target" == legacy || "$target" == sep-web ]] && echo legacy || target_color "$target")
-  check_service_readiness "$color" || return 1
+  # The first embedding check can load Ollama's model; steady checks remain 5s.
+  check_service_readiness "$color" 130000 || return 1
   restore_restart_policy "$backend" || return 1
   restore_restart_policy "$web" || return 1
 }
@@ -759,7 +764,7 @@ cmd_deploy_bluegreen() {
      ! rm -f "$STATE_DIR/sep-$candidate-backend.restart-policy" "$STATE_DIR/sep-$candidate-web.restart-policy" ||
      ! wait_service_healthy "sep-${candidate}-backend" ||
      ! wait_service_healthy "sep-${candidate}-web" ||
-     ! check_service_readiness "$candidate"; then
+     ! check_service_readiness "$candidate" 130000; then
     error "候选启动或切流前检查失败；退役明确未切流的 ${target}"
     if retire_target "$target"; then
       info "候选已安全退役；修复失败原因后可重试普通部署"

@@ -58,6 +58,10 @@ if [[ "${1:-}" == exec ]]; then
     node)
       if [[ "${MOCK_EXPECT_READINESS:-0}" == 1 && "$*" == *"127.0.0.1:3001"* ]]; then
         [[ "$*" == *"127.0.0.1:3001/api/health/ready"* ]]
+        [[ "$*" == *"AbortSignal.timeout(${MOCK_EXPECT_READY_TIMEOUT_MS:-5000})"* ]] || exit 1
+      fi
+      if [[ "${MOCK_EXPECT_READINESS:-0}" == 1 && "$*" == *"127.0.0.1:3000"* ]]; then
+        [[ "$*" == *"AbortSignal.timeout(5000)"* ]] || exit 1
       fi
       if [[ "${MOCK_EXPECT_UPLOAD_PROBE:-0}" == 1 && "$*" == *"UPLOAD_LOCAL_DIR"* ]]; then
         [[ "$*" == *"writeFileSync"* && "$*" == *"rmSync"* ]]
@@ -135,7 +139,16 @@ export SEP_POST_DEPLOY_INTERVAL_SECONDS=0
 export MOCK_EXPECT_READINESS=1
 export MOCK_EXPECT_UPLOAD_PROBE=1
 check_service_readiness blue
+export MOCK_EXPECT_READY_TIMEOUT_MS=130000
+check_service_readiness blue 130000
+unset MOCK_EXPECT_READY_TIMEOUT_MS
 observe_candidate blue
+for timeout in 0 -1 130001 5000x; do
+  if check_service_readiness blue "$timeout"; then
+    printf '%s\n' 'expected invalid readiness timeout to be rejected' >&2
+    exit 1
+  fi
+done
 
 # Production auth preflight must reject incomplete or unsafe credentials without
 # printing their values, while accepting the minimum complete configuration.

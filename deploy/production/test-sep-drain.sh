@@ -46,6 +46,7 @@ reset() {
   MOCK_BUDGET=2000 MOCK_GRACE=1000 MOCK_TIMEOUT=10000
   MOCK_HOLD=0 MOCK_SNAPSHOT_FAIL=0 MOCK_MARKER_FAIL=0 MOCK_BOOT_CHANGE=0
   MOCK_STOP_FAIL=0 MOCK_READINESS_FAIL=0 MOCK_DAEMON_FAIL=0 MOCK_INSPECT_FAIL=0
+  MOCK_COLD_READINESS=0
   MOCK_OBSERVE_FAIL=0 MOCK_SWITCH_FAIL=0
   MOCK_START_FAIL= MOCK_HEALTH_FAIL= MOCK_WEB_READY_FAIL=0 MOCK_RESUME_FAIL=0
   MOCK_RESTORE_POLICY_FAIL= MOCK_READINESS_ACTIVE=0
@@ -138,6 +139,9 @@ docker() {
           ;;
         *health/ready*)
           event "ready $name"
+          if [[ "$MOCK_COLD_READINESS" == 1 ]]; then
+            [[ "$code" == *'AbortSignal.timeout(130000)'* ]] || return 1
+          fi
           if [[ -f "$MOCK_DIR/$name.marker" && "$(cat "$MOCK_DIR/$name.marker")" == "$(cat "$MOCK_DIR/$name.boot")" ]]; then
             fail 'readiness cannot pass with current drain marker'
           fi
@@ -358,6 +362,14 @@ no_signal
 
 # Failures before any Caddy switch retire only this invocation's candidate.
 # Successful retirement leaves ordinary deploy able to recreate and retry.
+reset
+MOCK_COLD_READINESS=1
+cmd_deploy_bluegreen
+before 'ready sep-green-backend' 'switch sep-green-web'
+reset
+MOCK_COLD_READINESS=1
+restore_target_ready sep-green-web
+
 reset
 MOCK_KNOWLEDGE_SCHEMA_EXIT=1
 expect_failure cmd_deploy_bluegreen
