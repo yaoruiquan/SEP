@@ -10,6 +10,7 @@ import { KNOWLEDGE_LIMITS, type KnowledgeMemberSearchDto, type KnowledgeSearchRe
   type KnowledgeSearchResult, type KnowledgeSourceResponse } from 'shared';
 import { isPublishedChunk, isVectorCompatibleChunk, publicationSelect, publishedChunkWhere, vectorChunkWhere } from './knowledge-publication';
 import type { EmbeddingProfile } from './embedding.service';
+import { TextChunker } from './text-chunker.util';
 
 export interface SearchResult {
   content: string;
@@ -69,9 +70,7 @@ export class KnowledgeSearchService {
     strategy: SearchStrategy = 'auto',
   ): Promise<SearchResponse> {
     const startTime = Date.now();
-    this.logger.log(
-      `Searching: "${query}" (subscription: ${subscriptionId}, strategy: ${strategy})`,
-    );
+    this.logger.log(`Knowledge search started (strategy: ${strategy})`);
 
     // 1. 安全边界：获取授权 + 企业隔离
     const context = await this.policy.resolve(userId);
@@ -155,7 +154,7 @@ export class KnowledgeSearchService {
           data: {
             knowledgeBaseId,
             enterpriseId,
-            query,
+            query: '[REDACTED]',
             topK,
             hitCount: results.filter((result) => result.knowledgeBaseId === knowledgeBaseId).length,
             topScore: results.find((result) => result.knowledgeBaseId === knowledgeBaseId)?.score ?? null,
@@ -163,8 +162,8 @@ export class KnowledgeSearchService {
             isTest: false,
             durationMs,
           },
-        }).catch((error) => {
-          this.logger.warn(`Failed to record knowledge search log: ${error instanceof Error ? error.message : String(error)}`);
+        }).catch(() => {
+          this.logger.warn('Failed to record knowledge search log');
         }),
       ),
     );
@@ -176,6 +175,7 @@ export class KnowledgeSearchService {
   /** Search over explicit member access and return the client contract. */
   async searchForMember(userId: string, dto: KnowledgeMemberSearchDto): Promise<KnowledgeSearchResponse> {
     const started = Date.now();
+    try {
     const viewer = await this.policy.resolve(userId);
     const bases = await this.prisma.knowledgeBase.findMany({ where: {
       ...this.policy.readableWhere(viewer), ...(dto.knowledgeBaseIds ? { id: { in: dto.knowledgeBaseIds } } : {}),
@@ -195,7 +195,6 @@ export class KnowledgeSearchService {
     let actualStrategy: 'HYBRID' | 'LEXICAL' = 'HYBRID';
     let degraded = false;
     let degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE' | null = null;
-    try {
       if (!(await this.embedding.isAvailable())) {
         actualStrategy = 'LEXICAL';
         degraded = true;
@@ -204,7 +203,7 @@ export class KnowledgeSearchService {
       let candidates: SearchCandidate[];
       try {
         candidates = actualStrategy === 'HYBRID'
-          ? await this.searchHybrid(dto.query, viewer.enterpriseId, kbIds, dto.topK, 0.7)
+          ? await this.searchHybrid(dto.query, viewer.enterpriseId, kbIds, dto.topK, 0.7, false)
           : await this.searchLexical(dto.query, viewer.enterpriseId, kbIds, dto.topK);
       } catch (error) {
         if (!(error instanceof QueryEmbeddingUnavailable)) throw error;
@@ -230,23 +229,22 @@ export class KnowledgeSearchService {
   }
 
   private async getReadiness(knowledgeBaseIds: string[]): Promise<Readiness> {
-    const documentStore = (this.prisma as any).document;
-    if (!documentStore?.findMany) return { hasReady: true, partial: false };
-    const documents = await documentStore.findMany({
+    const documents = await this.prisma.document.findMany({
       where: { knowledgeBaseId: { in: knowledgeBaseIds }, deletedAt: null },
       select: { activeVersionId: true, status: true, versions: {
-        where: { published: true, status: 'READY' }, select: { id: true }, take: 1,
+        where: { published: true, status: 'READY' }, select: { id: true },
       } },
     });
-    const ready = documents.filter((document: { activeVersionId: string | null; status: string; versions: unknown[] }) =>
-      document.status === 'READY' && (document.activeVersionId === null || document.versions.length > 0));
+    const ready = documents.filter(document => document.activeVersionId
+      ? document.versions.some(version => version.id === document.activeVersionId)
+      : document.status === 'READY');
     return { hasReady: ready.length > 0, partial: ready.length > 0 && ready.length < documents.length };
   }
 
   private async authorizedResults(userId: string, knowledgeBaseIds: string[], results: SearchCandidate[]): Promise<SearchResult[]> {
     if (!results.length) return [];
-    const viewer = await this.policy.resolve(userId);
-    const chunks = await this.prisma.textChunk.findMany({ where: {
+    return this.policy.readBoundary(userId, knowledgeBaseIds, results.map(result => result.chunkId), async (tx, viewer) => {
+    const chunks = await tx.textChunk.findMany({ where: {
       id: { in: results.map(result => result.chunkId) }, knowledgeBaseId: { in: knowledgeBaseIds },
       ...publishedChunkWhere(this.policy.readableWhere(viewer)),
     }, select: { id: true, content: true, source: true, knowledgeBaseId: true,
@@ -260,69 +258,74 @@ export class KnowledgeSearchService {
       if (!compatible && lexicalScore === undefined) return [];
       return [{ ...publicResult, score: compatible ? result.score : lexicalScore!, content: chunk.content, source: chunk.source,
         knowledgeBaseId: chunk.knowledgeBaseId, documentId: chunk.document.id,
-        documentName: chunk.document.originalName, documentVersionId: chunk.versionId ?? chunk.document.activeVersionId ?? chunk.id,
+        documentName: chunk.document.originalName,
+        documentVersionId: chunk.versionId ?? chunk.document.activeVersionId ?? chunk.id,
         knowledgeBaseName: chunk.knowledgeBase?.name ?? '', tokenCount: chunk.tokenCount ?? 0,
         location: { pageStart: chunk.pageStart ?? null, pageEnd: chunk.pageEnd ?? null,
           sectionPath: chunk.sectionPath ?? [], blockStart: chunk.blockStart ?? 0, blockEnd: chunk.blockEnd ?? 0 } }];
     }).sort((a, b) => b.score - a.score);
+    });
   }
 
   private applyTokenBudget(results: SearchResult[]): KnowledgeSearchResult[] {
     let remaining = KNOWLEDGE_LIMITS.maxResultTokens;
     const output: KnowledgeSearchResult[] = [];
-    results.forEach(result => {
-      if (remaining <= 0) return [];
-      const originalTokenCount = Math.max(0, result.tokenCount ?? 0);
-      if (originalTokenCount <= remaining || originalTokenCount === 0) {
-        remaining -= originalTokenCount;
-        output.push({ sourceId: result.chunkId, knowledgeBaseId: result.knowledgeBaseId,
-          knowledgeBaseName: result.knowledgeBaseName ?? '', documentId: result.documentId!,
-          documentName: result.documentName!, versionId: result.documentVersionId!, chunkId: result.chunkId,
-          content: result.content, tokenCount: originalTokenCount, truncated: false, location: result.location! });
-        return;
-      }
-      const characterCount = Math.max(1, Math.floor(result.content.length * remaining / originalTokenCount));
-      const content = result.content.slice(0, characterCount);
-      const tokenCount = remaining;
-      remaining = 0;
+    const seen = new Set<string>();
+    for (const result of results) {
+      if (remaining <= 0) break;
+      if (seen.has(result.chunkId)) continue;
+      seen.add(result.chunkId);
+      const truncated = TextChunker.truncateToTokenBudget(result.content, remaining);
+      if (!truncated || !truncated.content.trim()) continue;
+      const { content, tokenCount } = truncated;
+      remaining -= tokenCount;
       output.push({ sourceId: result.chunkId, knowledgeBaseId: result.knowledgeBaseId,
         knowledgeBaseName: result.knowledgeBaseName ?? '', documentId: result.documentId!,
         documentName: result.documentName!, versionId: result.documentVersionId!, chunkId: result.chunkId,
-        content, tokenCount, truncated: true, location: result.location! });
-    });
+        content, tokenCount, truncated: content !== result.content, location: result.location! });
+    }
     return output;
   }
 
   async getSource(userId: string, knowledgeBaseId: string, sourceId: string): Promise<KnowledgeSourceResponse> {
-    const viewer = await this.policy.resolve(userId);
-    const row = await this.prisma.textChunk.findFirst({
+    try {
+    return await this.policy.readBoundary(userId, [knowledgeBaseId], [sourceId], async (tx, viewer) => {
+    const row = await tx.textChunk.findFirst({
       where: { id: sourceId, knowledgeBaseId, knowledgeBase: this.policy.readableWhere(viewer) },
       select: { id: true, knowledgeBaseId: true, documentId: true, versionId: true, content: true,
         pageStart: true, pageEnd: true, sectionPath: true, blockStart: true, blockEnd: true,
         knowledgeBase: { select: { deletedAt: true } },
         document: { select: { id: true, knowledgeBaseId: true, originalName: true, deletedAt: true,
           activeVersionId: true, status: true } },
-        version: { select: { id: true, documentId: true, published: true, publishedAt: true, retiredAt: true, status: true } } },
+        indexGeneration: true,
+        version: { select: { id: true, documentId: true, generation: true,
+          published: true, publishedAt: true, retiredAt: true, status: true } } },
     });
     if (!row?.document || row.knowledgeBase.deletedAt || row.document.deletedAt ||
       row.document.knowledgeBaseId !== knowledgeBaseId || row.documentId !== row.document.id ||
       (row.versionId !== null && row.version?.documentId !== row.document.id)) this.policy.notFound();
 
     const now = new Date();
-    const isCurrent = row.document.activeVersionId === row.versionId ||
+    const isCurrent = (row.versionId !== null && row.document.activeVersionId === row.versionId) ||
       (row.versionId === null && row.document.activeVersionId === null && row.document.status === 'READY');
     const versionReadable = row.versionId === null
       ? isCurrent
-      : !!row.version && row.version.status === 'READY' &&
+      : !!row.version && row.version.status === 'READY' && row.version.generation === row.indexGeneration &&
         (isCurrent ? row.version.published : !!row.version.publishedAt) &&
-        (!row.version.retiredAt || row.version.retiredAt > now);
+        (isCurrent ? !row.version.retiredAt : !!row.version.retiredAt && row.version.retiredAt > now);
     if (!versionReadable) this.policy.notFound();
 
     return { sourceId: row.id, knowledgeBaseId: row.knowledgeBaseId, documentId: row.document.id,
-      documentName: row.document.originalName, versionId: row.versionId ?? row.document.activeVersionId ?? row.id,
+      documentName: row.document.originalName,
+      versionId: row.versionId ?? row.document.activeVersionId ?? row.id,
       chunkId: row.id, content: row.content,
       location: { pageStart: row.pageStart ?? null, pageEnd: row.pageEnd ?? null,
         sectionPath: row.sectionPath ?? [], blockStart: row.blockStart ?? 0, blockEnd: row.blockEnd ?? 0 }, isCurrent };
+    });
+    } catch (error) {
+      if (error instanceof ForbiddenException || error instanceof NotFoundException) throw error;
+      throw new ServiceUnavailableException({ code: 'KNOWLEDGE_SERVICE_UNAVAILABLE', message: '知识库来源暂时不可用' });
+    }
   }
 
   /**
@@ -424,9 +427,9 @@ export class KnowledgeSearchService {
     kbIds: string[],
     topK: number,
     scoreThreshold: number,
+    checkAvailability = true,
   ): Promise<SearchCandidate[]> {
-    // 检查服务可用性，降级为 lexical
-    const embeddingAvailable = await this.embedding.isAvailable();
+    const embeddingAvailable = !checkAvailability || await this.embedding.isAvailable();
     if (!embeddingAvailable) {
       this.logger.warn('Embedding service unavailable, falling back to lexical search');
       return this.searchLexical(query, enterpriseId, kbIds, topK);
@@ -434,7 +437,7 @@ export class KnowledgeSearchService {
 
     // 并行执行词法和向量检索
     const profile = this.embedding.getProfile();
-    const [lexicalResults, vectorResults] = await Promise.all([
+    const [lexicalOutcome, vectorOutcome] = await Promise.allSettled([
       this.lexical.search(query, enterpriseId, kbIds, topK * 2),
       (async () => {
         let embeddingResult: Awaited<ReturnType<EmbeddingService['embed']>>;
@@ -449,6 +452,11 @@ export class KnowledgeSearchService {
         );
       })(),
     ]);
+    // A failed database/lexical read must not be hidden by a simultaneous embedding outage.
+    if (lexicalOutcome.status === 'rejected') throw lexicalOutcome.reason;
+    if (vectorOutcome.status === 'rejected') throw vectorOutcome.reason;
+    const lexicalResults = lexicalOutcome.value;
+    const vectorResults = vectorOutcome.value.filter(result => result.score >= scoreThreshold);
 
     // Revalidate before fusion so incompatible vectors cannot affect lexical ranking.
     const chunkIds = [...new Set([...lexicalResults, ...vectorResults].map(result => result.chunkId))];

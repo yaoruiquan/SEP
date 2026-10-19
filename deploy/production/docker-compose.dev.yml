@@ -56,13 +56,18 @@ x-backend-environment: &backend-environment
   GATEWAY_NON_STREAM_TIMEOUT_MS: ${GATEWAY_NON_STREAM_TIMEOUT_MS:-120000}
   SUB2API_DEFAULT_MODEL: ${SUB2API_DEFAULT_MODEL:-gemini-3.5-flash-high}
   SUB2API_PLANNER_MODEL: ${SUB2API_PLANNER_MODEL:-}
-  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
-  EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://sep-ollama:11434/v1}
-  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+  EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://sep-ollama:11434}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:sep-790764642607}
+  EMBEDDING_MODEL_DIGEST: ${EMBEDDING_MODEL_DIGEST:-sha256:7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab}
+  EMBEDDING_TOKENIZER: ${EMBEDDING_TOKENIZER:-BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181}
+  EMBEDDING_TOKENIZER_PATH: ${EMBEDDING_TOKENIZER_PATH:-/app/tokenizers/bge-m3/5617a9f61b028005a4858fdac845db406aefb181}
+  EMBEDDING_DISTANCE: ${EMBEDDING_DISTANCE:-cosine}
   EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
   EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-ollama-local}
-  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-8}
   EMBEDDING_TIMEOUT_MS: ${EMBEDDING_TIMEOUT_MS:-120000}
+  KNOWLEDGE_PRIVATE_PATH: /app/private/knowledge
   UPLOAD_PATH: /app/uploads
   PACKAGE_STORAGE_PATH: /app/storage/packages
   API_BASE_URL: https://sep-dev.longdaoSEP.cn/api
@@ -86,6 +91,8 @@ x-backend-defaults: &backend-defaults
   volumes:
     - sep_dev_uploads:/app/uploads
     - sep_dev_packages:/app/storage/packages
+    - ${KNOWLEDGE_TOKENIZERS_HOST_PATH:-../../.cache/tokenizers}:/app/tokenizers:ro
+    - ${KNOWLEDGE_PRIVATE_HOST_PATH:-/opt/sep/knowledge-dev}:/app/private/knowledge
   networks:
     - longdao-network
   healthcheck:

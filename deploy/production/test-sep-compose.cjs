@@ -33,6 +33,7 @@ const defaults = {
 for (const [file, services] of [
   ['docker-compose.yml', ['sep-backend']],
   ['docker-compose.blue-green.yml', ['blue-backend', 'green-backend']],
+  ['docker-compose.dev.yml', ['dev-backend']],
 ]) {
   const compose = yaml.load(fs.readFileSync(path.join(__dirname, file), 'utf8'));
   for (const name of services) {
@@ -47,9 +48,21 @@ for (const [file, services] of [
       const key = `GATEWAY_${suffix}`;
       assert.equal(environment[key], '${' + key + ':-' + value + '}', `${file}/${name}/${key}`);
     }
-    assert.equal(environment.SEP_GATEWAY_DRAIN_TIMEOUT_MS, '${SEP_GATEWAY_DRAIN_TIMEOUT_MS:-}');
-    assert.equal(backend.stop_grace_period, '${SEP_STOP_GRACE_SECONDS:-30}s');
-    assert.ok(backend.healthcheck.test.join(' ').includes('3001/health'));
+    if (file !== 'docker-compose.dev.yml') {
+      assert.equal(environment.SEP_GATEWAY_DRAIN_TIMEOUT_MS, '${SEP_GATEWAY_DRAIN_TIMEOUT_MS:-}');
+      assert.equal(backend.stop_grace_period, '${SEP_STOP_GRACE_SECONDS:-30}s');
+      assert.ok(backend.healthcheck.test.join(' ').includes('3001/health'));
+    }
+    assert.equal(environment.EMBEDDING_PROVIDER, '${EMBEDDING_PROVIDER:-ollama}');
+    assert.equal(environment.EMBEDDING_BASE_URL, '${EMBEDDING_BASE_URL:-http://sep-ollama:11434}');
+    assert.equal(environment.EMBEDDING_MODEL, '${EMBEDDING_MODEL:-bge-m3:sep-790764642607}');
+    assert.equal(environment.EMBEDDING_MODEL_DIGEST, '${EMBEDDING_MODEL_DIGEST:-sha256:7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab}');
+    assert.equal(environment.EMBEDDING_TOKENIZER, '${EMBEDDING_TOKENIZER:-BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181}');
+    assert.equal(environment.EMBEDDING_TOKENIZER_PATH, '${EMBEDDING_TOKENIZER_PATH:-/app/tokenizers/bge-m3/5617a9f61b028005a4858fdac845db406aefb181}');
+    assert.ok(backend.volumes.includes('${KNOWLEDGE_TOKENIZERS_HOST_PATH:-../../.cache/tokenizers}:/app/tokenizers:ro'));
+    assert.equal(environment.KNOWLEDGE_PRIVATE_PATH, '/app/private/knowledge');
+    const privateRoot = file === 'docker-compose.dev.yml' ? '/opt/sep/knowledge-dev' : '/opt/sep/knowledge';
+    assert.ok(backend.volumes.includes('${KNOWLEDGE_PRIVATE_HOST_PATH:-' + privateRoot + '}:/app/private/knowledge'));
   }
 }
-console.log('sep-compose tests passed (gateway defaults, independent original RPM and HTTP body policy, both production backends/colors)');
+console.log('sep-compose tests passed (gateway policy and pinned private Ollama/tokenizer configuration, production/dev/all colors)');

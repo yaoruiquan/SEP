@@ -98,7 +98,7 @@ export class KnowledgeTestService {
       data: {
         knowledgeBaseId,
         enterpriseId,
-        query: dto.query,
+        query: '[REDACTED]',
         topK: dto.topK,
         hitCount: results.length,
         topScore: results.length > 0 ? results[0].score : null,
@@ -106,7 +106,7 @@ export class KnowledgeTestService {
         isTest: true,
         durationMs,
       },
-    });
+    }).catch(() => this.logger.warn('Failed to record knowledge test search log'));
 
     return {
       query: dto.query,

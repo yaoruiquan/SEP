@@ -54,7 +54,8 @@ export class AuditService {
         if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 50));
       }
     }
-    this.logger.error(`审计日志写入失败（已重试 3 次）: ${(lastError as Error)?.message ?? String(lastError)}`);
+    this.logger.error(input.resourceType === 'KNOWLEDGE' ? 'KNOWLEDGE_AUDIT_STORAGE_UNAVAILABLE'
+      : `审计日志写入失败（已重试 3 次）: ${(lastError as Error)?.message ?? String(lastError)}`);
     throw lastError;
   }
 

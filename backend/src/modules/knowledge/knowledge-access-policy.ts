@@ -52,4 +52,29 @@ export class KnowledgeAccessPolicy {
     this.requireAdmin(viewer);
     return viewer;
   }
+
+  /** Linearization boundary shared with grant deletes, membership changes and publication writes. */
+  async readBoundary<T>(userId: string, baseIds: string[], chunkIds: string[],
+    read: (tx: Prisma.TransactionClient, viewer: EnterpriseContext) => Promise<T>): Promise<T> {
+    const initial = await this.resolve(userId);
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM enterprise_members WHERE id=${initial.memberId} FOR SHARE`;
+      const member = await tx.enterpriseMember.findUnique({ where: { id: initial.memberId } });
+      if (!member || member.userId !== userId || member.enterpriseId !== initial.enterpriseId) this.notFound();
+      const viewer: EnterpriseContext = { enterpriseId: member.enterpriseId, memberId: member.id,
+        role: member.role, departmentId: member.departmentId };
+      if (baseIds.length) {
+        // Grant mutations remove grants before updating the base revision. Match that order.
+        await tx.$queryRaw`SELECT id FROM knowledge_member_grants WHERE "memberId"=${member.id}
+          AND "knowledgeBaseId" IN (${Prisma.join([...baseIds].sort())}) ORDER BY id FOR SHARE`;
+        await tx.$queryRaw`SELECT id FROM knowledge_bases WHERE id IN (${Prisma.join([...baseIds].sort())}) ORDER BY id FOR SHARE`;
+      }
+      if (chunkIds.length) {
+        await tx.$queryRaw`SELECT d.id FROM documents d WHERE d.id IN
+          (SELECT "documentId" FROM text_chunks WHERE id IN (${Prisma.join([...new Set(chunkIds)].sort())}))
+          ORDER BY d.id FOR SHARE`;
+      }
+      return read(tx, viewer);
+    }, { timeout: 10_000 });
+  }
 }

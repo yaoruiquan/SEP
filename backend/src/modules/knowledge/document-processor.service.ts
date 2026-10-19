@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, KnowledgeProcessingJob } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocumentParserService } from './document-parser.service';
@@ -7,6 +8,7 @@ import { VectorService } from './vector.service';
 import { TextTokenizer } from './text-tokenizer.service';
 import { TextChunker } from './text-chunker.util';
 import { KnowledgePrivateStorage } from './knowledge-private-storage';
+import { knowledgeHistoryRetentionDays } from './knowledge-retention.service';
 
 const LEASE_MS = 120_000;
 const MAX_ATTEMPTS = 3;
@@ -21,7 +23,8 @@ export class DocumentProcessorService {
   private readonly logger = new Logger(DocumentProcessorService.name);
   private readonly storage = new KnowledgePrivateStorage();
   constructor(private prisma: PrismaService, private parser: DocumentParserService,
-    private embedding: EmbeddingService, private vector: VectorService, private tokenizer: TextTokenizer) {}
+    private embedding: EmbeddingService, private vector: VectorService, private tokenizer: TextTokenizer,
+    @Optional() private readonly config?: ConfigService) {}
 
   /** Only durable version jobs may process originals; never rebuild a live document in place. */
   async processDocument(_documentId: string) {
@@ -120,9 +123,7 @@ export class DocumentProcessorService {
           !this.sameProfile(current.profile, profile)) {
           throw new ProcessingFailure('INCOMPLETE_INDEX', '索引尚未完整建立，请重试', true);
         }
-        const retiredAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        await tx.documentVersion.updateMany({ where: { documentId: document.id, id: { not: version.id }, published: true },
-          data: { published: false, retiredAt } });
+        await this.retirePublishedVersions(tx, document.id, version.id);
         await tx.documentVersion.update({ where: { id: version.id }, data: { status: 'READY', stage: 'DONE',
           published: true, publishedAt: new Date(), retiredAt: null, processedAt: new Date(), errorCode: null, lastError: null } });
         await tx.document.update({ where: { id: document.id }, data: { activeVersionId: version.id, status: 'READY',
@@ -138,6 +139,15 @@ export class DocumentProcessorService {
   private sameProfile(stored: Prisma.JsonValue, current: ReturnType<EmbeddingService['getProfile']>) {
     if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false;
     return Object.entries(current).every(([key, value]) => stored[key] === value);
+  }
+
+  private async retirePublishedVersions(tx: Prisma.TransactionClient, documentId: string, nextVersionId: string) {
+    const now = new Date();
+    const where = { documentId, id: { not: nextVersionId }, published: true };
+    // Legacy adoption predates publishedAt; preserve its historical-source eligibility on first retirement.
+    await tx.documentVersion.updateMany({ where: { ...where, publishedAt: null }, data: { publishedAt: now } });
+    await tx.documentVersion.updateMany({ where, data: { published: false,
+      retiredAt: new Date(now.getTime() + knowledgeHistoryRetentionDays(this.config) * 24 * 60 * 60 * 1000) } });
   }
 
   private async claim(id: string): Promise<ClaimedJob | null> {
@@ -180,12 +190,18 @@ export class DocumentProcessorService {
   }
 
   private async cleanup(job: ClaimedJob) {
-    const d = await this.prisma.document.findUniqueOrThrow({ where: { id: job.documentId }, include: { versions: true } });
-    if (!d.deletedAt) throw new LostLease();
-    for (const file of new Set([d.storagePath, ...d.versions.map(v => v.storagePath)])) await this.storage.remove(file);
     await this.guarded(job, async tx => {
+      const d = await tx.document.findUnique({ where: { id: job.documentId }, include: { versions: true } });
+      if (!d?.deletedAt) throw new LostLease();
+      for (const file of new Set([d.storagePath, ...d.versions.map(v => v.storagePath)].filter(Boolean))) {
+        const original = await tx.document.findFirst({ where: { storagePath: file, id: { not: d.id } }, select: { id: true } });
+        const shared = await tx.documentVersion.findFirst({ where: { storagePath: file, documentId: { not: d.id } }, select: { id: true } });
+        if (!original && !shared) await this.storage.remove(file);
+      }
       await tx.textChunk.deleteMany({ where: { documentId: d.id } });
       await tx.knowledgeParsedBlock.deleteMany({ where: { version: { documentId: d.id } } });
+      await tx.documentVersion.updateMany({ where: { documentId: d.id }, data: { storagePath: '' } });
+      await tx.document.update({ where: { id: d.id }, data: { storagePath: '' } });
       await tx.knowledgeProcessingJob.update({ where: { id: job.id }, data: { status: 'DONE', leaseUntil: null } });
     });
   }

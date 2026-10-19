@@ -4,6 +4,7 @@ import { KnowledgeAuthGuard } from './knowledge-auth.guard';
 import { KnowledgeTestService } from './knowledge-test.service';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 import { KnowledgeNoStoreInterceptor } from './knowledge-no-store.interceptor';
+import { KnowledgeRateLimitGuard } from './knowledge-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { TestSearchDtoSchema, type TestSearchDto } from 'shared';
 
@@ -19,6 +20,7 @@ export class KnowledgeTestController {
   constructor(private readonly testService: KnowledgeTestService, private readonly policy: KnowledgeAccessPolicy) {}
 
   @Post(':id/test-search')
+  @UseGuards(KnowledgeRateLimitGuard)
   @HttpCode(200)
   @ApiOperation({ summary: '管理员检索验证（第一批兼容接口）' })
   @ApiResponse({ status: 200, description: 'query/topK/scoreThreshold/strategy/hitCount/durationMs/results' })

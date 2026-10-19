@@ -65,17 +65,16 @@ export class VectorService {
         this.pgvectorSearchCount += 1;
         return results;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.lastPgvectorError = message;
+        this.lastPgvectorError = this.isCompatibilityError(error) ? 'PGVECTOR_SCHEMA_UNAVAILABLE' : 'PGVECTOR_SEARCH_UNAVAILABLE';
         this.pgvectorFailureCount += 1;
         if (!this.isCompatibilityError(error)) {
-          this.logger.error(`pgvector search failed; refusing BYTEA fallback: ${message}`);
+          this.logger.error('pgvector search failed; refusing BYTEA fallback');
           throw error;
         }
         this.pgvectorMode = 'compatibility-fallback';
         this.pgvectorFallbackCount += 1;
         this.logger.warn(
-          `pgvector schema is not ready, falling back to bounded BYTEA scan: ${message}`,
+          'pgvector schema is not ready, falling back to bounded BYTEA scan',
         );
       }
     } else {

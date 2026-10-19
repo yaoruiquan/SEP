@@ -10,6 +10,18 @@ describe('HttpExceptionFilter', () => {
     expect(body.reason).toBeUndefined();
   });
 
+  it('preserves stable knowledge API error codes without changing other envelopes', () => {
+    const { body: knowledgeBody } = catchException(new HttpException({
+      message: 'Too many requests', code: 'KNOWLEDGE_RATE_LIMIT_EXCEEDED', retryAfterSeconds: 5,
+    }, 429), '/api/knowledge-bases/search');
+    expect(knowledgeBody.code).toBe('KNOWLEDGE_RATE_LIMIT_EXCEEDED');
+
+    const { body: unrelatedBody } = catchException(new HttpException({
+      message: 'Rejected', code: 'KNOWLEDGE_RATE_LIMIT_EXCEEDED',
+    }, 429), '/api/employees');
+    expect(unrelatedBody.code).toBeUndefined();
+  });
+
   it.each([
     '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv-1/artifact/extra',
     '/api/client/subscriptions/sub-1/skills/cap-1/versions/sv%2F1/artifact',

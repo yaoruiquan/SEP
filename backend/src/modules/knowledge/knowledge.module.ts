@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
 import { DocumentController } from './document.controller';
@@ -24,19 +25,34 @@ import { EnterpriseModule } from '../enterprise/enterprise.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
 import { KnowledgeUploadGuard } from './knowledge-upload.guard';
+import { RedisModule } from '../../redis/redis.module';
+import { AuditModule } from '../audit/audit.module';
+import { KnowledgeRateLimitService } from './knowledge-rate-limit.service';
+import { KnowledgeRateLimitGuard } from './knowledge-rate-limit.guard';
+import { KnowledgeRetentionService } from './knowledge-retention.service';
+import { KnowledgeTelemetryService } from './knowledge-telemetry.service';
+import { KnowledgeTelemetryInterceptor } from './knowledge-telemetry.interceptor';
+import { KnowledgeMonitoringController } from './knowledge-monitoring.controller';
 
 @Module({
-  imports: [PrismaModule, EnterpriseModule, ScheduleModule.forRoot()],
+  imports: [PrismaModule, EnterpriseModule, RedisModule, AuditModule, ScheduleModule.forRoot()],
   controllers: [
     KnowledgeController,
     KnowledgeTestController,  // Must be before DocumentController to match /documents/status
     DocumentController,
     TextChunkController,
     SearchController,
+    KnowledgeMonitoringController,
   ],
   providers: [
     KnowledgeAccessPolicy,
     KnowledgeUploadGuard,
+    KnowledgeRateLimitService,
+    KnowledgeRateLimitGuard,
+    KnowledgeRetentionService,
+    KnowledgeTelemetryService,
+    KnowledgeTelemetryInterceptor,
+    { provide: APP_INTERCEPTOR, useExisting: KnowledgeTelemetryInterceptor },
     KnowledgeService,
     DocumentService,
     TextChunkService,

@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { KnowledgeSearchService } from './knowledge-search.service';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
+import { TextChunker } from './text-chunker.util';
 
 const MEMBER = { enterpriseId: 'ent-a', memberId: 'm-a', role: 'MEMBER', departmentId: 'dept-a' };
 const candidate = { chunkId: 'c-a', content: 'stale cache', source: 'doc-a', knowledgeBaseId: 'kb-a', score: 0.9 };
@@ -18,6 +19,7 @@ describe('KnowledgeSearchService authorization and logging', () => {
   let embedding: any;
   let vector: any;
   beforeEach(() => {
+    (TextChunker as any).tokenizer = { id: 'test-only', encode: (text: string) => Array.from(text) };
     prisma = {
       subscription: { findFirst: jest.fn() },
       knowledgeGrant: { findMany: jest.fn().mockResolvedValue([{ knowledgeBaseId: 'kb-a' }]) },
@@ -33,6 +35,10 @@ describe('KnowledgeSearchService authorization and logging', () => {
           deletedAt: null, activeVersionId: null, status: 'READY' },
       }]) },
     };
+    prisma.$transaction = jest.fn(async callback => callback(prisma));
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.enterpriseMember = { findUnique: jest.fn().mockResolvedValue({ id: MEMBER.memberId,
+      userId: 'u-a', enterpriseId: MEMBER.enterpriseId, role: MEMBER.role, departmentId: MEMBER.departmentId }) };
     context = { resolve: jest.fn().mockResolvedValue(MEMBER) };
     lexical = { search: jest.fn().mockResolvedValue([candidate]) };
     embedding = { isAvailable: jest.fn().mockResolvedValue(false), getModel: () => 'model',
@@ -41,6 +47,7 @@ describe('KnowledgeSearchService authorization and logging', () => {
     vector = { search: jest.fn().mockResolvedValue([candidate]) };
     service = new KnowledgeSearchService(prisma, embedding, vector, lexical, context, new KnowledgeAccessPolicy(prisma, context));
   });
+  afterEach(() => TextChunker.resetTokenizer());
 
   it('rejects a foreign subscription before reading legacy knowledge grants', async () => {
     prisma.subscription.findFirst.mockResolvedValue(null);
@@ -229,7 +236,7 @@ describe('KnowledgeSearchService authorization and logging', () => {
       degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE', partial: false, count: 1 });
     expect(result.searchId).toMatch(/^search_/);
     expect(result.results[0]).toMatchObject({ sourceId: 'c-a', chunkId: 'c-a', documentId: 'doc-a',
-      documentName: '政策.txt', versionId: 'c-a', tokenCount: 0, truncated: false,
+      documentName: '政策.txt', versionId: 'c-a', tokenCount: 4, truncated: false,
       location: { pageStart: null, pageEnd: null, sectionPath: [], blockStart: 0, blockEnd: 0 } });
   });
 
@@ -259,16 +266,62 @@ describe('KnowledgeSearchService authorization and logging', () => {
 
   it('returns the current source after rechecking ownership and publication', async () => {
     prisma.textChunk.findFirst.mockResolvedValue({
-      id: 'c-a', knowledgeBaseId: 'kb-a', documentId: 'doc-a', versionId: 'v-a', content: '退款规则',
+      id: 'c-a', knowledgeBaseId: 'kb-a', documentId: 'doc-a', versionId: 'v-a', indexGeneration: 1, content: '退款规则',
       pageStart: 2, pageEnd: 2, sectionPath: ['售后'], blockStart: 4, blockEnd: 4,
       knowledgeBase: { deletedAt: null },
       document: { id: 'doc-a', knowledgeBaseId: 'kb-a', originalName: '政策.txt', deletedAt: null,
         activeVersionId: 'v-a', status: 'READY' },
-      version: { id: 'v-a', documentId: 'doc-a', published: true, publishedAt: new Date(), retiredAt: null, status: 'READY' },
+      version: { id: 'v-a', documentId: 'doc-a', originalName: 'replacement-file.txt', generation: 1,
+        published: true, publishedAt: new Date(), retiredAt: null, status: 'READY' },
     });
     await expect(service.getSource('u-a', 'kb-a', 'c-a')).resolves.toMatchObject({
-      sourceId: 'c-a', versionId: 'v-a', isCurrent: true, content: '退款规则',
+      sourceId: 'c-a', versionId: 'v-a', isCurrent: true, content: '退款规则', documentName: '政策.txt',
       location: { pageStart: 2, sectionPath: ['售后'], blockStart: 4 },
     });
+  });
+
+  it('still searches an old active when the latest document projection is FAILED', async () => {
+    prisma.document.findMany.mockResolvedValue([{ activeVersionId: 'active', status: 'FAILED', versions: [{ id: 'active' }] }]);
+    expect((await service.searchForMember('u-a', { query: '退款', topK: 5 })).status).toBe('MATCHED');
+  });
+
+  it('does not treat a non-active published version as ready', async () => {
+    prisma.document.findMany.mockResolvedValue([{ activeVersionId: 'active', status: 'READY', versions: [{ id: 'different' }] }]);
+    expect((await service.searchForMember('u-a', { query: '退款', topK: 5 })).status).toBe('NOT_READY');
+  });
+
+  it('declares fallback if embedding fails after availability checks', async () => {
+    embedding.isAvailable.mockResolvedValue(true);
+    embedding.embed.mockRejectedValue(new Error('sensitive dependency error'));
+    expect(await service.searchForMember('u-a', { query: '退款', topK: 5 })).toMatchObject({
+      status: 'MATCHED', actualStrategy: 'LEXICAL', degraded: true, degradationReason: 'QUERY_EMBEDDING_UNAVAILABLE',
+    });
+  });
+
+  it('treats vector database failures as 503, not query embedding degradation', async () => {
+    embedding.isAvailable.mockResolvedValue(true);
+    vector.search.mockRejectedValue(new Error('database gone'));
+    await expect(service.searchForMember('u-a', { query: '退款', topK: 5 })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('normalizes readiness dependency failure to a safe 503', async () => {
+    prisma.document.findMany.mockRejectedValue(new Error('private database path'));
+    await expect(service.searchForMember('u-a', { query: '退款', topK: 5 })).rejects.toMatchObject({
+      status: 503, response: { code: 'KNOWLEDGE_SERVICE_UNAVAILABLE' },
+    });
+  });
+
+  it('enforces an actual token budget instead of trusting missing or stale counts', async () => {
+    const row = (await prisma.textChunk.findMany())[0];
+    prisma.textChunk.findMany.mockResolvedValue([{ ...row, content: '😀'.repeat(6500), tokenCount: 0 }]);
+    const result = await service.searchForMember('u-a', { query: '退款', topK: 5 });
+    expect(result.results[0]).toMatchObject({ tokenCount: 6000, truncated: true, content: '😀'.repeat(6000) });
+    expect(TextChunker.countTokens(result.results[0].content)).toBe(6000);
+  });
+
+  it('does not emit user queries to compatibility search logs', async () => {
+    prisma.subscription.findFirst.mockResolvedValue({ enterpriseId: 'ent-a' });
+    await service.search('confidential query', 'u-a', 'sub-a', 5, 0.7, 'lexical');
+    expect(JSON.stringify(prisma.knowledgeSearchLog.create.mock.calls)).not.toContain('confidential query');
   });
 });

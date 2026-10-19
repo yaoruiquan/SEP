@@ -32,7 +32,7 @@ services:
   # Embedding 使用独立部署的 Ollama 服务，不在本 Compose 中下载或运行模型。
   # 本地运行后端时使用 http://127.0.0.1:11434/v1；生产容器通过 Docker 网络使用
   # Ollama 服务名（例如 http://sep-ollama:11434/v1），并在运行环境注入 EMBEDDING_*。
-  # 模型固定为 bge-m3:latest，返回维度必须为 1024。
+  # 核对摘要后使用 bge-m3:sep-790764642607 固定别名，返回维度必须为 1024。
 
   # NOTE: sub2api（大模型中转）与 Ollama（Embedding）都是外部独立服务，
   # 不由本 Compose 管理。本 Compose 只负责本地开发的 PostgreSQL + Redis。

@@ -34,7 +34,7 @@ cp /path/to/SEP/deploy/production/.env.example /opt/sep/.env
 - `MAIL_*` — 真实 SMTP 配置，生产必须保持 `MAIL_ENABLED=true`
 - `WECHAT_*` / `QQ_*` — 完成对应开放平台配置后再启用；回调地址必须是公网 HTTPS 地址
 - `SUB2API_API_KEY` — 在 sub2api 管理后台新建一个渠道 key
-- `EMBEDDING_BASE_URL` — Ollama 在 Docker 网络中的地址，例如 `http://sep-ollama:11434/v1`
+- `EMBEDDING_BASE_URL` — Ollama 在 Docker 网络中的地址，例如 `http://sep-ollama:11434`；配置固定模型摘要及只读 tokenizer 挂载，见 [部署指南](../../docs/deployment/embedding-service.md)
 
 部署脚本会在 Compose 启动前执行认证配置预检；不会打印密钥值。后端启动时还会再次校验生产认证配置，避免绕过部署脚本直接启动不安全配置。
 
@@ -202,6 +202,8 @@ tail -100 /var/log/sep-maintenance.log
 用户要求暂时停用知识嵌入时，使用 `docker stop sep-ollama`，并将容器重启策略设为 `unless-stopped`，避免宿主机重启后自动恢复已手动停止的服务。保留容器、模型卷和镜像；恢复使用 `docker start sep-ollama`。
 
 当前应用将嵌入服务作为生产 readiness 的必需依赖。因此停用期间 `/api/health/ready` 会如实返回 503、`checks.embedding=failed`；知识向量生成及语义检索暂不可用，现有发布/回滚脚本也会在 readiness 检查处阻止切换。普通 Web、认证、技能审核和模型网关仍可独立运行。不要将健康检查改为假成功；需要再次发布或回滚时先恢复嵌入服务，或另行实现明确的功能停用与降级契约。
+
+2026-10-19 用户确认知识库 embedding 独立使用本地 Ollama，生成模型继续走 sub2api。当前部署模板显式 `EMBEDDING_PROVIDER=ollama`，使用 `EMBEDDING_BASE_URL`、固定 `EMBEDDING_MODEL_DIGEST` 及 `/api/tags` + `/api/embed`；不读取/转发 sub2api 密钥，不自动回退。部署前将旧 `openai` provider 改为 `ollama`，校验摘要并建立发布别名，运行 tokenizer 准备脚本，配置宿主机 `KNOWLEDGE_TOKENIZERS_HOST_PATH` 的只读挂载；迁移步骤和已知 tokenizer 差异见 [Embedding 部署指南](../../docs/deployment/embedding-service.md)。显式 `sub2api` 仍保留旧 embedding 路径；本次不启动生产 Ollama、不删除模型卷、容器或知识库数据。
 
 ## 蓝绿发布与回滚
 

@@ -6,6 +6,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const KNOWLEDGE_BUSINESS_CODES = new Set([
+  'ENTERPRISE_MEMBERSHIP_REQUIRED', 'DOCUMENT_NOT_READY', 'DOCUMENT_NOT_RETRYABLE',
+  'DOCUMENT_PROCESSING', 'DOCUMENT_VERSION_CHANGED', 'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_KEY_REQUIRED',
+  'INVALID_IF_MATCH', 'PRECONDITION_REQUIRED', 'REVISION_CONFLICT', 'UNSUPPORTED_FORMAT',
+  'VALIDATION_ERROR', 'TOKENIZER_UNAVAILABLE', 'LEGACY_KNOWLEDGE_GRANTS_RETIRED', 'MEMBER_SELECTION_INVALID',
+]);
+
 function isSkillArtifactRoute(originalUrl: string): boolean {
   try {
     // Match the URL forms Express accepts; reserved separators stay encoded.
@@ -98,7 +105,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const platformPolicyError = rawError?.source === 'platform' && [429, 503].includes(status) &&
       (versionedPolicy || unavailableSnapshot);
     if (path !== '/api/gateway' && !path.startsWith('/api/gateway/') && !platformPolicyError) {
-      response.status(status).json(body);
+      const knowledgeCode = /^\/api\/(?:knowledge-bases|admin\/knowledge)(?:\/|$)/.test(path) &&
+        typeof rawBody?.code === 'string' && (/^KNOWLEDGE_[A-Z0-9_]{1,96}$/.test(rawBody.code) || KNOWLEDGE_BUSINESS_CODES.has(rawBody.code))
+        ? { code: rawBody.code } : {};
+      response.status(status).json({ ...body, ...knowledgeCode });
       return;
     }
 

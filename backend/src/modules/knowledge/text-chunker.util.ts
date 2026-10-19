@@ -98,6 +98,25 @@ export class TextChunker {
       .map(({ text: content, tokenCount }) => ({ content, tokenCount }));
   }
 
+  static truncateToTokenBudget(text: string, maxTokens: number): { content: string; tokenCount: number } | null {
+    if (maxTokens <= 0) return null;
+    const tokenCount = this.countTokens(text);
+    if (tokenCount <= maxTokens) return { content: text, tokenCount };
+    const characters = Array.from(text);
+    let low = 0;
+    let high = characters.length;
+    let best: { content: string; tokenCount: number } | null = null;
+    // Every retained prefix is measured; no character/token ratio or UTF-16 splitting.
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      const content = characters.slice(0, middle).join('');
+      const count = this.countTokens(content);
+      if (count <= maxTokens) { low = middle; best = { content, tokenCount: count }; }
+      else high = middle;
+    }
+    return best;
+  }
+
   static chunkByTokenBudget(
     text: string,
     tokenizer: TokenBudgetTokenizer,

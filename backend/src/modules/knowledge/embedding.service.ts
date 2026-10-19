@@ -8,7 +8,7 @@ export interface EmbeddingResponse {
 }
 
 export type EmbeddingProfile = {
-  /** Use a revision-pinned relay model ID; mutable aliases cannot ensure reproducibility. */
+  /** Use a revision-specific model ID; Ollama additionally verifies the manifest digest. */
   model: string;
   dimension: number;
   tokenizer: string;
@@ -21,10 +21,24 @@ export class EmbeddingService implements OnModuleInit {
   private profile: EmbeddingProfile;
   private batchSize: number;
   private timeoutMs: number;
+  private provider: 'sub2api' | 'ollama';
+  private modelDigest: string | undefined;
 
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit(): Promise<void> {
+    const provider = this.config.get<string>('EMBEDDING_PROVIDER')?.trim() || 'sub2api';
+    if (provider !== 'sub2api' && provider !== 'ollama') {
+      throw new ServiceUnavailableException('EMBEDDING_PROVIDER must be sub2api or ollama');
+    }
+    this.provider = provider;
+    if (provider === 'ollama') {
+      const digest = this.config.get<string>('EMBEDDING_MODEL_DIGEST')?.trim().replace(/^sha256:/, '');
+      if (!digest || !/^[a-f0-9]{64}$/.test(digest)) {
+        throw new ServiceUnavailableException('EMBEDDING_MODEL_DIGEST must be the expected Ollama SHA-256 manifest digest');
+      }
+      this.modelDigest = digest;
+    }
     const model = this.config.get<string>('EMBEDDING_MODEL')?.trim() || 'BAAI/bge-m3';
     const isBgeM3 = ['BAAI/bge-m3', 'bge-m3', 'bge-m3:latest'].includes(model);
     const tokenizer = this.config.get<string>('EMBEDDING_TOKENIZER')?.trim()
@@ -96,6 +110,7 @@ export class EmbeddingService implements OnModuleInit {
   }
 
   private async requestBatch(texts: string[]): Promise<EmbeddingResponse[]> {
+    if (this.provider === 'ollama') return this.requestOllamaBatch(texts);
     const baseUrl = this.config.get<string>('SUB2API_BASE_URL')?.trim();
     const apiKey = this.config.get<string>('SUB2API_API_KEY');
     if (!baseUrl || !apiKey) {
@@ -127,6 +142,50 @@ export class EmbeddingService implements OnModuleInit {
       if (error instanceof ServiceUnavailableException) throw error;
       // Never propagate gateway bodies, URLs, headers, or credential-bearing transport errors.
       throw new ServiceUnavailableException('Sub2api embedding request failed');
+    }
+  }
+
+  private async requestOllamaBatch(texts: string[]): Promise<EmbeddingResponse[]> {
+    const baseUrl = this.config.get<string>('EMBEDDING_BASE_URL')?.trim();
+    let url: URL;
+    try { url = new URL(baseUrl || ''); } catch {
+      throw new ServiceUnavailableException('Invalid or missing EMBEDDING_BASE_URL');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new ServiceUnavailableException('Invalid EMBEDDING_BASE_URL');
+    }
+    // Accept the former OpenAI-compatible /v1 setting, but use the native API
+    // so an oversized input fails instead of being silently truncated.
+    url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/v1$/, '');
+    const origin = url.toString().replace(/\/+$/, '');
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    try {
+      const tags = await fetch(`${origin}/api/tags`, { redirect: 'error', signal });
+      if (!tags.ok) throw new ServiceUnavailableException(`Ollama model verification failed (HTTP ${tags.status})`);
+      const models: unknown = await tags.json();
+      const match = models && typeof models === 'object' && 'models' in models && Array.isArray(models.models)
+        ? models.models.find((item: unknown) => item && typeof item === 'object' &&
+          'name' in item && item.name === this.profile.model)
+        : undefined;
+      if (!match || match.digest !== this.modelDigest) {
+        throw new ServiceUnavailableException('Ollama embedding model digest mismatch');
+      }
+      const response = await fetch(`${origin}/api/embed`, {
+        method: 'POST', redirect: 'error', signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: this.profile.model, input: texts, truncate: false, keep_alive: '5m' }),
+      });
+      if (!response.ok) throw new ServiceUnavailableException(`Ollama embedding request failed (HTTP ${response.status})`);
+      const payload: unknown = await response.json();
+      if (!payload || typeof payload !== 'object' || !('model' in payload) || payload.model !== this.profile.model) {
+        throw new ServiceUnavailableException('Invalid embedding response: model mismatch');
+      }
+      const embeddings = payload && typeof payload === 'object' && 'embeddings' in payload && Array.isArray(payload.embeddings)
+        ? payload.embeddings : [];
+      return this.validateEmbeddings({ data: embeddings.map((embedding: unknown, index: number) => ({ index, embedding })) }, texts.length);
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException('Ollama embedding request failed');
     }
   }
 

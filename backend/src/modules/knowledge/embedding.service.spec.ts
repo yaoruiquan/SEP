@@ -22,7 +22,7 @@ describe('EmbeddingService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it.each(['https://relay.example', 'https://relay.example/', 'https://relay.example/v1', 'https://relay.example/v1///'])('normalizes only the sub2api URL: %s', async (baseUrl) => {
-    const { service, get } = await create({ SUB2API_BASE_URL: baseUrl, EMBEDDING_PROVIDER: 'tei',
+    const { service, get } = await create({ SUB2API_BASE_URL: baseUrl, EMBEDDING_PROVIDER: 'sub2api',
       EMBEDDING_BASE_URL: 'http://forbidden-upstream', EMBEDDING_API_KEY: 'unused', OPENAI_API_KEY: 'unused' });
     reply({ data: [{ index: 0, embedding: [1, 0] }] });
     expect((await service.embed('hello')).embedding).toEqual(new Float32Array([1, 0]));
@@ -31,9 +31,9 @@ describe('EmbeddingService', () => {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer relay-test-key' },
     }));
     expect(get.mock.calls.map(([key]) => key)).not.toEqual(expect.arrayContaining([
-      'EMBEDDING_PROVIDER', 'EMBEDDING_BASE_URL', 'EMBEDDING_API_KEY', 'OPENAI_API_KEY',
+      'EMBEDDING_BASE_URL', 'EMBEDDING_API_KEY', 'OPENAI_API_KEY',
     ]));
-    for (const key of ['EMBEDDING_PROVIDER', 'EMBEDDING_BASE_URL', 'EMBEDDING_API_KEY', 'OPENAI_API_KEY']) {
+    for (const key of ['EMBEDDING_BASE_URL', 'EMBEDDING_API_KEY', 'OPENAI_API_KEY']) {
       expect(get).not.toHaveBeenCalledWith(key);
     }
   });
@@ -168,5 +168,105 @@ describe('EmbeddingService', () => {
     await expect(create({ EMBEDDING_TOKENIZER_PATH: '/nonexistent/local/tokenizer' })).resolves.toBeDefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('TOKENIZER_UNAVAILABLE'));
     expect(JSON.stringify(warn.mock.calls)).not.toContain('sensitive filesystem details');
+  });
+
+  describe('independent local Ollama', () => {
+    const digest = 'a'.repeat(64);
+    const model = `bge-m3:sep-${digest.slice(0, 12)}`;
+    const local = (overrides: Record<string, unknown> = {}) => create({
+      EMBEDDING_PROVIDER: 'ollama', EMBEDDING_BASE_URL: 'http://127.0.0.1:11434/v1',
+      EMBEDDING_MODEL: model, EMBEDDING_MODEL_DIGEST: `sha256:${digest}`,
+      EMBEDDING_TOKENIZER: 'BAAI/bge-m3@revision-abc', ...overrides,
+    });
+    const tags = (value: unknown = { models: [{ name: model, digest }] }) =>
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => value });
+    const vectors = (embeddings: unknown = [[1, 0]]) =>
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model, embeddings }) });
+
+    it.each(['http://127.0.0.1:11434', 'http://127.0.0.1:11434/v1/', 'http://127.0.0.1:11434/v1///'])
+    ('uses only the local native API with truncation disabled: %s', async (baseUrl) => {
+      const { service, get } = await local({ EMBEDDING_BASE_URL: baseUrl });
+      tags(); vectors();
+      expect((await service.embed('hello')).embedding).toEqual(new Float32Array([1, 0]));
+      expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://127.0.0.1:11434/api/tags', expect.objectContaining({ redirect: 'error' }));
+      expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://127.0.0.1:11434/api/embed', expect.objectContaining({
+        method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: ['hello'], truncate: false, keep_alive: '5m' }),
+      }));
+      expect(get).not.toHaveBeenCalledWith('SUB2API_API_KEY');
+      expect(get).not.toHaveBeenCalledWith('SUB2API_BASE_URL');
+    });
+
+    it('works without any sub2api credentials and preserves batch order', async () => {
+      tags(); vectors([[1, 0], [0, 1]]);
+      const { service } = await local({ SUB2API_BASE_URL: undefined, SUB2API_API_KEY: undefined });
+      expect((await service.embedBatch(['a', 'b'])).map(item => Array.from(item.embedding))).toEqual([[1, 0], [0, 1]]);
+    });
+
+    it.each([undefined, 'latest', 'sha256:bad'])('requires a real expected manifest digest: %s', async (value) => {
+      await expect(local({ EMBEDDING_MODEL_DIGEST: value })).rejects.toThrow('EMBEDDING_MODEL_DIGEST');
+    });
+
+    it.each([{}, { models: [] }, { models: [{ name: model, digest: 'b'.repeat(64) }] },
+      { models: [{ name: 'another-model', digest }] }])('never embeds when the model digest cannot be verified: %j', async (payload) => {
+      tags(payload);
+      await expect((await local()).service.embed('a')).rejects.toThrow('Ollama embedding model digest mismatch');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechecks the digest for every batch, including health probes', async () => {
+      tags(); vectors(); tags({ models: [{ name: model, digest: 'b'.repeat(64) }] });
+      const { service } = await local();
+      expect(await service.isAvailable()).toBe(true);
+      expect(await service.isAvailable()).toBe(false);
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        'http://127.0.0.1:11434/api/tags', 'http://127.0.0.1:11434/api/embed', 'http://127.0.0.1:11434/api/tags',
+      ]);
+    });
+
+    it.each([undefined, 'file:///tmp/model', 'https://user:password@local.test', 'http://local.test?secret=key'])
+    ('does not fall back to sub2api for a missing/unsafe local URL: %s', async (baseUrl) => {
+      await expect((await local({ EMBEDDING_BASE_URL: baseUrl })).service.embed('a')).rejects.toThrow('EMBEDDING_BASE_URL');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([null, [], [[1]], [[1, NaN]], [[1, 0], [0, 1]]])('validates native response vectors: %j', async (payload) => {
+      tags(); vectors(payload);
+      await expect((await local()).service.embed('a')).rejects.toThrow('Invalid embedding response');
+    });
+
+    it('rejects a missing embeddings field', async () => {
+      tags();
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model }) });
+      await expect((await local()).service.embed('a')).rejects.toThrow('Invalid embedding response');
+    });
+
+    it('rejects a response claiming another model', async () => {
+      tags();
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model: 'another-model', embeddings: [[1, 0]] }) });
+      await expect((await local()).service.embed('a')).rejects.toThrow('Invalid embedding response');
+    });
+
+    it('does not embed or fall back when digest verification fails at the transport boundary', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+      await expect((await local()).service.embed('a')).rejects.toThrow('Ollama model verification failed (HTTP 503)');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      fetchMock.mockReset().mockRejectedValueOnce(new Error('secret-key-in-local-url'));
+      await expect((await local()).service.embed('a')).rejects.toThrow(/^Ollama embedding request failed$/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not leak native response bodies or fall back after an outage', async () => {
+      tags();
+      const text = jest.fn(async () => 'SECRET_BODY');
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text });
+      await expect((await local()).service.embed('a')).rejects.toThrow('Ollama embedding request failed (HTTP 500)');
+      expect(text).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects unsupported providers rather than ignoring a typo', async () => {
+      await expect(create({ EMBEDDING_PROVIDER: 'olama' })).rejects.toThrow('EMBEDDING_PROVIDER');
+    });
   });
 });

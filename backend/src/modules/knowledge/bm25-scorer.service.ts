@@ -17,6 +17,11 @@ interface BM25Result {
 
 @Injectable()
 export class BM25Scorer {
+  rank(corpus: Document[], queryTokens: string[], topK: number): BM25Result[] {
+    const isolated = new BM25Scorer();
+    isolated.buildIndex(corpus);
+    return isolated.topK(queryTokens, topK).filter(result => Number.isFinite(result.score) && result.score > 0);
+  }
   private k1 = 1.2; // term frequency saturation parameter
   private b = 0.75; // length normalization parameter
 

@@ -228,7 +228,7 @@ describe('VectorService pgvector fallback policy', () => {
       mode: 'unknown',
       fallbackCount: 0,
       failureCount: 1,
-      lastError: 'database connection lost',
+      lastError: 'PGVECTOR_SEARCH_UNAVAILABLE',
     });
   });
 

@@ -13,7 +13,7 @@ describe('LexicalSearchService publication boundary', () => {
   beforeEach(() => {
     prisma = { $queryRaw: jest.fn().mockResolvedValue([{ ...active(), content: 'old candidate' }]),
       textChunk: { findMany: jest.fn().mockResolvedValue([active()]) } };
-    scorer = { buildIndex: jest.fn(), topK: jest.fn().mockReturnValue([{ id: 'chunk', score: 1 }]) };
+    scorer = { rank: jest.fn().mockReturnValue([{ id: 'chunk', score: 1 }]) };
     service = new LexicalSearchService(prisma, { tokenize: jest.fn().mockReturnValue(['current']) } as any, scorer);
   });
 
@@ -39,6 +39,6 @@ describe('LexicalSearchService publication boundary', () => {
   ])('rejects candidates that cease to be published during recall', async row => {
     prisma.textChunk.findMany.mockResolvedValue([row]);
     await expect(service.search('current', 'ent', ['kb'], 5)).resolves.toEqual([]);
-    expect(scorer.buildIndex).not.toHaveBeenCalled();
+    expect(scorer.rank).not.toHaveBeenCalled();
   });
 });

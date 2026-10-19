@@ -16,10 +16,13 @@ import { KnowledgeSearchService } from './knowledge-search.service';
 import { KnowledgeMemberSearchDtoSchema, type KnowledgeMemberSearchDto } from 'shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { KnowledgeNoStoreInterceptor } from './knowledge-no-store.interceptor';
+import { KnowledgeRateLimitGuard } from './knowledge-rate-limit.guard';
 
 @ApiTags('Knowledge Search')
 @ApiBearerAuth()
-@UseGuards(KnowledgeAuthGuard)
+@ApiResponse({ status: 429, description: '检索或来源读取超过额度，按 Retry-After 等待后重试' })
+@ApiResponse({ status: 503, description: '知识库检索或限流依赖暂不可用' })
+@UseGuards(KnowledgeAuthGuard, KnowledgeRateLimitGuard)
 @UseInterceptors(KnowledgeNoStoreInterceptor)
 @Controller('knowledge-bases')
 export class SearchController {

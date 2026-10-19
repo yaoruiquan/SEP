@@ -1,0 +1,105 @@
+{
+  "profile": {
+    "model": "bge-m3:sep-790764642607",
+    "dimension": 1024,
+    "tokenizer": "BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181",
+    "distance": "cosine"
+  },
+  "dimension": 1024,
+  "syntheticDocuments": 6,
+  "syntheticQueries": 6,
+  "top1": 6,
+  "top3": 6,
+  "rankings": [
+    {
+      "query": 0,
+      "expected": 0,
+      "top3": [
+        0,
+        2,
+        5
+      ]
+    },
+    {
+      "query": 1,
+      "expected": 1,
+      "top3": [
+        1,
+        3,
+        4
+      ]
+    },
+    {
+      "query": 2,
+      "expected": 2,
+      "top3": [
+        2,
+        0,
+        5
+      ]
+    },
+    {
+      "query": 3,
+      "expected": 3,
+      "top3": [
+        3,
+        4,
+        2
+      ]
+    },
+    {
+      "query": 4,
+      "expected": 4,
+      "top3": [
+        4,
+        3,
+        1
+      ]
+    },
+    {
+      "query": 5,
+      "expected": 5,
+      "top3": [
+        5,
+        0,
+        2
+      ]
+    }
+  ],
+  "counts": [
+    {
+      "text": "测试知识库向量化",
+      "local": 9,
+      "native": 9
+    },
+    {
+      "text": "Hello world",
+      "local": 4,
+      "native": 4
+    },
+    {
+      "text": "企业员工报销流程是什么？",
+      "local": 10,
+      "native": 10
+    },
+    {
+      "text": "<mask>",
+      "local": 3,
+      "native": 6
+    },
+    {
+      "text": "  hello\n\nworld  ",
+      "local": 6,
+      "native": 5
+    },
+    {
+      "text": "你好，ＡＢＣ 123 ① é é 👩🏽‍💻",
+      "local": 12,
+      "native": 15
+    }
+  ],
+  "tokenizerExactlyMatchesNativeOnAllSamples": false,
+  "oversizedInputRejected": true,
+  "durationMs": 2069,
+  "scope": "Loopback real Ollama and tokenizer only; not DB, permissions, client integration or production retrieval acceptance"
+}

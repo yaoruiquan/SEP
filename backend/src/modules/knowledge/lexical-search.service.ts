@@ -44,8 +44,6 @@ export class LexicalSearchService {
       return [];
     }
 
-    this.logger.debug(`Query tokens: ${queryTokens.join(', ')}`);
-
     // 2. 候选召回（pg_trgm）
     const candidates = await this.recallCandidates(
       query,
@@ -65,8 +63,7 @@ export class LexicalSearchService {
       tokens: c.tokens || [],
     }));
 
-    this.bm25Scorer.buildIndex(corpus);
-    const scored = this.bm25Scorer.topK(queryTokens, topK);
+    const scored = this.bm25Scorer.rank(corpus, queryTokens, topK);
 
     // 4. 组装结果
     const results: LexicalSearchResult[] = scored
