@@ -15,6 +15,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { KnowledgePreviewQuerySchema, KnowledgeEmptyBodySchema, type KnowledgePageQuery } from 'shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -96,6 +97,7 @@ export class DocumentController {
   }
 
   @Get(':id/versions')
+  @SkipThrottle({ auth: true, chat: true })
   @ApiOperation({ summary: '文档版本记录，不返回原件路径或哈希' })
   @ApiResponse({ status: 200, description: '安全版本数组' })
   async listVersions(@Param('knowledgeBaseId') kbId: string, @Param('id') id: string, @Request() req) {
@@ -103,6 +105,7 @@ export class DocumentController {
   }
 
   @Get()
+  @SkipThrottle({ auth: true, chat: true })
   @ApiOperation({ summary: '获取知识库的文档列表' })
   @ApiResponse({ status: 200, description: '文档与当前生效版、最新版本及处理阶段' })
   async listDocuments(
@@ -113,6 +116,7 @@ export class DocumentController {
   }
 
   @Get(':id')
+  @SkipThrottle({ auth: true, chat: true })
   @ApiOperation({ summary: '获取文档详情' })
   @ApiResponse({ status: 200, description: '安全版本化文档详情，包含当前强 ETag' })
   async getDocument(

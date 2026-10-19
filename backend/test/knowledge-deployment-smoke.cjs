@@ -79,7 +79,10 @@ async function main() {
         body: body === undefined ? undefined : form ? body : JSON.stringify(body),
       });
       const text = await response.text();
-      assert.ok((Array.isArray(status) ? status : [status]).includes(response.status), 'HTTP_STATUS');
+      if (!(Array.isArray(status) ? status : [status]).includes(response.status)) {
+        report.httpStatus = response.status;
+        throw new Error('HTTP_STATUS');
+      }
       assert.ok(response.headers.get('cache-control')?.includes('no-store'));
       return { data: text ? JSON.parse(text) : null, etag: response.headers.get('etag'), status: response.status };
     };

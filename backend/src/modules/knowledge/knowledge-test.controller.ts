@@ -1,5 +1,6 @@
 import { Body, Controller, Get, GoneException, HttpCode, Param, Post, Request, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { KnowledgeAuthGuard } from './knowledge-auth.guard';
 import { KnowledgeTestService } from './knowledge-test.service';
 import { KnowledgeAccessPolicy } from './knowledge-access-policy';
@@ -31,6 +32,7 @@ export class KnowledgeTestController {
   }
 
   @Get(':id/documents/status')
+  @SkipThrottle({ auth: true, chat: true })
   @ApiOperation({ summary: '文档处理状态汇总（第一批兼容接口）' })
   @ApiResponse({ status: 200, description: 'total/vectorized/pending/processing/ready/failed/documents[]' })
   async getDocumentStatus(@Request() req: AuthedRequest, @Param('id') id: string) {
