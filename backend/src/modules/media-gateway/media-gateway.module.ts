@@ -19,11 +19,14 @@ import { MediaRealService } from './media-real.service';
 import { MediaRealStore } from './media-real.store';
 import { MediaRealBillingService } from './media-real-billing.service';
 import { MediaByteCacheService } from './media-byte-cache.service';
+import { MediaVideoGatewayController } from './media-video-gateway.controller';
+import { MediaVideoGatewayService } from './media-video-gateway.service';
+import { MediaVideoGatewayStore } from './media-video-gateway.store';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), PrismaModule, RedisModule, AuthModule, SettingModule, MediaConfigModule],
-  controllers: [MediaGatewayController, MediaRealController],
+  controllers: [MediaGatewayController, MediaRealController, MediaVideoGatewayController],
   providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayStore, MediaGatewayService,
-    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService],
+    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService, MediaVideoGatewayService, MediaVideoGatewayStore],
 })
 export class MediaGatewayModule {}
