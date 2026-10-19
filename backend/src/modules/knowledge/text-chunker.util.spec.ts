@@ -109,11 +109,14 @@ describe('TextChunker token budgets', () => {
         const { TextChunker } = require(process.argv[1]);
         const { EmbeddingService } = require(require('node:path').join(require('node:path').dirname(process.argv[1]), 'embedding.service.ts'));
         (async () => {
+          require('node:module')._extensions['.node'] = () => { throw new Error('Native addons forbidden'); };
+          const selfDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'self');
           global.fetch = async () => { throw new Error('Network access forbidden'); };
           const values = { EMBEDDING_MODEL: 'fixture-bge-m3-revision-abc', EMBEDDING_DIMENSION: '1024',
             EMBEDDING_TOKENIZER: 'fixture-wordpiece@revision-abc', EMBEDDING_TOKENIZER_PATH: process.argv[2] };
           const service = new EmbeddingService({ get: key => values[key] });
           await service.onModuleInit();
+          assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, 'self'), selfDescriptor);
           assert.deepEqual(service.getProfile(), { model: 'fixture-bge-m3-revision-abc', dimension: 1024,
             tokenizer: 'fixture-wordpiece@revision-abc', distance: 'cosine' });
           assert.equal(TextChunker.countTokens('hello world'), 4);
@@ -146,6 +149,7 @@ describe('TextChunker token budgets', () => {
             ? reject(error || new Error(stats.toString({ all: false, errors: true }))) : done()));
           const { TextChunker: BundledChunker } = require(join(output, 'tokenizer.cjs'));
           await BundledChunker.initializeTokenizer(process.argv[2], 'fixture-wordpiece@revision-abc');
+          assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, 'self'), selfDescriptor);
           assert.equal(BundledChunker.countTokens('hello world'), 4);
           assert.equal(BundledChunker.countTokens('你好世界'), 6);
           console.log(JSON.stringify({ chunks: chunks.length, defaultChunks: defaults.length, offline: true, bundled: true }));

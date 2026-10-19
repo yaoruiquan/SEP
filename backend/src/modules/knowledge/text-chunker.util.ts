@@ -67,7 +67,17 @@ export class TextChunker {
       (url: string) => Promise<typeof import('@xenova/transformers')>;
     // Native resolution must survive Nest's Webpack bundle (require.resolve becomes a module ID).
     const runtimeRequire = createRequire(__filename);
-    const { AutoTokenizer, PreTrainedTokenizer } = await importESM(pathToFileURL(runtimeRequire.resolve('@xenova/transformers')).href);
+    // The JS distribution avoids loading the optional glibc-only ONNX addon on Alpine.
+    // Its Webpack wrapper needs self during import; no inference or remote assets are used.
+    const hadSelf = 'self' in globalThis;
+    if (!hadSelf) Object.defineProperty(globalThis, 'self', { value: globalThis, configurable: true });
+    let runtime: typeof import('@xenova/transformers');
+    try {
+      runtime = await importESM(pathToFileURL(runtimeRequire.resolve('@xenova/transformers/dist/transformers.js')).href);
+    } finally {
+      if (!hadSelf) Reflect.deleteProperty(globalThis, 'self');
+    }
+    const { AutoTokenizer, PreTrainedTokenizer } = runtime;
     const [definition, configuration] = await Promise.all([
       readFile(join(directory, 'tokenizer.json'), 'utf8').then((data) => JSON.parse(data)),
       readFile(join(directory, 'tokenizer_config.json'), 'utf8').then((data) => JSON.parse(data)),
