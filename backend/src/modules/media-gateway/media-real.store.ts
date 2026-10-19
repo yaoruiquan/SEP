@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 const configurationSchema = z.object({
   profileId: z.string().min(1),
   configVersion: z.string().min(1),
+  modelId: z.string().min(1).max(160).optional(),
   operation: z.enum(['generate', 'edit']),
   parameters: z.object({
     size: z.enum(['1024x1024', '1536x1024', '1024x1536']),

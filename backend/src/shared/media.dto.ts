@@ -69,6 +69,34 @@ export const UpdateMediaProfileDtoSchema = z.object({
 }).strict().refine((value) => Object.keys(value).some((key) => key !== 'expectedConfigVersion'), '至少提供一个修改字段');
 export type UpdateMediaProfileDto = z.infer<typeof UpdateMediaProfileDtoSchema>;
 
+export const DiscoverMediaModelsDtoSchema = z.object({}).strict();
+export const MediaModelDiscoverySchema = z.object({
+  checkedAt: z.string().datetime(),
+  models: z.array(z.object({
+    modelId: MediaProfileSchema.shape.modelId,
+    displayName: MediaProfileSchema.shape.displayName,
+    compatible: z.boolean(),
+    reason: z.string().nullable(),
+    suggested: z.object({
+      operations: MediaProfileSchema.shape.operations,
+      executionMode: MediaExecutionModeSchema,
+      capabilities: MediaCapabilitiesSchema,
+    }).strict().nullable(),
+  }).strict()).max(2000),
+}).strict();
+export type MediaModelDiscovery = z.infer<typeof MediaModelDiscoverySchema>;
+
+export const VerifyMediaProfileDtoSchema = z.object({
+  expectedConfigVersion: MediaProfileSchema.shape.configVersion,
+}).strict();
+export type VerifyMediaProfileDto = z.infer<typeof VerifyMediaProfileDtoSchema>;
+export const MediaProfileVerificationSchema = z.object({
+  profile: MediaProfileSchema,
+  checkedAt: z.string().datetime(),
+  executionTested: z.literal(false),
+}).strict();
+export type MediaProfileVerification = z.infer<typeof MediaProfileVerificationSchema>;
+
 export const UpdateMediaConnectionDtoSchema = z.object({
   baseUrl: z.string().trim().url().superRefine((value, ctx) => {
     let url: URL;

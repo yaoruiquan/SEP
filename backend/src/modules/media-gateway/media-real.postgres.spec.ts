@@ -146,13 +146,15 @@ postgresSuite('Media real PostgreSQL claim and billing integration', () => {
     expect(wallet.balance.toFixed(6)).toBe('3.000000');
     expect(await first.personalWalletTransaction.count({ where: { relatedId: winner, type: 'CONSUME' } })).toBe(1);
 
-    await expect(billing.settle(winner, '4.000000', '0.571429')).resolves.toBe('SETTLED');
-    await expect(billing.settle(winner, '4.000000', '0.571429')).resolves.toBe('SETTLED');
+    await expect(billing.settle(winner, '4.000000', '0.571429', 'gpt-image-2')).resolves.toBe('SETTLED');
+    await expect(billing.settle(winner, '4.000000', '0.571429', 'gpt-image-2')).resolves.toBe('SETTLED');
     wallet = await first.personalWallet.findUniqueOrThrow({ where: { userId: claims.sub } });
     expect(wallet.balance.toFixed(6)).toBe('6.000000');
     expect(wallet.totalConsumeCNY.toFixed(6)).toBe('4.000000');
     expect(await first.personalWalletTransaction.count({ where: { relatedId: winner, type: 'REFUND' } })).toBe(1);
     expect(await first.computeUsageRecord.count({ where: { idempotencyKey: `media-real:${winner}` } })).toBe(1);
+    expect(await first.computeUsageRecord.findUnique({ where: { idempotencyKey: `media-real:${winner}` } }))
+      .toMatchObject({ modelId: 'gpt-image-2', employeeId });
 
     const releaseReceipt = randomUUID();
     await billing.reserve(claims, releaseReceipt, '2.000000', 7);
@@ -174,9 +176,9 @@ postgresSuite('Media real PostgreSQL claim and billing integration', () => {
       response: { error: { code: 'IDEMPOTENCY_CONFLICT' } },
     });
     await expect(Promise.all([
-      billing.settle(id, '4.000000', '0.571429'), billingB.settle(id, '4.000000', '0.571429'),
+      billing.settle(id, '4.000000', '0.571429', 'gpt-image-2'), billingB.settle(id, '4.000000', '0.571429', 'gpt-image-2'),
     ])).resolves.toEqual(['SETTLED', 'SETTLED']);
-    await expect(billing.settle(id, '5.000000', '0.714286')).rejects.toMatchObject({
+    await expect(billing.settle(id, '5.000000', '0.714286', 'gpt-image-2')).rejects.toMatchObject({
       response: { error: { code: 'IDEMPOTENCY_CONFLICT' } },
     });
     const wallet = await first.personalWallet.findUniqueOrThrow({ where: { userId: claims.sub } });
@@ -214,8 +216,8 @@ postgresSuite('Media real PostgreSQL claim and billing integration', () => {
     expect((await first.subscriptionCredit.findUniqueOrThrow({ where: { id: credit.id } })).usedCNY.toFixed(6)).toBe('3.000000');
     expect((await first.memberAllowanceTopUp.findUniqueOrThrow({ where: { id: topUp.id } })).consumedCNY.toFixed(6)).toBe('4.000000');
     if (action === 'settle') {
-      await billing.settle(id, '1.000000', '0.142857');
-      await billingB.settle(id, '1.000000', '0.142857');
+      await billing.settle(id, '1.000000', '0.142857', 'gpt-image-2');
+      await billingB.settle(id, '1.000000', '0.142857', 'gpt-image-2');
     } else {
       await billing.release(id);
       await billingB.release(id);

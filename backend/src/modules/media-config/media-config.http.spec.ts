@@ -11,6 +11,8 @@ describe('media configuration HTTP contracts', () => {
   let app: INestApplication;
   const media = {
     listProfiles: jest.fn().mockResolvedValue([]),
+    discoverModels: jest.fn().mockResolvedValue({ checkedAt: new Date().toISOString(), models: [] }),
+    verifyProfile: jest.fn().mockResolvedValue({ executionTested: false }),
     createProfile: jest.fn().mockResolvedValue({}),
     updateProfile: jest.fn().mockResolvedValue({}),
     getAvailableProfiles: jest.fn().mockResolvedValue([]),
@@ -48,6 +50,22 @@ describe('media configuration HTTP contracts', () => {
     expect(media.listProfiles).not.toHaveBeenCalled();
     await request(app.getHttpServer()).get('/api/admin/media/profiles').set('x-test-role', 'ADMIN').expect(200);
     expect(media.listProfiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('restricts discovery and verification to platform admins and rejects extra request fields', async () => {
+    await request(app.getHttpServer()).post('/api/admin/media/models/discover').send({}).expect(401);
+    await request(app.getHttpServer()).post('/api/admin/media/models/discover').set('x-test-role', 'MEMBER').send({}).expect(403);
+    await request(app.getHttpServer()).post('/api/admin/media/models/discover').set('x-test-role', 'ADMIN').send({ apiKey: 'mock-secret' }).expect(400);
+    expect(media.discoverModels).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).post('/api/admin/media/models/discover').set('x-test-role', 'ADMIN').send({}).expect(201);
+    expect(media.discoverModels).toHaveBeenCalledTimes(1);
+
+    await request(app.getHttpServer()).post('/api/admin/media/profiles/image/verify').set('x-test-role', 'ADMIN').send({}).expect(400);
+    await request(app.getHttpServer()).post('/api/admin/media/profiles/image/verify').set('x-test-role', 'ADMIN')
+      .send({ expectedConfigVersion: 'cfg_1', apiKey: 'mock-secret' }).expect(400);
+    await request(app.getHttpServer()).post('/api/admin/media/profiles/image/verify').set('x-test-role', 'ADMIN')
+      .send({ expectedConfigVersion: 'cfg_1' }).expect(201);
+    expect(media.verifyProfile).toHaveBeenCalledWith('image', { expectedConfigVersion: 'cfg_1' });
   });
 
   it('passes the authenticated identity to the enterprise profile resolver', async () => {

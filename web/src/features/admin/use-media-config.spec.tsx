@@ -6,6 +6,7 @@ import { qk } from '@/lib/query-keys';
 import {
   CreateImageProfileSchema, UpdateImageProfileSchema, useCreateMediaProfile,
   useMediaConnection, useMediaProfiles, useUpdateMediaConnection, useUpdateMediaProfile,
+  useDiscoverMediaModels, useVerifyMediaProfile,
   type CreateImageProfileDto,
 } from './use-media-config';
 import { CreateMediaProfileDtoSchema, UpdateMediaProfileDtoSchema } from '../../../../backend/src/shared/media.dto';
@@ -123,5 +124,34 @@ describe('admin media configuration hooks', () => {
     const { result } = renderHook(useUpdateMediaConnection, { wrapper });
     await act(async () => { await result.current.mutateAsync({ baseUrl: 'https://relay.example/v1', apiKey: ' mock-only-key ' }); });
     expect(api.put).toHaveBeenCalledWith('/admin/media/connection', { baseUrl: 'https://relay.example/v1', apiKey: 'mock-only-key' });
+  });
+
+  it('discovers candidate models through the saved connection without sending a key', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ checkedAt: new Date().toISOString(), models: [
+      { modelId: 'gpt-image-2', displayName: 'GPT Image 2', compatible: true, reason: null,
+        suggested: { operations: ['generate'], executionMode: 'sync-response', capabilities: { supportsReferenceImage: false, maxOutputs: 4, sizes: ['1024x1024'] } } },
+    ] });
+    const { wrapper } = setup();
+    const { result } = renderHook(useDiscoverMediaModels, { wrapper });
+    await act(async () => { await result.current.mutateAsync(); });
+    expect(api.post).toHaveBeenCalledWith('/admin/media/models/discover', {});
+    expect(JSON.stringify(vi.mocked(api.post).mock.calls[0])).not.toContain('mock-only-key');
+  });
+
+  it('verifies a profile using the current version and invalidates runtime media caches', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({
+      profile: { ...createDto, configVersion: 'version-8', verified: true },
+      checkedAt: new Date().toISOString(), executionTested: false,
+    });
+    const { client, wrapper } = setup();
+    const mediaKey = qk.mediaConfig('enterprise-a');
+    const availableKey = qk.availableMediaProfiles('enterprise-a');
+    client.setQueryData(mediaKey, {});
+    client.setQueryData(availableKey, []);
+    const { result } = renderHook(useVerifyMediaProfile, { wrapper });
+    await act(async () => { await result.current.mutateAsync({ profileId: 'image-basic', dto: { expectedConfigVersion: 'version-7' } }); });
+    expect(api.post).toHaveBeenCalledWith('/admin/media/profiles/image-basic/verify', { expectedConfigVersion: 'version-7' });
+    expect(client.getQueryState(mediaKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(availableKey)?.isInvalidated).toBe(true);
   });
 });

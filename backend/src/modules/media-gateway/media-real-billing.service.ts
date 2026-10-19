@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { resolveWindow, USED_SUM_SELECT } from '../compute-credit/member-allowance-window';
 import { computeAvailability, allocateTopUps, sumTopUpRemaining } from '../compute-credit/allowance-carryover';
 import { resolvePeriodWindow } from '../compute-credit/allowance-period';
+import { isSupportedImageModel } from './image-model-contract';
 
 export interface MediaFunding { creditCny: string; memberWalletCny: string; personalCny: string }
 
@@ -53,8 +54,9 @@ export class MediaRealBillingService {
     });
   }
 
-  async settle(receiptId: string, actualCny: string, actualUsd: string): Promise<'SETTLED' | 'RECONCILING'> {
+  async settle(receiptId: string, actualCny: string, actualUsd: string, verifiedModel: string): Promise<'SETTLED' | 'RECONCILING'> {
     const cny = this.amount(actualCny, true); const usd = this.amount(actualUsd, true);
+    if (!isSupportedImageModel(verifiedModel)) forbidden('INVALID_PARAMETER');
     return this.transaction(async tx => {
       const row = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (!row) forbidden('BILLING_PENDING');
@@ -68,11 +70,15 @@ export class MediaRealBillingService {
       // together if a competing settle/release wins or any source balance has changed.
       await this.transition(tx, receiptId, { status, settledCny: cny, settledUsd: usd });
       if (status === 'RECONCILING') return status;
+      const subscription = await tx.subscription.findFirst({
+        where: { id: row.subscriptionId, enterpriseId: row.enterpriseId }, select: { employeeId: true },
+      });
       const snapshot = this.snapshot(row);
       const refund = await this.refundDifference(tx, row, row.reservedCny.sub(cny));
       await tx.computeUsageRecord.create({ data: {
         enterpriseId: row.enterpriseId, subscriptionId: row.subscriptionId, creditId: row.creditId,
-        userId: row.userId, modelId: 'media-real', inputTokens: 0, outputTokens: 0,
+        employeeId: subscription?.employeeId ?? null,
+        userId: row.userId, modelId: verifiedModel, inputTokens: 0, outputTokens: 0,
         inputPriceUsdPerMillion: 0, outputPriceUsdPerMillion: 0, usdToCnyRate: row.usdToCnyRate,
         costCNY: cny, creditPaidCNY: Decimal.min(row.creditCny, cny),
         memberWalletPaidCNY: Decimal.min(row.memberWalletCny, Decimal.max(0, cny.sub(row.creditCny))),

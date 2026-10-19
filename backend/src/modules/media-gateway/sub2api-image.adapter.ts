@@ -3,11 +3,19 @@ import { z } from 'zod';
 import { SETTING_KEYS } from 'shared';
 import type { MediaRealQuoteRequest } from '../../shared/media-real.dto';
 import { SettingService } from '../setting/setting.service';
+import { isSupportedImageModel } from './image-model-contract';
 import { inspectMediaPng } from './media-png';
 
+const ModelIdSchema = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
+const ModelsSchema = z.object({
+  data: z.array(z.object({
+    id: ModelIdSchema,
+    display_name: z.string().trim().min(1).regex(/^[^\p{Cc}\p{Cf}]+$/u).optional(),
+  })).max(2000),
+});
 const PricingSchema = z.object({
   object: z.literal('sub2api.image_pricing'), schema_version: z.literal(1), currency: z.literal('USD'),
-  model: z.literal('gpt-image-2'), operation: z.enum(['generate', 'edit']), size: z.string(), n: z.number().int(),
+  model: ModelIdSchema, operation: z.enum(['generate', 'edit']), size: z.string(), n: z.number().int(),
   quality: z.enum(['low', 'medium', 'high']), billing_mode: z.enum(['image', 'per_request', 'token']),
   pricing_status: z.enum(['quoted', 'unavailable']), pricing_source: z.string().min(1),
   pricing_authority: z.literal('sub2api_customer_billing').optional(),
@@ -19,7 +27,7 @@ export type Sub2apiImagePrice = z.infer<typeof PricingSchema>;
 const UsageSchema = z.object({
   object: z.literal('sub2api.request_usage'), schema_version: z.literal(1), currency: z.literal('USD'),
   request_id: z.string().min(1).max(256), status: z.enum(['settled', 'pending']),
-  model: z.string().nullable().optional(), actual_cost_usd: z.string().regex(/^\d+(?:\.\d{1,12})?$/).nullable(),
+  model: ModelIdSchema.nullable().optional(), actual_cost_usd: z.string().regex(/^\d+(?:\.\d{1,12})?$/).nullable(),
   image_count: z.number().int().nonnegative().nullable().optional(),
 });
 export type Sub2apiImageUsage = z.infer<typeof UsageSchema>;
@@ -35,16 +43,31 @@ function unavailable(code = 'PRICE_UNAVAILABLE'): never {
 export class Sub2apiImageAdapter {
   constructor(private readonly settings: SettingService) {}
 
-  async pricing(input: MediaRealQuoteRequest): Promise<Sub2apiImagePrice> {
+  async discoverModels(): Promise<Array<{ modelId: string; displayName: string }>> {
+    const result = await this.call('/models', { method: 'GET' }, 15_000, 1024 * 1024);
+    const parsed = ModelsSchema.safeParse(result.value);
+    if (!parsed.success) unavailable();
+    // The shared catalog is not evidence that a model supports image operations.
+    const models = new Map<string, { modelId: string; displayName: string }>();
+    for (const model of parsed.data.data) {
+      if (!models.has(model.id)) models.set(model.id, {
+        modelId: model.id, displayName: (model.display_name ?? model.id).slice(0, 80),
+      });
+    }
+    return [...models.values()].sort((a, b) => a.modelId < b.modelId ? -1 : a.modelId > b.modelId ? 1 : 0);
+  }
+
+  async pricing(input: MediaRealQuoteRequest, modelId = 'gpt-image-2'): Promise<Sub2apiImagePrice> {
+    if (!isSupportedImageModel(modelId)) unavailable();
     const result = await this.call('/sub2api/images/pricing', {
-      method: 'POST', body: JSON.stringify({ model: 'gpt-image-2', operation: input.operation,
+      method: 'POST', body: JSON.stringify({ model: modelId, operation: input.operation,
         size: input.parameters.size, n: input.parameters.count, quality: input.parameters.quality }),
       headers: { 'Content-Type': 'application/json' },
     }, 15_000, 64 * 1024);
     const parsed = PricingSchema.safeParse(result.value);
     if (!parsed.success) unavailable();
     const price = parsed.data;
-    if (price.model !== 'gpt-image-2' || price.operation !== input.operation || price.size !== input.parameters.size ||
+    if (price.model !== modelId || price.operation !== input.operation || price.size !== input.parameters.size ||
       price.n !== input.parameters.count || price.quality !== input.parameters.quality || price.pricing_status !== 'quoted' ||
       price.billing_mode === 'token' || price.amount_usd === null || Date.parse(price.expires_at) <= Date.now() ||
       Date.parse(price.expires_at) > Date.now() + 120_000 || Date.parse(price.observed_at) > Date.now() + 5000 ||
@@ -58,16 +81,22 @@ export class Sub2apiImageAdapter {
     const result = await this.call(`/sub2api/usage?request_id=${encodeURIComponent(requestId)}`, { method: 'GET' }, 15_000, 64 * 1024);
     const parsed = UsageSchema.safeParse(result.value);
     if (!parsed.success || parsed.data.request_id !== requestId ||
-      (parsed.data.status === 'settled' && (parsed.data.actual_cost_usd === null || parsed.data.model !== 'gpt-image-2' ||
+      (parsed.data.status === 'settled' && (parsed.data.actual_cost_usd === null || parsed.data.model == null ||
         parsed.data.image_count == null || parsed.data.image_count < 1 || parsed.data.image_count > 4)) ||
       (parsed.data.status === 'pending' && parsed.data.actual_cost_usd !== null)) unavailable('BILLING_PENDING');
     return parsed.data;
   }
 
-  async execute(input: MediaRealQuoteRequest, references: Buffer[], onRequestId?: (requestId: string) => Promise<void>): Promise<{ requestId: string; images: Buffer[] }> {
+  async execute(
+    input: MediaRealQuoteRequest,
+    references: Buffer[],
+    onRequestId?: (requestId: string) => Promise<void>,
+    modelId = 'gpt-image-2',
+  ): Promise<{ requestId: string; images: Buffer[] }> {
+    if (!isSupportedImageModel(modelId)) unavailable();
     let body: BodyInit; let headers: Record<string, string> = {};
     if (input.operation === 'generate') {
-      body = JSON.stringify({ model: 'gpt-image-2', prompt: input.creativeBrief, n: input.parameters.count,
+      body = JSON.stringify({ model: modelId, prompt: input.creativeBrief, n: input.parameters.count,
         size: input.parameters.size, quality: input.parameters.quality, response_format: 'b64_json' });
       headers = { 'Content-Type': 'application/json' };
     } else {
@@ -77,14 +106,15 @@ export class Sub2apiImageAdapter {
         inspectMediaPng(bytes, 5 * 1024 * 1024);
         form.append('image[]', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), `reference-${index}.png`);
       }
-      for (const [key, value] of Object.entries({ model: 'gpt-image-2', prompt: input.creativeBrief,
+      for (const [key, value] of Object.entries({ model: modelId, prompt: input.creativeBrief,
         n: String(input.parameters.count), size: input.parameters.size, quality: input.parameters.quality, response_format: 'b64_json' })) form.append(key, value);
       body = form;
     }
     const result = await this.call(`/images/${input.operation === 'generate' ? 'generations' : 'edits'}`, { method: 'POST', headers, body }, 180_000, 140 * 1024 * 1024, true, onRequestId);
     if (!result.requestId) throw new ImageDispatchError(null, false);
-    const value = z.object({ data: z.array(z.object({ b64_json: z.string().min(1) })).min(1).max(4) }).safeParse(result.value);
-    if (!value.success || value.data.data.length > input.parameters.count) throw new ImageDispatchError(result.requestId, false);
+    const value = z.object({ model: ModelIdSchema.optional(),
+      data: z.array(z.object({ b64_json: z.string().min(1) })).min(1).max(4) }).safeParse(result.value);
+    if (!value.success || (value.data.model !== undefined && value.data.model !== modelId) || value.data.data.length > input.parameters.count) throw new ImageDispatchError(result.requestId, false);
     const images: Buffer[] = [];
     try {
       for (const item of value.data.data) {

@@ -18,13 +18,12 @@ import { MediaRealGuard } from './media-real.guard';
 import { MediaRealService } from './media-real.service';
 import { MediaRealStore } from './media-real.store';
 import { MediaRealBillingService } from './media-real-billing.service';
-import { Sub2apiImageAdapter } from './sub2api-image.adapter';
 import { MediaByteCacheService } from './media-byte-cache.service';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), PrismaModule, RedisModule, AuthModule, SettingModule, MediaConfigModule],
   controllers: [MediaGatewayController, MediaRealController],
   providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayStore, MediaGatewayService,
-    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, Sub2apiImageAdapter, MediaByteCacheService],
+    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService],
 })
 export class MediaGatewayModule {}

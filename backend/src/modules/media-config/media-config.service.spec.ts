@@ -35,7 +35,11 @@ function fixture(config?: any) {
     resolve: jest.fn().mockResolvedValue({ enterpriseId: 'ent-1', role: 'ENTERPRISE_ADMIN' }),
     assertEnterpriseAdmin: jest.fn(),
   };
-  return { service: new MediaConfigService(prisma, settings, context, config), prisma, settings, context, row };
+  const imageAdapter: any = {
+    discoverModels: jest.fn().mockResolvedValue([{ modelId: 'gpt-image-2', displayName: 'GPT Image 2' }]),
+    pricing: jest.fn().mockResolvedValue({ amount_usd: '0.04' }),
+  };
+  return { service: new MediaConfigService(prisma, settings, context, config, imageAdapter), prisma, settings, context, row, imageAdapter };
 }
 
 describe('MediaConfigService', () => {
@@ -50,12 +54,83 @@ describe('MediaConfigService', () => {
     expect(prisma.mediaModelProfile.create.mock.calls[0][0].data).not.toHaveProperty('apiKey');
   });
 
+  it('rejects creating or enabling a profile before configuration verification', async () => {
+    const { service, prisma, row } = fixture();
+    const dto = CreateMediaProfileDtoSchema.parse({
+      profileId: 'new-image', kind: 'image', displayName: '图片', modelId: 'gpt-image-2',
+      operations: ['generate'], executionMode: 'sync-response', enabled: true,
+      capabilities: { sizes: ['1024x1024'] },
+    });
+    await expect(service.createProfile(dto)).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.mediaModelProfile.create).not.toHaveBeenCalled();
+    row.verified = false;
+    await expect(service.updateProfile('product-image', { enabled: true, expectedConfigVersion: 'cfg_1' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('discovers visible models without exposing the configured key and marks only adapter models compatible', async () => {
+    const { service, imageAdapter } = fixture();
+    imageAdapter.discoverModels.mockResolvedValue([
+      { modelId: 'gpt-image-2', displayName: 'GPT Image 2' },
+      { modelId: 'gpt-image-2.5', displayName: 'GPT Image 2.5' },
+    ]);
+    const result = await service.discoverModels();
+    expect(result.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({ modelId: 'gpt-image-2', compatible: true }),
+      expect.objectContaining({ modelId: 'gpt-image-2.5', compatible: false, suggested: null }),
+    ]));
+    expect(JSON.stringify(result)).not.toContain('test-secret');
+  });
+
+  it('verifies each advertised operation, size, quality, and output boundary using pricing only', async () => {
+    const { service, prisma, row, imageAdapter } = fixture();
+    row.modelId = 'gpt-image-2';
+    row.capabilities.sizes = ['1024x1024', '1536x1024'];
+    await expect(service.verifyProfile('product-image', { expectedConfigVersion: 'cfg_1' }))
+      .resolves.toMatchObject({ executionTested: false, profile: { verified: true } });
+    expect(imageAdapter.discoverModels).toHaveBeenCalledTimes(1);
+    expect(imageAdapter.pricing).toHaveBeenCalledTimes(48);
+    expect(imageAdapter.pricing).toHaveBeenCalledWith(expect.objectContaining({ parameters: expect.objectContaining({ count: 2 }) }), 'gpt-image-2');
+    expect(imageAdapter.pricing).toHaveBeenCalledWith(expect.objectContaining({ operation: 'edit' }), 'gpt-image-2');
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { profileId: 'product-image', configVersion: 'cfg_1' }, data: { verified: true, configVersion: expect.stringMatching(/^cfg_/) },
+    }));
+  });
+
+  it('does not verify when the model is missing from discovery or any read-only quote fails', async () => {
+    const { service, prisma, row, imageAdapter } = fixture();
+    row.modelId = 'gpt-image-2';
+    row.capabilities.sizes = ['1024x1024'];
+    imageAdapter.discoverModels.mockResolvedValue([]);
+    await expect(service.verifyProfile('product-image', { expectedConfigVersion: 'cfg_1' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.mediaModelProfile.updateMany.mock.calls[0][0].data.verified).toBe(false);
+    imageAdapter.discoverModels.mockResolvedValue([{ modelId: 'gpt-image-2', displayName: 'GPT Image 2' }]);
+    imageAdapter.pricing.mockRejectedValueOnce(new ServiceUnavailableException());
+    await expect(service.verifyProfile('product-image', { expectedConfigVersion: 'cfg_1' })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects stale versions before writing and detects concurrent CAS failure', async () => {
     const { service, prisma } = fixture();
     await expect(service.updateProfile('product-image', { enabled: false, expectedConfigVersion: 'stale' })).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
     prisma.mediaModelProfile.updateMany.mockResolvedValue({ count: 0 });
     await expect(service.updateProfile('product-image', { enabled: false, expectedConfigVersion: 'cfg_1' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('revokes all profile verification after the media connection changes', async () => {
+    const { service, prisma, settings } = fixture();
+    await service.updateConnection({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
+    expect(settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(1, {
+      data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
+    });
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(2, {
+      data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
+    });
   });
 
   it('keeps verification for display-only changes but revokes it for model changes', async () => {

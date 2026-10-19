@@ -27,6 +27,7 @@ const txMock = () => ({
     findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     aggregate: jest.fn().mockResolvedValue({ _sum: { creditCny: d(0), memberWalletCny: d(0) } }),
   },
+  subscription: { findFirst: jest.fn().mockResolvedValue({ employeeId: 'employee-1' }) },
   subscriptionCredit: { findUnique: jest.fn().mockResolvedValue(null), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
   memberComputeAllowance: { findUnique: jest.fn().mockResolvedValue(null) },
   memberAllowanceWindow: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'window-1' }) },
@@ -154,9 +155,28 @@ describe('MediaRealBillingService', () => {
     expect(tx.mediaRealBillingReservation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceSnapshot: expect.objectContaining({ allowanceWindowId: 'window-1' }) }) });
   });
 
+  it('records the verified model and subscription employee while retaining the media idempotency key', async () => {
+    tx.mediaRealBillingReservation.findUnique.mockResolvedValue(reservation());
+    await service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2');
+    expect(tx.subscription.findFirst).toHaveBeenCalledWith({
+      where: { id: claims.subscriptionId, enterpriseId: claims.enterpriseId }, select: { employeeId: true },
+    });
+    expect(tx.computeUsageRecord.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      modelId: 'gpt-image-2', employeeId: 'employee-1', subscriptionId: claims.subscriptionId,
+      idempotencyKey: 'media-real:receipt-1', inputTokens: 0, outputTokens: 0,
+    }) });
+  });
+
+  it('leaves employee attribution empty when the scoped subscription is unavailable', async () => {
+    tx.mediaRealBillingReservation.findUnique.mockResolvedValue(reservation());
+    tx.subscription.findFirst.mockResolvedValue(null);
+    await service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2');
+    expect(tx.computeUsageRecord.create).toHaveBeenCalledWith({ data: expect.objectContaining({ employeeId: null }) });
+  });
+
   it('settles confirmed zero, refunds the full reservation and records zero usage', async () => {
     tx.mediaRealBillingReservation.findUnique.mockResolvedValue(reservation());
-    await expect(service.settle('receipt-1', '0.000000', '0.000000')).resolves.toBe('SETTLED');
+    await expect(service.settle('receipt-1', '0.000000', '0.000000', 'gpt-image-2')).resolves.toBe('SETTLED');
     expect(tx.personalWallet.updateMany).toHaveBeenCalledWith({ where: { id: 'wallet-1', version: 0, balance: { lte: d('99999994.999999') }, totalConsumeCNY: { gte: d(5) } }, data: { balance: { increment: d(5) }, totalConsumeCNY: { decrement: d(5) }, version: { increment: 1 } } });
     expect(tx.computeUsageRecord.create).toHaveBeenCalledWith({ data: expect.objectContaining({ costCNY: d(0), personalPaidCNY: d(0), creditPaidCNY: d(0), memberWalletPaidCNY: d(0), allowanceWindowId: 'window-1', personalWalletTransactionId: 'consume-1' }) });
     expect(tx.mediaRealBillingReservation.update).toHaveBeenCalledWith({ where: { receiptId: 'receipt-1' }, data: { sourceSnapshot: expect.objectContaining({ refund: expect.objectContaining({ amountCny: '5.000000', personal: { amount: '5.000000', balanceBefore: '20.000000', balanceAfter: '25.000000', transactionId: 'transaction-1' } }) }) } });
@@ -166,7 +186,7 @@ describe('MediaRealBillingService', () => {
     tx.mediaRealBillingReservation.findUnique.mockResolvedValue({ ...reservation(), reservedCny: d(7), creditCny: d(2), memberWalletCny: d(4), personalCny: d(1), creditId: 'credit-1',
       sourceSnapshot: { memberWalletAllocations: [{ id: 'old', amount: '2.000000' }, { id: 'new', amount: '2.000000' }] } });
     tx.memberAllowanceTopUp.findUnique.mockImplementation(async ({ where }) => ({ ...topUp(where.id), consumedCNY: d(2) }));
-    await service.settle('receipt-1', '3.000000', '0.428571');
+    await service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2');
     expect(tx.memberAllowanceTopUp.updateMany.mock.calls.map(([arg]) => [arg.where.id, arg.data.consumedCNY.decrement.toFixed(6)])).toEqual([['new', '2.000000'], ['old', '1.000000']]);
     expect(tx.subscriptionCredit.updateMany).not.toHaveBeenCalled();
     expect(tx.computeUsageRecord.create).toHaveBeenCalledWith({ data: expect.objectContaining({ creditPaidCNY: d(2), memberWalletPaidCNY: d(1), personalPaidCNY: d(0) }) });
@@ -182,19 +202,41 @@ describe('MediaRealBillingService', () => {
   it('retains freeze on over-reserve cost and makes reconciliation retries idempotent', async () => {
     const row = reservation();
     tx.mediaRealBillingReservation.findUnique.mockResolvedValueOnce(row).mockResolvedValue({ ...row, status: 'RECONCILING', settledCny: d('5.000001'), settledUsd: d('0.714286') });
-    await expect(service.settle('receipt-1', '5.000001', '0.714286')).resolves.toBe('RECONCILING');
-    await expect(service.settle('receipt-1', '5.000001', '0.714286')).resolves.toBe('RECONCILING');
+    await expect(service.settle('receipt-1', '5.000001', '0.714286', 'gpt-image-2')).resolves.toBe('RECONCILING');
+    await expect(service.settle('receipt-1', '5.000001', '0.714286', 'gpt-image-2')).resolves.toBe('RECONCILING');
     await expect(service.release('receipt-1')).rejects.toMatchObject(code('BILLING_PENDING'));
     expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
     expect(tx.computeUsageRecord.create).not.toHaveBeenCalled();
+    expect(tx.subscription.findFirst).not.toHaveBeenCalled();
     expect(tx.mediaRealBillingReservation.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects conflicting actual costs after settlement', async () => {
+  it('does not rewrite a legacy settled ledger and rejects conflicting actual costs', async () => {
     tx.mediaRealBillingReservation.findUnique.mockResolvedValue({ ...reservation(), status: 'SETTLED', settledCny: d(3), settledUsd: d('0.428571') });
-    await expect(service.settle('receipt-1', '3.000000', '0.428571')).resolves.toBe('SETTLED');
-    await expect(service.settle('receipt-1', '0.000000', '0.000000')).rejects.toMatchObject(code('IDEMPOTENCY_CONFLICT'));
+    await expect(service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2')).resolves.toBe('SETTLED');
+    await expect(service.settle('receipt-1', '0.000000', '0.000000', 'gpt-image-2')).rejects.toMatchObject(code('IDEMPOTENCY_CONFLICT'));
     expect(tx.mediaRealBillingReservation.updateMany).not.toHaveBeenCalled();
+    expect(tx.computeUsageRecord.create).not.toHaveBeenCalled();
+    expect(tx.subscription.findFirst).not.toHaveBeenCalled();
+    expect(tx.mediaRealBillingReservation.update).not.toHaveBeenCalled();
+    expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('records the model and employee only once when settlement is retried', async () => {
+    tx.mediaRealBillingReservation.findUnique.mockResolvedValueOnce(reservation()).mockResolvedValue({
+      ...reservation(), status: 'SETTLED', settledCny: d(3), settledUsd: d('0.428571'),
+    });
+    await expect(service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2')).resolves.toBe('SETTLED');
+    await expect(service.settle('receipt-1', '3.000000', '0.428571', 'gpt-image-2')).resolves.toBe('SETTLED');
+    expect(tx.computeUsageRecord.create).toHaveBeenCalledTimes(1);
+    expect(tx.subscription.findFirst).toHaveBeenCalledTimes(1);
+    expect(tx.personalWalletTransaction.create).toHaveBeenCalledTimes(1);
+    expect(tx.mediaRealBillingReservation.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null, '', 'media-real', 'other-model'])('rejects missing or unsupported settlement model %s before database access', async model => {
+    await expect(service.settle('receipt-1', '3.000000', '0.428571', model as string)).rejects.toMatchObject(code('INVALID_PARAMETER'));
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('does not refund when another operation wins the reservation transition', async () => {
@@ -237,7 +279,7 @@ describe('MediaRealBillingService', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it.each(['-0.000001', '0.0000001', '100000000.000000'])('rejects invalid actual cost %s', async amount => {
-    await expect(service.settle('receipt-1', amount, '0.000000')).rejects.toMatchObject(code('INVALID_PARAMETER'));
+    await expect(service.settle('receipt-1', amount, '0.000000', 'gpt-image-2')).rejects.toMatchObject(code('INVALID_PARAMETER'));
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

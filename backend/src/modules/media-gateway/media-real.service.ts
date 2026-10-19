@@ -18,6 +18,7 @@ import { MediaByteCacheService } from './media-byte-cache.service';
 import { MediaRealBillingService } from './media-real-billing.service';
 import { MediaRealStore, RealRequestRecord, realMediaStorageUnavailable } from './media-real.store';
 import { ImageDispatchError, Sub2apiImageAdapter } from './sub2api-image.adapter';
+import { isSupportedImageModel } from './image-model-contract';
 
 const REFERENCE_TTL = 15 * 60_000;
 const QUOTE_TTL = 60_000;
@@ -70,9 +71,9 @@ export class MediaRealService {
   async quote(claims: ClientEmploymentClaims, raw: MediaRealQuoteRequest) {
     await this.authorize(claims);
     const dto = this.parse(MediaRealQuoteRequestSchema, raw);
-    await this.requireProfile(claims.enterpriseId, dto);
     const referenceHashes = await this.referenceHashes(claims, dto.referenceIds);
-    const price = await this.adapter.pricing(dto);
+    const profile = await this.requireProfile(claims.enterpriseId, dto);
+    const price = await this.adapter.pricing(dto, profile.modelId);
     const rate = await this.usdToCnyRate();
     const amountCny = new Decimal(price.amount_usd!).mul(rate).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
     if (new Decimal(amountCny).lte(0)) error(503, 'PRICE_UNAVAILABLE', '图片报价金额无效');
@@ -115,7 +116,8 @@ export class MediaRealService {
     const claim = await this.store.claim({
       enterpriseId: claims.enterpriseId, clientRequestId: dto.clientRequestId, quoteId: dto.quoteId,
       scope: this.scope(claims), semanticSha256, referenceIds: dto.referenceIds, referenceHashes: hashes,
-      count: dto.parameters.count, configuration: { profileId: profile.profileId, configVersion: profile.configVersion, operation: dto.operation, parameters: dto.parameters },
+      count: dto.parameters.count, configuration: { profileId: profile.profileId, configVersion: profile.configVersion,
+        modelId: profile.modelId, operation: dto.operation, parameters: dto.parameters },
       receipt: { ...nowReceipt, receiptId: 'pending' }, upstreamRequestId: null,
       submissionDeadline: new Date(Date.now() + 3 * 60_000),
     });
@@ -140,7 +142,7 @@ export class MediaRealService {
       const result = await this.adapter.execute(dto, referenceBytes, async requestId => {
         record.upstreamRequestId = requestId;
         record = await this.saveExecution(record);
-      });
+      }, profile.modelId);
       record.upstreamRequestId = result.requestId;
       const expiresAt = new Date(Date.now() + OUTPUT_TTL).toISOString();
       for (const [index, bytes] of result.images.entries()) {
@@ -230,8 +232,8 @@ export class MediaRealService {
     const profile = (await this.allowedProfiles(enterpriseId)).find(item => item.profileId === dto.profileId && item.configVersion === dto.configVersion);
     if (!profile || !profile.operations.includes(dto.operation) || !profile.capabilities.sizes.includes(dto.parameters.size) || dto.parameters.count > profile.capabilities.maxOutputs) error(409, 'CONFIG_CHANGED', '图片 Profile 或企业策略已变更');
     const row = await this.prisma.mediaModelProfile.findUnique({ where: { profileId: dto.profileId } });
-    if (!row || row.configVersion !== dto.configVersion || row.modelId !== 'gpt-image-2' || !row.enabled || !row.verified) error(409, 'CONFIG_CHANGED', '当前 Profile 未通过真实图片验证');
-    return profile;
+    if (!row || row.configVersion !== dto.configVersion || !isSupportedImageModel(row.modelId) || !row.enabled || !row.verified) error(409, 'CONFIG_CHANGED', '当前 Profile 未通过真实图片配置校验');
+    return { ...profile, modelId: row.modelId };
   }
 
   private async referenceHashes(claims: ClientEmploymentClaims, ids: string[]) {
@@ -301,7 +303,9 @@ export class MediaRealService {
       }
       if (!record.upstreamRequestId) return record;
       const usage = await this.adapter.usage(record.upstreamRequestId);
-      if (usage.status !== 'settled' || usage.actual_cost_usd === null || usage.model !== 'gpt-image-2' ||
+      const configuration = record.configuration as { modelId?: unknown };
+      const expectedModel = typeof configuration.modelId === 'string' ? configuration.modelId : 'gpt-image-2';
+      if (!isSupportedImageModel(expectedModel) || usage.status !== 'settled' || usage.actual_cost_usd === null || usage.model !== expectedModel ||
         usage.image_count !== record.receipt.outputs.length || !['SUCCEEDED', 'PARTIAL_SUCCEEDED'].includes(record.receipt.status)) {
         record.receipt.billingStatus = 'RECONCILING';
         return this.store.save(record);
@@ -311,7 +315,7 @@ export class MediaRealService {
       const rate = quote.usdToCnyRate;
       const actualCny = new Decimal(usage.actual_cost_usd).mul(rate).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
       record.receipt.billingStatus = await this.billing.settle(record.receipt.receiptId, actualCny,
-        new Decimal(usage.actual_cost_usd).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6));
+        new Decimal(usage.actual_cost_usd).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6), usage.model);
       return this.store.save(record);
     } catch {
       return record;

@@ -69,14 +69,44 @@ describe('MediaRealService', () => {
     const receipt = await h.service.submit(claims, request);
     expect(receipt.billingStatus).toBe('SETTLED');
     expect(h.billing.reserve).toHaveBeenCalledWith(claims, 'receipt', '0.720000', 7.2);
-    expect(h.billing.settle).toHaveBeenCalledWith('receipt', '0.576000', '0.080000');
+    expect(h.billing.settle).toHaveBeenCalledWith('receipt', '0.576000', '0.080000', 'gpt-image-2');
     expect(h.record().configuration).not.toHaveProperty('creativeBrief');
+  });
+
+  it('freezes the selected profile model from quote through execution and billing reconciliation', async () => {
+    const h = harness();
+    h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'gpt-image-1.5', enabled: true, verified: true });
+    h.adapter.usage.mockResolvedValue({ status: 'settled', actual_cost_usd: '0.08', model: 'gpt-image-1.5', image_count: 1 });
+    await h.service.quote(claims, quoteInput);
+    expect(h.adapter.pricing).toHaveBeenCalledWith(quoteInput, 'gpt-image-1.5');
+    await h.service.submit(claims, request);
+    expect(h.store.claim.mock.calls[0][0].configuration).toMatchObject({ modelId: 'gpt-image-1.5' });
+    expect(h.adapter.execute).toHaveBeenCalledWith(expect.objectContaining({ ...quoteInput, ...request }), [], expect.any(Function), 'gpt-image-1.5');
+    expect(h.billing.settle).toHaveBeenCalledWith('receipt', '0.576000', '0.080000', 'gpt-image-1.5');
   });
 
   it('concurrent identical requests dispatch only once', async () => {
     const h = harness(); await h.service.quote(claims, quoteInput);
     await Promise.all([h.service.submit(claims, request), h.service.submit(claims, request)]);
     expect(h.adapter.execute).toHaveBeenCalledTimes(1); expect(h.billing.reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles from verified usage without consulting a changed current profile', async () => {
+    const h = harness(); await h.service.quote(claims, quoteInput);
+    h.adapter.usage.mockResolvedValueOnce({ status: 'pending', actual_cost_usd: null, model: null, image_count: 0 } as any);
+    await h.service.submit(claims, request);
+    h.prisma.mediaModelProfile.findUnique.mockClear();
+    h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'changed-model', enabled: true, verified: true });
+    expect(await h.service.receipt(claims, 'receipt')).toMatchObject({ billingStatus: 'SETTLED' });
+    expect(h.billing.settle).toHaveBeenCalledWith('receipt', '0.576000', '0.080000', 'gpt-image-2');
+    expect(h.prisma.mediaModelProfile.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined, '', 'other-model'])('does not settle unverified upstream model %s', async model => {
+    const h = harness(); await h.service.quote(claims, quoteInput);
+    h.adapter.usage.mockResolvedValue({ status: 'settled', actual_cost_usd: '0.08', model, image_count: 1 } as any);
+    expect(await h.service.submit(claims, request)).toMatchObject({ billingStatus: 'RECONCILING' });
+    expect(h.billing.settle).not.toHaveBeenCalled();
   });
 
   it('rejects a changed payload under the same key', async () => {

@@ -7,12 +7,15 @@ import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   CreateMediaProfileDto,
   CreateMediaProfileDtoSchema,
+  DiscoverMediaModelsDtoSchema,
   UpdateMediaConnectionDto,
   UpdateMediaConnectionDtoSchema,
   UpdateMediaPolicyDto,
   UpdateMediaPolicyDtoSchema,
   UpdateMediaProfileDto,
   UpdateMediaProfileDtoSchema,
+  VerifyMediaProfileDto,
+  VerifyMediaProfileDtoSchema,
 } from 'shared';
 import { MediaConfigService } from './media-config.service';
 
@@ -33,6 +36,33 @@ export class MediaConfigController {
   @ApiResponse({ status: 200, description: '媒体 Profile 列表；不包含连接密钥' })
   listProfiles() {
     return this.service.listProfiles();
+  }
+
+  @Post('admin/media/models/discover')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: '通过已保存的媒体连接检测候选模型，不执行生图' })
+  @ApiResponse({ status: 201, description: '候选模型、适配范围及检测时间；不会自动启用' })
+  @ApiResponse({ status: 400, description: '不接受客户端连接凭据或额外参数' })
+  @ApiResponse({ status: 503, description: '连接或模型目录暂不可用' })
+  discoverModels(@Body(new ZodValidationPipe(DiscoverMediaModelsDtoSchema)) _dto: Record<string, never>) {
+    return this.service.discoverModels();
+  }
+
+  @Post('admin/media/profiles/:profileId/verify')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: '校验图片 Profile 的模型目录、适配范围和只读报价，不执行生图' })
+  @ApiResponse({ status: 201, description: '配置校验结果；executionTested=false，不代表真实生成/编辑验收' })
+  @ApiResponse({ status: 400, description: '模型或参数不在支持范围' })
+  @ApiResponse({ status: 404, description: 'Profile 不存在' })
+  @ApiResponse({ status: 409, description: '配置或媒体连接已变更' })
+  @ApiResponse({ status: 503, description: '模型目录或报价不可用' })
+  verifyProfile(
+    @Param('profileId') profileId: string,
+    @Body(new ZodValidationPipe(VerifyMediaProfileDtoSchema)) dto: VerifyMediaProfileDto,
+  ) {
+    return this.service.verifyProfile(profileId, dto);
   }
 
   @Post('admin/media/profiles')

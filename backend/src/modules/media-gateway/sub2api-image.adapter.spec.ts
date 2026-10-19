@@ -134,6 +134,24 @@ describe('Sub2apiImageAdapter', () => {
     expect(new Headers(options.headers).get('authorization')).toBe(`Bearer ${API_KEY}`);
   });
 
+  it('quotes and dispatches the explicitly selected compatible model, accepting OpenAI responses without a model field', async () => {
+    const selectedModel = 'gpt-image-1.5';
+    fetchMock.mockResolvedValueOnce(response(price({ model: selectedModel })));
+    await expect(adapter.pricing(input(), selectedModel)).resolves.toMatchObject({ model: selectedModel });
+    fetchMock.mockResolvedValueOnce(response({ data: [{ b64_json: REQUEST_PNG_BASE64 }] }, { requestId: REQUEST_ID }));
+    await expect(adapter.execute(input(), [], undefined, selectedModel)).resolves.toMatchObject({ requestId: REQUEST_ID });
+    const pricingBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const executionBody = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(pricingBody.model).toBe(selectedModel);
+    expect(executionBody.model).toBe(selectedModel);
+  });
+
+  it('keeps an explicit mismatching response model unresolved after dispatch', async () => {
+    fetchMock.mockResolvedValueOnce(response({ model: 'gpt-image-2', data: [{ b64_json: REQUEST_PNG_BASE64 }] }, { requestId: REQUEST_ID }));
+    const error = await expectCode(adapter.execute(input(), [], undefined, 'gpt-image-1.5'), 502, 'SUBMISSION_UNKNOWN');
+    expect(error).toMatchObject({ requestId: REQUEST_ID, definitelyRejected: false });
+  });
+
   it('accepts an effective fallback charge explicitly attested by sub2api customer billing', async () => {
     fetchMock.mockResolvedValueOnce(response(price({ pricing_source: 'fallback', pricing_authority: 'sub2api_customer_billing' })));
     await expect(adapter.pricing(input())).resolves.toMatchObject({
