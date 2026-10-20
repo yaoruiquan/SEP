@@ -73,12 +73,20 @@ describe('MediaConfigService', () => {
     const { service, imageAdapter } = fixture();
     imageAdapter.discoverModels.mockResolvedValue([
       { modelId: 'gpt-image-2', displayName: 'GPT Image 2' },
+      { modelId: 'gpt-image-2-exact', displayName: 'GPT Image 2 Exact' },
       { modelId: 'gpt-image-2.5', displayName: 'GPT Image 2.5' },
+      { modelId: 'gpt-image-2.5-flare', displayName: 'GPT Image 2.5 Flare' },
+      { modelId: 'gpt-image-2.5-sunburst', displayName: 'GPT Image 2.5 Sunburst' },
+      { modelId: 'gpt-image-2.5-custom', displayName: 'GPT Image 2.5 Custom' },
     ]);
     const result = await service.discoverModels();
     expect(result.models).toEqual(expect.arrayContaining([
       expect.objectContaining({ modelId: 'gpt-image-2', compatible: true }),
-      expect.objectContaining({ modelId: 'gpt-image-2.5', compatible: false, suggested: null }),
+      expect.objectContaining({ modelId: 'gpt-image-2-exact', compatible: true }),
+      expect.objectContaining({ modelId: 'gpt-image-2.5', compatible: true }),
+      expect.objectContaining({ modelId: 'gpt-image-2.5-flare', compatible: true }),
+      expect.objectContaining({ modelId: 'gpt-image-2.5-sunburst', compatible: true }),
+      expect.objectContaining({ modelId: 'gpt-image-2.5-custom', compatible: false, suggested: null }),
     ]));
     expect(JSON.stringify(result)).not.toContain('test-secret');
   });
