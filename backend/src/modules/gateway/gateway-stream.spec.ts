@@ -476,6 +476,32 @@ describe('Gateway SSE observation without wire rewriting', () => {
     expect(observer.finish()).toMatchObject({ finishReason: null, done: true });
   });
 
+  it.each([' ', '\t', '\n'])('does not treat whitespace-only finish_reason %j as completion', (reason) => {
+    const observer = createChatCompletionStreamObserver();
+    observer.write(new TextEncoder().encode(
+      `data:${JSON.stringify({ choices: [{ finish_reason: reason }] })}\n\ndata:[DONE]\n\n`,
+    ));
+    expect(observer.finish()).toMatchObject({ finishReason: null, done: true });
+  });
+
+  it.each(['stop', 'length', 'tool_calls', 'provider_specific_reason', ' provider_specific_reason '])(
+    'preserves a non-empty finish_reason %j verbatim after a whitespace frame', (reason) => {
+      const observer = createChatCompletionStreamObserver();
+      observer.write(new TextEncoder().encode(
+        `data:${JSON.stringify({ choices: [{ finish_reason: ' ' }] })}\n\n` +
+        `data:${JSON.stringify({ choices: [{ finish_reason: reason }] })}\n\n`,
+      ));
+      expect(observer.finish()).toMatchObject({ finishReason: reason });
+    },
+  );
+
+  it('does not overwrite an observed finish_reason with a later whitespace frame', () => {
+    const observer = createChatCompletionStreamObserver();
+    observer.write(Buffer.from('data:{"choices":[{"finish_reason":"length"}]}\n\n' +
+      'data:{"choices":[{"finish_reason":" "}]}\n\n'));
+    expect(observer.finish()).toMatchObject({ finishReason: 'length' });
+  });
+
   it('bounds oversized diagnostics events and recovers for later frames', () => {
     const observer = createChatCompletionStreamObserver();
     observer.write(new TextEncoder().encode(`data:${'x'.repeat(1024 * 1024 + 1)}`));

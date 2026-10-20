@@ -269,6 +269,37 @@ describe('GatewayController raw SSE streaming', () => {
     await expectSingleLedgerEntry();
   });
 
+  it.each([' ', '\t', '\n'])('rejects whitespace-only finish_reason %j without rewriting SSE', async (reason) => {
+    const raw = Buffer.from(`${content}data:${JSON.stringify({ choices: [{ finish_reason: reason }] })}\n\n` +
+      `${usageEvent}\n\ndata:[DONE]\n\n`);
+    respondWithBytes(raw, true);
+    const res = new StreamResponse();
+    await invoke(res);
+    expect(res.bytes).toEqual(raw);
+    expect(res.writableFinished).toBe(false);
+    expect(res.destroyed).toBe(true);
+    expect(executions.finish).toHaveBeenCalledWith('server-execution', {
+      finishReason: null, done: true, errorCode: 'UPSTREAM_INCOMPLETE_STREAM',
+    });
+    await expectSingleLedgerEntry();
+  });
+
+  it.each(['stop', 'length', 'tool_calls', 'provider_specific_reason', ' provider_specific_reason '])(
+    'forwards and records non-blank finish_reason %j verbatim', async (reason) => {
+      const raw = Buffer.from(`${content}data:${JSON.stringify({ choices: [{ finish_reason: reason }] })}\n\n` +
+        `${usageEvent}\n\ndata:[DONE]\n\n`);
+      respondWithBytes(raw, true);
+      const res = new StreamResponse();
+      await invoke(res);
+      expect(res.bytes).toEqual(raw);
+      expect(res.writableFinished).toBe(true);
+      expect(executions.finish).toHaveBeenCalledWith('server-execution', {
+        finishReason: reason, done: true, errorCode: undefined,
+      });
+      await expectSingleLedgerEntry();
+    },
+  );
+
   it('waits for a backpressured Writable to finish all raw bytes', async () => {
     const raw = Buffer.from(`${content}${finish}${usageEvent}\n\ndata:[DONE]\n\n`);
     respondWithBytes(raw, true);

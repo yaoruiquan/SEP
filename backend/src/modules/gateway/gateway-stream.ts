@@ -186,7 +186,7 @@ export function createChatCompletionStreamObserver() {
           if (candidate) usage = candidate;
           if (json.error) protocolError = true;
           const reason = json.choices?.[0]?.finish_reason;
-          if (complete && typeof reason === 'string' && reason) finishReason = reason.slice(0, 100);
+          if (complete && typeof reason === 'string' && reason.trim()) finishReason = reason.slice(0, 100);
         } catch {
           /* Non-JSON events remain untouched on the wire. */
         }

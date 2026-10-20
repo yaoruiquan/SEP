@@ -204,7 +204,7 @@ describe('Gateway tool-call HTTP round trip', () => {
       expect(admission.reserve).toHaveBeenCalledWith(claims, snapshot, { ...body, max_tokens: 4096 }, 4096);
       expect(executions.setUpstreamRequest).toHaveBeenCalledWith(id, 'upstream-request');
       expect(executions.saveUsage).toHaveBeenCalledWith(id, usage);
-      expect(executions.finish).toHaveBeenCalledWith(id, {});
+      expect(executions.finish).toHaveBeenCalledWith(id, { finishReason: 'stop' });
     }
     expect(executions.start).toHaveBeenNthCalledWith(1, claims, 'employee-1', body.model, 'same-client-request', snapshot);
     expect(executions.start).toHaveBeenNthCalledWith(2, claims, 'employee-1', body.model, 'same-client-request', snapshot);
@@ -213,6 +213,28 @@ describe('Gateway tool-call HTTP round trip', () => {
     expect(releaseAdmission).toHaveBeenCalledTimes(2);
     expect(releaseRequest).toHaveBeenCalledTimes(2);
   });
+
+  it.each(['stop', 'length', 'tool_calls', 'provider_specific_reason', ' provider_specific_reason '])(
+    'records the verified non-stream finish_reason %s', async (finishReason) => {
+      const message = finishReason === 'tool_calls'
+        ? { role: 'assistant', content: null, tool_calls: [toolCall], reasoning_content: 'Inspect files.' }
+        : { role: 'assistant', content: 'hello', reasoning_content: 'Ready.' };
+      const upstream = {
+        choices: [{ message, finish_reason: finishReason }],
+        usage,
+      };
+      fetchMock.mockResolvedValue(new Response(JSON.stringify(upstream), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+      const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(200);
+      expect(res.body).toEqual(upstream);
+      expect(executions.saveUsage).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], usage);
+      expect(executions.finish).toHaveBeenCalledWith(res.headers['x-sep-execution-id'], {
+        finishReason,
+      });
+      expect(executions.fail).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not acquire or fetch when journal creation fails', async () => {
     executions.start.mockRejectedValue(new ServiceUnavailableException({ error: {
@@ -271,6 +293,8 @@ describe('Gateway tool-call HTTP round trip', () => {
   it.each([
     { choices: [] }, { choices: [null] }, { choices: [{}] },
     { choices: [{ message: { role: 'assistant', content: 'partial' }, finish_reason: null }] },
+    { choices: [{ message: { role: 'assistant', content: 'partial' } }] },
+    { choices: [{ message: { role: 'assistant', content: 'partial' }, finish_reason: ' \t\n' }] },
   ])('rejects incomplete JSON choices %j but retains billable usage', async ({ choices }) => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ choices, usage }), { headers: { 'Content-Type': 'application/json' } }));
     const res = await request(app.getHttpServer()).post(endpoint).send(body).expect(502);

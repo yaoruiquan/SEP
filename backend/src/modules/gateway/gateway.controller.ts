@@ -246,7 +246,8 @@ export class GatewayController {
           throw gatewayUpstreamError('UPSTREAM_INVALID_COMPLETION', 'sub2api 未返回有效模型结果');
         }
         res.json(json);
-        await waitForGatewayOperation(this.executions.finish(executionId, {}));
+        const finishReason = (json as { choices: Array<{ finish_reason: string }> }).choices[0].finish_reason;
+        await waitForGatewayOperation(this.executions.finish(executionId, { finishReason }));
       }
     } catch (error) {
       client.abort();
