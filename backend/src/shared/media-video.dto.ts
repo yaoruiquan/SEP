@@ -9,7 +9,7 @@ export type MediaVideoOperation = z.infer<typeof MediaVideoOperationSchema>;
 
 export const MediaVideoExecutionModeSchema = z.literal('async-query');
 
-export const MediaVideoCapabilitiesSchema = z.object({
+const MediaVideoCapabilitiesBaseSchema = z.object({
   supportsTextToVideo: z.boolean().default(false),
   supportsImageToVideo: z.boolean().default(false),
   supportsAudio: z.boolean().default(false),
@@ -23,7 +23,9 @@ export const MediaVideoCapabilitiesSchema = z.object({
   supportsTaskQuery: z.literal(true),
   supportsCancel: z.boolean(),
   resultRetentionSeconds: z.number().int().positive().max(7 * 24 * 60 * 60),
-}).strict().superRefine((value, ctx) => {
+}).strict();
+
+export const MediaVideoCapabilitiesSchema = MediaVideoCapabilitiesBaseSchema.superRefine((value, ctx) => {
   if (value.supportsImageToVideo && value.maxReferenceCount < 1) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['maxReferenceCount'], message: 'Image-to-video requires a reference slot.' });
   }
@@ -74,6 +76,63 @@ export const MediaVideoRuntimeSchema = z.object({
   }
 });
 export type MediaVideoRuntime = z.infer<typeof MediaVideoRuntimeSchema>;
+
+const MediaVideoDefaultsSchema = z.object({
+  durationSeconds: z.number().int().positive(), aspectRatio: z.string().regex(/^\d+:\d+$/),
+  resolution: z.enum(['480p', '720p', '1080p', '4k']), frameRate: z.number().int().positive(),
+  audio: z.boolean(), outputFormat: z.enum(['video/mp4', 'video/webm']),
+}).strict();
+
+export const MediaVideoRuntimeV2ProfileSchema = MediaVideoRuntimeProfileSchema.extend({
+  capabilities: MediaVideoCapabilitiesBaseSchema.extend({
+    audioModes: z.array(z.boolean()).min(1).max(2),
+    defaultAudio: z.boolean(),
+    defaults: MediaVideoDefaultsSchema,
+  }).strict(),
+}).strict().superRefine((profile, ctx) => {
+  const { capabilities } = profile;
+  if (!capabilities.audioModes.includes(capabilities.defaultAudio) || capabilities.defaultAudio !== capabilities.defaults.audio) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['capabilities', 'defaultAudio'], message: 'Audio default must match an available audio mode and defaults.' });
+  }
+  if (!capabilities.durationsSeconds.includes(capabilities.defaults.durationSeconds)
+    || !capabilities.aspectRatios.includes(capabilities.defaults.aspectRatio)
+    || !capabilities.resolutions.includes(capabilities.defaults.resolution)
+    || !capabilities.frameRates.includes(capabilities.defaults.frameRate)
+    || !capabilities.outputFormats.includes(capabilities.defaults.outputFormat)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['capabilities', 'defaults'], message: 'Video defaults must be available in capabilities.' });
+  }
+  if (capabilities.supportsAudio !== capabilities.audioModes.includes(true)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['capabilities', 'audioModes'], message: 'Audio modes must agree with supportsAudio.' });
+  }
+});
+
+export const MediaVideoRuntimeV2Schema = z.object({
+  protocolVersion: z.literal(2), executionMode: z.enum(['mock', 'real']).optional(), executionAvailable: z.boolean(),
+  defaultProfileId: MediaVideoIdSchema.nullable(), tools: z.array(z.enum(['video_from_image', 'video_generate', 'video_get_job', 'video_cancel_job'])),
+  profiles: z.array(MediaVideoRuntimeV2ProfileSchema).max(64),
+}).strict().superRefine((runtime, ctx) => {
+  if (!runtime.executionAvailable && runtime.tools.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools'], message: 'Disabled video runtime cannot expose tools.' });
+  if (runtime.executionAvailable && !runtime.profiles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['profiles'], message: 'Executable runtime requires a profile.' });
+  if (new Set(runtime.profiles.map(profile => profile.profileId)).size !== runtime.profiles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['profiles'], message: 'Duplicate video profiles.' });
+  if (runtime.defaultProfileId !== null && !runtime.profiles.some(profile => profile.profileId === runtime.defaultProfileId)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultProfileId'], message: 'Default profile must be available.' });
+  }
+  for (const profile of runtime.profiles) {
+    const { capabilities } = profile;
+    if (profile.operations.includes('image-to-video') && (!capabilities.supportsImageToVideo || capabilities.maxReferenceCount < 1)
+      || profile.operations.includes('text-to-video') && !capabilities.supportsTextToVideo) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['profiles'], message: 'Video profile operation capabilities are inconsistent.' });
+    }
+  }
+  for (const tool of runtime.tools) {
+    if (tool === 'video_from_image' && !runtime.profiles.some(profile => profile.operations.includes('image-to-video'))
+      || tool === 'video_generate' && !runtime.profiles.some(profile => profile.operations.includes('text-to-video'))
+      || tool === 'video_cancel_job' && !runtime.profiles.some(profile => profile.capabilities.supportsCancel)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools'], message: 'Video tool capability is unavailable.' });
+    }
+  }
+});
+export type MediaVideoRuntimeV2 = z.infer<typeof MediaVideoRuntimeV2Schema>;
 
 export const MediaVideoParametersSchema = z.object({
   durationSeconds: z.number().int().positive().max(600),

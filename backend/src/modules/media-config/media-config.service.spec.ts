@@ -31,6 +31,10 @@ function fixture(config?: any) {
     getEffectiveValue: jest.fn(async (key) => key === SETTING_KEYS.MEDIA_BASE_URL ? 'https://relay.example/v1' : 'test-secret'),
     updateMediaConnection: jest.fn(),
   };
+  settings.getMediaConnection = jest.fn(async () => ({
+    baseUrl: await settings.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL),
+    apiKey: await settings.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY), source: 'database',
+  }));
   const context: any = {
     resolve: jest.fn().mockResolvedValue({ enterpriseId: 'ent-1', role: 'ENTERPRISE_ADMIN' }),
     assertEnterpriseAdmin: jest.fn(),
@@ -39,7 +43,8 @@ function fixture(config?: any) {
     discoverModels: jest.fn().mockResolvedValue([{ modelId: 'gpt-image-2', displayName: 'GPT Image 2' }]),
     pricing: jest.fn().mockResolvedValue({ amount_usd: '0.04' }),
   };
-  return { service: new MediaConfigService(prisma, settings, context, config, imageAdapter), prisma, settings, context, row, imageAdapter };
+  const sync: any = { sync: jest.fn() };
+  return { service: new MediaConfigService(prisma, settings, context, config, imageAdapter, sync), prisma, settings, context, row, imageAdapter, sync };
 }
 
 describe('MediaConfigService', () => {
@@ -70,7 +75,7 @@ describe('MediaConfigService', () => {
   });
 
   it('discovers visible models without exposing the configured key and marks only adapter models compatible', async () => {
-    const { service, imageAdapter } = fixture();
+    const { service, imageAdapter, sync } = fixture();
     imageAdapter.discoverModels.mockResolvedValue([
       { modelId: 'gpt-image-2', displayName: 'GPT Image 2' },
       { modelId: 'gpt-image-2-exact', displayName: 'GPT Image 2 Exact' },
@@ -89,6 +94,21 @@ describe('MediaConfigService', () => {
       expect.objectContaining({ modelId: 'gpt-image-2.5-custom', compatible: false, suggested: null }),
     ]));
     expect(JSON.stringify(result)).not.toContain('test-secret');
+    expect(sync.sync).toHaveBeenCalledWith('image', expect.arrayContaining([
+      expect.objectContaining({ modelId: 'gpt-image-2', operations: ['generate', 'edit'] }),
+    ]), expect.any(String), expect.any(Function));
+    expect(sync.sync.mock.calls[0][1]).toHaveLength(5);
+    expect(imageAdapter.pricing).not.toHaveBeenCalled();
+  });
+
+  it('does not synchronize a failed catalog or permit manual capability edits to managed models', async () => {
+    const { service, imageAdapter, sync, row } = fixture();
+    imageAdapter.discoverModels.mockRejectedValue(new ServiceUnavailableException());
+    await expect(service.discoverModels()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(sync.sync).not.toHaveBeenCalled();
+    row.profileId = 'auto-image-123456789';
+    await expect(service.updateProfile(row.profileId, { expectedConfigVersion: row.configVersion, capabilities: { maxOutputs: 1 } }))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('verifies each advertised operation, size, quality, and output boundary using pricing only', async () => {
@@ -128,7 +148,7 @@ describe('MediaConfigService', () => {
     await expect(service.updateProfile('product-image', { enabled: false, expectedConfigVersion: 'cfg_1' })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('revokes only image verification before and after the image connection changes', async () => {
+  it('delegates image connection mutation to the atomic settings operation without unconditional version churn', async () => {
     const { service, prisma, settings, row } = fixture();
     const video = { ...row, profileId: 'product-video', kind: 'video', configVersion: 'video-cfg' };
     const profiles = [row, video];
@@ -138,17 +158,8 @@ describe('MediaConfigService', () => {
       return { count: matches.length };
     });
     await service.updateConnection({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
-    expect(settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
-    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(2);
-    expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { kind: 'image' },
-      data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
-    });
-    expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { kind: 'image' },
-      data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
-    });
-    expect(row.verified).toBe(false);
+    expect(settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' }, 'image', undefined);
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
     expect(video).toMatchObject({ verified: true, enabled: true, configVersion: 'video-cfg' });
   });
 
@@ -185,8 +196,15 @@ describe('MediaConfigService', () => {
   it('returns connection state without exposing the secret', async () => {
     const { service } = fixture();
     const result = await service.getConnection();
-    expect(result).toEqual({ configured: true, baseUrl: 'https://relay.example/v1', apiKeyConfigured: true });
+    expect(result).toEqual({ configured: true, baseUrl: 'https://relay.example/v1', apiKeyConfigured: true, source: 'database' });
     expect(JSON.stringify(result)).not.toContain('test-secret');
+  });
+
+  it('disables media for broken connection pairs without breaking chat runtime or hiding admin diagnostics', async () => {
+    const { service, settings } = fixture({ get: jest.fn(() => 'true') });
+    settings.getMediaConnection.mockRejectedValue(new ServiceUnavailableException('媒体连接配置不完整'));
+    await expect(service.getConnection()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, tools: [], profiles: [] });
   });
 
   it('requires enterprise context even for the available profile list', async () => {
@@ -244,6 +262,23 @@ describe('MediaConfigService', () => {
     expect(prisma.mediaModelProfile.findMany.mock.calls[0][0].where).toEqual({ kind: 'image', enabled: true, verified: true });
     const json = JSON.stringify(runtime);
     for (const secret of ['private-model-id', 'test-secret', 'relay.example']) expect(json).not.toContain(secret);
+  });
+
+  it('negotiates image v2 only for adapted models with defaults inside enterprise-filtered sizes', async () => {
+    const config = { get: jest.fn(() => 'true') } as any;
+    const { service, prisma, row } = fixture(config);
+    row.modelId = 'gpt-image-2';
+    row.capabilities = { supportsReferenceImage: true, maxOutputs: 4, sizes: ['1024x1024', '1536x1024', '2048x2048'] };
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: {
+      enabledProfileIds: ['product-image'], defaultProfileId: 'product-image', allowedOperations: ['generate'],
+      maxOutputs: 4, maxWidth: 1024, maxHeight: 1024,
+    } });
+    const runtime = await service.getRuntimeMediaV2('ent-1');
+    expect(runtime).toMatchObject({ protocolVersion: 2, defaultProfileId: 'product-image', profiles: [{ capabilities: {
+      sizes: ['1024x1024'], qualities: ['low', 'medium', 'high'], defaultQuality: 'medium', defaultSize: '1024x1024',
+    } }] });
+    expect(JSON.stringify(runtime)).not.toContain('gpt-image-2');
+    expect(JSON.stringify(runtime)).not.toContain('test-secret');
   });
 
   it('fails closed on malformed policy, missing connection and ineffective limits', async () => {

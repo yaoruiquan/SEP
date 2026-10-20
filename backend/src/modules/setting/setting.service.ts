@@ -12,6 +12,8 @@ import {
 } from 'shared';
 
 export type SettingSource = 'database' | 'environment' | 'default' | 'unconfigured';
+export type MediaConnectionKind = 'image' | 'video';
+export interface MediaConnection { baseUrl: string; apiKey: string; source: 'database' | 'environment' | 'unconfigured' }
 
 /** 单个配置项对外展示。敏感值永不回传。 */
 export interface SettingView {
@@ -81,6 +83,37 @@ export class SettingService {
     if (!field) return undefined;
     const row = await this.prisma.systemSetting.findUnique({ where: { key } });
     return this.resolveEffectiveValue(field, row?.value);
+  }
+
+  async getMediaConnection(kind: MediaConnectionKind, tx?: Prisma.TransactionClient): Promise<MediaConnection> {
+    const keys = kind === 'video'
+      ? [SETTING_KEYS.MEDIA_VIDEO_BASE_URL, SETTING_KEYS.MEDIA_VIDEO_API_KEY] as const
+      : [SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY] as const;
+    const db = tx ?? this.prisma;
+    const rows = await db.systemSetting.findMany({ where: { key: { in: [...keys] } } });
+    const stored = new Map(rows.map((row) => [row.key, row.value]));
+    const baseField = this.fieldFor(keys[0]);
+    const keyField = this.fieldFor(keys[1]);
+    if (!baseField || !keyField) return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+    const hasBase = stored.has(keys[0]);
+    const hasKey = stored.has(keys[1]);
+    if (hasBase !== hasKey) return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+    if (hasBase) {
+      try {
+        const baseUrl = stored.get(keys[0])?.trim() ?? '';
+        const encryptedKey = stored.get(keys[1]);
+        if (!encryptedKey) return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+        const apiKey = decryptSecret(encryptedKey, this.masterKey).trim();
+        if (!baseUrl || !apiKey) return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+        return { baseUrl, apiKey, source: 'database' };
+      } catch {
+        return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+      }
+    }
+    const baseUrl = this.config.get<string>(baseField.envFallback)?.trim() ?? '';
+    const apiKey = this.config.get<string>(keyField.envFallback)?.trim() ?? '';
+    if (!baseUrl || !apiKey) return { baseUrl: '', apiKey: '', source: 'unconfigured' };
+    return { baseUrl, apiKey, source: 'environment' };
   }
 
   private resolveEffectiveValue(field: SettingFieldMeta, storedValue: string | undefined): string | undefined {
@@ -221,6 +254,9 @@ export class SettingService {
   async updateMany(updates: Record<string, string>): Promise<void> {
     const reserved: readonly string[] = [...MODEL_RUNTIME_POLICY_KEYS, MODEL_RUNTIME_POLICY_REVISION, ...MODEL_RUNTIME_POLICY_LEGACY_KEYS];
     for (const key of Object.keys(updates)) {
+      if ([SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY, SETTING_KEYS.MEDIA_VIDEO_BASE_URL, SETTING_KEYS.MEDIA_VIDEO_API_KEY].includes(key as never)) {
+        throw new BadRequestException(`配置 ${key} 不可通过通用接口编辑；请使用媒体连接设置`);
+      }
       if (reserved.includes(key)) throw new BadRequestException(`配置 ${key} 不可通过通用接口编辑；请使用 /settings/model-runtime-policy，旧配置仅供历史审查`);
     }
     if ('DEFAULT_AVATAR_STYLE' in updates) throw new BadRequestException('请通过头像风格管理切换默认风格');
@@ -250,47 +286,63 @@ export class SettingService {
    * 和变更审计是不同边界。apiKey 为空时保留现有密钥，避免管理端表单
    * 只编辑地址时意外清空凭据。
    */
-  async updateMediaConnection(dto: UpdateMediaConnectionDto): Promise<void> {
+  async updateMediaConnection(dto: UpdateMediaConnectionDto, kind: MediaConnectionKind = 'image', actorId?: string): Promise<void> {
     const baseUrl = dto.baseUrl.trim();
     if (!baseUrl) throw new BadRequestException('媒体模型地址不能为空');
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(baseUrl); } catch { throw new BadRequestException('媒体模型地址不是有效 HTTPS 地址'); }
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash) {
+      throw new BadRequestException('媒体模型地址必须为不含凭据、查询或片段的 HTTPS 地址');
+    }
+    const apiKey = dto.apiKey?.trim();
+    if (apiKey && (/[^\x21-\x7e]/.test(apiKey) || /\*/.test(apiKey) || /masked|redacted/i.test(apiKey))) {
+      throw new BadRequestException('媒体模型 API Key 格式无效');
+    }
+    const keys = kind === 'video'
+      ? [SETTING_KEYS.MEDIA_VIDEO_BASE_URL, SETTING_KEYS.MEDIA_VIDEO_API_KEY] as const
+      : [SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY] as const;
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        const baseField = this.fieldFor(SETTING_KEYS.MEDIA_BASE_URL);
-        const keyField = this.fieldFor(SETTING_KEYS.MEDIA_API_KEY);
+        const baseField = this.fieldFor(keys[0]);
+        const keyField = this.fieldFor(keys[1]);
         if (!baseField || !keyField) throw new BadRequestException('媒体模型配置元数据缺失');
 
-        const rows = await tx.systemSetting.findMany({
-          where: { key: { in: [SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY] } },
-        });
-        const stored = new Map(rows.map((row) => [row.key, row.value]));
-        const previousBaseUrl = this.resolveEffectiveValue(baseField, stored.get(baseField.key))?.trim();
-        const previousKey = this.resolveEffectiveValue(keyField, stored.get(keyField.key))?.trim();
-        const apiKey = dto.apiKey?.trim();
-        const connectionChanged = previousBaseUrl !== baseUrl || Boolean(apiKey && apiKey !== previousKey);
+        const previous = await this.getMediaConnection(kind, tx);
+        const previousBaseUrl = previous.source === 'unconfigured' ? undefined : previous.baseUrl;
+        const previousKey = previous.source === 'unconfigured' ? undefined : previous.apiKey;
+        if (!apiKey && (!previousBaseUrl || !previousKey)) throw new BadRequestException('媒体模型 API Key 缺失，且无法安全保留现有完整连接');
+        const effectiveKey = apiKey || previousKey!;
+        const canonicalBase = (value: string | undefined): string | undefined => {
+          if (!value) return undefined;
+          try { return new URL(value).href.replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1'; }
+          catch { return undefined; }
+        };
+        const addressChanged = canonicalBase(previousBaseUrl) !== canonicalBase(baseUrl);
+        const connectionChanged = addressChanged || previousKey !== effectiveKey;
 
         await tx.systemSetting.upsert({
-          where: { key: SETTING_KEYS.MEDIA_BASE_URL },
+          where: { key: keys[0] },
           create: {
-            key: SETTING_KEYS.MEDIA_BASE_URL,
+            key: keys[0],
             value: baseUrl,
             isSecret: false,
             label: baseField.label,
-            category: baseField.category ?? this.inferCategory(SETTING_KEYS.MEDIA_BASE_URL),
+            category: baseField.category ?? this.inferCategory(keys[0]),
           },
           update: { value: baseUrl, isSecret: false },
         });
 
-        if (apiKey) {
-          const encryptedKey = encryptSecret(apiKey, this.masterKey);
+        if (effectiveKey) {
+          const encryptedKey = encryptSecret(effectiveKey, this.masterKey);
           await tx.systemSetting.upsert({
-            where: { key: SETTING_KEYS.MEDIA_API_KEY },
+            where: { key: keys[1] },
             create: {
-              key: SETTING_KEYS.MEDIA_API_KEY,
+              key: keys[1],
               value: encryptedKey,
               isSecret: true,
               label: keyField.label,
-              category: keyField.category ?? this.inferCategory(SETTING_KEYS.MEDIA_API_KEY),
+              category: keyField.category ?? this.inferCategory(keys[1]),
             },
             update: { value: encryptedKey, isSecret: true },
           });
@@ -298,8 +350,17 @@ export class SettingService {
 
         if (connectionChanged) {
           await tx.mediaModelProfile.updateMany({
+            where: { kind },
             data: { verified: false, configVersion: `cfg_${randomUUID()}` },
           });
+          if (actorId) {
+            await tx.auditLog.create({ data: {
+              actorId, action: 'MEDIA_CONNECTION_UPDATED', resourceType: 'SETTING', resourceId: keys[0],
+              result: 'SUCCESS', summary: `更新${kind === 'image' ? '图片' : '视频'}模型连接`,
+              metadata: { kind, previousSource: previous.source, source: 'database',
+                addressChanged, credentialChanged: previousKey !== effectiveKey },
+            } });
+          }
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {

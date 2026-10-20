@@ -1,7 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { SETTING_KEYS } from 'shared';
 import { MediaVideoUsdSchema } from '../../shared/media-video-real.dto';
 import { MediaVideoGatewayQuoteRequestSchema, type MediaVideoGatewayQuoteRequest } from '../../shared/media-video.dto';
 import { SettingService } from '../setting/setting.service';
@@ -56,16 +55,8 @@ export class Sub2apiVideoAdapter {
 
   async connection(): Promise<Sub2apiVideoConnection> {
     try {
-      let base = process.env.MEDIA_VIDEO_BASE_URL;
-      let key = process.env.MEDIA_VIDEO_API_KEY;
-      if (base?.trim() || key?.trim()) {
-        if (!base?.trim() || !key?.trim()) unavailable();
-      } else {
-        [base, key] = await Promise.all([
-          this.settings.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL),
-          this.settings.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY),
-        ]);
-      }
+      const { baseUrl, apiKey: key } = await this.settings.getMediaConnection('video');
+      let base = baseUrl;
       const url = new URL(base ?? '');
       if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
         !key?.trim() || /[^\x21-\x7e]/.test(key)) unavailable();

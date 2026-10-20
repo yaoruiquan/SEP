@@ -8,8 +8,10 @@ import {
   MediaVideoEnterpriseConfig, MediaVideoModelDiscovery, MediaVideoPolicy, MediaVideoPolicySchema,
   MediaVideoProfile, MediaVideoProfileSchema, MediaVideoProfileVerification, MediaVideoRuntime,
   MediaVideoRuntimeSchema, UpdateMediaVideoPolicyDto, UpdateMediaVideoPolicyDtoSchema,
+  MediaVideoRuntimeV2Schema,
   UpdateMediaVideoProfileDto, UpdateMediaVideoProfileDtoSchema, VerifyMediaVideoProfileDto,
   VerifyMediaVideoProfileDtoSchema,
+  UpdateMediaConnectionDto,
 } from 'shared';
 import fixture from '../../shared/fixtures/media-video-v1.json';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,6 +19,8 @@ import { EnterpriseContextService } from '../enterprise/enterprise-context.servi
 import { MEDIA_MOCK_PNG } from '../media-gateway/media-gateway-mock.adapter';
 import { Sub2apiVideoAdapter } from '../media-gateway/sub2api-video.adapter';
 import { VideoFileCacheService } from '../media-gateway/video-file-cache.service';
+import { SettingService } from '../setting/setting.service';
+import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model-sync.service';
 
 const MOCK_PROFILE = MediaVideoProfileSchema.parse(fixture.profile);
 const RESOLUTIONS = ['480p', '720p', '1080p', '4k'] as const;
@@ -29,6 +33,8 @@ export class MediaVideoConfigService {
     private readonly config: ConfigService,
     @Optional() private readonly videoAdapter?: Sub2apiVideoAdapter,
     @Optional() private readonly videoFiles?: VideoFileCacheService,
+    @Optional() private readonly modelSync?: MediaModelSyncService,
+    @Optional() private readonly settings?: SettingService,
   ) {}
 
   private realEnabled(): boolean {
@@ -114,9 +120,23 @@ export class MediaVideoConfigService {
     return rows.map(row => this.profileView(row));
   }
 
+  async getConnection() {
+    if (!this.settings) throw new ServiceUnavailableException('视频连接配置暂不可用');
+    const { baseUrl, apiKey, source } = await this.settings.getMediaConnection('video');
+    return { configured: Boolean(baseUrl?.trim() && apiKey?.trim()), baseUrl: baseUrl ?? '',
+      apiKeyConfigured: Boolean(apiKey?.trim()), source };
+  }
+
+  async updateConnection(dto: UpdateMediaConnectionDto, actorId?: string) {
+    if (!this.settings) throw new ServiceUnavailableException('视频连接配置暂不可用');
+    await this.settings.updateMediaConnection(dto, 'video', actorId);
+    return this.getConnection();
+  }
+
   async createProfile(input: CreateMediaVideoProfileDto): Promise<MediaVideoProfile> {
     const dto = this.parse<CreateMediaVideoProfileDto>(CreateMediaVideoProfileDtoSchema, input);
-    if (dto.enabled) throw new BadRequestException('视频 Profile 必须先校验 mock 配置后才能启用');
+    if (dto.profileId.startsWith('auto-')) throw new BadRequestException('自动模型标识由系统维护');
+    if (dto.enabled) throw new BadRequestException('视频配置必须先通过校验后才能启用');
     try {
       const row = await this.prisma.mediaModelProfile.create({
         data: { profileId: dto.profileId, kind: dto.kind, displayName: dto.displayName, modelId: dto.modelId,
@@ -132,6 +152,9 @@ export class MediaVideoConfigService {
 
   async updateProfile(profileId: string, input: UpdateMediaVideoProfileDto): Promise<MediaVideoProfile> {
     const dto = this.parse<UpdateMediaVideoProfileDto>(UpdateMediaVideoProfileDtoSchema, input);
+    if (profileId.startsWith('auto-') && ['modelId', 'operations', 'executionMode', 'capabilities'].some(key => key in dto)) {
+      throw new BadRequestException('模型规格由适配器自动维护，请在客户端选择本次生成参数');
+    }
     const current = await this.findProfile(profileId);
     if (dto.expectedConfigVersion !== current.configVersion) throw new ConflictException('视频配置已更新，请重新加载后保存');
     const { expectedConfigVersion: _version, capabilities, ...changes } = dto;
@@ -145,7 +168,7 @@ export class MediaVideoConfigService {
     );
     if (contractChanged) { next.enabled = false; next.verified = false; }
     if (next.enabled) {
-      if (!next.verified) throw new BadRequestException('视频 Profile 必须先校验 mock 配置后才能启用');
+      if (!next.verified) throw new BadRequestException('视频配置必须先通过校验后才能启用');
       this.assertExecutable(next);
     }
     if (isDeepStrictEqual(current, next)) return current;
@@ -185,12 +208,24 @@ export class MediaVideoConfigService {
   }
 
   async discoverModels(): Promise<MediaVideoModelDiscovery> {
-    if (this.realEnabled()) {
-      if (!this.videoAdapter) throw new ServiceUnavailableException('真实视频组件不可用');
+    if (this.realEnabled() || !this.mockEnabled()) {
+      if (!this.videoAdapter || !this.modelSync || !this.videoFiles) throw new ServiceUnavailableException('真实视频组件不可用');
       const connection = await this.videoAdapter.connection();
+      const models = await this.videoAdapter.discover(connection);
+      await this.videoFiles.assertAvailable();
+      await this.modelSync.sync('video', models.filter(model => model.modelId === 'minimax-h3').map(model => ({
+        ...model, operations: ['image-to-video', 'text-to-video'], executionMode: 'async-query', capabilities: this.realCapabilities(),
+      })), connection.fingerprint, row => {
+        const parsed = MediaVideoProfileSchema.safeParse({
+          profileId: row.profileId, kind: row.kind, displayName: row.displayName, modelId: row.modelId,
+          configVersion: row.configVersion, operations: row.operations, executionMode: row.executionMode,
+          capabilities: row.capabilities, enabled: row.enabled, verified: row.verified,
+        });
+        return parsed.success && this.realCompatible(parsed.data);
+      });
       return { checkedAt: new Date().toISOString(), mock: false, executionTested: false,
-        models: (await this.videoAdapter.discover(connection)).map(model => ({ ...model,
-          compatible: model.modelId === 'minimax-h3', reason: model.modelId === 'minimax-h3' ? '待独立配置和报价校验' : '当前未适配此视频模型',
+        models: models.map(model => ({ ...model,
+          compatible: model.modelId === 'minimax-h3', reason: model.modelId === 'minimax-h3' ? null : '当前未适配此视频模型',
           suggested: model.modelId === 'minimax-h3' ? { operations: ['image-to-video', 'text-to-video'],
             executionMode: 'async-query', capabilities: this.realCapabilities() } : null,
         })),
@@ -209,6 +244,14 @@ export class MediaVideoConfigService {
 
   private async availableProfiles(): Promise<MediaVideoProfile[]> {
     if (!this.mockEnabled() && !this.realEnabled()) return [];
+    if (this.realEnabled()) {
+      if (!this.settings) return [];
+      try { mediaConnectionFingerprint(await this.settings.getMediaConnection('video')); }
+      catch (error) {
+        if (error instanceof ServiceUnavailableException) return [];
+        throw error;
+      }
+    }
     const rows = await this.prisma.mediaModelProfile.findMany({
       where: { kind: 'video', enabled: true, verified: true }, orderBy: { createdAt: 'asc' },
     });
@@ -224,7 +267,7 @@ export class MediaVideoConfigService {
   async getEnterpriseConfig(userId: string): Promise<MediaVideoEnterpriseConfig> {
     const context = await this.enterpriseContext.resolve(userId);
     const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: context.enterpriseId } });
-    return { policy: this.parsePolicy(config?.mediaPolicy), configured: this.mockEnabled() || this.realEnabled(),
+    return { policy: this.parsePolicy(config?.mediaPolicy), configured: this.mockEnabled() || (this.settings ? (await this.getConnection()).configured : false),
       canEdit: context.role === 'ENTERPRISE_ADMIN', mock: !this.realEnabled(), executionTested: false };
   }
 
@@ -292,5 +335,20 @@ export class MediaVideoConfigService {
         'video_get_job',
       ] : [],
     });
+  }
+
+  async getRuntimeVideoV2(enterpriseId: string) {
+    const legacy = await this.getRuntimeVideo(enterpriseId);
+    const modelIds = new Map((await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
+    const profiles = legacy.profiles.map(profile => {
+      const c = profile.capabilities;
+      const audioModes = modelIds.get(profile.profileId) === 'minimax-h3' && this.realEnabled() ? [true] : c.supportsAudio ? [false, true] : [false];
+      const defaultAudio = audioModes[0];
+      return { ...profile, capabilities: { ...c, audioModes, defaultAudio,
+        defaults: { durationSeconds: c.durationsSeconds[0], aspectRatio: c.aspectRatios[0],
+          resolution: c.resolutions[0], frameRate: c.frameRates[0], audio: defaultAudio,
+          outputFormat: c.outputFormats[0] } } };
+    });
+    return MediaVideoRuntimeV2Schema.parse({ ...legacy, protocolVersion: 2, profiles });
   }
 }

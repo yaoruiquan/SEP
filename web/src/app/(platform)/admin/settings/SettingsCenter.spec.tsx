@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import SettingsCenter from './SettingsCenter';
 import BasicSettings from './BasicSettings';
 
-const mocks = vi.hoisted(() => ({ update: vi.fn(), success: vi.fn(), includePolicyRows: true, includeRewards: false }));
+const mocks = vi.hoisted(() => ({ update: vi.fn(), success: vi.fn(), includePolicyRows: true, includeRewards: false, includeConnections: false }));
 vi.mock('./ModelRuntimePolicySettings', () => ({ default: () => <div>专用策略编辑器</div> }));
 vi.mock('@/features/model/use-models', () => ({ useUpstreamModels: () => ({ data: [], isFetching: false }) }));
 vi.mock('@/components/ui/toast', () => ({ toast: { success: mocks.success, error: vi.fn() } }));
@@ -21,15 +21,19 @@ vi.mock('@/features/admin/use-admin', () => {
   const rewards = { key: 'CONTRIBUTION_REWARDS_ENABLED', category: 'billing', label: '贡献奖励开关', value: 'false', secret: false, editable: true, configured: true, type: 'boolean' };
   const dataWithRewards = [...data, rewards];
   const genericWithRewards = [...genericOnlyData, rewards];
+  const dataWithConnections = [...data,
+    { key: 'SUB2API_BASE_URL', category: 'ai', label: '会话上游地址', value: 'https://chat.example', secret: false, editable: true, configured: true },
+    { key: 'SUB2API_API_KEY', category: 'ai', label: '会话密钥', value: '', secret: true, editable: true, configured: true },
+  ];
   return {
-    useSettings: () => ({ data: mocks.includePolicyRows
+    useSettings: () => ({ data: mocks.includeConnections ? dataWithConnections : (mocks.includePolicyRows
       ? (mocks.includeRewards ? dataWithRewards : data)
-      : (mocks.includeRewards ? genericWithRewards : genericOnlyData), isLoading: false }),
+      : (mocks.includeRewards ? genericWithRewards : genericOnlyData)), isLoading: false }),
     useUpdateSettings: () => ({ mutateAsync: mocks.update, isPending: false }),
   };
 });
 
-beforeEach(() => { vi.resetAllMocks(); mocks.includePolicyRows = true; mocks.includeRewards = false; mocks.update.mockResolvedValue([]); });
+beforeEach(() => { vi.resetAllMocks(); mocks.includePolicyRows = true; mocks.includeRewards = false; mocks.includeConnections = false; mocks.update.mockResolvedValue([]); });
 afterEach(cleanup);
 
 describe('设置中心策略入口兼容', () => {
@@ -59,6 +63,16 @@ describe('设置中心策略入口兼容', () => {
     expect(screen.getByText(/未接入执行，旧值仅供审查/)).toBeInTheDocument();
     expect(screen.queryByText('策略内部版本')).not.toBeInTheDocument();
     expect(screen.queryByText('成员频率')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存本分类' }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ SUB2API_DEFAULT_MODEL: 'test-model' }));
+  });
+
+  it('会话连接不在通用 AI 分类重复显示或保存', async () => {
+    mocks.includeConnections = true;
+    render(<SettingsCenter />);
+    fireEvent.click(screen.getByRole('button', { name: /AI 服务/ }));
+    expect(screen.queryByText('会话上游地址')).not.toBeInTheDocument();
+    expect(screen.queryByText('会话密钥')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存本分类' }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ SUB2API_DEFAULT_MODEL: 'test-model' }));
   });

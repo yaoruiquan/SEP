@@ -13,6 +13,7 @@ function fixture() {
       deleteMany: jest.fn(),
     },
     mediaModelProfile: { updateMany: jest.fn() },
+    auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation((fn: any) => fn(prisma));
@@ -135,6 +136,32 @@ describe('SettingService', () => {
     await expect(service.updateMany({ [SETTING_KEYS.MEDIA_BASE_URL]: 'https://relay.example/v1' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('reads complete image and video pairs from the requested source and transaction client', async () => {
+    const { service, prisma, config } = fixture();
+    config.get.mockImplementation((key: string) => ({ MEDIA_BASE_URL: 'https://image-env.example', MEDIA_API_KEY: 'image-env-key',
+      MEDIA_VIDEO_BASE_URL: 'https://video-env.example', MEDIA_VIDEO_API_KEY: 'video-env-key' } as Record<string, string>)[key]);
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    await expect(service.getMediaConnection('video')).resolves.toEqual({ baseUrl: 'https://video-env.example', apiKey: 'video-env-key', source: 'environment' });
+    const tx = { systemSetting: { findMany: jest.fn().mockResolvedValue([
+      { key: 'MEDIA_VIDEO_BASE_URL', value: 'https://video-db.example' },
+      { key: 'MEDIA_VIDEO_API_KEY', value: encryptSecret('video-db-key', 'test-master-key') },
+    ]) } } as any;
+    await expect(service.getMediaConnection('video', tx)).resolves.toEqual({ baseUrl: 'https://video-db.example', apiKey: 'video-db-key', source: 'database' });
+    expect(tx.systemSetting.findMany).toHaveBeenCalledWith({ where: { key: { in: ['MEDIA_VIDEO_BASE_URL', 'MEDIA_VIDEO_API_KEY'] } } });
+  });
+
+  it('fails closed for partial, corrupt, or absent media pairs without crossing kinds', async () => {
+    const { service, prisma, config } = fixture();
+    config.get.mockImplementation((key: string) => ({ MEDIA_BASE_URL: 'https://image.example', MEDIA_API_KEY: 'image-key',
+      MEDIA_VIDEO_BASE_URL: 'https://video.example' } as Record<string, string>)[key]);
+    prisma.systemSetting.findMany.mockResolvedValue([{ key: 'MEDIA_VIDEO_API_KEY', value: 'bad-ciphertext' }]);
+    await expect(service.getMediaConnection('video')).resolves.toEqual({ baseUrl: '', apiKey: '', source: 'unconfigured' });
+    prisma.systemSetting.findMany.mockResolvedValue([{ key: 'MEDIA_VIDEO_BASE_URL', value: 'https://video.example' }]);
+    await expect(service.getMediaConnection('video')).resolves.toEqual({ baseUrl: '', apiKey: '', source: 'unconfigured' });
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    await expect(service.getMediaConnection('video')).resolves.toEqual({ baseUrl: '', apiKey: '', source: 'unconfigured' });
+  });
+
   it('encrypts media keys once and revokes verification when effective connection changes', async () => {
     const { service, prisma } = fixture();
     prisma.systemSetting.findMany.mockResolvedValue([]);
@@ -144,8 +171,41 @@ describe('SettingService', () => {
     expect(savedKey.create.value).not.toBe('test-media-key');
     expect(decryptSecret(savedKey.create.value, 'test-master-key')).toBe('test-media-key');
     expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledWith({
+      where: { kind: 'image' },
       data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
     });
+  });
+
+  it('audits connection changes atomically without storing credentials or route details', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    await service.updateMediaConnection({ baseUrl: 'https://private-video.example/v1', apiKey: 'private-video-key' }, 'video', 'admin-1');
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      actorId: 'admin-1', action: 'MEDIA_CONNECTION_UPDATED', resourceId: 'MEDIA_VIDEO_BASE_URL',
+      metadata: { kind: 'video', previousSource: 'unconfigured', source: 'database', addressChanged: true, credentialChanged: true },
+    }) });
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toMatch(/private-video/);
+    prisma.auditLog.create.mockClear();
+    prisma.systemSetting.findMany.mockResolvedValue([
+      { key: 'MEDIA_VIDEO_BASE_URL', value: 'https://private-video.example/v1' },
+      { key: 'MEDIA_VIDEO_API_KEY', value: encryptSecret('private-video-key', 'test-master-key') },
+    ]);
+    await service.updateMediaConnection({ baseUrl: 'https://private-video.example/v1' }, 'video', 'admin-1');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves versions for equivalent normalized routes and the same key', async () => {
+    const { service, prisma } = fixture();
+    prisma.systemSetting.findMany.mockResolvedValue([
+      { key: 'MEDIA_VIDEO_BASE_URL', value: 'https://VIDEO.example:443/' },
+      { key: 'MEDIA_VIDEO_API_KEY', value: encryptSecret('video-key', 'test-master-key') },
+    ]);
+    await service.updateMediaConnection({ baseUrl: 'https://video.example/v1/' }, 'video', 'admin-1');
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    await service.updateMediaConnection({ baseUrl: 'https://video.example/V1' }, 'video', 'admin-1');
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { kind: 'video' } }));
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
   });
 
   it('preserves empty keys and verification when effective database values are unchanged', async () => {
@@ -155,7 +215,7 @@ describe('SettingService', () => {
       { key: SETTING_KEYS.MEDIA_API_KEY, value: encryptSecret('test-media-key', 'test-master-key') },
     ]);
     await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: ' ' });
-    expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(2);
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
     await service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'test-media-key' });
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
@@ -173,6 +233,26 @@ describe('SettingService', () => {
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
     expect(prisma.systemSetting.upsert.mock.calls.map(([args]: any[]) => args.where.key))
       .toEqual([SETTING_KEYS.MEDIA_BASE_URL, SETTING_KEYS.MEDIA_API_KEY]);
+  });
+
+  it('stores video environment credentials together and invalidates only video profiles on change', async () => {
+    const { service, prisma, config } = fixture();
+    config.get.mockImplementation((key: string) => ({ MEDIA_VIDEO_BASE_URL: 'https://video.example/v1', MEDIA_VIDEO_API_KEY: 'video-key' } as Record<string, string>)[key]);
+    prisma.systemSetting.findMany.mockResolvedValue([]);
+    await service.updateMediaConnection({ baseUrl: 'https://video.example/v1' }, 'video');
+    const savedKey = prisma.systemSetting.upsert.mock.calls.find(([args]: any[]) => args.where.key === 'MEDIA_VIDEO_API_KEY')![0];
+    expect(decryptSecret(savedKey.create.value, 'test-master-key')).toBe('video-key');
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    await service.updateMediaConnection({ baseUrl: 'https://new-video.example/v1', apiKey: 'new-video-key' }, 'video');
+    expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledWith({ where: { kind: 'video' }, data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) } });
+  });
+
+  it.each(['http://relay.example/v1', 'https://user:pass@relay.example/v1', 'https://relay.example/v1?x=1',
+    'https://relay.example/v1#x'])('rejects unsafe media URLs and masked credentials before writing (%s)', async baseUrl => {
+    const { service, prisma } = fixture();
+    await expect(service.updateMediaConnection({ baseUrl, apiKey: 'valid-key' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateMediaConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'sk-****' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.systemSetting.upsert).not.toHaveBeenCalled();
   });
 
   it('maps concurrent media connection transactions to HTTP 409', async () => {

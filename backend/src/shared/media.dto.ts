@@ -138,6 +138,40 @@ export const MediaRuntimeSchema = z.object({
 }).strict();
 export type MediaRuntime = z.infer<typeof MediaRuntimeSchema>;
 
+export const MediaRuntimeV2ProfileSchema = MediaRuntimeProfileSchema.extend({
+  capabilities: MediaRuntimeProfileSchema.shape.capabilities.extend({
+    qualities: z.array(z.enum(['low', 'medium', 'high'])).min(1).max(3),
+    defaultQuality: z.enum(['low', 'medium', 'high']),
+    defaultSize: z.string().regex(/^[1-9]\d{0,4}x[1-9]\d{0,4}$/),
+  }).strict(),
+}).strict().superRefine((profile, ctx) => {
+  if (!profile.capabilities.qualities.includes(profile.capabilities.defaultQuality)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['capabilities', 'defaultQuality'], message: 'Default image quality must be available.' });
+  }
+  if (!profile.capabilities.sizes.includes(profile.capabilities.defaultSize)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['capabilities', 'defaultSize'], message: 'Default image size must be available.' });
+  }
+});
+
+export const MediaRuntimeV2Schema = z.object({
+  protocolVersion: z.literal(2), executionAvailable: z.boolean(), defaultProfileId: z.string().nullable(),
+  tools: z.array(z.enum(['image_generate', 'image_edit'])), profiles: z.array(MediaRuntimeV2ProfileSchema).max(64),
+}).strict().superRefine((runtime, ctx) => {
+  if (!runtime.executionAvailable && runtime.tools.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools'], message: 'Unavailable runtime cannot expose tools.' });
+  if (runtime.executionAvailable && runtime.profiles.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['profiles'], message: 'Executable runtime requires a profile.' });
+  if (new Set(runtime.profiles.map(profile => profile.profileId)).size !== runtime.profiles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['profiles'], message: 'Duplicate profiles.' });
+  if (runtime.defaultProfileId !== null && !runtime.profiles.some(profile => profile.profileId === runtime.defaultProfileId)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultProfileId'], message: 'Default profile must be available.' });
+  }
+  for (const tool of runtime.tools) {
+    const operation = tool === 'image_generate' ? 'generate' : 'edit';
+    if (!runtime.profiles.some(profile => profile.operations.includes(operation))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools'], message: 'Image tool requires a matching operation.' });
+    }
+  }
+});
+export type MediaRuntimeV2 = z.infer<typeof MediaRuntimeV2Schema>;
+
 export const MediaRuntimeQuerySchema = z.object({
   mediaProtocolVersion: z.coerce.number().int().min(1).optional(),
   videoProtocolVersion: z.coerce.number().int().min(1).optional(),

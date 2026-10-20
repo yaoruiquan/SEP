@@ -2,6 +2,7 @@ import {
   CreateMediaProfileDtoSchema,
   MediaRuntimeQuerySchema,
   MediaRuntimeSchema,
+  MediaRuntimeV2Schema,
   UpdateMediaConnectionDtoSchema,
   UpdateMediaProfileDtoSchema,
 } from './media.dto';
@@ -24,6 +25,19 @@ describe('media configuration schemas', () => {
       expect(parsed.tools).toEqual([]);
       for (const profile of parsed.profiles) expect(profile).not.toHaveProperty('modelId');
     }
+  });
+  it('validates strict v2 quality fields and available defaults without exposing model IDs', () => {
+    const wire = JSON.parse(readFileSync(join(__dirname, 'fixtures/media-runtime-v2.json'), 'utf8'));
+    expect(MediaRuntimeV2Schema.parse(wire.media)).toEqual(wire.media);
+    const runtime = MediaRuntimeV2Schema.parse({ protocolVersion: 2, executionAvailable: true,
+      defaultProfileId: 'product-image', tools: [], profiles: [{ profileId: 'product-image', kind: 'image',
+        displayName: 'Product image', configVersion: 'cfg_1', operations: ['generate'], executionMode: 'sync-response',
+        capabilities: { supportsReferenceImage: false, maxOutputs: 1, sizes: ['1024x1024'], maxWidth: 1024,
+          maxHeight: 1024, qualities: ['low', 'medium', 'high'], defaultQuality: 'medium', defaultSize: '1024x1024' } }] });
+    expect(runtime.profiles[0]).not.toHaveProperty('modelId');
+    expect(MediaRuntimeV2Schema.safeParse({ ...runtime, extra: true }).success).toBe(false);
+    expect(MediaRuntimeV2Schema.safeParse({ ...runtime, profiles: [{ ...runtime.profiles[0], capabilities: {
+      ...runtime.profiles[0].capabilities, defaultSize: '1536x1024' } }] }).success).toBe(false);
   });
   it('requires at least one explicit size and defaults only known capabilities', () => {
     expect(CreateMediaProfileDtoSchema.parse(profile).capabilities).toEqual({

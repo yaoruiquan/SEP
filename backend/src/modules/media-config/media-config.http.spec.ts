@@ -16,6 +16,8 @@ describe('media configuration HTTP contracts', () => {
     createProfile: jest.fn().mockResolvedValue({}),
     updateProfile: jest.fn().mockResolvedValue({}),
     getAvailableProfiles: jest.fn().mockResolvedValue([]),
+    getConnection: jest.fn().mockResolvedValue({ configured: true, baseUrl: 'https://image.example/v1', apiKeyConfigured: true, source: 'database' }),
+    updateConnection: jest.fn().mockResolvedValue({ configured: true }),
   };
   const client = { getRuntime: jest.fn().mockResolvedValue({ manifestVersion: 1 }) };
 
@@ -50,6 +52,17 @@ describe('media configuration HTTP contracts', () => {
     expect(media.listProfiles).not.toHaveBeenCalled();
     await request(app.getHttpServer()).get('/api/admin/media/profiles').set('x-test-role', 'ADMIN').expect(200);
     expect(media.listProfiles).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['get', 'put'])('guards the independent image connection: %s', async method => {
+    const path = '/api/admin/media/connection';
+    const body = { baseUrl: 'https://image.example/v1', apiKey: 'test-private-key' };
+    await request(app.getHttpServer())[method](path).send(body).expect(401);
+    await request(app.getHttpServer())[method](path).set('x-test-role', 'MEMBER').send(body).expect(403);
+    expect(media.getConnection).not.toHaveBeenCalled();
+    expect(media.updateConnection).not.toHaveBeenCalled();
+    await request(app.getHttpServer())[method](path).set('x-test-role', 'ADMIN').send(body).expect(200);
+    if (method === 'put') expect(media.updateConnection).toHaveBeenCalledWith(body, 'user-1');
   });
 
   it('restricts discovery and verification to platform admins and rejects extra request fields', async () => {

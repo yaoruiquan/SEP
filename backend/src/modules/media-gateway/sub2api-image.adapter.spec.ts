@@ -1,6 +1,5 @@
 import { deflateSync } from 'node:zlib';
 import { HttpException } from '@nestjs/common';
-import type { SettingKey } from 'shared';
 import { SettingService } from '../setting/setting.service';
 import { MediaRealQuoteRequestSchema } from '../../shared/media-real.dto';
 import { ImageDispatchError, Sub2apiImageAdapter } from './sub2api-image.adapter';
@@ -89,16 +88,31 @@ async function expectCode(action: Promise<unknown>, status: number, code: string
 
 describe('Sub2apiImageAdapter', () => {
   let fetchMock: jest.SpyInstance;
-  let settings: jest.Mocked<Pick<SettingService, 'getEffectiveValue'>>;
+  let settings: jest.Mocked<Pick<SettingService, 'getMediaConnection'>>;
   let adapter: Sub2apiImageAdapter;
 
   beforeEach(() => {
-    settings = { getEffectiveValue: jest.fn(async (key: SettingKey): Promise<string> => key === 'MEDIA_BASE_URL' ? BASE_URL : API_KEY) };
+    settings = {
+      getMediaConnection: jest.fn(async (..._args: Parameters<SettingService['getMediaConnection']>): ReturnType<SettingService['getMediaConnection']> => (
+        { baseUrl: BASE_URL, apiKey: API_KEY, source: 'database' }
+      )),
+    };
     adapter = new Sub2apiImageAdapter(settings as unknown as SettingService);
     fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected network call'));
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  it('uses the complete independent image pair and pins catalog requests to the supplied snapshot', async () => {
+    fetchMock.mockImplementation(async () => response({ data: [{ id: 'gpt-image-2' }] }));
+    await adapter.discoverModels();
+    expect(settings.getMediaConnection).toHaveBeenCalledWith('image');
+    settings.getMediaConnection.mockClear();
+    settings.getMediaConnection.mockRejectedValue(new Error('Settings changed'));
+    await adapter.discoverModels({ base: 'https://frozen-image.example', key: API_KEY });
+    expect(fetchMock.mock.calls[1][0]).toBe('https://frozen-image.example/v1/models');
+    expect(settings.getMediaConnection).not.toHaveBeenCalled();
+  });
 
   it('persists and queries the sub2api client billing ID instead of the upstream request ID', async () => {
     const upstream = response({ data: [{ b64_json: REQUEST_PNG_BASE64 }] }, { requestId: 'upstream-request-id' });
@@ -201,7 +215,7 @@ describe('Sub2apiImageAdapter', () => {
       [BASE_URL, '   '],
     ];
     for (const [url, key] of secrets) {
-      settings.getEffectiveValue.mockImplementation(async (setting: string) => setting === 'MEDIA_BASE_URL' ? url : key);
+      settings.getMediaConnection.mockResolvedValue({ baseUrl: url, apiKey: key, source: 'database' });
       const error = await expectCode(adapter.pricing(input()), 503, 'PRICE_UNAVAILABLE');
       const serialized = JSON.stringify(error.getResponse()) + error.stack;
       expect(serialized).not.toContain('private-user');

@@ -21,7 +21,10 @@ const run = promisify(execFile);
 class VideoRealIntegrationState {
   readonly db = videoRealPrisma();
   readonly config = { get: (key: string) => key === 'MEDIA_VIDEO_REAL_ENABLED' ? 'true' : 'test' };
-  readonly runtime = new MediaVideoConfigService(this.db as never, {} as never, this.config as never);
+  readonly runtime = new MediaVideoConfigService(this.db as never, {} as never, this.config as never,
+    undefined, undefined, undefined, { getMediaConnection: async () => ({
+      baseUrl: 'https://synthetic.invalid/v1', apiKey: 'synthetic', source: 'environment',
+    }) } as never);
   revoked = false;
   readonly submitIds: string[] = [];
   readonly submitted: Array<{ operation: string; referenceCount: number; referenceHashes: string[] }> = [];

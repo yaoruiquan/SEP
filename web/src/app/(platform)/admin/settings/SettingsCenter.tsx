@@ -38,6 +38,8 @@ import {
 } from '@/features/admin/use-admin';
 import ModelRuntimePolicySettings from './ModelRuntimePolicySettings';
 import { isDedicatedPolicySetting, isLegacyPolicySetting } from './model-runtime-policy-form';
+import Link from 'next/link';
+import { Image } from 'lucide-react';
 
 const CATEGORY_ORDER = ['overview', 'platform', 'auth', 'ai', 'model-runtime-policy', 'billing', 'payments', 'users', 'security', 'notifications', 'runtime', 'general'];
 const CATEGORY_META: Record<string, { label: string; description: string; icon: typeof ShieldCheck }> = {
@@ -98,6 +100,8 @@ export default function SettingsCenter() {
   const grouped = useMemo(() => {
     const map = new Map<string, SettingView[]>();
     for (const setting of settings ?? []) {
+      if (isMediaConnectionSetting(setting.key)) continue;
+      if (isSessionModelSetting(setting.key)) continue;
       if (isDedicatedPolicySetting(setting.key)) continue;
       const category = categoryFor(setting);
       map.set(category, [...(map.get(category) ?? []), setting]);
@@ -106,7 +110,8 @@ export default function SettingsCenter() {
   }, [settings]);
 
   const categories = useMemo(() => CATEGORY_ORDER.filter((key) => key === 'overview' || key === 'model-runtime-policy' || grouped.has(key)), [grouped]);
-  const configuredCount = (settings ?? []).filter((setting) => setting.configured).length;
+  const visibleSettings = (settings ?? []).filter((setting) => !isMediaConnectionSetting(setting.key) && !isSessionModelSetting(setting.key));
+  const configuredCount = visibleSettings.filter((setting) => setting.configured).length;
   const saveCategory = async (category: string) => {
     const fields = grouped.get(category) ?? [];
     const payload: Record<string, string> = {};
@@ -145,10 +150,18 @@ export default function SettingsCenter() {
 
       <div className="min-w-0 space-y-6">
         <div hidden={activeCategory !== 'model-runtime-policy'}><ModelRuntimePolicySettings /></div>
-        {activeCategory === 'overview' ? <Overview settings={(settings ?? []).filter((setting) => !isDedicatedPolicySetting(setting.key))} onNavigate={setActiveCategory} /> : activeCategory !== 'model-runtime-policy' && <CategoryPanel category={activeCategory} fields={grouped.get(activeCategory) ?? []} edits={edits} setEdits={setEdits} onSave={() => saveCategory(activeCategory)} saving={update.isPending} />}
+        {activeCategory === 'overview' ? <><div className="flex flex-wrap items-center justify-between gap-3"><span className="text-sm text-fg-muted">模型连接与会话模型统一管理</span><Link className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline" href="/admin/settings?tab=models"><Image className="h-4 w-4"/>模型管理</Link></div><Overview settings={visibleSettings.filter((setting) => !isDedicatedPolicySetting(setting.key))} onNavigate={setActiveCategory} /></> : activeCategory !== 'model-runtime-policy' && <CategoryPanel category={activeCategory} fields={grouped.get(activeCategory) ?? []} edits={edits} setEdits={setEdits} onSave={() => saveCategory(activeCategory)} saving={update.isPending} />}
       </div>
     </div>
   );
+}
+
+function isMediaConnectionSetting(key: string) {
+  return /^MEDIA_/.test(key);
+}
+
+function isSessionModelSetting(key: string) {
+  return key === 'SUB2API_BASE_URL' || key === 'SUB2API_API_KEY';
 }
 
 function Overview({ settings, onNavigate }: { settings: SettingView[]; onNavigate: (category: string) => void }) {

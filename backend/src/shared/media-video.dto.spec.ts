@@ -11,6 +11,7 @@ import {
   MediaVideoGatewayRequestSchema,
   MediaVideoProfileSchema,
   MediaVideoRuntimeSchema,
+  MediaVideoRuntimeV2Schema,
 } from './media-video.dto';
 
 const fixture = JSON.parse(readFileSync(join(__dirname, 'fixtures/media-video-v1.json'), 'utf8')) as Record<string, any>;
@@ -20,6 +21,20 @@ describe('media video v1 contract', () => {
     expect(MediaVideoProfileSchema.parse(fixture.profile)).toEqual(fixture.profile);
     expect(MediaVideoRuntimeSchema.parse(fixture.runtime)).toEqual(fixture.runtime);
     expect(MediaVideoCapabilitiesSchema.parse(fixture.profile.capabilities)).toEqual(fixture.profile.capabilities);
+  });
+
+  it('validates v2 defaults against filtered capabilities and keeps audio fields consistent', () => {
+    const wire = JSON.parse(readFileSync(join(__dirname, 'fixtures/media-video-v2.json'), 'utf8'));
+    expect(MediaVideoRuntimeV2Schema.parse(wire.runtime)).toEqual(wire.runtime);
+    const profile = { ...fixture.runtime.profiles[0], capabilities: { ...fixture.runtime.profiles[0].capabilities,
+      audioModes: [false], defaultAudio: false, defaults: { durationSeconds: 5, aspectRatio: '9:16',
+        resolution: '720p', frameRate: 24, audio: false, outputFormat: 'video/mp4' } } };
+    const runtime = MediaVideoRuntimeV2Schema.parse({ ...fixture.runtime, protocolVersion: 2, profiles: [profile] });
+    expect(runtime.profiles[0].capabilities.defaults.durationSeconds).toBe(5);
+    expect(MediaVideoRuntimeV2Schema.safeParse({ ...runtime, profiles: [{ ...profile, capabilities: {
+      ...profile.capabilities, audioModes: [true], defaultAudio: true } }] }).success).toBe(false);
+    expect(MediaVideoRuntimeV2Schema.safeParse({ ...runtime, profiles: [{ ...profile, capabilities: {
+      ...profile.capabilities, defaults: { ...profile.capabilities.defaults, resolution: '1080p' } } }] }).success).toBe(false);
   });
 
   it('requires image-to-video requests to carry exactly one approved reference', () => {

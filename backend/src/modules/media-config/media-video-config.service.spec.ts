@@ -44,8 +44,11 @@ function setup(real = false) {
     discover: jest.fn(async () => [{ modelId: 'minimax-h3', displayName: 'H3' }, { modelId: 'minimax-m3', displayName: 'M3' }]),
     pricing: jest.fn(async () => ({ amount_usd: '0.12' })) };
   const videoFiles: any = { assertAvailable: jest.fn(async () => {}) };
-  const settings: any = { getEffectiveValue: jest.fn(async key => key === SETTING_KEYS.MEDIA_BASE_URL ? 'https://relay.example/v1' : 'key') };
-  return { service: new MediaVideoConfigService(prisma, context, config, videoAdapter, videoFiles), videoAdapter, videoFiles,
+  const settings: any = { getEffectiveValue: jest.fn(async key => key === SETTING_KEYS.MEDIA_BASE_URL ? 'https://relay.example/v1' : 'key'),
+    getMediaConnection: jest.fn(async () => ({ baseUrl: 'https://video.example/v1', apiKey: 'video-key', source: 'database' })),
+    updateMediaConnection: jest.fn() };
+  const sync: any = { sync: jest.fn() };
+  return { service: new MediaVideoConfigService(prisma, context, config, videoAdapter, videoFiles, sync, settings), videoAdapter, videoFiles, sync, settings,
     imageService: new MediaConfigService(prisma, settings, context),
     prisma, context, config, row, imagePolicy, videoPolicy,
     getStored: () => stored, setStored: (value: any) => { stored = value; } };
@@ -68,12 +71,41 @@ describe('MediaVideoConfigService real configuration', () => {
     return f;
   }
 
-  it('discovers exact h3 without treating language models as supported or auto-enabling a profile', async () => {
+  it('discovers and synchronizes only exact h3 without generation or pricing calls', async () => {
     const f = realSetup();
     expect(await f.service.discoverModels()).toMatchObject({ mock: false, executionTested: false,
       models: [{ modelId: 'minimax-h3', compatible: true }, { modelId: 'minimax-m3', compatible: false, suggested: null }] });
     expect(f.prisma.mediaModelProfile.create).not.toHaveBeenCalled();
     expect(f.videoAdapter.pricing).not.toHaveBeenCalled();
+    expect(f.sync.sync).toHaveBeenCalledWith('video', [expect.objectContaining({ modelId: 'minimax-h3' })], 'test', expect.any(Function));
+  });
+
+  it('saves the independent video connection without mutating image settings', async () => {
+    const f = realSetup();
+    expect(await f.service.getConnection()).toEqual({ configured: true, baseUrl: 'https://video.example/v1', apiKeyConfigured: true, source: 'database' });
+    await f.service.updateConnection({ baseUrl: 'https://new-video.example/v1', apiKey: 'new-video-key' });
+    expect(f.settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://new-video.example/v1', apiKey: 'new-video-key' }, 'video', undefined);
+    expect(f.prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('withholds real video tools for an absent or invalid independent connection', async () => {
+    const f = realSetup();
+    for (const connection of [
+      { baseUrl: '', apiKey: '', source: 'unconfigured' },
+      { baseUrl: 'http://video.example', apiKey: 'video-key', source: 'database' },
+      { baseUrl: 'https://video.example', apiKey: 'bad key', source: 'database' },
+    ]) {
+      f.settings.getMediaConnection.mockResolvedValue(connection);
+      expect(await f.service.getAvailableProfiles('user')).toEqual([]);
+    }
+    expect(f.settings.getMediaConnection).toHaveBeenCalledWith('video');
+    expect(f.prisma.mediaModelProfile.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects manual capabilities for automatic video models', async () => {
+    const f = realSetup();
+    await expect(f.service.updateProfile('auto-video-model', { expectedConfigVersion: 'cfg_video', capabilities: { supportsAudio: false } }))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('verifies directory, both operation prices and inspector but never generates', async () => {
@@ -203,10 +235,10 @@ describe('MediaVideoConfigService profiles (mock only)', () => {
     expect((await service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);
   });
 
-  it.each([undefined, 'false', 'TRUE', true])('requires explicit string true for discovery, verify, enable, and runtime: %s', async flag => {
+  it.each([undefined, 'false', 'TRUE', true])('keeps execution closed but permits independent connection discovery: %s', async flag => {
     const { service, config, row, prisma } = setup();
     config.get.mockReturnValue(flag);
-    expect((await service.discoverModels()).models).toEqual([]);
+    expect(await service.discoverModels()).toMatchObject({ mock: false, executionTested: false, models: [expect.objectContaining({ modelId: 'minimax-h3' }), expect.anything()] });
     await expect(service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion })).rejects.toBeInstanceOf(ServiceUnavailableException);
     await expect(service.updateProfile(row.profileId, { expectedConfigVersion: row.configVersion, enabled: true })).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(await service.getRuntimeVideo('ent-1')).toEqual({ protocolVersion: 1, executionAvailable: false, profiles: [], tools: [], defaultProfileId: null });
@@ -222,14 +254,14 @@ describe('MediaVideoConfigService profiles (mock only)', () => {
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
   });
 
-  it('disables discovery, verification, available profiles, and runtime in production even with mock explicitly true', async () => {
+  it('never exposes mock discovery in production but permits real catalog detection while execution is closed', async () => {
     const { service, config, row } = setup();
     config.get.mockImplementation(key => key === 'NODE_ENV' ? 'production'
       : key === 'MEDIA_GATEWAY_MOCK_ENABLED' ? 'true' : undefined);
-    expect((await service.discoverModels()).models).toEqual([]);
+    expect(await service.discoverModels()).toMatchObject({ mock: false, models: [expect.objectContaining({ modelId: 'minimax-h3' }), expect.anything()] });
     expect(await service.getAvailableProfiles('user-1')).toEqual([]);
     expect((await service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);
-    expect((await service.getEnterpriseConfig('user-1')).configured).toBe(false);
+    expect((await service.getEnterpriseConfig('user-1')).configured).toBe(true);
     await expect(service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion })).rejects.toBeInstanceOf(ServiceUnavailableException);
     await expect(service.updateProfile(row.profileId, { enabled: true, expectedConfigVersion: row.configVersion })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
@@ -302,6 +334,30 @@ describe('MediaVideoConfigService enterprise isolation', () => {
     expect(JSON.stringify(result)).not.toContain('modelId');
     expect(result.profiles[0]).not.toHaveProperty('verified');
     expect(result.defaultProfileId).toBe(row.profileId);
+  });
+
+  it('negotiates mock v2 audio modes and defaults inside the filtered capability ranges', async () => {
+    const { service } = setup();
+    const runtime = await service.getRuntimeVideoV2('ent-1');
+    expect(runtime.protocolVersion).toBe(2);
+    expect(runtime.profiles[0].capabilities).toMatchObject({ audioModes: [false], defaultAudio: false,
+      defaults: { durationSeconds: 5, aspectRatio: '9:16', resolution: '720p', frameRate: 24, audio: false, outputFormat: 'video/mp4' } });
+    expect(JSON.stringify(runtime)).not.toContain('mock-video-v1');
+  });
+
+  it('fixes real H3 v2 audio mode to enabled', async () => {
+    const f = setup(true);
+    f.row.modelId = 'minimax-h3';
+    f.row.capabilities = structuredClone(f.service['realCapabilities']());
+    f.row.operations = ['image-to-video', 'text-to-video'];
+    Object.assign(f.getStored().mediaPolicy.video, {
+      allowedOperations: ['image-to-video', 'text-to-video'],
+      allowedAspectRatios: ['16:9'],
+      maxDurationSeconds: 4,
+    });
+    const runtime = await f.service.getRuntimeVideoV2('ent-1');
+    expect(runtime.profiles[0].capabilities.audioModes).toEqual([true]);
+    expect(runtime.profiles[0].capabilities.defaultAudio).toBe(true);
   });
 
   it.each([

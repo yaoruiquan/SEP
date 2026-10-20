@@ -1,6 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { SETTING_KEYS } from 'shared';
 import type { MediaRealQuoteRequest } from '../../shared/media-real.dto';
 import { SettingService } from '../setting/setting.service';
 import { isSupportedImageModel } from './image-model-contract';
@@ -31,6 +30,7 @@ const UsageSchema = z.object({
   image_count: z.number().int().nonnegative().nullable().optional(),
 });
 export type Sub2apiImageUsage = z.infer<typeof UsageSchema>;
+export interface Sub2apiImageConnection { base: string; key: string }
 export class ImageDispatchError extends HttpException {
   constructor(readonly requestId: string | null, readonly definitelyRejected: boolean) {
     super({ error: { code: definitelyRejected ? 'UPSTREAM_FAILED' : 'SUBMISSION_UNKNOWN', message: '图片上游执行未完成，请查询原请求' } }, 502);
@@ -43,8 +43,8 @@ function unavailable(code = 'PRICE_UNAVAILABLE'): never {
 export class Sub2apiImageAdapter {
   constructor(private readonly settings: SettingService) {}
 
-  async discoverModels(): Promise<Array<{ modelId: string; displayName: string }>> {
-    const result = await this.call('/models', { method: 'GET' }, 15_000, 1024 * 1024);
+  async discoverModels(connection?: Sub2apiImageConnection): Promise<Array<{ modelId: string; displayName: string }>> {
+    const result = await this.call('/models', { method: 'GET' }, 15_000, 1024 * 1024, false, undefined, connection);
     const parsed = ModelsSchema.safeParse(result.value);
     if (!parsed.success) unavailable();
     // The shared catalog is not evidence that a model supports image operations.
@@ -130,17 +130,22 @@ export class Sub2apiImageAdapter {
   }
 
   private async connection() {
-    const [base, key] = await Promise.all([this.settings.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL), this.settings.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY)]);
     try {
-      const url = new URL(base ?? '');
-      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !key?.trim() || /[\r\n]/.test(key)) unavailable();
-      // MEDIA_BASE_URL is a sub2api media connection, configured separately from chat.
-      return { base: url.href.replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1', key };
+      const { baseUrl, apiKey } = await this.settings.getMediaConnection('image');
+      return this.normalizeConnection({ base: baseUrl, key: apiKey });
     } catch { unavailable(); }
   }
 
-  private async call(path: string, options: RequestInit, timeout: number, maxBytes: number, dispatch = false, onRequestId?: (requestId: string) => Promise<void>): Promise<{ value: unknown; requestId: string | null }> {
-    const connection = await this.connection();
+  private normalizeConnection(connection: Sub2apiImageConnection): Sub2apiImageConnection {
+    try {
+      const url = new URL(connection.base);
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !connection.key || /[^\x21-\x7e]/.test(connection.key)) unavailable();
+      return { base: url.href.replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1', key: connection.key };
+    } catch { unavailable(); }
+  }
+
+  private async call(path: string, options: RequestInit, timeout: number, maxBytes: number, dispatch = false, onRequestId?: (requestId: string) => Promise<void>, snapshot?: Sub2apiImageConnection): Promise<{ value: unknown; requestId: string | null }> {
+    const connection = snapshot ? this.normalizeConnection(snapshot) : await this.connection();
     let requestId: string | null = null;
     try {
       const response = await fetch(connection.base + path, { ...options, headers: {

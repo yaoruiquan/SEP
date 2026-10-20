@@ -34,7 +34,7 @@ const usage = (extra = {}) => ({ object: 'sub2api.video_request_usage', schema_v
 describe('Sub2apiVideoAdapter (mock fetch only)', () => {
   let adapter: Sub2apiVideoAdapter;
   let fetchMock: jest.Mock;
-  let settings: { getEffectiveValue: jest.Mock };
+  let settings: { getMediaConnection: jest.Mock };
   let originalFetch: typeof global.fetch;
   let originalBase: string | undefined;
   let originalKey: string | undefined;
@@ -44,7 +44,7 @@ describe('Sub2apiVideoAdapter (mock fetch only)', () => {
     originalFetch = global.fetch;
     fetchMock = jest.fn().mockRejectedValue(new Error('Unexpected fetch in test'));
     global.fetch = fetchMock;
-    settings = { getEffectiveValue: jest.fn(async key => key === 'MEDIA_BASE_URL' ? BASE : KEY) };
+    settings = { getMediaConnection: jest.fn(async () => ({ baseUrl: BASE, apiKey: KEY, source: 'database' })) };
     adapter = new Sub2apiVideoAdapter(settings as unknown as SettingService);
   });
   afterEach(() => {
@@ -62,43 +62,44 @@ describe('Sub2apiVideoAdapter (mock fetch only)', () => {
 
   it.each(['https://relay.example.test', BASE, BASE + '/', 'https://relay.example.test/prefix/v1/'])(
     'normalizes HTTPS settings and fingerprints base and key (%s)', async base => {
-      settings.getEffectiveValue.mockImplementation(async name => name === 'MEDIA_BASE_URL' ? base : KEY);
+      settings.getMediaConnection.mockResolvedValue({ baseUrl: base, apiKey: KEY, source: 'database' });
       const connection = await adapter.connection();
       expect(connection.base).toBe(base.includes('/prefix') ? 'https://relay.example.test/prefix/v1' : BASE);
       expect(connection.fingerprint).toBe(createHash('sha256').update(connection.base + '\0' + KEY).digest('hex'));
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-  it('prefers the complete video environment pair without reading image settings', async () => {
+  it('uses the effective saved video pair even when process environment contains older credentials', async () => {
     process.env.MEDIA_VIDEO_BASE_URL = 'https://video.example.test'; process.env.MEDIA_VIDEO_API_KEY = KEY;
-    expect(await adapter.connection()).toMatchObject({ base: 'https://video.example.test/v1', key: KEY });
-    expect(settings.getEffectiveValue).not.toHaveBeenCalled();
+    expect(await adapter.connection()).toMatchObject({ base: BASE, key: KEY });
+    expect(settings.getMediaConnection).toHaveBeenCalledWith('video');
   });
 
-  it('reuses Web settings when Compose supplies two empty video overrides', async () => {
+  it('uses only the independent video settings when Compose supplies empty overrides', async () => {
     process.env.MEDIA_VIDEO_BASE_URL = '';
     process.env.MEDIA_VIDEO_API_KEY = '';
     expect(await adapter.connection()).toMatchObject({ base: BASE, key: KEY });
-    expect(settings.getEffectiveValue).toHaveBeenCalledTimes(2);
+    expect(settings.getMediaConnection).toHaveBeenCalledTimes(1);
+    expect(settings.getMediaConnection).toHaveBeenCalledWith('video');
   });
 
   it.each([['https://video.example.test', undefined], [undefined, KEY], ['', KEY], [BASE, '']])(
-    'rejects partial or blank video overrides instead of mixing credentials %#', async (base, key) => {
-      if (base !== undefined) process.env.MEDIA_VIDEO_BASE_URL = base;
-      if (key !== undefined) process.env.MEDIA_VIDEO_API_KEY = key;
+    'rejects incomplete effective video pairs instead of falling back to image credentials %#', async (base, key) => {
+      settings.getMediaConnection.mockResolvedValue({ baseUrl: base ?? '', apiKey: key ?? '', source: 'unconfigured' });
       await errorOf(adapter.connection(), 'PRICE_UNAVAILABLE');
-      expect(settings.getEffectiveValue).not.toHaveBeenCalled();
+      expect(settings.getMediaConnection).toHaveBeenCalledTimes(1);
+      expect(settings.getMediaConnection).toHaveBeenCalledWith('video');
     });
 
   it.each(['http://relay.example.test', 'https://user:password@relay.example.test', BASE + '?private=1', BASE + '#private'])(
     'rejects unsafe connection %s without exposing it', async base => {
-      settings.getEffectiveValue.mockImplementation(async name => name === 'MEDIA_BASE_URL' ? base : KEY);
+      settings.getMediaConnection.mockResolvedValue({ baseUrl: base, apiKey: KEY, source: 'database' });
       const error = await errorOf(adapter.connection(), 'PRICE_UNAVAILABLE');
       expect(JSON.stringify(error.getResponse()) + error.stack).not.toContain(base);
     });
 
   it('redacts setting failures and rejects modified frozen connections', async () => {
-    settings.getEffectiveValue.mockRejectedValue(new Error(KEY));
+    settings.getMediaConnection.mockRejectedValue(new Error(KEY));
     await errorOf(adapter.connection(), 'PRICE_UNAVAILABLE');
     await errorOf(adapter.discover({ ...CONNECTION, key: 'changed' }), 'PRICE_UNAVAILABLE');
     expect(fetchMock).not.toHaveBeenCalled();

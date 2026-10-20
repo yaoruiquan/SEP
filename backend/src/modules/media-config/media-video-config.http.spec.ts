@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import fixture from '../../shared/fixtures/media-video-v1.json';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
+import { SettingService } from '../setting/setting.service';
 import { MediaVideoConfigController } from './media-video-config.controller';
 import { MediaVideoConfigService } from './media-video-config.service';
 
@@ -19,6 +20,10 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
   const admin = { 'x-test-role': 'ADMIN' };
   const enterpriseAdmin = { 'x-test-role': 'ENTERPRISE_ADMIN' };
   const member = { 'x-test-role': 'MEMBER' };
+  const settings = {
+    getMediaConnection: jest.fn(async () => ({ baseUrl: 'https://video.example/v1', apiKey: 'private-video-key', source: 'database' })),
+    updateMediaConnection: jest.fn(),
+  };
   const prisma: any = {
     mediaModelProfile: {
       findMany: jest.fn(async ({ where }) => [...profiles.values()].filter(row => Object.entries(where).every(([key, value]) => row[key] === value))),
@@ -51,6 +56,7 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
     const module = await Test.createTestingModule({
       controllers: [MediaVideoConfigController],
       providers: [MediaVideoConfigService,
+        { provide: SettingService, useValue: settings },
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: key => key === 'NODE_ENV' ? nodeEnv
           : key === 'MEDIA_GATEWAY_MOCK_ENABLED' ? mockFlag : undefined } },
@@ -87,11 +93,30 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
     ['get', '/admin/media/video/profiles'], ['post', '/admin/media/video/profiles'],
     ['patch', '/admin/media/video/profiles/video'], ['post', '/admin/media/video/profiles/video/verify'],
     ['post', '/admin/media/video/models/discover'],
+    ['get', '/admin/media/video/connection'], ['put', '/admin/media/video/connection'],
   ])('guards platform routes with authentication and ADMIN role: %s %s', async (method, path) => {
     await request(app.getHttpServer())[method](`/api${path}`).send({}).expect(401);
     await request(app.getHttpServer())[method](`/api${path}`).set(member).send({}).expect(403);
     expect(prisma.mediaModelProfile.create).not.toHaveBeenCalled();
     expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reads and saves a video-only connection without exposing its key', async () => {
+    const result = await request(app.getHttpServer()).get('/api/admin/media/video/connection').set(admin).expect(200);
+    expect(result.body).toEqual({ configured: true, baseUrl: 'https://video.example/v1', apiKeyConfigured: true, source: 'database' });
+    expect(JSON.stringify(result.body)).not.toContain('private-video-key');
+    await request(app.getHttpServer()).put('/api/admin/media/video/connection').set(admin)
+      .send({ baseUrl: 'https://video-new.example/v1', apiKey: 'new-private-key' }).expect(200);
+    expect(settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://video-new.example/v1', apiKey: 'new-private-key' }, 'video', 'user-ADMIN');
+    expect(prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid video connections before touching settings', async () => {
+    for (const body of [{ baseUrl: 'not-a-url' }, { baseUrl: 'https://video.example/v1', kind: 'image' },
+      { baseUrl: 'https://user:password@video.example/v1' }]) {
+      await request(app.getHttpServer()).put('/api/admin/media/video/connection').set(admin).send(body).expect(400);
+    }
+    expect(settings.updateMediaConnection).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -183,16 +208,15 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
     expect(prisma.enterpriseModelConfig.upsert).not.toHaveBeenCalled();
   });
 
-  it.each(['disabled', 'production'])('closes discovery and verification when mock cannot run: %s', async mode => {
+  it.each(['disabled', 'production'])('reports unavailable real discovery instead of pretending its catalog is empty: %s', async mode => {
     if (mode === 'production') nodeEnv = 'production'; else mockFlag = 'false';
     const body = { ...structuredClone(fixture.profile), modelId: 'mock-video-v1' };
     profiles.set(body.profileId, body);
-    const result = await request(app.getHttpServer()).post('/api/admin/media/video/models/discover').set(admin).send({}).expect(201);
-    expect(result.body.models).toEqual([]);
+    await request(app.getHttpServer()).post('/api/admin/media/video/models/discover').set(admin).send({}).expect(503);
     await request(app.getHttpServer()).post(`/api/admin/media/video/profiles/${body.profileId}/verify`).set(admin)
       .send({ expectedConfigVersion: body.configVersion }).expect(503);
     const read = await request(app.getHttpServer()).get('/api/enterprise/media-config/video').set(member).expect(200);
-    expect(read.body.configured).toBe(false);
+    expect(read.body.configured).toBe(true);
   });
 
   it('returns 404 for missing or image profiles without mutating them', async () => {

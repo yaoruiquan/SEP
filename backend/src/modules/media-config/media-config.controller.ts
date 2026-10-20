@@ -41,9 +41,10 @@ export class MediaConfigController {
   @Post('admin/media/models/discover')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
-  @ApiOperation({ summary: '通过已保存的媒体连接检测候选模型，不执行生图' })
-  @ApiResponse({ status: 201, description: '候选模型、适配范围及检测时间；不会自动启用' })
+  @ApiOperation({ summary: '通过图片连接检测模型并自动同步适配能力，不生成、不自动企业授权' })
+  @ApiResponse({ status: 201, description: '模型、适配范围及检测时间；内部配置已自动同步' })
   @ApiResponse({ status: 400, description: '不接受客户端连接凭据或额外参数' })
+  @ApiResponse({ status: 409, description: '连接或模型配置在同步期间发生变化' })
   @ApiResponse({ status: 503, description: '连接或模型目录暂不可用' })
   discoverModels(@Body(new ZodValidationPipe(DiscoverMediaModelsDtoSchema)) _dto: Record<string, never>) {
     return this.service.discoverModels();
@@ -107,8 +108,9 @@ export class MediaConfigController {
   @ApiResponse({ status: 200, description: '保存后的连接状态；留空密钥保留现有值' })
   @ApiResponse({ status: 400, description: '连接配置校验失败' })
   @ApiResponse({ status: 409, description: '并发修改冲突，请重新加载后保存' })
-  updateConnection(@Body(new ZodValidationPipe(UpdateMediaConnectionDtoSchema)) dto: UpdateMediaConnectionDto) {
-    return this.service.updateConnection(dto);
+  updateConnection(@Body(new ZodValidationPipe(UpdateMediaConnectionDtoSchema)) dto: UpdateMediaConnectionDto,
+    @Request() req: AuthedRequest) {
+    return this.service.updateConnection(dto, req.user.id);
   }
 
   @Get('enterprise/media-config')

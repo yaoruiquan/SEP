@@ -19,6 +19,7 @@ import { MediaRealBillingService } from './media-real-billing.service';
 import { MediaRealStore, RealRequestRecord, realMediaStorageUnavailable } from './media-real.store';
 import { ImageDispatchError, Sub2apiImageAdapter } from './sub2api-image.adapter';
 import { isSupportedImageModel } from './image-model-contract';
+import { mediaRealSemanticHash } from './media-real-semantics';
 
 const REFERENCE_TTL = 15 * 60_000;
 const QUOTE_TTL = 60_000;
@@ -252,8 +253,7 @@ export class MediaRealService {
   }
 
   private semanticHash(dto: MediaRealQuoteRequest, referenceHashes: string[]) {
-    return sha(JSON.stringify({ profileId: dto.profileId, configVersion: dto.configVersion, operation: dto.operation,
-      referenceHashes, briefSha256: sha(dto.creativeBrief), parameters: dto.parameters }));
+    return mediaRealSemanticHash(dto, referenceHashes);
   }
 
   private snapshot(record: RealRequestRecord): MediaRealReceipt {

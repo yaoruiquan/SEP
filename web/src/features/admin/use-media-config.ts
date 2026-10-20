@@ -28,6 +28,7 @@ export interface MediaConnection {
   baseUrl: string;
   apiKeyConfigured: boolean;
   configured: boolean;
+  source?: 'database' | 'environment' | 'unconfigured';
 }
 
 export function useMediaProfiles() {
@@ -75,10 +76,12 @@ export function useUpdateMediaProfile() {
 }
 
 export function useDiscoverMediaModels() {
+  const invalidate = useInvalidateMedia();
   return useMutation({
     mutationFn: async () => MediaModelDiscoverySchema.parse(
       await api.post('/admin/media/models/discover', {}),
     ),
+    onSuccess: invalidate,
   });
 }
 

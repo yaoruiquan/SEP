@@ -15,7 +15,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
 import { Sub2apiImageAdapter } from '../media-gateway/sub2api-image.adapter';
-import { IMAGE_MODEL_SIZES, isSupportedImageModel } from '../media-gateway/image-model-contract';
+import { imageModelCapabilities, IMAGE_MODEL_SIZES, isSupportedImageModel } from '../media-gateway/image-model-contract';
+import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model-sync.service';
 import {
   CreateMediaProfileDto,
   MediaCapabilitiesSchema,
@@ -24,10 +25,10 @@ import {
   MediaProfile,
   MediaProfileSchema,
   MediaRuntime,
+  MediaRuntimeV2Schema,
   MediaModelDiscovery,
   MediaProfileVerification,
   MediaRealQuoteRequest,
-  SETTING_KEYS,
   UpdateMediaConnectionDto,
   UpdateMediaPolicyDto,
   UpdateMediaProfileDto,
@@ -42,6 +43,7 @@ export class MediaConfigService {
     private readonly enterpriseContext: EnterpriseContextService,
     @Optional() private readonly config?: ConfigService,
     @Optional() private readonly imageAdapter?: Sub2apiImageAdapter,
+    @Optional() private readonly modelSync?: MediaModelSyncService,
   ) {}
 
   private profileView(row: MediaModelProfile): MediaProfile {
@@ -73,6 +75,7 @@ export class MediaConfigService {
   }
 
   async createProfile(dto: CreateMediaProfileDto): Promise<MediaProfile> {
+    if (dto.profileId.startsWith('auto-')) throw new BadRequestException('自动模型标识由系统维护');
     if (dto.enabled) throw new BadRequestException('媒体 Profile 必须先通过配置校验后才能启用');
     const capabilities = MediaCapabilitiesSchema.safeParse(dto.capabilities);
     if (!capabilities.success) throw new BadRequestException('媒体能力配置无效');
@@ -101,6 +104,9 @@ export class MediaConfigService {
   }
 
   async updateProfile(profileId: string, dto: UpdateMediaProfileDto): Promise<MediaProfile> {
+    if (profileId.startsWith('auto-') && ['modelId', 'operations', 'executionMode', 'capabilities'].some(key => key in dto)) {
+      throw new BadRequestException('模型规格由适配器自动维护，请在客户端选择本次生成参数');
+    }
     const row = await this.prisma.mediaModelProfile.findUnique({ where: { profileId } });
     if (!row) throw new NotFoundException('媒体 Profile 不存在');
     const current = this.profileView(row);
@@ -141,34 +147,35 @@ export class MediaConfigService {
   }
 
   async getConnection() {
-    const [baseUrl, apiKey] = await Promise.all([
-      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL),
-      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY),
-    ]);
+    const { baseUrl, apiKey, source } = await this.settingService.getMediaConnection('image');
     return {
       configured: Boolean(baseUrl?.trim() && apiKey?.trim()),
       baseUrl: baseUrl ?? '', apiKeyConfigured: Boolean(apiKey?.trim()),
+      source,
     };
   }
 
-  async updateConnection(dto: UpdateMediaConnectionDto) {
-    await this.revokeProfileVerification();
-    await this.settingService.updateMediaConnection(dto);
-    // The second revocation closes a verification that raced with connection mutation.
-    await this.revokeProfileVerification();
+  async updateConnection(dto: UpdateMediaConnectionDto, actorId?: string) {
+    await this.settingService.updateMediaConnection(dto, 'image', actorId);
     return this.getConnection();
   }
 
-  private async revokeProfileVerification() {
-    await this.prisma.mediaModelProfile.updateMany({
-      where: { kind: 'image' },
-      data: { verified: false, configVersion: `cfg_${randomUUID()}` },
-    });
-  }
-
   async discoverModels(): Promise<MediaModelDiscovery> {
-    if (!this.imageAdapter) throw new ServiceUnavailableException('媒体模型检测暂不可用');
-    const models = await this.imageAdapter.discoverModels();
+    if (!this.imageAdapter || !this.modelSync) throw new ServiceUnavailableException('媒体模型检测暂不可用');
+    const connection = await this.settingService.getMediaConnection('image');
+    const fingerprint = mediaConnectionFingerprint(connection);
+    const models = await this.imageAdapter.discoverModels({ base: connection.baseUrl, key: connection.apiKey });
+    await this.modelSync.sync('image', models.filter(model => isSupportedImageModel(model.modelId)).map(model => ({
+      ...model, operations: ['generate', 'edit'], executionMode: 'sync-response',
+      capabilities: { supportsReferenceImage: true, maxOutputs: 4, sizes: [...IMAGE_MODEL_SIZES] },
+    })), fingerprint, row => {
+      const parsed = MediaProfileSchema.safeParse({
+        profileId: row.profileId, kind: row.kind, displayName: row.displayName, modelId: row.modelId,
+        configVersion: row.configVersion, operations: row.operations, executionMode: row.executionMode,
+        capabilities: row.capabilities, enabled: row.enabled, verified: row.verified,
+      });
+      return parsed.success && this.adapterCompatible(parsed.data);
+    });
     return {
       checkedAt: new Date().toISOString(),
       models: models.map(model => {
@@ -183,6 +190,13 @@ export class MediaConfigService {
         };
       }),
     };
+  }
+
+  private adapterCompatible(profile: MediaProfile): boolean {
+    return isSupportedImageModel(profile.modelId) && profile.executionMode === 'sync-response'
+      && profile.capabilities.maxOutputs <= 4
+      && profile.capabilities.sizes.every(size => (IMAGE_MODEL_SIZES as readonly string[]).includes(size))
+      && (!profile.operations.includes('edit') || profile.capabilities.supportsReferenceImage);
   }
 
   async verifyProfile(profileId: string, dto: VerifyMediaProfileDto): Promise<MediaProfileVerification> {
@@ -236,7 +250,13 @@ export class MediaConfigService {
   }
 
   private async availableProfiles() {
-    if (!(await this.getConnection()).configured) return [];
+    try {
+      if (!(await this.getConnection()).configured) return [];
+    } catch (error) {
+      // A broken media credential must disable media, not the employee's chat runtime.
+      if (error instanceof ServiceUnavailableException) return [];
+      throw error;
+    }
     const rows = await this.prisma.mediaModelProfile.findMany({
       where: { kind: 'image', enabled: true, verified: true }, orderBy: { createdAt: 'asc' },
     });
@@ -244,12 +264,9 @@ export class MediaConfigService {
   }
 
   private async realConnectionUsable(): Promise<boolean> {
-    const [baseUrl, apiKey] = await Promise.all([
-      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_BASE_URL),
-      this.settingService.getEffectiveValue(SETTING_KEYS.MEDIA_API_KEY),
-    ]);
-    if (!baseUrl?.trim() || !apiKey?.trim() || /[\r\n]/.test(apiKey)) return false;
     try {
+      const { baseUrl, apiKey } = await this.settingService.getMediaConnection('image');
+      if (!baseUrl?.trim() || !apiKey?.trim() || /[\r\n]/.test(apiKey)) return false;
       const url = new URL(baseUrl.trim());
       return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
     } catch {
@@ -354,5 +371,22 @@ export class MediaConfigService {
       defaultProfileId: profiles.some((profile) => profile.profileId === policy.defaultProfileId)
         ? policy.defaultProfileId : null,
     };
+  }
+
+  async getRuntimeMediaV2(enterpriseId: string) {
+    const legacy = await this.getRuntimeMedia(enterpriseId);
+    const modelIds = new Map((await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
+    const profiles = legacy.profiles.filter(profile => isSupportedImageModel(modelIds.get(profile.profileId) ?? '')).map(profile => {
+      const capabilities = imageModelCapabilities(modelIds.get(profile.profileId) ?? '');
+      const sizes = profile.capabilities.sizes.filter(size => capabilities?.sizes.includes(size as typeof IMAGE_MODEL_SIZES[number]));
+      const defaultSize = capabilities?.defaultSize && sizes.includes(capabilities.defaultSize) ? capabilities.defaultSize : sizes[0] ?? '';
+      return { ...profile, capabilities: { ...profile.capabilities, sizes,
+        qualities: capabilities?.qualities ?? [], defaultQuality: capabilities?.defaultQuality ?? 'medium', defaultSize } };
+    }).filter(profile => profile.capabilities.sizes.length > 0);
+    const value = { ...legacy, protocolVersion: 2 as const, profiles,
+      defaultProfileId: profiles.some(profile => profile.profileId === legacy.defaultProfileId) ? legacy.defaultProfileId : null,
+      executionAvailable: legacy.executionAvailable && profiles.length > 0,
+      tools: profiles.length ? legacy.tools : [] };
+    return MediaRuntimeV2Schema.parse(value);
   }
 }
