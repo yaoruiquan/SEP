@@ -9,6 +9,7 @@ export * from './notification.dto';
 export * from './media.dto';
 export * from './media-video.dto';
 export * from './media-video-config.dto';
+export * from './media-video-real.dto';
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）

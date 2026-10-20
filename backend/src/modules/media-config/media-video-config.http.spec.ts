@@ -52,7 +52,8 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
       controllers: [MediaVideoConfigController],
       providers: [MediaVideoConfigService,
         { provide: PrismaService, useValue: prisma },
-        { provide: ConfigService, useValue: { get: key => key === 'NODE_ENV' ? nodeEnv : mockFlag } },
+        { provide: ConfigService, useValue: { get: key => key === 'NODE_ENV' ? nodeEnv
+          : key === 'MEDIA_GATEWAY_MOCK_ENABLED' ? mockFlag : undefined } },
         { provide: EnterpriseContextService, useValue: {
           resolve: jest.fn(async userId => {
             if (userId === 'user-OUTSIDER') throw new ForbiddenException('无企业成员身份');

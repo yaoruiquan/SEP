@@ -55,8 +55,17 @@ export class MediaRealBillingService {
   }
 
   async settle(receiptId: string, actualCny: string, actualUsd: string, verifiedModel: string): Promise<'SETTLED' | 'RECONCILING'> {
-    const cny = this.amount(actualCny, true); const usd = this.amount(actualUsd, true);
     if (!isSupportedImageModel(verifiedModel)) forbidden('INVALID_PARAMETER');
+    return this.settleVerified(receiptId, actualCny, actualUsd, verifiedModel);
+  }
+
+  async settleVideo(receiptId: string, actualCny: string, actualUsd: string, verifiedModel: string): Promise<'SETTLED' | 'RECONCILING'> {
+    if (verifiedModel !== 'minimax-h3') forbidden('INVALID_PARAMETER');
+    return this.settleVerified(receiptId, actualCny, actualUsd, verifiedModel);
+  }
+
+  private async settleVerified(receiptId: string, actualCny: string, actualUsd: string, verifiedModel: string): Promise<'SETTLED' | 'RECONCILING'> {
+    const cny = this.amount(actualCny, true); const usd = this.amount(actualUsd, true);
     return this.transaction(async tx => {
       const row = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (!row) forbidden('BILLING_PENDING');

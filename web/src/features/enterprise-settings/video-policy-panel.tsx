@@ -33,6 +33,7 @@ export function VideoPolicyPanel() {
   const profiles = available.data ?? [];
   const unavailableIds = (policy?.enabledProfileIds ?? []).filter((id) => !profiles.some((profile) => profile.profileId === id));
   const canEdit = Boolean(enterpriseId && isAdmin && config.data?.canEdit);
+  const mock = config.data?.mock;
   const update = (next: Partial<MediaVideoPolicy>) => {
     if (!canEdit || save.isPending || !policy || !config.data) return;
     setDraft({ enterpriseId, sourcePolicy: config.data.policy, policy: { ...policy, ...next } });
@@ -49,23 +50,23 @@ export function VideoPolicyPanel() {
     if (!policy || !canEdit || save.isPending) return;
     setFailure(null);
     try {
-      await save.mutateAsync(VideoPolicyFormSchema.parse(policy));
+      const saved = await save.mutateAsync(VideoPolicyFormSchema.parse(policy));
       setDraft((current) => current?.enterpriseId === enterpriseId ? null : current);
-      toast.success('视频授权策略已保存（Mock 不计费）');
+      toast.success(saved.mock ? '视频授权策略已保存（Mock 不计费）' : '真实视频授权策略已保存');
     } catch (error) { setFailure({ enterpriseId, message: errorText(error) }); toast.error(errorText(error)); }
   };
   const error = config.error ?? available.error;
   const aspectRatios = [...new Set([...profiles.flatMap((profile) => profile.capabilities.aspectRatios), ...(policy?.allowedAspectRatios ?? [])])];
 
   return <section aria-labelledby="video-policy-title" className="min-w-0 space-y-5 border-t border-border pt-6">
-    <header className="flex flex-wrap items-center gap-2"><Video className="h-4 w-4" /><h2 id="video-policy-title" className="text-base font-semibold">视频授权</h2><Badge variant="secondary">Mock · 不计费</Badge></header>
-    <p className="text-sm text-fg-muted">V1 视频仅 Mock 执行，不计费；配置校验不调用真实模型。视频授权独立于聊天和图片配置。</p>
+    <header className="flex flex-wrap items-center gap-2"><Video className="h-4 w-4" /><h2 id="video-policy-title" className="text-base font-semibold">视频授权</h2>{mock !== undefined && <Badge variant="secondary">{mock ? 'Mock · 不计费' : '真实视频'}</Badge>}</header>
+    <p className="text-sm text-fg-muted">视频授权独立于聊天和图片配置。</p>
     {!enterpriseId ? <p className="text-sm text-fg-muted">请先选择企业。</p>
       : config.isLoading || available.isLoading ? <div role="status" aria-label="加载视频授权"><Loader2 className="h-5 w-5 animate-spin" /></div>
         : error ? <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-danger">{errorText(error)}</p><Button variant="outline" size="sm" onClick={() => { void config.refetch(); void available.refetch(); }}><RefreshCw className="h-4 w-4" />重试视频授权</Button></div>
           : !policy ? <p className="text-sm text-fg-muted">暂无视频授权策略</p> : <>
             {!canEdit && <p className="border border-border bg-muted/30 px-4 py-3 text-sm text-fg-muted">当前为只读视图，视频授权由企业管理员维护。</p>}
-            {!config.data?.configured && <p className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">平台 Mock 视频尚未开放或没有已启用且已校验的视频 Profile。</p>}
+            {!config.data?.configured && <p className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">平台{mock ? ' Mock ' : ''}视频尚未开放或没有已启用且已校验的视频 Profile。</p>}
             <form aria-label="视频授权策略" className="max-w-3xl space-y-5" onSubmit={submit}>
               <fieldset disabled={!canEdit || save.isPending} className="min-w-0 space-y-5">
                 <fieldset className="space-y-2"><legend className="mb-3 text-sm font-medium">允许的视频 Profile</legend>
@@ -78,8 +79,8 @@ export function VideoPolicyPanel() {
                   <label className="min-w-0 text-sm"><span className="mb-1 block font-medium">视频最大时长（秒）</span><Input required type="number" step={1} value={policy.maxDurationSeconds} onChange={(event) => update({ maxDurationSeconds: Number(event.target.value) })} /></label>
                   <label className="min-w-0 text-sm"><span className="mb-1 block font-medium">视频最高分辨率</span><select className="h-10 w-full rounded border border-border bg-card px-3 text-sm" value={policy.maxResolution} onChange={(event) => update({ maxResolution: event.target.value as MediaVideoPolicy['maxResolution'] })}>{(['480p', '720p', '1080p', '4k'] as const).map((resolution) => <option value={resolution} key={resolution}>{resolution}</option>)}</select></label>
                   <label className="min-w-0 text-sm"><span className="mb-1 block font-medium">视频最大并发任务</span><Input required type="number" step={1} value={policy.maxConcurrentJobs} onChange={(event) => update({ maxConcurrentJobs: Number(event.target.value) })} /></label>
-                  <label className="min-w-0 text-sm"><span className="mb-1 block font-medium">视频周期预算（元）</span><Input required type="number" step="any" value={policy.periodBudget} onChange={(event) => update({ periodBudget: Number(event.target.value) })} /><span className="mt-1 block text-xs text-fg-muted">Mock 不产生真实扣费。</span></label>
-                  <p className="text-xs text-fg-muted sm:col-span-2">并发与预算仅为配置预留；Mock 不代表真实账本扣费或并发限制已生效。</p>
+                  <label className="min-w-0 text-sm"><span className="mb-1 block font-medium">{mock ? '视频周期预算（元）' : '视频自然月预算（元）'}</span><Input required type="number" step="any" value={policy.periodBudget} onChange={(event) => update({ periodBudget: Number(event.target.value) })} /><span className="mt-1 block text-xs text-fg-muted">{mock ? 'Mock 不产生真实扣费。' : '自然月预算（CNY），0 禁止付费执行。'}</span></label>
+                  <p className="text-xs text-fg-muted sm:col-span-2">{mock ? '并发与预算仅为配置预留；Mock 不代表真实账本扣费或并发限制已生效。' : '预算与最大并发任务由服务端强制限制。'}</p>
                 </div>
                 <fieldset><legend className="mb-2 text-sm font-medium">允许的视频操作</legend><div className="flex flex-wrap gap-4">{(['image-to-video', 'text-to-video'] as MediaVideoOperation[]).map((operation) => <label key={operation} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.allowedOperations.includes(operation)} onChange={(event) => update({ allowedOperations: event.target.checked ? [...new Set([...policy.allowedOperations, operation])] : policy.allowedOperations.filter((value) => value !== operation) })} />{operation}</label>)}</div></fieldset>
                 <fieldset><legend className="mb-2 text-sm font-medium">允许的视频画幅</legend><div className="flex flex-wrap gap-4">{aspectRatios.map((ratio) => <label key={ratio} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.allowedAspectRatios.includes(ratio)} onChange={(event) => update({ allowedAspectRatios: event.target.checked ? [...new Set([...policy.allowedAspectRatios, ratio])] : policy.allowedAspectRatios.filter((value) => value !== ratio) })} />{ratio}</label>)}</div></fieldset>

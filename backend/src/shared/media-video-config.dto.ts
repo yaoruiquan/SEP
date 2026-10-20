@@ -28,13 +28,13 @@ export const MediaVideoAvailableProfileSchema = ProfileFields.omit({ modelId: tr
 export type MediaVideoAvailableProfile = z.infer<typeof MediaVideoAvailableProfileSchema>;
 export const MediaVideoProfileVerificationSchema = z.object({
   profile: MediaVideoProfileSchema, checkedAt: z.string().datetime(),
-  executionTested: z.literal(false), mock: z.literal(true),
+  executionTested: z.literal(false), mock: z.boolean(),
 }).strict();
 export type MediaVideoProfileVerification = z.infer<typeof MediaVideoProfileVerificationSchema>;
 
 export const DiscoverMediaVideoModelsDtoSchema = z.object({}).strict();
 export const MediaVideoModelDiscoverySchema = z.object({
-  checkedAt: z.string().datetime(), mock: z.literal(true), executionTested: z.literal(false),
+  checkedAt: z.string().datetime(), mock: z.boolean(), executionTested: z.literal(false),
   models: z.array(z.object({
     modelId: ProfileFields.shape.modelId, displayName: ProfileFields.shape.displayName,
     compatible: z.boolean(), reason: z.string().nullable(),
@@ -62,6 +62,6 @@ export const UpdateMediaVideoPolicyDtoSchema = MediaVideoPolicySchema.partial().
 export type UpdateMediaVideoPolicyDto = z.infer<typeof UpdateMediaVideoPolicyDtoSchema>;
 export const MediaVideoEnterpriseConfigSchema = z.object({
   policy: MediaVideoPolicySchema, configured: z.boolean(), canEdit: z.boolean(),
-  mock: z.literal(true), executionTested: z.literal(false),
+  mock: z.boolean(), executionTested: z.literal(false),
 }).strict();
 export type MediaVideoEnterpriseConfig = z.infer<typeof MediaVideoEnterpriseConfigSchema>;

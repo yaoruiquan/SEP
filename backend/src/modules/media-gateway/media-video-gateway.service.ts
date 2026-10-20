@@ -79,7 +79,7 @@ export class MediaVideoGatewayService {
       videoStorageUnavailable();
     }
     const runtime = await this.videoConfig.getRuntimeVideo(claims.enterpriseId).catch(() => videoStorageUnavailable());
-    if (!runtime.executionAvailable || runtime.profiles.length === 0) {
+    if (runtime.executionMode === 'real' || !runtime.executionAvailable || runtime.profiles.length === 0) {
       videoGatewayError(403, 'MEDIA_FORBIDDEN', '当前企业无可执行视频授权');
     }
     return runtime.profiles;

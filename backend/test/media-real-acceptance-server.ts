@@ -24,7 +24,8 @@ import type { PrismaService } from '../src/prisma/prisma.service';
  * MEDIA_API_KEY and MEDIA_REAL_ACCEPTANCE_TOKEN_FILE (outside the repo, parent 0700).
  * Upstream: HTTPS loopback or the explicitly authorized longdaoai.cn:443 sub2api.
  * Optional: MEDIA_REAL_ACCEPTANCE_PORT=3012, MEDIA_REAL_ACCEPTANCE_FIXTURE=<batch>,
- * MEDIA_REAL_ACCEPTANCE_BALANCE_CNY=0 (maximum 10),
+ * MEDIA_REAL_ACCEPTANCE_KIND=image|video (default image),
+ * MEDIA_REAL_ACCEPTANCE_BALANCE_CNY=0 (maximum 60; isolated local fixture only),
  * MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION=true (default: requests POST is blocked).
  * MEDIA_REAL_ACCEPTANCE_RECOVER_FIXTURE=true reopens only an existing fixture,
  * with GET-only HTTP, no new balance/grants or extended subscription lifetime.
@@ -33,8 +34,15 @@ import type { PrismaService } from '../src/prisma/prisma.service';
 export class MediaAcceptanceConfigurationError extends Error {}
 const invalid = (message: string): never => { throw new MediaAcceptanceConfigurationError(message); };
 type Environment = Record<string, string | undefined>;
+type AcceptanceKind = 'image' | 'video';
 const repoRoot = resolve(__dirname, '../..');
 const loopback = (url: URL) => ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+const videoParameters = { durationSeconds: 4, aspectRatio: '16:9', resolution: '720p', frameRate: 24,
+  audio: true, outputFormat: 'video/mp4' } as const;
+const videoCapabilities = { supportsTextToVideo: true, supportsImageToVideo: true, supportsAudio: true,
+  durationsSeconds: [4], aspectRatios: ['16:9'], resolutions: ['720p'], frameRates: [24],
+  maxInputBytes: 10 * 1024 * 1024, maxReferenceCount: 1, outputFormats: ['video/mp4'],
+  supportsTaskQuery: true, supportsCancel: false, resultRetentionSeconds: 86_400 };
 
 function localUrl(value: string | undefined): URL {
   try { return new URL(value ?? ''); } catch { invalid('Explicit local connection URL required'); }
@@ -44,6 +52,8 @@ export function mediaAcceptanceSettings(env: Environment) {
   if (env.MEDIA_REAL_ACCEPTANCE_SERVER !== 'true' || !['test', 'development'].includes(env.NODE_ENV ?? '') || env.E2E_TEST === '1') {
     invalid('Requires explicit MEDIA_REAL_ACCEPTANCE_SERVER=true and test/development without E2E_TEST');
   }
+  const kind = env.MEDIA_REAL_ACCEPTANCE_KIND ?? 'image';
+  if (kind !== 'image' && kind !== 'video') invalid('MEDIA_REAL_ACCEPTANCE_KIND must be image or video');
   const database = localUrl(env.MEDIA_REAL_TEST_DATABASE_URL);
   const allowedDbOptions = new Set(['schema', 'connection_limit', 'connect_timeout']);
   if (!['postgres:', 'postgresql:'].includes(database.protocol) || !loopback(database) ||
@@ -74,8 +84,8 @@ export function mediaAcceptanceSettings(env: Environment) {
   const fixture = env.MEDIA_REAL_ACCEPTANCE_FIXTURE ?? randomUUID().replace(/-/g, '');
   if (!/^[a-z0-9][a-z0-9_]{2,39}$/.test(fixture)) invalid('Fixture name must contain 3..40 lowercase letters/digits/underscores');
   const balance = env.MEDIA_REAL_ACCEPTANCE_BALANCE_CNY ?? '0';
-  if (!/^\d{1,2}(?:\.\d{1,6})?$/.test(balance) || new Decimal(balance).greaterThan(10)) {
-    invalid('Local fixture balance must be between 0 and 10 CNY, at most six decimals');
+  if (!/^\d{1,2}(?:\.\d{1,6})?$/.test(balance) || new Decimal(balance).greaterThan(60)) {
+    invalid('Local fixture balance must be between 0 and 60 CNY, at most six decimals');
   }
   if (env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION !== undefined && !['true', 'false'].includes(env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION)) {
     invalid('MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION must be true or false');
@@ -93,7 +103,7 @@ export function mediaAcceptanceSettings(env: Environment) {
     invalid('Token file must be an absolute path outside the repository');
   }
   return {
-    databaseUrl: database.href, redisUrl: redis.href, port, fixture, tokenFile,
+    databaseUrl: database.href, redisUrl: redis.href, port, fixture, tokenFile, kind: kind as AcceptanceKind,
     balanceCny: new Decimal(balance).toFixed(6), allowExecution: env.MEDIA_REAL_ACCEPTANCE_ALLOW_EXECUTION === 'true', recoverFixture,
     // This allowlist intentionally excludes all inherited business/cloud/payment credentials.
     runtime: {
@@ -101,8 +111,12 @@ export function mediaAcceptanceSettings(env: Environment) {
       JWT_SECRET: randomBytes(32).toString('hex'), ACCESS_JWT_SECRET: randomBytes(32).toString('hex'),
       REFRESH_TOKEN_PEPPER: randomBytes(32).toString('hex'), REFRESH_TOKEN_EXPIRES_IN: '1h',
       CLIENT_TOKEN_TTL_MINUTES: '15', USD_TO_CNY_RATE: '7.2', MAIL_ENABLED: 'false',
-      MEDIA_GATEWAY_REAL_ENABLED: 'true', MEDIA_GATEWAY_MOCK_ENABLED: 'false',
+      MEDIA_GATEWAY_REAL_ENABLED: kind === 'image' ? 'true' : 'false', MEDIA_GATEWAY_MOCK_ENABLED: 'false',
       MEDIA_BASE_URL: upstream.href, MEDIA_API_KEY: env.MEDIA_API_KEY,
+      ...(kind === 'video' ? {
+        MEDIA_VIDEO_REAL_ENABLED: 'true', MEDIA_VIDEO_BASE_URL: upstream.href, MEDIA_VIDEO_API_KEY: env.MEDIA_API_KEY,
+        MEDIA_VIDEO_CACHE_DIR: resolve(dirname(tokenFile), `video-cache-${fixture}`),
+      } : {}),
     },
   };
 }
@@ -122,6 +136,7 @@ export async function openMediaAcceptanceTokenFile(path: string) {
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   const created = await handle.stat();
   return {
+    directory: resolvedParent,
     async write(value: unknown) { await handle.writeFile(`${JSON.stringify(value)}\n`); await handle.sync(); },
     async close() {
       try {
@@ -132,11 +147,14 @@ export async function openMediaAcceptanceTokenFile(path: string) {
   };
 }
 
-export function mediaAcceptanceHttpBoundary(allowExecution: boolean, recoveryOnly = false): RequestHandler {
+export function mediaAcceptanceHttpBoundary(allowExecution: boolean, recoveryOnly = false, kind: AcceptanceKind = 'image'): RequestHandler {
   return (req, res, next) => {
     const path = req.path.replace(/\/+$/, '').toLowerCase();
-    const root = '/api/gateway/v1/media/real';
-    const read = req.method === 'GET' && (path === `${root}/profiles` || path.startsWith(`${root}/requests/`));
+    const root = `/api/gateway/v1/media/${kind === 'video' ? 'video-real' : 'real'}`;
+    const requestRead = kind === 'image' ? path.startsWith(`${root}/requests/`) :
+      new RegExp(`^${root}/requests/(?:by-client-id/[a-z0-9_-]{1,128}|[a-z0-9_-]{1,128}(?:/outputs/[a-z0-9_-]{1,128}/content)?)$`).test(path);
+    const runtime = kind === 'video' && /^\/api\/client\/subscriptions\/[a-z0-9_-]{1,128}\/runtime$/.test(path);
+    const read = req.method === 'GET' && (runtime || path === `${root}/profiles` || requestRead);
     const prepare = req.method === 'POST' && [`${root}/quotes`, `${root}/references`].includes(path);
     const submit = req.method === 'POST' && path === `${root}/requests`;
     if (read || (!recoveryOnly && (prepare || (submit && allowExecution)))) return next();
@@ -149,22 +167,26 @@ export async function recoverMediaAcceptanceFixture(prisma: PrismaService, local
   const prefix = `media-real-acceptance-${local.fixture}`;
   return prisma.$transaction(async tx => {
     if (await tx.systemSetting.count({ where: { key: { in: [
-      'MEDIA_BASE_URL', 'MEDIA_API_KEY', 'CLIENT_TOKEN_TTL_MINUTES', 'USD_TO_CNY_RATE',
+      'MEDIA_BASE_URL', 'MEDIA_API_KEY', 'MEDIA_VIDEO_BASE_URL', 'MEDIA_VIDEO_API_KEY', 'CLIENT_TOKEN_TTL_MINUTES', 'USD_TO_CNY_RATE',
     ] } } })) invalid('Isolated DB has connection/TTL/rate overrides');
     const user = await tx.user.findUnique({ where: { email: `${prefix}@fixture.invalid` }, select: { id: true } });
     const enterprises = await tx.enterprise.findMany({ where: { name: `${prefix} LOCAL FIXTURE` }, select: { id: true, metadata: true } });
     const enterprise = enterprises.length === 1 ? enterprises[0] : null;
     const metadata = enterprise?.metadata;
     if (!user || !enterprise || !metadata || typeof metadata !== 'object' || Array.isArray(metadata) ||
-        metadata.localAcceptanceFixture !== true || metadata.batch !== local.fixture) invalid('Existing local fixture required');
+        metadata.localAcceptanceFixture !== true || metadata.batch !== local.fixture ||
+        (metadata.kind ?? 'image') !== local.kind) invalid('Existing local fixture required');
     const member = await tx.enterpriseMember.findUnique({ where: { userId_enterpriseId: { userId: user.id, enterpriseId: enterprise.id } }, select: { id: true } });
     const subscriptions = await tx.subscription.findMany({ where: { enterpriseId: enterprise.id, name: prefix,
       employee: { name: prefix }, status: 'ACTIVE', endDate: { gt: new Date() } }, select: { id: true, endDate: true } });
     const device = await tx.device.findUnique({ where: { userId_fingerprint: { userId: user.id, fingerprint: prefix } }, select: { id: true, revokedAt: true } });
-    const profile = await tx.mediaModelProfile.findUnique({ where: { profileId: `acceptance-${local.fixture}` }, select: { profileId: true } });
+    const profile = await tx.mediaModelProfile.findUnique({ where: { profileId: `acceptance-${local.fixture}` },
+      select: { profileId: true, kind: true, modelId: true, configVersion: true, capabilities: true } });
     if (!member || subscriptions.length !== 1 || !device || device.revokedAt || !profile) invalid('Existing local fixture is unavailable');
+    if (local.kind === 'video' && (profile.kind !== 'video' || profile.modelId !== 'minimax-h3')) invalid('Existing video fixture profile mismatch');
     return { userId: user.id, enterpriseId: enterprise.id, memberId: member.id, subscriptionId: subscriptions[0].id,
-      deviceId: device.id, profileId: profile.profileId, expiresAt: subscriptions[0].endDate!.toISOString() };
+      deviceId: device.id, profileId: profile.profileId, expiresAt: subscriptions[0].endDate!.toISOString(),
+      ...(local.kind === 'video' ? { configVersion: profile.configVersion, modelId: profile.modelId, parameters: videoParameters } : {}) };
   }, { isolationLevel: 'Serializable', timeout: 15_000 });
 }
 
@@ -175,19 +197,20 @@ export async function createMediaAcceptanceFixture(prisma: PrismaService, local:
   return prisma.$transaction(async tx => {
     // DB overrides win over environment. Refuse them, never modify another run's settings.
     const overrides = await tx.systemSetting.count({ where: { key: { in: [
-      'MEDIA_BASE_URL', 'MEDIA_API_KEY', 'CLIENT_TOKEN_TTL_MINUTES', 'USD_TO_CNY_RATE',
+      'MEDIA_BASE_URL', 'MEDIA_API_KEY', 'MEDIA_VIDEO_BASE_URL', 'MEDIA_VIDEO_API_KEY', 'CLIENT_TOKEN_TTL_MINUTES', 'USD_TO_CNY_RATE',
     ] } } });
     if (overrides) invalid('Isolated DB has connection/TTL/rate overrides; use a clean acceptance database');
     if (await tx.user.findUnique({ where: { email: `${prefix}@fixture.invalid` }, select: { id: true } })) {
       invalid('Fixture already exists; choose a new batch (existing balances are never refilled)');
     }
     const user = await tx.user.create({ data: { email: `${prefix}@fixture.invalid`, name: `${prefix} LOCAL FIXTURE`, role: 'USER' } });
-    const enterprise = await tx.enterprise.create({ data: { name: `${prefix} LOCAL FIXTURE`, metadata: { localAcceptanceFixture: true, batch: local.fixture } } });
+    const enterprise = await tx.enterprise.create({ data: { name: `${prefix} LOCAL FIXTURE`,
+      metadata: { localAcceptanceFixture: true, batch: local.fixture, kind: local.kind } } });
     const member = await tx.enterpriseMember.create({ data: { userId: user.id, enterpriseId: enterprise.id, role: 'MEMBER' } });
     const employee = await tx.digitalEmployee.create({ data: {
       name: prefix, description: 'Local media HTTP acceptance fixture, not a production employee', industry: 'testing',
       position: 'media-acceptance', systemPrompt: 'Local media acceptance fixture', status: 'APPROVED',
-      modelId: 'gpt-image-2', includedComputeCNY: 0,
+      modelId: local.kind === 'video' ? 'minimax-h3' : 'gpt-image-2', includedComputeCNY: 0,
     } });
     const capability = await tx.capability.create({ data: {
       name: `${prefix}-skill`, description: 'Local acceptance media skill fixture', type: 'SKILL',
@@ -196,7 +219,9 @@ export async function createMediaAcceptanceFixture(prisma: PrismaService, local:
     } });
     const version = await tx.skillVersion.create({ data: {
       capabilityId: capability.id, scope: 'ENTERPRISE', enterpriseId: enterprise.id, status: 'ENTERPRISE_APPROVED',
-      version: '1.0.0', content: '# Local media acceptance\nUse image_generate or image_edit only after explicit confirmation.',
+      version: '1.0.0', content: local.kind === 'video'
+        ? '# Local video acceptance\nUse video_generate only after explicit confirmation.'
+        : '# Local media acceptance\nUse image_generate or image_edit only after explicit confirmation.',
       createdById: user.id, enterpriseReviewedAt: new Date(),
     } });
     await tx.employeeCapabilityBinding.create({ data: { employeeId: employee.id, capabilityId: capability.id, defaultSkillVersionId: version.id } });
@@ -207,19 +232,28 @@ export async function createMediaAcceptanceFixture(prisma: PrismaService, local:
     // Synthetic local personal funds only: no enterprise credit, top-ups, recharge or payment records.
     await tx.personalWallet.create({ data: { userId: user.id, balance: local.balanceCny } });
     const profile = await tx.mediaModelProfile.create({ data: {
-      profileId: `acceptance-${local.fixture}`, displayName: `${local.fixture} LOCAL FIXTURE`, modelId: 'gpt-image-2',
-      configVersion: `local-${randomUUID()}`, operations: ['generate', 'edit'], executionMode: 'sync-response',
-      capabilities: { supportsReferenceImage: true, maxOutputs: 1, sizes: ['1024x1024'] },
+      profileId: `acceptance-${local.fixture}`, displayName: `${local.fixture} LOCAL FIXTURE`,
+      configVersion: `local-${randomUUID()}`,
+      ...(local.kind === 'video' ? { kind: 'video', modelId: 'minimax-h3', operations: ['text-to-video', 'image-to-video'],
+        executionMode: 'async-query', capabilities: videoCapabilities } : {
+        modelId: 'gpt-image-2', operations: ['generate', 'edit'], executionMode: 'sync-response',
+        capabilities: { supportsReferenceImage: true, maxOutputs: 1, sizes: ['1024x1024'] },
+      }),
       // Fixture attestation only; this does not assert that upstream execution has been verified.
       enabled: true, verified: true,
     } });
-    await tx.enterpriseModelConfig.create({ data: { enterpriseId: enterprise.id, mediaPolicy: {
+    await tx.enterpriseModelConfig.create({ data: { enterpriseId: enterprise.id, mediaPolicy: local.kind === 'video' ? { video: {
+      enabledProfileIds: [profile.profileId], defaultProfileId: profile.profileId,
+      allowedOperations: ['text-to-video', 'image-to-video'], maxDurationSeconds: 4,
+      allowedAspectRatios: ['16:9'], maxResolution: '720p', maxConcurrentJobs: 1, periodBudget: Number(local.balanceCny),
+    } } : {
       enabledProfileIds: [profile.profileId], defaultProfileId: profile.profileId, allowedOperations: ['generate', 'edit'],
       maxOutputs: 1, maxWidth: 1024, maxHeight: 1024,
     } } });
     const device = await tx.device.create({ data: { userId: user.id, fingerprint: prefix, platform: process.platform } });
     return { userId: user.id, enterpriseId: enterprise.id, memberId: member.id, subscriptionId: subscription.id,
-      deviceId: device.id, profileId: profile.profileId, expiresAt: expiresAt.toISOString() };
+      deviceId: device.id, profileId: profile.profileId, expiresAt: expiresAt.toISOString(),
+      ...(local.kind === 'video' ? { configVersion: profile.configVersion, modelId: profile.modelId, parameters: videoParameters } : {}) };
   }, { isolationLevel: 'Serializable', timeout: 15_000 });
 }
 
@@ -227,6 +261,7 @@ export async function startMediaAcceptanceServer(env: Environment = process.env)
   const local = mediaAcceptanceSettings(env);
   Logger.overrideLogger(false);
   const delivery = await openMediaAcceptanceTokenFile(local.tokenFile);
+  if (local.kind === 'video') local.runtime.MEDIA_VIDEO_CACHE_DIR = resolve(delivery.directory, `video-cache-${local.fixture}`);
   let moduleRef: TestingModule | undefined;
   let app: INestApplication | undefined;
   let sessions: SessionService | undefined;
@@ -270,7 +305,7 @@ export async function startMediaAcceptanceServer(env: Environment = process.env)
     moduleRef = await Test.createTestingModule({ imports: [config, security.SecurityModule, client.ClientModule, media.MediaGatewayModule] }).compile();
     app = moduleRef.createNestApplication({ logger: false, bodyParser: false });
     app.setGlobalPrefix('api');
-    app.use(mediaAcceptanceHttpBoundary(local.allowExecution, local.recoverFixture));
+    app.use(mediaAcceptanceHttpBoundary(local.allowExecution, local.recoverFixture, local.kind));
     app.use(requestContextMiddleware, basicRateLimitMiddleware, createJsonBodyMiddleware(), cookieParser());
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
@@ -282,14 +317,19 @@ export async function startMediaAcceptanceServer(env: Environment = process.env)
     const created = await sessions.createSession({ userId: fixture.userId, clientType: 'DESKTOP', deviceId: fixture.deviceId, refreshTtlSeconds: 3600 });
     sessionId = created.sessionId;
     const { ClientService: ClientServiceClass } = await import('../src/modules/client/client.service');
-    const tokens = await app.get<ClientService>(ClientServiceClass).refreshInstanceToken({ refreshToken: created.refreshToken, subscriptionId: fixture.subscriptionId });
+    const clientService = app.get<ClientService>(ClientServiceClass);
+    const access = local.kind === 'video' ? await clientService.refreshAccessToken({ refreshToken: created.refreshToken }) : undefined;
+    const tokens = await clientService.refreshInstanceToken({ refreshToken: access?.refreshToken ?? created.refreshToken, subscriptionId: fixture.subscriptionId });
     // Neither session refresh tokens nor upstream credentials are delivered or logged.
     await app.listen(local.port, '127.0.0.1');
     const baseUrl = `http://127.0.0.1:${local.port}/api`;
     const wallet = await database.personalWallet.findUniqueOrThrow({ where: { userId: fixture.userId }, select: { balance: true } });
     await delivery.write({ baseUrl, employmentToken: tokens.employmentToken, expiresIn: tokens.expiresIn,
       ...fixture, balanceCny: wallet.balance.toFixed(6), localFixtureOnly: true, executionEnabled: local.allowExecution,
-      recoveryOnly: local.recoverFixture });
+      recoveryOnly: local.recoverFixture, kind: local.kind,
+      ...(access ? { accessToken: access.accessToken, accessTokenExpiresIn: access.accessTokenExpiresIn,
+        runtimeUrl: `${baseUrl}/client/subscriptions/${fixture.subscriptionId}/runtime?videoProtocolVersion=1`,
+        cacheDirectory: local.runtime.MEDIA_VIDEO_CACHE_DIR } : {}) });
     return { app, fixture, baseUrl, close };
   } catch (error) { await close(); throw error; }
 }

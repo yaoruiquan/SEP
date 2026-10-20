@@ -87,17 +87,17 @@ export function VideoModelsPanel() {
 
   return <section aria-labelledby="video-models-title" className="min-w-0 space-y-5 border-t border-border pt-6">
     <header className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-2"><Video className="h-4 w-4" /><h2 id="video-models-title" className="text-base font-semibold">视频模型配置</h2><Badge variant="secondary">Mock · 不计费</Badge></div>
+      <div className="flex flex-wrap items-center gap-2"><Video className="h-4 w-4" /><h2 id="video-models-title" className="text-base font-semibold">视频模型配置</h2></div>
       <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={busy} onClick={() => { setActionError(null); void profiles.refetch(); }}><RefreshCw className="h-4 w-4" />刷新视频配置</Button><Button variant="outline" loading={discovery.isPending} disabled={busy} title={busy ? '正在处理视频配置，请稍候' : '仅发现候选配置，不调用真实视频模型'} onClick={() => { setActionError(null); discovery.mutate(); }}><ScanSearch className="h-4 w-4" />发现视频模型</Button></div>
     </header>
-    <p className="text-sm text-fg-muted">V1 仅 Mock 执行，不计费。配置校验不调用真实视频模型；真实模型可导入配置，但未适配前不可启用。</p>
+    <p className="text-sm text-fg-muted">配置校验不执行视频生成；已适配的模型校验通过后可启用。</p>
     {discovery.isPending && <p role="status" aria-label="发现视频模型中" className="text-sm text-fg-muted">正在发现视频候选模型…</p>}
-    {verify.isPending && <p role="status" aria-label="校验视频配置中" className="text-sm text-fg-muted">正在校验 Mock 配置，未调用真实视频模型…</p>}
+    {verify.isPending && <p role="status" aria-label="校验视频配置中" className="text-sm text-fg-muted">正在校验视频配置，未执行视频生成…</p>}
     {(actionError || discovery.error) && <p role="alert" className="break-words text-sm text-danger">{actionError ?? errorText(discovery.error)}</p>}
     {discovery.data && <section aria-label="视频候选模型" className="space-y-3">
       <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">视频候选模型</h3><time className="text-xs text-fg-muted" dateTime={discovery.data.checkedAt}>{new Date(discovery.data.checkedAt).toLocaleString('zh-CN')}</time></div>
       {discovery.data.models.length === 0 ? <p className="text-sm text-fg-muted">未发现视频候选模型</p> : <ul className="divide-y divide-border border-y border-border">{discovery.data.models.map((candidate) => <li key={candidate.modelId} className="flex flex-wrap items-center justify-between gap-3 py-3">
-        <div className="min-w-0 flex-1 basis-48"><div className="flex flex-wrap items-center gap-2"><span className="break-all text-sm font-medium">{candidate.displayName}</span><Badge variant="secondary">{candidate.compatible ? '已适配 Mock' : '未适配 · 不可启用'}</Badge></div><p className="break-all font-mono text-xs text-fg-muted">{candidate.modelId}</p>{candidate.reason && <p className="break-words text-sm text-fg-muted">{candidate.reason}</p>}</div>
+        <div className="min-w-0 flex-1 basis-48"><div className="flex flex-wrap items-center gap-2"><span className="break-all text-sm font-medium">{candidate.displayName}</span><Badge variant="secondary">{!candidate.compatible ? '未适配 · 不可启用' : candidate.modelId === 'mock-video-v1' ? 'Mock · 不计费' : '真实视频'}</Badge></div><p className="break-all font-mono text-xs text-fg-muted">{candidate.modelId}</p>{candidate.reason && <p className="break-words text-sm text-fg-muted">{candidate.reason}</p>}</div>
         <div className="space-y-1"><Button size="sm" variant="outline" aria-label={`导入视频模型 ${candidate.displayName}`} disabled={busy || !candidate.suggested} title={candidate.suggested ? '仅导入禁用的配置，不执行模型' : '缺少视频规格，暂不可导入'} onClick={() => importCandidate(candidate)}><Import className="h-4 w-4" />导入</Button>{!candidate.suggested && <p className="text-xs text-fg-muted">缺少视频规格，暂不可导入</p>}</div>
       </li>)}</ul>}
     </section>}
@@ -105,15 +105,16 @@ export function VideoModelsPanel() {
       : profiles.error ? <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-danger">{errorText(profiles.error)}</p><Button size="sm" variant="outline" onClick={() => void profiles.refetch()}><RefreshCw className="h-4 w-4" />重试视频配置</Button></div>
         : !profiles.data?.length ? <p className="border border-dashed border-border px-5 py-8 text-sm text-fg-muted">暂无视频 Profile，请先发现并导入模型。</p>
           : <ul aria-label="视频 Profiles" className="divide-y divide-border border-y border-border">{profiles.data.filter((profile) => profile.kind === 'video').map((profile) => {
-            const adapted = profile.modelId === 'mock-video-v1';
+            const mock = profile.modelId === 'mock-video-v1';
+            const adapted = mock || profile.modelId === 'minimax-h3';
             return <li key={profile.profileId} className="flex flex-wrap items-center justify-between gap-3 py-4">
-              <div className="min-w-0 flex-1 basis-56"><h3 className="break-words text-sm font-medium">{profile.displayName}</h3><p className="break-all font-mono text-xs text-fg-muted">{profile.profileId} · {profile.modelId}</p><p className="break-words text-xs text-fg-muted">{profile.operations.join(' / ')} · {profile.capabilities.durationsSeconds.join(' / ')} 秒 · {profile.capabilities.resolutions.join(' / ')} · {profile.capabilities.aspectRatios.join(' / ')}</p><p className="mt-1 text-xs text-fg-muted">{!adapted ? '真实模型未适配，不可启用' : profile.verified ? '配置已校验（非真实模型调用）' : '配置未校验，校验后可启用'}</p></div>
+              <div className="min-w-0 flex-1 basis-56"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words text-sm font-medium">{profile.displayName}</h3><Badge variant="secondary">{mock ? 'Mock · 不计费' : '真实视频'}</Badge></div><p className="break-all font-mono text-xs text-fg-muted">{profile.profileId} · {profile.modelId}</p><p className="break-words text-xs text-fg-muted">{profile.operations.join(' / ')} · {profile.capabilities.durationsSeconds.join(' / ')} 秒 · {profile.capabilities.resolutions.join(' / ')} · {profile.capabilities.aspectRatios.join(' / ')}</p><p className="mt-1 text-xs text-fg-muted">{!adapted ? '真实模型未适配，不可启用' : profile.verified ? '配置已校验（未执行视频生成）' : '配置未校验，校验后可启用'}</p></div>
               <div className="flex flex-wrap items-center gap-2"><Switch aria-label={`启用视频 ${profile.displayName}`} checked={profile.enabled} disabled={busy || !profile.enabled && (!profile.verified || !adapted)} onCheckedChange={(enabled) => {
                 if (busy || enabled && (!adapted || !profile.verified)) return;
                 setActionError(null);
-                update.mutate({ profileId: profile.profileId, dto: { expectedConfigVersion: profile.configVersion, enabled } }, { onError: reportError, onSuccess: () => toast.success(enabled ? 'Mock 视频已启用（不计费）' : '视频已禁用') });
+                update.mutate({ profileId: profile.profileId, dto: { expectedConfigVersion: profile.configVersion, enabled } }, { onError: reportError, onSuccess: () => toast.success(enabled ? mock ? 'Mock 视频已启用（不计费）' : '真实视频已启用' : '视频已禁用') });
               }} /><span className="text-sm">{profile.enabled ? '启用' : '禁用'}</span>
-                <Button size="icon" variant="ghost" aria-label={`校验视频 ${profile.displayName}`} title="配置校验，不调用真实视频模型" disabled={busy || !adapted} onClick={() => { setActionError(null); verify.mutate({ profileId: profile.profileId, dto: { expectedConfigVersion: profile.configVersion } }, { onError: reportError, onSuccess: () => toast.success('视频配置已校验，未调用真实模型') }); }}><ShieldCheck className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" aria-label={`校验视频 ${profile.displayName}`} title="配置校验，不执行视频生成" disabled={busy || !adapted} onClick={() => { setActionError(null); verify.mutate({ profileId: profile.profileId, dto: { expectedConfigVersion: profile.configVersion } }, { onError: reportError, onSuccess: () => toast.success('视频配置已校验，未执行视频生成') }); }}><ShieldCheck className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" aria-label={`编辑视频 ${profile.displayName}`} title="编辑视频配置" disabled={busy} onClick={() => editProfile(profile)}><Pencil className="h-4 w-4" /></Button>
               </div>
             </li>;
@@ -122,7 +123,7 @@ export function VideoModelsPanel() {
       <DialogContent aria-describedby={undefined} className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>{editing ? '编辑视频 Profile' : '导入视频 Profile'}</DialogTitle></DialogHeader>
         {form && <form onSubmit={submit} className="space-y-4">
-          <p className="text-sm text-fg-muted">保存后保持禁用，需要重新校验。仅 Mock 执行，不计费。</p>
+          <p className="text-sm text-fg-muted">保存后保持禁用，需要重新校验。{form.modelId === 'mock-video-v1' ? 'Mock 不计费。' : '真实视频执行会产生费用。'}</p>
           <fieldset disabled={saving} className="min-w-0 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2"><label className="min-w-0 text-sm"><span className="mb-1 block">视频 Profile ID</span><Input required disabled={!!editing} value={form.profileId} onChange={(event) => setForm({ ...form, profileId: event.target.value })} /></label><label className="min-w-0 text-sm"><span className="mb-1 block">视频显示名称</span><Input required value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></label></div>
             <label className="block text-sm"><span className="mb-1 block">视频 Model ID</span><Input required value={form.modelId} onChange={(event) => setForm({ ...form, modelId: event.target.value })} /></label>

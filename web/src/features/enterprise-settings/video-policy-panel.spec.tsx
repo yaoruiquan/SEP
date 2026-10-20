@@ -88,4 +88,17 @@ describe('video policy panel', () => {
     await screen.findByText('暂无已启用且已校验的视频 Profile');
     expect(screen.getByText(/平台 Mock 视频尚未开放/)).toBeInTheDocument();
   });
+  it('shows real video authorization semantics and preserves the zero budget guard', async () => {
+    vi.mocked(api.get).mockImplementation(async (path) => path === '/enterprise/media-config/video'
+      ? { policy: MediaVideoPolicySchema.parse({ periodBudget: 0, maxConcurrentJobs: 2 }), canEdit: true, configured: true, mock: false, executionTested: false }
+      : [profile]);
+    vi.mocked(api.put).mockResolvedValue({ policy, configured: true, canEdit: true, mock: false, executionTested: false });
+    renderPanel();
+    expect(await screen.findByText('真实视频')).toBeInTheDocument();
+    expect(screen.getByText('视频自然月预算（元）').closest('label')?.querySelector('input')).toHaveValue(0);
+    expect(screen.getByText('自然月预算（CNY），0 禁止付费执行。')).toBeInTheDocument();
+    expect(screen.getByText('预算与最大并发任务由服务端强制限制。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', expect.objectContaining({ periodBudget: 0, maxConcurrentJobs: 2 })));
+  });
 });

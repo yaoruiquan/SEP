@@ -46,6 +46,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Real video output metadata is verified locally before publishing a receipt.
+RUN apk add --no-cache ffmpeg
+
 # prod-bundle：package.json + 展平 node_modules + .prisma/client（含 UserRole enum）
 COPY --from=builder /prod-bundle ./
 

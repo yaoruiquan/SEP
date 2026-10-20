@@ -24,12 +24,17 @@ import { MediaByteCacheService } from './media-byte-cache.service';
 import { MediaVideoGatewayController } from './media-video-gateway.controller';
 import { MediaVideoGatewayService } from './media-video-gateway.service';
 import { MediaVideoGatewayStore } from './media-video-gateway.store';
+import { MediaVideoRealController } from './media-video-real.controller';
+import { MediaVideoRealService } from './media-video-real.service';
+import { MediaVideoRealStore } from './media-video-real.store';
+import { MediaVideoRealGuard } from './media-video-real.guard';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), PrismaModule, RedisModule, AuthModule, SettingModule, MediaConfigModule],
-  controllers: [MediaGatewayController, MediaRealController, MediaVideoGatewayController],
+  controllers: [MediaGatewayController, MediaRealController, MediaVideoGatewayController, MediaVideoRealController],
   providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayStore, MediaGatewayService,
     MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService, MediaVideoGatewayStore,
+    MediaVideoRealService, MediaVideoRealStore, MediaVideoRealGuard,
     {
       provide: MediaVideoGatewayService,
       useFactory: (prisma: PrismaService, store: MediaVideoGatewayStore, configuration: MediaVideoConfigService) =>

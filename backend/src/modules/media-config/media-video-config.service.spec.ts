@@ -10,7 +10,7 @@ import videoFixture from '../../shared/fixtures/media-video-v1.json';
 import { MediaConfigService } from './media-config.service';
 import { MediaVideoConfigService } from './media-video-config.service';
 
-function setup() {
+function setup(real = false) {
   const row: any = { ...structuredClone(videoFixture.profile), modelId: 'mock-video-v1', configVersion: 'cfg_video', enabled: true, verified: true };
   const imagePolicy = { enabledProfileIds: ['product-image'], defaultProfileId: 'product-image',
     allowedOperations: ['generate'], maxOutputs: 2, maxWidth: 1024, maxHeight: 1024 };
@@ -38,9 +38,14 @@ function setup() {
     resolve: jest.fn(async () => ({ enterpriseId: 'ent-1', role: 'ENTERPRISE_ADMIN' })),
     assertEnterpriseAdmin: jest.fn(value => { if (value.role !== 'ENTERPRISE_ADMIN') throw new ForbiddenException(); }),
   };
-  const config: any = { get: jest.fn(() => 'true') };
+  const config: any = { get: jest.fn(key => key === 'MEDIA_VIDEO_REAL_ENABLED' ? real ? 'true' : undefined
+    : key === 'NODE_ENV' ? 'test' : 'true') };
+  const videoAdapter: any = { connection: jest.fn(async () => ({ fingerprint: 'test' })),
+    discover: jest.fn(async () => [{ modelId: 'minimax-h3', displayName: 'H3' }, { modelId: 'minimax-m3', displayName: 'M3' }]),
+    pricing: jest.fn(async () => ({ amount_usd: '0.12' })) };
+  const videoFiles: any = { assertAvailable: jest.fn(async () => {}) };
   const settings: any = { getEffectiveValue: jest.fn(async key => key === SETTING_KEYS.MEDIA_BASE_URL ? 'https://relay.example/v1' : 'key') };
-  return { service: new MediaVideoConfigService(prisma, context, config),
+  return { service: new MediaVideoConfigService(prisma, context, config, videoAdapter, videoFiles), videoAdapter, videoFiles,
     imageService: new MediaConfigService(prisma, settings, context),
     prisma, context, config, row, imagePolicy, videoPolicy,
     getStored: () => stored, setStored: (value: any) => { stored = value; } };
@@ -50,6 +55,65 @@ function createInput(overrides: Record<string, unknown> = {}) {
   const { configVersion: _version, verified: _verified, ...profile } = videoFixture.profile;
   return CreateMediaVideoProfileDtoSchema.parse({ ...profile, modelId: 'mock-video-v1', ...overrides });
 }
+
+describe('MediaVideoConfigService real configuration', () => {
+  function realSetup() {
+    const f = setup(true);
+    f.row.modelId = 'minimax-h3';
+    f.row.operations = ['text-to-video', 'image-to-video'];
+    Object.assign(f.row.capabilities, { supportsTextToVideo: true, supportsAudio: true,
+      durationsSeconds: [4], aspectRatios: ['16:9'] });
+    Object.assign(f.getStored().mediaPolicy.video, { allowedOperations: ['text-to-video', 'image-to-video'],
+      allowedAspectRatios: ['16:9'], maxDurationSeconds: 4, periodBudget: 10 });
+    return f;
+  }
+
+  it('discovers exact h3 without treating language models as supported or auto-enabling a profile', async () => {
+    const f = realSetup();
+    expect(await f.service.discoverModels()).toMatchObject({ mock: false, executionTested: false,
+      models: [{ modelId: 'minimax-h3', compatible: true }, { modelId: 'minimax-m3', compatible: false, suggested: null }] });
+    expect(f.prisma.mediaModelProfile.create).not.toHaveBeenCalled();
+    expect(f.videoAdapter.pricing).not.toHaveBeenCalled();
+  });
+
+  it('verifies directory, both operation prices and inspector but never generates', async () => {
+    const f = realSetup();
+    f.row.enabled = false; f.row.verified = false;
+    expect(await f.service.verifyProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion }))
+      .toMatchObject({ mock: false, executionTested: false, profile: { verified: true, enabled: false } });
+    expect(f.videoFiles.assertAvailable).toHaveBeenCalledTimes(1);
+    expect(f.videoAdapter.pricing).toHaveBeenCalledTimes(2);
+    await f.service.updateProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion, enabled: true });
+    expect(await f.service.getRuntimeVideo('ent-1')).toMatchObject({ executionMode: 'real', executionAvailable: true,
+      tools: ['video_from_image', 'video_generate', 'video_get_job'] });
+  });
+
+  it('fails closed when inspector or actual customer quote is unavailable', async () => {
+    const f = realSetup();
+    f.videoFiles.assertAvailable.mockRejectedValue(new ServiceUnavailableException());
+    await expect(f.service.verifyProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion })).rejects.toThrow();
+    expect(f.prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+    f.videoFiles.assertAvailable.mockResolvedValue(undefined);
+    f.videoAdapter.pricing.mockRejectedValue(new ServiceUnavailableException());
+    await expect(f.service.verifyProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion })).rejects.toThrow();
+    expect(f.prisma.mediaModelProfile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allows explicitly enabled real discovery in production without enabling mock', async () => {
+    const f = realSetup();
+    f.config.get.mockImplementation(key => key === 'NODE_ENV' ? 'production'
+      : key === 'MEDIA_VIDEO_REAL_ENABLED' ? 'true' : undefined);
+    expect(await f.service.discoverModels()).toMatchObject({ mock: false, executionTested: false });
+    expect(await f.service.getRuntimeVideo('ent-1')).toMatchObject({ executionAvailable: true, executionMode: 'real' });
+  });
+
+  it('does not expose mock profiles on real runtime and preserves the independent image policy', async () => {
+    const f = setup(true);
+    expect(await f.service.getRuntimeVideo('ent-1')).toMatchObject({ executionAvailable: false, profiles: [] });
+    expect(await f.service.getEnterpriseConfig('user-1')).toMatchObject({ mock: false, configured: true });
+    expect(f.getStored().mediaPolicy).toMatchObject(f.imagePolicy);
+  });
+});
 
 describe('video configuration shared contracts', () => {
   it('keeps image policy defaults and independently nests a disabled video policy', () => {
@@ -160,7 +224,8 @@ describe('MediaVideoConfigService profiles (mock only)', () => {
 
   it('disables discovery, verification, available profiles, and runtime in production even with mock explicitly true', async () => {
     const { service, config, row } = setup();
-    config.get.mockImplementation(key => key === 'NODE_ENV' ? 'production' : 'true');
+    config.get.mockImplementation(key => key === 'NODE_ENV' ? 'production'
+      : key === 'MEDIA_GATEWAY_MOCK_ENABLED' ? 'true' : undefined);
     expect((await service.discoverModels()).models).toEqual([]);
     expect(await service.getAvailableProfiles('user-1')).toEqual([]);
     expect((await service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);

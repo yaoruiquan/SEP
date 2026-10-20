@@ -12,6 +12,7 @@ const { configVersion: _version, verified: _verified, ...raw } = fixture.profile
 const dto = CreateVideoProfileSchema.parse({ ...raw, modelId: 'mock-video-v1' });
 let profiles: MediaVideoProfile[];
 const candidate = { modelId: dto.modelId, displayName: dto.displayName, compatible: true, reason: null, suggested: { operations: dto.operations, executionMode: dto.executionMode, capabilities: dto.capabilities } };
+const realCandidate = { ...candidate, modelId: 'minimax-h3', displayName: 'MiniMax H3' };
 function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(<QueryClientProvider client={client}><VideoModelsPanel /></QueryClientProvider>);
@@ -22,7 +23,7 @@ beforeEach(() => {
   profiles = [{ ...dto, configVersion: 'v1', verified: false }];
   vi.mocked(api.get).mockImplementation(async () => structuredClone(profiles));
   vi.mocked(api.post).mockImplementation(async (path) => {
-    if (path.endsWith('/discover')) return { checkedAt: new Date().toISOString(), mock: true, executionTested: false, models: [candidate, { ...candidate, modelId: 'real-video', displayName: 'Real video', compatible: false, reason: '真实模型尚未适配' }] };
+    if (path.endsWith('/discover')) return { checkedAt: new Date().toISOString(), mock: true, executionTested: false, models: [candidate, realCandidate, { ...candidate, modelId: 'real-video', displayName: 'Real video', compatible: false, reason: '真实模型尚未适配' }] };
     if (path.endsWith('/verify')) {
       profiles = profiles.map((profile) => ({ ...profile, verified: true, configVersion: 'v2' }));
       return { profile: profiles[0], checkedAt: new Date().toISOString(), executionTested: false, mock: true };
@@ -61,6 +62,23 @@ describe('video models panel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '导入视频模型 Real video' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '保存视频配置' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/media/video/profiles', expect.objectContaining({ modelId: 'real-video', enabled: false })));
+  });
+  it('imports, verifies and enables the supported minimax-h3 real profile', async () => {
+    profiles = [];
+    renderPanel();
+    await screen.findByText('暂无视频 Profile，请先发现并导入模型。');
+    fireEvent.click(screen.getByRole('button', { name: '发现视频模型' }));
+    fireEvent.click(await screen.findByRole('button', { name: '导入视频模型 MiniMax H3' }));
+    profiles = [{ ...dto, profileId: 'minimax-h3', displayName: 'MiniMax H3', modelId: 'minimax-h3', verified: false, configVersion: 'v1' }];
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '保存视频配置' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/media/video/profiles', expect.objectContaining({ modelId: 'minimax-h3', enabled: false })));
+    await waitFor(() => expect(screen.getByRole('button', { name: '校验视频 MiniMax H3' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '校验视频 MiniMax H3' }));
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled());
+    expect(screen.getAllByText('真实视频')).toHaveLength(2);
+    expect(screen.getByText('配置已校验（未执行视频生成）')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('switch'));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/admin/media/video/profiles/minimax-h3', expect.objectContaining({ enabled: true, expectedConfigVersion: 'v2' })));
   });
   it('shows shared validation errors and keeps imported values', async () => {
     renderPanel();

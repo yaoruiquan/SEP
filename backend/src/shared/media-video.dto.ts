@@ -56,6 +56,7 @@ export type MediaVideoProfile = z.infer<typeof MediaVideoProfileSchema>;
 export const MediaVideoRuntimeProfileSchema = MediaVideoProfileBaseSchema.omit({ modelId: true, enabled: true, verified: true });
 export const MediaVideoRuntimeSchema = z.object({
   protocolVersion: z.literal(1),
+  executionMode: z.enum(['mock', 'real']).optional(),
   executionAvailable: z.boolean(),
   defaultProfileId: MediaVideoIdSchema.nullable(),
   tools: z.array(z.enum(['video_from_image', 'video_generate', 'video_get_job', 'video_cancel_job'])),
