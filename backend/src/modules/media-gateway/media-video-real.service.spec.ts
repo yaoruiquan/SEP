@@ -150,6 +150,21 @@ describe('MediaVideoRealService', () => {
       outputs: [{ width: 1280, height: 720, durationSeconds: 4, frameRate: 24 }] });
   });
 
+  it.each([{ width: 1280, height: 720 }, { width: 1344, height: 768 }])(
+    'delivers observed 15s H3 output %j with unchanged frozen billing', async dimensions => {
+      cache.saveOutput.mockResolvedValue({ ...outputMetadata, ...dimensions, durationSeconds: 15, hasAudio: true });
+      const { receipt } = await quotedSubmit();
+      const completed = await service.receipt(videoClaims, receipt.receiptId);
+      expect(completed).toMatchObject({ status: 'SUCCEEDED', billingStatus: 'SETTLED',
+        outputs: [{ durationSeconds: 15, ...dimensions }] });
+      const [record] = [...db.state.requests.values()];
+      expect(record.configuration.parameters.durationSeconds).toBe(4);
+      expect(billing.settleVideo).toHaveBeenCalledWith(receipt.receiptId, '0.700000', '0.100000', 'minimax-h3');
+      await service.receipt(videoClaims, receipt.receiptId);
+      expect(adapter.submit).toHaveBeenCalledTimes(1);
+      expect(billing.settleVideo).toHaveBeenCalledTimes(1);
+    });
+
   it.each([false, undefined])('does not deliver an audio-required output with hasAudio=%s', async hasAudio => {
     cache.saveOutput.mockResolvedValue({ ...outputMetadata, hasAudio });
     const { receipt } = await quotedSubmit();
@@ -160,6 +175,7 @@ describe('MediaVideoRealService', () => {
 
   it.each([
     { width: 1080, height: 1920 }, { width: 1360, height: 768 }, { frameRate: 30 }, { durationSeconds: 6 },
+    { durationSeconds: 0 }, { durationSeconds: 14 }, { durationSeconds: 16 },
   ])('rejects unrecognized measured output specs %j', async metadata => {
     cache.saveOutput.mockResolvedValue({ ...outputMetadata, hasAudio: true, ...metadata });
     const { receipt } = await quotedSubmit();

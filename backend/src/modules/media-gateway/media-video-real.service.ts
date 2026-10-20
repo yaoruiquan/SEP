@@ -500,10 +500,13 @@ export class MediaVideoRealService {
   private acceptableH3Output(metadata: { byteLength: number; mimeType: string; durationSeconds: number; width: number; height: number; frameRate: number }): boolean {
     // A6's observed minimax-h3 768P response is 1344x768 even though the
     // compatibility request also carries size=1280x720. Keep measured metadata.
+    // The relay reports a 4s request for observed 15s H3 outputs. Accept this
+    // provider variant while retaining measured duration and frozen 4s billing.
+    const durationMatches = [4, 15].some(seconds => Math.abs(metadata.durationSeconds - seconds) <= 0.5);
     const dimensionsMatch = metadata.width === 1280 && metadata.height === 720 ||
       metadata.width === 1344 && metadata.height === 768;
     return metadata.byteLength > 0 && metadata.byteLength <= 256 * 1024 * 1024 && metadata.mimeType === 'video/mp4' &&
-      Math.abs(metadata.durationSeconds - 4) <= 0.5 && dimensionsMatch && Math.abs(metadata.frameRate - 24) <= 0.1;
+      durationMatches && dimensionsMatch && Math.abs(metadata.frameRate - 24) <= 0.1;
   }
   private scope(claims: ClientEmploymentClaims) { return JSON.stringify([claims.enterpriseId, claims.subscriptionId, claims.memberId, claims.sub]); }
   private parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown): T {
