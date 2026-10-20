@@ -21,6 +21,9 @@ describe('Health HTTP lifecycle contract', () => {
   const query = jest.fn();
   const ping = jest.fn();
   const ready = jest.fn();
+  const embeddingAvailable = jest.fn();
+  const configGet = jest.fn();
+  let fetchMock: jest.SpyInstance;
   const state = (gatewayState = 'ready', activeGatewayRequests = 0) => ({
     bootId: '11111111-1111-4111-8111-111111111111', gatewayState,
     draining: gatewayState !== 'ready', activeGatewayRequests,
@@ -34,8 +37,8 @@ describe('Health HTTP lifecycle contract', () => {
         { provide: GatewayLifecycleService, useValue: { snapshot } },
         { provide: PrismaService, useValue: { $queryRaw: query } },
         { provide: RedisService, useValue: { redis: { ping } } },
-        { provide: ConfigService, useValue: new ConfigService({ NODE_ENV: 'test' }) },
-        { provide: EmbeddingService, useValue: {} },
+        { provide: ConfigService, useValue: { get: configGet } },
+        { provide: EmbeddingService, useValue: { isAvailable: embeddingAvailable } },
         { provide: TaskQueueService, useValue: { isReady: ready } },
         { provide: KnowledgeQueueService, useValue: { isReady: ready } },
       ],
@@ -51,7 +54,13 @@ describe('Health HTTP lifecycle contract', () => {
     query.mockResolvedValue([{ '?column?': 1 }]);
     ping.mockResolvedValue('PONG');
     ready.mockReturnValue(true);
+    configGet.mockImplementation((key: string) => ({
+      NODE_ENV: 'test', SUB2API_BASE_URL: 'https://relay.example/v1',
+    }[key]));
+    embeddingAvailable.mockRejectedValue(new Error('embedding unavailable'));
+    fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 } as Response);
   });
+  afterEach(() => fetchMock.mockRestore());
   afterAll(async () => app.close());
 
   it('reports read-only active count in liveness and ready responses', async () => {
@@ -87,5 +96,32 @@ describe('Health HTTP lifecycle contract', () => {
   it('has no HTTP drain mutation endpoint', async () => {
     await request(app.getHttpServer()).post('/api/health/drain').expect(404);
     await request(app.getHttpServer()).post('/api/health/ready').expect(404);
+  });
+
+  it('keeps production ready without executing an embedding model probe', async () => {
+    configGet.mockImplementation((key: string) => ({
+      NODE_ENV: 'production', SUB2API_BASE_URL: 'https://relay.example/v1',
+    }[key]));
+    const response = await request(app.getHttpServer()).get('/api/health/ready').expect(200);
+    expect(response.body).toMatchObject({ status: 'ok', checks: { sub2api: 'ok' } });
+    expect(response.body.checks).not.toHaveProperty('embedding');
+    expect(embeddingAvailable).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('https://relay.example/v1/models', { signal: expect.any(AbortSignal) });
+  });
+
+  it('still rejects an unavailable production relay', async () => {
+    configGet.mockImplementation((key: string) => ({
+      NODE_ENV: 'production', SUB2API_BASE_URL: 'https://relay.example/v1',
+    }[key]));
+    fetchMock.mockResolvedValue({ ok: false, status: 503 } as Response);
+    const response = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    expect(response.body).toMatchObject({ status: 'failed', checks: { sub2api: 'failed' } });
+  });
+
+  it('still rejects unavailable job queues', async () => {
+    ready.mockReturnValue(false);
+    const response = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    expect(response.body).toMatchObject({ status: 'failed', checks: { taskQueue: 'failed', knowledgeQueue: 'failed' } });
   });
 });

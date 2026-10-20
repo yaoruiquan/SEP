@@ -201,7 +201,7 @@ tail -100 /var/log/sep-maintenance.log
 
 用户要求暂时停用知识嵌入时，使用 `docker stop sep-ollama`，并将容器重启策略设为 `unless-stopped`，避免宿主机重启后自动恢复已手动停止的服务。保留容器、模型卷和镜像；恢复使用 `docker start sep-ollama`。
 
-当前应用将嵌入服务作为生产 readiness 的必需依赖。因此停用期间 `/api/health/ready` 会如实返回 503、`checks.embedding=failed`；知识向量生成及语义检索暂不可用，现有发布/回滚脚本也会在 readiness 检查处阻止切换。普通 Web、认证、技能审核和模型网关仍可独立运行。不要将健康检查改为假成功；需要再次发布或回滚时先恢复嵌入服务，或另行实现明确的功能停用与降级契约。
+`/api/health/ready` 仅作为核心服务发布门禁：仍检查数据库、Redis、任务队列、中转连通性及 Gateway 生命周期，但不调用嵌入模型推理，也不再返回 `checks.embedding`。嵌入不可用不会阻塞普通 Web、认证、技能审核和图片网关的发布；这不代表知识库语义能力健康。知识库文档处理、向量检索及专属监控继续按自身契约报告失败或词法降级，不能将缺失检查解释为嵌入已经恢复。
 
 2026-10-19 用户确认知识库 embedding 独立使用本地 Ollama，生成模型继续走 sub2api。当前部署模板显式 `EMBEDDING_PROVIDER=ollama`，使用 `EMBEDDING_BASE_URL`、固定 `EMBEDDING_MODEL_DIGEST` 及 `/api/tags` + `/api/embed`；不读取/转发 sub2api 密钥，不自动回退。部署前将旧 `openai` provider 改为 `ollama`，校验摘要并建立发布别名，运行 tokenizer 准备脚本，配置宿主机 `KNOWLEDGE_TOKENIZERS_HOST_PATH` 的只读挂载；迁移步骤和已知 tokenizer 差异见 [Embedding 部署指南](../../docs/deployment/embedding-service.md)。显式 `sub2api` 仍保留旧 embedding 路径；本次不启动生产 Ollama、不删除模型卷、容器或知识库数据。
 

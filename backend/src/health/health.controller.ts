@@ -4,7 +4,6 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { EmbeddingService } from '../modules/knowledge/embedding.service';
 import { TaskQueueService } from '../modules/task-execution/task-queue.service';
 import { KnowledgeQueueService } from '../modules/knowledge/knowledge-queue.service';
 import { GatewayLifecycleService } from '../common/lifecycle/gateway-lifecycle.service';
@@ -16,7 +15,6 @@ export class HealthController {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
-    private readonly embedding: EmbeddingService,
     private readonly taskQueue: TaskQueueService,
     private readonly knowledgeQueue: KnowledgeQueueService,
     private readonly gatewayLifecycle: GatewayLifecycleService,
@@ -35,7 +33,7 @@ export class HealthController {
   }
 
   @Get('ready')
-  @ApiOperation({ summary: '就绪检查（Readiness）- 检查所有依赖服务' })
+  @ApiOperation({ summary: '就绪检查（Readiness）- 检查核心服务依赖，不执行嵌入模型推理' })
   @ApiResponse({ status: 200, description: 'Dependencies ready and Gateway accepting requests' })
   @ApiResponse({ status: 503, description: 'Dependencies unavailable or Gateway draining/stopping' })
   async readiness(@Res({ passthrough: true }) response: Response) {
@@ -70,7 +68,7 @@ export class HealthController {
     // 生产环境额外检查
     if (this.config.get('NODE_ENV') === 'production') {
       checks.sub2api = await this.checkHttp(this.config.get<string>('SUB2API_BASE_URL'), true) ? 'ok' : 'failed';
-      checks.embedding = await this.embedding.isAvailable() ? 'ok' : 'failed';
+      // Feature-specific model inference must not gate the whole application's deployment.
       
       // 检查 OpenCode Skills Service
       const opencodeBaseUrl = this.config.get<string>('OPENCODE_API_BASE_URL');
