@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import type { FactoryProvider } from '@nestjs/common';
+import { MODULE_METADATA } from '@nestjs/common/constants';
+import { Test } from '@nestjs/testing';
 import { MediaVideoGatewayReceiptSchema } from 'shared';
 import fixture from '../../shared/fixtures/media-video-v1.json';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MediaVideoConfigService } from '../media-config/media-video-config.service';
+import { MediaGatewayModule } from './media-gateway.module';
 import { MediaVideoGatewayService } from './media-video-gateway.service';
 import { MediaVideoGatewayStore } from './media-video-gateway.store';
 import { createVideoPrismaMock, videoClaims as claims, videoFile, videoInput, videoScope } from './media-video-gateway.test-support';
@@ -24,6 +30,53 @@ describe('MediaVideoGatewayService persisted static mock', () => {
     const quote = await service.quote(claims, input);
     return { ...input, quoteId: quote.quoteId, clientRequestId };
   }
+
+  it('requires video configuration in the production module and never falls back when injected configuration denies access', async () => {
+    const providers: FactoryProvider<MediaVideoGatewayService>[] = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, MediaGatewayModule);
+    const provider = providers.find(value => value.provide === MediaVideoGatewayService)!;
+    expect(provider.inject).toEqual([PrismaService, MediaVideoGatewayStore, MediaVideoConfigService]);
+    const dependencies = [{ provide: PrismaService, useValue: prisma }, { provide: MediaVideoGatewayStore, useValue: store }];
+    await expect(Test.createTestingModule({ providers: [provider, ...dependencies] }).compile()).rejects.toThrow('MediaVideoConfigService');
+    const videoConfig = { getRuntimeVideo: jest.fn().mockResolvedValue({
+      protocolVersion: 1, executionAvailable: false, defaultProfileId: null, tools: [], profiles: [],
+    }) };
+    const module = await Test.createTestingModule({ providers: [provider, ...dependencies,
+      { provide: MediaVideoConfigService, useValue: videoConfig }],
+    }).compile();
+    try {
+      await expect(module.get(MediaVideoGatewayService).profiles(claims)).rejects.toMatchObject({ status: 403 });
+      expect(videoConfig.getRuntimeVideo).toHaveBeenCalledWith(claims.enterpriseId);
+      expect(prisma.mediaGatewayRequest.create).not.toHaveBeenCalled();
+    } finally { await module.close(); }
+  });
+
+  it.each(['production', 'development', undefined])('fails closed without injected configuration in NODE_ENV=%s', async environment => {
+    jest.replaceProperty(process, 'env', { ...process.env, NODE_ENV: environment });
+    await expect(service.profiles(claims)).rejects.toMatchObject({ status: 503,
+      response: { error: { code: 'MEDIA_STORAGE_UNAVAILABLE' } } });
+    await expect(service.reference(claims, videoFile())).rejects.toMatchObject({ status: 503 });
+    expect(prisma.mediaGatewayReference.create).not.toHaveBeenCalled();
+    expect(prisma.mediaGatewayRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('rechecks current configuration just before claiming a new request and does not reserve a key after revocation', async () => {
+    const dto = await preparedRequest();
+    const runtime = { ...structuredClone(fixture.runtime), profiles: structuredClone(fixture.runtime.profiles) };
+    const denied = { protocolVersion: 1, executionAvailable: false, defaultProfileId: null, profiles: [], tools: [] };
+    const config = { getRuntimeVideo: jest.fn().mockResolvedValueOnce(runtime).mockResolvedValue(denied) };
+    const configured = new MediaVideoGatewayService(prisma as never, store, config as never);
+    await expect(configured.submit(claims, dto)).rejects.toMatchObject({ status: 403 });
+    expect(config.getRuntimeVideo).toHaveBeenCalledTimes(2);
+    expect(prisma.mediaGatewayRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes injected configuration failure without serving legacy profiles', async () => {
+    const config = { getRuntimeVideo: jest.fn().mockRejectedValue(new Error('configuration unavailable')) };
+    const configured = new MediaVideoGatewayService(prisma as never, store, config as never);
+    await expect(configured.profiles(claims)).rejects.toMatchObject({ status: 503,
+      response: { error: { code: 'MEDIA_STORAGE_UNAVAILABLE' } } });
+    expect(prisma.mediaGatewayRequest.create).not.toHaveBeenCalled();
+  });
 
   it('persists reference, quote and request without prompt, and binds the reference hashes in the quote hash', async () => {
     const dto = await preparedRequest();

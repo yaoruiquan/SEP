@@ -32,7 +32,7 @@ beforeAll(() => {
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.get).mockImplementation(async (path) => path === '/admin/media/profiles' ? [profile] : connection);
+  vi.mocked(api.get).mockImplementation(async (path) => path === '/admin/media/video/profiles' ? [] : path === '/admin/media/profiles' ? [profile] : connection);
   vi.mocked(api.post).mockResolvedValue(profile);
   vi.mocked(api.patch).mockResolvedValue(profile);
   vi.mocked(api.put).mockResolvedValue(connection);
@@ -123,6 +123,7 @@ describe('platform media configuration page', () => {
   });
 
   it('passes the current version when toggling enabled and reports failures', async () => {
+    vi.mocked(api.get).mockImplementation(async (path) => path === '/admin/media/video/profiles' ? [] : path === '/admin/media/profiles' ? [{ ...profile, verified: true }] : connection);
     vi.mocked(api.patch).mockRejectedValue(new ApiError(409, '配置版本已变更'));
     renderPage();
     fireEvent.click(await screen.findByRole('switch', { name: '启用 Basic Image' }));
@@ -134,7 +135,10 @@ describe('platform media configuration page', () => {
   });
 
   it('renders loading, errors with retry and profile empty states', async () => {
-    vi.mocked(api.get).mockRejectedValue(new ApiError(503, '配置加载失败'));
+    vi.mocked(api.get).mockImplementation(async (path) => {
+      if (path === '/admin/media/video/profiles') return [];
+      throw new ApiError(503, '配置加载失败');
+    });
     renderPage();
     expect(screen.getByRole('status', { name: '加载媒体连接' })).toBeInTheDocument();
     expect(await screen.findAllByRole('alert')).toHaveLength(2);

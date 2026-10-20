@@ -8,6 +8,7 @@ export * from './client-task.dto';
 export * from './notification.dto';
 export * from './media.dto';
 export * from './media-video.dto';
+export * from './media-video-config.dto';
 
 // ============================================================================
 // Model Catalog —— 已删除（2026-09-05）

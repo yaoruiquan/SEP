@@ -10,8 +10,8 @@ export const VIDEO_ADAPTER = 'static-video-v1';
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const ConfigurationSchema = z.object({
-  adapter: z.literal(VIDEO_ADAPTER), profileId: z.literal('mock-video-from-image'),
-  configVersion: z.literal('mock-video-v1'), operation: z.literal('image-to-video'),
+  adapter: z.literal(VIDEO_ADAPTER), profileId: id,
+  configVersion: id, operation: z.literal('image-to-video'),
   parameters: MediaVideoParametersSchema.refine(value => value.durationSeconds === 5 && value.aspectRatio === '9:16' &&
     value.resolution === '720p' && value.frameRate === 24 && !value.audio && value.outputFormat === 'video/mp4'),
   pricingVersion: z.literal('mock-video-v1'), amountCny: z.literal('0.000000'),

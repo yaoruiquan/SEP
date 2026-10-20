@@ -1,0 +1,53 @@
+import {
+  CreateMediaVideoProfileDtoSchema, MediaVideoPolicySchema, UpdateMediaVideoPolicyDtoSchema,
+  UpdateMediaVideoProfileDtoSchema, VerifyMediaVideoProfileDtoSchema,
+} from './media-video-config.dto';
+import { MediaPolicySchema, MediaRuntimeQuerySchema } from './media.dto';
+import fixture from './fixtures/media-video-v1.json';
+
+describe('video configuration v1 boundary', () => {
+  const create = () => {
+    const { configVersion: _version, verified: _verified, ...input } = fixture.profile;
+    return { ...input, enabled: false };
+  };
+
+  it('imports only the video business contract, without verification or connection credentials', () => {
+    expect(CreateMediaVideoProfileDtoSchema.parse(create())).toMatchObject({ kind: 'video', enabled: false });
+    for (const change of [{ kind: 'image' }, { verified: true }, { apiKey: 'synthetic' }, { baseUrl: 'https://invalid.example' }, { vendorPayload: {} }]) {
+      expect(CreateMediaVideoProfileDtoSchema.safeParse({ ...create(), ...change }).success).toBe(false);
+    }
+  });
+
+  it('requires an expected version on changes and excludes client-authored verification', () => {
+    expect(UpdateMediaVideoProfileDtoSchema.safeParse({ enabled: true }).success).toBe(false);
+    expect(UpdateMediaVideoProfileDtoSchema.safeParse({ expectedConfigVersion: 'cfg_v1' }).success).toBe(false);
+    expect(UpdateMediaVideoProfileDtoSchema.safeParse({ expectedConfigVersion: 'cfg_v1', verified: true }).success).toBe(false);
+    expect(VerifyMediaVideoProfileDtoSchema.safeParse({ expectedConfigVersion: 'cfg_v1', execute: true }).success).toBe(false);
+    expect(UpdateMediaVideoProfileDtoSchema.parse({ expectedConfigVersion: 'cfg_v1', enabled: false }).enabled).toBe(false);
+  });
+
+  it('defaults to no video grants, independently from existing image grants', () => {
+    const image = { enabledProfileIds: ['product-image'], defaultProfileId: 'product-image' };
+    const policy = MediaPolicySchema.parse({ ...image, video: { enabledProfileIds: ['video-a'], defaultProfileId: 'video-a' } });
+    expect(policy.enabledProfileIds).toEqual(['product-image']);
+    expect(policy.video?.enabledProfileIds).toEqual(['video-a']);
+    expect(MediaVideoPolicySchema.parse({}).enabledProfileIds).toEqual([]);
+    expect(MediaPolicySchema.parse(image)).not.toHaveProperty('video');
+  });
+
+  it.each([
+    { maxDurationSeconds: 0 }, { maxDurationSeconds: 601 }, { maxConcurrentJobs: 0 },
+    { periodBudget: -1 }, { periodBudget: Infinity }, { allowedAspectRatios: ['0:0'] },
+    { maxResolution: '8k' }, { allowedOperations: ['generate'] }, { apiKey: 'synthetic' },
+  ])('rejects unsupported enterprise policy input %j', change => {
+    expect(UpdateMediaVideoPolicyDtoSchema.safeParse(change).success).toBe(false);
+  });
+
+  it('negotiates video independently while keeping old query inputs valid', () => {
+    expect(MediaRuntimeQuerySchema.parse({})).toEqual({});
+    expect(MediaRuntimeQuerySchema.parse({ mediaProtocolVersion: '1', skillArtifactProtocolVersion: '1', videoProtocolVersion: '1' }))
+      .toEqual({ mediaProtocolVersion: 1, skillArtifactProtocolVersion: 1, videoProtocolVersion: 1 });
+    expect(MediaRuntimeQuerySchema.safeParse({ videoProtocolVersion: 'bad' }).success).toBe(false);
+    expect(MediaRuntimeQuerySchema.safeParse({ videoProtocolVersion: '1', provider: 'upstream' }).success).toBe(false);
+  });
+});

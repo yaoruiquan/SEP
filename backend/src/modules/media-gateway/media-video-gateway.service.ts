@@ -1,12 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { MediaVideoGatewayProfilesSchema, MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayReceiptSchema, MediaVideoGatewayRequestSchema } from 'shared';
-import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayReceipt, MediaVideoGatewayRequest } from 'shared';
+import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayReceipt, MediaVideoGatewayRequest, MediaVideoRuntime } from 'shared';
 import fixture from '../../shared/fixtures/media-video-v1.json';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { clientSubscriptionAccessWhere } from '../client/client-subscription-access';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MediaVideoConfigService } from '../media-config/media-video-config.service';
 import { MEDIA_MOCK_PNG } from './media-gateway-mock.adapter';
 import { MediaVideoGatewayStore, VIDEO_ADAPTER, videoGatewayError, videoStorageUnavailable } from './media-video-gateway.store';
 import type { VideoConfiguration, VideoRequestRecord } from './media-video-gateway.store';
@@ -22,7 +23,11 @@ const ResourceIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
 @Injectable()
 export class MediaVideoGatewayService {
-  constructor(private readonly prisma: PrismaService, private readonly store: MediaVideoGatewayStore) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly store: MediaVideoGatewayStore,
+    @Optional() private readonly videoConfig?: MediaVideoConfigService,
+  ) {}
 
   private scope(claims: ClientEmploymentClaims): string {
     return JSON.stringify([claims.enterpriseId, claims.subscriptionId, claims.memberId, claims.sub]);
@@ -45,6 +50,14 @@ export class MediaVideoGatewayService {
 
   async profiles(claims: ClientEmploymentClaims) {
     await this.authorize(claims);
+    const profiles = await this.authorizedProfiles(claims);
+    return MediaVideoGatewayProfilesSchema.parse({
+      mock: true, protocolVersion: 1, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED', profiles,
+    });
+  }
+
+  // Only direct legacy test construction in NODE_ENV=test may omit configuration.
+  private legacyProfiles() {
     return MediaVideoGatewayProfilesSchema.parse({
       mock: true, protocolVersion: 1, persistence: 'database', billingStatus: 'MOCK_NOT_CHARGED',
       profiles: [{
@@ -57,11 +70,34 @@ export class MediaVideoGatewayService {
           supportsTaskQuery: true, supportsCancel: false, resultRetentionSeconds: 86_400,
         },
       }],
-    });
+    }).profiles;
+  }
+
+  private async authorizedProfiles(claims: ClientEmploymentClaims): Promise<MediaVideoRuntime['profiles']> {
+    if (this.videoConfig === undefined) {
+      if (process.env.NODE_ENV === 'test') return this.legacyProfiles();
+      videoStorageUnavailable();
+    }
+    const runtime = await this.videoConfig.getRuntimeVideo(claims.enterpriseId).catch(() => videoStorageUnavailable());
+    if (!runtime.executionAvailable || runtime.profiles.length === 0) {
+      videoGatewayError(403, 'MEDIA_FORBIDDEN', '当前企业无可执行视频授权');
+    }
+    return runtime.profiles;
+  }
+
+  private async authorizeProfile(claims: ClientEmploymentClaims, input: Pick<MediaVideoGatewayQuoteRequest, 'profileId' | 'operation'>) {
+    const profile = (await this.authorizedProfiles(claims)).find(item => item.profileId === input.profileId);
+    if (!profile || !profile.operations.includes(input.operation)) {
+      videoGatewayError(403, 'MEDIA_FORBIDDEN', '视频 Profile 或操作授权已撤销');
+    }
+    return profile;
   }
 
   async reference(claims: ClientEmploymentClaims, file?: Express.Multer.File, fields?: unknown) {
     const scope = await this.authorize(claims);
+    if (!(await this.authorizedProfiles(claims)).some(profile => profile.operations.includes('image-to-video'))) {
+      videoGatewayError(403, 'MEDIA_FORBIDDEN', '当前企业无参考图视频授权');
+    }
     if (fields && Object.keys(fields).length) videoGatewayError(400, 'INVALID_REFERENCE', '视频参考上传不接受额外字段');
     if (!file || file.mimetype !== 'image/png' || !Buffer.isBuffer(file.buffer) || file.size !== file.buffer.length || !file.buffer.equals(VIDEO_REFERENCE)) {
       videoGatewayError(400, 'INVALID_REFERENCE', 'mock 视频只接受固定参考图 fixture');
@@ -75,7 +111,7 @@ export class MediaVideoGatewayService {
   async quote(claims: ClientEmploymentClaims, input: MediaVideoGatewayQuoteRequest) {
     const scope = await this.authorize(claims);
     const dto = this.parse(MediaVideoGatewayQuoteRequestSchema, input);
-    this.validateProfile(dto);
+    await this.validateProfile(claims, dto);
     const referenceHashes = await this.referenceHashes(scope, dto.referenceIds);
     return this.store.saveQuote(scope, {
       adapter: VIDEO_ADAPTER, configuration: this.configuration(dto), referenceIds: dto.referenceIds, referenceHashes,
@@ -89,8 +125,8 @@ export class MediaVideoGatewayService {
     const dto = this.parse(MediaVideoGatewayRequestSchema, input);
     const existing = await this.store.findByClientId(claims.enterpriseId, dto.clientRequestId, scope, true);
     // Replay uses the frozen hashes, even after the original reference or quote expires.
-    if (existing) return this.replay(dto, existing);
-    this.validateProfile(dto);
+    if (existing) return this.replay(claims, dto, existing);
+    await this.validateProfile(claims, dto);
     const quote = await this.store.findQuote(scope, dto.quoteId);
     if (!quote) videoGatewayError(404, 'MEDIA_NOT_FOUND', '视频报价不可用');
     await this.authorize(claims);
@@ -101,6 +137,7 @@ export class MediaVideoGatewayService {
         JSON.stringify(quote.referenceIds) !== JSON.stringify(dto.referenceIds) || JSON.stringify(quote.referenceHashes) !== JSON.stringify(referenceHashes)) {
       videoGatewayError(409, 'IDEMPOTENCY_CONFLICT', '视频报价与请求内容不一致');
     }
+    await this.validateProfile(claims, dto);
     const record = await this.store.claim({
       enterpriseId: claims.enterpriseId, clientRequestId: dto.clientRequestId, scope, semanticSha256,
       referenceIds: dto.referenceIds, referenceHashes, count: 1, configuration: quote.configuration,
@@ -109,7 +146,7 @@ export class MediaVideoGatewayService {
         operation: dto.operation, status: 'QUEUED', pollAfterMs: 1000, outputs: [], billingStatus: 'MOCK_NOT_CHARGED', errorCode: null,
         recovery: { canQuery: true, canCancel: false, canDownload: false } },
     });
-    return this.replay(dto, record);
+    return this.replay(claims, dto, record);
   }
 
   async findByClientId(claims: ClientEmploymentClaims, clientRequestId: string) {
@@ -117,12 +154,13 @@ export class MediaVideoGatewayService {
     this.parse(ResourceIdSchema, clientRequestId);
     const record = await this.store.findByClientId(claims.enterpriseId, clientRequestId, scope);
     if (!record) videoGatewayError(404, 'MEDIA_NOT_FOUND', '未找到视频回执，不代表上游未接单');
+    await this.authorizeProfile(claims, record.configuration);
     return (await this.expire(record)).receipt;
   }
 
   async receipt(claims: ClientEmploymentClaims, receiptId: string) {
     const scope = await this.authorize(claims);
-    const record = await this.requireRequest(scope, receiptId);
+    const record = await this.requireRequest(claims, scope, receiptId);
     if (this.hasAllOutputsExpired(record)) return (await this.expire(record)).receipt;
     const next: MediaVideoGatewayReceipt = structuredClone(record.receipt);
     if (next.status === 'QUEUED') next.status = 'RUNNING';
@@ -143,7 +181,7 @@ export class MediaVideoGatewayService {
   async content(claims: ClientEmploymentClaims, receiptId: string, outputId: string) {
     const scope = await this.authorize(claims);
     this.parse(ResourceIdSchema, outputId);
-    const record = await this.requireRequest(scope, receiptId);
+    const record = await this.requireRequest(claims, scope, receiptId);
     const output = record.receipt.outputs.find(item => item.outputId === outputId);
     if (!output) videoGatewayError(404, 'MEDIA_NOT_FOUND', '视频结果不可用');
     if (!['SUCCEEDED', 'PARTIAL_SUCCEEDED'].includes(record.receipt.status) || !record.receipt.recovery.canDownload ||
@@ -158,14 +196,15 @@ export class MediaVideoGatewayService {
 
   async cancel(claims: ClientEmploymentClaims, receiptId: string): Promise<never> {
     const scope = await this.authorize(claims);
-    await this.requireRequest(scope, receiptId);
+    await this.requireRequest(claims, scope, receiptId);
     videoGatewayError(409, 'CANCEL_UNSUPPORTED', '视频 mock 当前不支持取消');
   }
 
-  private async requireRequest(scope: string, receiptId: string): Promise<VideoRequestRecord> {
+  private async requireRequest(claims: ClientEmploymentClaims, scope: string, receiptId: string): Promise<VideoRequestRecord> {
     this.parse(ResourceIdSchema, receiptId);
     const record = await this.store.findRequest(scope, receiptId);
     if (!record) videoGatewayError(404, 'MEDIA_NOT_FOUND', '未找到视频回执');
+    await this.authorizeProfile(claims, record.configuration);
     return record;
   }
 
@@ -179,7 +218,8 @@ export class MediaVideoGatewayService {
     return hashes;
   }
 
-  private async replay(dto: MediaVideoGatewayRequest, record: VideoRequestRecord) {
+  private async replay(claims: ClientEmploymentClaims, dto: MediaVideoGatewayRequest, record: VideoRequestRecord) {
+    await this.authorizeProfile(claims, record.configuration);
     if (record.semanticSha256 !== this.semanticHash(dto, record.referenceHashes)) {
       videoGatewayError(409, 'IDEMPOTENCY_CONFLICT', 'clientRequestId 已用于不同的视频请求');
     }
@@ -197,14 +237,23 @@ export class MediaVideoGatewayService {
       errorCode: 'RESULT_EXPIRED', recovery: { canQuery: false, canCancel: false, canDownload: false } });
   }
 
-  private validateProfile(input: MediaVideoGatewayQuoteRequest): void {
-    if (input.profileId !== VIDEO_PROFILE_ID || input.configVersion !== VIDEO_CONFIG_VERSION || input.operation !== 'image-to-video' || input.parameters.durationSeconds !== 5 || input.parameters.aspectRatio !== '9:16' || input.parameters.resolution !== '720p' || input.parameters.frameRate !== 24 || input.parameters.audio || input.parameters.outputFormat !== 'video/mp4' || input.referenceIds.length !== 1) {
+  private async validateProfile(claims: ClientEmploymentClaims, input: MediaVideoGatewayQuoteRequest): Promise<void> {
+    const profile = await this.authorizeProfile(claims, input);
+    if (input.configVersion !== profile.configVersion) {
+      videoGatewayError(409, 'CONFIG_VERSION_MISMATCH', '视频配置已更新，请刷新运行时并重新报价');
+    }
+    const capabilities = profile.capabilities;
+    if (!capabilities.supportsImageToVideo || !capabilities.durationsSeconds.includes(input.parameters.durationSeconds) ||
+        !capabilities.aspectRatios.includes(input.parameters.aspectRatio) || !capabilities.resolutions.includes(input.parameters.resolution) ||
+        !capabilities.frameRates.includes(input.parameters.frameRate) || !capabilities.outputFormats.includes(input.parameters.outputFormat) ||
+        input.referenceIds.length > capabilities.maxReferenceCount || input.operation !== 'image-to-video' ||
+        input.parameters.durationSeconds !== 5 || input.parameters.aspectRatio !== '9:16' || input.parameters.resolution !== '720p' || input.parameters.frameRate !== 24 || input.parameters.audio || input.parameters.outputFormat !== 'video/mp4' || input.referenceIds.length !== 1) {
       videoGatewayError(400, 'INVALID_PARAMETER', '视频 mock Profile 或规格不支持');
     }
   }
 
   private configuration(input: MediaVideoGatewayQuoteRequest): VideoConfiguration {
-    return { adapter: VIDEO_ADAPTER, profileId: VIDEO_PROFILE_ID, configVersion: VIDEO_CONFIG_VERSION, operation: 'image-to-video',
+    return { adapter: VIDEO_ADAPTER, profileId: input.profileId, configVersion: input.configVersion, operation: 'image-to-video',
       parameters: input.parameters, pricingVersion: 'mock-video-v1', amountCny: '0.000000' };
   }
 

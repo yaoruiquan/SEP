@@ -120,17 +120,28 @@ describe('MediaConfigService', () => {
     await expect(service.updateProfile('product-image', { enabled: false, expectedConfigVersion: 'cfg_1' })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('revokes all profile verification after the media connection changes', async () => {
-    const { service, prisma, settings } = fixture();
+  it('revokes only image verification before and after the image connection changes', async () => {
+    const { service, prisma, settings, row } = fixture();
+    const video = { ...row, profileId: 'product-video', kind: 'video', configVersion: 'video-cfg' };
+    const profiles = [row, video];
+    prisma.mediaModelProfile.updateMany.mockImplementation(async ({ where, data }) => {
+      const matches = profiles.filter(profile => !where?.kind || profile.kind === where.kind);
+      for (const profile of matches) Object.assign(profile, data);
+      return { count: matches.length };
+    });
     await service.updateConnection({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
     expect(settings.updateMediaConnection).toHaveBeenCalledWith({ baseUrl: 'https://new-relay.example/v1', apiKey: 'new-secret' });
     expect(prisma.mediaModelProfile.updateMany).toHaveBeenCalledTimes(2);
     expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { kind: 'image' },
       data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
     });
     expect(prisma.mediaModelProfile.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { kind: 'image' },
       data: { verified: false, configVersion: expect.stringMatching(/^cfg_/) },
     });
+    expect(row.verified).toBe(false);
+    expect(video).toMatchObject({ verified: true, enabled: true, configVersion: 'video-cfg' });
   });
 
   it('keeps verification for display-only changes but revokes it for model changes', async () => {

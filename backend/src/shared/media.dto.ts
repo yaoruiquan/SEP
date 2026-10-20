@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MediaVideoPolicySchema } from './media-video-config.dto';
 
 export const MediaKindSchema = z.enum(['image', 'video']);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
@@ -39,6 +40,7 @@ export const MediaPolicySchema = z.object({
   maxOutputs: z.number().int().min(1).max(8).default(4),
   maxWidth: z.number().int().min(1).max(16384).default(4096),
   maxHeight: z.number().int().min(1).max(16384).default(4096),
+  video: MediaVideoPolicySchema.optional(),
 }).strict();
 export type MediaPolicy = z.infer<typeof MediaPolicySchema>;
 
@@ -138,6 +140,7 @@ export type MediaRuntime = z.infer<typeof MediaRuntimeSchema>;
 
 export const MediaRuntimeQuerySchema = z.object({
   mediaProtocolVersion: z.coerce.number().int().min(1).optional(),
+  videoProtocolVersion: z.coerce.number().int().min(1).optional(),
   skillArtifactProtocolVersion: z.coerce.number().int().min(1).optional(),
 }).strict();
 export type MediaRuntimeQuery = z.infer<typeof MediaRuntimeQuerySchema>;

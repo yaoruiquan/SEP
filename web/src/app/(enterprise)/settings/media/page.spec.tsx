@@ -5,6 +5,7 @@ import { api, ApiError } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
 import type { MediaPolicy, MediaAvailableProfile } from '@/features/enterprise-settings/use-media-config';
 import MediaSettingsPage from './page';
+import { MediaVideoPolicySchema } from 'shared/media-video-config.dto';
 
 vi.mock('@/lib/api-client', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/api-client')>(), api: { get: vi.fn(), put: vi.fn() },
@@ -22,9 +23,12 @@ const profile: MediaAvailableProfile = {
 };
 
 function mockConfig(canEdit = true, configured = true) {
-  vi.mocked(api.get).mockImplementation(async (path) => path === '/enterprise/media-config'
-    ? { policy, canEdit, configured }
-    : [profile, { ...profile, profileId: 'unverified', displayName: 'Unverified Image', verified: false }]);
+  vi.mocked(api.get).mockImplementation(async (path) => {
+    if (path === '/enterprise/media-config/video') return { policy: MediaVideoPolicySchema.parse({}), canEdit, configured, mock: true, executionTested: false };
+    if (path === '/enterprise/media-config/video/available-profiles') return [];
+    return path === '/enterprise/media-config' ? { policy, canEdit, configured }
+      : [profile, { ...profile, profileId: 'unverified', displayName: 'Unverified Image', verified: false }];
+  });
 }
 
 function renderPage() {

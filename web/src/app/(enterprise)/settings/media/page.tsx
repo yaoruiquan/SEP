@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { VideoPolicyPanel } from '@/features/enterprise-settings/video-policy-panel';
 import {
   MediaPolicyFormSchema, useAvailableMediaProfiles, useEnterpriseMediaConfig, useUpdateEnterpriseMediaConfig,
 } from '@/features/enterprise-settings/use-media-config';
@@ -19,6 +20,10 @@ function errorText(error: unknown) {
 }
 
 export default function MediaSettingsPage() {
+  return <><ImageSettingsPanel /><div className="p-4 pb-28 sm:p-6 sm:pb-28 md:pb-6"><VideoPolicyPanel /></div></>;
+}
+
+function ImageSettingsPanel() {
   const { enterprise, isAdmin } = useAuth();
   const enterpriseId = enterprise?.id ?? '';
   const config = useEnterpriseMediaConfig(enterpriseId);

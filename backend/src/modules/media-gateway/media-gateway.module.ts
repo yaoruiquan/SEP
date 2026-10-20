@@ -6,6 +6,8 @@ import { RedisModule } from '../../redis/redis.module';
 import { AuthModule } from '../auth/auth.module';
 import { SettingModule } from '../setting/setting.module';
 import { MediaConfigModule } from '../media-config/media-config.module';
+import { MediaVideoConfigService } from '../media-config/media-video-config.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import { GatewayAuthRateLimitService } from '../gateway/gateway-auth-rate-limit.service';
 import { MediaGatewayController } from './media-gateway.controller';
@@ -27,6 +29,12 @@ import { MediaVideoGatewayStore } from './media-video-gateway.store';
   imports: [ConfigModule, JwtModule.register({}), PrismaModule, RedisModule, AuthModule, SettingModule, MediaConfigModule],
   controllers: [MediaGatewayController, MediaRealController, MediaVideoGatewayController],
   providers: [ClientEmploymentGuard, GatewayAuthRateLimitService, MediaGatewayMockGuard, MediaGatewayMockAdapter, MediaGatewayStore, MediaGatewayService,
-    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService, MediaVideoGatewayService, MediaVideoGatewayStore],
+    MediaRealGuard, MediaRealService, MediaRealStore, MediaRealBillingService, MediaByteCacheService, MediaVideoGatewayStore,
+    {
+      provide: MediaVideoGatewayService,
+      useFactory: (prisma: PrismaService, store: MediaVideoGatewayStore, configuration: MediaVideoConfigService) =>
+        new MediaVideoGatewayService(prisma, store, configuration),
+      inject: [PrismaService, MediaVideoGatewayStore, MediaVideoConfigService],
+    }],
 })
 export class MediaGatewayModule {}

@@ -57,11 +57,18 @@ export class MediaConfigService {
 
   private parsePolicy(value: unknown): MediaPolicy {
     const parsed = MediaPolicySchema.safeParse(value ?? {});
-    return parsed.success ? parsed.data : MediaPolicySchema.parse({});
+    if (parsed.success) return parsed.data;
+    // Invalid video JSON must not reset an otherwise valid image policy.
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'video' in value) {
+      const { video: _video, ...imagePolicy } = value;
+      const image = MediaPolicySchema.safeParse(imagePolicy);
+      if (image.success) return image.data;
+    }
+    return MediaPolicySchema.parse({});
   }
 
   async listProfiles(): Promise<MediaProfile[]> {
-    const rows = await this.prisma.mediaModelProfile.findMany({ orderBy: { createdAt: 'asc' } });
+    const rows = await this.prisma.mediaModelProfile.findMany({ where: { kind: 'image' }, orderBy: { createdAt: 'asc' } });
     return rows.map((row) => this.profileView(row));
   }
 
@@ -154,6 +161,7 @@ export class MediaConfigService {
 
   private async revokeProfileVerification() {
     await this.prisma.mediaModelProfile.updateMany({
+      where: { kind: 'image' },
       data: { verified: false, configVersion: `cfg_${randomUUID()}` },
     });
   }
@@ -290,10 +298,14 @@ export class MediaConfigService {
         if (next.defaultProfileId && !next.enabledProfileIds.includes(next.defaultProfileId)) {
           throw new BadRequestException('默认媒体 Profile 必须包含在企业允许列表中');
         }
+        // The image endpoint never owns the independently managed video JSON.
+        const stored = existing?.mediaPolicy;
+        const mediaPolicy = stored && typeof stored === 'object' && !Array.isArray(stored) && 'video' in stored
+          ? { ...next, video: stored.video } : next;
         await tx.enterpriseModelConfig.upsert({
           where: { enterpriseId: context.enterpriseId },
-          create: { enterpriseId: context.enterpriseId, mediaPolicy: next as Prisma.InputJsonValue },
-          update: { mediaPolicy: next as Prisma.InputJsonValue },
+          create: { enterpriseId: context.enterpriseId, mediaPolicy: mediaPolicy as Prisma.InputJsonValue },
+          update: { mediaPolicy: mediaPolicy as Prisma.InputJsonValue },
         });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {

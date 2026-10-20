@@ -27,6 +27,7 @@ import { SubscriptionRequestService } from '../subscription-request/subscription
 import { SkillVersionService } from '../skill-version/skill-version.service';
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { MediaConfigService } from '../media-config/media-config.service';
+import { MediaVideoConfigService } from '../media-config/media-video-config.service';
 import { ClientSkillArtifactService } from './client-skill-artifact.service';
 import { clientSubscriptionAccessWhere } from './client-subscription-access';
 import { createHash } from 'node:crypto';
@@ -152,6 +153,7 @@ export class ClientService {
     @Optional() private readonly modelPolicy?: GatewayModelPolicyService,
     @Optional() private readonly mediaConfig?: MediaConfigService,
     @Optional() private readonly skillArtifacts?: ClientSkillArtifactService,
+    @Optional() private readonly videoConfig?: MediaVideoConfigService,
   ) {}
 
   private get jwtSecret(): string {
@@ -737,7 +739,7 @@ export class ClientService {
     }));
   }
 
-  async getRuntime(userId: string, subscriptionId: string, mediaProtocolVersion?: number, skillArtifactProtocolVersion?: number) {
+  async getRuntime(userId: string, subscriptionId: string, mediaProtocolVersion?: number, skillArtifactProtocolVersion?: number, videoProtocolVersion?: number) {
     const ctx = await this.enterpriseContext.resolve(userId);
     const subscription = await this.prisma.subscription.findFirst({
       where: clientSubscriptionAccessWhere(ctx, subscriptionId),
@@ -789,6 +791,9 @@ export class ClientService {
     const media = mediaProtocolVersion === 1 && this.mediaConfig
       ? await this.mediaConfig.getRuntimeMedia(ctx.enterpriseId)
       : undefined;
+    const video = videoProtocolVersion === 1 && this.videoConfig
+      ? await this.videoConfig.getRuntimeVideo(ctx.enterpriseId)
+      : undefined;
     return {
       manifestVersion: 1,
       subscriptionId: subscription.id,
@@ -796,7 +801,7 @@ export class ClientService {
       employee: withEmployeeAvatar({ id: subscription.employee.id, name: subscription.employee.name, description: subscription.employee.description, avatar: subscription.employee.avatar, avatarStyle: subscription.employee.avatarStyle, avatarBindings: subscription.employee.avatarBindings, version: subscription.employee.version, maxSteps: subscription.employee.maxSteps }),
       runtime: { systemPrompt: subscription.employee.systemPrompt, modelId: subscription.employee.modelId, allowedModels, config: subscription.config ?? null, skills,
         ...(skillArtifactProtocolVersion === 1 && this.skillArtifacts ? { skillArtifactProtocolVersion: 1 } : {}),
-        ...(media ? { media } : {}) },
+        ...(media ? { media } : {}), ...(video ? { video } : {}) },
     };
   }
 

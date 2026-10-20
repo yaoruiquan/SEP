@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
+import { VideoModelsPanel } from '@/features/admin/video-models-panel';
 import {
   useCreateMediaProfile, useMediaConnection, useMediaProfiles, useUpdateMediaConnection,
   useUpdateMediaProfile, type CreateImageProfileDto, type MediaProfile, type MediaOperation,
@@ -200,6 +201,7 @@ export default function MediaModelsPage() {
               </tr>)}</tbody>
             </table></div>}
     </section>
+    <VideoModelsPanel />
     <Dialog open={dialogOpen} onOpenChange={(open) => { if (!savingProfile) setDialogOpen(open); }}>
       <DialogContent aria-describedby={undefined} className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>{editing ? '编辑图片 Profile' : '添加图片 Profile'}</DialogTitle></DialogHeader>

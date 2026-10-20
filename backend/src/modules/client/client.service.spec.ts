@@ -18,6 +18,7 @@ import { SubscriptionRequestService } from '../subscription-request/subscription
 import { GatewayModelPolicyService } from '../gateway/gateway-model-policy.service';
 import { EnterpriseModelConfigService } from '../enterprise-model-config/enterprise-model-config.service';
 import { MediaConfigService } from '../media-config/media-config.service';
+import { MediaVideoConfigService } from '../media-config/media-video-config.service';
 import { ClientSkillArtifactService } from './client-skill-artifact.service';
 import { SkillPackageService } from '../skill-package/skill-package.service';
 import { ClientSkillArtifactSchema, SkillArtifactBlockedReasonSchema } from '../../shared/client-skill-artifact.dto';
@@ -34,6 +35,7 @@ describe('ClientService', () => {
   let skillVersions: { resolveEffectiveVersion: jest.Mock };
   let modelPolicy: { resolvePolicy: jest.Mock };
   let mediaConfig: { getRuntimeMedia: jest.Mock };
+  let videoConfig: { getRuntimeVideo: jest.Mock };
   let skillArtifacts: { describe: jest.Mock };
 
   beforeEach(async () => {
@@ -53,6 +55,7 @@ describe('ClientService', () => {
     skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
     modelPolicy = { resolvePolicy: jest.fn().mockResolvedValue({ allowedModels: ['gpt-4o-mini'] }) };
     mediaConfig = { getRuntimeMedia: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
+    videoConfig = { getRuntimeVideo: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
     skillArtifacts = { describe: jest.fn().mockResolvedValue(artifactFixtures[0].artifact) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
@@ -72,6 +75,7 @@ describe('ClientService', () => {
         { provide: SkillVersionService, useValue: skillVersions },
         { provide: GatewayModelPolicyService, useValue: modelPolicy },
         { provide: MediaConfigService, useValue: mediaConfig },
+        { provide: MediaVideoConfigService, useValue: videoConfig },
         { provide: ClientSkillArtifactService, useValue: skillArtifacts },
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
@@ -488,6 +492,37 @@ describe('ClientService', () => {
       expect(result.runtime).not.toHaveProperty('media');
       expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
     });
+
+  it.each([
+    [undefined, undefined, undefined], [1, undefined, undefined], [undefined, 1, undefined],
+    [undefined, undefined, 1], [1, 1, 1], [2, 2, 1], [1, 1, 2],
+  ])('negotiates video independently of image and artifact versions (%s, %s, %s)', async (media, artifacts, video) => {
+    prisma.subscription.findFirst.mockResolvedValue({
+      id: 'sub-1', templateVersion: '1.0.0', config: null,
+      employee: { id: 'emp-1', name: 'Employee', avatar: null, version: '1.0.0',
+        systemPrompt: 'instructions', modelId: 'model-1', maxSteps: 10, bindings: [] },
+    });
+    prisma.platformModel.findMany.mockResolvedValue([]);
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
+    const baseline = await service.getRuntime('user-1', 'sub-1', media, artifacts);
+    const result = await service.getRuntime('user-1', 'sub-1', media, artifacts, video);
+    if (video === 1) {
+      expect(result.runtime.video).toEqual(await videoConfig.getRuntimeVideo.mock.results[0].value);
+      expect(videoConfig.getRuntimeVideo).toHaveBeenCalledWith('ent-1');
+      const { video: _video, ...runtime } = result.runtime;
+      expect(runtime).toEqual(baseline.runtime);
+    } else {
+      expect(result).toEqual(baseline);
+      expect(result.runtime).not.toHaveProperty('video');
+      expect(videoConfig.getRuntimeVideo).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not resolve video configuration before subscription authorization', async () => {
+    prisma.subscription.findFirst.mockResolvedValue(null);
+    await expect(service.getRuntime('user-1', 'sub-1', 1, 1, 1)).rejects.toBeInstanceOf(NotFoundException);
+    expect(videoConfig.getRuntimeVideo).not.toHaveBeenCalled();
+  });
 
     it.each([undefined, 2, 99])('does not call describe without supported artifact negotiation (%s)', async (protocolVersion) => {
       const result = await service.getRuntime('user-1', 'sub-mock', undefined, protocolVersion);
