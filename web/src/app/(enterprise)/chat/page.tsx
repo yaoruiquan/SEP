@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { EmptyState } from '@/components/ui/feedback';
 import { toast } from '@/components/ui/toast';
@@ -18,8 +18,10 @@ import {
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const { data: sessions = [], isLoading } = useConversations();
-  const createConv = useCreateConversation();
+  const { mutate: createConversation, isPending: isCreating } = useCreateConversation();
   const renameConv = useRenameConversation();
   const deleteConv = useDeleteConversation();
 
@@ -27,13 +29,7 @@ export default function ChatPage() {
   const presetEmployee = searchParams.get('employeeId');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  // if arriving with ?employeeId, open the picker automatically once
-  const [handledPreset, setHandledPreset] = useState(false);
-  if (presetEmployee && !handledPreset) {
-    setHandledPreset(true);
-    setPickerOpen(true);
-  }
+  const handledPreset = useRef<string | null>(null);
 
   // 历史会话可能关联已下架员工；优先打开仍可用的会话，避免进入页面就被旧会话卡住。
   const defaultSessionId =
@@ -42,8 +38,8 @@ export default function ChatPage() {
     null;
   const effectiveActive = activeId ?? defaultSessionId;
 
-  const handleCreate = (employeeId: string) => {
-    createConv.mutate(
+  const handleCreate = useCallback((employeeId: string) => {
+    createConversation(
       { employeeId },
       {
         onSuccess: (conv) => {
@@ -64,7 +60,22 @@ export default function ChatPage() {
           ),
       },
     );
-  };
+  }, [createConversation]);
+
+  useEffect(() => {
+    if (!presetEmployee) {
+      handledPreset.current = null;
+      return;
+    }
+    if (handledPreset.current === presetEmployee) return;
+
+    handledPreset.current = presetEmployee;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('employeeId');
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
+    handleCreate(presetEmployee);
+  }, [handleCreate, pathname, presetEmployee, router, searchParams]);
 
   const handleDelete = (id: string) => {
     deleteConv.mutate(id, {
@@ -106,7 +117,7 @@ export default function ChatPage() {
 
       <NewSessionDialog
         open={pickerOpen}
-        creating={createConv.isPending}
+        creating={isCreating}
         presetEmployeeId={presetEmployee}
         onClose={() => setPickerOpen(false)}
         onPick={handleCreate}
