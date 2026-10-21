@@ -33,6 +33,9 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 .playwright-cli/
+# Local acceptance evidence may contain private snapshots or generated media.
+/output/
+/outputs/
 output/playwright/*.png
 outputs/silicon-employees-extension-raw/
 outputs/silicon-employees-extension-contact-sheet.jpg
