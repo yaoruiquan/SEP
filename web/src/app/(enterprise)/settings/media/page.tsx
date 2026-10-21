@@ -46,7 +46,8 @@ function ImageSettingsPanel() {
     event.preventDefault();
     if (!policy || !canEdit || save.isPending) return;
     setSaveError(null);
-    try { await save.mutateAsync(MediaPolicyFormSchema.parse(policy)); toast.success('图片策略已保存'); }
+    const { video: _video, ...imagePolicy } = policy;
+    try { await save.mutateAsync(MediaPolicyFormSchema.parse(imagePolicy)); toast.success('图片策略已保存'); }
     catch (error) { setSaveError(errorText(error)); toast.error(errorText(error)); }
   };
 

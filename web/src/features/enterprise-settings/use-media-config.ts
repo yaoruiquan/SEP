@@ -11,7 +11,7 @@ import {
 
 export type { MediaPolicy, MediaAvailableProfile, MediaOperation } from '../../../../backend/src/shared/media.dto';
 
-export const MediaPolicyFormSchema = MediaPolicySchema.extend({
+export const MediaPolicyFormSchema = MediaPolicySchema.omit({ video: true }).extend({
   allowedOperations: UpdateMediaPolicyDtoSchema.shape.allowedOperations.unwrap(),
 }).refine((policy) => !policy.defaultProfileId || policy.enabledProfileIds.includes(policy.defaultProfileId), {
   message: '默认图片配置必须在企业允许列表中', path: ['defaultProfileId'],

@@ -62,6 +62,26 @@ describe('enterprise media configuration page', () => {
     }));
   });
 
+  it('saves image fields when the loaded policy also contains video authorization', async () => {
+    const video = MediaVideoPolicySchema.parse({
+      enabledProfileIds: ['video-basic'], defaultProfileId: 'video-basic', periodBudget: 100,
+    });
+    const combinedPolicy = { ...policy, video };
+    const get = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.get).mockImplementation(async (path, options) => path === '/enterprise/media-config'
+      ? { policy: combinedPolicy, canEdit: true, configured: true } : get(path, options));
+    vi.mocked(api.put).mockResolvedValue({ policy: { ...combinedPolicy, maxOutputs: 3 }, canEdit: true, configured: true });
+    renderPage();
+    fireEvent.change(await screen.findByLabelText('最大输出数'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledExactlyOnceWith('/enterprise/media-config', {
+      ...policy, maxOutputs: 3,
+    }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('最大输出数')).toHaveValue(3);
+    expect(combinedPolicy.video).toEqual(video);
+  });
+
   it.each(['MEMBER', 'DEPT_MANAGER'])('keeps %s read-only even if the server reports canEdit', async (roleInEnterprise) => {
     useAuthStore.setState({ roleInEnterprise });
     renderPage();
