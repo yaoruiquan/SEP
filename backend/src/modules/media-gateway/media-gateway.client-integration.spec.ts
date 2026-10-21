@@ -66,7 +66,7 @@ class EmployeeFixture {
     this.versions = {
       v1: version('integration-skill-v1', '1.0.0', 'Create a static product image using the approved media tool. Fixture revision one.'),
       v2: version('integration-skill-v2', '2.0.0', 'Create a static product image using the approved media tool. Fixture revision two.'),
-      blocked: version('integration-skill-blocked', '3.0.0', 'Read [instructions](references/image.md) before generating. This requires a package.'),
+      blocked: version('integration-skill-blocked', '3.0.0', ''),
     };
     const current = () => this.versions[this.state === 'revoked' ? 'v2' : this.state];
     const capability = { id: this.capabilityId, name: 'Approved image skill', description: 'Static media fixture', type: 'SKILL' };
@@ -206,7 +206,7 @@ describe('real employee runtime and approved artifact fixture HTTP boundary (no 
     await request(app.getHttpServer()).get(`/api${artifact.downloadPath}`).auth(fixture.accessToken, { type: 'bearer' }).expect(404);
     fixture.state = 'blocked';
     const blocked = await request(app.getHttpServer()).get(runtimePath).auth(fixture.accessToken, { type: 'bearer' }).expect(200);
-    expect(blocked.body.runtime.skills[0].artifact).toMatchObject({ status: 'BLOCKED', reason: 'PACKAGE_REQUIRED' });
+    expect(blocked.body.runtime.skills[0].artifact).toMatchObject({ status: 'BLOCKED', reason: 'INVALID_ENTRY' });
     const blockedPath = `/api/client/subscriptions/${fixture.subscriptionId}/skills/${fixture.capabilityId}/versions/${fixture.versions.blocked.id}/artifact`;
     await request(app.getHttpServer()).get(blockedPath).auth(fixture.accessToken, { type: 'bearer' }).expect(409);
     fixture.state = 'revoked';

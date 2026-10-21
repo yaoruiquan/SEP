@@ -51,8 +51,13 @@ describe('EmployeeReadinessService', () => {
   });
 
   it('uses real artifact preparation and includes a blocked reason', async () => {
+    prisma.skillVersion.findFirst.mockResolvedValue(version('cap-1', { content: '' }));
+    await expect(service.assertReady('emp-1')).rejects.toThrow('能力-cap-1：技能制品不可安装 (INVALID_ENTRY)');
+  });
+
+  it('accepts unresolved documentation references without blocking readiness', async () => {
     prisma.skillVersion.findFirst.mockResolvedValue(version('cap-1', { content: '[Checklist](./checklist.md)' }));
-    await expect(service.assertReady('emp-1')).rejects.toThrow('能力-cap-1：技能制品不可安装 (PACKAGE_REQUIRED)');
+    await expect(service.assertReady('emp-1')).resolves.toBeUndefined();
   });
 
   it('accepts Chinese AVAILABLE entries without renaming approved content', async () => {

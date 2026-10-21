@@ -84,7 +84,7 @@ describe('Employee publication and binding readiness protection', () => {
 
     it.each(['missing', 'blocked', 'no-enabled', 'bad-pin', 'collision'])('does not write status or publishedAt when %s', async (failure) => {
       if (failure === 'missing') versions = [];
-      if (failure === 'blocked') versions[0].content = '[Checklist](./checklist.md)';
+      if (failure === 'blocked') versions[0].content = '';
       if (failure === 'no-enabled') state.bindings[0].enabled = false;
       if (failure === 'bad-pin') state.bindings[0].defaultSkillVersionId = 'not-approved';
       if (failure === 'collision') {
@@ -106,6 +106,12 @@ describe('Employee publication and binding readiness protection', () => {
       expect(state.employee.publishedAt).toBeInstanceOf(Date);
       expect(prisma.skillVersion.findFirst).toHaveBeenCalledTimes(1);
       expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('publishes instructions with unresolved documentation references', async () => {
+      versions[0].content = '[Checklist](./checklist.md)';
+      await publish(entry);
+      expect(state.employee.status).toBe('APPROVED');
     });
   });
 
@@ -135,7 +141,7 @@ describe('Employee publication and binding readiness protection', () => {
 
   it.each(mutations)('rolls back approved employee bindings after invalid %s', async (mutation) => {
     state.employee.status = 'APPROVED';
-    versions[1].content = '[Checklist](./checklist.md)';
+    versions[1].content = '';
     if (mutation === 'enable-blocked') state.bindings.push(makeBinding('cap-2', false));
     const snapshot = structuredClone(state);
     await expect(mutate(mutation)).rejects.toBeInstanceOf(BadRequestException);
