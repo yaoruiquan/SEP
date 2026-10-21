@@ -82,7 +82,8 @@ describe('CapabilityInsightService SKILL write closure', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     enterpriseContext.resolve.mockResolvedValue(ctx);
     prisma.capabilityInsight.findFirst.mockResolvedValue(pending);
-    runtimePolicy.getSnapshot.mockResolvedValue(snapshot);
+    runtimePolicy.getSnapshot.mockResolvedValue({ ...snapshot,
+      values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 3000 } });
     release.mockResolvedValue(undefined);
     admission.acquire.mockResolvedValue({ release });
     admission.reserve.mockResolvedValue(undefined);
@@ -309,7 +310,22 @@ describe('CapabilityInsightService SKILL write closure', () => {
       );
     });
 
+    it('omits the analysis budget when following upstream', async () => {
+      runtimePolicy.getSnapshot.mockResolvedValueOnce(snapshot);
+      await service.generate('admin-1', 'skill-1', { scope: 'MEMBER', memberId: 'analyzed-user' });
+      expect(JSON.parse(upstream.mock.calls[0][1].body)).not.toHaveProperty('max_tokens');
+      expect(admission.reserve.mock.calls[0][3]).toBeUndefined();
+    });
+
+    it('uses an explicitly configured analysis budget above the old local 3000 cap', async () => {
+      prisma.platformModel.findUnique.mockResolvedValueOnce(null);
+      runtimePolicy.getSnapshot.mockResolvedValueOnce({ ...snapshot, values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 12000 } });
+      await service.generate('admin-1', 'skill-1', { scope: 'MEMBER', memberId: 'analyzed-user' });
+      expect(JSON.parse(upstream.mock.calls[0][1].body).max_tokens).toBe(12000);
+    });
+
     it('uses the requesting admin identity, one snapshot and a normalized request for reservation', async () => {
+      const bounded = { ...snapshot, values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 3000 } };
       await service.generate('admin-1', 'skill-1', {
         scope: 'MEMBER',
         memberId: 'analyzed-user',
@@ -323,11 +339,11 @@ describe('CapabilityInsightService SKILL write closure', () => {
       expect(admission.acquire).toHaveBeenCalledTimes(1);
       expect(admission.acquire).toHaveBeenCalledWith(
         { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
-        snapshot,
+        bounded,
       );
       expect(admission.reserve).toHaveBeenCalledWith(
         { enterpriseId: ctx.enterpriseId, memberId: ctx.memberId },
-        snapshot,
+        bounded,
         request,
         1400,
       );

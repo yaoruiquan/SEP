@@ -28,6 +28,9 @@ export const policyUnitLabel = (unit: string) => ({
 
 export function displayPolicyValue(field: ModelRuntimePolicyFieldView, raw: number | string | null) {
   if (raw === null || raw === '') return '未配置';
+  if (field.unit === 'tokens' && Number(raw) === 0) {
+    return field.key === 'MODEL_MAX_OUTPUT_TOKENS' ? '不设平台上限' : '跟随上游';
+  }
   return `${Number(raw) / field.displayScale} ${policyUnitLabel(field.displayUnit)}`;
 }
 
@@ -63,7 +66,7 @@ export function buildPolicyUpdates(view: ModelRuntimePolicyAdminView, draft: Pol
     else if (input !== '') {
       const value = Number(input) * field.displayScale;
       if (!/^\d+$/.test(input) || !Number.isSafeInteger(value) || value < field.min || value > field.max || (field.key === BUDGET_KEY && value === 0)) {
-        errors.push(`${field.label}：请输入范围内的正整数${field.displayUnit === 'seconds' ? '秒' : ''}`);
+        errors.push(`${field.label}：请输入范围内的${field.min === 0 && field.key !== BUDGET_KEY ? '非负整数' : '正整数'}${field.displayUnit === 'seconds' ? '秒' : ''}`);
         continue;
       }
       raw = String(value);

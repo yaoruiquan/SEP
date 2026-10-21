@@ -74,10 +74,10 @@ export const MODEL_RUNTIME_POLICY_FIELDS: readonly ModelRuntimePolicyFieldMeta[]
   field('GATEWAY_ENTERPRISE_RPM', '企业业务请求次数', 'rates-concurrency', 600, 1, 100000, 'requests/minute', '同一企业的客户端、Web 和规划合计。'),
   field('GATEWAY_MEMBER_CONCURRENCY', '成员活跃业务请求并发', 'rates-concurrency', 4, 1, 32, 'requests-active', '覆盖完整业务生命周期，Web 工具步骤不重复占位。'),
   field('GATEWAY_ENTERPRISE_CONCURRENCY', '企业活跃业务请求并发', 'rates-concurrency', 32, 1, 256, 'requests-active', '降低限制不终止在途请求。'),
-  field('GATEWAY_DEFAULT_MAX_TOKENS', '客户端默认输出数量', 'output-budget', 4096, 1, 1048576, 'tokens', '未指定输出数量时，与模型有效上限取较小值。'),
-  field('WEB_DEFAULT_MAX_OUTPUT_TOKENS', 'Web 默认输出数量', 'output-budget', 4096, 1, 1048576, 'tokens', '每轮模型输出数量，不是整场对话累计限制。'),
-  field('PLANNER_MAX_OUTPUT_TOKENS', '任务规划输出数量', 'output-budget', 4000, 1, 1048576, 'tokens', '规划单次模型请求的输出数量。'),
-  field('MODEL_MAX_OUTPUT_TOKENS', '平台单次输出上限', 'output-budget', 32768, 1, 1048576, 'tokens', '与已知模型输出能力取较小值，不是上下文长度。'),
+  field('GATEWAY_DEFAULT_MAX_TOKENS', '客户端默认输出数量', 'output-budget', 0, 0, 1048576, 'tokens', '0 跟随上游；正整数在客户端省略预算时使用，受有效上限约束。'),
+  field('WEB_DEFAULT_MAX_OUTPUT_TOKENS', 'Web 默认输出数量', 'output-budget', 0, 0, 1048576, 'tokens', '0 跟随上游；正整数限制每轮输出，不是整场对话累计数量。'),
+  field('PLANNER_MAX_OUTPUT_TOKENS', '任务规划输出数量', 'output-budget', 0, 0, 1048576, 'tokens', '0 跟随上游；用于规划、交付汇总和能力分析的单次输出预算。'),
+  field('MODEL_MAX_OUTPUT_TOKENS', '平台单次输出上限', 'output-budget', 0, 0, 1048576, 'tokens', '0 不设平台上限；正整数与已知模型能力取较小值。供应商自身限制仍有效。'),
   field('GATEWAY_ENTERPRISE_TOKEN_BUDGET', '企业每分钟保守资源预留预算', 'output-budget', 0, 0, 1000000000, 'reservation/minute', '0 关闭；请求 UTF-8 字节数加最大输出数量的估算，不是实耗或计费 Token。'),
 ];
 
@@ -96,9 +96,11 @@ export const ModelRuntimePolicyValuesSchema = z.object(valueShape).strict().supe
   atLeast('WEB_MODEL_TOTAL_TIMEOUT_MS', 'SUB2API_STREAM_IDLE_TIMEOUT_MS');
   atLeast('GATEWAY_ENTERPRISE_RPM', 'GATEWAY_MEMBER_RPM');
   atLeast('GATEWAY_ENTERPRISE_CONCURRENCY', 'GATEWAY_MEMBER_CONCURRENCY');
-  atLeast('MODEL_MAX_OUTPUT_TOKENS', 'GATEWAY_DEFAULT_MAX_TOKENS');
-  atLeast('MODEL_MAX_OUTPUT_TOKENS', 'WEB_DEFAULT_MAX_OUTPUT_TOKENS');
-  atLeast('MODEL_MAX_OUTPUT_TOKENS', 'PLANNER_MAX_OUTPUT_TOKENS');
+  if (values.MODEL_MAX_OUTPUT_TOKENS > 0) {
+    atLeast('MODEL_MAX_OUTPUT_TOKENS', 'GATEWAY_DEFAULT_MAX_TOKENS');
+    atLeast('MODEL_MAX_OUTPUT_TOKENS', 'WEB_DEFAULT_MAX_OUTPUT_TOKENS');
+    atLeast('MODEL_MAX_OUTPUT_TOKENS', 'PLANNER_MAX_OUTPUT_TOKENS');
+  }
 }) as z.ZodType<Record<ModelRuntimePolicyKey, number>>;
 
 // Empty strings remove overrides; reject Number('') and non-decimal coercion.

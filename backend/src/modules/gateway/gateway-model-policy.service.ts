@@ -100,7 +100,7 @@ export class GatewayModelPolicyService {
     };
   }
 
-  /** 返回副本供上游转发；调用方必须使用 request，才能应用默认输出预算。 */
+  /** 返回副本供上游转发，应用当前输出策略并保留上游管理的省略预算。 */
   async validateResources(request: ChatCompletionRequest, policy: GatewayModelPolicy, snapshot?: ModelRuntimePolicySnapshot): Promise<{
     request: ChatCompletionRequest;
     inputBytes: number;
@@ -141,8 +141,6 @@ export class GatewayModelPolicyService {
         'MODEL_OUTPUT_LIMIT_INVALID', '模型 maxOutputTokens 配置无效', 'model',
       ));
     }
-    // Defaults only fill an omitted budget. Explicit budgets use the independent
-    // platform ceiling, including callers that do not capture a policy snapshot.
     const normalized = this.normalize(request, model, snapshot);
     let serialized: string;
     try {
@@ -163,42 +161,51 @@ export class GatewayModelPolicyService {
     return { request: normalized, inputBytes };
   }
 
-  resolveOutputLimit(model: GatewayModelCapabilities, snapshot?: ModelRuntimePolicySnapshot): number {
-    const platform = snapshot?.values.MODEL_MAX_OUTPUT_TOKENS ?? this.positiveConfig('MODEL_MAX_OUTPUT_TOKENS', 32768);
+  resolveOutputLimit(model: GatewayModelCapabilities, snapshot?: ModelRuntimePolicySnapshot): number | undefined {
+    const platform = snapshot?.values.MODEL_MAX_OUTPUT_TOKENS ?? this.positiveConfig('MODEL_MAX_OUTPUT_TOKENS', 0, 0);
     const capability = model.maxOutputTokens;
-    if (!Number.isSafeInteger(platform) || platform <= 0 ||
+    if (!Number.isSafeInteger(platform) || platform < 0 ||
         (capability != null && (!Number.isSafeInteger(capability) || capability <= 0))) {
       throw new ServiceUnavailableException({ error: { message: '模型输出能力配置无效', type: 'server_error',
         code: 'MODEL_OUTPUT_POLICY_INVALID', source: 'platform', ...(snapshot ? { policyVersion: snapshot.version } : {}) } });
     }
+    if (platform === 0) return capability ?? undefined;
     return Math.min(platform, capability ?? platform);
   }
 
-  normalizeInternal(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot | undefined, requested: number): number {
+  normalizeInternal(model: GatewayModelCapabilities, snapshot: ModelRuntimePolicySnapshot | undefined, requested: number): number | undefined {
+    const limit = this.resolveOutputLimit(model, snapshot);
+    if (requested === 0) {
+      const platform = snapshot?.values.MODEL_MAX_OUTPUT_TOKENS ?? this.positiveConfig('MODEL_MAX_OUTPUT_TOKENS', 0, 0);
+      // A configured platform ceiling must also bound requests with no default.
+      return platform > 0 ? limit : undefined;
+    }
     this.validateOutput(requested);
-    return Math.min(requested, this.resolveOutputLimit(model, snapshot));
+    return limit === undefined ? requested : Math.min(requested, limit);
   }
 
-  internalOutputTokens(model: GatewayModelCapabilities | null, snapshot: ModelRuntimePolicySnapshot, requested: number): number {
+  internalOutputTokens(model: GatewayModelCapabilities | null, snapshot: ModelRuntimePolicySnapshot, requested: number): number | undefined {
     return this.normalizeInternal(model ?? {}, snapshot, requested);
   }
 
   normalize<T extends object>(body: T & { max_tokens?: unknown }, model: GatewayModelCapabilities,
-    snapshot?: ModelRuntimePolicySnapshot): T & { max_tokens: number } {
+    snapshot?: ModelRuntimePolicySnapshot): T & { max_tokens?: number } {
     const limit = this.resolveOutputLimit(model, snapshot);
     const requested = body.max_tokens;
     if (requested !== undefined) {
       this.validateOutput(requested);
-      if ((requested as number) > limit) {
+      if (limit !== undefined && (requested as number) > limit) {
         throw new BadRequestException({ error: { message: `max_tokens 不得超过模型有效输出上限 ${limit}`,
           type: 'invalid_request_error', code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', source: 'platform',
           param: 'max_tokens', limit, ...(snapshot ? { policyVersion: snapshot.version } : {}) } });
       }
     }
     const output = requested === undefined
-      ? this.normalizeInternal(model, snapshot, snapshot?.values.GATEWAY_DEFAULT_MAX_TOKENS ?? this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 4096))
+      ? this.normalizeInternal(model, snapshot, snapshot?.values.GATEWAY_DEFAULT_MAX_TOKENS ?? this.positiveConfig('GATEWAY_DEFAULT_MAX_TOKENS', 0, 0))
       : requested as number;
-    return { ...body, max_tokens: output };
+    const normalized = { ...body, max_tokens: output };
+    if (output === undefined) delete normalized.max_tokens;
+    return normalized;
   }
 
   private validateOutput(value: unknown): void {
@@ -208,12 +215,12 @@ export class GatewayModelPolicyService {
     }
   }
 
-  private positiveConfig(key: string, fallback: number): number {
+  private positiveConfig(key: string, fallback: number, minimum = 1): number {
     const raw = this.config.get<string | number>(key) ?? fallback;
     const value = typeof raw === 'number' || /^\d+$/.test(raw) ? Number(raw) : NaN;
-    if (!Number.isSafeInteger(value) || value <= 0 || value > 2147483647) {
+    if (!Number.isSafeInteger(value) || value < minimum || value > 2147483647) {
       throw new InternalServerErrorException(platformErrorResponse(
-        'GATEWAY_CONFIG_INVALID', `${key} must be an integer between 1 and 2147483647`, null, 'server_error',
+        'GATEWAY_CONFIG_INVALID', `${key} must be an integer between ${minimum} and 2147483647`, null, 'server_error',
       ));
     }
     return value;

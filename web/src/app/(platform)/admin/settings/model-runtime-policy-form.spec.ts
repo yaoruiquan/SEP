@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUDGET_KEY, buildPolicyUpdates, createPolicyDraft, isDedicatedPolicySetting, isLegacyPolicySetting, rebasePolicyDraft } from './model-runtime-policy-form';
+import { BUDGET_KEY, buildPolicyUpdates, createPolicyDraft, displayPolicyValue, isDedicatedPolicySetting, isLegacyPolicySetting, rebasePolicyDraft } from './model-runtime-policy-form';
 import { policyFixture } from './model-runtime-policy.fixtures';
 
 describe('模型策略草稿', () => {
@@ -67,7 +67,22 @@ describe('模型策略草稿', () => {
     draft.values.GATEWAY_STREAM_TOTAL_TIMEOUT_MS = '60';
     draft.values.GATEWAY_ENTERPRISE_RPM = '10';
     draft.values.MODEL_MAX_OUTPUT_TOKENS = '100';
+    draft.values.WEB_DEFAULT_MAX_OUTPUT_TOKENS = '200';
     expect(buildPolicyUpdates(view, draft).errors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('保存四项输出配置的 0，并显示跟随上游语义', () => {
+    const view = policyFixture(1, { GATEWAY_DEFAULT_MAX_TOKENS: '4096', WEB_DEFAULT_MAX_OUTPUT_TOKENS: '4096',
+      PLANNER_MAX_OUTPUT_TOKENS: '4000', MODEL_MAX_OUTPUT_TOKENS: '32768' });
+    const draft = createPolicyDraft(view);
+    const outputFields = view.fields.filter(field => field.unit === 'tokens');
+    for (const field of outputFields) {
+      draft.values[field.key] = '0';
+      expect(displayPolicyValue(field, 0)).toBe(field.key === 'MODEL_MAX_OUTPUT_TOKENS' ? '不设平台上限' : '跟随上游');
+    }
+    const result = buildPolicyUpdates(view, draft);
+    expect(result.errors).toEqual([]);
+    expect(Object.values(result.updates)).toEqual(['0', '0', '0', '0']);
   });
 
   it('重载保留编辑字段和预算输入，不把未改字段写回旧版本', () => {

@@ -243,8 +243,10 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 | `GATEWAY_MEMBER_RPM` | `120` | 成员聚合请求限额 |
 | `GATEWAY_ENTERPRISE_RPM` | `600` | 企业聚合请求限额 |
 | `GATEWAY_ENTERPRISE_TOKEN_BUDGET` | `0` | 默认关闭保守 token 流量预算；不是资金预占或上游精确 TPM |
-| `GATEWAY_DEFAULT_MAX_TOKENS` | `4096` | 仅在请求未指定 `max_tokens` 时填充，与模型有效上限取较小值；不作为显式请求的硬上限 |
-| `MODEL_MAX_OUTPUT_TOKENS` | `32768` | 独立的平台单次输出上限，与已知模型 `maxOutputTokens` 取较小值；不是供应商能力声明 |
+| `GATEWAY_DEFAULT_MAX_TOKENS` | `0` | 0 跟随上游；正整数仅在客户端省略预算时填充，受有效上限约束 |
+| `WEB_DEFAULT_MAX_OUTPUT_TOKENS` | `0` | 0 跟随上游；正整数指定 Web 对话和员工执行每轮输出预算 |
+| `PLANNER_MAX_OUTPUT_TOKENS` | `0` | 0 跟随上游；用于规划、交付汇总和能力分析 |
+| `MODEL_MAX_OUTPUT_TOKENS` | `0` | 0 不设 SEP 平台输出硬上限；正整数与已知模型能力取较小值 |
 | `GATEWAY_HTTP_JSON_LIMIT` | `4mb` | 仅 POST `/api/gateway/v1/chat/completions` 的 HTTP JSON 解析上限；其他 REST 默认仍为 2 MiB |
 | `GATEWAY_MAX_REQUEST_BYTES` | `4194304` | Gateway 模型策略的序列化输入上限（字节），不覆盖全局 HTTP body 限制 |
 | `GATEWAY_JSON_MAX_BYTES` | `8388608` | 上游普通 JSON 响应上限（字节） |
@@ -260,13 +262,15 @@ SEP_POST_DEPLOY_INTERVAL_SECONDS=10 \
 
 ### 输出预算与平台上限
 
-单服务、蓝绿和开发 Compose 均透传 `MODEL_MAX_OUTPUT_TOKENS`。默认输出预算与硬上限分别配置，默认值为 4096 和 32768。请求捕获运行策略快照后，数据库中的策略覆盖值优先于环境变量；配置了数据库覆盖时，仅修改 Compose 或环境变量不会覆盖它。
+单服务、蓝绿和开发 Compose 均透传四项输出配置，代码与模板默认值为 0。配置值 0 表示跟随上游或关闭平台硬上限，不会以 `max_tokens: 0` 发给模型。请求捕获策略快照后，数据库覆盖优先于环境变量。已有 `.env` 的 4096/32768 和数据库正整数覆盖仍有效，发布时必须显式改为 0 才能取消旧限制。
 
-有效上限为 `min(MODEL_MAX_OUTPUT_TOKENS, 模型 maxOutputTokens)`；模型未提供能力时使用平台上限。缺失能力不表示供应商支持 32768，供应商仍可能拒绝更大的预算。模型能力只能按已验证的供应商说明设置。
+平台上限为 0 时，省略预算且对应默认预算也为 0 的请求不发送输出限制，由 sub2api/供应商决定。客户端显式传入正整数时保留原值，仍校验已知模型能力；能力未知时交由上游校验。平台上限为正整数时继续生效，省略预算也受该上限约束。Web AI SDK 调用同样省略 `maxOutputTokens`，规划、交付汇总、能力分析不再附加局部 3000/4000 截断。
 
-例如模型能力未知、平台上限为 32768 时：省略 `max_tokens` 使用 4096；显式传 4096 保留 4096；传 8192 或 16384 按原值转发；传 32769 在调用上游之前返回 HTTP 400，错误包含 `code=MODEL_OUTPUT_LIMIT_EXCEEDED`、`param=max_tokens`、`limit=32768`，快照路径还包含 `policyVersion`。模型已知上限为 2048 时，有效上限仍为 2048。
+例如四项输出配置均为 0、模型能力未知：省略 `max_tokens` 保持省略；显式传 4096 或 65536 原值转发。已知模型能力或显式平台上限被超过时，返回 400 / `MODEL_OUTPUT_LIMIT_EXCEEDED`，包含实际 `limit`。请求字段本身仍要求正整数。
 
-客户端显式请求 4096 时，提高平台上限不会自动扩大这次请求的输出预算，也不能保证修复仅思考、无正文的问题。思考控制和原始结束状态仍须由中转层正确支持与记录。上述代码和 Compose 配置需发布并重建后端容器才影响旧生产版本，修改工作区文件不会改变运行中的实例。
+企业保守资源预算关闭时允许未知输出预算；开启时必须有确定的预算，否则调用上游前返回 503 / `MODEL_RESERVATION_OUTPUT_UNKNOWN`，不以 0 预留。RPM、并发、超时和现有用量计费保持原行为。供应商省略参数时仍可能使用较小默认值，SEP 不指定预算不等于模型输出无限。
+
+先发布支持 0 的后端，再发布管理端并保存配置，按现有流程核对策略环境指纹；不要在旧后端仍服务时保存 0。回滚旧后端前先恢复旧版接受的正整数策略。详见[开发与发布说明](../../docs/development/2026-10-21-平台输出预算跟随上游.md)。
 
 ### Gateway 排空契约
 

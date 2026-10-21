@@ -13,7 +13,9 @@ describe('Model runtime policy shared contract', () => {
     const values = ModelRuntimePolicyRawValuesSchema.parse(defaults());
     expect(values.GATEWAY_STREAM_HEADER_TIMEOUT_MS).toBe(120000);
     expect(values.GATEWAY_ENTERPRISE_TOKEN_BUDGET).toBe(0);
-    expect(values.PLANNER_MAX_OUTPUT_TOKENS).toBe(4000);
+    for (const key of ['GATEWAY_DEFAULT_MAX_TOKENS', 'WEB_DEFAULT_MAX_OUTPUT_TOKENS', 'PLANNER_MAX_OUTPUT_TOKENS', 'MODEL_MAX_OUTPUT_TOKENS']) {
+      expect(values[key]).toBe(0);
+    }
     expect(MODEL_RUNTIME_POLICY_FIELDS.filter((field) => field.unit === 'ms').every((field) => field.displayScale === 1000)).toBe(true);
   });
 
@@ -26,10 +28,10 @@ describe('Model runtime policy shared contract', () => {
     { WEB_MODEL_TOTAL_TIMEOUT_MS: '44000' },
     { GATEWAY_ENTERPRISE_RPM: '119' },
     { GATEWAY_ENTERPRISE_CONCURRENCY: '3' },
-    { MODEL_MAX_OUTPUT_TOKENS: '4095' },
-    { GATEWAY_DEFAULT_MAX_TOKENS: '32769' },
-    { WEB_DEFAULT_MAX_OUTPUT_TOKENS: '32769' },
-    { PLANNER_MAX_OUTPUT_TOKENS: '32769' },
+    { MODEL_MAX_OUTPUT_TOKENS: '4095', GATEWAY_DEFAULT_MAX_TOKENS: '4096' },
+    { MODEL_MAX_OUTPUT_TOKENS: '32768', GATEWAY_DEFAULT_MAX_TOKENS: '32769' },
+    { MODEL_MAX_OUTPUT_TOKENS: '32768', WEB_DEFAULT_MAX_OUTPUT_TOKENS: '32769' },
+    { MODEL_MAX_OUTPUT_TOKENS: '32768', PLANNER_MAX_OUTPUT_TOKENS: '32769' },
   ])('rejects inconsistent complete policy %p', (changes) => {
     expect(ModelRuntimePolicyRawValuesSchema.safeParse({ ...defaults(), ...changes }).success).toBe(false);
   });
@@ -39,6 +41,12 @@ describe('Model runtime policy shared contract', () => {
     expect(UpdateModelRuntimePolicyDtoSchema.safeParse(update({ [field.key]: String(field.max + 1) })).success).toBe(false);
     expect(UpdateModelRuntimePolicyDtoSchema.safeParse(update({ [field.key]: String(field.min) })).success).toBe(true);
     expect(UpdateModelRuntimePolicyDtoSchema.safeParse(update({ [field.key]: String(field.max) })).success).toBe(true);
+  });
+
+  it('accepts upstream defaults and finite defaults with the platform ceiling disabled', () => {
+    expect(ModelRuntimePolicyRawValuesSchema.safeParse(defaults()).success).toBe(true);
+    expect(ModelRuntimePolicyRawValuesSchema.safeParse({ ...defaults(), GATEWAY_DEFAULT_MAX_TOKENS: '65536',
+      WEB_DEFAULT_MAX_OUTPUT_TOKENS: '65536', PLANNER_MAX_OUTPUT_TOKENS: '65536' }).success).toBe(true);
   });
 
   it('accepts empty override resets, trims reasons and validates history/restore payloads', () => {

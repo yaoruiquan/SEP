@@ -36,7 +36,7 @@ describe('Gateway tool-call HTTP round trip', () => {
   let service: GatewayService;
   let fetchMock: jest.SpyInstance;
   let forwardSpy: jest.SpyInstance;
-  const snapshot = policySnapshot();
+  const snapshot = policySnapshot({ GATEWAY_DEFAULT_MAX_TOKENS: 4096, MODEL_MAX_OUTPUT_TOKENS: 32768 });
   const policies = { getSnapshot: jest.fn() };
   const modelPolicy = { prepare: jest.fn() };
   const model = { findFirst: jest.fn() };
@@ -164,6 +164,17 @@ describe('Gateway tool-call HTTP round trip', () => {
     }));
     await request(app.getHttpServer()).post(endpoint).send({ ...body, max_tokens }).expect(200);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(max_tokens);
+    expect(admission.reserve.mock.calls[0][3]).toBe(max_tokens);
+  });
+
+  it.each([undefined, 65536])('forwards upstream-managed requests without adding or shrinking budget %p', async (max_tokens) => {
+    policies.getSnapshot.mockResolvedValue(policySnapshot());
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(completion), { headers: { 'Content-Type': 'application/json' } }));
+    await request(app.getHttpServer()).post(endpoint).send({ ...body, ...(max_tokens === undefined ? {} : { max_tokens }) }).expect(200);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    if (max_tokens === undefined) expect(sent).not.toHaveProperty('max_tokens');
+    else expect(sent.max_tokens).toBe(65536);
+    expect(sent).not.toHaveProperty('max_completion_tokens');
     expect(admission.reserve.mock.calls[0][3]).toBe(max_tokens);
   });
 

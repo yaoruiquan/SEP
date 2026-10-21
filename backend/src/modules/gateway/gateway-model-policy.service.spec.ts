@@ -4,7 +4,12 @@ import { EnterpriseModelConfigService } from '../enterprise-model-config/enterpr
 import { ClientService } from '../client/client.service';
 import { ChatCompletionRequestSchema } from 'shared';
 import { GatewayModelPolicyService } from './gateway-model-policy.service';
-import { policySnapshot } from './gateway-policy.test-fixtures';
+import { policySnapshot as runtimeSnapshot } from './gateway-policy.test-fixtures';
+
+// Existing bounded-policy regressions keep exercising an explicitly finite deployment.
+const policySnapshot: typeof runtimeSnapshot = (overrides = {}, version) => runtimeSnapshot({
+  GATEWAY_DEFAULT_MAX_TOKENS: 4096, MODEL_MAX_OUTPUT_TOKENS: 32768, ...overrides,
+}, version);
 
 jest.mock('../setting/setting.service', () => ({ SettingService: jest.fn() }));
 
@@ -62,7 +67,7 @@ describe('GatewayModelPolicyService', () => {
       },
       employeeGrant: { findMany: jest.fn() },
     };
-    config = new ConfigService();
+    config = new ConfigService({ GATEWAY_DEFAULT_MAX_TOKENS: 4096, MODEL_MAX_OUTPUT_TOKENS: 32768 });
     context = { resolve: jest.fn() };
     modelConfig = new EnterpriseModelConfigService(prisma, context, config);
     service = new GatewayModelPolicyService(modelConfig, prisma, config);
@@ -207,7 +212,7 @@ describe('GatewayModelPolicyService', () => {
 
   it('clamps only the omitted default to the platform ceiling', async () => {
     jest.spyOn(config, 'get').mockImplementation((key: string) => (
-      key === 'MODEL_MAX_OUTPUT_TOKENS' ? 2048 : undefined
+      key === 'MODEL_MAX_OUTPUT_TOKENS' ? 2048 : key === 'GATEWAY_DEFAULT_MAX_TOKENS' ? 4096 : undefined
     ) as never);
     expect((await service.prepare(identity, request())).request.max_tokens).toBe(2048);
     await expect(service.prepare(identity, request({ max_tokens: 4096 }))).rejects.toMatchObject({
@@ -281,11 +286,11 @@ describe('GatewayModelPolicyService', () => {
     const dto = request({ messages: [{ role: 'user', content: '中文' }] });
     const bytes = Buffer.byteLength(JSON.stringify({ ...dto, max_tokens: 4096 }), 'utf8');
     jest.spyOn(config, 'get').mockImplementation((key: string) => (
-      key === 'GATEWAY_MAX_REQUEST_BYTES' ? bytes : undefined
+      key === 'GATEWAY_MAX_REQUEST_BYTES' ? bytes : key === 'GATEWAY_DEFAULT_MAX_TOKENS' ? 4096 : undefined
     ) as never);
     expect((await service.prepare(identity, dto)).inputBytes).toBe(bytes);
     jest.spyOn(config, 'get').mockImplementation((key: string) => (
-      key === 'GATEWAY_MAX_REQUEST_BYTES' ? bytes - 1 : undefined
+      key === 'GATEWAY_MAX_REQUEST_BYTES' ? bytes - 1 : key === 'GATEWAY_DEFAULT_MAX_TOKENS' ? 4096 : undefined
     ) as never);
     await expectPlatformError(service.prepare(identity, dto), 413, 'MODEL_REQUEST_TOO_LARGE',
       '模型请求超过序列化资源上限', null);
@@ -321,7 +326,7 @@ describe('GatewayModelPolicyService', () => {
   it.each(['GATEWAY_DEFAULT_MAX_TOKENS', 'MODEL_MAX_OUTPUT_TOKENS', 'GATEWAY_MAX_REQUEST_BYTES'])('identifies invalid %s configuration', async (key) => {
     jest.spyOn(config, 'get').mockImplementation((name: string) => (name === key ? -1 : undefined) as never);
     await expectPlatformError(service.prepare(identity, request()), 500, 'GATEWAY_CONFIG_INVALID',
-      `${key} must be an integer between 1 and 2147483647`, null, 'server_error');
+      `${key} must be an integer between ${key === 'GATEWAY_MAX_REQUEST_BYTES' ? 1 : 0} and 2147483647`, null, 'server_error');
   });
 
   it.each(['circular', 'bigint'])('structures known %s serialization failures', async (kind) => {
@@ -399,8 +404,10 @@ describe('GatewayModelPolicyService', () => {
   it.each([0, -1, 1.5, NaN, Infinity])('fails closed on invalid output capability %p', maxOutputTokens => {
     expect(() => service.resolveOutputLimit({ maxOutputTokens }, policySnapshot()))
       .toThrow(expect.objectContaining({ status: 503 }));
-    expect(() => service.resolveOutputLimit({}, policySnapshot({ MODEL_MAX_OUTPUT_TOKENS: maxOutputTokens })))
-      .toThrow(expect.objectContaining({ status: 503 }));
+    if (maxOutputTokens !== 0) {
+      expect(() => service.resolveOutputLimit({}, policySnapshot({ MODEL_MAX_OUTPUT_TOKENS: maxOutputTokens })))
+        .toThrow(expect.objectContaining({ status: 503 }));
+    }
   });
 
   it.each([0, -1, 1.5, NaN, Infinity, '100', null])('rejects invalid explicit snapshot output %p', max_tokens => {

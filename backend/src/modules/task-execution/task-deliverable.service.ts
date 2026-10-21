@@ -170,7 +170,7 @@ export class TaskDeliverableService {
     const maxOutputTokens = this.modelPolicy.internalOutputTokens(
       model,
       snapshot,
-      Math.min(4000, snapshot.values.PLANNER_MAX_OUTPUT_TOKENS),
+      snapshot.values.PLANNER_MAX_OUTPUT_TOKENS,
     );
     const request = {
       model: modelId,
@@ -194,7 +194,7 @@ export class TaskDeliverableService {
         },
       ],
       temperature: 0.2,
-      max_tokens: maxOutputTokens,
+      ...(maxOutputTokens === undefined ? {} : { max_tokens: maxOutputTokens }),
     };
 
     // Summarization is a separate business call after all conversation steps finish.

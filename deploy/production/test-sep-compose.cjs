@@ -17,7 +17,7 @@ const defaults = {
   MEMBER_RPM: 120,
   ENTERPRISE_RPM: 600,
   ENTERPRISE_TOKEN_BUDGET: 0,
-  DEFAULT_MAX_TOKENS: 4096,
+  DEFAULT_MAX_TOKENS: 0,
   HTTP_JSON_LIMIT: '4mb',
   MAX_REQUEST_BYTES: 4194304,
   JSON_MAX_BYTES: 8388608,
@@ -47,6 +47,9 @@ for (const [file, services] of [
     for (const [suffix, value] of Object.entries(defaults)) {
       const key = `GATEWAY_${suffix}`;
       assert.equal(environment[key], '${' + key + ':-' + value + '}', `${file}/${name}/${key}`);
+    }
+    for (const key of ['WEB_DEFAULT_MAX_OUTPUT_TOKENS', 'PLANNER_MAX_OUTPUT_TOKENS', 'MODEL_MAX_OUTPUT_TOKENS']) {
+      assert.equal(environment[key], '${' + key + ':-0}', `${file}/${name}/${key}`);
     }
     if (file !== 'docker-compose.dev.yml') {
       assert.equal(environment.SEP_GATEWAY_DRAIN_TIMEOUT_MS, '${SEP_GATEWAY_DRAIN_TIMEOUT_MS:-}');

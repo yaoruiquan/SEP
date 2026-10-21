@@ -303,7 +303,7 @@ export class CapabilityInsightService {
     const maxOutputTokens = this.modelPolicy.internalOutputTokens(
       model,
       snapshot,
-      Math.min(3000, snapshot.values.PLANNER_MAX_OUTPUT_TOKENS),
+      snapshot.values.PLANNER_MAX_OUTPUT_TOKENS,
     );
     const request = {
       model: params.modelId,
@@ -331,7 +331,7 @@ export class CapabilityInsightService {
         },
       ],
       temperature: 0.2,
-      max_tokens: maxOutputTokens,
+      ...(maxOutputTokens === undefined ? {} : { max_tokens: maxOutputTokens }),
     };
     const lease = await this.admission.acquire(params.identity, snapshot);
     const lifecycle = new ModelRequestLifecycle(

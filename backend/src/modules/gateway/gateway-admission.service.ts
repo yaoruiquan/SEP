@@ -141,10 +141,17 @@ export class GatewayAdmissionService {
 
   async reserve(
     identity: GatewayAdmissionIdentity, snapshot: ModelRuntimePolicySnapshot,
-    normalizedRequest: unknown, maxOutputTokens: number,
+    normalizedRequest: unknown, maxOutputTokens: number | undefined,
   ): Promise<void> {
     const limit = snapshot.values.GATEWAY_ENTERPRISE_TOKEN_BUDGET;
     if (limit === 0) return;
+    if (maxOutputTokens === undefined) {
+      throw new ServiceUnavailableException({ error: {
+        message: '企业资源预留需要明确输出预算，请配置默认输出数量或平台输出上限',
+        type: 'server_error', code: 'MODEL_RESERVATION_OUTPUT_UNKNOWN', source: 'platform',
+        policyVersion: snapshot.version,
+      } });
+    }
     let serialized: string | undefined;
     try { serialized = JSON.stringify(normalizedRequest); } catch { /* Invalid request is rejected below. */ }
     const amount = serialized === undefined ? NaN : Buffer.byteLength(serialized, 'utf8') + maxOutputTokens;

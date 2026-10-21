@@ -416,7 +416,7 @@ export class ConversationStreamService {
             messages: messages as Parameters<typeof streamText>[0]["messages"],
             tools: hasTools ? tools : undefined,
             abortSignal: abort.signal,
-            maxOutputTokens,
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
           });
           this.logger.debug(`[Stream Result Created] session=${sessionId}`);
           // Cast to any: AI SDK v7 stream chunk property names are unstable across patch versions

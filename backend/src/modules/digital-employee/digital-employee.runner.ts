@@ -175,7 +175,7 @@ export class DigitalEmployeeRunner {
           prompt: userMessage,
           tools: Object.keys(tools).length > 0 ? tools : undefined,
           stopWhen: isStepCount(employee.maxSteps),
-          maxOutputTokens,
+          ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
           prepareStep: () => {
             // Automatic retries reuse the reservation; a new logical step does not.
             reservation = undefined;

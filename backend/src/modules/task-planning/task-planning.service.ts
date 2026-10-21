@@ -203,7 +203,7 @@ export class TaskPlanningService {
     modelId: string,
     identity: { enterpriseId: string; memberId: string },
     policy: ModelRuntimePolicySnapshot,
-    outputTokens: number,
+    outputTokens: number | undefined,
     signal?: AbortSignal,
   ): Promise<PlannerOutput> {
     // 走系统设置而不是 env —— 这里原来直接读 ConfigService，而线上 env 里的
@@ -232,7 +232,7 @@ export class TaskPlanningService {
             { role: 'user', content: `用户任务目标：\n${objective}\n\n候选硅基员工与能力目录：\n${catalog}` },
           ],
           temperature: 0.1,
-          max_tokens: outputTokens,
+          ...(outputTokens === undefined ? {} : { max_tokens: outputTokens }),
     };
     await this.admission.reserve(identity, policy, body, outputTokens);
     const lifecycle = new ModelRequestLifecycle(policy.values.PLANNER_REQUEST_TIMEOUT_MS, signal, 'planner');

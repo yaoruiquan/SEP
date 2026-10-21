@@ -58,7 +58,8 @@ describe('TaskDeliverableService model admission', () => {
       },
       taskRun: { update: jest.fn().mockResolvedValue({}) },
     };
-    runtimePolicy = { getSnapshot: jest.fn().mockResolvedValue(snapshot) };
+    runtimePolicy = { getSnapshot: jest.fn().mockResolvedValue({ ...snapshot,
+      values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 4000 } }) };
     release = jest.fn().mockResolvedValue(undefined);
     admission = {
       acquire: jest.fn().mockResolvedValue({ release }),
@@ -102,6 +103,7 @@ describe('TaskDeliverableService model admission', () => {
   });
 
   it('counts the standalone summary once using the persisted task tenant and member', async () => {
+    const bounded = { ...snapshot, values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 4000 } };
     await service.generate(run, steps);
     expect(prisma.enterpriseMember.findFirst).toHaveBeenCalledWith({
       where: { userId: run.userId, enterpriseId: run.enterpriseId },
@@ -111,14 +113,14 @@ describe('TaskDeliverableService model admission', () => {
     expect(admission.acquire).toHaveBeenCalledTimes(1);
     expect(admission.acquire).toHaveBeenCalledWith(
       { enterpriseId: 'enterprise-1', memberId: 'member-1' },
-      snapshot,
+      bounded,
     );
     const request = JSON.parse(upstream.mock.calls[0][1].body);
     expect(request).toMatchObject({ model: 'planner-model', max_tokens: 1500 });
     expect(request.messages[1].content).toContain('Step output');
     expect(admission.reserve).toHaveBeenCalledWith(
       { enterpriseId: 'enterprise-1', memberId: 'member-1' },
-      snapshot,
+      bounded,
       request,
       1500,
     );
@@ -300,14 +302,21 @@ describe('TaskDeliverableService model admission', () => {
     );
   });
 
-  it('preserves the existing 4000 default while applying dynamic planner and platform caps', async () => {
+  it('omits the output budget when following upstream despite known model metadata', async () => {
+    runtimePolicy.getSnapshot.mockResolvedValueOnce(snapshot);
+    await service.generate(run, steps);
+    expect(JSON.parse(upstream.mock.calls[0][1].body)).not.toHaveProperty('max_tokens');
+    expect(admission.reserve.mock.calls[0][3]).toBeUndefined();
+  });
+
+  it('uses the configured planner budget without an extra local 4000 cap', async () => {
     prisma.platformModel.findUnique.mockResolvedValue(null);
     runtimePolicy.getSnapshot.mockResolvedValueOnce({
       ...snapshot,
       values: { ...snapshot.values, PLANNER_MAX_OUTPUT_TOKENS: 12000 },
     });
     await service.generate(run, steps);
-    expect(JSON.parse(upstream.mock.calls[0][1].body).max_tokens).toBe(4000);
+    expect(JSON.parse(upstream.mock.calls[0][1].body).max_tokens).toBe(12000);
     runtimePolicy.getSnapshot.mockResolvedValueOnce({
       ...snapshot,
       values: {

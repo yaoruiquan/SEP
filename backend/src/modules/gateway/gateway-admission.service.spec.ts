@@ -57,6 +57,15 @@ describe('GatewayAdmissionService', () => {
 
   it('does not create or inspect a budget bucket while disabled', async () => {
     await service.reserve(identity, policySnapshot(), { messages: [] }, 50);
+    await service.reserve(identity, policySnapshot(), { messages: [] }, undefined);
+    expect(evalMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown output reservations when the enterprise resource budget is enabled', async () => {
+    await expect(service.reserve(identity, policySnapshot({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: 1000 }), {}, undefined))
+      .rejects.toMatchObject({ status: 503, response: { error: {
+        code: 'MODEL_RESERVATION_OUTPUT_UNKNOWN', source: 'platform', policyVersion: 7,
+      } } });
     expect(evalMock).not.toHaveBeenCalled();
   });
 

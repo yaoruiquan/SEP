@@ -259,7 +259,7 @@ describe('ModelRuntimePolicyService', () => {
     expect(result.message).toContain('当前计数窗口到期后采用新窗口');
   });
 
-  it('allows zero only for the conservative budget', async () => {
+  it('allows zero for the conservative budget but keeps RPM positive', async () => {
     const f = fixture({}, { GATEWAY_ENTERPRISE_TOKEN_BUDGET: '10000' });
     const service = await f.writable();
     const result = await service.update(update({ GATEWAY_ENTERPRISE_TOKEN_BUDGET: '0' }), 'admin');
@@ -267,12 +267,24 @@ describe('ModelRuntimePolicyService', () => {
     await expect(service.update(update({ GATEWAY_MEMBER_RPM: '0' }, 1), 'admin')).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('saves upstream-managed output settings over existing finite overrides', async () => {
+    const keys = ['GATEWAY_DEFAULT_MAX_TOKENS', 'WEB_DEFAULT_MAX_OUTPUT_TOKENS', 'PLANNER_MAX_OUTPUT_TOKENS', 'MODEL_MAX_OUTPUT_TOKENS'];
+    const f = fixture({}, Object.fromEntries(keys.map(key => [key, '4096'])));
+    const service = await f.writable();
+    const result = await service.update(update(Object.fromEntries(keys.map(key => [key, '0']))), 'admin');
+    for (const key of keys) {
+      expect(result.effectivePolicy![key]).toBe(0);
+      expect(f.state.get(key)).toBe('0');
+    }
+    expect(f.logs).toHaveLength(1);
+  });
+
   it.each([
     { GATEWAY_STREAM_TOTAL_TIMEOUT_MS: '1000' },
     { WEB_MODEL_TOTAL_TIMEOUT_MS: '1000' },
     { GATEWAY_ENTERPRISE_RPM: '100' },
     { GATEWAY_ENTERPRISE_CONCURRENCY: '1' },
-    { MODEL_MAX_OUTPUT_TOKENS: '1000' },
+    { MODEL_MAX_OUTPUT_TOKENS: '1000', WEB_DEFAULT_MAX_OUTPUT_TOKENS: '2000' },
   ])('rolls back revision initialization and the whole batch on cross-field errors %p', async (updates) => {
     const f = fixture();
     const service = await f.writable();

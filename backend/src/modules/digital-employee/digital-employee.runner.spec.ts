@@ -91,7 +91,8 @@ describe('DigitalEmployeeRunner execution context', () => {
           })[key],
       ),
     };
-    runtimePolicy = { getSnapshot: jest.fn().mockResolvedValue(snapshot) };
+    runtimePolicy = { getSnapshot: jest.fn().mockResolvedValue({ ...snapshot,
+      values: { ...snapshot.values, WEB_DEFAULT_MAX_OUTPUT_TOKENS: 4096 } }) };
     release = jest.fn().mockResolvedValue(undefined);
     admission = {
       acquire: jest.fn().mockResolvedValue({ release }),
@@ -374,7 +375,7 @@ describe('DigitalEmployeeRunner execution context', () => {
     expect(admission.acquire).toHaveBeenCalledTimes(1);
     expect(admission.acquire).toHaveBeenCalledWith(
       { enterpriseId: member.enterpriseId, memberId: member.id },
-      snapshot,
+      { ...snapshot, values: { ...snapshot.values, WEB_DEFAULT_MAX_OUTPUT_TOKENS: 4096 } },
     );
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -395,7 +396,7 @@ describe('DigitalEmployeeRunner execution context', () => {
       expect(admission.reserve).toHaveBeenNthCalledWith(
         index + 1,
         { enterpriseId: member.enterpriseId, memberId: member.id },
-        snapshot,
+        { ...snapshot, values: { ...snapshot.values, WEB_DEFAULT_MAX_OUTPUT_TOKENS: 4096 } },
         request,
         1200,
       );
@@ -532,6 +533,12 @@ describe('DigitalEmployeeRunner execution context', () => {
     await jest.advanceTimersByTimeAsync(1000);
     await rejected;
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the SDK output budget when following upstream', async () => {
+    runtimePolicy.getSnapshot.mockResolvedValueOnce(snapshot);
+    await runner.run('employee-1', 'Hello', 'session-1', 'user-1');
+    expect(generateText.mock.calls[0][0]).not.toHaveProperty('maxOutputTokens');
   });
 
   it('uses platform output limits and the settings model when model metadata is unknown', async () => {

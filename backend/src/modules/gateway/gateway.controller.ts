@@ -116,7 +116,7 @@ export class GatewayController {
         throw error;
       }
       client.signal.throwIfAborted();
-      await waitForGatewayOperation(this.admission.reserve(claims, snapshot, prepared, prepared.max_tokens!), 'PLATFORM_ADMISSION_TIMEOUT');
+      await waitForGatewayOperation(this.admission.reserve(claims, snapshot, prepared, prepared.max_tokens), 'PLATFORM_ADMISSION_TIMEOUT');
       client.signal.throwIfAborted();
       const startedAt = Date.now();
       forwarding = true;

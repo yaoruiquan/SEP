@@ -155,13 +155,23 @@ describe('TaskPlanningService', () => {
   });
 
   it('uses one snapshot, shared business admission and reserves the complete planner request', async () => {
+    const boundedPolicy = { ...policy, values: { ...policy.values, PLANNER_MAX_OUTPUT_TOKENS: 4000 } };
+    runtimePolicies.getSnapshot.mockResolvedValueOnce(boundedPolicy);
     prisma.platformModel.findUnique.mockResolvedValueOnce({ maxOutputTokens: 1000 } as never);
     await service.preview('user-1', { objective: '分析销售数据' });
     expect(runtimePolicies.getSnapshot).toHaveBeenCalledTimes(1);
-    expect(admission.acquire).toHaveBeenCalledWith({ enterpriseId: 'enterprise-1', memberId: 'member-1' }, policy);
-    expect(admission.reserve).toHaveBeenCalledWith(expect.anything(), policy,
+    expect(admission.acquire).toHaveBeenCalledWith({ enterpriseId: 'enterprise-1', memberId: 'member-1' }, boundedPolicy);
+    expect(admission.reserve).toHaveBeenCalledWith(expect.anything(), boundedPolicy,
       expect.objectContaining({ max_tokens: 1000, messages: expect.any(Array) }), 1000);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the planner output budget with upstream-managed defaults', async () => {
+    await service.preview('user-1', { objective: '分析销售数据' });
+    const sent = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(sent).not.toHaveProperty('max_tokens');
+    expect(sent).not.toHaveProperty('max_completion_tokens');
+    expect(admission.reserve.mock.calls[0][3]).toBeUndefined();
   });
 
   it('never calls the upstream after budget refusal and releases its lease', async () => {

@@ -77,6 +77,7 @@ describe('Web model runtime policy lifecycle', () => {
   }
 
   it('holds one business lease and uses the snapshot throughout model and tool steps', async () => {
+    policy = { ...policy, values: { ...policy.values, WEB_DEFAULT_MAX_OUTPUT_TOKENS: 4096 } };
     (streamText as jest.Mock).mockReset();
     mockStep('tool-calls', [{ type: 'tool-call', toolCallId: 'tc', toolName: 'search', input: { query: 'query' } }]);
     mockStep('stop', [{ type: 'text-delta', text: 'final reply' }]);
@@ -98,6 +99,17 @@ describe('Web model runtime policy lifecycle', () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(stopRenewal).toHaveBeenCalledTimes(1);
     expect(sessionLock.releaseLock).toHaveBeenCalledWith('session', 'owner');
+  });
+
+  it('omits SDK and wire output budgets when following upstream despite known model metadata', async () => {
+    const events = await collect();
+    expect(events.at(-1)?.event).toBe('done');
+    expect((streamText as jest.Mock).mock.calls[0][0]).not.toHaveProperty('maxOutputTokens');
+    const sent = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(sent).not.toHaveProperty('max_tokens');
+    expect(sent).not.toHaveProperty('max_completion_tokens');
+    expect(admission.reserve.mock.calls[0][3]).toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('does not persist a user message if business admission rejects', async () => {
