@@ -16,8 +16,9 @@ import {
 } from './adapters/adapter.interface';
 import { CapabilityUploadDto, CapabilityUploadDtoSchema, SkillPackageSha256Schema } from 'shared';
 import { z } from 'zod';
-import matter from 'gray-matter';
+import { parseSkillMarkdown } from '../../shared/skill-content';
 import { PackageSecurityService } from '../capability-contribution/package-security.service';
+import { SkillPackageService } from '../skill-package/skill-package.service';
 
 // Prisma enum values referenced as strings to avoid importing generated enum
 const APPROVED = 'APPROVED' as const;
@@ -96,6 +97,7 @@ export class CapabilityService {
     private adapterFactory: AdapterFactory,
     private skillVersionService: SkillVersionService,
     @Optional() private packageSecurity?: PackageSecurityService,
+    @Optional() private skillPackage?: SkillPackageService,
   ) {}
 
   // ──────────────── Browse / Read ────────────────
@@ -183,10 +185,16 @@ export class CapabilityService {
     const packageMetadata = nestedPackage ?? (legacyPackage?.success ? legacyPackage.data : undefined);
     let skillContent: string | undefined;
     if (dto.skillConfig) {
-      try {
-        skillContent = matter(dto.skillConfig.template).content.trimStart();
-      } catch {
-        throw new BadRequestException('SKILL.md frontmatter 格式无效');
+      skillContent = parseSkillMarkdown(dto.skillConfig.template).content.trimStart();
+      if (packageMetadata && this.skillPackage) {
+        const stored = await this.skillPackage.read(packageMetadata.sha256);
+        if (stored.key !== packageMetadata.zipPath || stored.fileCount !== packageMetadata.fileCount ||
+            stored.totalBytes !== packageMetadata.totalSize ||
+            (dto.skillConfig.template.trimStart() !== stored.content && skillContent !== stored.content)) {
+          throw new BadRequestException('技能包正文或文件信息不一致，请重新上传');
+        }
+        // Uploaded content is already extracted; a second YAML block belongs to the body.
+        skillContent = stored.content;
       }
     }
     const submittedAt = new Date();

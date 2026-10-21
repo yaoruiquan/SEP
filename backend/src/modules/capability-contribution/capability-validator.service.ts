@@ -53,7 +53,7 @@ export class CapabilityValidatorService {
 
     this.check(checks, issues, 'CONTENT_LENGTH', normalized.length > 0, 'Skill 正文不能为空', 'content');
     this.check(checks, issues, 'CONTENT_BYTES', Buffer.byteLength(content, 'utf8') <= SKILL_CONTENT_MAX_BYTES,
-      'Skill 正文不能超过 500KiB（UTF-8）', 'content');
+      'Skill 正文不能超过 2MiB（UTF-8）', 'content');
     const headings = this.extractHeadings(normalized);
     for (const [section, matcher] of Object.entries(HEADING_ALIASES)) {
       const passed = headings.some((heading) => matcher.test(heading));
@@ -64,10 +64,10 @@ export class CapabilityValidatorService {
     }
     const credentialContent = withoutCredentialPlaceholders(normalized);
     for (const item of SENSITIVE_PATTERNS) {
-      if (item.pattern.test(credentialContent)) issues.push({ code: item.code, message: item.message, path: 'content' });
+      if (item.pattern.test(credentialContent)) warnings.push({ code: item.code, message: `${item.message}，请确认是否为示例或占位内容`, path: 'content' });
     }
     const sensitiveCheck = !SENSITIVE_PATTERNS.some((item) => item.pattern.test(credentialContent));
-    this.check(checks, issues, 'NO_SENSITIVE_CREDENTIALS', sensitiveCheck, '正文不能包含敏感凭据', 'content');
+    checks.push({ code: 'NO_SENSITIVE_CREDENTIALS', passed: sensitiveCheck, message: '正文不能包含敏感凭据' });
     if (!normalized.includes('```')) warnings.push({ code: 'NO_CODE_BLOCK', message: '建议使用代码块明确输入输出示例', path: 'content' });
 
     return { valid: issues.length === 0, kind: 'SKILL', checks, issues, warnings };

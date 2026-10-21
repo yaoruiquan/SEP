@@ -34,6 +34,8 @@ type UploadMetadata = {
   totalSize: number;
   filename: string;
   content: string;
+  suggested?: { name: string | null; description: string | null };
+  warnings?: Array<{ code: string; message: string; path?: string }>;
 };
 
 export function SkillForm({ onCancel }: { onCancel: () => void }) {
@@ -48,6 +50,7 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
     handleSubmit,
     control,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<SkillFormValues>({
     resolver: zodResolver(skillFormSchema),
@@ -89,12 +92,6 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (!selectedFile.name.toLowerCase().endsWith('.zip')) {
-      setUploadError('只支持 .zip 文件');
-      setUploadMetadata(null);
-      return;
-    }
-
     setUploadError(null);
     setUploadMetadata(null);
 
@@ -106,7 +103,13 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
 
       const metadata = await uploadForm<UploadMetadata>('/admin/capabilities/upload-skill', formData);
       setUploadMetadata(metadata);
-      toast.success('上传成功', `已验证 SKILL.md，文件数: ${metadata.fileCount}`);
+      if (!getValues('name').trim() && metadata.suggested?.name) {
+        setValue('name', metadata.suggested.name, { shouldValidate: true });
+      }
+      if (!getValues('description').trim() && metadata.suggested?.description) {
+        setValue('description', metadata.suggested.description, { shouldValidate: true });
+      }
+      toast.success('上传成功', `已读取技能包，文件数: ${metadata.fileCount}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : '请稍后重试';
       setUploadError(message);
@@ -158,10 +161,9 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
               <Input
                 id="file"
                 type="file"
-                accept=".zip"
                 onChange={handleFileChange}
                 disabled={isUploading || createMutation.isPending}
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               {isUploading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
               {uploadMetadata && <CheckCircle className="h-5 w-5 text-green-600" />}
@@ -169,12 +171,19 @@ export function SkillForm({ onCancel }: { onCancel: () => void }) {
             </div>
             {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
             {uploadMetadata && (
-              <div className="text-sm text-muted-foreground space-y-1 bg-muted/30 p-3 rounded">
+              <div className="break-all text-sm text-muted-foreground space-y-1 bg-muted/30 p-3 rounded">
                 <p>文件: {uploadMetadata.filename}</p>
                 <p>文件数: {uploadMetadata.fileCount}</p>
                 <p>大小: {(uploadMetadata.totalSize / 1024).toFixed(2)} KB</p>
                 <p>SHA256: {uploadMetadata.sha256.slice(0, 16)}...</p>
               </div>
+            )}
+            {!!uploadMetadata?.warnings?.length && (
+              <ul aria-label="导入提示" className="list-inside list-disc space-y-1 break-words text-sm text-muted-foreground">
+                {Array.from(new Set(uploadMetadata.warnings.map((warning) => warning.message))).map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
             )}
           </div>
         </CardContent>

@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 import { SkillArtifactFrontmatterSchema, SkillArtifactNameSchema } from './client-skill-artifact.dto';
-import { SKILL_CONTENT_MAX_BYTES, SkillContentSchema } from './skill-content-schema';
+import { SkillContentSchema } from './skill-content-schema';
 
 // Resolve at runtime so webpack cannot replace gray-matter's path with a module ID.
 const runtimeRequire = createRequire(__filename);
@@ -32,9 +32,15 @@ export function parseSkillMarkdown(content: string) {
   const input = content.replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').replace(/^(?:[ \t]*\n)*/, '');
   if (!input.startsWith('---')) return { hasFrontmatter: false, data: {}, content: input };
   const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(input);
-  if (!match) throw new TypeError('Invalid YAML frontmatter delimiters');
-  const data = yaml.safeLoad(match[1], { schema: coreSchema }) ?? {};
-  return { hasFrontmatter: true, data, content: input.slice(match[0].length) };
+  if (match) {
+    try {
+      const data = yaml.safeLoad(match[1], { schema: coreSchema }) ?? {};
+      if (typeof data === 'object' && !Array.isArray(data)) {
+        return { hasFrontmatter: true, data, content: input.slice(match[0].length) };
+      }
+    } catch { /* Preserve unparseable metadata as source text. */ }
+  }
+  return { hasFrontmatter: false, data: {}, content: input, invalidFrontmatter: true };
 }
 
 export function skillLocalResourceReferences(body: string): string[] {
@@ -72,20 +78,26 @@ export function prepareSkillMarkdown(content: string, fallbackName: string): Pre
     const parsed = parseSkillMarkdown(content);
     let skillName = fallbackName;
     let output = content;
-    if (parsed.hasFrontmatter) {
-      const result = SkillArtifactFrontmatterSchema.safeParse(parsed.data);
-      if (!result.success || !parsed.content.trim()) return invalid;
+    if (!parsed.content.trim()) return invalid;
+    const result = SkillArtifactFrontmatterSchema.safeParse(parsed.data);
+    if (parsed.hasFrontmatter && result.success) {
       skillName = result.data.name;
     } else {
-      if (!SkillArtifactNameSchema.safeParse(skillName).success) return invalid;
-      const summary = Array.from(content.trim().replace(/\s+/g, ' ')).slice(0, 300).join('');
-      output = `---\nname: ${JSON.stringify(skillName)}\ndescription: ${JSON.stringify(`Use for tasks matching these approved instructions: ${summary}`)}\n---\n${content}`;
+      const data = parsed.data as Record<string, unknown>;
+      const candidate = typeof data.name === 'string' ? data.name : fallbackName;
+      skillName = Array.from(candidate.normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '')).slice(0, 64).join('').replace(/-$/, '');
+      if (!SkillArtifactNameSchema.safeParse(skillName).success) {
+        skillName = SkillArtifactNameSchema.safeParse(fallbackName).success ? fallbackName : 'imported-skill';
+      }
+      const summary = Array.from(parsed.content.trim().replace(/\s+/g, ' ')).slice(0, 300).join('');
+      const description = typeof data.description === 'string' && data.description.trim()
+        ? data.description.trim().slice(0, 1024) : summary;
+      const metadata: Record<string, unknown> = { ...data, name: skillName, description };
+      for (const [key, schema] of Object.entries(SkillArtifactFrontmatterSchema.shape)) {
+        if (!schema.safeParse(metadata[key]).success) delete metadata[key];
+      }
+      output = `---\n${yaml.safeDump(metadata, { schema: coreSchema })}---\n${parsed.content}`;
     }
-    if (Buffer.byteLength(output, 'utf8') > SKILL_CONTENT_MAX_BYTES) return invalid;
-    const extraReferences = skillLocalResourceReferences(parsed.content).filter((reference) => {
-      try { return !['SKILL.md', './SKILL.md'].includes(decodeURIComponent(reference)); } catch { return true; }
-    });
-    if (extraReferences.length) return { status: 'BLOCKED', reason: 'PACKAGE_REQUIRED' };
     return { status: 'AVAILABLE', content: output, skillName, body: parsed.content };
   } catch {
     return invalid;

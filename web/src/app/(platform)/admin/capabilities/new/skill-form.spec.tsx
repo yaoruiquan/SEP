@@ -28,6 +28,44 @@ beforeEach(() => {
 });
 afterEach(() => { useAuthStore.getState().clear(); vi.unstubAllGlobals(); });
 describe('ops SKILL 首次创建认证契约', () => {
+  it('兼容提示不阻断创建，自动补全名称描述且不展示包内路径', async () => {
+    const suggested = { name: '抖音文案提取', description: '提取视频中的文字内容' };
+    fetchMock.mockImplementation(async (path: string) => response(path.endsWith('upload-skill') ? {
+      ...metadata,
+      suggested,
+      warnings: [
+        { code: 'MISSING_REFERENCE', message: '部分文档引用未找到，已保留原包', path: 'dyextract/private-script.py' },
+        { code: 'MISSING_REFERENCE', message: '部分文档引用未找到，已保留原包', path: 'other/script.py' },
+      ],
+    } : { id: 'created-cap' }));
+    mount(); await upload();
+    expect(screen.getByLabelText('能力名称')).toHaveValue(suggested.name);
+    expect(screen.getByLabelText('能力描述')).toHaveValue(suggested.description);
+    expect(screen.getAllByText('部分文档引用未找到，已保留原包')).toHaveLength(1);
+    expect(screen.queryByText(/dyextract\/private-script\.py|other\/script\.py/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建并进入平台待审' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '创建并进入平台待审' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/admin/skills'));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject(suggested);
+  });
+  it('上传返回推荐信息时保留用户已输入的字段', async () => {
+    fetchMock.mockResolvedValue(response({ ...metadata, suggested: { name: '推荐名称', description: '推荐描述' } }));
+    mount(); fill(); await upload();
+    expect(screen.getByLabelText('能力名称')).toHaveValue('测试技能');
+    expect(screen.getByLabelText('能力描述')).toHaveValue('完整上传包并保留正文的测试技能说明');
+  });
+  it('只补全空白字段，兼容缺少推荐信息和提示的旧上传响应', async () => {
+    fetchMock.mockResolvedValueOnce(response({ ...metadata, suggested: { name: '推荐名称', description: '推荐描述' } }));
+    mount();
+    fireEvent.change(screen.getByLabelText('能力名称'), { target: { value: '自定义名称' } });
+    await upload();
+    expect(screen.getByLabelText('能力名称')).toHaveValue('自定义名称');
+    expect(screen.getByLabelText('能力描述')).toHaveValue('推荐描述');
+    expect(screen.queryByRole('list', { name: '导入提示' })).not.toBeInTheDocument();
+    await upload();
+    expect(screen.getByLabelText('能力名称')).toHaveValue('自定义名称');
+    expect(screen.getByLabelText('能力描述')).toHaveValue('推荐描述');
+  });
   it.each([
     { name: '测试技能', description: '短描述' },
     { name: 'a'.repeat(100), description: 'x'.repeat(2000) },
@@ -71,6 +109,14 @@ describe('ops SKILL 首次创建认证契约', () => {
     expect(JSON.parse(createOptions.body)).toMatchObject({ type: 'skill', name: '测试技能', metadata: { zipPath: metadata.zipPath, sha256: metadata.sha256, fileCount: 4, totalSize: 8192, filename: metadata.filename }, skillConfig: { template: metadata.content } });
     expect(success).toHaveBeenCalledWith('创建成功', '技能已进入平台待审，审核通过后才会公开');
     expect(fetchMock.mock.calls.some(([path]) => /approve|review/.test(path))).toBe(false);
+  });
+  it('不按文件名后缀拦截上传，由后端识别文件内容', async () => {
+    mount();
+    fireEvent.change(screen.getByLabelText('Zip 文件（必须包含 SKILL.md）'), {
+      target: { files: [new File(['zip'], 'skill-package.bin', { type: 'application/zip' })] },
+    });
+    await screen.findByText(`文件: ${metadata.filename}`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it('上传 403 时不能创建，没有无认证备用请求', async () => {
     fetchMock.mockResolvedValue(response({ message: '仅平台管理员可上传' }, 403));

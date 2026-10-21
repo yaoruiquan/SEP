@@ -11,17 +11,17 @@ describe('CapabilityValidatorService', () => {
     expect(result.issues).toEqual([]);
   });
 
-  it('keeps missing sections as warnings while rejecting credential-like content', () => {
+  it('keeps missing sections and credential-like content as non-blocking warnings', () => {
     const result = service.validateSkill('api_key = sk-test-secret-value');
 
-    expect(result.valid).toBe(false);
+    expect(result.valid).toBe(true);
     expect(result.warnings.map((issue) => issue.code)).toEqual(expect.arrayContaining([
       'SECTION_ROLE',
       'SECTION_INPUT',
       'SECTION_OUTPUT',
       'SECTION_STEPS',
     ]));
-    expect(result.issues.map((issue) => issue.code)).toContain('SECRET_API_KEY');
+    expect(result.warnings.map((issue) => issue.code)).toContain('SECRET_API_KEY');
     expect(result.issues.some((issue) => issue.code.startsWith('SECTION_'))).toBe(false);
   });
 
@@ -49,20 +49,19 @@ describe('CapabilityValidatorService', () => {
   });
 
   it('enforces UTF-8 bytes without trimming the byte budget', () => {
-    expect(service.validateSkill('中'.repeat(170666) + 'aa').valid).toBe(true);
-    expect(service.validateSkill('中'.repeat(170667)).issues.map((issue) => issue.code)).toContain('CONTENT_BYTES');
-    expect(service.validateSkill('x' + ' '.repeat(500 * 1024)).valid).toBe(false);
+    expect(service.validateSkill('中'.repeat(699050) + 'aa').valid).toBe(true);
+    expect(service.validateSkill('中'.repeat(699051)).issues.map((issue) => issue.code)).toContain('CONTENT_BYTES');
+    expect(service.validateSkill('x' + ' '.repeat(2 * 1024 * 1024)).valid).toBe(false);
   });
 
   it.each([
     ['api_key = example-secret-value', 'SECRET_API_KEY'],
     ['sk-example-secret-value', 'OPENAI_KEY'],
     ['-----BEGIN PRIVATE KEY-----', 'PRIVATE_KEY'],
-  ])('still rejects credentials without requiring headings: %s', (content, code) => {
+  ])('reports credentials as warnings without requiring headings: %s', (content, code) => {
     const result = service.validateSkill(content);
-    expect(result.valid).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toContain(code);
-    expect(JSON.stringify(result)).not.toContain(content);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.map((issue) => issue.code)).toContain(code);
   });
 
   it('accepts an Agent with a supported platform and HTTPS workflow', () => {

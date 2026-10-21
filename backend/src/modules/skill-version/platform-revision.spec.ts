@@ -230,11 +230,17 @@ describe('Single-file platform maintenance revisions', () => {
     expect(security.assertReviewable).not.toHaveBeenCalled();
   });
 
-  it.each(['   ', '---\nname: [\n---\n# Invalid frontmatter', '# Orders\nRun scripts/missing.py'])('rejects failed source validation without writing: %j', async (content) => {
+  it('rejects only empty source validation without writing', async () => {
     const { service, prisma, noPublication } = setup();
-    await expect(service.createPlatformRevision('admin', base.capabilityId, { ...request, content })).rejects.toThrow(BadRequestException);
+    await expect(service.createPlatformRevision('admin', base.capabilityId, { ...request, content: '   ' })).rejects.toThrow(BadRequestException);
     expect(prisma.skillVersion.create).not.toHaveBeenCalled();
     noPublication();
+  });
+
+  it.each(['---\nname: [\n---\n# Invalid frontmatter', '# Orders\nRun scripts/missing.py'])('accepts compatible source without writing failure: %j', async (content) => {
+    const { service, prisma } = setup();
+    await expect(service.createPlatformRevision('admin', base.capabilityId, { ...request, content })).resolves.toBeDefined();
+    expect(prisma.skillVersion.create).toHaveBeenCalled();
   });
 
   it('returns a summary and content usable by the existing preview-guarded publication method', async () => {

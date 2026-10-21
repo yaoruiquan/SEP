@@ -78,6 +78,22 @@ describe('CapabilityService write security', () => {
       .toMatchObject({ packageKey: packageMetadata.zipPath, packageSha256: sha256 });
   });
 
+  it('preserves an extracted package body that begins with another YAML block', async () => {
+    const { prisma, versions } = harness();
+    const content = '---\nexample: value\n---\n# Instructions';
+    const packages = { read: jest.fn().mockResolvedValue({ key: packageMetadata.zipPath,
+      fileCount: 2, totalBytes: 1234, content }) };
+    const service = new CapabilityService(prisma as never, {} as never, versions as never,
+      undefined, packages as never);
+    await service.create('admin-1', { ...dto,
+      skillConfig: { template: content, metadata: packageMetadata } }, 'ADMIN');
+    expect(prisma.capability.create.mock.calls[0][0].data.skillVersions.create.content).toBe(content);
+    await expect(service.create('admin-1', { ...dto,
+      skillConfig: { template: '# Different body', metadata: packageMetadata } }, 'ADMIN'))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.capability.create).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps text-only admin creation pending and without fabricated package fields', async () => {
     const { service, prisma } = harness();
     await service.create('admin-1', { ...dto, skillConfig: { template: body } }, 'ADMIN');

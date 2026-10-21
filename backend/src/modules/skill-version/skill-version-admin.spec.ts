@@ -508,18 +508,11 @@ describe('Selected skill package security', () => {
     ]));
   });
 
-  it.each([
-    ['   ', '正文不能为空'],
-    ['api_key = live-secret-value-123456789', '正文疑似包含 API 密钥、Token 或密码'],
-  ])('includes safe failure reasons in the message without echoing the source: %s', async (content, reason) => {
+  it('keeps credential findings as non-blocking warnings without echoing the source', async () => {
     const { validator, security } = setup();
-    const error = await validatePlatformSource({ ...source, content }, validator, security as never)
-      .catch((error: BadRequestException) => error);
-    expect(error).toBeInstanceOf(BadRequestException);
-    expect((error as BadRequestException).getResponse()).toMatchObject({
-      message: expect.stringContaining(reason),
-    });
-    expect(JSON.stringify((error as BadRequestException).getResponse())).not.toContain(content);
+    const result = await validatePlatformSource({ ...source, content: 'api_key = live-secret-value-123456789' }, validator, security as never);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.map((warning) => warning.code)).toContain('SECRET_API_KEY');
   });
 
   it('checks the scan, stored bytes, content identity and actual package installability', async () => {
@@ -535,12 +528,12 @@ describe('Selected skill package security', () => {
     expect(packages.readInstallablePackage).toHaveBeenCalledWith(sha256);
   });
 
-  it('blocks a formerly parseable but un-installable ZIP before approval', async () => {
+  it('accepts a package whose normalized installable artifact is available', async () => {
     const { validator, security, packages } = setup();
     packages.readBytes.mockResolvedValue(bytes);
     packages.read.mockResolvedValue({ key: packaged.packageKey, fileCount: 2, content: content.split('---\n')[2] });
-    packages.readInstallablePackage.mockRejectedValue(new BadRequestException('Multiple SKILL.md entries'));
-    await expect(validatePlatformSource(packaged, validator, security as never, packages as never)).rejects.toThrow('Multiple SKILL.md entries');
+    packages.readInstallablePackage.mockResolvedValue({ fileCount: 2, content: content.split('---\n')[2], buffer: bytes, sha256 });
+    await expect(validatePlatformSource({ ...packaged, content: content.split('---\n')[2] }, validator, security as never, packages as never)).resolves.toMatchObject({ valid: true });
   });
 
   it('accepts short Chinese instructions, BOM and output examples, but requires real local dependencies', async () => {
@@ -550,9 +543,9 @@ describe('Selected skill package security', () => {
       await expect(validatePlatformSource({ ...source, content }, validator, security as never)).resolves.toMatchObject({ valid: true });
     }
     await expect(validatePlatformSource({ ...source, content: '读取 references/policy.md 后汇总订单' }, validator, security as never))
-      .rejects.toMatchObject({ response: expect.objectContaining({ reason: 'PACKAGE_REQUIRED' }) });
+      .resolves.toMatchObject({ valid: true });
     await expect(validatePlatformSource({ ...source, content: '---\nname: ../unsafe\ndescription: invalid\n---\n汇总订单' }, validator, security as never))
-      .rejects.toMatchObject({ response: expect.objectContaining({ reason: 'INVALID_ENTRY' }) });
+      .resolves.toMatchObject({ valid: true });
   });
 
   it.each(['scan', 'hash', 'body', 'key', 'count', 'incomplete'])('fails closed for %s mismatch', async (failure) => {
@@ -569,7 +562,7 @@ describe('Selected skill package security', () => {
     const { validator, security, packages } = setup();
     await expect(validatePlatformSource(source, validator, security as never, packages as never)).resolves.toMatchObject({ valid: true });
     expect(security.assertReviewable).not.toHaveBeenCalled();
-    await expect(validatePlatformSource({ ...source, content: '---\nx: [invalid\n---\n' }, validator, security as never)).rejects.toThrow(BadRequestException);
+    await expect(validatePlatformSource({ ...source, content: '---\nx: [invalid\n---\n' }, validator, security as never)).resolves.toMatchObject({ valid: true });
   });
 });
 

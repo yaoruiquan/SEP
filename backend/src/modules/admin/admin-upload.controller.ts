@@ -72,6 +72,8 @@ export class AdminUploadController {
       totalSize: stored.totalBytes,
       filename: stored.filename,
       content: stored.content,
+      suggested: stored.suggested,
+      warnings: stored.warnings,
     };
   }
 

@@ -129,6 +129,9 @@ export class CapabilityContributionController {
     // 上传即校验：提交审核前就把缺段落、含密钥之类的问题暴露出来，
     // 而不是等第三步走完、点提交才报错。
     const { kind: _kind, ...validation } = this.validator.validateSkill(stored.content);
+    validation.warnings = [...stored.warnings, ...validation.warnings].filter((warning, index, warnings) =>
+      warnings.findIndex((candidate) => candidate.code === warning.code && candidate.message === warning.message) === index,
+    );
     await this.security?.scanSkill(stored);
     return {
       sha256: stored.sha256,
@@ -226,24 +229,19 @@ export class CapabilityContributionController {
     @Param('versionId') versionId: string,
     @Res() res: Response,
   ) {
-    const { key, filename, sha256, version } = await this.service.getVersionPackage(
+    const { filename, sha256, version } = await this.service.getVersionPackage(
       req.user.id,
       versionId,
       req.user.role,
       requestAuditContext(req),
     );
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('X-SHA256', sha256);
     res.setHeader('X-Version', version);
-    if (this.skillPackage.isSharedStorage?.()) {
-      const bytes = await this.skillPackage.readBytes(key);
-      res.setHeader('Content-Length', bytes.length);
-      return res.attachment(filename).send(bytes);
-    }
-    const fullPath = this.skillPackage.resolveStoredPath(key);
-    if (!existsSync(fullPath)) throw new NotFoundException('Skill 包文件不存在');
-    res.setHeader('Content-Length', statSync(fullPath).size);
-    return res.download(fullPath, filename);
+    const pkg = await this.skillPackage.readInstallablePackage(sha256);
+    res.setHeader('X-SHA256', pkg.sha256);
+    res.setHeader('X-Skill-Entry-Path', encodeURIComponent(pkg.entryPath));
+    res.setHeader('Content-Length', pkg.buffer.length);
+    return res.attachment(filename).send(pkg.buffer);
   }
 
   @Get('overview')

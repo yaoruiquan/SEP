@@ -19,9 +19,15 @@ export class PackageSecurityService {
     private readonly validator: CapabilityValidatorService,
   ) {}
 
-  async scanSkill(input: { sha256: string; content: string; fileCount: number; files?: string[] }) {
+  async scanSkill(input: {
+    sha256: string; content: string; fileCount: number; files?: string[];
+    warnings?: Array<{ code: string; message: string }>;
+  }) {
     const validation = this.validator.validateSkill(input.content);
-    const warnings = [...validation.warnings];
+    const warnings = [...(input.warnings ?? []), ...validation.warnings]
+      .map(({ code, message }) => ({ code, message }))
+      .filter((warning, index, all) => all.findIndex((item) =>
+        item.code === warning.code && item.message === warning.message) === index);
     warnings.push({ code: 'STATIC_ONLY_SCAN', message: '仅完成 Skill 静态规则检查，未运行病毒库或沙箱扫描，需由审核人完成人工安全复核' });
     return this.save({
       packageSha256: input.sha256,

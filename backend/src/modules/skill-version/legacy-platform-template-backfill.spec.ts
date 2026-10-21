@@ -61,13 +61,13 @@ describe('Reviewed legacy platform template backfill', () => {
     expect(versions.createPlatformVersion).not.toHaveBeenCalled();
   });
 
-  it('fails closed without an active admin, review or safe installable content', async () => {
+  it('requires an active admin for apply while allowing compatible local references in preflight', async () => {
     const { prisma, versions } = setup();
     prisma.user.findUnique.mockResolvedValue({ role: 'USER', status: 'ACTIVE' });
     await expect(backfillLegacyPlatformTemplates(prisma as never, versions as never, [review], { apply: true, reviewerId: 'user' }))
       .rejects.toThrow('平台管理员');
     await expect(backfillLegacyPlatformTemplates(prisma as never, versions as never,
-      [{ ...review, executionBoundary: '读取 scripts/missing.py' }])).rejects.toThrow('模板不可安装');
+      [{ ...review, executionBoundary: '读取 scripts/missing.py' }])).resolves.toMatchObject([{ status: 'READY' }]);
     expect(LegacyTemplateReviewSchema.safeParse([review, review]).success).toBe(false);
   });
 

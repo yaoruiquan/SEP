@@ -20,7 +20,7 @@ describe("CapabilityContributionController download responses", () => {
       getRpaPackage: jest.fn(),
       getVersionPackage: jest.fn(),
     };
-    const skillPackage = { resolveStoredPath: jest.fn() };
+    const skillPackage = { resolveStoredPath: jest.fn(), readInstallablePackage: jest.fn() };
     const rpaPackage = { resolveStoredPath: jest.fn() };
     const controller = new CapabilityContributionController(
       service as never,
@@ -35,6 +35,7 @@ describe("CapabilityContributionController download responses", () => {
     return {
       setHeader: jest.fn(),
       download: jest.fn(),
+      attachment: jest.fn().mockReturnValue({ send: jest.fn() }),
     };
   }
 
@@ -128,10 +129,9 @@ describe("CapabilityContributionController download responses", () => {
 
   it("returns Skill integrity headers and version metadata", async () => {
     const { controller, service, skillPackage } = makeController();
-    const path = join(directory, "skill.zip");
-    writeFileSync(path, Buffer.from("skill-payload"));
     const res = response();
-    skillPackage.resolveStoredPath.mockReturnValue(path);
+    const buffer = Buffer.from("installable-skill-payload");
+    skillPackage.readInstallablePackage.mockResolvedValue({ buffer, sha256: "b".repeat(64), entryPath: "技能/SKILL.md" });
     service.getVersionPackage.mockResolvedValue({
       key: "skills/a.zip",
       sha256: "a".repeat(64),
@@ -155,8 +155,9 @@ describe("CapabilityContributionController download responses", () => {
       },
     );
     expect(res.setHeader).toHaveBeenCalledWith("X-Version", "1.2.0");
-    expect(res.setHeader).toHaveBeenCalledWith("X-SHA256", "a".repeat(64));
-    expect(res.download).toHaveBeenCalledWith(path, "周报.zip");
+    expect(skillPackage.readInstallablePackage).toHaveBeenCalledWith("a".repeat(64));
+    expect(res.setHeader).toHaveBeenCalledWith("X-SHA256", "b".repeat(64));
+    expect(res.setHeader).toHaveBeenCalledWith("X-Skill-Entry-Path", encodeURIComponent("技能/SKILL.md"));
   });
 });
 

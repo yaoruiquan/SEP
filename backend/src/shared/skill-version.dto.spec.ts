@@ -53,7 +53,7 @@ describe('Unified enterprise skill review DTOs', () => {
     for (const body of [
       { ...dto, expectedVersions: { 'source-1': 'invalid' } },
       { ...dto, expectedMergedContent: '' },
-      { ...dto, expectedMergedContent: 'x'.repeat(500 * 1024 + 1) },
+      { ...dto, expectedMergedContent: 'x'.repeat(2 * 1024 * 1024 + 1) },
       { ...dto, sourceVersionIds: Array.from({ length: 51 }, (_, i) => `source-${i}`) },
     ]) expect(AdoptPersonalVersionsDtoSchema.safeParse(body).success).toBe(false);
   });

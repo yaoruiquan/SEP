@@ -65,6 +65,7 @@ test('installed Next schema accepts and retains the experimental timeout', async
   const config = await loadConfig();
   const parsed = configSchema.parse(config);
   assert.equal(parsed.experimental.proxyTimeout, 180000);
+  assert.equal(parsed.experimental.proxyClientMaxBodySize, '110mb');
 });
 
 test('preserves the default API rewrite', async () => {
@@ -93,7 +94,7 @@ test('preserves all other config and development output isolation', async (t) =>
     await t.test(String(nodeEnv), async () => {
       const config = await loadConfig({ NODE_ENV: nodeEnv });
       const { experimental, rewrites, redirects, ...unchanged } = config;
-      assert.deepEqual(experimental, { proxyTimeout: 180000 });
+      assert.deepEqual(experimental, { proxyTimeout: 180000, proxyClientMaxBodySize: '110mb' });
       assert.equal(typeof rewrites, 'function');
       assert.deepEqual(unchanged, {
         reactStrictMode: true,

@@ -67,20 +67,24 @@ describe('ClientSkillArtifactService', () => {
 
   it.each([
     ['', 'INVALID_ENTRY'],
-    ['---\nname: Bad_Name\ndescription: test\n---\nbody', 'INVALID_ENTRY'],
-    ['---\nname: valid\ndescription: test\ncompatibility: 2\n---\nbody', 'INVALID_ENTRY'],
     ['broken surrogate \ud800', 'INVALID_ENTRY'],
-    ['Read references/checklist.md', 'PACKAGE_REQUIRED'],
-    ['[Checklist](./checklist.md)', 'PACKAGE_REQUIRED'],
-    ['[Checklist](<../checklist.md>)', 'PACKAGE_REQUIRED'],
-    ['[Checklist][check]\n\n[check]: ./checklist.md', 'PACKAGE_REQUIRED'],
-    ['[Checklist][check]\n\n[check]: <./checklist.md>', 'PACKAGE_REQUIRED'],
-    ['x'.repeat(500 * 1024 + 1), 'INVALID_ENTRY'],
+    ['x'.repeat(2 * 1024 * 1024 + 1), 'INVALID_ENTRY'],
   ])('blocks unsafe or incomplete single-file content (case %#)', async (content, reason) => {
     const version = makeVersion({ content });
     expect(await service.describe('sub-1', 'cap-1', version)).toMatchObject({ status: 'BLOCKED', reason });
     versions.resolveEffectiveVersion.mockResolvedValue(version);
     await expect(service.download('user-1', params)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it.each([
+    '---\nname: Bad_Name\ndescription: test\n---\nbody',
+    '---\nname: valid\ndescription: test\ncompatibility: 2\n---\nbody',
+    'Read references/checklist.md', '[Checklist](<../checklist.md>)',
+  ])('distributes compatible entries despite metadata or reference warnings: %s', async (content) => {
+    versions.resolveEffectiveVersion.mockResolvedValue(makeVersion({ content }));
+    const artifact = await service.download('user-1', params);
+    expect(artifact.descriptor.status).toBe('AVAILABLE');
+    expect(SkillArtifactFrontmatterSchema.safeParse(matter(artifact.buffer.toString()).data).success).toBe(true);
   });
 
   it.each([

@@ -106,6 +106,23 @@ test('installs only after verification, strips a single package root, and never 
   assert.equal(result.installed, true);
 });
 
+test('accepts multiple case-insensitive SKILL entries and chooses shallow lexical entry', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'sep-skill-install-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bytes = createStoredZip([
+    { name: 'bundle/deep/SKILL.md', data: '# deep' },
+    { name: 'bundle/README.md', data: 'readme' },
+    { name: 'bundle/skill.MD', data: '# selected' },
+  ]);
+  const result = await installSkillVersion({
+    download: { bytes, filename: 'bundle.zip', versionId: 'v1', sha256: sha256(bytes), entryPath: 'bundle/skill.MD' },
+    tool: 'agents',
+    home: root,
+  });
+  assert.equal(await readFile(join(result.target, 'skill.MD'), 'utf8'), '# selected');
+  assert.equal(await readFile(join(result.target, 'deep', 'SKILL.md'), 'utf8'), '# deep');
+});
+
 test('rejects an existing target and does not overwrite it', async (t) => {
   const { root, bytes } = await fixture();
   t.after(() => rm(root, { recursive: true, force: true }));

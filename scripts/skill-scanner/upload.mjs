@@ -5,7 +5,7 @@ import { inspectSkillDirectory, scanSkills } from './scanner.mjs';
 import { createStoredZip, normalizeArchivePath } from './zip.mjs';
 
 const DEFAULT_API_URL = 'http://localhost:3001/api';
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 export function parseArgs(argv, environment = process.env) {
   const args = {
@@ -40,7 +40,7 @@ export function parseArgs(argv, environment = process.env) {
 export async function uploadSkillPackage({ file, filename: providedFilename, baseUrl, token, fetchImpl = fetch }) {
   if (!token) throw new Error('上传需要 SEP_ACCESS_TOKEN 环境变量');
   const bytes = file instanceof Uint8Array ? file : await readFile(file);
-  if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('技能包超过 20MB 上传限制');
+  if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('技能包超过 100MiB 上传限制');
   const filename = providedFilename || (typeof file === 'string' ? file.split(/[\\/]/).pop() || 'skill.zip' : 'skill.zip');
   const form = new FormData();
   form.append('file', new Blob([bytes], { type: 'application/zip' }), filename);
@@ -57,12 +57,10 @@ export async function createContribution({ baseUrl, token, parsed, name, descrip
   const resolvedName = (name || parsed.suggested?.name || stripExtension(parsed.filename) || '本地 Skill').trim();
   const resolvedDescription = (description || parsed.suggested?.description || '').trim();
   if (resolvedName.length < 1) throw new Error('投稿名称不能为空，请使用 --name 指定');
-  if (resolvedDescription.length < 10) {
-    throw new Error('投稿说明至少需要 10 个字，请使用 --description 指定，或在 SKILL.md frontmatter 中填写 description');
-  }
+  const finalDescription = resolvedDescription || '未提供描述';
   const body = {
     name: resolvedName,
-    description: resolvedDescription,
+    description: finalDescription,
     type: 'skill',
     industry,
     position,
@@ -93,7 +91,7 @@ export async function packageSelectedSkill(path, scanResult) {
     data: await readFile(join(root, relativePath)),
   })));
   const bytes = createStoredZip(entries);
-  if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('技能包超过 20MB 上传限制');
+  if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('技能包超过 100MiB 上传限制');
   const filename = `${safeFilename(scanResult.name)}.zip`;
   return { bytes, filename };
 }

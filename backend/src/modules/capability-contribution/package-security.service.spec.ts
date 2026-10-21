@@ -46,6 +46,17 @@ describe('PackageSecurityService', () => {
       .rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('persists import compatibility warnings for review without internal paths', async () => {
+    validator.validateSkill.mockReturnValue({ valid: true, issues: [], warnings: [] });
+    const warning = { code: 'RESOURCE_REFERENCE', message: '部分引用未匹配', path: 'internal/file.py' };
+    await service.scanSkill({ sha256: 'a'.repeat(64), content: '# Skill', fileCount: 1,
+      warnings: [warning, warning] });
+    expect(prisma.packageSecurityScan.upsert.mock.calls[0][0].create.warnings).toEqual([
+      { code: warning.code, message: warning.message },
+      expect.objectContaining({ code: 'STATIC_ONLY_SCAN' }),
+    ]);
+  });
+
   it('marks a safe Skill package as passed with non-blocking heading warnings', async () => {
     const service = new PackageSecurityService(prisma as never, new CapabilityValidatorService());
     await service.scanSkill({ sha256: 'e'.repeat(64), content: '# 多平台经营协同\n基于用户授权数据分析多平台经营，输出风险及待确认动作。\n姚瑞泉测试', fileCount: 1 });
@@ -59,12 +70,12 @@ describe('PackageSecurityService', () => {
     }));
   });
 
-  it('still marks credential-bearing Skill packages as failed', async () => {
+  it('records credential-bearing Skill packages as passed with warnings', async () => {
     const service = new PackageSecurityService(prisma as never, new CapabilityValidatorService());
     await service.scanSkill({ sha256: 'f'.repeat(64), content: 'api_key = example-secret-value', fileCount: 1 });
     expect(prisma.packageSecurityScan.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({ status: PackageSecurityScanStatus.FAILED,
-        issues: expect.arrayContaining([expect.objectContaining({ code: 'SECRET_API_KEY' })]),
+      create: expect.objectContaining({ status: PackageSecurityScanStatus.PASSED,
+        issues: [], warnings: expect.arrayContaining([expect.objectContaining({ code: 'SECRET_API_KEY' })]),
       }),
     }));
   });

@@ -200,7 +200,7 @@ export async function validatePlatformSource(
 ) {
   let body: string;
   try {
-    body = parseSkillMarkdown(source.content).content;
+    body = source.packageKey || source.packageSha256 ? source.content : parseSkillMarkdown(source.content).content;
   } catch {
     throw new BadRequestException('SKILL.md frontmatter 格式无效');
   }

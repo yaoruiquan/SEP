@@ -64,14 +64,14 @@ describe('client skill artifact v1 schemas', () => {
     { protocolVersion: 2 }, { status: 'UNKNOWN' }, { capabilityId: '' }, { versionId: '' },
     { approvedContentSha256: 'bad' }, { entrySha256: 'A'.repeat(64) }, { artifactSha256: 'a'.repeat(63) },
     { format: 'tar' }, { installationDirectory: '../skill' }, { installationDirectory: 'Bad_Name' },
-    { byteLength: 0 }, { byteLength: -1 }, { byteLength: 1.5 }, { byteLength: 20 * 1024 * 1024 + 1 },
-    { fileCount: 0 }, { fileCount: 1.5 }, { fileCount: 501 },
+    { byteLength: 0 }, { byteLength: -1 }, { byteLength: 1.5 }, { byteLength: 100 * 1024 * 1024 + 1 },
+    { fileCount: 0 }, { fileCount: 1.5 }, { fileCount: 10001 },
   ])('rejects invalid AVAILABLE descriptor fields: %j', (override) => {
     expect(ClientSkillArtifactSchema.safeParse({ ...available, ...override }).success).toBe(false);
   });
 
   it('accepts inclusive ZIP size and entry-count boundaries', () => {
-    expect(ClientSkillArtifactSchema.safeParse({ ...available, byteLength: 20 * 1024 * 1024, fileCount: 500 }).success).toBe(true);
+    expect(ClientSkillArtifactSchema.safeParse({ ...available, byteLength: 100 * 1024 * 1024, fileCount: 10000 }).success).toBe(true);
   });
 
   it('requires all AVAILABLE fields and forbids a blocked reason on AVAILABLE', () => {

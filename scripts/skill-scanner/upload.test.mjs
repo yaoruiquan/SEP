@@ -102,3 +102,18 @@ test('upload requires an access token before making a request', async () => {
     /SEP_ACCESS_TOKEN/,
   );
 });
+
+test('creates a draft with fallback description when metadata is missing or short', async () => {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ id: 'draft-1' }));
+  });
+  const baseUrl = await listen(server);
+  try {
+    await createContribution({ baseUrl, token: 'token', parsed: { sha256: 'a'.repeat(64), filename: 'skill.zip', suggested: {} } });
+    assert.equal(requests[0].description, '未提供描述');
+  } finally { server.close(); }
+});

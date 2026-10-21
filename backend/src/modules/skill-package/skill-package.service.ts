@@ -7,15 +7,15 @@ import { TextDecoder } from 'util';
 import { inflateRawSync } from 'zlib';
 import AdmZip from 'adm-zip';
 import { isSafeSkillPathComponent, SkillArtifactFrontmatterSchema } from 'shared';
-import { parseSkillMarkdown, SKILL_CONTENT_MAX_BYTES, skillLocalResourceReferences } from '../../shared/skill-content';
+import { parseSkillMarkdown, prepareSkillMarkdown, SKILL_CONTENT_MAX_BYTES, skillLocalResourceReferences } from '../../shared/skill-content';
+import { SKILL_PACKAGE_MAX_BYTES, SKILL_PACKAGE_MAX_ENTRIES, SKILL_PACKAGE_MAX_UNCOMPRESSED_BYTES } from '../../shared/skill-content-schema';
 import { StorageService } from '../upload/storage/storage.service';
 
-/** zip 自身字节上限。包里只装 SKILL.md 与少量附件，20MB 足够且能挡住误传大文件。 */
-export const SKILL_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
+export { SKILL_PACKAGE_MAX_BYTES } from '../../shared/skill-content-schema';
 /** 解压后总字节上限 —— 压缩比炸弹（几 KB 解出几 GB）只能靠这条拦。 */
-const MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_UNCOMPRESSED_BYTES = SKILL_PACKAGE_MAX_UNCOMPRESSED_BYTES;
 /** 条目数上限，防止上万个空条目把解析拖死。 */
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = SKILL_PACKAGE_MAX_ENTRIES;
 /** SKILL.md 正文上限 */
 const MAX_SKILL_MARKDOWN_BYTES = SKILL_CONTENT_MAX_BYTES;
 /** 包里必须存在的入口文件；按 basename 精确匹配，不能用 endsWith（会误收 NOTSKILL.md）。 */
@@ -24,6 +24,7 @@ const SKILL_ENTRY_NAME = 'SKILL.md';
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
 
 type AdmZipEntryWithRawName = { rawEntryName?: Buffer };
+export interface SkillPackageWarning { code: string; message: string; path?: string }
 
 /** 按 sha256 重新解包得到的内容 —— 全部字段都从 zip 本身推导，不含客户端输入。 */
 export interface SkillPackageContent {
@@ -37,6 +38,7 @@ export interface SkillPackageContent {
   content: string;
   /** frontmatter 里可用于预填能力信息的字段 */
   suggested: { name: string | null; description: string | null };
+  warnings: SkillPackageWarning[];
 }
 
 export interface StoredSkillPackage extends SkillPackageContent {
@@ -54,6 +56,7 @@ export interface InstallableSkillPackage {
   /** ZIP 自身字节数，与 store/read 的语义一致。 */
   totalBytes: number;
   fileCount: number;
+  warnings: SkillPackageWarning[];
 }
 
 /**
@@ -84,9 +87,6 @@ export class SkillPackageService {
   /** 解析并落盘。已存在同 sha256 的包时跳过写入。 */
   async store(file: Express.Multer.File): Promise<StoredSkillPackage> {
     if (!file?.buffer?.length) throw new BadRequestException('未上传文件');
-    if (!/\.zip$/i.test(file.originalname)) {
-      throw new BadRequestException('只支持 .zip 文件');
-    }
     if (file.buffer.length > SKILL_PACKAGE_MAX_BYTES) {
       throw new BadRequestException(
         `包不能超过 ${Math.floor(SKILL_PACKAGE_MAX_BYTES / 1024 / 1024)}MB`,
@@ -150,13 +150,27 @@ export class SkillPackageService {
       }
       throw error;
     }
-    return this.validatePackage(buffer, sha256);
+    const pkg = this.validatePackage(buffer, sha256);
+    const zip = new AdmZip(buffer);
+    const original = zip.getEntry(pkg.entryPath)!.getData();
+    const prepared = prepareSkillMarkdown(original.toString('utf8'), pkg.skillName);
+    if (prepared.status !== 'AVAILABLE') throw new BadRequestException('技能正文不能为空');
+    const entryPath = posix.join(posix.dirname(pkg.entryPath), SKILL_ENTRY_NAME);
+    if (prepared.content === original.toString('utf8') && entryPath === pkg.entryPath) return pkg;
+    const entryTime = zip.getEntry(pkg.entryPath)!.header.time;
+    zip.deleteFile(pkg.entryPath);
+    const entryBytes = Buffer.from(prepared.content, 'utf8');
+    zip.addFile(entryPath, entryBytes).header.time = entryTime;
+    const normalized = zip.toBuffer();
+    return { ...pkg, buffer: normalized, sha256: crypto.createHash('sha256').update(normalized).digest('hex'),
+      skillName: prepared.skillName, entryPath, totalBytes: normalized.length,
+      entrySha256: crypto.createHash('sha256').update(entryBytes).digest('hex') };
   }
 
   private validatePackage(buffer: Buffer, sha256: string): InstallableSkillPackage {
     try {
       if (buffer.length > SKILL_PACKAGE_MAX_BYTES) {
-        throw new BadRequestException('包不能超过 20MB');
+        throw new BadRequestException('包不能超过 100MiB');
       }
       this.assertZipMagic(buffer);
       if (crypto.createHash('sha256').update(buffer).digest('hex') !== sha256) {
@@ -178,15 +192,16 @@ export class SkillPackageService {
         throw new BadRequestException('包内不能包含符号链接');
       }
       const files = entries.filter((entry) => !entry.isDirectory);
+      const warnings: SkillPackageWarning[] = [];
       const skillEntries = files.filter(
-        (entry) => posix.basename(entry.entryName) === SKILL_ENTRY_NAME,
-      );
-      if (skillEntries.length !== 1) {
-        throw new BadRequestException('包内必须恰好包含一个 SKILL.md');
-      }
+        (entry) => posix.basename(entry.entryName).toLowerCase() === SKILL_ENTRY_NAME.toLowerCase(),
+      ).sort((a, b) => a.entryName.split('/').length - b.entryName.split('/').length ||
+        (a.entryName < b.entryName ? -1 : a.entryName > b.entryName ? 1 : 0));
+      if (!skillEntries.length) throw new BadRequestException('包内未找到 SKILL.md 入口');
+      if (skillEntries.length > 1) warnings.push({ code: 'MULTIPLE_ENTRIES', message: '检测到多个技能入口，已优先使用根目录或层级最浅的入口。' });
       const skillEntry = skillEntries[0];
       if (skillEntry.header.size > MAX_SKILL_MARKDOWN_BYTES) {
-        throw new BadRequestException('SKILL.md 不能超过 500KB');
+        throw new BadRequestException('SKILL.md 不能超过 2MiB');
       }
       let entryBytes: Buffer | undefined;
       let uncompressed = 0;
@@ -198,24 +213,22 @@ export class SkillPackageService {
         }
         uncompressed += bytes.length;
         if (uncompressed > MAX_UNCOMPRESSED_BYTES) {
-          throw new BadRequestException('解压后体积超过 64MB，请精简包内容');
+          throw new BadRequestException('解压后体积超过 500MiB');
         }
         if (entry === skillEntry) entryBytes = bytes;
       }
       const raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entryBytes!);
       const parsed = parseSkillMarkdown(raw);
-      if (!parsed.hasFrontmatter) {
-        throw new BadRequestException('SKILL.md 必须以 YAML frontmatter 开始');
-      }
       const frontmatter = SkillArtifactFrontmatterSchema.safeParse(parsed.data);
-      if (!frontmatter.success || !parsed.content.trim()) {
-        throw new BadRequestException('SKILL.md frontmatter 非法');
-      }
-      const { name } = frontmatter.data;
+      if (!parsed.content.trim()) throw new BadRequestException('技能正文不能为空');
+      const prepared = prepareSkillMarkdown(raw, `skill-${sha256.slice(0, 12)}`);
+      if (prepared.status !== 'AVAILABLE') throw new BadRequestException('技能正文无法读取');
+      const name = prepared.skillName;
+      if (!parsed.hasFrontmatter || !frontmatter.success) warnings.push({ code: 'METADATA_NORMALIZED', message: '元数据缺失或格式不规范，安装时会自动补齐兼容信息。' });
       const entryPath = skillEntry.entryName;
       const directory = posix.dirname(entryPath);
       if (directory !== '.' && posix.basename(directory).normalize('NFKC') !== name.normalize('NFKC')) {
-        throw new BadRequestException('SKILL.md name 必须与所在目录名一致');
+        warnings.push({ code: 'DIRECTORY_NAME_MISMATCH', message: '技能名称与包目录名称不同，已兼容处理。' });
       }
       const paths = new Set(files.map((entry) => entry.entryName.normalize('NFKC')));
       for (const reference of skillLocalResourceReferences(parsed.content)) {
@@ -224,7 +237,7 @@ export class SkillPackageService {
         const target = posix.normalize(posix.join(directory, resource)).normalize('NFKC');
         if (resource.startsWith('/') || /[\\\x00-\x1f\x7f:]/.test(resource) ||
           target === '..' || target.startsWith('../') || !paths.has(target)) {
-          throw new BadRequestException('SKILL.md 引用的本地资源缺失或路径非法');
+          if (!warnings.some((warning) => warning.code === 'RESOURCE_REFERENCE')) warnings.push({ code: 'RESOURCE_REFERENCE', message: '说明中部分资源引用未匹配到包内文件，请按实际使用情况确认。' });
         }
       }
       return {
@@ -236,6 +249,7 @@ export class SkillPackageService {
         entrySha256: crypto.createHash('sha256').update(entryBytes!).digest('hex'),
         totalBytes: buffer.length,
         fileCount: files.length,
+        warnings,
       };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
@@ -249,7 +263,8 @@ export class SkillPackageService {
     const parsed = parseSkillMarkdown(raw);
     return { key: this.keyFor(pkg.sha256), sha256: pkg.sha256, fileCount: pkg.fileCount,
       totalBytes: pkg.totalBytes, content: pkg.content,
-      suggested: { name: pkg.skillName, description: this.readFrontmatterString(parsed.data, 'description', 2000) } };
+      suggested: { name: this.readFrontmatterString(parsed.data, 'name', 100) ?? pkg.skillName, description: this.readFrontmatterString(parsed.data, 'description', 2000) },
+      warnings: pkg.warnings };
   }
 
   /** 读取已存储的原始 ZIP；OSS 与本地磁盘共用此下载入口。 */

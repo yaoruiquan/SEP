@@ -4,9 +4,9 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { homedir, platform as osPlatform } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
-export const SCANNER_VERSION = '0.2.0';
-export const MAX_FILES = 2000;
-export const MAX_BYTES = 20 * 1024 * 1024;
+export const SCANNER_VERSION = '0.3.0';
+export const MAX_FILES = 10000;
+export const MAX_BYTES = 500 * 1024 * 1024;
 const SKILL_FILE = 'SKILL.md';
 
 /**
@@ -91,7 +91,7 @@ async function scanRoot(rootInfo, options) {
   if (!(await isDirectory(root)) || !(await isSafeDirectory(root, root))) return [];
   const output = [];
   // 兼容 skills 根目录本身就是一个 Skill 的导入方式。
-  const rootSkill = join(root, SKILL_FILE);
+  const rootSkill = await findSkillFile(root);
   if (await isRegularFile(rootSkill) && await isSafePath(rootSkill, root)) {
     try { output.push(await inspectSkill(root, rootSkill, rootInfo, options)); } catch (error) { if (options.includeErrors) output.push(errorItem(root, rootInfo, error)); }
   }
@@ -100,8 +100,8 @@ async function scanRoot(rootInfo, options) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     const skillDir = join(root, entry.name);
     if (!(await isSafeDirectory(skillDir, root))) continue;
-    const skillFile = join(skillDir, SKILL_FILE);
-    if (!(await isRegularFile(skillFile)) || !(await isSafePath(skillFile, root))) continue;
+    const skillFile = await findSkillFile(skillDir);
+    if (!skillFile || !(await isSafePath(skillFile, root))) continue;
     try { output.push(await inspectSkill(skillDir, skillFile, rootInfo, options)); } catch (error) { if (options.includeErrors) output.push(errorItem(skillDir, rootInfo, error)); }
   }
   return output;
@@ -113,8 +113,8 @@ function errorItem(path, rootInfo, error) {
 
 export async function inspectSkillDirectory(skillDir, metadata = {}) {
   const directory = resolve(skillDir);
-  const skillFile = join(directory, SKILL_FILE);
-  if (!(await isDirectory(directory)) || !(await isRegularFile(skillFile)) || !(await isSafePath(skillFile, directory))) {
+  const skillFile = await findSkillFile(directory);
+  if (!(await isDirectory(directory)) || !skillFile || !(await isSafePath(skillFile, directory))) {
     throw new Error(`不是有效的 Skill 目录：${skillDir}`);
   }
   return inspectSkill(directory, skillFile, { source: metadata.source ?? inferTool(directory), scope: metadata.scope ?? 'user' }, metadata);
@@ -226,6 +226,14 @@ async function isSafePath(path, root) { try { const [real, base] = await Promise
 async function isDirectory(path) { try { return (await lstat(path)).isDirectory(); } catch { return false; } }
 async function isRegularFile(path) { try { return (await lstat(path)).isFile(); } catch { return false; } }
 function basenameFallback(path) { return path.split(/[\\/]/).filter(Boolean).pop() || 'skill'; }
+async function findSkillFile(directory) {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const candidates = entries.filter((entry) => entry.isFile() && entry.name.toLowerCase() === SKILL_FILE.toLowerCase()).map((entry) => join(directory, entry.name));
+    candidates.sort((a, b) => a.localeCompare(b));
+    return candidates[0] || null;
+  } catch { return null; }
+}
 function inferTool(root) { const normalized = root.replaceAll('\\', '/'); if (normalized.includes('/.claude/')) return 'claude-code'; if (normalized.includes('/.codex/')) return 'codex'; if (normalized.includes('/.gemini/')) return 'gemini-cli'; if (normalized.includes('/.opencode/')) return 'opencode'; return 'agents'; }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

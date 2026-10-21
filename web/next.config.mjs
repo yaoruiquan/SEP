@@ -13,6 +13,8 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     proxyTimeout,
+    // Include multipart overhead above the 100MiB Skill ZIP allowance.
+    proxyClientMaxBodySize: '110mb',
   },
   // Keep development output separate from production builds so browser chunks
   // stay valid while a dev server is running.

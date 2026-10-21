@@ -9,7 +9,7 @@ const endpoint = '/api/gateway/v1/chat/completions';
 
 @Controller()
 class BodyTestController {
-  @Post(['gateway/v1/chat/completions', 'ordinary'])
+  @Post(['gateway/v1/chat/completions', 'ordinary', 'capabilities', 'contributions'])
   parse(@Body() body: Record<string, unknown>) {
     return { bytes: Buffer.byteLength(JSON.stringify(body), 'utf8') };
   }
@@ -82,5 +82,13 @@ describe('JSON request body policies', () => {
     const response = await request(app.getHttpServer()).post(endpoint)
       .set('Content-Type', 'application/json').send('{').expect(400);
     expect(response.body.error.code).not.toBe('REQUEST_BODY_TOO_LARGE');
+  });
+
+  it('accepts a full skill body with JSON escaping without raising unrelated REST limits', async () => {
+    await start();
+    const body = { content: '\t'.repeat(2 * 1024 * 1024) };
+    await request(app.getHttpServer()).post('/api/capabilities').send(body).expect(201);
+    await request(app.getHttpServer()).post('/api/contributions').send(body).expect(201);
+    await request(app.getHttpServer()).post('/api/ordinary').send(body).expect(413);
   });
 });

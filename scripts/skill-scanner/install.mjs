@@ -17,9 +17,9 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_API_URL = 'http://localhost:3001/api';
-const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
-const MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
-const MAX_ENTRIES = 500;
+const MAX_PACKAGE_BYTES = 100 * 1024 * 1024;
+const MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+const MAX_ENTRIES = 10000;
 const ZIP_EOCD = 0x06054b50;
 const ZIP_CENTRAL = 0x02014b50;
 const ZIP_LOCAL = 0x04034b50;
@@ -80,7 +80,7 @@ export async function downloadSkillVersion({
     throw new Error('下载响应缺少合法的 X-SHA256，已拒绝安装');
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('下载的 Skill 包超过 20MB 限制');
+  if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('下载的 Skill 包超过 100MiB 限制');
   const actualSha256 = createHash('sha256').update(bytes).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error(`SHA-256 校验失败：服务端 ${expectedSha256}，本地 ${actualSha256}`);
@@ -92,6 +92,7 @@ export async function downloadSkillVersion({
     sha256: actualSha256,
     versionId,
     version: response.headers.get('x-version') || null,
+    entryPath: decodeEntryPath(response.headers.get('x-skill-entry-path')),
   };
 }
 
@@ -132,14 +133,15 @@ export async function installSkillVersion({
   const entries = parseZip(download.bytes);
   const files = entries.filter((entry) => !entry.directory);
   if (files.length === 0) throw new Error('Skill 包没有可安装的文件');
-  const skillEntries = files.filter((entry) => basename(entry.name) === 'SKILL.md');
-  if (skillEntries.length !== 1) throw new Error('Skill 包必须且只能包含一个 SKILL.md');
-  const prefix = dirname(skillEntries[0].name);
+  const advertisedEntry = download.entryPath || null;
+  const selected = selectSkillEntry(files, advertisedEntry);
+  if (!selected) throw new Error('Skill 包缺少 SKILL.md 入口');
+  const prefix = dirname(selected.name);
   const normalizedFiles = files.map((entry) => ({
     ...entry,
-    name: stripPackageRoot(entry.name, prefix),
+    name: stripSelectedRoot(entry.name, prefix),
   }));
-  if (!normalizedFiles.some((entry) => entry.name === 'SKILL.md')) {
+  if (!normalizedFiles.some((entry) => entry.name.toLowerCase() === 'skill.md')) {
     throw new Error('Skill 包的 SKILL.md 必须位于安装根目录');
   }
 
@@ -229,7 +231,7 @@ function parseZip(bytes) {
     if (flags & 0x1) throw new Error(`ZIP 条目已加密：${safeName}`);
     if (method !== 0 && method !== 8 && !directory) throw new Error(`不支持的 ZIP 压缩方式：${safeName}`);
     if (uncompressedSize > MAX_UNCOMPRESSED_BYTES || totalUncompressed + uncompressedSize > MAX_UNCOMPRESSED_BYTES) {
-      throw new Error('ZIP 解压后体积超过 64MB 限制');
+      throw new Error('ZIP 解压后体积超过 500MiB 限制');
     }
     entries.push({ name: safeName, directory, method, compressedSize, uncompressedSize, localOffset });
     totalUncompressed += uncompressedSize;
@@ -260,14 +262,29 @@ function parseZip(bytes) {
   });
 }
 
-function stripPackageRoot(name, prefix) {
+function stripSelectedRoot(name, prefix) {
   const value = prefix ? `${prefix}/` : '';
-  if (value && name !== prefix && !name.startsWith(value)) {
-    throw new Error('ZIP 包内文件必须位于同一个 Skill 根目录下');
-  }
-  const stripped = value ? name.slice(value.length) : name;
+  const stripped = value && name.startsWith(value) ? name.slice(value.length) : name;
   if (!stripped || stripped.endsWith('/')) throw new Error(`ZIP 条目路径非法：${name}`);
   return normalizeZipPath(stripped);
+}
+
+function selectSkillEntry(files, advertisedEntry) {
+  const candidates = files.filter((entry) => basename(entry.name).toLowerCase() === 'skill.md');
+  if (!candidates.length) return null;
+  if (advertisedEntry) {
+    const exact = candidates.find((entry) => entry.name === advertisedEntry);
+    if (exact) return exact;
+  }
+  return candidates.sort((a, b) => {
+    const depth = (value) => value.split('/').length;
+    return depth(a.name) - depth(b.name) || a.name.localeCompare(b.name);
+  })[0];
+}
+
+function decodeEntryPath(value) {
+  if (!value) return null;
+  try { return decodeURIComponent(value); } catch { return value; }
 }
 
 function normalizeZipPath(value) {

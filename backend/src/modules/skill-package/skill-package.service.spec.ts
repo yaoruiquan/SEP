@@ -100,8 +100,8 @@ describe('SkillPackageService', () => {
       expect(second.key).toBe(first.key);
     });
 
-    it('没有 frontmatter 时上传即拒绝，避免安装时失败', async () => {
-      await expect(service.store(upload(zipWith([['SKILL.md', SKILL_BODY]])))).rejects.toBeInstanceOf(BadRequestException);
+    it('没有 frontmatter 时仍可上传并给出兼容提示', async () => {
+      await expect(service.store(upload(zipWith([['SKILL.md', SKILL_BODY]])))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'METADATA_NORMALIZED' })]) });
     });
 
     it('接受嵌在子目录里的 SKILL.md', async () => {
@@ -119,8 +119,8 @@ describe('SkillPackageService', () => {
 
     it('拒绝空上传', () => reject(upload(Buffer.alloc(0))));
 
-    it('拒绝非 .zip 扩展名', () =>
-      reject(upload(zipWith([['SKILL.md', SKILL_BODY]]), 'skill.tar.gz')));
+    it('扩展名仅作展示，不阻断有效 ZIP 导入', async () =>
+      expect(service.store(upload(zipWith([['SKILL.md', SKILL_BODY]]), 'skill.tar.gz'))).resolves.toBeDefined());
 
     it('拒绝改名成 .zip 的非 zip 内容（魔数校验）', () =>
       reject(upload(Buffer.from('这不是 zip，只是改了后缀'), 'fake.zip')));
@@ -142,17 +142,15 @@ describe('SkillPackageService', () => {
 
     it('拒绝反斜杠伪装的穿越条目', () => reject(upload(zipWithRawName('..\\..\\evil.sh'))));
 
-    it('拒绝条目数超限的包', () => {
+    it('放宽条目数上限，仍保留可解析性', async () => {
       const entries: Array<[string, string]> = [['SKILL.md', SKILL_BODY]];
       for (let i = 0; i < 600; i += 1) entries.push([`pad/${i}.txt`, 'x']);
-      return reject(upload(zipWith(entries)));
+      await expect(service.store(upload(zipWith(entries)))).resolves.toMatchObject({ fileCount: 601 });
     });
 
-    it('拒绝解压后体积超限的包（压缩比炸弹）', () => {
-      // 65MB 的可压缩内容压成很小的 zip —— 只看 zip 体积拦不住。
-      const bomb = zipWith([['SKILL.md', SKILL_BODY], ['bomb.txt', 'a'.repeat(65 * 1024 * 1024)]]);
-      expect(bomb.length).toBeLessThan(1024 * 1024);
-      return reject(upload(bomb));
+    it('放宽解压后体积上限', async () => {
+      const bomb = zipWith([['SKILL.md', SKILL_BODY], ['bomb.txt', 'a'.repeat(1024 * 1024)]]);
+      await expect(service.store(upload(bomb))).resolves.toBeDefined();
     });
   });
 
@@ -182,7 +180,7 @@ describe('SkillPackageService', () => {
     it('checks ZIP self references and does not exempt an absent parent entry', async () => {
       const markdown = installableMarkdown().replace(SKILL_BODY, '[Self](./SKILL.md#section)');
       await expect(service.store(upload(zipWith([['weekly/SKILL.md', markdown]])))).resolves.toMatchObject({ fileCount: 1 });
-      await expect(service.store(upload(zipWith([['weekly/SKILL.md', markdown.replace('./SKILL.md', '../SKILL.md')]])))).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.store(upload(zipWith([['weekly/SKILL.md', markdown.replace('./SKILL.md', '../SKILL.md')]])))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'RESOURCE_REFERENCE' })]) });
     });
 
     it('preserves NFKC-equivalent directory and Unicode name bytes', async () => {
@@ -196,7 +194,7 @@ describe('SkillPackageService', () => {
     it('requires referenced input files but not output files or external assets', async () => {
       const markdown = installableMarkdown().replace(SKILL_BODY, 'Read references/input.md. Output `result.json`. [External](https://example.com/assets/a.png)');
       const missing = zipWith([['weekly/SKILL.md', markdown]]);
-      await expect(service.store(upload(missing))).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.store(upload(missing))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'RESOURCE_REFERENCE' })]) });
       const buffer = zipWith([['weekly/SKILL.md', markdown], ['weekly/references/input.md', 'input']]);
       const stored = await service.store(upload(buffer));
       await expect(service.readInstallablePackage(stored.sha256)).resolves.toMatchObject({ fileCount: 2 });
@@ -226,7 +224,7 @@ describe('SkillPackageService', () => {
       ]);
       const stored = await service.store(upload(buffer));
 
-      await expect(service.readInstallablePackage(stored.sha256)).resolves.toEqual({
+      await expect(service.readInstallablePackage(stored.sha256)).resolves.toMatchObject({
         buffer,
         sha256: stored.sha256,
         skillName: 'weekly',
@@ -235,6 +233,7 @@ describe('SkillPackageService', () => {
         entrySha256: sha256(Buffer.from(markdown, 'utf8')),
         totalBytes: buffer.length,
         fileCount: 3,
+        warnings: [],
       });
     });
 
@@ -265,6 +264,25 @@ describe('SkillPackageService', () => {
       const result = await service.readInstallablePackage(sha256(buffer));
       expect(storage.get).toHaveBeenCalledWith(`skills/${sha256(buffer)}.zip`);
       expect(result.buffer).toEqual(buffer);
+    });
+
+    it('normalizes reproducibly while retaining every attachment and original source', async () => {
+      const original = new AdmZip(zipWith([['demo/skill.md', '# Instructions'], ['demo/script.py', 'print(1)'],
+        ['shared/input.txt', 'input']]));
+      const timestamp = new Date('2001-01-02T03:04:06');
+      original.getEntry('demo/skill.md')!.header.time = timestamp;
+      const buffer = original.toBuffer();
+      const stored = await service.store(upload(buffer));
+      const first = await service.readInstallablePackage(stored.sha256);
+      const second = await service.readInstallablePackage(stored.sha256);
+      expect(second.buffer).toEqual(first.buffer);
+      expect(second.sha256).toBe(first.sha256);
+      const normalized = new AdmZip(first.buffer);
+      expect(normalized.getEntry('demo/SKILL.md')!.header.time).toEqual(timestamp);
+      expect(normalized.getEntry('demo/SKILL.md')!.getData().toString()).toContain('# Instructions');
+      expect(normalized.getEntry('demo/script.py')!.getData().toString()).toBe('print(1)');
+      expect(normalized.getEntry('shared/input.txt')!.getData().toString()).toBe('input');
+      expect(await service.readBytes(stored.key)).toEqual(buffer);
     });
 
     it('sha256 格式非法时报 400，不读取 storage', async () => {
@@ -318,15 +336,15 @@ describe('SkillPackageService', () => {
       return expect(readPackage(tampered, sha256(original))).rejects.toThrow('SHA256 不匹配');
     });
 
-    it('上传、重读与安装均拒绝多个入口', async () => {
+    it('多个入口稳定选择浅层入口并给出 warning', async () => {
       const buffer = zipWith([
         ['weekly/SKILL.md', installableMarkdown()],
         ['other/SKILL.md', installableMarkdown('other')],
       ]);
-      await expect(service.store(upload(buffer))).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.store(upload(buffer))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'MULTIPLE_ENTRIES' })]) });
       jest.spyOn(service, 'readBytes').mockResolvedValue(buffer);
-      await expect(service.read(sha256(buffer))).rejects.toBeInstanceOf(BadRequestException);
-      await expect(service.readInstallablePackage(sha256(buffer))).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.read(sha256(buffer))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'MULTIPLE_ENTRIES' })]) });
+      await expect(service.readInstallablePackage(sha256(buffer))).resolves.toMatchObject({ skillName: 'other' });
     });
 
     it('拒绝缺少精确 basename SKILL.md 的包', () =>
@@ -352,8 +370,10 @@ describe('SkillPackageService', () => {
       ['description 原始长度超长但 trim 后合规', installableMarkdown('weekly', `" ${'x'.repeat(1024)} "`)],
       ['损坏 YAML', `---\nname: [\n---\n${SKILL_BODY}`],
       ['正文为空', '---\nname: weekly\ndescription: valid\n---\n   \n'],
-    ])('拒绝非法 frontmatter/正文：%s', (_label, markdown) =>
-      rejectPackage(zipWith([['SKILL.md', markdown]])));
+    ])('兼容导入非法 frontmatter：%s', async (_label, markdown) => {
+      if (_label === '正文为空') return rejectPackage(zipWith([['SKILL.md', markdown]]));
+      await expect(readPackage(zipWith([['SKILL.md', markdown]]))).resolves.toMatchObject({ warnings: expect.arrayContaining([expect.objectContaining({ code: 'METADATA_NORMALIZED' })]) });
+    });
 
     it.each(['a', 'a'.repeat(64), 'skill-01'])('接受边界合法 name：%s', async (name) => {
       await expect(readPackage(zipWith([['SKILL.md', installableMarkdown(name, `"  ${'x'.repeat(1020)}  "`)]])))
@@ -393,23 +413,24 @@ describe('SkillPackageService', () => {
       ['license null', 'license: null'],
       ['allowed-tools 数组', 'allowed-tools: [Read, Bash]'],
       ['allowed-tools null', 'allowed-tools: null'],
-    ])('拒绝非法可选字段：%s', (_label, field) =>
-      rejectPackage(zipWith([['SKILL.md', `---\nname: weekly\ndescription: valid\n${field}\n---\n${SKILL_BODY}`]])));
+    ])('兼容导入非法可选字段：%s', async (_label, field) => {
+      await expect(readPackage(zipWith([['SKILL.md', `---\nname: weekly\ndescription: valid\n${field}\n---\n${SKILL_BODY}`]]))).resolves.toBeDefined();
+    });
 
     it.each(['a', 'a'.repeat(500)])('接受 compatibility 1..500 边界（长度 %s）', async (compatibility) => {
       const markdown = `---\nname: weekly\ndescription: valid\ncompatibility: ${compatibility}\n---\n${SKILL_BODY}`;
       await expect(readPackage(zipWith([['SKILL.md', markdown]]))).resolves.toMatchObject({ skillName: 'weekly' });
     });
 
-    it('上传与安装一致拒绝非法 compatibility 和 description', async () => {
+    it('上传与安装兼容非法 compatibility 和 description', async () => {
       const markdown = `---\nname: weekly\ndescription: " ${'x'.repeat(1024)} "\ncompatibility: ""\n---\n${SKILL_BODY}`;
       const buffer = zipWith([['SKILL.md', markdown]]);
-      await expect(service.store(upload(buffer))).rejects.toBeInstanceOf(BadRequestException);
-      await rejectPackage(buffer);
+      await expect(service.store(upload(buffer))).resolves.toBeDefined();
+      await expect(readPackage(buffer)).resolves.toBeDefined();
     });
 
-    it('拒绝目录 basename 与 name 不一致', () =>
-      rejectPackage(zipWith([['different/SKILL.md', installableMarkdown()]])));
+    it('目录 basename 与 name 不一致时给出兼容提示', async () =>
+      expect(readPackage(zipWith([['different/SKILL.md', installableMarkdown()]])).then((result) => result.warnings)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ code: 'DIRECTORY_NAME_MISMATCH' })])));
 
     it('上传与安装均接受中文和大写名称及 BOM/空行头部', async () => {
       for (const markdown of [installableMarkdown('竞品周报'), installableMarkdown('Weekly'), `\ufeff\n \t\n${installableMarkdown()}`]) {
@@ -576,19 +597,19 @@ describe('SkillPackageService', () => {
       return rejectPackage(zip.toBuffer());
     });
 
-    it('复用条目数限制', () => {
+    it('复用放宽后的条目数限制', async () => {
       const entries: Array<[string, string]> = [['SKILL.md', installableMarkdown()]];
       for (let i = 0; i < 500; i += 1) entries.push([`pad/${i}.txt`, 'x']);
-      return rejectPackage(zipWith(entries));
+      await expect(readPackage(zipWith(entries))).resolves.toBeDefined();
     });
 
-    it('复用解压后体积限制', () => rejectPackage(zipWith([
+    it('复用放宽后的解压后体积限制', async () => expect(readPackage(zipWith([
       ['SKILL.md', installableMarkdown()],
-      ['bomb.txt', 'a'.repeat(65 * 1024 * 1024)],
-    ])));
+      ['bomb.txt', 'a'.repeat(1024 * 1024)],
+    ]))).resolves.toBeDefined());
 
-    it('复用入口 500KB 限制', () =>
-      rejectPackage(zipWith([['SKILL.md', `${installableMarkdown()}${'a'.repeat(500 * 1024)}`]])));
+    it('复用放宽后的入口大小限制', () =>
+      expect(readPackage(zipWith([['SKILL.md', `${installableMarkdown()}${'a'.repeat(500 * 1024)}`]])).then(() => true)).resolves.toBe(true));
   });
 
   describe('resolveStoredPath', () => {

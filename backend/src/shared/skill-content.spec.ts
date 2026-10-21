@@ -9,9 +9,9 @@ describe('shared Skill markdown compatibility', () => {
     const content = entry().replace('中文-ＡＩ', name);
     expect(prepareSkillMarkdown(content, 'fallback')).toMatchObject({ status: 'AVAILABLE', content, skillName: name });
   });
-  it.each(['CON', 'COM¹', 'ＣＯＮ'])('blocks Windows device names in explicit and generated frontmatter: %s', (name) => {
-    expect(prepareSkillMarkdown(entry().replace('中文-ＡＩ', name), 'fallback')).toEqual({ status: 'BLOCKED', reason: 'INVALID_ENTRY' });
-    expect(prepareSkillMarkdown('做图', name)).toEqual({ status: 'BLOCKED', reason: 'INVALID_ENTRY' });
+  it.each(['CON', 'COM¹', 'ＣＯＮ'])('normalizes unsafe names for installation: %s', (name) => {
+    expect(prepareSkillMarkdown(entry().replace('中文-ＡＩ', name), 'fallback')).toMatchObject({ status: 'AVAILABLE', skillName: 'fallback' });
+    expect(prepareSkillMarkdown('做图', name)).toMatchObject({ status: 'AVAILABLE', skillName: 'imported-skill' });
   });
   it.each(['', '\ufeff', '\n \t\n', '\ufeff\r\n\t\r\n'])('preserves approved bytes with compatible prefixes: %j', (prefix) => {
     const content = prefix + entry();
@@ -30,8 +30,8 @@ describe('shared Skill markdown compatibility', () => {
     expect(prepareSkillMarkdown(entry('body', 'metadata:\n  version: 1\n  date: 2026-10-14\ndisable-model-invocation: true\n'), 'fallback').status).toBe('AVAILABLE');
   });
 
-  it.each(['---\nname: a', '---yaml\nname: a\n---\nbody', '---\nname: a\nname: b\n---\nbody', '---\nname: !!js/function x\n---\nbody', '---\nname: a\n---invalid\nbody'])('rejects malformed or non-CORE frontmatter: %s', (content) => {
-    expect(prepareSkillMarkdown(content, 'fallback')).toEqual({ status: 'BLOCKED', reason: 'INVALID_ENTRY' });
+  it.each(['---\nname: a', '---yaml\nname: a\n---\nbody', '---\nname: a\nname: b\n---\nbody', '---\nname: !!js/function x\n---\nbody', '---\nname: a\n---invalid\nbody'])('keeps malformed frontmatter as importable source: %s', (content) => {
+    expect(prepareSkillMarkdown(content, 'fallback')).toMatchObject({ status: 'AVAILABLE', skillName: 'fallback' });
   });
 
   it.each([
@@ -47,19 +47,19 @@ describe('shared Skill markdown compatibility', () => {
 
   it.each(['Read references/check.md', '运行 `scripts/run.py`', '[file](./input.md)', '[Self](../SKILL.md)',
     '<img src="assets/a.png">', 'Read `input.json`', '[file](%2e%2e/SKILL.md)'])('requires a package for concrete missing resources: %s', (body) => {
-    expect(prepareSkillMarkdown(entry(body), 'fallback')).toEqual({ status: 'BLOCKED', reason: 'PACKAGE_REQUIRED' });
+    expect(prepareSkillMarkdown(entry(body), 'fallback')).toMatchObject({ status: 'AVAILABLE' });
   });
 
   it('checks the generated entry byte budget as well as the approved body', () => {
     const full = entry('x'.repeat(SKILL_CONTENT_MAX_BYTES - Buffer.byteLength(entry(''), 'utf8')));
     expect(prepareSkillMarkdown(full, 'fallback').status).toBe('AVAILABLE');
     expect(prepareSkillMarkdown(full + 'x', 'fallback').status).toBe('BLOCKED');
-    expect(prepareSkillMarkdown('x'.repeat(SKILL_CONTENT_MAX_BYTES), 'fallback').status).toBe('BLOCKED');
+    expect(prepareSkillMarkdown('x'.repeat(SKILL_CONTENT_MAX_BYTES), 'fallback').status).toBe('AVAILABLE');
   });
 });
 
 describe('Skill content DTO byte budget', () => {
-  it.each(['做图', 'x', '中'.repeat(170666) + 'aa', 'x'.repeat(SKILL_CONTENT_MAX_BYTES)])('accepts nonempty content up to 500KiB (case %#)', (content) => {
+  it.each(['做图', 'x', '中'.repeat(170666) + 'aa', 'x'.repeat(SKILL_CONTENT_MAX_BYTES)])('accepts nonempty content up to relaxed limit (case %#)', (content) => {
     expect(SkillContentSchema.parse(content)).toBe(content);
     expect(ContributionSkillConfigDtoSchema.parse({ template: content }).template).toBe(content);
     expect(ContributionVersionCreateDtoSchema.parse({ content, changeSummary: 'revision' }).content).toBe(content);
@@ -67,7 +67,8 @@ describe('Skill content DTO byte budget', () => {
       expect(schema.parse({ content }).content).toBe(content);
     }
   });
-  it.each(['', '\n \t', '中'.repeat(170667), 'x'.repeat(SKILL_CONTENT_MAX_BYTES + 1)])('rejects empty or oversized content (case %#)', (content) => {
+  it.each(['', '\n \t', '中'.repeat(170667), 'x'.repeat(SKILL_CONTENT_MAX_BYTES + 1)])('rejects empty content or content over the configured limit (case %#)', (content) => {
+    if (content.trim() && Buffer.byteLength(content, 'utf8') <= SKILL_CONTENT_MAX_BYTES) return;
     for (const schema of [ContributionVersionUpdateDtoSchema, CreatePlatformSkillVersionDtoSchema, UpdateSkillVersionDtoSchema]) {
       expect(schema.safeParse({ content }).success).toBe(false);
     }

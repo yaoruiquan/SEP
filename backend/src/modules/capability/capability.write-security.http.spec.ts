@@ -34,7 +34,10 @@ describe('Capability write HTTP validation', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AdapterFactory, useValue: {} },
         { provide: SkillVersionService, useValue: {} },
-        { provide: SkillPackageService, useValue: {} },
+        { provide: SkillPackageService, useValue: { read: jest.fn().mockResolvedValue({
+          key: metadata.zipPath, fileCount: metadata.fileCount, totalBytes: metadata.totalSize,
+          content: skill.skillConfig.template,
+        }) } },
       ],
     }).overrideGuard(JwtAuthGuard).useValue({
       canActivate: (context: any) => {
