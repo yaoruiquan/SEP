@@ -23,6 +23,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
   let stores: MediaVideoRealStore[];
   let enterpriseId: string;
   let scope: string;
+  let assertRaceReached: (() => void) | undefined;
 
   beforeAll(async () => {
     first = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
@@ -37,6 +38,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
   });
 
   beforeEach(async () => {
+    assertRaceReached = undefined;
     enterpriseId = `video-real-pg-${randomUUID()}`;
     scope = JSON.stringify([enterpriseId, 'test-subscription', 'test-member', 'test-user']);
     await first.enterprise.create({ data: { id: enterpriseId, name: enterpriseId } });
@@ -51,6 +53,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
     await first.mediaGatewayQuote.deleteMany({ where: { scope } });
     await first.enterpriseModelConfig.deleteMany({ where: { enterpriseId } });
     await first.enterprise.deleteMany({ where: { id: enterpriseId } });
+    assertRaceReached?.();
   });
 
   afterAll(async () => { await Promise.all(clients.map(client => client.$disconnect())); });
@@ -76,12 +79,13 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
 
   // Delay only the first matching operation on each client. All reads, writes,
   // isolation and serialization failures still come from real PostgreSQL.
-  function racingStores(operationToGate: 'findMany' | 'updateMany', onQueryError?: (error: unknown) => void) {
+  function racingStores(operationToGate: 'count' | 'updateMany', onQueryError?: (error: unknown) => void) {
     let arrivals = 0;
     let release!: () => void;
     let reject!: (error: Error) => void;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ready = new Promise<void>((resolve, fail) => { release = resolve; reject = fail; });
+    assertRaceReached = () => expect(arrivals).toBe(2);
     const wait = async () => {
       if (++arrivals === 2) { clearTimeout(timer); release(); }
       else timer = setTimeout(() => reject(new Error('Both independent transactions must reach the race barrier')), 4000);
@@ -97,7 +101,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
           let result: Awaited<ReturnType<typeof query>>;
           try { result = await query(args); }
           catch (error) { onQueryError?.(error); throw error; }
-          if (gate && operation === 'findMany') await wait();
+          if (gate && operation === 'count') await wait();
           return result;
         },
       } } });
@@ -118,7 +122,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
 
   it.each([1, 2, 3])('deduplicates the same key and quote across two concurrent clients (race %s)', async () => {
     const claim = await prepare();
-    const racers = racingStores('findMany');
+    const racers = racingStores('count');
     const results = await Promise.all(racers.map(store => store.claim(claim)));
     expect(results.map(result => result.created).sort()).toEqual([false, true]);
     expect(results[0].record.receipt.receiptId).toBe(results[1].record.receipt.receiptId);
@@ -132,7 +136,7 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
     const claim = await prepare();
     const other = { ...claim, clientRequestId: randomUUID(), receipt: { ...claim.receipt, clientRequestId: '' } };
     other.receipt.clientRequestId = other.clientRequestId;
-    const racers = racingStores('findMany');
+    const racers = racingStores('count');
     const winner = await assertSingleClaim(await Promise.allSettled([racers[0].claim(claim), racers[1].claim(other)]), 'QUOTE_ALREADY_USED');
     expect((await stores[1].findQuote(scope, claim.configuration.quoteId))?.consumedByClientRequestId).toBe(winner.clientRequestId);
   });
@@ -140,24 +144,21 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
   it.each([1, 2, 3])('cannot exceed maxConcurrentJobs with different quotes (race %s)', async () => {
     await configure({ maxConcurrentJobs: 1, periodBudget: 100 });
     const claims = await Promise.all([prepare(), prepare()]);
-    const racers = racingStores('findMany');
+    const racers = racingStores('count');
     const winner = await assertSingleClaim(await Promise.allSettled(claims.map((claim, index) => racers[index].claim(claim))), 'VIDEO_CONCURRENCY_LIMIT');
     const unused = claims.find(claim => claim.clientRequestId !== winner.clientRequestId)!;
     expect((await stores[0].findQuote(scope, unused.configuration.quoteId))?.consumedByClientRequestId).toBeNull();
   });
 
-  it.each([1, 2, 3])('cannot exceed periodBudget before wallet reservation exists (race %s)', async () => {
+  it.each([1, 2, 3])('does not enforce deprecated periodBudget before wallet reservation exists (race %s)', async () => {
     await configure({ maxConcurrentJobs: 8, periodBudget: 2.1 });
     const claims = await Promise.all([prepare(), prepare()]);
-    const racers = racingStores('findMany');
-    const winner = await assertSingleClaim(await Promise.allSettled(claims.map((claim, index) => racers[index].claim(claim))), 'VIDEO_BUDGET_EXCEEDED');
+    const racers = racingStores('count');
+    const results = await Promise.all(claims.map((claim, index) => racers[index].claim(claim)));
+    expect(results.every(result => result.created)).toBe(true);
+    expect(results).toHaveLength(2);
     expect(await first.mediaRealBillingReservation.count({ where: { enterpriseId } })).toBe(0);
-    const rows = await first.mediaGatewayRequest.findMany({ where: { enterpriseId } });
-    const liability = rows.reduce((total, row) => total.add((row.configuration as Prisma.JsonObject).amountCny as string), new Prisma.Decimal(0));
-    expect(liability.toFixed(6)).toBe(winner.configuration.amountCny);
-    expect(liability.lte('2.100000')).toBe(true);
-    const unused = claims.find(claim => claim.clientRequestId !== winner.clientRequestId)!;
-    expect((await stores[1].findQuote(scope, unused.configuration.quoteId))?.consumedByClientRequestId).toBeNull();
+    expect(await first.mediaGatewayRequest.count({ where: { enterpriseId } })).toBe(2);
   });
 
   it('persists CAS state and recovers it after rebuilding clients and stores', async () => {

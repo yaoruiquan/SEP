@@ -54,7 +54,7 @@ export const MediaVideoPolicySchema = z.object({
   allowedAspectRatios: z.array(z.string().regex(/^[1-9]\d*:[1-9]\d*$/)).max(16).default(['9:16']),
   maxResolution: z.enum(['480p', '720p', '1080p', '4k']).default('720p'),
   maxConcurrentJobs: z.number().int().positive().max(100).default(1),
-  // Mock quotes are zero and never debit this budget. This is not execution enforcement.
+  /** @deprecated Kept for old clients and stored policy compatibility; real execution no longer enforces it. */
   periodBudget: z.number().finite().nonnegative().max(1_000_000_000).default(0),
 }).strict();
 export type MediaVideoPolicy = z.infer<typeof MediaVideoPolicySchema>;

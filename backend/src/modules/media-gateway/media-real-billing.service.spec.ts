@@ -73,7 +73,9 @@ describe('MediaRealBillingService', () => {
 
   it('refuses insufficient funds before any debit', async () => {
     tx.personalWallet.findUnique.mockResolvedValue({ ...wallet(), balance: d(1) });
-    await expect(service.reserve(claims, 'receipt-low', '2.000000', 7)).rejects.toMatchObject(code('INSUFFICIENT_FUNDS'));
+    await expect(service.reserve(claims, 'receipt-low', '2.000000', 7)).rejects.toMatchObject({
+      status: 402, response: { error: { code: 'INSUFFICIENT_FUNDS', source: 'platform' } },
+    });
     expect(tx.mediaRealBillingReservation.create).not.toHaveBeenCalled();
     expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
   });

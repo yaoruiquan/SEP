@@ -1,13 +1,11 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma, type MediaGatewayRequest } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { MediaVideoParametersSchema } from '../../shared/media-video.dto';
 import { MediaVideoPolicySchema } from '../../shared/media-video-config.dto';
 import { MediaVideoRealQuoteSchema, MediaVideoRealReceiptSchema, MediaVideoRealReferenceSchema } from '../../shared/media-video-real.dto';
 import type { MediaVideoRealQuote, MediaVideoRealReceipt, MediaVideoRealReference } from '../../shared/media-video-real.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { resolvePeriodWindow } from '../compute-credit/allowance-period';
 import { videoGatewayError, videoStorageUnavailable } from './media-video-gateway.store';
 
 export const VIDEO_REAL_ADAPTER = 'sub2api-video-v1';
@@ -157,7 +155,7 @@ export class MediaVideoRealStore {
               JSON.stringify(metadata.referenceIds) !== JSON.stringify(input.referenceIds) || JSON.stringify(metadata.referenceHashes) !== JSON.stringify(input.referenceHashes)) {
               videoGatewayError(409, 'IDEMPOTENCY_CONFLICT', '视频报价与请求不一致');
             }
-            await this.enforcePolicy(tx, input.enterpriseId, configuration, new Date());
+            await this.enforcePolicy(tx, input.enterpriseId, configuration);
             const consumed = await tx.mediaGatewayQuote.updateMany({ where: { id: quote.id, scope: input.scope,
               metadata: { equals: quote.metadata as Prisma.InputJsonValue }, expiresAt: { gt: new Date() } },
               data: { metadata: { ...metadata, consumedByClientRequestId: input.clientRequestId } } });
@@ -218,7 +216,7 @@ export class MediaVideoRealStore {
     });
   }
 
-  private async enforcePolicy(tx: Prisma.TransactionClient, enterpriseId: string, config: VideoRealFrozenConfiguration, now: Date) {
+  private async enforcePolicy(tx: Prisma.TransactionClient, enterpriseId: string, config: VideoRealFrozenConfiguration) {
     const row = await tx.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
     const raw = row?.mediaPolicy as Record<string, unknown> | null;
     const parsed = MediaVideoPolicySchema.safeParse(raw?.video ?? {});
@@ -228,37 +226,10 @@ export class MediaVideoRealStore {
       !policy.allowedAspectRatios.includes(config.parameters.aspectRatio) || policy.maxDurationSeconds < 4 || policy.maxResolution === '480p') {
       videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销');
     }
-    if (policy.periodBudget <= 0) videoGatewayError(402, 'VIDEO_BUDGET_EXCEEDED', '企业真实视频月预算为零');
-    const rows = await tx.mediaGatewayRequest.findMany({ where: { enterpriseId,
+    const activeCount = await tx.mediaGatewayRequest.count({ where: { enterpriseId,
+      status: { in: ['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'] },
       configuration: { path: ['adapter'], equals: VIDEO_REAL_ADAPTER } } });
-    const records = rows.map(row => this.decode(row));
-    const active = records.filter(row => ['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'].includes(row.receipt.status));
-    if (active.length >= policy.maxConcurrentJobs) videoGatewayError(409, 'VIDEO_CONCURRENCY_LIMIT', '企业视频任务并发已满');
-    const reservations = records.length ? await tx.mediaRealBillingReservation.findMany({ where: {
-      enterpriseId, receiptId: { in: records.map(row => row.receipt.receiptId) },
-    }, select: { receiptId: true, status: true, settledCny: true } }) : [];
-    const billing = new Map(reservations.map(row => [row.receiptId, row]));
-    const { start, end } = resolvePeriodWindow('MONTH', now);
-    let used = new Decimal(0);
-    for (const record of records) {
-      const reservation = billing.get(record.receipt.receiptId);
-      const status = reservation?.status ?? record.receipt.billingStatus;
-      if (status === 'RELEASED') continue;
-      if (status === 'SETTLED') {
-        // Budget month is the immutable request creation month, not mutable
-        // reservation.updatedAt. Late-settled previous-month work stops carrying
-        // forward once evidence settles it, without shifting historical spend.
-        if (record.createdAt < start || record.createdAt >= end) continue;
-        if (reservation?.settledCny === null || reservation?.settledCny === undefined) videoStorageUnavailable();
-        const settled = new Decimal(reservation.settledCny);
-        if (!settled.isFinite() || settled.lt(0)) videoStorageUnavailable();
-        used = used.add(settled);
-        continue;
-      } else if (status === 'NOT_RESERVED' && record.receipt.status === 'FAILED') continue;
-      // Only unresolved liabilities, including previous months, use the frozen full quote.
-      used = used.add(record.configuration.amountCny);
-    }
-    if (used.add(config.amountCny).greaterThan(policy.periodBudget)) videoGatewayError(402, 'VIDEO_BUDGET_EXCEEDED', '企业视频月预算不足');
+    if (activeCount >= policy.maxConcurrentJobs) videoGatewayError(409, 'VIDEO_CONCURRENCY_LIMIT', '企业视频任务并发已满');
   }
 
   private quoteMetadata(value: unknown): VideoRealQuoteMetadata {

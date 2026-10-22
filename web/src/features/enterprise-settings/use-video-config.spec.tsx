@@ -23,7 +23,11 @@ afterEach(cleanup);
 beforeEach(() => vi.resetAllMocks());
 
 describe('enterprise video hooks', () => {
-  it('reuses shared policy schema', () => { expect(VideoPolicyFormSchema).toBe(MediaVideoPolicySchema); });
+  it('validates editable policy fields while stripping the deprecated budget field', () => {
+    expect(VideoPolicyFormSchema.safeParse(policy).success).toBe(true);
+    expect(VideoPolicyFormSchema.parse({ ...policy, periodBudget: 0 })).not.toHaveProperty('periodBudget');
+    expect(VideoPolicyFormSchema.safeParse({ ...policy, maxDurationSeconds: 0 }).success).toBe(false);
+  });
   it('does not fetch without an enterprise', () => {
     const { wrapper } = setup();
     renderHook(() => ({ config: useEnterpriseVideoConfig(''), available: useAvailableVideoProfiles('') }), { wrapper });
@@ -69,7 +73,7 @@ describe('enterprise video hooks', () => {
     await act(async () => { await expect(result.current.mutateAsync({ maxDurationSeconds: 0 })).rejects.toBeDefined(); });
     expect(api.put).not.toHaveBeenCalled();
     expect(VideoPolicyFormSchema.safeParse({ ...policy, allowedOperations: ['generate'] }).success).toBe(false);
-    expect(VideoPolicyFormSchema.safeParse({ ...policy, periodBudget: -1 }).success).toBe(false);
+    expect(VideoPolicyFormSchema.safeParse({ ...policy, periodBudget: -1 }).success).toBe(true);
   });
   it('keeps an in-flight save attached to its original enterprise after identity changes', async () => {
     let finish!: (value: typeof response) => void;

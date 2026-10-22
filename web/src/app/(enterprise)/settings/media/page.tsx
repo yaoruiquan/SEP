@@ -20,7 +20,7 @@ function errorText(error: unknown) {
 }
 
 export default function MediaSettingsPage() {
-  return <><ImageSettingsPanel /><div className="p-4 pb-28 sm:p-6 sm:pb-28 md:pb-6"><VideoPolicyPanel /></div></>;
+  return <><ImageSettingsPanel /><div className="p-4 pb-36 sm:p-6 sm:pb-36 md:pb-6"><VideoPolicyPanel /></div></>;
 }
 
 function ImageSettingsPanel() {

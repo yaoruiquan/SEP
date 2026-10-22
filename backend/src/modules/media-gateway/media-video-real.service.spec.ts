@@ -17,8 +17,10 @@ describe('MediaVideoRealService', () => {
   let cache: { saveReference: jest.Mock; readReference: jest.Mock; saveOutput: jest.Mock; readOutput: jest.Mock; streamOutput: jest.Mock };
   let billing: { quoteFunding: jest.Mock; reserve: jest.Mock; release: jest.Mock; status: jest.Mock; settleVideo: jest.Mock };
   let runtime: { getRuntimeVideo: jest.Mock };
+  let usdRate: string;
   beforeEach(() => {
     db = videoRealPrisma(); store = new MediaVideoRealStore(db as never); enabled = true;
+    usdRate = '7';
     const connection = { base: 'https://relay.invalid/v1', key: 'secret-never-persist', fingerprint };
     adapter = {
       connection: jest.fn(async () => connection),
@@ -46,7 +48,7 @@ describe('MediaVideoRealService', () => {
       profiles: [{ profileId: input.profileId, configVersion: input.configVersion, displayName: 'H3', kind: 'video',
         operations: ['text-to-video', 'image-to-video'], executionMode: 'async-query', capabilities }] })) };
     service = new MediaVideoRealService({ get: () => enabled ? 'true' : 'false' } as never, db as never,
-      { getEffectiveValue: async () => '7' } as never, runtime as never, adapter as never, cache as never, billing as never, store);
+      { getEffectiveValue: async () => usdRate } as never, runtime as never, adapter as never, cache as never, billing as never, store);
   });
 
   async function quotedSubmit(clientRequestId = 'client-1') {
@@ -64,6 +66,16 @@ describe('MediaVideoRealService', () => {
     expect(raw).not.toContain('https://');
     expect(billing.reserve).not.toHaveBeenCalled();
     expect(adapter.submit).not.toHaveBeenCalled();
+  });
+
+  it('converts the Sub2 customer quote once using the frozen SEP exchange rate', async () => {
+    usdRate = '7.2';
+    adapter.pricing.mockResolvedValue({ model: 'minimax-h3', operation: input.operation,
+      resolution: '720p', duration_seconds: 4, pricing_status: 'quoted', amount_usd: '4.0000000000',
+      pricing_version: 'pricing-1', expires_at: new Date(Date.now() + 60_000).toISOString() });
+    const quote = await service.quote(videoClaims, input);
+    expect(quote).toMatchObject({ amountUsd: '4.0000000000', amountCny: '28.800000', usdToCnyRate: 7.2 });
+    expect(db.state.quotes.get(quote.quoteId).metadata.configuration).toMatchObject({ amountUsd: '4.0000000000', amountCny: '28.800000', usdToCnyRate: 7.2 });
   });
 
   it('lists only real runtime profiles and never enables the mock branch', async () => {

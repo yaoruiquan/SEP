@@ -15,7 +15,19 @@ type MutableJsonObject = { [key: string]: Prisma.InputJsonValue | null };
 type Status = 'RESERVED' | 'SETTLED' | 'RELEASED' | 'RECONCILING';
 const zero = () => new Decimal(0);
 const MAX_MONEY = new Decimal('99999999.999999');
-const forbidden = (code: string): never => { throw new HttpException({ error: { code } }, code === 'INSUFFICIENT_FUNDS' ? 402 : 409); };
+const forbidden = (code: 'INSUFFICIENT_FUNDS' | 'INVALID_PARAMETER' | 'IDEMPOTENCY_CONFLICT' | 'BILLING_PENDING'): never => {
+  const status = code === 'INSUFFICIENT_FUNDS' ? 402 : 409;
+  const message = {
+    INSUFFICIENT_FUNDS: 'Insufficient funds',
+    INVALID_PARAMETER: 'Invalid media billing parameter',
+    IDEMPOTENCY_CONFLICT: 'Media billing request conflicts with the original reservation',
+    BILLING_PENDING: 'Media billing is pending; query the original request',
+  }[code];
+  throw new HttpException({ message, error: {
+    code, message, type: 'invalid_request_error',
+    source: 'platform', param: null,
+  } }, status);
+};
 class BillingConcurrencyConflict extends ConflictException {
   constructor() { super('media billing changed concurrently'); }
 }

@@ -109,8 +109,8 @@ export class MediaVideoConfigController {
 
   @Put('enterprise/media-config/video')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '更新当前企业视频模型授权、操作及预算限制' })
-  @ApiResponse({ status: 200, description: '保存后的独立视频策略；不执行生成' })
+  @ApiOperation({ summary: '更新当前企业视频模型授权、操作及并发限制' })
+  @ApiResponse({ status: 200, description: '保存后的独立视频策略；旧 periodBudget 仅兼容保存，不参与真实执行' })
   @ApiResponse({ status: 400, description: '策略或允许列表无效' })
   @ApiResponse({ status: 409, description: '并发策略更新冲突' })
   updateEnterpriseConfig(@Request() req: { user: { id: string } },

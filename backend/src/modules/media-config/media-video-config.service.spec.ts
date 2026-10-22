@@ -390,6 +390,13 @@ describe('MediaVideoConfigService enterprise isolation', () => {
     expect((await service.getRuntimeVideo('ent-1')).defaultProfileId).toBe(row.profileId);
   });
 
+  it('preserves a legacy periodBudget when saving only current video controls', async () => {
+    const { service, getStored } = setup();
+    getStored().mediaPolicy.video.periodBudget = 0;
+    await service.updateEnterpriseConfig('user-1', { maxConcurrentJobs: 3 });
+    expect(getStored().mediaPolicy.video).toMatchObject({ periodBudget: 0, maxConcurrentJobs: 3 });
+  });
+
   it('preserves arbitrary independent image JSON fields rather than reconstructing the image policy', async () => {
     const { service, getStored } = setup();
     getStored().mediaPolicy.imageFutureField = { keep: true };

@@ -41,41 +41,23 @@ describe('MediaVideoRealStore', () => {
     await expect(store.claim(await newClaim(store, 'client-2'))).rejects.toMatchObject(code('VIDEO_CONCURRENCY_LIMIT'));
   });
 
-  it('rejects zero real budget before creating a request', async () => {
+  it('does not enforce the deprecated real budget field', async () => {
     db.state.enterprise.mediaPolicy.video.periodBudget = 0;
-    await expect(store.claim(await newClaim(store))).rejects.toMatchObject(code('VIDEO_BUDGET_EXCEEDED'));
-    expect(db.state.requests.size).toBe(0);
+    await expect(store.claim(await newClaim(store))).resolves.toMatchObject({ created: true });
+    expect(db.state.requests.size).toBe(1);
+    expect(db.mediaRealBillingReservation?.findMany).not.toHaveBeenCalled();
   });
 
-  it('includes unresolved previous-month liabilities in the current monthly budget', async () => {
+  it('does not scan historical requests or reservations for the deprecated budget', async () => {
     const first = await store.claim(await newClaim(store));
     const row = db.state.requests.get(first.record.receipt.receiptId);
     row.createdAt = new Date('2020-01-01T00:00:00Z');
     row.receipt.billingStatus = 'RECONCILING';
-    db.state.enterprise.mediaPolicy.video.periodBudget = 2;
-    await expect(store.claim(await newClaim(store, 'client-2'))).rejects.toMatchObject(code('VIDEO_BUDGET_EXCEEDED'));
-  });
-
-  it('ignores released charges, but not settled charges from this month', async () => {
-    const first = await store.claim(await newClaim(store));
-    const row = db.state.requests.get(first.record.receipt.receiptId);
-    row.receipt.status = row.status = 'FAILED';
-    row.receipt.pollAfterMs = null; row.receipt.recovery.canQuery = false;
-    db.state.enterprise.mediaPolicy.video.periodBudget = 2;
-    db.state.reservations.set(row.id, { receiptId: row.id, status: 'SETTLED', settledCny: '1.400000', updatedAt: new Date() });
-    await expect(store.claim(await newClaim(store, 'client-2'))).rejects.toMatchObject(code('VIDEO_BUDGET_EXCEEDED'));
-    db.state.reservations.get(row.id).status = 'RELEASED';
-    await expect(store.claim(await newClaim(store, 'client-3'))).resolves.toMatchObject({ created: true });
-  });
-
-  it('does not count prior-month settled spend again', async () => {
-    const first = await store.claim(await newClaim(store));
-    const row = db.state.requests.get(first.record.receipt.receiptId);
-    row.receipt.status = row.status = 'FAILED'; row.receipt.pollAfterMs = null; row.receipt.recovery.canQuery = false;
-    row.createdAt = new Date('2020-01-01T00:00:00Z');
-    db.state.reservations.set(row.id, { receiptId: row.id, status: 'SETTLED', settledCny: '1.400000', updatedAt: new Date() });
-    db.state.enterprise.mediaPolicy.video.periodBudget = 2;
+    db.state.enterprise.mediaPolicy.video.periodBudget = 0.01;
     await expect(store.claim(await newClaim(store, 'client-2'))).resolves.toMatchObject({ created: true });
+    expect(db.state.requests.size).toBe(2);
+    expect(db.mediaGatewayRequest.findMany).not.toHaveBeenCalled();
+    expect(db.mediaRealBillingReservation.findMany).not.toHaveBeenCalled();
   });
 
   it('isolates scope and reserves keys against mock/image records', async () => {

@@ -7,7 +7,9 @@ import {
 
 export type { MediaVideoPolicy, MediaVideoAvailableProfile } from 'shared/media-video-config.dto';
 export type { MediaVideoOperation } from 'shared/media-video.dto';
-export const VideoPolicyFormSchema = MediaVideoPolicySchema;
+// The server still returns periodBudget for compatibility, but the enterprise
+// UI must not expose or overwrite this deprecated execution gate.
+export const VideoPolicyFormSchema = MediaVideoPolicySchema.omit({ periodBudget: true }).strip();
 export const videoConfigKey = (enterpriseId: string) => ['enterprise', enterpriseId, 'video-config'] as const;
 export const availableVideoProfilesKey = (enterpriseId: string) => ['enterprise', enterpriseId, 'available-video-profiles'] as const;
 

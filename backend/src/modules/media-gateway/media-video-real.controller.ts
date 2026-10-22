@@ -22,7 +22,7 @@ import { MediaVideoRealService } from './media-video-real.service';
 @ApiResponse({ status: 202, description: 'Original asynchronous request is pending' })
 @ApiResponse({ status: 400, description: 'Invalid parameters or PNG' })
 @ApiResponse({ status: 401, description: 'Invalid employment token' })
-@ApiResponse({ status: 402, description: 'Insufficient funds or enterprise video budget' })
+@ApiResponse({ status: 402, description: 'Insufficient funds' })
 @ApiResponse({ status: 403, description: 'Membership, subscription or video grant revoked' })
 @ApiResponse({ status: 404, description: 'Resource not found in current scope' })
 @ApiResponse({ status: 409, description: 'Configuration, concurrency or idempotency conflict; cancellation unsupported' })

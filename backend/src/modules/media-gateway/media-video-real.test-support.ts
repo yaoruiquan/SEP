@@ -73,6 +73,12 @@ export function videoRealPrisma() {
         (!filter.configuration || row.configuration[filter.configuration.path[0]] === filter.configuration.equals);
       return copy([...requests.values()].filter(row => match(row, where)).slice(0, take ?? requests.size));
     }),
+    count: jest.fn(async ({ where }) => {
+      const match = (row, filter) => (!filter.enterpriseId || row.enterpriseId === filter.enterpriseId) &&
+        (!filter.status || filter.status.in.includes(row.status)) &&
+        (!filter.configuration || row.configuration[filter.configuration.path[0]] === filter.configuration.equals);
+      return [...requests.values()].filter(row => match(row, where)).length;
+    }),
     create: jest.fn(async ({ data }) => {
       const row = { ...copy(data), id: `receipt-${++nextId}`, revision: 0, createdAt: new Date(), updatedAt: new Date() };
       requests.set(row.id, row); return copy(row);
