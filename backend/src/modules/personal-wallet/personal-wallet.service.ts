@@ -10,6 +10,7 @@ import {
   PersonalWalletTransactionType,
   Prisma,
   RechargeOrderStatus,
+  UserStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { format } from 'date-fns';
@@ -25,6 +26,16 @@ const MONEY_DP = 6;
 
 function money(value: Decimal.Value): Decimal {
   return new Decimal(value).toDecimalPlaces(MONEY_DP, Decimal.ROUND_HALF_UP);
+}
+
+/** Reward events and their credit must serialize with account closure, including zero-value events. */
+export async function assertActiveRewardRecipientInTx(tx: Prisma.TransactionClient, userId: string) {
+  const users = await tx.$queryRaw<Array<{ status: string }>>`
+    SELECT status FROM users WHERE id = ${userId} FOR UPDATE
+  `;
+  if (users[0]?.status !== 'ACTIVE') {
+    throw new ConflictException('奖励接收账号当前不可用，请先处理账号注销申请');
+  }
 }
 
 /**
@@ -55,6 +66,40 @@ export class PersonalWalletService {
   private readonly logger = new Logger(PersonalWalletService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 注销竞态的共同闸门：所有会新增个人资金或消费的事务都先锁 users 行。
+   * 注销流程也必须取得同一把锁后再切换状态，确保不会出现「检查可注销后又收到一笔钱」。
+   */
+  private async lockUserInTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ id: string; status: UserStatus }>>`
+      SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    const user = rows[0];
+    if (!user) throw new NotFoundException('用户不存在');
+    return user;
+  }
+
+  private async assertActiveUserInTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    const user = await this.lockUserInTx(tx, userId);
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ConflictException('账号当前不可进行个人资金操作');
+    }
+  }
+
+  private async ensureWalletInTx(tx: Prisma.TransactionClient, userId: string) {
+    return tx.personalWallet.upsert({
+      where: { userId },
+      create: { userId },
+      update: {},
+    });
+  }
 
   /** 取钱包，不存在则建。余额 0 的钱包与「没有钱包」行为一致，所以建了也无副作用。 */
   async ensureWallet(userId: string) {
@@ -112,16 +157,18 @@ export class PersonalWalletService {
       throw new BadRequestException('充值金额必须大于 0');
     }
 
-    // 建订单前先确保钱包存在：履约时钱包缺失会让一笔已收的钱无处入账
-    await this.ensureWallet(userId);
-
-    return this.prisma.personalRechargeOrder.create({
-      data: {
-        orderNo: this.generateOrderNo(),
-        userId,
-        amount,
-        status: RechargeOrderStatus.PENDING,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertActiveUserInTx(tx, userId);
+      // 建订单前先确保钱包存在：履约时钱包缺失会让一笔已收的钱无处入账
+      await this.ensureWalletInTx(tx, userId);
+      return tx.personalRechargeOrder.create({
+        data: {
+          orderNo: this.generateOrderNo(),
+          userId,
+          amount,
+          status: RechargeOrderStatus.PENDING,
+        },
+      });
     });
   }
 
@@ -173,8 +220,23 @@ export class PersonalWalletService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const user = await this.lockUserInTx(tx, existing.userId);
+      const current = await tx.personalRechargeOrder.findUnique({
+        where: { id: existing.id },
+      });
+      if (!current) throw new NotFoundException(`个人充值订单不存在: ${orderNo}`);
+      if (current.status === RechargeOrderStatus.PAID) return current;
+      if (current.status === RechargeOrderStatus.CLOSED) {
+        throw new BadRequestException(`充值订单已关闭: ${orderNo}`);
+      }
+      if (user.status !== UserStatus.ACTIVE) {
+        this.logger.error(
+          `个人充值需人工对账: order=${orderNo} trade=${payTradeNo} user=${existing.userId} status=${user.status}; 保留 PENDING，不自动入账`,
+        );
+        throw new ConflictException('账号当前不可自动入账，已付款请联系管理员人工对账');
+      }
       const flipped = await tx.personalRechargeOrder.updateMany({
-        where: { id: existing.id, status: RechargeOrderStatus.PENDING },
+        where: { id: current.id, status: RechargeOrderStatus.PENDING },
         data: {
           status: RechargeOrderStatus.PAID,
           payChannel,
@@ -190,13 +252,13 @@ export class PersonalWalletService {
         return current!;
       }
 
-      await this.creditInTx(tx, existing.userId, new Decimal(existing.amount), {
-        relatedId: existing.id,
-        description: `个人充值 ${existing.orderNo}`,
+      await this.creditInTx(tx, current.userId, new Decimal(current.amount), {
+        relatedId: current.id,
+        description: `个人充值 ${current.orderNo}`,
       });
 
       this.logger.log(
-        `个人充值到账: ${existing.orderNo} ¥${existing.amount.toFixed(2)} user=${existing.userId}`,
+        `个人充值到账: ${current.orderNo} ¥${current.amount.toFixed(2)} user=${current.userId}`,
       );
 
       const paid = await tx.personalRechargeOrder.findUnique({
@@ -228,12 +290,8 @@ export class PersonalWalletService {
     meta: { relatedId: string; description: string },
   ): Promise<void> {
     const amount = money(amountCNY);
-    // 事务内重新取一次：version 必须是本事务看到的值，用外面读到的会误判冲突
-    const wallet = await tx.personalWallet.upsert({
-      where: { userId },
-      create: { userId },
-      update: {},
-    });
+    // 调用方已锁定用户并复核状态；version 必须使用本事务看到的值。
+    const wallet = await this.ensureWalletInTx(tx, userId);
 
     const before = wallet.balance;
     const after = before.add(amount);
@@ -273,7 +331,9 @@ export class PersonalWalletService {
   ): Promise<void> {
     const amount = money(amountCNY);
     if (amount.lessThanOrEqualTo(0)) return;
-    await this.prisma.$transaction(async (tx) => this.creditContributionRewardInTx(tx, userId, amount, rewardEventId, description));
+    await this.prisma.$transaction(async (tx) =>
+      this.creditContributionRewardInTx(tx, userId, amount, rewardEventId, description),
+    );
   }
 
   /**
@@ -289,35 +349,32 @@ export class PersonalWalletService {
   ): Promise<void> {
     const amount = money(amountCNY);
     if (amount.lessThanOrEqualTo(0)) return;
-    const wallet = await tx.personalWallet.upsert({
-        where: { userId },
-        create: { userId },
-        update: {},
-      });
-      const existing = await tx.personalWalletTransaction.findFirst({
-        where: { walletId: wallet.id, relatedType: 'contribution_reward', relatedId: rewardEventId },
-        select: { id: true },
-      });
-      if (existing) return;
-      const before = wallet.balance;
-      const after = before.add(amount);
-      const updated = await tx.personalWallet.updateMany({
-        where: { id: wallet.id, version: wallet.version },
-        data: { balance: after, totalDepositCNY: { increment: amount }, version: { increment: 1 } },
-      });
-      if (updated.count === 0) throw new ConflictException('个人余额更新冲突，请重试');
-      await tx.personalWalletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          type: PersonalWalletTransactionType.DEPOSIT,
-          amount,
-          balanceBefore: before,
-          balanceAfter: after,
-          relatedType: 'contribution_reward',
-          relatedId: rewardEventId,
-          description,
-        },
-      });
+    await this.assertActiveUserInTx(tx, userId);
+    const wallet = await this.ensureWalletInTx(tx, userId);
+    const existing = await tx.personalWalletTransaction.findFirst({
+      where: { walletId: wallet.id, relatedType: 'contribution_reward', relatedId: rewardEventId },
+      select: { id: true },
+    });
+    if (existing) return;
+    const before = wallet.balance;
+    const after = before.add(amount);
+    const updated = await tx.personalWallet.updateMany({
+      where: { id: wallet.id, version: wallet.version },
+      data: { balance: after, totalDepositCNY: { increment: amount }, version: { increment: 1 } },
+    });
+    if (updated.count === 0) throw new ConflictException('个人余额更新冲突，请重试');
+    await tx.personalWalletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: PersonalWalletTransactionType.DEPOSIT,
+        amount,
+        balanceBefore: before,
+        balanceAfter: after,
+        relatedType: 'contribution_reward',
+        relatedId: rewardEventId,
+        description,
+      },
+    });
   }
 
   /**
@@ -337,6 +394,7 @@ export class PersonalWalletService {
       return { transactionId: null, paid: new Decimal(0), unpaid: new Decimal(0) };
     }
 
+    await this.assertActiveUserInTx(client, userId);
     const wallet = await client.personalWallet.findUnique({ where: { userId } });
     // 没有钱包 = 没充过钱。这不是错误，只是这一腿付不了钱 ——
     // 抛异常会让「公司额度用尽且没自付」的正常场景变成 500。

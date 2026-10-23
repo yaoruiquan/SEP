@@ -28,7 +28,7 @@ import {
 import { CapabilityValidatorService } from '../capability-contribution/capability-validator.service';
 import { PackageSecurityService } from '../capability-contribution/package-security.service';
 import { SkillPackageService } from '../skill-package/skill-package.service';
-import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { PersonalWalletService, assertActiveRewardRecipientInTx } from '../personal-wallet/personal-wallet.service';
 import { SettingService } from '../setting/setting.service';
 import { nextSemver } from './skill-version-numbering';
 import { readAdminVersionLineages } from './skill-version-admin-lineage';
@@ -924,6 +924,7 @@ export class SkillVersionService {
     const configured = Number(await this.platformSettings?.getEffectiveValue('CONTRIBUTION_PLATFORM_REWARD_CNY') ?? '50');
     const amount = new Prisma.Decimal(Number.isFinite(configured) && configured > 0 ? configured : 50);
     const dedupeKey = `platform-approved:${origin.id}`;
+    await assertActiveRewardRecipientInTx(tx, origin.contributorId);
     const reward = await tx.contributionRewardEvent.createMany({ data: [{
       recipientId: origin.contributorId, enterpriseId: origin.enterpriseId, capabilityId: origin.id,
       versionId: version.id, eventType: 'PLATFORM_APPROVED', points: 50, amount,

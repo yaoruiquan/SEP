@@ -12,6 +12,7 @@ describe('AdminService', () => {
   let prisma: PrismaService;
 
   const mockPrismaService = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'contributor-1', status: 'ACTIVE' }]),
     enterprise: {
       findUnique: jest.fn(),
       findMany: jest.fn(),

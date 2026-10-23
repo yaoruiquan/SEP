@@ -43,6 +43,7 @@ describe('CapabilityContributionService', () => {
     personalWalletTransaction: { findFirst: jest.fn(), create: jest.fn() },
     user: { findUnique: jest.fn(), findMany: jest.fn() },
     enterpriseMember: { findMany: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'contributor-1', status: 'ACTIVE' }]),
     $transaction: jest.fn(),
   };
   const validator = new CapabilityValidatorService();
@@ -62,6 +63,7 @@ describe('CapabilityContributionService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.$queryRaw.mockResolvedValue([{ id: 'contributor-1', status: 'ACTIVE' }]);
     enterpriseContext.assertCanApprove.mockImplementation(() => undefined);
     enterpriseContext.assertEnterpriseAdmin.mockImplementation(() => undefined);
     enterpriseContext.resolveOrNull.mockResolvedValue({ enterpriseId: 'enterprise-1', role: 'MEMBER' });

@@ -42,6 +42,7 @@ model User {
   authIdentities                    AuthIdentity[]
   oauthTransactions                 AuthOAuthTransaction[]
   authEvents                        AuthEvent[]
+  accountClosureRequests            AccountClosureRequest[]
   emailVerifiedAt                   DateTime?
   createdKnowledgeBases             KnowledgeBase[]            @relation("KnowledgeBaseCreator")
   uploadedDocuments                 Document[]                 @relation("DocumentUploader")
@@ -94,6 +95,7 @@ enum AuthOneTimeTokenType {
   PASSWORD_RESET
   EMAIL_VERIFICATION
   EMAIL_CHANGE
+  ACCOUNT_CLOSURE
 }
 
 enum OAuthTransactionIntent {
@@ -106,6 +108,37 @@ enum OAuthTransactionIntent {
 enum UserStatus {
   ACTIVE
   DISABLED
+  CLOSURE_PENDING
+  CLOSED
+}
+
+enum AccountClosureStatus {
+  PREPARING
+  PENDING
+  CANCELLED
+  COMPLETED
+}
+
+model AccountClosureRequest {
+  id                    String               @id @default(cuid())
+  userId                String
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Only one preparing/pending request per user; cleared on cancellation/completion.
+  activeUserId          String?              @unique
+  status                AccountClosureStatus @default(PREPARING)
+  cancellationTokenHash String?              @unique
+  scheduledFor          DateTime
+  cancelledAt           DateTime?
+  completedAt           DateTime?
+  lastAttemptAt         DateTime?
+  attempts              Int                  @default(0)
+  lastError             String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([userId, createdAt])
+  @@map("account_closure_requests")
 }
 
 enum UserRole {

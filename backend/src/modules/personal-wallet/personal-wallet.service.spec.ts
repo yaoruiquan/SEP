@@ -56,6 +56,7 @@ describe('PersonalWalletService', () => {
 
     // 有状态的钱包 mock：写回落到 walletRow 上，断言才能看出「充完值余额真的变了」
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
       personalWallet: {
         findUnique: jest.fn(() => Promise.resolve(walletRow)),
         create: jest.fn((a: any) => {
@@ -104,6 +105,7 @@ describe('PersonalWalletService', () => {
         }),
       },
       personalWalletTransaction: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn((a: any) => {
           createdTx = a.data;
           return Promise.resolve({ id: 'ptx-1', ...a.data });
@@ -291,6 +293,12 @@ describe('PersonalWalletService', () => {
 
       expect(result.paid.toFixed(7)).toBe('0.1234570');
     });
+
+    it('注销中的账号不再新增消费', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status: 'CLOSURE_PENDING' }]);
+      await expect(svc.consumeUpTo(prisma, 'user-1', d(5), meta)).rejects.toThrow(ConflictException);
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   /**
@@ -308,6 +316,8 @@ describe('PersonalWalletService', () => {
       expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
       expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
       expect(createdOrder.status).toBe('PENDING');
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM users WHERE id = ? FOR UPDATE');
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.personalRechargeOrder.create.mock.invocationCallOrder[0]);
     });
 
     it('订单号以 PRC 开头 —— 支付回调靠前缀分流到个人履约链', async () => {
@@ -345,7 +355,30 @@ describe('PersonalWalletService', () => {
     it('先确保钱包存在 —— 履约时钱包缺失会让一笔已收的钱无处入账', async () => {
       walletRow = null;
       await svc.createRechargeOrder('user-1', 10);
-      expect(prisma.personalWallet.create).toHaveBeenCalled();
+      expect(prisma.personalWallet.upsert).toHaveBeenCalled();
+    });
+
+    it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('拒绝 %s 账号创建充值单，且不创建钱包', async (status) => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+      await expect(svc.createRechargeOrder('user-1', 10)).rejects.toThrow(ConflictException);
+      expect(prisma.personalWallet.upsert).not.toHaveBeenCalled();
+      expect(prisma.personalRechargeOrder.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('contribution rewards', () => {
+    it('checks the same user lock before crediting a reward', async () => {
+      await svc.creditContributionReward('user-1', d(3), 'reward-1', '贡献奖励');
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM users WHERE id = ? FOR UPDATE');
+      expect(createdTx.relatedType).toBe('contribution_reward');
+      expect(createdTx.relatedId).toBe('reward-1');
+    });
+
+    it('rejects a reward for an account pending closure without adding funds', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status: 'CLOSURE_PENDING' }]);
+      await expect(svc.creditContributionReward('user-1', d(3), 'reward-1', '贡献奖励')).rejects.toThrow(ConflictException);
+      expect(prisma.personalWallet.upsert).not.toHaveBeenCalled();
+      expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
     });
   });
 
@@ -387,11 +420,30 @@ describe('PersonalWalletService', () => {
 
     it('❗已 PAID 的订单直接返回 —— 支付宝重推通知不会重复入账', async () => {
       orderRow = { ...pendingOrder(), status: 'PAID' };
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status: 'CLOSED' }]);
 
       await svc.fulfillRechargeOrder('PRC-1', 'alipay-tx-1', 'ALIPAY');
 
       expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
       expect(prisma.personalWalletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('真实迟到付款遇到 %s 保留待支付订单供人工对账，不加余额', async (status) => {
+      orderRow = pendingOrder();
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+      await expect(svc.fulfillRechargeOrder('PRC-1', 'late-trade', 'ALIPAY')).rejects.toThrow('人工对账');
+      expect(orderRow.status).toBe('PENDING');
+      expect(prisma.personalRechargeOrder.updateMany).not.toHaveBeenCalled();
+      expect(prisma.personalWallet.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('等待用户行锁期间另一回调已完成入账时，账号已注销仍可幂等返回', async () => {
+      prisma.personalRechargeOrder.findUnique
+        .mockResolvedValueOnce(pendingOrder())
+        .mockResolvedValueOnce({ ...pendingOrder(), status: 'PAID' });
+      prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status: 'CLOSED' }]);
+      await expect(svc.fulfillRechargeOrder('PRC-1', 'trade', 'ALIPAY')).resolves.toMatchObject({ status: 'PAID' });
+      expect(prisma.personalRechargeOrder.updateMany).not.toHaveBeenCalled();
     });
 
     it('❗状态翻转拿到 0 行也不入账 —— 与对账任务撞车时的那一路', async () => {

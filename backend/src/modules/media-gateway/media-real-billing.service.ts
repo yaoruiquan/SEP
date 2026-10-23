@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Injectable } from '@nestjs/common';
+import { ConflictException, HttpException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Prisma, type MediaRealBillingReservation } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
@@ -49,6 +49,8 @@ export class MediaRealBillingService {
     // Decimal(10,4): reject loss of precision rather than silently freezing a different rate.
     if (rate.greaterThan('999999.9999') || !rate.equals(rate.toDecimalPlaces(4))) forbidden('INVALID_PARAMETER');
     await this.transaction(async tx => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${claims.sub} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
       const prior = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (prior) {
         if (prior.enterpriseId !== claims.enterpriseId || prior.userId !== claims.sub || prior.subscriptionId !== claims.subscriptionId
@@ -81,6 +83,7 @@ export class MediaRealBillingService {
     return this.transaction(async tx => {
       const row = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (!row) forbidden('BILLING_PENDING');
+      await this.lockExistingUser(tx, row.userId);
       if (row.status === 'SETTLED' || row.status === 'RECONCILING') {
         if (!row.settledCny?.equals(cny) || !row.settledUsd?.equals(usd)) forbidden('IDEMPOTENCY_CONFLICT');
         return row.status;
@@ -117,6 +120,7 @@ export class MediaRealBillingService {
     await this.transaction(async tx => {
       const row = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (!row || row.status === 'RELEASED') return;
+      await this.lockExistingUser(tx, row.userId);
       if (row.status !== 'RESERVED') forbidden('BILLING_PENDING');
       await this.transition(tx, receiptId, { status: 'RELEASED' });
       const refund = await this.refundDifference(tx, row, row.reservedCny);
@@ -289,6 +293,13 @@ export class MediaRealBillingService {
         if (!retryable) throw error;
         if (attempt >= 2) throw new BillingConcurrencyConflict();
       }
+    }
+  }
+
+  private async lockExistingUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+    if (!users[0] || !['ACTIVE', 'CLOSURE_PENDING'].includes(users[0].status)) {
+      throw new ConflictException('账号状态不允许关闭待处理媒体账单');
     }
   }
 

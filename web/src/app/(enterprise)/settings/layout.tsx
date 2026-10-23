@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { href: '/settings/security/sessions', label: '登录设备', icon: MonitorSmartphone },
   { href: '/settings/security/events', label: '认证活动', icon: Activity },
   { href: '/settings/security/password', label: '登录密码', icon: KeyRound },
+  { href: '/account-closure', label: '注销账号', icon: Shield },
   { href: '/settings/roles', label: '角色权限', icon: Users },
   { href: '/settings/api-keys', label: 'API 密钥', icon: KeyRound },
   { href: '/settings/integrations', label: '集成与 Webhook', icon: Plug },

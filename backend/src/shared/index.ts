@@ -823,6 +823,9 @@ export const ForgotPasswordDtoSchema = z.object({
 });
 export type ForgotPasswordDto = z.infer<typeof ForgotPasswordDtoSchema>;
 
+export const AccountClosureRecoverySchema = z.object({ email: EmailSchema });
+export type AccountClosureRecoveryDto = z.infer<typeof AccountClosureRecoverySchema>;
+
 export const RequestRegistrationEmailCodeDtoSchema = z.object({
   email: EmailSchema,
 });
@@ -1318,6 +1321,7 @@ export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
 // ── 企业邀请 ────────────────────────────────────────────────────────────────
 
 export * from './invitation-routing';
+export * from './account-closure';
 
 export const INVITATION_STATUSES = [
   'PENDING',

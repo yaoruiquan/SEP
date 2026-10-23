@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
 import { CreateTaskDto, CreateTemplateDto, StepPatchDto, TaskQuery, UpdateTaskDto } from 'shared';
 
 const statusToDb: any = {
@@ -51,8 +52,15 @@ export class TaskService {
     });
   }
 
-  private async owned(id: string, userId: string) {
-    const r = await this.prisma.taskRun.findUnique({
+  private async assertActiveUser(tx: Prisma.TransactionClient, userId: string) {
+    const users = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    if (users[0]?.status !== 'ACTIVE') throw new ConflictException('账号当前不可创建或启动任务');
+  }
+
+  private async owned(id: string, userId: string, tx: Prisma.TransactionClient = this.prisma) {
+    const r = await tx.taskRun.findUnique({
       where: { id },
       // runSteps 供 toTaskRunSummary 统计真实进度；这里同样只取三列，
       // 详情接口的 steps 字段仍然来自 JSON 快照（前端规划期要的形状）。
@@ -76,7 +84,7 @@ export class TaskService {
     }
   }
 
-  private async eventsFor(task: any, oldSteps: any[], newSteps: any[], oldStatus: any, newStatus: any) {
+  private async eventsFor(task: any, oldSteps: any[], newSteps: any[], oldStatus: any, newStatus: any, tx: Prisma.TransactionClient = this.prisma) {
     const ev: any[] = [];
 
     if (oldStatus !== newStatus && eventFor[newStatus]) {
@@ -97,7 +105,7 @@ export class TaskService {
       }
     }
 
-    if (ev.length) await this.prisma.taskRunEvent.createMany({ data: ev });
+    if (ev.length) await tx.taskRunEvent.createMany({ data: ev });
   }
 
   /**
@@ -150,10 +158,11 @@ export class TaskService {
   }
 
   async create(userId: string, dto: CreateTaskDto) {
-    const m = await this.membership(userId);
     this.validateLayout(dto.layout, dto.steps);
-
-    const r = await this.prisma.taskRun.create({
+    const r = await this.prisma.$transaction(async (tx) => {
+      await this.assertActiveUser(tx, userId);
+      const m = await tx.enterpriseMember.findFirst({ where: { userId }, select: { enterpriseId: true } });
+      const created = await tx.taskRun.create({
       data: {
         objective: dto.objective,
         summary: dto.summary || '',
@@ -164,9 +173,10 @@ export class TaskService {
         userId,
         enterpriseId: m?.enterpriseId,
       },
+      });
+      await tx.taskRunEvent.create({ data: { taskRunId: created.id, type: 'RUN_CREATED' } });
+      return created;
     });
-
-    await this.prisma.taskRunEvent.create({ data: { taskRunId: r.id, type: 'RUN_CREATED' } });
     return this.serializeTaskRun(r);
   }
 
@@ -213,7 +223,14 @@ export class TaskService {
   }
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
-    const old = await this.owned(id, userId);
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertActiveUser(tx, userId);
+      return this.updateInTx(tx, id, userId, dto);
+    });
+  }
+
+  private async updateInTx(tx: Prisma.TransactionClient, id: string, userId: string, dto: UpdateTaskDto) {
+    const old = await this.owned(id, userId, tx);
 
     if (dto.expectedUpdatedAt && new Date(dto.expectedUpdatedAt).getTime() !== old.updatedAt.getTime()) {
       throw new ConflictException({ message: 'Task was updated', current: this.serializeTaskRun(old) });
@@ -231,20 +248,20 @@ export class TaskService {
 
     let r: any;
     if (dto.expectedUpdatedAt) {
-      const result = await this.prisma.taskRun.updateMany({
+      const result = await tx.taskRun.updateMany({
         where: { id, updatedAt: new Date(dto.expectedUpdatedAt) },
         data,
       });
       if (result.count !== 1) {
-        const current = await this.owned(id, userId);
+        const current = await this.owned(id, userId, tx);
         throw new ConflictException({ message: 'Task was updated', current: this.serializeTaskRun(current) });
       }
-      r = await this.prisma.taskRun.findUniqueOrThrow({ where: { id } });
+      r = await tx.taskRun.findUniqueOrThrow({ where: { id } });
     } else {
-      r = await this.prisma.taskRun.update({ where: { id }, data });
+      r = await tx.taskRun.update({ where: { id }, data });
     }
 
-    await this.eventsFor(r, Array.isArray(old.steps) ? old.steps : [], nextSteps, old.status, r.status);
+    await this.eventsFor(r, Array.isArray(old.steps) ? old.steps : [], nextSteps, old.status, r.status, tx);
     return this.serializeTaskRun(r);
   }
 

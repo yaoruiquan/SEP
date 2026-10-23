@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -74,6 +75,15 @@ export default function SecurityPage() {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>账号生命周期</CardTitle>
+            <CardDescription>注销个人账号需要邮件验证，并提供宽限期撤销。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/account-closure" className="text-sm text-primary underline">管理账号注销</Link>
+          </CardContent>
+        </Card>
         {/* Sensitive Words */}
         <Card>
           <CardHeader>

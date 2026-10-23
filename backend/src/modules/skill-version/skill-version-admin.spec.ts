@@ -96,7 +96,10 @@ function setup() {
     personalWallet: { upsert: jest.fn().mockResolvedValue({ id: 'wallet-1', balance: new Prisma.Decimal(0), version: 0 }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     personalWalletTransaction: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
-    $queryRaw: jest.fn().mockResolvedValue([]), $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockImplementation((parts: TemplateStringsArray) =>
+      String(parts?.join?.(' ') ?? '').includes('FROM users')
+        ? Promise.resolve([{ id: 'member', status: 'ACTIVE' }])
+        : Promise.resolve([])), $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation((fn) => fn(prisma));
   const security = { assertReviewable: jest.fn().mockResolvedValue(undefined) };

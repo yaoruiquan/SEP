@@ -40,6 +40,7 @@ import {
 } from "../notifications/notifications.service";
 import { AuditService } from "../audit/audit.service";
 import { PackageSecurityService } from './package-security.service';
+import { assertActiveRewardRecipientInTx } from '../personal-wallet/personal-wallet.service';
 
 const DEFAULT_REWARD_CNY = { enterprise: "10", platform: "50" } as const;
 
@@ -61,6 +62,7 @@ async function creditRewardInTx(
   description: string,
 ) {
   if (!tx.personalWallet || amount.lessThanOrEqualTo(0)) return;
+  await assertActiveRewardRecipientInTx(tx, userId);
   const wallet = await tx.personalWallet.upsert({
     where: { userId },
     create: { userId },
@@ -758,6 +760,7 @@ export class CapabilityContributionService {
         );
       }
       if (rewardsEnabled) {
+        await assertActiveRewardRecipientInTx(tx, capability.contributorId);
         const amount = await this.rewardAmount("enterprise");
         const dedupeKey = `enterprise-approved:${capability.id}`;
         await tx.contributionRewardEvent.createMany({
@@ -1031,6 +1034,7 @@ export class CapabilityContributionService {
         );
       }
       if (rewardsEnabled) {
+        await assertActiveRewardRecipientInTx(tx, capability.contributorId);
         const amount = await this.rewardAmount("platform");
         const dedupeKey = `platform-approved:${capability.id}`;
         await tx.contributionRewardEvent.createMany({

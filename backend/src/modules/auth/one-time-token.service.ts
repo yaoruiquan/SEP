@@ -36,6 +36,8 @@ export class OneTimeTokenService {
     const expiresAt = new Date(Date.now() + this.ttlSeconds * 1000);
 
     await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') throw new BadRequestException('账号当前不可用');
       await tx.authOneTimeToken.updateMany({
         where: {
           userId: input.userId,
@@ -67,9 +69,13 @@ export class OneTimeTokenService {
       throw new BadRequestException('令牌无效或已过期');
     }
 
-    const consumed = await this.prisma.authOneTimeToken.updateMany({
-      where: { id: record.id, consumedAt: null, expiresAt: { gt: new Date() } },
-      data: { consumedAt: new Date() },
+    const consumed = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${record.userId} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') throw new BadRequestException('令牌无效或已过期');
+      return tx.authOneTimeToken.updateMany({
+        where: { id: record.id, consumedAt: null, expiresAt: { gt: new Date() } },
+        data: { consumedAt: new Date() },
+      });
     });
     if (consumed.count !== 1) throw new BadRequestException('令牌无效或已过期');
 

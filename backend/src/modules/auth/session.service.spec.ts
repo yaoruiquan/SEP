@@ -17,6 +17,7 @@ describe('SessionService', () => {
 
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
       authSession: {
         create: jest.fn().mockResolvedValue({ id: 'session-1' }),
         update: jest.fn(),
@@ -51,6 +52,27 @@ describe('SessionService', () => {
     expect(prisma.authSession.create.mock.calls[0][0].data).toMatchObject({
       userId: 'user-1', type: 'WEB', familyId: result.familyId,
     });
+  });
+
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('does not create a session for %s accounts', async (status) => {
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+    await expect(service.createSession({ userId: 'user-1', clientType: 'WEB', refreshTtlSeconds: 3600 }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.authSession.create).not.toHaveBeenCalled();
+    expect(prisma.authToken.create).not.toHaveBeenCalled();
+  });
+
+  it('rechecks account status under the user lock after refresh prevalidation', async () => {
+    prisma.authToken.findUnique.mockResolvedValue({
+      id: 'token-1', usedAt: null, revokedAt: null, expiresAt: new Date(Date.now() + 60_000),
+      session: { id: 'session-1', userId: 'user-1', type: 'WEB', familyId: 'family-1', revokedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    });
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status: 'CLOSURE_PENDING' }]);
+    const revoke = jest.spyOn(service, 'revokeSessionFamily').mockResolvedValue();
+    await expect(service.rotateRefreshToken('token', 'WEB')).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.authToken.create).not.toHaveBeenCalled();
+    expect(prisma.authToken.updateMany).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalled();
   });
 
   it('rotates a refresh token and consumes the old token', async () => {

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
 import { THROTTLER_SKIP, THROTTLER_LIMIT } from '@nestjs/throttler/dist/throttler.constants';
@@ -96,6 +96,7 @@ function fixture(role = 'MEMBER') {
     return { ...row };
   };
   const prisma: any = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
     subscription: { findFirst: jest.fn(async ({ where }) => ({ id: where.id, name: `Subscription ${where.id}`,
       employeeId: `employee-${where.id}`, employee: { name: `Employee ${where.id}` } })) },
     clientTaskMirror: {
@@ -237,6 +238,13 @@ describe('Client task mirror permissions and pagination', () => {
 });
 
 describe('Client task mirror create and run synchronization', () => {
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('rejects task creation after account becomes %s', async (status) => {
+    const f = fixture();
+    f.prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+    await expect(f.service.createTaskMirror('user-1', createBody())).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(f.prisma.clientTaskMirror.create).not.toHaveBeenCalled();
+  });
+
   it('new create is authorized; same run replay after completed never resets state', async () => {
     const f = fixture();
     const first = await f.service.createTaskMirror('user-1', createBody());

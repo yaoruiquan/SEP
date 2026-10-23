@@ -7,7 +7,7 @@ import { DICEBEAR_STYLES, FOLLOW_DEFAULT_STYLE_ID, SILICON_3D_STYLE, canonicalAv
 import { DEFAULT_AVATAR_STYLE_ID, employeeEffectiveStyle, resolveAvatarForStyle, preservedAvatarBindings, isAvatarImageUrl } from '../../common/avatar-style';
 import { withEmployeeAvatar } from '../../common/employee-avatar';
 import { SettingService } from '../setting/setting.service';
-import { PersonalWalletService } from '../personal-wallet/personal-wallet.service';
+import { PersonalWalletService, assertActiveRewardRecipientInTx } from '../personal-wallet/personal-wallet.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { EmployeeReadinessService } from '../digital-employee/employee-readiness.service';
 
@@ -1088,6 +1088,7 @@ export class AdminService {
         const existingReward = await tx.contributionRewardEvent.findUnique({ where: { dedupeKey }, select: { id: true } });
         if (!existingReward) {
           const amount = await this.contributionRewardAmount('platform');
+          await assertActiveRewardRecipientInTx(tx, capability.contributorId);
           const event = await tx.contributionRewardEvent.create({ data: { recipientId: capability.contributorId, enterpriseId: capability.enterpriseId, capabilityId: capability.id, eventType: 'PLATFORM_APPROVED', points: 50, amount, status: 'AVAILABLE', settledAt: reviewedAt, dedupeKey, metadata: { reviewerId: operatorId, amountCNY: amount.toString() } } });
           await this.personalWallet?.creditContributionRewardInTx(tx, capability.contributorId, amount, event.id, `平台审核通过奖励 ¥${amount.toFixed(2)}`);
         }

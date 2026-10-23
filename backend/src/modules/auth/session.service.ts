@@ -128,6 +128,10 @@ export class SessionService {
     }
 
     const session = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') {
+        throw new UnauthorizedException('Account is not active');
+      }
       const session = await tx.authSession.create({
         data: {
           userId: input.userId,
@@ -214,6 +218,8 @@ export class SessionService {
     const nextHash = this.hashToken(nextRefreshToken);
 
     const consumed = await this.prisma.$transaction(async (tx) => {
+      const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${session.userId} FOR UPDATE`;
+      if (!userRows[0] || userRows[0].status !== 'ACTIVE') return false;
       const result = await tx.authToken.updateMany({
         where: {
           id: existing.id, usedAt: null, revokedAt: null, expiresAt: { gt: now },

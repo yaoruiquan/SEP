@@ -66,7 +66,7 @@ function setup(overrides: Record<string, unknown> = {}, publicSource = false, re
     employeeCapabilityBinding: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
     enterpriseSkillDefault: { updateMany: jest.fn() }, subscriptionSkillVersion: { updateMany: jest.fn() },
     contributionRewardEvent: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    $queryRaw: jest.fn(), $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'member', status: 'ACTIVE' }]), $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation(async (fn) => {
     const before = rows.map((row) => ({ ...row }));

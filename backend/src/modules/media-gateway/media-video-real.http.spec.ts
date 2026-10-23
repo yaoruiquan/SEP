@@ -114,6 +114,7 @@ describe('real video controller and guard HTTP', () => {
         reservedCny: { equals: () => true }, usdToCnyRate: { equals: () => true }, status: 'RELEASED' }
       : null;
     const tx = {
+      $queryRaw: jest.fn(async () => [{ id: videoClaims.sub, status: 'ACTIVE' }]),
       mediaRealBillingReservation: { findUnique: jest.fn(async () => prior), create: jest.fn() },
       subscriptionCredit: { findUnique: jest.fn(async () => null) },
       memberComputeAllowance: { findUnique: jest.fn(async () => null) },
@@ -157,6 +158,7 @@ describe('real video controller and guard HTTP', () => {
     const db = videoRealPrisma();
     const store = new MediaVideoRealStore(db as never);
     const tx = {
+      $queryRaw: jest.fn(async () => [{ id: videoClaims.sub, status: 'ACTIVE' }]),
       mediaRealBillingReservation: { findUnique: jest.fn(async () => null), create: jest.fn() },
       subscriptionCredit: { findUnique: jest.fn(async () => null) },
       memberComputeAllowance: { findUnique: jest.fn(async () => null) },

@@ -10,6 +10,12 @@ import {
 } from '@/lib/auth-store';
 import type { EnterpriseRole, InvitationPreview } from '@/lib/types';
 import { qk } from '@/lib/query-keys';
+import type {
+  AccountClosureEligibility,
+  AccountClosureResult,
+  AccountClosureRequestDto,
+} from 'shared/account-closure';
+import type { AccountClosureRecoveryDto } from 'shared/index';
 
 /**
  * 只允许跳回**站内**路径，挡开放重定向。
@@ -25,7 +31,6 @@ export function safeRedirect(target: string | null | undefined): string | null {
   if (target.startsWith('//')) return null;
   return target;
 }
-
 
 export type OAuthProviderId = 'wechat' | 'qq' | 'dingtalk';
 
@@ -50,7 +55,6 @@ export function useOAuthProviders() {
     retry: false,
   });
 }
-
 
 export function useLogin(redirectTo?: string | null) {
   const router = useRouter();
@@ -92,7 +96,8 @@ export function useRegister() {
       password: string;
       enterpriseName: string;
       name?: string;
-    }) => api.post<AuthPayload>('/auth/register', body, { skipAuthRetry: true }),
+    }) =>
+      api.post<AuthPayload>('/auth/register', body, { skipAuthRetry: true }),
     onSuccess: (data) => {
       setAuth(data);
       router.replace(defaultHomeFor(data.user, data.enterprise));
@@ -220,9 +225,11 @@ export function useLeaveEnterprise(invitationToken?: string | null) {
         setAuth({ token, user, enterprise: null, roleInEnterprise: null });
       }
       queryClient.clear();
-      router.replace(invitationToken
-        ? `/join?token=${encodeURIComponent(invitationToken)}`
-        : '/no-enterprise');
+      router.replace(
+        invitationToken
+          ? `/join?token=${encodeURIComponent(invitationToken)}`
+          : '/no-enterprise',
+      );
     },
   });
 }
@@ -243,7 +250,6 @@ export function useLogout() {
     },
   });
 }
-
 
 export interface AuthSession {
   id: string;
@@ -286,7 +292,8 @@ export function useAuthEvents() {
 export function useRevokeAuthSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (sessionId: string) => api.delete<void>(`/auth/sessions/${sessionId}`),
+    mutationFn: (sessionId: string) =>
+      api.delete<void>(`/auth/sessions/${sessionId}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] });
     },
@@ -310,7 +317,9 @@ export function useRevokeAllAuthSessions() {
 export function useRequestPasswordReset() {
   return useMutation({
     mutationFn: (body: { email: string }) =>
-      api.post<{ message: string }>('/auth/password/forgot', body, { skipAuthRetry: true }),
+      api.post<{ message: string }>('/auth/password/forgot', body, {
+        skipAuthRetry: true,
+      }),
   });
 }
 
@@ -318,7 +327,9 @@ export function useResetPassword() {
   const router = useRouter();
   return useMutation({
     mutationFn: (body: { token: string; newPassword: string }) =>
-      api.post<{ message: string }>('/auth/password/reset', body, { skipAuthRetry: true }),
+      api.post<{ message: string }>('/auth/password/reset', body, {
+        skipAuthRetry: true,
+      }),
     onSuccess: () => router.replace('/login?reset=success'),
   });
 }
@@ -326,7 +337,11 @@ export function useResetPassword() {
 export function useConfirmEmailVerification() {
   return useMutation({
     mutationFn: (token: string) =>
-      api.post<{ message: string }>('/auth/email/verification/confirm', { token }, { skipAuthRetry: true }),
+      api.post<{ message: string }>(
+        '/auth/email/verification/confirm',
+        { token },
+        { skipAuthRetry: true },
+      ),
   });
 }
 
@@ -355,7 +370,13 @@ export function useConfirmEmailChange() {
       ),
     onSuccess: ({ email }) => {
       queryClient.invalidateQueries({ queryKey: qk.me });
-      const { user, token: accessToken, enterprise, roleInEnterprise, setAuth } = useAuthStore.getState();
+      const {
+        user,
+        token: accessToken,
+        enterprise,
+        roleInEnterprise,
+        setAuth,
+      } = useAuthStore.getState();
       if (user && accessToken) {
         setAuth({
           token: accessToken,
@@ -368,6 +389,71 @@ export function useConfirmEmailChange() {
   });
 }
 
+export function useAccountClosureEligibility(enabled = true) {
+  return useQuery({
+    queryKey: ['auth', 'account-closure', 'eligibility'] as const,
+    queryFn: () =>
+      api.get<AccountClosureEligibility>('/auth/account-closure/eligibility'),
+    enabled,
+    retry: false,
+    staleTime: 10_000,
+  });
+}
+
+export function useRequestAccountClosureVerification() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/auth/account-closure/verification', {}),
+  });
+}
+
+export function useSubmitAccountClosure() {
+  const clear = useAuthStore((s) => s.clear);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AccountClosureRequestDto) =>
+      api.post<AccountClosureResult>('/auth/account-closure', body, {
+        skipAuthRetry: true,
+      }),
+    onSuccess: () => {
+      clear();
+      queryClient.clear();
+    },
+  });
+}
+
+export function useCancelAccountClosure() {
+  return useMutation({
+    mutationFn: (token: string) =>
+      api.post<{ message: string }>(
+        '/auth/account-closure/cancel',
+        { token },
+        { skipAuthRetry: true },
+      ),
+  });
+}
+
+export function useAccountClosureCancellationPreview(token: string | null) {
+  return useQuery({
+    queryKey: ['auth', 'account-closure', 'cancel', token] as const,
+    queryFn: () =>
+      api.get<{ scheduledFor: string; status: 'PENDING'; canCancel: true }>(
+        `/auth/account-closure/cancel?token=${encodeURIComponent(token as string)}`,
+        { skipAuthRetry: true },
+      ),
+    enabled: Boolean(token),
+    retry: false,
+  });
+}
+
+export function useRecoverAccountClosure() {
+  return useMutation({
+    mutationFn: (body: AccountClosureRecoveryDto) =>
+      api.post<{ message: string }>('/auth/account-closure/recovery', body, {
+        skipAuthRetry: true,
+      }),
+  });
+}
 
 export interface OAuthIdentity {
   id: string;
@@ -389,7 +475,10 @@ export function useOAuthIdentities() {
 export function useStartOAuthLink() {
   return useMutation({
     mutationFn: (provider: 'wechat' | 'qq' | 'dingtalk') =>
-      api.post<{ authorizationUrl: string }>(`/auth/oauth/${provider}/link/start`, {}),
+      api.post<{ authorizationUrl: string }>(
+        `/auth/oauth/${provider}/link/start`,
+        {},
+      ),
     onSuccess: ({ authorizationUrl }) => {
       window.location.assign(authorizationUrl);
     },
@@ -402,7 +491,9 @@ export function useUnlinkOAuthIdentity() {
     mutationFn: (identityId: string) =>
       api.delete<{ message: string }>(`/auth/oauth/identities/${identityId}`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'oauth-identities'] });
+      void queryClient.invalidateQueries({
+        queryKey: ['auth', 'oauth-identities'],
+      });
     },
   });
 }

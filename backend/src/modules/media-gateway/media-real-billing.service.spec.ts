@@ -23,6 +23,7 @@ const allowance = () => ({ id: 'allowance-1', enterpriseId: claims.enterpriseId,
   enabled: true, limitCNY: d(5), period: 'MONTH', carryOver: false,
   dailyLimitCNY: null as Decimal | null, monthlyLimitCNY: null as Decimal | null, dailyBypassUntil: null as Date | null });
 const txMock = () => ({
+  $queryRaw: jest.fn().mockResolvedValue([{ id: claims.sub, status: 'ACTIVE' }]),
   mediaRealBillingReservation: {
     findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     aggregate: jest.fn().mockResolvedValue({ _sum: { creditCny: d(0), memberWalletCny: d(0) } }),
@@ -61,6 +62,14 @@ describe('MediaRealBillingService', () => {
     expect(tx.mediaRealBillingReservation.create).toHaveBeenCalledTimes(1);
     expect(tx.personalWalletTransaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ relatedId: 'receipt-1', type: 'CONSUME', balanceBefore: d(20), balanceAfter: d('16.5') }) });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  });
+
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('rejects even an idempotent reserve for %s accounts', async status => {
+    tx.$queryRaw.mockResolvedValue([{ id: claims.sub, status }]);
+    tx.mediaRealBillingReservation.findUnique.mockResolvedValue(reservation());
+    await expect(service.reserve(claims, 'receipt-1', '5.000000', 7)).rejects.toMatchObject({ status: 401 });
+    expect(tx.mediaRealBillingReservation.findUnique).not.toHaveBeenCalled();
+    expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
   });
 
   it.each(['subscription', 'rate', 'amount'])('rejects reuse with a changed %s', async field => {

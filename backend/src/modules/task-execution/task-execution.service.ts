@@ -9,6 +9,7 @@ import {
   TASK_EVENT_TYPE,
   TASK_RUN_STATUS,
   TASK_STEP_STATUS,
+  type Prisma,
   type TaskRun,
   type TaskRunStep,
 } from '@prisma/client';
@@ -99,46 +100,50 @@ export class TaskExecutionService {
    * 误操作，静默重排会导致同一步被跑两次（各扣一次费）。
    */
   async run(taskRunId: string, userId: string, fromStepKey?: string): Promise<TaskExecutionSnapshot> {
-    const run = await this.owned(taskRunId, userId);
-    if (run.status === TASK_RUN_STATUS.RUNNING) {
-      throw new ConflictException('任务正在执行中');
-    }
+    const { updated, startedAt } = await this.prisma.$transaction(async (tx) => {
+      await this.assertActiveUser(tx, userId);
+      const run = await this.owned(taskRunId, userId, tx);
+      if (run.status === TASK_RUN_STATUS.RUNNING) {
+        throw new ConflictException('任务正在执行中');
+      }
 
-    const steps = await this.materialize(run);
-    if (steps.length === 0) {
-      throw new BadRequestException('这个任务没有可执行的步骤');
-    }
+      const steps = await this.materialize(run, tx);
+      if (steps.length === 0) {
+        throw new BadRequestException('这个任务没有可执行的步骤');
+      }
 
-    if (fromStepKey) {
-      const target = steps.find((step) => step.stepKey === fromStepKey);
-      if (!target) throw new NotFoundException('Step not found');
-      await this.resetFrom(steps, fromStepKey, taskRunId);
-    } else {
+      if (fromStepKey) {
+        const target = steps.find((step) => step.stepKey === fromStepKey);
+        if (!target) throw new NotFoundException('Step not found');
+        await this.resetFrom(steps, fromStepKey, taskRunId, tx);
+      } else {
       // 不指定起点时只重置失败与暂停的步骤，已完成的产出保留 ——
       // 「继续执行」不该把前面跑好的步骤再跑一遍。
-      const revivable = steps.filter((step) => REVIVABLE_STEP_STATUSES.includes(step.status));
-      if (revivable.length > 0) {
-        await this.prisma.taskRunStep.updateMany({
-          where: { id: { in: revivable.map((step) => step.id) } },
-          data: { status: TASK_STEP_STATUS.QUEUED, error: null, startedAt: null, completedAt: null, durationMs: null },
-        });
+        const revivable = steps.filter((step) => REVIVABLE_STEP_STATUSES.includes(step.status));
+        if (revivable.length > 0) {
+          await tx.taskRunStep.updateMany({
+            where: { id: { in: revivable.map((step) => step.id) } },
+            data: { status: TASK_STEP_STATUS.QUEUED, error: null, startedAt: null, completedAt: null, durationMs: null },
+          });
+        }
       }
-    }
 
-    const startedAt = run.startedAt ?? new Date();
-    const updated = await this.prisma.taskRun.update({
-      where: { id: taskRunId },
-      data: {
-        status: TASK_RUN_STATUS.RUNNING,
-        startedAt,
-        completedAt: null,
-        stopRequestedAt: null,
-        heartbeatAt: new Date(),
-        claimedBy: null,
-        deliverable: null,
-        deliverableGeneratedAt: null,
-        deliverableDegraded: false,
-      },
+      const startedAt = run.startedAt ?? new Date();
+      const updated = await tx.taskRun.update({
+        where: { id: taskRunId },
+        data: {
+          status: TASK_RUN_STATUS.RUNNING,
+          startedAt,
+          completedAt: null,
+          stopRequestedAt: null,
+          heartbeatAt: new Date(),
+          claimedBy: null,
+          deliverable: null,
+          deliverableGeneratedAt: null,
+          deliverableDegraded: false,
+        },
+      });
+      return { updated, startedAt };
     });
 
     this.bus.publish(taskRunId, {
@@ -218,22 +223,27 @@ export class TaskExecutionService {
   }
 
   async resumeStep(taskRunId: string, userId: string, stepKey: string): Promise<TaskRunStepView> {
-    const run = await this.owned(taskRunId, userId);
-    const step = await this.requireStep(taskRunId, stepKey);
-    if (step.status !== TASK_STEP_STATUS.PAUSED) return serializeStep(step);
+    const { run, updated, changed } = await this.prisma.$transaction(async (tx) => {
+      await this.assertActiveUser(tx, userId);
+      const run = await this.owned(taskRunId, userId, tx);
+      const step = await this.requireStep(taskRunId, stepKey, tx);
+      if (step.status !== TASK_STEP_STATUS.PAUSED) return { run, updated: step, changed: false };
 
-    const updated = await this.prisma.taskRunStep.update({
-      where: { id: step.id },
-      data: { status: TASK_STEP_STATUS.QUEUED },
+      const updated = await tx.taskRunStep.update({
+        where: { id: step.id },
+        data: { status: TASK_STEP_STATUS.QUEUED },
+      });
+      return { run, updated, changed: true };
     });
+    if (!changed) return serializeStep(updated);
     this.bus.publish(taskRunId, { type: 'step_status', stepKey, status: 'queued' });
     await this.events.record({
       taskRunId,
       type: TASK_EVENT_TYPE.STEP_RESUMED,
       stepId: stepKey,
-      stepTitle: step.title,
-      employeeName: step.employeeName,
-      message: `${step.employeeName} 继续`,
+      stepTitle: updated.title,
+      employeeName: updated.employeeName,
+      message: `${updated.employeeName} 继续`,
     });
 
     // 运行还在 RUNNING 但 worker 已经因为「全在等人」退出了，恢复时要把它叫回来
@@ -243,14 +253,21 @@ export class TaskExecutionService {
 
   // ── 内部 ──────────────────────────────────────────────────────────────────
 
-  private async owned(taskRunId: string, userId: string): Promise<TaskRun> {
-    const run = await this.prisma.taskRun.findUnique({ where: { id: taskRunId } });
+  private async assertActiveUser(tx: Prisma.TransactionClient, userId: string) {
+    const users = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    if (users[0]?.status !== 'ACTIVE') throw new ConflictException('账号当前不可启动任务');
+  }
+
+  private async owned(taskRunId: string, userId: string, tx: Prisma.TransactionClient = this.prisma): Promise<TaskRun> {
+    const run = await tx.taskRun.findUnique({ where: { id: taskRunId } });
     if (!run || run.userId !== userId) throw new NotFoundException('Task not found');
     return run;
   }
 
-  private async requireStep(taskRunId: string, stepKey: string): Promise<TaskRunStep> {
-    const step = await this.prisma.taskRunStep.findUnique({
+  private async requireStep(taskRunId: string, stepKey: string, tx: Prisma.TransactionClient = this.prisma): Promise<TaskRunStep> {
+    const step = await tx.taskRunStep.findUnique({
       where: { taskRunId_stepKey: { taskRunId, stepKey } },
     });
     if (!step) throw new NotFoundException('Step not found');
@@ -264,8 +281,8 @@ export class TaskExecutionService {
    * 第一次需要执行或查看执行视图时才落成行。这样规划阶段的反复编辑不必每次
    * 同步两份数据。
    */
-  private async materialize(run: TaskRun): Promise<TaskRunStep[]> {
-    const existing = await this.prisma.taskRunStep.findMany({
+  private async materialize(run: TaskRun, tx: Prisma.TransactionClient = this.prisma): Promise<TaskRunStep[]> {
+    const existing = await tx.taskRunStep.findMany({
       where: { taskRunId: run.id },
       orderBy: { order: 'asc' },
     });
@@ -274,7 +291,7 @@ export class TaskExecutionService {
     if (seeds.length === 0) return existing;
 
     if (existing.length === 0) {
-      await this.prisma.taskRunStep.createMany({
+      await tx.taskRunStep.createMany({
         data: seeds.map((seed) => ({
           taskRunId: run.id,
           stepKey: seed.stepKey,
@@ -295,14 +312,14 @@ export class TaskExecutionService {
         skipDuplicates: true,
       });
       this.logger.log(`Materialized ${seeds.length} step(s) for run ${run.id}`);
-      return this.prisma.taskRunStep.findMany({ where: { taskRunId: run.id }, orderBy: { order: 'asc' } });
+      return tx.taskRunStep.findMany({ where: { taskRunId: run.id }, orderBy: { order: 'asc' } });
     }
 
     // 行已存在但计划被改过（停止后换人、加步骤、删依赖）。行是权威，
     // 但计划才是用户刚刚编辑的东西 —— 不同步的话「改了没生效」，而且界面上
     // 看不出来是没生效还是改错了。
-    await this.reconcileWithPlan(run.id, existing, seeds);
-    return this.prisma.taskRunStep.findMany({ where: { taskRunId: run.id }, orderBy: { order: 'asc' } });
+    await this.reconcileWithPlan(run.id, existing, seeds, tx);
+    return tx.taskRunStep.findMany({ where: { taskRunId: run.id }, orderBy: { order: 'asc' } });
   }
 
   /**
@@ -316,20 +333,21 @@ export class TaskExecutionService {
     taskRunId: string,
     existing: TaskRunStep[],
     seeds: PlanStepSeed[],
+    tx: Prisma.TransactionClient = this.prisma,
   ): Promise<void> {
     const seedByKey = new Map(seeds.map((seed) => [seed.stepKey, seed]));
     const existingByKey = new Map(existing.map((step) => [step.stepKey, step]));
 
     const removed = existing.filter((step) => !seedByKey.has(step.stepKey));
     if (removed.length > 0) {
-      await this.prisma.taskRunStep.deleteMany({ where: { id: { in: removed.map((step) => step.id) } } });
+      await tx.taskRunStep.deleteMany({ where: { id: { in: removed.map((step) => step.id) } } });
     }
 
     for (const seed of seeds) {
       const row = existingByKey.get(seed.stepKey);
 
       if (!row) {
-        await this.prisma.taskRunStep.create({
+        await tx.taskRunStep.create({
           data: {
             taskRunId,
             stepKey: seed.stepKey,
@@ -355,7 +373,7 @@ export class TaskExecutionService {
         row.capabilityId !== seed.capabilityId ||
         row.title !== seed.title;
 
-      await this.prisma.taskRunStep.update({
+      await tx.taskRunStep.update({
         where: { id: row.id },
         data: {
           order: seed.order,
@@ -388,12 +406,12 @@ export class TaskExecutionService {
     }
   }
 
-  private async resetFrom(steps: TaskRunStep[], rootKey: string, taskRunId: string): Promise<void> {
+  private async resetFrom(steps: TaskRunStep[], rootKey: string, taskRunId: string, tx: Prisma.TransactionClient = this.prisma): Promise<void> {
     const affected = collectDownstream(steps, rootKey);
     const ids = steps.filter((step) => affected.has(step.stepKey)).map((step) => step.id);
     if (ids.length === 0) return;
 
-    await this.prisma.taskRunStep.updateMany({
+    await tx.taskRunStep.updateMany({
       where: { id: { in: ids } },
       data: {
         status: TASK_STEP_STATUS.QUEUED,

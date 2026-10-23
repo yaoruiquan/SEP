@@ -12,6 +12,7 @@ describe('MediaRealBillingService video settlement isolation', () => {
   let prisma: { $transaction: jest.Mock };
   beforeEach(() => {
     tx = {
+      $queryRaw: jest.fn(async () => [{ id: 'user-1', status: 'ACTIVE' }]),
       mediaRealBillingReservation: { findUnique: jest.fn(async () => reservation()), updateMany: jest.fn(async () => ({ count: 1 })), update: jest.fn() },
       subscription: { findFirst: jest.fn(async () => ({ employeeId: 'employee-1' })) },
       computeUsageRecord: { create: jest.fn() },

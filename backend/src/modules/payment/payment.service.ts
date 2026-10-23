@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ConfigService } from "@nestjs/config";
@@ -207,17 +208,28 @@ export class PaymentService {
    * 所以 subject 必须写清「个人」，否则用户在支付宝账单里分不出是替公司充的还是自费。
    */
   async createPersonalRechargeAlipayPayment(orderNo: string, returnUrl?: string) {
-    const order = await this.prisma.personalRechargeOrder.findUnique({
+    const existing = await this.prisma.personalRechargeOrder.findUnique({
       where: { orderNo },
     });
 
-    if (!order) {
+    if (!existing) {
       throw new NotFoundException("充值订单不存在");
     }
 
-    if (order.status !== "PENDING") {
-      throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
-    }
+    const order = await this.prisma.$transaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT status FROM users WHERE id = ${existing.userId} FOR UPDATE
+      `;
+      if (users[0]?.status !== "ACTIVE") {
+        throw new ConflictException("账号当前不可发起个人充值");
+      }
+      const current = await tx.personalRechargeOrder.findUnique({ where: { orderNo } });
+      if (!current) throw new NotFoundException("充值订单不存在");
+      if (current.status !== "PENDING") {
+        throw new BadRequestException(`订单状态为 ${current.status}，无法支付`);
+      }
+      return current;
+    });
 
     await this.initializeAlipay();
 

@@ -3,6 +3,7 @@ import { OAuthService } from './oauth.service';
 
 function makeService(withEvents = false) {
   const prisma: any = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
     authIdentity: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -31,6 +32,18 @@ function makeService(withEvents = false) {
 }
 
 describe('OAuthService identity policy', () => {
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('rejects LOGIN/LINK callback writes for %s accounts', async (status) => {
+    const { service, prisma } = makeService();
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+    const profile = { provider: 'wechat', providerAccountId: 'unionid-1', email: null, name: 'U', avatar: null, rawProfile: {}, emailVerified: null };
+    prisma.authIdentity.findUnique.mockResolvedValue({ id: 'identity-1', userId: 'user-1' });
+    await expect((service as any).resolveIdentity({ provider: 'wechat', intent: 'LOGIN', userId: null }, profile)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect((service as any).resolveIdentity({ provider: 'wechat', intent: 'LINK', userId: 'user-1' }, profile)).rejects.toBeInstanceOf(UnauthorizedException);
+    prisma.authIdentity.findUnique.mockResolvedValue(null);
+    await expect((service as any).resolveIdentity({ provider: 'wechat', intent: 'LINK', userId: 'user-1' }, profile)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.authIdentity.update).not.toHaveBeenCalled();
+    expect(prisma.authIdentity.create).not.toHaveBeenCalled();
+  });
   it('registers a new identity without merging by provider email', async () => {
     const { service, prisma } = makeService();
     prisma.authIdentity.findUnique.mockResolvedValue(null);

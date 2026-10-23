@@ -477,11 +477,11 @@ export class AuthService {
       await this.risk?.recordAnonymousFailure(auditContext);
       throw new UnauthorizedException('邮箱或密码错误');
     }
-    if (user.status === 'DISABLED') {
+    if (user.status !== 'ACTIVE') {
       await this.rateLimit?.consume('login-account', emailHash, { limit: 12, windowSeconds: 900 });
       if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
       await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'password', metadata: { reason: 'account_disabled' } });
-      throw new UnauthorizedException('账号已被禁用');
+      throw new UnauthorizedException('账号当前不可登录');
     }
 
     const credential = user.authCredentials[0];
@@ -547,7 +547,7 @@ export class AuthService {
       provider: 'email',
       metadata: { emailHash },
     });
-    if (user) {
+    if (user?.status === 'ACTIVE') {
       const issued = await tokens.issue({ userId: user.id, type: 'PASSWORD_RESET' });
       await mail.sendPasswordReset({
         to: user.email,
@@ -561,15 +561,17 @@ export class AuthService {
     const { tokens, mail } = this.requireOneTimeServices();
     const consumed = await tokens.consume(dto.token, 'PASSWORD_RESET');
     const user = await this.prisma.user.findUnique({ where: { id: consumed.userId } });
-    if (!user) throw new BadRequestException('令牌无效或已过期');
+    if (!user || user.status !== 'ACTIVE') throw new BadRequestException('令牌无效或已过期');
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
-    await this.prisma.$transaction([
-      this.prisma.authCredential.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${user.id} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') throw new BadRequestException('令牌无效或已过期');
+      await tx.authCredential.upsert({
         where: { userId_type: { userId: user.id, type: 'LOCAL_PASSWORD' } },
         create: { userId: user.id, type: 'LOCAL_PASSWORD', passwordHash, lastUsedAt: new Date() },
         update: { passwordHash, failedCount: 0, lockedUntil: null, lastUsedAt: new Date() },
-      }),
-    ]);
+      });
+    });
     await this.sessions.revokeAllUserSessions(user.id, 'password_reset');
     await mail.sendPasswordChanged({ to: user.email });
     await this.events?.record({ userId: user.id, action: 'PASSWORD_RESET_COMPLETED' });
@@ -579,19 +581,21 @@ export class AuthService {
   async changePassword(userId: string, dto: ChangePasswordDto, currentSessionId?: string): Promise<void> {
     const { mail } = this.requireOneTimeServices();
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException('用户不存在');
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可用');
     const currentHash = await this.passwordHashFor(userId);
     if (!currentHash || !(await bcrypt.compare(dto.currentPassword, currentHash))) {
       throw new UnauthorizedException('当前密码不正确');
     }
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
-    await this.prisma.$transaction([
-      this.prisma.authCredential.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可用');
+      await tx.authCredential.upsert({
         where: { userId_type: { userId, type: 'LOCAL_PASSWORD' } },
         create: { userId, type: 'LOCAL_PASSWORD', passwordHash, lastUsedAt: new Date() },
         update: { passwordHash, failedCount: 0, lockedUntil: null, lastUsedAt: new Date() },
-      }),
-    ]);
+      });
+    });
     await this.sessions.revokeAllUserSessionsExcept(userId, currentSessionId, 'password_changed');
     await mail.sendPasswordChanged({ to: user.email });
     await this.events?.record({ userId, action: 'PASSWORD_CHANGED', sessionId: currentSessionId });
@@ -600,9 +604,13 @@ export class AuthService {
   async requestEmailVerification(userId: string, force = false, context: Pick<LoginAuditContext, 'ipAddress'> = {}): Promise<{ message: string }> {
     const { tokens, mail } = this.requireOneTimeServices();
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException('用户不存在');
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可用');
     if (force && user.emailVerifiedAt) {
-      await this.prisma.user.update({ where: { id: userId }, data: { emailVerifiedAt: null } });
+      await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+        if (!rows[0] || rows[0].status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可用');
+        await tx.user.update({ where: { id: userId }, data: { emailVerifiedAt: null } });
+      });
     }
     const emailLimit = force ? undefined : await this.rateLimit?.consume('email-verification-user', userId, { limit: 3, windowSeconds: 3600 });
     const ipLimit = force || !context.ipAddress ? undefined : await this.rateLimit?.consume('email-verification-ip', context.ipAddress, { limit: 10, windowSeconds: 3600 });
@@ -624,7 +632,11 @@ export class AuthService {
   async confirmEmailVerification(dto: ConfirmEmailVerificationDto): Promise<{ message: string }> {
     const { tokens } = this.requireOneTimeServices();
     const consumed = await tokens.consume(dto.token, 'EMAIL_VERIFICATION');
-    await this.prisma.user.update({ where: { id: consumed.userId }, data: { emailVerifiedAt: new Date() } });
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${consumed.userId} FOR UPDATE`;
+      if (!rows[0] || rows[0].status !== 'ACTIVE') throw new BadRequestException('令牌无效或已过期');
+      await tx.user.update({ where: { id: consumed.userId }, data: { emailVerifiedAt: new Date() } });
+    });
     await this.events?.record({ userId: consumed.userId, action: 'EMAIL_VERIFIED' });
     return { message: '邮箱验证成功' };
   }
@@ -635,9 +647,9 @@ export class AuthService {
     if (existing) throw new ConflictException('该邮箱已被使用');
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true, emailVerifiedAt: true },
+      select: { email: true, emailVerifiedAt: true, status: true },
     });
-    if (!user) throw new UnauthorizedException('用户不存在');
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可用');
     if (!user.emailVerifiedAt) throw new BadRequestException('请先验证当前邮箱');
     const issued = await tokens.issue({ userId, type: 'EMAIL_CHANGE', metadata: { newEmail: dto.newEmail } });
     await mail.sendEmailVerification({
@@ -653,7 +665,11 @@ export class AuthService {
     const newEmail = typeof consumed.metadata?.newEmail === 'string' ? consumed.metadata.newEmail : '';
     if (!newEmail) throw new BadRequestException('令牌无效或已过期');
     try {
-      await this.prisma.user.update({ where: { id: consumed.userId }, data: { email: newEmail, emailVerifiedAt: new Date() } });
+      await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${consumed.userId} FOR UPDATE`;
+        if (!rows[0] || rows[0].status !== 'ACTIVE') throw new BadRequestException('令牌无效或已过期');
+        await tx.user.update({ where: { id: consumed.userId }, data: { email: newEmail, emailVerifiedAt: new Date() } });
+      });
     } catch (error: any) {
       if (error?.code === 'P2002') throw new ConflictException('该邮箱已被使用');
       throw error;
@@ -691,7 +707,7 @@ export class AuthService {
   async loginWithUser(userId: string, res: Response, context: Pick<LoginAuditContext, 'ipAddress' | 'userAgent'> = {}): Promise<AuthResponse> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
-    if (user.status === 'DISABLED') throw new UnauthorizedException('账号已被禁用');
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可登录');
     const token = await this.issueWebSession(user, res, context, true, 'oauth');
     const membership = await this.findMembership(user.id);
     await this.events?.record({ userId: user.id, action: 'LOGIN_SUCCESS', provider: 'oauth', ipAddress: context.ipAddress, userAgent: context.userAgent });
@@ -714,7 +730,7 @@ export class AuthService {
     const rotated = await this.sessions.rotateRefreshToken(refreshToken, 'WEB');
     const user = await this.prisma.user.findUnique({ where: { id: rotated.userId } });
     if (!user) throw new UnauthorizedException('User not found');
-    if (user.status === 'DISABLED') throw new UnauthorizedException('账号已被禁用');
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可登录');
 
     if (res) this.setRefreshCookie(res, rotated.refreshToken);
     const token = this.signAccess(user, rotated.sessionId);

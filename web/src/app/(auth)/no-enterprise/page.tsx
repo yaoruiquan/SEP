@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Building2, Mail, LogOut, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +66,10 @@ export default function NoEnterprisePage() {
       )}
 
       <AcceptInviteSection email={user?.email ?? ''} />
+
+      <Link href="/account-closure" className="mt-4 block text-center text-sm text-fg-muted underline">
+        注销账号
+      </Link>
 
       <div className="my-6 flex items-center gap-3">
         <div className="h-px flex-1 bg-glassline" />

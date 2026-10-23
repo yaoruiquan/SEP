@@ -188,7 +188,7 @@ describe('ClientService', () => {
 
   it('refreshes an access token only for the matching active device', async () => {
     prisma.device.findUnique.mockResolvedValue({ userId: 'user-1', revokedAt: null });
-    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com', name: 'A', role: 'USER' });
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com', name: 'A', role: 'USER', status: 'ACTIVE' });
     prisma.enterpriseMember.findFirst.mockResolvedValue({ enterprise: { id: 'ent-1', name: 'Acme' } });
 
     await expect(service.refreshAccessToken({ refreshToken: 'refresh-token' })).resolves.toMatchObject({
@@ -200,6 +200,16 @@ describe('ClientService', () => {
       expect.objectContaining({ sub: 'user-1', type: 'access' }),
       expect.objectContaining({ expiresIn: 3600 }),
     );
+  });
+
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('rejects desktop refresh and login for %s accounts', async (status) => {
+    prisma.device.findUnique.mockResolvedValue({ userId: 'user-1', revokedAt: null });
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', status });
+    await expect(service.refreshAccessToken({ refreshToken: 'refresh-token' })).rejects.toThrow('Account is not active');
+    await expect(service.login({ email: 'a@example.com', password: 'Password123', fingerprint: 'fingerprint', platform: 'macos', clientVersion: '1.0.0' } as any)).rejects.toThrow('账号当前不可登录');
+    expect(sessions.rotateRefreshToken).not.toHaveBeenCalled();
+    expect(sessions.createSession).not.toHaveBeenCalled();
+    expect(prisma.device.upsert).not.toHaveBeenCalled();
   });
 
   it('aggregates enterprise allowance and personal wallet for the client', async () => {

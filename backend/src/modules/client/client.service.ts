@@ -190,11 +190,11 @@ export class ClientService {
       await this.risk?.recordAnonymousFailure(auditContext);
       throw new UnauthorizedException('邮箱或密码错误');
     }
-    if (user.status === 'DISABLED') {
+    if (user.status !== 'ACTIVE') {
       await this.rateLimit?.consume('login-account', dto.email.trim().toLowerCase(), { limit: 12, windowSeconds: 900 });
       if (context.ipAddress) await this.rateLimit?.consume('login-ip', context.ipAddress, { limit: 30, windowSeconds: 300 });
       await this.events?.record({ userId: user.id, action: 'LOGIN_FAILED', success: false, provider: 'desktop-password', metadata: { reason: 'account_disabled' } });
-      throw new UnauthorizedException('账号已被禁用');
+      throw new UnauthorizedException('账号当前不可登录');
     }
 
     const credential = user.authCredentials[0];
@@ -218,7 +218,10 @@ export class ClientService {
     await this.risk?.recordPasswordSuccess(user.id);
 
     // 2. 注册/更新设备
-    const device = await this.prisma.device.upsert({
+    const device = await this.prisma.$transaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${user.id} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+      return tx.device.upsert({
       where: {
         userId_fingerprint: {
           userId: user.id,
@@ -241,6 +244,7 @@ export class ClientService {
         id: true,
         revokedAt: true,
       },
+      });
     });
 
     // 3. 检查设备是否被吊销
@@ -555,7 +559,7 @@ export class ClientService {
 
     const user = await this.prisma.user.findUnique({ where: { id: current.userId } });
     if (!user) throw new UnauthorizedException('User not found');
-    if (user.status === 'DISABLED') throw new UnauthorizedException('Account has been disabled');
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
     const rotated = await this.sessions.rotateRefreshToken(dto.refreshToken, 'DESKTOP');
     const membership = await this.prisma.enterpriseMember.findFirst({
       where: { userId: user.id }, orderBy: { createdAt: 'asc' },
@@ -825,6 +829,8 @@ export class ClientService {
   async createTaskMirror(userId: string, body: CreateClientTaskMirrorDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
       const row = await tx.clientTaskMirror.findUnique({
         where: { userId_clientTaskId: { userId, clientTaskId: body.clientTaskId } },
       });
@@ -968,6 +974,8 @@ export class ClientService {
   async updateTaskMirror(userId: string, id: string, body: UpdateClientTaskMirrorStatusDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
       const clientRunId = body.clientRunId ?? row.clientRunId;
       const run = await tx.clientTaskMirrorRun.findUnique({ where: { mirrorId_clientRunId: { mirrorId: id, clientRunId } } });
@@ -1005,6 +1013,8 @@ export class ClientService {
   async heartbeatTaskMirror(userId: string, id: string, body: ClientTaskHeartbeatDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
       if (body.clientRunId !== undefined && body.clientRunId !== row.clientRunId) {
         throw new ConflictException('Stale client run');
@@ -1019,6 +1029,8 @@ export class ClientService {
   async eventTaskMirror(userId: string, id: string, body: ClientTaskEventDto) {
     const ctx = await this.enterpriseContext.resolve(userId);
     return this.taskMirrorTransaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
       const row = await this.ownedMirror(tx, userId, ctx.enterpriseId, id);
       const clientRunId = body.clientRunId ?? row.clientRunId;
       const isEvidence = Object.prototype.hasOwnProperty.call(ClientMonitorEvidenceSchemas, body.type);

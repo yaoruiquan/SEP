@@ -4,6 +4,8 @@ import { AdminAuthService } from './admin-auth.service';
 
 describe('AdminAuthService', () => {
   const prisma: any = {
+    $queryRaw: jest.fn(),
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     user: {
       findMany: jest.fn(),
       count: jest.fn(),
@@ -33,6 +35,14 @@ describe('AdminAuthService', () => {
     await expect(service.disableUser('u1', 'admin-1', '违规')).resolves.toMatchObject({ status: UserStatus.DISABLED });
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { status: UserStatus.DISABLED } });
     expect(sessions.revokeAllUserSessions).toHaveBeenCalledWith('u1', 'admin_disabled');
+  });
+
+  it.each(['CLOSURE_PENDING', 'CLOSED'])('cannot enable or disable %s accounts', async (status) => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'u1', role: 'USER', status });
+    await expect(service.enableUser('u1', 'admin-1')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.disableUser('u1', 'admin-1', 'x')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(sessions.revokeAllUserSessions).not.toHaveBeenCalled();
   });
 
   it('protects the current and other platform administrators', async () => {

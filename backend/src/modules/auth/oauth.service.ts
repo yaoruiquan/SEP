@@ -327,7 +327,10 @@ export class OAuthService {
       if (transaction.intent === 'LINK' && transaction.userId && existing.userId !== transaction.userId) {
         throw new ConflictException('该第三方账号已绑定其他账号');
       }
-      const updated = await this.prisma.authIdentity.update({
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${existing.userId} FOR UPDATE`;
+        if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可登录或绑定');
+        return tx.authIdentity.update({
         where: { id: existing.id },
         data: {
           providerEmail: profile.email,
@@ -336,6 +339,7 @@ export class OAuthService {
           lastUsedAt: new Date(),
         },
         select: { userId: true },
+        });
       });
       if (transaction.intent === 'LINK' && transaction.userId && updated.userId !== transaction.userId) {
         throw new ConflictException('该第三方账号已绑定其他账号');
@@ -345,7 +349,10 @@ export class OAuthService {
 
     if (transaction.intent === 'LINK') {
       if (!transaction.userId) throw new UnauthorizedException('绑定第三方账号需要先登录');
-      await this.prisma.authIdentity.create({
+      await this.prisma.$transaction(async (tx) => {
+        const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${transaction.userId} FOR UPDATE`;
+        if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可绑定');
+        await tx.authIdentity.create({
         data: {
           userId: transaction.userId,
           provider: profile.provider,
@@ -355,6 +362,7 @@ export class OAuthService {
           emailVerified: profile.emailVerified,
           lastUsedAt: new Date(),
         },
+        });
       });
       return transaction.userId;
     }

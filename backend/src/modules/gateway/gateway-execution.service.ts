@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -34,12 +34,18 @@ export class GatewayExecutionService implements OnModuleInit {
       timeoutValue(this.config, 'GATEWAY_NON_STREAM_TIMEOUT_MS', 120000),
     );
     try {
-      return await this.prisma.gatewayExecution.create({ data: {
+      return await this.prisma.$transaction(async tx => {
+        const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${claims.sub} FOR UPDATE`;
+        if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+        return tx.gatewayExecution.create({ data: {
         enterpriseId: claims.enterpriseId, userId: claims.sub, memberId: claims.memberId,
         subscriptionId: claims.subscriptionId, employeeId, modelId, requestId,
         expiresAt: new Date(Date.now() + budget + 120000),
-      } });
-    } catch {
+        } });
+      });
+    } catch (error) {
+      // Authorization failures are expected request outcomes, not journal outages.
+      if (error instanceof UnauthorizedException) throw error;
       this.logger.error({ event: 'gateway_journal_unavailable', requestId });
       throw new ServiceUnavailableException({ error: {
         code: 'EXECUTION_JOURNAL_UNAVAILABLE', type: 'server_error', source: 'platform',

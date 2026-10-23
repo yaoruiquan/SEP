@@ -7,6 +7,7 @@ function makePrisma() {
     tokenHash: '', metadata: null, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
   };
   const prisma: any = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
     authOneTimeToken: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       create: jest.fn().mockResolvedValue({}),
@@ -18,6 +19,15 @@ function makePrisma() {
 }
 
 describe('OneTimeTokenService', () => {
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('neither issues nor consumes tokens for %s accounts', async (status) => {
+    const { prisma } = makePrisma();
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user-1', status }]);
+    const service = new OneTimeTokenService(prisma);
+    await expect(service.issue({ userId: 'user-1', type: 'PASSWORD_RESET' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.consume('raw-token', 'PASSWORD_RESET')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.authOneTimeToken.create).not.toHaveBeenCalled();
+    expect(prisma.authOneTimeToken.updateMany).not.toHaveBeenCalled();
+  });
   it('只保存 hash，消费后只能成功一次', async () => {
     const { prisma } = makePrisma();
     const service = new OneTimeTokenService(prisma);

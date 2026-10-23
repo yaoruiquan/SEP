@@ -14,7 +14,7 @@ describe('Gateway execution journal and recovery', () => {
     execution = { id: 'server-execution', enterpriseId: 'enterprise', userId: 'user', subscriptionId: 'subscription',
       employeeId: 'employee', modelId: 'model', requestId: 'request', inputTokens: 12, outputTokens: 8,
       status: 'USAGE_PENDING' };
-    prisma = { gatewayExecution: {
+    prisma = { $queryRaw: jest.fn().mockResolvedValue([{ id: 'user', status: 'ACTIVE' }]), $transaction: jest.fn(async (fn: any) => fn(prisma)), gatewayExecution: {
       create: jest.fn().mockResolvedValue(execution), update: jest.fn().mockResolvedValue(execution),
       updateMany: jest.fn().mockImplementation(async ({ data }) => {
         if (data.settlementLeaseUntil instanceof Date) execution.settlementLeaseUntil = data.settlementLeaseUntil;
@@ -36,6 +36,12 @@ describe('Gateway execution journal and recovery', () => {
     await expect(service.start(claims, 'employee', 'model', 'request')).rejects.toMatchObject({
       status: 503, response: { error: { code: 'EXECUTION_JOURNAL_UNAVAILABLE' } },
     });
+  });
+
+  it.each(['CLOSURE_PENDING', 'CLOSED', 'DISABLED'])('refuses to start upstream work for %s accounts', async (status) => {
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user', status }]);
+    await expect(service.start(claims, 'employee', 'model', 'request')).rejects.toMatchObject({ status: 401 });
+    expect(prisma.gatewayExecution.create).not.toHaveBeenCalled();
   });
 
   it('persists observed usage without making an active stream ready to settle', async () => {

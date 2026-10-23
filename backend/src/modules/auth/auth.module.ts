@@ -20,6 +20,8 @@ import { AuthRiskService } from './auth-risk.service';
 import { AuthRateLimitService } from './auth-rate-limit.service';
 import { RegistrationEmailCodeService } from './registration-email-code.service';
 import { SettingModule } from '../setting/setting.module';
+import { AccountClosureController } from './account-closure.controller';
+import { AccountClosureService } from './account-closure.service';
 
 @Module({
   imports: [
@@ -35,8 +37,8 @@ import { SettingModule } from '../setting/setting.module';
       }),
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, RegistrationEmailCodeService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider, DingtalkOAuthProvider],
+  controllers: [AuthController, AccountClosureController],
+  providers: [AccountClosureService, AuthService, JwtStrategy, DefaultDepartmentsService, SessionService, OneTimeTokenService, AuthEventService, AuthRiskService, AuthRateLimitService, RegistrationEmailCodeService, OAuthService, OAuthStateService, WechatOAuthProvider, QqOAuthProvider, DingtalkOAuthProvider],
   exports: [AuthService, SessionService, OAuthService, AuthEventService, AuthRiskService, AuthRateLimitService],
 })
 export class AuthModule {}

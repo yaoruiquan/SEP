@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
@@ -212,6 +212,43 @@ export class MailService {
       to: input.to,
       subject: '重置密码',
       text: `请在 20 分钟内打开以下链接重置密码：${input.resetUrl}\n如果不是你本人操作，请忽略本邮件。`,
+    });
+  }
+
+  private async sendClosureMail(message: MailMessage): Promise<void> {
+    const { enabled, fromName } = await this.refreshProvider();
+    const provider = this.provider;
+    if (!enabled || !(provider instanceof SmtpMailProvider)) {
+      throw new ServiceUnavailableException('注销需要可用的 SMTP 邮件服务，请联系平台管理员');
+    }
+    try {
+      await provider.send({ ...message, subject: `[${fromName}] ${message.subject}` });
+    } catch {
+      throw new ServiceUnavailableException('注销邮件发送失败，请稍后重试');
+    }
+  }
+
+  async sendAccountClosureVerification(input: { to: string; verificationUrl: string }): Promise<void> {
+    await this.sendClosureMail({
+      to: input.to,
+      subject: '确认注销账号',
+      text: `你正在申请注销账号。请在 20 分钟内登录本人账号并打开以下链接，确认注销后果：${input.verificationUrl}\n打开链接不会直接注销。若非本人操作，请忽略本邮件。`,
+    });
+  }
+
+  async sendAccountClosureRequested(input: { to: string; cancellationUrl: string; scheduledFor: Date }): Promise<void> {
+    await this.sendClosureMail({
+      to: input.to,
+      subject: '账号注销撤回凭证',
+      text: `你正在提交账号注销申请。申请成功后，账号将于 ${input.scheduledFor.toISOString()} 起执行最终注销。\n请保留以下专用撤回链接，截止时间前可确认撤回：${input.cancellationUrl}\n打开链接不会直接撤回；撤回后需重新登录。若提交失败，账号保持原状态，此链接自动失效。`,
+    });
+  }
+
+  async sendAccountClosureRecovery(input: { to: string; cancellationUrl: string; scheduledFor: Date }): Promise<void> {
+    await this.sendClosureMail({
+      to: input.to,
+      subject: '撤回账号注销申请',
+      text: `你的账号处于注销撤回期，截止时间：${input.scheduledFor.toISOString()}。\n请打开最新的专用撤回链接并确认撤回：${input.cancellationUrl}\n打开链接不会直接撤回；确认后需重新登录。新链接生效后旧撤回链接将失效。若非本人操作，可忽略本邮件。`,
     });
   }
 

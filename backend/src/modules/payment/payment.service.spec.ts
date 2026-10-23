@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Decimal } from "@prisma/client/runtime/library";
 import { PaymentService } from "./payment.service";
 
@@ -8,11 +8,19 @@ describe("PaymentService", () => {
   let orderService: any;
   let walletService: any;
   let personalWalletService: any;
+  let alipayProvider: any;
 
   beforeEach(() => {
     prisma = {
       order: { findUnique: jest.fn() },
       $transaction: jest.fn(async (callback) => callback(prisma)),
+      $queryRaw: jest.fn().mockResolvedValue([{ status: "ACTIVE" }]),
+      personalRechargeOrder: { findUnique: jest.fn() },
+      paymentNotify: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+        updateMany: jest.fn(),
+      },
     };
     orderService = {
       fulfillInTransaction: jest.fn().mockResolvedValue({
@@ -22,16 +30,21 @@ describe("PaymentService", () => {
     };
     walletService = { consume: jest.fn().mockResolvedValue({ id: "tx-1" }) };
     personalWalletService = { fulfillRechargeOrder: jest.fn() };
+    alipayProvider = {
+      pagePayment: jest.fn().mockResolvedValue("https://payment.example/form"),
+      verifyNotify: jest.fn().mockReturnValue(true),
+    };
 
     service = new PaymentService(
       prisma,
-      {} as any,
+      { get: jest.fn().mockReturnValue("https://sep.example") } as any,
       orderService,
-      {} as any,
+      alipayProvider,
       {} as any,
       walletService,
       personalWalletService,
     );
+    jest.spyOn(service, "initializeAlipay").mockResolvedValue(undefined);
   });
 
   describe("payOrderWithBalance", () => {
@@ -87,6 +100,49 @@ describe("PaymentService", () => {
         service.payOrderWithBalance("order-1", "ent-1"),
       ).rejects.toThrow(BadRequestException);
       expect(walletService.consume).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("personal recharge closure protection", () => {
+    beforeEach(() => {
+      prisma.personalRechargeOrder.findUnique.mockResolvedValue({
+        id: "personal-order", orderNo: "PRC1", userId: "user-1",
+        amount: new Decimal(30), status: "PENDING",
+      });
+    });
+
+    it("locks and checks the user before generating a personal recharge payment", async () => {
+      const result = await service.createPersonalRechargeAlipayPayment("PRC1");
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw.mock.calls[0][0].join("?")).toContain("FROM users WHERE id = ? FOR UPDATE");
+      expect(result.paymentForm).toBe("https://payment.example/form");
+    });
+
+    it.each(["CLOSURE_PENDING", "CLOSED", "DISABLED"])("does not generate a payment for a %s account", async (status) => {
+      prisma.$queryRaw.mockResolvedValue([{ status }]);
+      await expect(service.createPersonalRechargeAlipayPayment("PRC1")).rejects.toThrow(ConflictException);
+      expect(alipayProvider.pagePayment).not.toHaveBeenCalled();
+    });
+
+    it("retains the verified failed payment notification for manual reconciliation instead of acknowledging payment", async () => {
+      personalWalletService.fulfillRechargeOrder.mockRejectedValue(new ConflictException("账号当前不可自动入账，已付款请联系管理员人工对账"));
+      const result = await service.handleAlipayNotify({
+        out_trade_no: "PRC1", trade_no: "late-trade", trade_status: "TRADE_SUCCESS",
+      });
+      expect(result.success).toBe(false);
+      expect(prisma.paymentNotify.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+        outTradeNo: "PRC1", tradeNo: "late-trade", verified: true, processed: false,
+      }) });
+      expect(prisma.paymentNotify.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("acknowledges a duplicate fulfilled recharge notification without crediting again", async () => {
+      prisma.paymentNotify.findFirst.mockResolvedValue({ processed: true });
+      const result = await service.handleAlipayNotify({
+        out_trade_no: "PRC1", trade_no: "paid-trade", trade_status: "TRADE_SUCCESS",
+      });
+      expect(result.success).toBe(true);
+      expect(personalWalletService.fulfillRechargeOrder).not.toHaveBeenCalled();
     });
   });
 });

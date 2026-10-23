@@ -137,21 +137,29 @@ export class AdminAuthService {
 
   async disableUser(userId: string, actorId: string, reason: string) {
     if (userId === actorId) throw new BadRequestException('不能禁用当前管理员账号');
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
-    if (!user) throw new NotFoundException('用户不存在');
-    if (user.role === UserRole.ADMIN) throw new ConflictException('不能通过此接口禁用平台管理员');
-    if (user.status !== UserStatus.DISABLED) {
-      await this.prisma.user.update({ where: { id: userId }, data: { status: UserStatus.DISABLED } });
-    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
+      if (!user) throw new NotFoundException('用户不存在');
+      if (user.role === UserRole.ADMIN) throw new ConflictException('不能通过此接口禁用平台管理员');
+      if (user.status !== UserStatus.ACTIVE && user.status !== UserStatus.DISABLED) throw new ConflictException('注销中的账号不可变更状态');
+      if (user.status !== UserStatus.DISABLED) {
+        await tx.user.update({ where: { id: userId }, data: { status: UserStatus.DISABLED } });
+      }
+    });
     await this.sessions.revokeAllUserSessions(userId, 'admin_disabled');
     await this.events.record({ userId, action: 'ACCOUNT_DISABLED', success: true, metadata: { actorId, reason } });
     return { message: '账号已禁用', status: UserStatus.DISABLED };
   }
 
   async enableUser(userId: string, actorId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
-    if (!user) throw new NotFoundException('用户不存在');
-    await this.prisma.user.update({ where: { id: userId }, data: { status: UserStatus.ACTIVE } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
+      if (!user) throw new NotFoundException('用户不存在');
+      if (user.status !== UserStatus.ACTIVE && user.status !== UserStatus.DISABLED) throw new ConflictException('注销中的账号不可变更状态');
+      await tx.user.update({ where: { id: userId }, data: { status: UserStatus.ACTIVE } });
+    });
     await this.events.record({ userId, action: 'ACCOUNT_ENABLED', success: true, metadata: { actorId } });
     return { message: '账号已解禁', status: UserStatus.ACTIVE };
   }

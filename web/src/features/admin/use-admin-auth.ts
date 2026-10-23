@@ -9,7 +9,7 @@ export type AdminAuthUser = {
   name: string | null;
   avatar: string | null;
   role: string;
-  status: 'ACTIVE' | 'DISABLED';
+  status: 'ACTIVE' | 'DISABLED' | 'CLOSURE_PENDING' | 'CLOSED';
   emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -18,10 +18,34 @@ export type AdminAuthUser = {
   eventCount: number;
 };
 
-export type AdminAuthUserDetail = Omit<AdminAuthUser, 'identityCount' | 'sessionCount' | 'eventCount'> & {
-  authCredentials: Array<{ type: string; failedCount: number; lockedUntil: string | null; lastUsedAt: string | null }>;
-  authIdentities: Array<{ id: string; provider: string; providerAccountId: string; providerEmail: string | null; emailVerified: boolean | null; lastUsedAt: string | null; createdAt: string }>;
-  authSessions: Array<{ id: string; type: string; deviceId: string | null; familyId: string; createdAt: string; lastUsedAt: string | null; expiresAt: string }>;
+export type AdminAuthUserDetail = Omit<
+  AdminAuthUser,
+  'identityCount' | 'sessionCount' | 'eventCount'
+> & {
+  authCredentials: Array<{
+    type: string;
+    failedCount: number;
+    lockedUntil: string | null;
+    lastUsedAt: string | null;
+  }>;
+  authIdentities: Array<{
+    id: string;
+    provider: string;
+    providerAccountId: string;
+    providerEmail: string | null;
+    emailVerified: boolean | null;
+    lastUsedAt: string | null;
+    createdAt: string;
+  }>;
+  authSessions: Array<{
+    id: string;
+    type: string;
+    deviceId: string | null;
+    familyId: string;
+    createdAt: string;
+    lastUsedAt: string | null;
+    expiresAt: string;
+  }>;
 };
 
 export type AdminAuthEvent = {
@@ -36,7 +60,12 @@ export type AdminAuthEvent = {
   createdAt: string;
 };
 
-export function useAdminAuthUsers(params: { keyword?: string; status?: string; page?: number; pageSize?: number }) {
+export function useAdminAuthUsers(params: {
+  keyword?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const qs = new URLSearchParams();
   if (params.keyword) qs.set('keyword', params.keyword);
   if (params.status) qs.set('status', params.status);
@@ -44,7 +73,14 @@ export function useAdminAuthUsers(params: { keyword?: string; status?: string; p
   qs.set('pageSize', String(params.pageSize ?? 20));
   return useQuery({
     queryKey: ['admin', 'auth-users', params],
-    queryFn: () => api.get<{ items: AdminAuthUser[]; total: number; page: number; pageSize: number; totalPages: number }>(`/admin/auth/users?${qs}`),
+    queryFn: () =>
+      api.get<{
+        items: AdminAuthUser[];
+        total: number;
+        page: number;
+        pageSize: number;
+        totalPages: number;
+      }>(`/admin/auth/users?${qs}`),
   });
 }
 
@@ -59,7 +95,8 @@ export function useAdminAuthUser(userId: string) {
 export function useAdminAuthUserEvents(userId: string) {
   return useQuery({
     queryKey: ['admin', 'auth-user-events', userId],
-    queryFn: () => api.get<AdminAuthEvent[]>(`/admin/auth/users/${userId}/events?limit=100`),
+    queryFn: () =>
+      api.get<AdminAuthEvent[]>(`/admin/auth/users/${userId}/events?limit=100`),
     enabled: Boolean(userId),
   });
 }
@@ -68,9 +105,10 @@ function useAdminAuthAction(userId: string, action: string) {
   const qc = useQueryClient();
   const isPatch = action === 'disable' || action === 'enable';
   return useMutation({
-    mutationFn: (body: unknown = undefined) => isPatch
-      ? api.patch(`/admin/auth/users/${userId}/${action}`, body)
-      : api.post(`/admin/auth/users/${userId}/${action}`, body),
+    mutationFn: (body: unknown = undefined) =>
+      isPatch
+        ? api.patch(`/admin/auth/users/${userId}/${action}`, body)
+        : api.post(`/admin/auth/users/${userId}/${action}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'auth-user', userId] });
       qc.invalidateQueries({ queryKey: ['admin', 'auth-user-events', userId] });
@@ -79,8 +117,18 @@ function useAdminAuthAction(userId: string, action: string) {
   });
 }
 
-export function useDisableAdminAuthUser(userId: string) { return useAdminAuthAction(userId, 'disable'); }
-export function useEnableAdminAuthUser(userId: string) { return useAdminAuthAction(userId, 'enable'); }
-export function useForceLogoutAdminAuthUser(userId: string) { return useAdminAuthAction(userId, 'logout-all'); }
-export function useForceEmailVerification(userId: string) { return useAdminAuthAction(userId, 'require-email-verification'); }
-export function useForcePasswordReset(userId: string) { return useAdminAuthAction(userId, 'force-password-reset'); }
+export function useDisableAdminAuthUser(userId: string) {
+  return useAdminAuthAction(userId, 'disable');
+}
+export function useEnableAdminAuthUser(userId: string) {
+  return useAdminAuthAction(userId, 'enable');
+}
+export function useForceLogoutAdminAuthUser(userId: string) {
+  return useAdminAuthAction(userId, 'logout-all');
+}
+export function useForceEmailVerification(userId: string) {
+  return useAdminAuthAction(userId, 'require-email-verification');
+}
+export function useForcePasswordReset(userId: string) {
+  return useAdminAuthAction(userId, 'force-password-reset');
+}
