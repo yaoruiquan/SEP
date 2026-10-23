@@ -43,6 +43,8 @@ describe("GrantService", () => {
         findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         create: jest.fn(),
+        createMany: jest.fn(),
+        update: jest.fn(),
         delete: jest.fn(),
       },
       subscription: { findUnique: jest.fn() },
@@ -50,6 +52,8 @@ describe("GrantService", () => {
       enterpriseMember: { findUnique: jest.fn() },
       // myEmployees 会批量补上每个员工的赠送余额；默认「没有赠送记录」
       subscriptionCredit: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
     ctx = {
       resolve: jest.fn().mockResolvedValue(ADMIN_CTX),
@@ -372,6 +376,89 @@ describe("GrantService", () => {
       await expect(
         service.create("u1", "i1", { departmentId: "d-1" }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("终止状态不可授权且过去到期时间被拒绝", async () => {
+      prisma.subscription.findUnique.mockResolvedValue({ id: "i1", enterpriseId: "ent-a", status: "TERMINATED" });
+      await expect(service.create("u1", "i1", { departmentId: "d-1" })).rejects.toThrow(BadRequestException);
+      prisma.subscription.findUnique.mockResolvedValue({ id: "i1", enterpriseId: "ent-a", status: "ACTIVE" });
+      prisma.department.findUnique.mockResolvedValue({ id: "d-1", enterpriseId: "ent-a" });
+      await expect(service.create("u1", "i1", { departmentId: "d-1", expiresAt: new Date(Date.now() - 1000).toISOString() })).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe("createBatch", () => {
+    const setup = () => {
+      prisma.enterpriseMember.findUnique.mockResolvedValue({ id: "m-admin", enterpriseId: "ent-a", role: "ENTERPRISE_ADMIN" });
+      prisma.subscription.findUnique.mockResolvedValue({ id: "i1", enterpriseId: "ent-a", status: "ACTIVE", endDate: null });
+      prisma.enterpriseMember.findMany = jest.fn().mockResolvedValue([{ id: "m-1" }, { id: "m-2" }]);
+      prisma.employeeGrant.findMany.mockResolvedValue([]);
+      prisma.employeeGrant.createMany.mockResolvedValue({ count: 1 });
+      prisma.employeeGrant.update.mockResolvedValue({});
+    };
+    it("批量创建成员授权并返回结果", async () => {
+      setup();
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-2"], renewExpired: false })).resolves.toEqual({ target: "member", createdIds: ["m-1", "m-2"], renewedIds: [], skippedIds: [] });
+      expect(prisma.employeeGrant.createMany).toHaveBeenCalledTimes(2);
+    });
+    it("旧单条接口并发先创建的目标跳过，不导致其余目标失败", async () => {
+      setup();
+      prisma.employeeGrant.createMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-2"], renewExpired: false })).resolves.toEqual({
+        target: "member", createdIds: ["m-2"], renewedIds: [], skippedIds: ["m-1"],
+      });
+    });
+    it("有效记录跳过，过期记录仅 renewExpired 时更新", async () => {
+      setup();
+      prisma.employeeGrant.findMany.mockResolvedValue([{ id: "g1", memberId: "m-1", departmentId: null, expiresAt: new Date(Date.now() + 10000) }, { id: "g2", memberId: "m-2", departmentId: null, expiresAt: new Date(Date.now() - 10000) }]);
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-2"], renewExpired: false })).resolves.toMatchObject({ skippedIds: ["m-1", "m-2"] });
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-2"], renewExpired: true })).resolves.toMatchObject({ skippedIds: ["m-1"], renewedIds: ["m-2"] });
+      expect(prisma.employeeGrant.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "g2" } }));
+    });
+    it("任一目标不属于企业则整批拒绝且不写入", async () => {
+      setup();
+      prisma.enterpriseMember.findMany.mockResolvedValue([{ id: "m-1" }]);
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-x"], renewExpired: false })).rejects.toThrow(BadRequestException);
+      expect(prisma.employeeGrant.createMany).not.toHaveBeenCalled();
+    });
+    it("支持部门授权", async () => {
+      setup();
+      prisma.department.findMany = jest.fn().mockResolvedValue([{ id: "d-1" }, { id: "d-2" }]);
+      await expect(service.createBatch("u1", "i1", { departmentIds: ["d-1", "d-2"], renewExpired: false })).resolves.toMatchObject({ target: "department", createdIds: ["d-1", "d-2"] });
+    });
+    it("非管理员、跨企业订阅、终态订阅、结束订阅均拒绝", async () => {
+      setup();
+      prisma.enterpriseMember.findUnique.mockResolvedValue({ id: "m-admin", enterpriseId: "ent-a", role: "MEMBER" });
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1"], renewExpired: false })).rejects.toThrow(ForbiddenException);
+      prisma.enterpriseMember.findUnique.mockResolvedValue({ id: "m-admin", enterpriseId: "ent-a", role: "ENTERPRISE_ADMIN" });
+      prisma.subscription.findUnique.mockResolvedValue({ id: "i1", enterpriseId: "ent-b", status: "ACTIVE", endDate: null });
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1"], renewExpired: false })).rejects.toThrow(NotFoundException);
+      for (const subscription of [
+        { id: "i1", enterpriseId: "ent-a", status: "EXPIRED", endDate: null },
+        { id: "i1", enterpriseId: "ent-a", status: "TERMINATED", endDate: null },
+        { id: "i1", enterpriseId: "ent-a", status: "ACTIVE", endDate: new Date(Date.now() - 1000) },
+      ]) {
+        prisma.subscription.findUnique.mockResolvedValue(subscription);
+        await expect(service.createBatch("u1", "i1", { memberIds: ["m-1"], renewExpired: false })).rejects.toThrow(BadRequestException);
+      }
+    });
+    it("拒绝过去的有效期", async () => {
+      setup();
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1"], expiresAt: new Date(Date.now() - 1000).toISOString(), renewExpired: false })).rejects.toThrow(BadRequestException);
+    });
+    it("事务内重新校验管理员，且写入错误整批传播", async () => {
+      setup();
+      prisma.enterpriseMember.findUnique.mockResolvedValueOnce({ id: "m-admin", enterpriseId: "ent-a", role: "MEMBER" });
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1"], renewExpired: false })).rejects.toThrow(ForbiddenException);
+      expect(prisma.employeeGrant.createMany).not.toHaveBeenCalled();
+      setup();
+      prisma.enterpriseMember.findUnique.mockResolvedValue({ id: "m-admin", enterpriseId: "ent-a", role: "ENTERPRISE_ADMIN" });
+      prisma.enterpriseMember.findMany.mockResolvedValue([{ id: "m-1" }, { id: "m-2" }]);
+      prisma.employeeGrant.createMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockRejectedValueOnce(new Error("write failed"));
+      await expect(service.createBatch("u1", "i1", { memberIds: ["m-1", "m-2"], renewExpired: false })).rejects.toThrow("write failed");
+      expect(prisma.employeeGrant.createMany).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -1,15 +1,17 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnterpriseContextService } from "./enterprise-context.service";
 import { EmployeeUsageService } from "./employee-usage.service";
 import { PackageService } from "../digital-employee/package.service";
-import { GrantCreateDto, GrantView, MyEmployeeView } from "shared";
+import { GrantBatchCreateDto, GrantBatchResult, GrantCreateDto, GrantView, MyEmployeeView } from "shared";
 import { withEmployeeAvatar } from '../../common/employee-avatar';
 
 const employeeSummarySelect = {
@@ -95,6 +97,12 @@ export class GrantService {
     if (subscription.status === "EXPIRED") {
       throw new BadRequestException("已过期的雇佣关系无法授权");
     }
+    if (subscription.status === "TERMINATED") {
+      throw new BadRequestException("已终止的雇佣关系无法授权");
+    }
+    if (subscription.endDate !== null && subscription.endDate <= new Date()) {
+      throw new BadRequestException("已结束的雇佣关系无法授权");
+    }
 
     if (dto.departmentId) {
       await this.assertDeptInEnterprise(
@@ -111,6 +119,9 @@ export class GrantService {
     }
 
     const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (expiresAt && expiresAt <= new Date()) {
+      throw new BadRequestException("授权到期时间必须晚于当前时间");
+    }
 
     try {
       const grant = await this.prisma.employeeGrant.create({
@@ -157,6 +168,110 @@ export class GrantService {
       }
       throw e;
     }
+  }
+
+  /** 一次为单个雇佣关系授权给多个成员或部门。 */
+  async createBatch(
+    userId: string,
+    subscriptionId: string,
+    dto: GrantBatchCreateDto,
+  ): Promise<GrantBatchResult> {
+    const context = await this.ctx.resolve(userId);
+    this.ctx.assertEnterpriseAdmin(context);
+    const target: GrantBatchResult["target"] = dto.memberIds ? "member" : "department";
+    const targetIds = (dto.memberIds ?? dto.departmentIds)!;
+    const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (expiresAt && expiresAt <= new Date()) {
+      throw new BadRequestException("授权到期时间必须晚于当前时间");
+    }
+
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.$queryRaw`SELECT id FROM enterprise_members WHERE id = ${context.memberId} FOR SHARE`;
+      const admin = await tx.enterpriseMember.findUnique({
+        where: { id: context.memberId },
+        select: { id: true, enterpriseId: true, role: true },
+      });
+      if (!admin || admin.enterpriseId !== context.enterpriseId || admin.role !== "ENTERPRISE_ADMIN") {
+        throw new ForbiddenException("仅企业管理员可操作");
+      }
+      // 串行化批次，同时兼容单条新增授权的外键 KEY SHARE 锁。
+      await tx.$queryRaw`SELECT id FROM subscriptions WHERE id = ${subscriptionId} FOR NO KEY UPDATE`;
+      const subscription = await tx.subscription.findUnique({
+        where: { id: subscriptionId },
+        select: { id: true, enterpriseId: true, status: true, endDate: true },
+      });
+      if (!subscription || subscription.enterpriseId !== context.enterpriseId) {
+        throw new NotFoundException(`雇佣关系 ${subscriptionId} 不存在`);
+      }
+      if (!["ACTIVE", "PAUSED"].includes(subscription.status) ||
+          (subscription.endDate !== null && subscription.endDate <= new Date())) {
+        throw new BadRequestException("当前雇佣关系无法授权");
+      }
+      if (expiresAt && expiresAt <= new Date()) {
+        throw new BadRequestException("授权到期时间必须晚于当前时间");
+      }
+
+      const sortedTargetIds = [...targetIds].sort();
+      if (target === "member") {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM enterprise_members WHERE id IN (${Prisma.join(sortedTargetIds)}) ORDER BY id FOR SHARE`);
+      } else {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM departments WHERE id IN (${Prisma.join(sortedTargetIds)}) ORDER BY id FOR SHARE`);
+      }
+      const targets = target === "member"
+        ? await tx.enterpriseMember.findMany({
+            where: { id: { in: targetIds }, enterpriseId: context.enterpriseId },
+            select: { id: true },
+          })
+        : await tx.department.findMany({
+        where: { id: { in: targetIds }, enterpriseId: context.enterpriseId },
+        select: { id: true },
+      });
+      if (targets.length !== targetIds.length) {
+        throw new BadRequestException("存在不属于本企业的授权对象");
+      }
+      // 在读取有效期前锁住现有授权，避免并发收回使续期更新丢失目标。
+      const targetColumn = target === "member" ? Prisma.sql`"memberId"` : Prisma.sql`"departmentId"`;
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM employee_grants WHERE "subscriptionId" = ${subscriptionId} AND ${targetColumn} IN (${Prisma.join(sortedTargetIds)}) ORDER BY id FOR UPDATE`);
+      const existing = await tx.employeeGrant.findMany({
+        where: target === "member"
+          ? { subscriptionId, memberId: { in: targetIds } }
+          : { subscriptionId, departmentId: { in: targetIds } },
+        select: { id: true, expiresAt: true, memberId: true, departmentId: true },
+      });
+      type ExistingGrant = (typeof existing)[number];
+      const byTarget = new Map<string, ExistingGrant>();
+      for (const row of existing) byTarget.set(target === "member" ? row.memberId : row.departmentId, row);
+      const createdIds: string[] = [];
+      const renewedIds: string[] = [];
+      const skippedIds: string[] = [];
+      const now = new Date();
+
+      for (const id of targetIds) {
+        const current = byTarget.get(id);
+        if (current) {
+          const expired = current.expiresAt !== null && current.expiresAt <= now;
+          if (expired && dto.renewExpired) {
+            await tx.employeeGrant.update({ where: { id: current.id }, data: { expiresAt } });
+            renewedIds.push(id);
+          } else {
+            skippedIds.push(id);
+          }
+          continue;
+        }
+        const inserted = await tx.employeeGrant.createMany({
+          data: {
+            subscriptionId,
+            departmentId: target === "department" ? id : null,
+            memberId: target === "member" ? id : null,
+            expiresAt,
+          },
+          skipDuplicates: true,
+        });
+        if (inserted.count) createdIds.push(id);
+        else skippedIds.push(id);
+      }
+      return { target, createdIds, renewedIds, skippedIds };
+    }, { isolationLevel: "ReadCommitted" });
   }
 
   /**

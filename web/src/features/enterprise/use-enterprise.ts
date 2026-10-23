@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, uploadForm } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
 import { qk } from '@/lib/query-keys';
+import type { GrantBatchCreateDto, GrantBatchResult } from 'shared/employee-grant.dto';
 import type {
   Department,
   EnterpriseMember,
@@ -217,6 +218,25 @@ export function useCreateGrant() {
   });
 }
 
+export function useCreateGrants() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      subscriptionId,
+      ...body
+    }: GrantBatchCreateDto & { subscriptionId: string }) =>
+      api.post<GrantBatchResult>(
+        `/enterprise/subscriptions/${subscriptionId}/grants/batch`,
+        body,
+      ),
+    onSuccess: (_, { subscriptionId }) => {
+      qc.invalidateQueries({ queryKey: qk.subscriptionGrants(subscriptionId) });
+      qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: qk.subscriptions });
+    },
+  });
+}
+
 export function useDeleteGrant() {
   const qc = useQueryClient();
   return useMutation({
@@ -225,6 +245,7 @@ export function useDeleteGrant() {
     onSuccess: (_, { subscriptionId }) => {
       qc.invalidateQueries({ queryKey: qk.subscriptionGrants(subscriptionId) });
       qc.invalidateQueries({ queryKey: qk.myEmployees });
+      qc.invalidateQueries({ queryKey: qk.subscriptions });
     },
   });
 }

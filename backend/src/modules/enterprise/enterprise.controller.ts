@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -41,6 +42,8 @@ import {
   SetDeptLeaderDtoSchema,
   GrantCreateDto,
   GrantCreateDtoSchema,
+  GrantBatchCreateDto,
+  GrantBatchCreateDtoSchema,
 } from "shared";
 import { EnterpriseService } from "./enterprise.service";
 import { DepartmentService } from "./department.service";
@@ -359,6 +362,24 @@ export class EnterpriseController {
     @Body(new ZodValidationPipe(GrantCreateDtoSchema)) dto: GrantCreateDto,
   ) {
     return this.grants.create(req.user.id, id, dto);
+  }
+
+  @Post("subscriptions/:id/grants/batch")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "批量开通雇佣授权（仅企业管理员）",
+    description: "一次为单个雇佣关系授权给多个本企业成员或部门；每批最多 100 个，整批校验后事务写入。",
+  })
+  @ApiResponse({ status: 200, description: "返回新建、重新开通及跳过的目标 ID" })
+  @ApiResponse({ status: 400, description: "雇佣关系无效、目标不属于本企业或请求无效" })
+  @ApiResponse({ status: 403, description: "仅企业管理员可批量授权" })
+  @ApiResponse({ status: 404, description: "雇佣关系不存在或不属于本企业" })
+  async createGrantBatch(
+    @Request() req: AuthedRequest,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(GrantBatchCreateDtoSchema)) dto: GrantBatchCreateDto,
+  ) {
+    return this.grants.createBatch(req.user.id, id, dto);
   }
 
   @Delete("grants/:id")

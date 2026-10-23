@@ -1370,6 +1370,8 @@ export const AcceptInvitationDtoSchema = z.object({
 });
 export type AcceptInvitationDto = z.infer<typeof AcceptInvitationDtoSchema>;
 
+export * from './employee-grant.dto';
+
 // ── 员工授权 ────────────────────────────────────────────────────────────────
 
 /**
