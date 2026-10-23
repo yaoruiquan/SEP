@@ -275,11 +275,10 @@ export class EnterpriseController {
   @ApiOperation({
     summary: "创建邀请（仅企业管理员）",
     description:
-      "返回一次性明文 token，库里只存 SHA-256 摘要。" +
-      "邮件发送失败不回滚邀请，前端仍可拼成 /join?token=xxx 由管理员转达。" +
-      "重复邀请同一邮箱会先作废旧的 PENDING 链接。",
+      "尝试向受邀邮箱发送邀请邮件；响应返回一次性明文 token、服务端邀请链接和邮件发送状态。" +
+      "邮件发送失败不回滚邀请，管理员仍可复制链接备用。",
   })
-  @ApiResponse({ status: 201, description: "已创建，响应含一次性 token" })
+  @ApiResponse({ status: 201, description: "已创建，响应含邮件状态和一次性邀请链接" })
   @ApiResponse({ status: 409, description: "该邮箱已是本企业成员" })
   async createInvitation(
     @Request() req: AuthedRequest,
@@ -287,6 +286,18 @@ export class EnterpriseController {
     dto: InvitationCreateDto,
   ) {
     return this.invitations.create(req.user.id, dto);
+  }
+
+  @Post("invitations/:id/resend")
+  @ApiOperation({
+    summary: "重新发送邀请邮件（仅企业管理员）",
+    description: "轮换邀请 token 并将有效期重置为 7 天；旧链接立即失效。",
+  })
+  @ApiResponse({ status: 201, description: "已重发或返回明确的邮件发送状态" })
+  @ApiResponse({ status: 404, description: "邀请不存在或不属于当前企业" })
+  @ApiResponse({ status: 409, description: "邀请已接受、状态冲突或处于发送冷却期" })
+  async resendInvitation(@Request() req: AuthedRequest, @Param("id") id: string) {
+    return this.invitations.resend(req.user.id, id);
   }
 
   @Delete("invitations/:id")

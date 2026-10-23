@@ -336,7 +336,12 @@ export class AuthService {
         // 只有一个能把 PENDING 改掉，另一个 count=0 → 抛错回滚，
         // 避免同一链接建出两个成员
         const claimed = await tx.enterpriseInvitation.updateMany({
-          where: { id: invitation.id, status: 'PENDING' },
+          where: {
+            id: invitation.id,
+            tokenHash: invitation.tokenHash,
+            status: 'PENDING',
+            expiresAt: { gt: new Date() },
+          },
           data: { status: 'ACCEPTED', acceptedAt: new Date() },
         });
         if (claimed.count === 0) {

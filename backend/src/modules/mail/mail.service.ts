@@ -1,14 +1,19 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { SettingService } from '../setting/setting.service';
 import { SETTING_KEYS } from 'shared';
 
 type MailMessage = { to: string; subject: string; text: string; html?: string };
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>\"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char));
+}
 
 export interface MailDeliveryProvider {
   send(message: MailMessage): Promise<void>;
 }
+export type EnterpriseInvitationMailResult = 'SENT' | 'NOT_CONFIGURED';
 
 function redactUrl(value: string): string {
   try {
@@ -52,6 +57,9 @@ export class SmtpMailProvider implements MailDeliveryProvider {
       host: config.getOrThrow<string>('MAIL_HOST'),
       port,
       secure: config.get<string>('MAIL_SECURE') === 'true' || port === 465,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
       auth: {
         user: config.getOrThrow<string>('MAIL_USER'),
         pass: config.getOrThrow<string>('MAIL_PASSWORD'),
@@ -161,7 +169,10 @@ export class MailService {
       from: from ?? 'no-reply@example.com',
       fromName: fromName ?? '硅基人才平台',
     };
-    const fingerprint = JSON.stringify({ ...values, password: password ? 'configured' : '' });
+    const fingerprint = JSON.stringify({
+      ...values,
+      password: password ? crypto.createHash('sha256').update(password).digest('hex') : '',
+    });
     if (this.hasRuntimeSettings && fingerprint !== this.providerFingerprint) {
       this.provider = this.createProviderFromValues(values);
       this.providerFingerprint = fingerprint;
@@ -228,12 +239,17 @@ export class MailService {
     });
   }
 
-  async sendEnterpriseInvitation(input: { to: string; invitationUrl: string; enterpriseName: string }): Promise<void> {
-    return this.send({
+  async sendEnterpriseInvitation(input: { to: string; invitationUrl: string; enterpriseName: string }): Promise<EnterpriseInvitationMailResult> {
+    const { enabled, fromName } = await this.refreshProvider();
+    const provider = this.provider;
+    if (!enabled || !(provider instanceof SmtpMailProvider)) return 'NOT_CONFIGURED';
+    await provider.send({
       to: input.to,
-      subject: `加入${input.enterpriseName}`,
-      text: `你收到加入「${input.enterpriseName}」的邀请，请打开以下链接：${input.invitationUrl}`,
+      subject: `[${fromName}] 加入${input.enterpriseName}`,
+      text: `你收到加入「${input.enterpriseName}」的邀请，请打开以下链接：${input.invitationUrl}\n链接有效期：7 天。如非本人操作，请忽略本邮件。`,
+      html: `<p>你收到加入「${escapeHtml(input.enterpriseName)}」的邀请。</p><p><a href="${escapeHtml(input.invitationUrl)}">点击加入</a></p><p>链接有效期：7 天。如非本人操作，请忽略本邮件。</p>`,
     });
+    return 'SENT';
   }
 
   async sendNewDeviceLogin(input: { to: string; ipAddress?: string; userAgent?: string; clientType: string }): Promise<void> {

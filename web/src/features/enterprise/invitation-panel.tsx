@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Copy, Link2, Loader2, Mail, Plus, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Copy, Link2, Loader2, Mail, Plus, RotateCw, XCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ import { ApiError } from '@/lib/api-client';
 import {
   useInvitations,
   useCreateInvitation,
+  useResendInvitation,
   useRevokeInvitation,
 } from './use-enterprise';
 import { flattenDepts } from './flatten-depts';
@@ -30,6 +31,7 @@ import type {
   EnterpriseInvitation,
   InvitationStatus,
 } from '@/lib/types';
+import { InvitationCreateDtoSchema } from '../../../../backend/src/shared';
 
 const STATUS_META: Record<
   InvitationStatus,
@@ -46,19 +48,6 @@ const ROLE_LABEL: Record<string, string> = {
   MEMBER: '普通成员',
 };
 
-/** 由 token 拼出受邀注册页地址。用 origin 而非硬编码域名，本地/预发/线上都能直接用。 */
-function buildJoinUrl(token: string): string {
-  const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  return `${origin}/join?token=${encodeURIComponent(token)}`;
-}
-
-/**
- * 邀请链接展示框。
- *
- * 单独抽出来是因为它有个硬约束：明文 token 只在创建响应里出现一次，
- * 列表接口永远拿不到。所以这个框一关就再也找不回链接，
- * 文案必须把这点说清楚，否则管理员会以为「稍后再复制」。
- */
 function InviteLinkReveal({
   invitation,
   onClose,
@@ -67,7 +56,24 @@ function InviteLinkReveal({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const url = buildJoinUrl(invitation.token);
+  const [showLink, setShowLink] = useState(invitation.emailStatus !== 'SENT');
+  const url = invitation.invitationUrl;
+  const emailMessage = {
+    SENT: {
+      title: '邀请邮件已发送',
+      description: '邮件服务器已接收发送请求。若对方暂未收到，可检查垃圾邮件；也可以复制下方链接备用。',
+    },
+    FAILED: {
+      title: '邀请已创建，邮件发送失败',
+      description: invitation.emailError || '请稍后重试发送，或复制下方链接转达。',
+    },
+    NOT_CONFIGURED: {
+      title: '邀请已创建，邮件服务未配置',
+      description: '请联系平台管理员配置邮件服务，也可以复制下方链接转达。',
+    },
+    SENDING: { title: '邀请邮件发送中', description: '邮件发送请求正在处理。' },
+    UNKNOWN: { title: '邀请已创建', description: '邮件发送记录未知，可复制下方链接备用。' },
+  }[invitation.emailStatus];
 
   const copy = async () => {
     try {
@@ -82,33 +88,34 @@ function InviteLinkReveal({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:w-full">
         <DialogHeader>
-          <DialogTitle>邀请链接已生成</DialogTitle>
-          <DialogDescription>
-            请立即复制并发送给 <span className="font-medium">{invitation.email}</span>。
-            链接只会出现这一次，关闭后无法再次查看（如已丢失，重新邀请即可，旧链接会自动作废）。
+          <DialogTitle>{emailMessage.title}</DialogTitle>
+          <DialogDescription className="break-all">
+            {emailMessage.description} 收件人：<span className="font-medium">{invitation.email}</span>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2">
-          <code className="flex-1 break-all font-mono text-xs">{url}</code>
-          <Button size="sm" variant="ghost" onClick={copy} className="shrink-0">
-            {copied ? (
-              <Check className="h-4 w-4 text-success" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
+        {showLink ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2">
+            <code className="max-h-24 min-w-0 flex-1 overflow-y-auto break-all font-mono text-xs">{url}</code>
+            <Button size="sm" variant="ghost" onClick={copy} className="shrink-0" title="复制邀请链接">
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setShowLink(true)}>
+            <Link2 className="h-4 w-4" /> 查看备用链接
           </Button>
-        </div>
+        )}
 
-        <p className="text-xs text-fg-muted">
+        <p className="break-all text-xs text-fg-muted">
           该链接仅对 {invitation.email} 有效，转发给他人也无法使用。
           有效期至 {new Date(invitation.expiresAt).toLocaleString('zh-CN')}。
         </p>
 
         <DialogFooter>
-          <Button onClick={onClose}>我已复制，关闭</Button>
+          <Button onClick={onClose}>关闭</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -133,16 +140,22 @@ function InviteDialog({
     departmentId: '',
     position: '',
   });
+  const [formError, setFormError] = useState('');
 
   const submit = () => {
-    if (!form.email) return;
+    const parsed = InvitationCreateDtoSchema.safeParse({
+      email: form.email.trim(),
+      role: form.role,
+      departmentId: form.departmentId || undefined,
+      position: form.position.trim() || undefined,
+    });
+    if (!parsed.success) {
+      setFormError(parsed.error.issues[0]?.message ?? '请检查邀请信息');
+      return;
+    }
+    setFormError('');
     createInvitation.mutate(
-      {
-        email: form.email.trim(),
-        role: form.role,
-        departmentId: form.departmentId || undefined,
-        position: form.position || undefined,
-      },
+      parsed.data,
       {
         onSuccess: (inv) => {
           onClose();
@@ -154,13 +167,11 @@ function InviteDialog({
   };
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
+    <Dialog open onOpenChange={(open) => !open && !createInvitation.isPending && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:w-full">
         <DialogHeader>
           <DialogTitle>邀请成员</DialogTitle>
-          <DialogDescription>
-            生成一条邀请链接，由对方自行设置密码加入 —— 你不需要代设、也不会接触对方密码。
-          </DialogDescription>
+          <DialogDescription>发送邮件邀请，对方通过邮件中的链接设置密码并加入企业。</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
@@ -177,6 +188,7 @@ function InviteDialog({
               链接与该邮箱绑定，只有用这个邮箱才能接受邀请。
             </p>
           </div>
+          {formError && <p role="alert" className="text-sm text-danger">{formError}</p>}
 
           <div>
             <label className="mb-1 block text-xs font-medium">角色</label>
@@ -222,12 +234,12 @@ function InviteDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={createInvitation.isPending}>
             取消
           </Button>
-          <Button onClick={submit} disabled={createInvitation.isPending || !form.email}>
+          <Button onClick={submit} disabled={createInvitation.isPending}>
             {createInvitation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            生成邀请链接
+              发送邀请邮件
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -238,9 +250,17 @@ function InviteDialog({
 export function InvitationPanel({ depts }: { depts: Department[] }) {
   const { data: invitations = [], isLoading } = useInvitations();
   const revokeInvitation = useRevokeInvitation();
+  const resendInvitation = useResendInvitation();
 
   const [inviting, setInviting] = useState(false);
   const [created, setCreated] = useState<CreatedInvitation | null>(null);
+  const [resending, setResending] = useState<EnterpriseInvitation | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const pendingCount = invitations.filter((i) => i.status === 'PENDING').length;
 
@@ -251,13 +271,24 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
     });
   };
 
+  const handleResend = () => {
+    if (!resending) return;
+    resendInvitation.mutate(resending.id, {
+      onSuccess: (invitation) => {
+        setResending(null);
+        setCreated(invitation);
+      },
+      onError: (e) => toast.error(e instanceof ApiError ? e.message : '重发失败'),
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-fg-muted">
           {pendingCount > 0 ? `${pendingCount} 条邀请待接受` : '暂无待接受的邀请'}
         </p>
-        <Button size="sm" onClick={() => setInviting(true)}>
+        <Button size="sm" onClick={() => setInviting(true)} disabled={revokeInvitation.isPending || resendInvitation.isPending}>
           <Plus className="h-4 w-4" /> 邀请成员
         </Button>
       </div>
@@ -268,15 +299,25 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
         <EmptyState
           icon={<Mail className="h-8 w-8" />}
           title="还没有发出邀请"
-          description="生成邀请链接后发给同事，对方自己设密码加入，你无需代设。"
+          description="发送邀请邮件后，对方可以自行设置密码并加入企业。"
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border bg-background">
+          <table className="w-full min-w-[1000px] table-fixed text-sm">
+            <colgroup>
+              <col />
+              <col className="w-[90px]" />
+              <col className="w-[190px]" />
+              <col className="w-[110px]" />
+              <col className="w-[90px]" />
+              <col className="w-[130px]" />
+              <col className="w-[90px]" />
+            </colgroup>
             <thead className="border-b border-border bg-muted/40">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">邮箱</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">状态</th>
+                <th className="px-4 py-3 text-left font-medium text-fg-muted">邮件</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">角色</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">部门</th>
                 <th className="px-4 py-3 text-left font-medium text-fg-muted">有效期</th>
@@ -291,9 +332,20 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
                     key={inv.id}
                     className={`hover:bg-muted/30 ${inv.status === 'PENDING' ? '' : 'opacity-60'}`}
                   >
-                    <td className="px-4 py-3 font-medium">{inv.email}</td>
+                    <td className="break-all px-4 py-3 font-medium">{inv.email}</td>
                     <td className="px-4 py-3">
                       <Badge variant={meta.variant}>{meta.label}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-fg-muted">
+                      {inv.emailStatus === 'SENT'
+                        ? `已发送${inv.emailSentAt ? ` · ${formatDistanceToNow(new Date(inv.emailSentAt), { addSuffix: true, locale: zhCN })}` : ''}`
+                        : inv.emailStatus === 'FAILED'
+                          ? inv.emailError || '发送失败'
+                          : inv.emailStatus === 'NOT_CONFIGURED'
+                            ? '邮件服务未配置'
+                            : inv.emailStatus === 'SENDING'
+                              ? '发送中'
+                              : '发送记录未知'}
                     </td>
                     <td className="px-4 py-3 text-fg-muted">
                       {ROLE_LABEL[inv.role] ?? inv.role}
@@ -316,11 +368,23 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end">
+                        {inv.status !== 'ACCEPTED' && (
+                          <button
+                            title={inv.emailLastAttemptAt && now - new Date(inv.emailLastAttemptAt).getTime() < 60_000
+                              ? `请稍后重试（${Math.ceil((60_000 - (now - new Date(inv.emailLastAttemptAt).getTime())) / 1000)} 秒）`
+                              : '重新发送邀请邮件'}
+                            onClick={() => setResending(inv)}
+                            disabled={revokeInvitation.isPending || resendInvitation.isPending || Boolean(inv.emailLastAttemptAt && now - new Date(inv.emailLastAttemptAt).getTime() < 60_000)}
+                            className="rounded p-1.5 text-fg-muted hover:bg-muted hover:text-fg disabled:opacity-50"
+                          >
+                            <RotateCw className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {inv.status === 'PENDING' && (
                           <button
                             title="撤回邀请"
                             onClick={() => handleRevoke(inv)}
-                            disabled={revokeInvitation.isPending}
+                            disabled={revokeInvitation.isPending || resendInvitation.isPending}
                             className="rounded p-1.5 text-fg-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
                           >
                             <XCircle className="h-3.5 w-3.5" />
@@ -339,8 +403,7 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
       <p className="flex items-start gap-1.5 text-xs text-fg-muted">
         <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
-          邀请链接等同于一次性登录凭证，只在生成时展示一次，请通过可信渠道转达。
-          重新邀请同一邮箱会让旧链接立即作废。
+          邀请邮件发送成功表示邮件服务器已接收，不代表已送达或已阅读。重新发送会让旧链接立即失效。
         </span>
       </p>
 
@@ -354,6 +417,26 @@ export function InvitationPanel({ depts }: { depts: Department[] }) {
 
       {created && (
         <InviteLinkReveal invitation={created} onClose={() => setCreated(null)} />
+      )}
+
+      {resending && (
+        <Dialog open onOpenChange={(open) => !open && !resendInvitation.isPending && setResending(null)}>
+          <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:w-full">
+            <DialogHeader>
+              <DialogTitle>重新发送邀请？</DialogTitle>
+              <DialogDescription className="break-all">
+                将向 {resending.email} 发送新链接，有效期重置为 7 天；原链接会立即失效。
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResending(null)} disabled={resendInvitation.isPending}>取消</Button>
+              <Button onClick={handleResend} disabled={resendInvitation.isPending}>
+                {resendInvitation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                确认重发
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

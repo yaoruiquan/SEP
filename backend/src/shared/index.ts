@@ -1328,12 +1328,15 @@ export type InvitationStatusValue = z.infer<typeof InvitationStatusSchema>;
 
 /** 邀请默认有效期（天）。过期后 token 失效，需管理员重新邀请。 */
 export const INVITATION_EXPIRES_DAYS = 7;
+export const INVITATION_EMAIL_STATUSES = ['UNKNOWN', 'SENDING', 'SENT', 'FAILED', 'NOT_CONFIGURED'] as const;
+export const InvitationEmailStatusSchema = z.enum(INVITATION_EMAIL_STATUSES);
+export type InvitationEmailStatusValue = z.infer<typeof InvitationEmailStatusSchema>;
 
 /**
  * 创建邀请。相比 MemberCreateDto 的「管理员代建账号 + 代设密码」，
  * 邀请制让被邀请人自己设密码 —— 管理员不接触他人凭据。
  *
- * MVP 不发邮件（邮件服务未接入），创建响应返回一次性链接，由管理员自行转达。
+ * 邮件发送失败时创建仍成功，响应提供一次性邀请链接作为备用。
  */
 export const InvitationCreateDtoSchema = z.object({
   email: EmailSchema,

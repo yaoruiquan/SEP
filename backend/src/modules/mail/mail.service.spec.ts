@@ -88,6 +88,9 @@ describe('MailService', () => {
       host: 'smtp.example.com',
       port: 587,
       secure: false,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
       auth: { user: 'mailer', pass: 'password' },
     });
     expect(transport.sendMail).toHaveBeenCalledWith({
@@ -144,5 +147,89 @@ describe('MailService', () => {
       text: expect.stringContaining('012345'),
     }));
     expect(provider.send.mock.calls[0][0].text).toContain('10 分钟');
+  });
+
+  it('邀请邮件返回 SMTP 接收结果并转义 HTML 动态内容', async () => {
+    const config = {
+      get: jest.fn((key: string) => ({
+        MAIL_ENABLED: 'true',
+        MAIL_PORT: '587',
+        MAIL_SECURE: 'false',
+        MAIL_HOST: 'smtp.example.com',
+        MAIL_USER: 'mailer',
+        MAIL_PASSWORD: 'password',
+        MAIL_FROM: 'noreply@example.com',
+        MAIL_FROM_NAME: '硅基人才平台',
+      } as Record<string, string>)[key]),
+      getOrThrow: jest.fn((key: string) => ({
+        MAIL_HOST: 'smtp.example.com', MAIL_USER: 'mailer', MAIL_PASSWORD: 'password',
+      } as Record<string, string>)[key]),
+    };
+    const transport = { sendMail: jest.fn().mockResolvedValue(undefined) };
+    createTransport.mockReturnValue(transport);
+    const service = new MailService(config as any);
+
+    await expect(service.sendEnterpriseInvitation({
+      to: 'user@example.com',
+      enterpriseName: '<Acme & Co>',
+      invitationUrl: 'https://example.com/join?token=abc&x=1',
+    })).resolves.toBe('SENT');
+
+    expect(transport.sendMail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'user@example.com',
+      html: expect.stringContaining('&lt;Acme &amp; Co&gt;'),
+    }));
+    expect(transport.sendMail.mock.calls[0][0].html).toContain('&amp;x=1');
+    expect(transport.sendMail.mock.calls[0][0].text).toContain('7 天');
+  });
+
+  it('邮件未启用时不把控制台邮件误报为已发送', async () => {
+    const config = {
+      get: jest.fn((key: string) => ({ MAIL_ENABLED: 'false', NODE_ENV: 'test' } as Record<string, string>)[key]),
+      getOrThrow: jest.fn(),
+    };
+    const service = new MailService(config as any);
+    await expect(service.sendEnterpriseInvitation({
+      to: 'user@example.com', enterpriseName: 'Acme', invitationUrl: 'http://localhost:3000/join?token=abc',
+    })).resolves.toBe('NOT_CONFIGURED');
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it('运行时 SMTP 密码轮换时重建 transporter，指纹不包含明文密码', async () => {
+    const values: Record<string, string> = {
+      MAIL_ENABLED: 'true', MAIL_PORT: '587', MAIL_SECURE: 'false',
+      MAIL_HOST: 'smtp.example.com', MAIL_USER: 'mailer', MAIL_PASSWORD: 'old-secret',
+      MAIL_FROM: 'noreply@example.com', MAIL_FROM_NAME: '硅基人才平台',
+    };
+    const setting = { getEffectiveValue: jest.fn(async (key: string) => values[key]) };
+    const config = {
+      get: jest.fn((key: string) => ({ NODE_ENV: 'production' } as Record<string, string>)[key]),
+      getOrThrow: jest.fn(),
+    };
+    const service = new MailService(config as any, setting as any);
+    createTransport.mockImplementation(() => ({ sendMail: jest.fn().mockResolvedValue(undefined) }));
+
+    await service.sendEnterpriseInvitation({
+      to: 'user@example.com', enterpriseName: 'Acme', invitationUrl: 'https://example.com/join?token=abc',
+    });
+    const initialFingerprint = (service as any).providerFingerprint as string;
+    expect(initialFingerprint).not.toContain('old-secret');
+    expect(createTransport).toHaveBeenCalledTimes(1);
+
+    values.MAIL_PASSWORD = 'new-secret';
+    await service.sendEnterpriseInvitation({
+      to: 'user@example.com', enterpriseName: 'Acme', invitationUrl: 'https://example.com/join?token=def',
+    });
+
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect((service as any).providerFingerprint).not.toContain('new-secret');
+  });
+
+  it('已启用但 SMTP 配置缺失时返回 NOT_CONFIGURED', async () => {
+    const service = new MailService({ get: (key: string) => key === 'MAIL_ENABLED' ? 'true' : undefined } as any);
+    await expect(service.sendEnterpriseInvitation({
+      to: 'user@example.com', enterpriseName: 'Acme', invitationUrl: 'https://example.com/join?token=abc',
+    })).resolves.toBe('NOT_CONFIGURED');
+    expect(createTransport).not.toHaveBeenCalled();
   });
 });

@@ -124,13 +124,14 @@ describe('OAuthService invitation flow', () => {
       position: null,
       status: 'PENDING',
       expiresAt: new Date(Date.now() + 60_000),
+      tokenHash: 'invitation-token-hash',
       ...over,
     };
   }
 
-  it('startInvitation 只把 invitationId 写入 OAuth transaction，不保存明文 token', async () => {
+  it('startInvitation 保存邀请 ID 与摘要，不保存明文 token', async () => {
     const { service, invitations, state } = makeService();
-    invitations.findUsableByToken.mockResolvedValue({ id: 'inv-1' });
+    invitations.findUsableByToken.mockResolvedValue({ id: 'inv-1', tokenHash: 'invitation-token-hash' });
     state.create.mockResolvedValue({
       state: 'state-value',
       nonce: 'nonce-value',
@@ -146,7 +147,7 @@ describe('OAuthService invitation flow', () => {
     expect(state.create).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'wechat',
       intent: 'INVITATION',
-      metadata: { invitationId: 'inv-1' },
+      metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' },
     }));
     expect(JSON.stringify(state.create.mock.calls[0][0])).not.toContain('secret-invitation-token');
   });
@@ -162,7 +163,7 @@ describe('OAuthService invitation flow', () => {
     prisma.$transaction.mockImplementation((fn: any) => fn(tx));
 
     const userId = await (service as any).resolveInvitationIdentity(
-      { provider: 'wechat', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1' } },
+      { provider: 'wechat', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
       { provider: 'wechat', providerAccountId: 'unionid-1', email: null, name: '新员工', avatar: null, rawProfile: { unionid: 'unionid-1' }, emailVerified: null },
     );
 
@@ -175,7 +176,7 @@ describe('OAuthService invitation flow', () => {
       data: expect.objectContaining({ userId: 'user-1', enterpriseId: 'ent-1', role: 'MEMBER' }),
     }));
     expect(tx.enterpriseInvitation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'inv-1', status: 'PENDING' }),
+      where: expect.objectContaining({ id: 'inv-1', tokenHash: 'invitation-token-hash', status: 'PENDING', expiresAt: { gt: expect.any(Date) } }),
     }));
   });
 
@@ -190,10 +191,22 @@ describe('OAuthService invitation flow', () => {
     prisma.$transaction.mockImplementation((fn: any) => fn(tx));
 
     await expect((service as any).resolveInvitationIdentity(
-      { provider: 'qq', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1' } },
+      { provider: 'qq', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
       { provider: 'qq', providerAccountId: 'openid-1', email: 'other@example.com', name: null, avatar: null, rawProfile: {}, emailVerified: true },
     )).rejects.toThrow('第三方账号邮箱与邀请不匹配');
     expect(tx.authIdentity.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('OAuth 进行中邀请被重发，回调拒绝旧摘要且不创建成员', async () => {
+    const { service, prisma } = makeService();
+    prisma.enterpriseInvitation.findUnique.mockResolvedValue(invitationFixture({ tokenHash: 'rotated-hash' }));
+
+    await expect((service as any).resolveInvitationIdentity(
+      { provider: 'wechat', intent: 'INVITATION', metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
+      { provider: 'wechat', providerAccountId: 'unionid-1', email: null },
+    )).rejects.toThrow('邀请链接无效或已失效');
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.enterpriseMember.create).not.toHaveBeenCalled();
   });
 
   it('已有第三方身份且邮箱匹配时，更新身份并接受邀请', async () => {
@@ -207,7 +220,7 @@ describe('OAuthService invitation flow', () => {
     prisma.$transaction.mockImplementation((fn: any) => fn(tx));
 
     await expect((service as any).resolveInvitationIdentity(
-      { provider: 'wechat', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1' } },
+      { provider: 'wechat', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
       { provider: 'wechat', providerAccountId: 'unionid-1', email: null, name: '新员工', avatar: null, rawProfile: {}, emailVerified: null },
     )).resolves.toBe('user-1');
     expect(tx.authIdentity.update).toHaveBeenCalled();
@@ -225,7 +238,7 @@ describe('OAuthService invitation flow', () => {
     prisma.$transaction.mockImplementation((fn: any) => fn(tx));
 
     await expect((service as any).resolveInvitationIdentity(
-      { provider: 'qq', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1' } },
+      { provider: 'qq', intent: 'INVITATION', redirectUri: 'x', userId: null, metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
       { provider: 'qq', providerAccountId: 'openid-1', email: null, name: null, avatar: null, rawProfile: {}, emailVerified: null },
     )).rejects.toThrow('该邮箱已注册，请先登录后接受邀请');
     expect(tx.user.create).not.toHaveBeenCalled();

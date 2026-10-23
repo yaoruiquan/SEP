@@ -53,16 +53,23 @@ describe('InvitationService', () => {
     prisma = {
       department: { findUnique: jest.fn() },
       enterpriseMember: { findFirst: jest.fn().mockResolvedValue(null) },
+      enterprise: { findUnique: jest.fn().mockResolvedValue({ name: '示例科技' }) },
       enterpriseInvitation: {
         create: jest.fn((a: any) =>
-          Promise.resolve({ id: 'inv-new', ...a.data }),
+          Promise.resolve({
+            id: 'inv-new', ...a.data, createdAt: new Date(),
+            department: null, acceptedAt: null,
+          }),
         ),
+        findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn((a: any) => Promise.resolve({ id: a.where.id })),
         update: jest.fn((a: any) => Promise.resolve({ id: a.where.id })),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     ctxSvc = {
       resolve: jest.fn().mockResolvedValue(ACME),
       assertEnterpriseAdmin: jest.fn(),
@@ -98,12 +105,14 @@ describe('InvitationService', () => {
     });
 
     it('两次创建的 token 不同', async () => {
+      prisma.enterpriseInvitation.findFirst.mockResolvedValue(null);
       const a = await svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any);
-      const b = await svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any);
+      const b = await svc.create('u1', { email: 'b@b.com', role: 'MEMBER' } as any);
       expect(a.token).not.toBe(b.token);
     });
 
     it('重邀同一邮箱：先把旧 PENDING 作废，避免多条链接同时有效', async () => {
+      prisma.enterpriseInvitation.findFirst.mockResolvedValue(null);
       await svc.create('u1', {
         email: 'newhire@acme.local',
         role: 'MEMBER',
@@ -155,6 +164,109 @@ describe('InvitationService', () => {
       const { expiresAt } =
         prisma.enterpriseInvitation.create.mock.calls[0][0].data;
       expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('记录 SMTP 尚在处理，并返回服务端生成的邀请链接', async () => {
+      const res = await svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any);
+      const data = prisma.enterpriseInvitation.create.mock.calls[0][0].data;
+      expect(data.emailStatus).toBe('SENDING');
+      expect(data.emailLastAttemptAt).toBeInstanceOf(Date);
+      expect(res.invitationUrl).toContain('/join?token=');
+      expect(res.emailStatus).toBe('NOT_CONFIGURED');
+    });
+
+    it('SMTP 发送失败时保留邀请并只返回安全提示', async () => {
+      const mail = { sendEnterpriseInvitation: jest.fn().mockRejectedValue(new Error('smtp credential rejected')) };
+      svc = new InvitationService(prisma, ctxSvc, mail as any);
+      const res = await svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any);
+
+      expect(res.emailStatus).toBe('FAILED');
+      expect(res.emailError).toBe('邮件发送失败，请稍后重试');
+      expect(JSON.stringify(res)).not.toContain('smtp credential rejected');
+      expect(prisma.enterpriseInvitation.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+        where: { id: 'inv-new', tokenHash: sha256(res.token), emailStatus: 'SENDING' },
+        data: expect.objectContaining({ emailStatus: 'FAILED', emailSentAt: null }),
+      }));
+    });
+
+    it('同企业同邮箱 60 秒内拒绝再次创建', async () => {
+      prisma.enterpriseInvitation.findFirst.mockResolvedValue({ emailLastAttemptAt: new Date() });
+      await expect(svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any))
+        .rejects.toThrow(ConflictException);
+      expect(prisma.enterpriseInvitation.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resend', () => {
+    it('轮换 token 并重置状态和有效期', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1', enterpriseId: 'ent-acme', email: 'newhire@acme.local',
+        status: 'EXPIRED', tokenHash: 'old-hash',
+      });
+      prisma.enterpriseInvitation.updateMany.mockResolvedValue({ count: 1 });
+      const res: any = await svc.resend('u1', 'inv-1');
+      const update = prisma.enterpriseInvitation.updateMany.mock.calls.find((call: any[]) => call[0].where.id === 'inv-1')[0];
+      expect(update.where.tokenHash).toBe('old-hash');
+      expect(update.data).toMatchObject({ status: 'PENDING', emailStatus: 'SENDING', tokenHash: sha256(res.token) });
+      expect(update.data.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(res.invitationUrl).toContain(res.token);
+      expect(prisma.enterpriseInvitation.updateMany).toHaveBeenCalledWith({
+        where: { enterpriseId: 'ent-acme', email: 'newhire@acme.local', status: 'PENDING', id: { not: 'inv-1' } },
+        data: { status: 'REVOKED' },
+      });
+    });
+
+    it('已接受邀请不可重发', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1', enterpriseId: 'ent-acme', email: 'member@acme.local',
+        status: 'ACCEPTED', tokenHash: 'hash',
+      });
+      await expect(svc.resend('u1', 'inv-1')).rejects.toThrow(ConflictException);
+    });
+
+    it('发送结果只更新本次 token 的 SENDING 状态', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1', enterpriseId: 'ent-acme', email: 'newhire@acme.local',
+        status: 'PENDING', tokenHash: 'old-hash',
+      });
+      prisma.enterpriseInvitation.updateMany.mockResolvedValue({ count: 1 });
+      const mail = { sendEnterpriseInvitation: jest.fn().mockResolvedValue('SENT') };
+      svc = new InvitationService(prisma, ctxSvc, mail as any);
+      await svc.resend('u1', 'inv-1');
+
+      const resultWrite = prisma.enterpriseInvitation.updateMany.mock.calls.at(-1)?.[0];
+      expect(resultWrite.where).toMatchObject({ tokenHash: expect.any(String), emailStatus: 'SENDING' });
+      expect(resultWrite.where.tokenHash).not.toBe('old-hash');
+    });
+
+    it('跨企业重发返回 404，且不发信', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue(usableInvitation({ enterpriseId: 'ent-other' }));
+      const mail = { sendEnterpriseInvitation: jest.fn() };
+      svc = new InvitationService(prisma, ctxSvc, mail as any);
+      await expect(svc.resend('u1', 'inv-1')).rejects.toThrow(NotFoundException);
+      expect(mail.sendEnterpriseInvitation).not.toHaveBeenCalled();
+    });
+
+    it('同邮箱冷却期内不可重发', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue(usableInvitation());
+      prisma.enterpriseInvitation.findFirst.mockResolvedValue({ emailLastAttemptAt: new Date() });
+      await expect(svc.resend('u1', 'inv-1')).rejects.toThrow(ConflictException);
+      expect(prisma.enterpriseInvitation.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('已通过其它邀请加入的成员不可重发历史邀请', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue(usableInvitation({ status: 'REVOKED' }));
+      prisma.enterpriseMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+      await expect(svc.resend('u1', 'inv-1')).rejects.toThrow('该邮箱已是本企业成员');
+      expect(prisma.enterpriseInvitation.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('Serializable 事务冲突返回 409，且不发信', async () => {
+      prisma.$transaction.mockRejectedValue({ code: 'P2034' });
+      const mail = { sendEnterpriseInvitation: jest.fn() };
+      svc = new InvitationService(prisma, ctxSvc, mail as any);
+      await expect(svc.resend('u1', 'inv-1')).rejects.toThrow(ConflictException);
+      expect(mail.sendEnterpriseInvitation).not.toHaveBeenCalled();
     });
   });
 
@@ -219,12 +331,20 @@ describe('InvitationService', () => {
         id: 'inv-1',
         enterpriseId: 'ent-acme',
         status: 'PENDING',
+        tokenHash: 'current-hash',
       });
+      prisma.enterpriseInvitation.updateMany.mockResolvedValue({ count: 1 });
       await svc.revoke('u1', 'inv-1');
-      expect(prisma.enterpriseInvitation.update).toHaveBeenCalledWith({
-        where: { id: 'inv-1' },
+      expect(prisma.enterpriseInvitation.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv-1', tokenHash: 'current-hash', status: 'PENDING' },
         data: { status: 'REVOKED' },
       });
+    });
+
+    it('撤回前 token 或状态已变化时不能覆盖新状态', async () => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue(usableInvitation());
+      prisma.enterpriseInvitation.updateMany.mockResolvedValue({ count: 0 });
+      await expect(svc.revoke('u1', 'inv-1')).rejects.toThrow(ConflictException);
     });
   });
 
@@ -257,8 +377,8 @@ describe('InvitationService', () => {
         usableInvitation({ expiresAt: new Date(Date.now() - 1000) }),
       );
       await expect(svc.verifyToken('t')).rejects.toThrow(BadRequestException);
-      expect(prisma.enterpriseInvitation.update).toHaveBeenCalledWith({
-        where: { id: 'inv-1' },
+      expect(prisma.enterpriseInvitation.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv-1', tokenHash: sha256('t'), status: 'PENDING', expiresAt: { lte: expect.any(Date) } },
         data: { status: 'EXPIRED' },
       });
     });
@@ -310,6 +430,18 @@ describe('InvitationService', () => {
       const res: any = await svc.acceptByUser('u-orphan', 'raw');
       expect(res.member.id).toBe('mem-new');
       expect(res.enterprise.name).toBe('示例科技');
+    });
+
+    it('最终消费必须匹配读取时的摘要和未过期条件', async () => {
+      const claim = jest.fn().mockResolvedValue({ count: 0 });
+      prisma.$transaction.mockImplementation((fn: any) => fn({
+        enterpriseMember: { create: jest.fn().mockResolvedValue({ id: 'member-new' }) },
+        enterpriseInvitation: { updateMany: claim },
+      }));
+      await expect(svc.acceptByUser('u-orphan', 'raw')).rejects.toThrow(ConflictException);
+      expect(claim).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'inv-1', tokenHash: 'hash-x', status: 'PENDING', expiresAt: { gt: expect.any(Date) } },
+      }));
     });
 
     it('❗邀请发给别人时拒绝 —— 防链接转发给已登录用户', async () => {
@@ -398,7 +530,10 @@ describe('InvitationService', () => {
       await expect(svc.findUsableByToken('t')).rejects.toThrow(
         BadRequestException,
       );
-      expect(prisma.enterpriseInvitation.update).toHaveBeenCalled();
+      expect(prisma.enterpriseInvitation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tokenHash: sha256('t'), status: 'PENDING' }),
+        data: { status: 'EXPIRED' },
+      }));
     });
   });
 });

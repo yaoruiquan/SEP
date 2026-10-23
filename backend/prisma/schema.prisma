@@ -318,6 +318,11 @@ model EnterpriseInvitation {
 
   createdAt  DateTime  @default(now())
   acceptedAt DateTime?
+  emailStatus InvitationEmailStatus @default(UNKNOWN)
+  emailLastAttemptAt DateTime?
+  emailSentAt DateTime?
+  emailError String?
+  updatedAt DateTime @updatedAt
 
   /// 不加 @@unique([enterpriseId, email, status])：
   /// 撤回/过期后再次邀请同一邮箱会撞第二条 REVOKED 记录，等于禁掉重邀。
@@ -333,6 +338,14 @@ enum InvitationStatus {
   ACCEPTED // 已接受，已生成 EnterpriseMember
   EXPIRED // 已过期
   REVOKED // 被管理员撤回
+}
+
+enum InvitationEmailStatus {
+  UNKNOWN
+  SENDING
+  SENT
+  FAILED
+  NOT_CONFIGURED
 }
 
 // ============================================================================

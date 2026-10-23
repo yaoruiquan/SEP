@@ -20,6 +20,7 @@ function makeAuth() {
   const invitations = {
     findUsableByToken: jest.fn().mockResolvedValue({
       id: 'invitation-1',
+      tokenHash: 'invitation-token-hash',
       email: 'new@example.com',
       enterpriseId: 'enterprise-1',
       role: 'MEMBER',
@@ -134,5 +135,19 @@ describe('AuthService registration email verification', () => {
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ emailVerifiedAt: expect.any(Date) }),
     }));
+  });
+
+  it('invitation registration checks the current token hash and expiry before issuing a session', async () => {
+    const { service, tx, sessions } = makeAuth();
+    tx.enterpriseInvitation.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.registerByInvitation({
+      token: 'invitation-token', email: 'new@example.com', emailCode: '123456', password: 'password123',
+    }, { cookie: jest.fn() } as any)).rejects.toThrow('该邀请已被使用');
+
+    expect(tx.enterpriseInvitation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'invitation-1', tokenHash: 'invitation-token-hash', status: 'PENDING', expiresAt: { gt: expect.any(Date) } },
+    }));
+    expect(sessions.createSession).not.toHaveBeenCalled();
   });
 });

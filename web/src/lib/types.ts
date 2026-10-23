@@ -490,6 +490,12 @@ export interface EnterpriseMember {
 }
 
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
+export type InvitationEmailStatus =
+  | 'UNKNOWN'
+  | 'SENDING'
+  | 'SENT'
+  | 'FAILED'
+  | 'NOT_CONFIGURED';
 
 export interface EnterpriseInvitation {
   id: string;
@@ -497,6 +503,10 @@ export interface EnterpriseInvitation {
   role: EnterpriseRole;
   position: string | null;
   status: InvitationStatus;
+  emailStatus: InvitationEmailStatus;
+  emailLastAttemptAt: string | null;
+  emailSentAt: string | null;
+  emailError: string | null;
   expiresAt: string;
   createdAt: string;
   /** 仅 ACCEPTED 有值 */
@@ -511,6 +521,7 @@ export interface EnterpriseInvitation {
  */
 export interface CreatedInvitation extends EnterpriseInvitation {
   token: string;
+  invitationUrl: string;
 }
 
 /**

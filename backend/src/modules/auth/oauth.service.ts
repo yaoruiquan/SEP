@@ -116,14 +116,14 @@ export class OAuthService {
 
   /**
    * 从受邀链接启动第三方登录。邀请 token 只用于本次服务端校验，
-   * OAuth state 事务只保存 invitationId，不把明文 token 带入数据库。
+   * OAuth state 事务保存 invitationId 与 token 摘要，不把明文 token 带入数据库。
    */
   async startInvitation(provider: string, token: string) {
     const invitation = await this.invitations.findUsableByToken(token);
     return this.start({
       provider,
       intent: 'INVITATION',
-      metadata: { invitationId: invitation.id },
+      metadata: { invitationId: invitation.id, invitationTokenHash: invitation.tokenHash },
     });
   }
 
@@ -212,7 +212,10 @@ export class OAuthService {
     const invitationId = metadata && typeof metadata === 'object' && 'invitationId' in metadata
       ? String((metadata as { invitationId?: unknown }).invitationId ?? '')
       : '';
-    if (!invitationId) throw new BadRequestException('邀请 OAuth 事务无效');
+    const invitationTokenHash = metadata && typeof metadata === 'object' && 'invitationTokenHash' in metadata
+      ? String((metadata as { invitationTokenHash?: unknown }).invitationTokenHash ?? '')
+      : '';
+    if (!invitationId || !invitationTokenHash) throw new BadRequestException('邀请 OAuth 事务无效');
     if (profile.provider !== transaction.provider) throw new BadRequestException('第三方身份不匹配');
 
     const now = new Date();
@@ -222,10 +225,10 @@ export class OAuthService {
         where: { id: invitationId },
         select: {
           id: true, email: true, enterpriseId: true, role: true,
-          departmentId: true, position: true, status: true, expiresAt: true,
+          departmentId: true, position: true, status: true, expiresAt: true, tokenHash: true,
         },
       });
-      if (!invitation || invitation.status !== 'PENDING' || invitation.expiresAt <= now) {
+      if (!invitation || invitation.tokenHash !== invitationTokenHash || invitation.status !== 'PENDING' || invitation.expiresAt <= now) {
         throw new BadRequestException('邀请链接无效或已失效');
       }
       const expectedEmail = normalizeEmail(invitation.email);
@@ -294,7 +297,12 @@ export class OAuthService {
         },
       });
       const claimed = await tx.enterpriseInvitation.updateMany({
-        where: { id: invitation.id, status: 'PENDING', expiresAt: { gt: now } },
+        where: {
+          id: invitation.id,
+          tokenHash: invitationTokenHash,
+          status: 'PENDING',
+          expiresAt: { gt: new Date() },
+        },
         data: { status: 'ACCEPTED', acceptedAt: now },
       });
       if (claimed.count !== 1) throw new ConflictException('该邀请已被使用');

@@ -6,10 +6,12 @@ import {
   Optional,
 } from "@nestjs/common";
 import * as crypto from "crypto";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import {
   INVITATION_EXPIRES_DAYS,
   InvitationCreateDto,
+  InvitationEmailStatusValue,
   InvitationStatusValue,
 } from "shared";
 import { EnterpriseContextService } from "./enterprise-context.service";
@@ -17,6 +19,8 @@ import { MailService } from "../mail/mail.service";
 
 /** 邀请 token 字节数。32 字节 = 256 位 CSPRNG 熵，不可枚举。 */
 const TOKEN_BYTES = 32;
+const RESEND_COOLDOWN_MS = 60_000;
+const SAFE_MAIL_ERROR = "邮件发送失败，请稍后重试";
 
 @Injectable()
 export class InvitationService {
@@ -36,6 +40,76 @@ export class InvitationService {
    */
   private hashToken(token: string): string {
     return crypto.createHash("sha256").update(token).digest("hex");
+  }
+
+  private invitationUrl(token: string): string {
+    const base = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+    let url: URL;
+    try {
+      url = new URL(base);
+    } catch {
+      throw new BadRequestException("WEB_BASE_URL 配置无效");
+    }
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username || url.password ||
+      (process.env.NODE_ENV === "production" && url.protocol !== "https:")
+    ) {
+      throw new BadRequestException("WEB_BASE_URL 配置无效");
+    }
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/join`;
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("token", token);
+    return url.toString();
+  }
+
+  private async serializable<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(operation, { isolationLevel: "Serializable" });
+    } catch (error) {
+      if (typeof error === "object" && error && "code" in error && error.code === "P2034") {
+        throw new ConflictException("邀请状态冲突，请刷新后重试");
+      }
+      throw error;
+    }
+  }
+
+  private async checkEmailCooldown(tx: Prisma.TransactionClient, enterpriseId: string, email: string, now: Date) {
+    const recent = await tx.enterpriseInvitation.findFirst({
+      where: { enterpriseId, email, emailLastAttemptAt: { gt: new Date(now.getTime() - RESEND_COOLDOWN_MS) } },
+      orderBy: { emailLastAttemptAt: "desc" },
+      select: { emailLastAttemptAt: true },
+    });
+    if (recent?.emailLastAttemptAt) {
+      const seconds = Math.ceil((RESEND_COOLDOWN_MS - (now.getTime() - recent.emailLastAttemptAt.getTime())) / 1000);
+      if (seconds > 0) throw new ConflictException(`请等待 ${seconds} 秒后再发送邀请邮件`);
+    }
+  }
+
+  private async deliver(invitation: any, token: string, invitationUrl: string, enterpriseName: string) {
+    let emailStatus: InvitationEmailStatusValue = "NOT_CONFIGURED";
+    let emailError: string | null = null;
+    let emailSentAt: Date | null = null;
+    try {
+      emailStatus = this.mail
+        ? await this.mail.sendEnterpriseInvitation({
+            to: invitation.email,
+            invitationUrl,
+            enterpriseName,
+          })
+        : "NOT_CONFIGURED";
+      if (emailStatus === "SENT") emailSentAt = new Date();
+    } catch {
+      emailStatus = "FAILED";
+      emailError = SAFE_MAIL_ERROR;
+    }
+
+    await this.prisma.enterpriseInvitation.updateMany({
+      where: { id: invitation.id, tokenHash: this.hashToken(token), emailStatus: "SENDING" },
+      data: { emailStatus, emailSentAt, emailError },
+    });
+    return { ...invitation, emailStatus, emailLastAttemptAt: invitation.emailLastAttemptAt, emailSentAt, emailError, token, invitationUrl };
   }
 
   /**
@@ -60,75 +134,97 @@ export class InvitationService {
 
     const email = dto.email.toLowerCase().trim();
 
-    // 已是本企业成员：邀请没有意义
-    const existingMember = await this.prisma.enterpriseMember.findFirst({
-      where: { enterpriseId: ctx.enterpriseId, user: { email } },
-      select: { id: true },
-    });
-    if (existingMember) {
-      throw new ConflictException("该邮箱已是本企业成员");
-    }
-
-    // 「同一企业同一邮箱最多一条 PENDING」是偏序约束，Prisma schema 表达不了
-    // 部分唯一索引，故在此显式失效旧记录：重新邀请应让旧链接立即作废，
-    // 否则同一人手上会有多条都能用的链接，撤回一条等于没撤。
-    await this.prisma.enterpriseInvitation.updateMany({
-      where: {
-        enterpriseId: ctx.enterpriseId,
-        email,
-        status: "PENDING",
-      },
-      data: { status: "REVOKED" },
-    });
-
     const token = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    const invitationUrl = this.invitationUrl(token);
+    const now = new Date();
     const expiresAt = new Date(
-      Date.now() + INVITATION_EXPIRES_DAYS * 24 * 60 * 60 * 1000,
+      now.getTime() + INVITATION_EXPIRES_DAYS * 24 * 60 * 60 * 1000,
     );
-
-    const invitation = await this.prisma.enterpriseInvitation.create({
-      data: {
-        enterpriseId: ctx.enterpriseId,
-        email,
-        tokenHash: this.hashToken(token),
-        role: dto.role,
-        departmentId: dto.departmentId ?? null,
-        position: dto.position ?? null,
-        expiresAt,
-        invitedBy: userId,
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        position: true,
-        status: true,
-        expiresAt: true,
-        createdAt: true,
-        department: { select: { id: true, name: true } },
-      },
+    const invitation = await this.serializable(async (tx) => {
+      await this.checkEmailCooldown(tx, ctx.enterpriseId, email, now);
+      const existingMember = await tx.enterpriseMember.findFirst({
+        where: { enterpriseId: ctx.enterpriseId, user: { email } },
+        select: { id: true },
+      });
+      if (existingMember) throw new ConflictException("该邮箱已是本企业成员");
+      await tx.enterpriseInvitation.updateMany({
+        where: { enterpriseId: ctx.enterpriseId, email, status: "PENDING" },
+        data: { status: "REVOKED" },
+      });
+      return tx.enterpriseInvitation.create({
+        data: {
+          enterpriseId: ctx.enterpriseId,
+          email,
+          tokenHash: this.hashToken(token),
+          role: dto.role,
+          departmentId: dto.departmentId ?? null,
+          position: dto.position ?? null,
+          expiresAt,
+          invitedBy: userId,
+          emailStatus: "SENDING",
+          emailLastAttemptAt: now,
+        },
+        select: {
+          id: true, email: true, role: true, position: true, status: true,
+          expiresAt: true, createdAt: true, emailStatus: true,
+          emailLastAttemptAt: true, emailSentAt: true, emailError: true,
+          department: { select: { id: true, name: true } },
+        },
+      });
     });
 
-    const invitationUrl = `${process.env.WEB_BASE_URL ?? "http://localhost:3000"}/join?token=${encodeURIComponent(token)}`;
-    try {
-      const enterprise = await this.prisma.enterprise.findUnique({
-        where: { id: ctx.enterpriseId },
-        select: { name: true },
-      });
-      await this.mail?.sendEnterpriseInvitation({
-        to: email,
-        invitationUrl,
-        enterpriseName: enterprise?.name ?? ctx.enterpriseId,
-      });
-    } catch {
-      // 邮件失败不回滚已创建邀请；管理员仍可从响应复制一次性链接重发。
-    }
+    const enterprise = await this.prisma.enterprise.findUnique({
+      where: { id: ctx.enterpriseId },
+      select: { name: true },
+    });
+    return this.deliver(invitation, token, invitationUrl, enterprise?.name ?? ctx.enterpriseId);
+  }
 
-    return {
-      ...invitation,
-      /** 明文 token，仅此一次返回。前端拼成 /join?token=xxx 交给管理员转达。 */
-      token,
-    };
+  async resend(userId: string, id: string) {
+    const ctx = await this.ctx.resolve(userId);
+    this.ctx.assertEnterpriseAdmin(ctx);
+    const now = new Date();
+    const token = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    const invitationUrl = this.invitationUrl(token);
+    const expiresAt = new Date(now.getTime() + INVITATION_EXPIRES_DAYS * 24 * 60 * 60 * 1000);
+    const invitation = await this.serializable(async (tx) => {
+      const current = await tx.enterpriseInvitation.findUnique({
+        where: { id },
+        select: { id: true, enterpriseId: true, email: true, status: true, tokenHash: true },
+      });
+      if (!current || current.enterpriseId !== ctx.enterpriseId) throw new NotFoundException(`邀请 ${id} 不存在`);
+      if (current.status === "ACCEPTED") throw new ConflictException("该邀请已被接受，无法重发");
+      await this.checkEmailCooldown(tx, current.enterpriseId, current.email, now);
+      const member = await tx.enterpriseMember.findFirst({
+        where: { enterpriseId: ctx.enterpriseId, user: { email: current.email } },
+        select: { id: true },
+      });
+      if (member) throw new ConflictException("该邮箱已是本企业成员");
+      await tx.enterpriseInvitation.updateMany({
+        where: { enterpriseId: ctx.enterpriseId, email: current.email, status: "PENDING", id: { not: id } },
+        data: { status: "REVOKED" },
+      });
+      const claimed = await tx.enterpriseInvitation.updateMany({
+        where: { id, enterpriseId: ctx.enterpriseId, status: current.status, tokenHash: current.tokenHash },
+        data: {
+          tokenHash: this.hashToken(token), status: "PENDING", expiresAt,
+          emailStatus: "SENDING", emailLastAttemptAt: now, emailSentAt: null, emailError: null,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException("邀请状态已变化，请刷新后重试");
+      return tx.enterpriseInvitation.findUniqueOrThrow({
+        where: { id },
+        select: {
+          id: true, enterpriseId: true, email: true, role: true, position: true, status: true,
+          expiresAt: true, createdAt: true, emailStatus: true, emailLastAttemptAt: true,
+          emailSentAt: true, emailError: true, department: { select: { id: true, name: true } },
+        },
+      });
+    });
+    const enterprise = await this.prisma.enterprise.findUnique({
+      where: { id: ctx.enterpriseId }, select: { name: true },
+    });
+    return this.deliver(invitation, token, invitationUrl, enterprise?.name ?? ctx.enterpriseId);
   }
 
   /** 本企业邀请列表。可按状态过滤。顺带把已过期的 PENDING 收敛为 EXPIRED。 */
@@ -153,6 +249,10 @@ export class InvitationService {
         expiresAt: true,
         createdAt: true,
         acceptedAt: true,
+        emailStatus: true,
+        emailLastAttemptAt: true,
+        emailSentAt: true,
+        emailError: true,
         department: { select: { id: true, name: true } },
       },
     });
@@ -165,7 +265,7 @@ export class InvitationService {
 
     const invitation = await this.prisma.enterpriseInvitation.findUnique({
       where: { id },
-      select: { id: true, enterpriseId: true, status: true },
+      select: { id: true, enterpriseId: true, status: true, tokenHash: true },
     });
     // 越权返回 404，不泄漏该 id 是否存在
     if (!invitation || invitation.enterpriseId !== ctx.enterpriseId) {
@@ -180,10 +280,11 @@ export class InvitationService {
       throw new ConflictException("该邀请已失效，无需撤回");
     }
 
-    await this.prisma.enterpriseInvitation.update({
-      where: { id },
+    const revoked = await this.prisma.enterpriseInvitation.updateMany({
+      where: { id, tokenHash: invitation.tokenHash, status: "PENDING" },
       data: { status: "REVOKED" },
     });
+    if (revoked.count !== 1) throw new ConflictException("邀请状态已变化，请刷新后重试");
 
     return { success: true };
   }
@@ -216,8 +317,8 @@ export class InvitationService {
       throw new BadRequestException("邀请链接无效或已失效");
     }
     if (invitation.expiresAt.getTime() <= Date.now()) {
-      await this.prisma.enterpriseInvitation.update({
-        where: { id: invitation.id },
+      await this.prisma.enterpriseInvitation.updateMany({
+        where: { id: invitation.id, tokenHash: this.hashToken(token), status: "PENDING", expiresAt: { lte: new Date() } },
         data: { status: "EXPIRED" },
       });
       throw new BadRequestException("邀请链接无效或已失效");
@@ -241,8 +342,8 @@ export class InvitationService {
       throw new BadRequestException("邀请链接无效或已失效");
     }
     if (invitation.expiresAt.getTime() <= Date.now()) {
-      await this.prisma.enterpriseInvitation.update({
-        where: { id: invitation.id },
+      await this.prisma.enterpriseInvitation.updateMany({
+        where: { id: invitation.id, tokenHash: this.hashToken(token), status: "PENDING", expiresAt: { lte: new Date() } },
         data: { status: "EXPIRED" },
       });
       throw new BadRequestException("邀请链接无效或已失效");
@@ -313,7 +414,12 @@ export class InvitationService {
       // 条件更新 + count 校验：并发下只有一个请求能把 PENDING 改掉，
       // 另一个 count=0 → 抛错回滚，避免同一链接建出两个成员
       const claimed = await tx.enterpriseInvitation.updateMany({
-        where: { id: invitation.id, status: "PENDING" },
+        where: {
+          id: invitation.id,
+          tokenHash: invitation.tokenHash,
+          status: "PENDING",
+          expiresAt: { gt: new Date() },
+        },
         data: { status: "ACCEPTED", acceptedAt: new Date() },
       });
       if (claimed.count === 0) {
