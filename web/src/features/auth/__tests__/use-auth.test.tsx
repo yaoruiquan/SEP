@@ -16,6 +16,8 @@ import {
 import { useAuthStore } from '@/lib/auth-store';
 import { api } from '@/lib/api-client';
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
+
 // Mock dependencies
 vi.mock('@/lib/api-client', () => ({
   api: {
@@ -25,10 +27,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    replace: vi.fn(),
-    push: vi.fn(),
-  }),
+  useRouter: () => navigation,
 }));
 
 function createWrapper() {
@@ -519,5 +518,34 @@ describe('useLeaveEnterprise', () => {
     expect(store.enterprise).toBeNull();
     expect(store.roleInEnterprise).toBeNull();
     expect(store.user).toBeDefined(); // User still exists
+    expect(navigation.replace).toHaveBeenCalledWith('/no-enterprise');
+  });
+
+  it('returns to the same invitation after leaving and clears enterprise query data', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ removed: true });
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    client.setQueryData(['enterprise', 'members'], ['old-private-data']);
+    const { result } = renderHook(() => useLeaveEnterprise('invite&token=second'), {
+      wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    });
+
+    result.current.mutate();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(navigation.replace).toHaveBeenCalledWith('/join?token=invite%26token%3Dsecond');
+    expect(client.getQueryData(['enterprise', 'members'])).toBeUndefined();
+    expect(useAuthStore.getState().enterprise).toBeNull();
+    expect(useAuthStore.getState().token).toBe('user-token');
+  });
+
+  it('does not navigate or discard the current enterprise if leaving is refused', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('last administrator'));
+    const { result } = renderHook(() => useLeaveEnterprise('invite-token'), { wrapper: createWrapper() });
+
+    result.current.mutate();
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(navigation.replace).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().enterprise?.id).toBe('ent-old');
   });
 });

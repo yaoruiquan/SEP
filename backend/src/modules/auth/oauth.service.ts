@@ -242,12 +242,16 @@ export class OAuthService {
       });
       let userId: string;
       if (existingIdentity) {
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${existingIdentity.userId} FOR UPDATE`;
         const user = await tx.user.findUnique({
           where: { id: existingIdentity.userId },
-          select: { id: true, email: true, memberships: { select: { enterpriseId: true } } },
+          select: { id: true, status: true, email: true },
         });
         if (!user || normalizeEmail(user.email) !== expectedEmail) {
           throw new ConflictException('该第三方账号与邀请邮箱不匹配，请使用邀请邮箱对应的账号');
+        }
+        if (user.status !== 'ACTIVE') {
+          throw new ConflictException('账号当前不可加入企业，请联系平台');
         }
         userId = user.id;
         await tx.authIdentity.update({
@@ -307,7 +311,7 @@ export class OAuthService {
       });
       if (claimed.count !== 1) throw new ConflictException('该邀请已被使用');
       return userId;
-    });
+    }, { isolationLevel: 'ReadCommitted' });
   }
 
   private async resolveIdentity(transaction: ConsumedOAuthTransaction, profile: NormalizedOAuthProfile): Promise<string> {

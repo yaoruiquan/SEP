@@ -212,9 +212,10 @@ describe('OAuthService invitation flow', () => {
   it('已有第三方身份且邮箱匹配时，更新身份并接受邀请', async () => {
     const { service, prisma } = makeService();
     const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
       enterpriseInvitation: { findUnique: jest.fn().mockResolvedValue(invitationFixture()), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       authIdentity: { findUnique: jest.fn().mockResolvedValue({ id: 'identity-1', userId: 'user-1' }), update: jest.fn() },
-      user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', email: 'newhire@example.com' }) },
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', status: 'ACTIVE', email: 'newhire@example.com' }) },
       enterpriseMember: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
     };
     prisma.$transaction.mockImplementation((fn: any) => fn(tx));
@@ -225,6 +226,36 @@ describe('OAuthService invitation flow', () => {
     )).resolves.toBe('user-1');
     expect(tx.authIdentity.update).toHaveBeenCalled();
     expect(tx.enterpriseMember.create).toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'ReadCommitted' });
+    expect(tx.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM users WHERE id = ? FOR UPDATE');
+    expect(tx.$queryRaw.mock.calls[0][1]).toBe('user-1');
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.user.findUnique.mock.invocationCallOrder[0]);
+    expect(tx.user.findUnique.mock.invocationCallOrder[0]).toBeLessThan(tx.enterpriseMember.findMany.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    [null, [], '第三方账号与邀请邮箱不匹配'],
+    [{ status: 'DISABLED' }, [], '账号当前不可加入企业'],
+    [{ status: 'ACTIVE' }, [{ enterpriseId: 'ent-other' }], '请先退出当前企业'],
+    [{ status: 'ACTIVE' }, [{ enterpriseId: 'ent-1' }], '你已是该企业成员'],
+  ])('已有第三方账号在锁后复核状态和归属：%s %s', async (user, memberships, message) => {
+    const { service, prisma } = makeService();
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
+      enterpriseInvitation: { findUnique: jest.fn().mockResolvedValue(invitationFixture()), updateMany: jest.fn() },
+      authIdentity: { findUnique: jest.fn().mockResolvedValue({ id: 'identity-1', userId: 'user-1' }), update: jest.fn() },
+      user: { findUnique: jest.fn().mockResolvedValue(user ? { id: 'user-1', email: 'newhire@example.com', ...user } : null) },
+      enterpriseMember: { findMany: jest.fn().mockResolvedValue(memberships), create: jest.fn() },
+    };
+    prisma.$transaction.mockImplementation((fn: any) => fn(tx));
+
+    await expect((service as any).resolveInvitationIdentity(
+      { provider: 'wechat', intent: 'INVITATION', metadata: { invitationId: 'inv-1', invitationTokenHash: 'invitation-token-hash' } },
+      { provider: 'wechat', providerAccountId: 'unionid-1', email: null, rawProfile: {} },
+    )).rejects.toThrow(message as string);
+
+    expect(tx.enterpriseMember.create).not.toHaveBeenCalled();
+    expect(tx.enterpriseInvitation.updateMany).not.toHaveBeenCalled();
   });
 
   it('邀请邮箱已有本地账号时拒绝静默合并', async () => {

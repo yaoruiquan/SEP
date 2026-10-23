@@ -389,9 +389,10 @@ export class AuthService {
   ): Promise<AuthResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, avatar: true, role: true },
+      select: { id: true, status: true, email: true, name: true, avatar: true, role: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可创建企业');
 
     const existing = await this.prisma.enterpriseMember.findFirst({
       where: { userId },
@@ -404,6 +405,17 @@ export class AuthService {
     }
 
     const { enterprise, member } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      const lockedUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, status: true, email: true, name: true, avatar: true, role: true },
+      });
+      if (!lockedUser) throw new UnauthorizedException('User not found');
+      if (lockedUser.status !== 'ACTIVE') throw new UnauthorizedException('账号当前不可创建企业');
+      const lockedMembership = await tx.enterpriseMember.findFirst({ where: { userId }, select: { id: true } });
+      if (lockedMembership) {
+        throw new ConflictException('你已归属企业，如需开新公司请先在个人设置中退出当前企业');
+      }
       const enterprise = await tx.enterprise.create({
         data: {
           name: dto.name,
@@ -420,6 +432,11 @@ export class AuthService {
       });
 
       return { enterprise, member };
+    }, { isolationLevel: 'ReadCommitted' }).catch((error: unknown) => {
+      if (typeof error === 'object' && error && 'code' in error && error.code === 'P2034') {
+        throw new ConflictException('企业归属状态冲突，请刷新后重试');
+      }
+      throw error;
     });
 
     // 同 register：默认部门是便利，不该拖垮开公司流程。见 seedDefaultDepartments

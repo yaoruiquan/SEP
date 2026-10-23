@@ -88,10 +88,11 @@ export class AuthController {
   @ApiOperation({
     summary: '校验邀请 token（公开，无需登录）',
     description:
-      '受邀注册页用它展示「你被邀请加入 X 公司」。被邀请人此时还没有账号，' +
-      '故不加守卫。只返回展示所需字段，不暴露企业组织结构。',
+      '受邀页面用它展示企业信息并分流注册或登录，因此无需登录。' +
+      '仅在 token 有效时查询受邀邮箱账号，返回 nextAction：REGISTER、LOGIN 或 CONTACT_SUPPORT。' +
+      '不返回账号 ID、原企业归属或任意邮箱查询结果。',
   })
-  @ApiResponse({ status: 200, description: '邀请有效，返回企业与角色信息' })
+  @ApiResponse({ status: 200, description: '邀请有效，返回企业、角色和 nextAction（REGISTER / LOGIN / CONTACT_SUPPORT）' })
   @ApiResponse({ status: 400, description: '邀请链接无效或已失效' })
   async verifyInvitation(@Query('token') token: string) {
     return this.invitations.verifyToken(token ?? '');

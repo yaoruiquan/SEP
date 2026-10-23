@@ -1,5 +1,6 @@
 // Mirror of backend response shapes (kept minimal, only what the UI reads).
 import type { EmployeeAvatarAsset } from '../../../backend/src/shared/employee-avatar';
+import type { InvitationNextAction } from 'shared/invitation-routing';
 export type { EmployeeAvatarAsset } from '../../../backend/src/shared/employee-avatar';
 
 export type CapabilityType = 'AGENT' | 'RPA' | 'SKILL' | 'AI_APP';
@@ -534,6 +535,7 @@ export interface CreatedInvitation extends EnterpriseInvitation {
  */
 export interface InvitationPreview {
   id: string;
+  nextAction: InvitationNextAction;
   email: string;
   role: EnterpriseRole;
   position: string | null;

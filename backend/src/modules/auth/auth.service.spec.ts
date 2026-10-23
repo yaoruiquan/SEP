@@ -16,6 +16,7 @@ const USER = {
   email: 'solo@example.com',
   name: '独立用户',
   role: 'USER',
+  status: 'ACTIVE',
 };
 
 describe('AuthService.createEnterprise', () => {
@@ -37,6 +38,8 @@ describe('AuthService.createEnterprise', () => {
     };
     // 事务内的 client 用同一个 tx 对象，便于断言事务里究竟发生了什么
     tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: USER.id }]),
+      user: { findUnique: jest.fn().mockResolvedValue({ ...USER, status: 'ACTIVE' }) },
       enterprise: {
         create: jest.fn((a: any) =>
           Promise.resolve({ id: 'ent-new', name: a.data.name }),
@@ -44,6 +47,7 @@ describe('AuthService.createEnterprise', () => {
       },
       enterpriseMember: {
         create: jest.fn((a: any) => Promise.resolve({ id: 'mem-new', ...a.data })),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(tx));
@@ -73,6 +77,11 @@ describe('AuthService.createEnterprise', () => {
     const result = await svc.createEnterprise(USER.id, { name: '新公司' }, res);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'ReadCommitted' });
+    expect(tx.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM users WHERE id = ? FOR UPDATE');
+    expect(tx.$queryRaw.mock.calls[0][1]).toBe(USER.id);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.user.findUnique.mock.invocationCallOrder[0]);
+    expect(tx.user.findUnique.mock.invocationCallOrder[0]).toBeLessThan(tx.enterpriseMember.findFirst.mock.invocationCallOrder[0]);
 
     // ComputeAccount 必须与企业同事务创建：分开建则中途失败会留下
     // 一家无法扣费的企业，订阅流程在下单时才炸
@@ -92,12 +101,15 @@ describe('AuthService.createEnterprise', () => {
       },
     });
 
-    // 不建 User：本方法的前提就是账号已存在
-    expect(tx.user).toBeUndefined();
+    // 事务内只重新读取并锁定 User，不会创建 User
+    expect(tx.user.findUnique).toHaveBeenCalledWith({
+      where: { id: USER.id },
+      select: { id: true, status: true, email: true, name: true, avatar: true, role: true },
+    });
 
     expect(result).toEqual({
       token: 'access-jwt',
-      user: USER,
+      user: { id: USER.id, email: USER.email, name: USER.name, avatar: undefined, role: USER.role },
       enterprise: { id: 'ent-new', name: '新公司' },
       roleInEnterprise: 'ENTERPRISE_ADMIN',
     });
@@ -144,6 +156,29 @@ describe('AuthService.createEnterprise', () => {
     await expect(
       svc.createEnterprise(USER.id, { name: '第二家公司' }, res),
     ).rejects.toThrow('你已归属企业，如需开新公司请先在个人设置中退出当前企业');
+  });
+
+  it('等待用户行锁后重新出现归属时，不再创建企业', async () => {
+    tx.enterpriseMember.findFirst.mockResolvedValue({ id: 'member-from-invitation' });
+
+    await expect(svc.createEnterprise(USER.id, { name: '新公司' }, res)).rejects.toThrow(ConflictException);
+
+    expect(tx.enterprise.create).not.toHaveBeenCalled();
+    expect(sessions.createSession).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { ...USER, status: 'DISABLED' }])('加锁后账号失效时拒绝创建企业：%s', async (user) => {
+    tx.user.findUnique.mockResolvedValue(user);
+
+    await expect(svc.createEnterprise(USER.id, { name: '新公司' }, res)).rejects.toThrow(UnauthorizedException);
+    expect(tx.enterprise.create).not.toHaveBeenCalled();
+    expect(tx.enterpriseMember.create).not.toHaveBeenCalled();
+  });
+
+  it('事务冲突返回 409，不签发新会话', async () => {
+    prisma.$transaction.mockRejectedValue({ code: 'P2034' });
+    await expect(svc.createEnterprise(USER.id, { name: '新公司' }, res)).rejects.toThrow(ConflictException);
+    expect(sessions.createSession).not.toHaveBeenCalled();
   });
 
   it('token 有效但用户已被删除 → 401，不建出无主企业', async () => {

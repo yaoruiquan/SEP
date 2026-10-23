@@ -200,9 +200,9 @@ export function useCreateEnterprise() {
 
 /**
  * 主动离职。成功后账号转为「无归属」，故必须清空 store 里的企业字段并
- * 送去 /no-enterprise —— 留在企业台会看到一堆 403。
+ * 返回当前邀请或 /no-enterprise，避免停留在失去访问权限的企业页面。
  */
-export function useLeaveEnterprise() {
+export function useLeaveEnterprise(invitationToken?: string | null) {
   const router = useRouter();
   const queryClient = useQueryClient();
   return useMutation({
@@ -220,7 +220,9 @@ export function useLeaveEnterprise() {
         setAuth({ token, user, enterprise: null, roleInEnterprise: null });
       }
       queryClient.clear();
-      router.replace('/no-enterprise');
+      router.replace(invitationToken
+        ? `/join?token=${encodeURIComponent(invitationToken)}`
+        : '/no-enterprise');
     },
   });
 }

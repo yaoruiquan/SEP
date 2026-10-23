@@ -1317,6 +1317,8 @@ export type MemberUpdateDto = z.infer<typeof MemberUpdateDtoSchema>;
 
 // ── 企业邀请 ────────────────────────────────────────────────────────────────
 
+export * from './invitation-routing';
+
 export const INVITATION_STATUSES = [
   'PENDING',
   'ACCEPTED',

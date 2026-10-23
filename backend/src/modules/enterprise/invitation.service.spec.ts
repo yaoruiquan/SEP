@@ -51,6 +51,7 @@ describe('InvitationService', () => {
 
   beforeEach(() => {
     prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue(null) },
       department: { findUnique: jest.fn() },
       enterpriseMember: { findFirst: jest.fn().mockResolvedValue(null) },
       enterprise: { findUnique: jest.fn().mockResolvedValue({ name: '示例科技' }) },
@@ -370,6 +371,7 @@ describe('InvitationService', () => {
       expect(notFound).toBeInstanceOf(BadRequestException);
       expect(revoked).toBeInstanceOf(BadRequestException);
       expect(notFound.message).toBe(revoked.message);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
 
     it('已过期 → 报错并把状态收敛为 EXPIRED', async () => {
@@ -381,6 +383,25 @@ describe('InvitationService', () => {
         where: { id: 'inv-1', tokenHash: sha256('t'), status: 'PENDING', expiresAt: { lte: expect.any(Date) } },
         data: { status: 'EXPIRED' },
       });
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [null, 'REGISTER'],
+      [{ id: 'user-existing', status: 'ACTIVE' }, 'LOGIN'],
+      [{ id: 'user-disabled', status: 'DISABLED' }, 'CONTACT_SUPPORT'],
+    ])('有效邀请按账号状态返回下一步 %s → %s', async (user, nextAction) => {
+      prisma.enterpriseInvitation.findUnique.mockResolvedValue(usableInvitation());
+      prisma.user.findUnique.mockResolvedValue(user);
+      const result = await svc.verifyToken('raw');
+      expect(result).toEqual(expect.objectContaining({ nextAction }));
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'newhire@acme.local' },
+        select: { status: true },
+      });
+      expect(result).not.toHaveProperty('user');
+      expect(result).not.toHaveProperty('userId');
+      expect(result).not.toHaveProperty('memberships');
     });
 
     it('有效时返回企业信息供注册页展示，且不含 tokenHash', async () => {
@@ -396,6 +417,7 @@ describe('InvitationService', () => {
   });
 
   describe('acceptByUser', () => {
+    let tx: any;
     beforeEach(() => {
       prisma.enterpriseInvitation.findUnique.mockResolvedValue(
         usableInvitation(),
@@ -403,12 +425,14 @@ describe('InvitationService', () => {
       prisma.user = {
         findUnique: jest.fn().mockResolvedValue({
           id: 'u-orphan',
+          status: 'ACTIVE',
           email: 'newhire@acme.local',
           memberships: [],
         }),
       };
-      prisma.$transaction = jest.fn((fn: any) =>
-        fn({
+      tx = {
+          $queryRaw: jest.fn().mockResolvedValue([{ id: 'u-orphan' }]),
+          user: prisma.user,
           enterpriseMember: {
             create: jest.fn((a: any) =>
               Promise.resolve({ id: 'mem-new', ...a.data }),
@@ -422,19 +446,47 @@ describe('InvitationService', () => {
               .fn()
               .mockResolvedValue({ id: 'ent-acme', name: '示例科技' }),
           },
-        }),
-      );
+        };
+      prisma.$transaction = jest.fn((fn: any) => fn(tx));
     });
 
     it('无归属用户可接受邀请并落地为成员', async () => {
       const res: any = await svc.acceptByUser('u-orphan', 'raw');
       expect(res.member.id).toBe('mem-new');
       expect(res.enterprise.name).toBe('示例科技');
+      expect(tx.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM users WHERE id = ? FOR UPDATE');
+      expect(tx.$queryRaw.mock.calls[0][1]).toBe('u-orphan');
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.user.findUnique.mock.invocationCallOrder[0]);
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'ReadCommitted' });
+    });
+
+    it('加锁后重新读取归属，拒绝已被另一个邀请加入的账号', async () => {
+      tx.user = { findUnique: jest.fn().mockResolvedValue({
+        id: 'u-orphan', status: 'ACTIVE', email: 'newhire@acme.local',
+        memberships: [{ enterpriseId: 'ent-other' }],
+      }) };
+      await expect(svc.acceptByUser('u-orphan', 'raw')).rejects.toThrow(/退出当前企业/);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(tx.enterpriseMember.create).not.toHaveBeenCalled();
+      expect(tx.enterpriseInvitation.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('禁用账号不可接受邀请', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u-orphan', status: 'DISABLED', email: 'newhire@acme.local', memberships: [] });
+      await expect(svc.acceptByUser('u-orphan', 'raw')).rejects.toThrow(/联系平台/);
+      expect(tx.enterpriseMember.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['P2034', 'P2002'])('事务冲突 %s 映射为409', async (code) => {
+      prisma.$transaction.mockRejectedValue({ code });
+      await expect(svc.acceptByUser('u-orphan', 'raw')).rejects.toThrow(ConflictException);
     });
 
     it('最终消费必须匹配读取时的摘要和未过期条件', async () => {
       const claim = jest.fn().mockResolvedValue({ count: 0 });
       prisma.$transaction.mockImplementation((fn: any) => fn({
+        $queryRaw: tx.$queryRaw,
+        user: prisma.user,
         enterpriseMember: { create: jest.fn().mockResolvedValue({ id: 'member-new' }) },
         enterpriseInvitation: { updateMany: claim },
       }));
@@ -447,6 +499,7 @@ describe('InvitationService', () => {
     it('❗邀请发给别人时拒绝 —— 防链接转发给已登录用户', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u-other',
+        status: 'ACTIVE',
         email: 'someone-else@acme.local',
         memberships: [],
       });
@@ -458,6 +511,7 @@ describe('InvitationService', () => {
     it('邮箱比对不区分大小写', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u-orphan',
+        status: 'ACTIVE',
         email: 'NewHire@ACME.local',
         memberships: [],
       });
@@ -467,6 +521,7 @@ describe('InvitationService', () => {
     it('已是该企业成员 → 409', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
+        status: 'ACTIVE',
         email: 'newhire@acme.local',
         memberships: [{ enterpriseId: 'ent-acme' }],
       });
@@ -478,6 +533,7 @@ describe('InvitationService', () => {
     it('已归属其他企业 → 409 并提示先退出，避免"看不见的归属"', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
+        status: 'ACTIVE',
         email: 'newhire@acme.local',
         memberships: [{ enterpriseId: 'ent-globex' }],
       });
@@ -489,6 +545,8 @@ describe('InvitationService', () => {
     it('❗并发下同一链接只能用一次：抢不到 PENDING 则回滚', async () => {
       prisma.$transaction = jest.fn((fn: any) =>
         fn({
+          $queryRaw: tx.$queryRaw,
+          user: prisma.user,
           enterpriseMember: { create: jest.fn().mockResolvedValue({ id: 'm' }) },
           enterpriseInvitation: {
             // 另一个并发请求已把状态改走

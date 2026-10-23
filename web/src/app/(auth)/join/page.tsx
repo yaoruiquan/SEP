@@ -6,8 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Building2, ShieldCheck, AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ArrowRight, Building2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner, CenteredSpinner } from '@/components/ui/feedback';
 import { Badge } from '@/components/ui/badge';
@@ -31,14 +31,14 @@ const ROLE_LABEL: Record<string, string> = {
 /**
  * 受邀加入页。链接形如 `/join?token=xxx`。
  *
- * 这页服务两类人，分支在于「当前浏览器有没有登录态」：
+ * 根据有效邀请的 nextAction 与当前登录态分流：
  *   - 没有账号 → 设置密码，POST /auth/register-by-invitation（建号 + 入职一步完成）
- *   - 已有账号 → POST /auth/accept-invitation（只建 membership）
+ *   - 已有账号 → 登录后 POST /auth/accept-invitation（只建 membership）
  *
  * 两条路径后端都会比对邀请邮箱，故这页**不让用户填邮箱** ——
  * 邮箱由邀请记录决定，让人填只会制造"填错了才被拒"。
  *
- * useSearchParams 要求 Suspense 边界（Next 15 App Router），故拆成两层。
+ * useSearchParams 要求 Suspense 边界，故拆成两层。
  */
 export default function JoinPage() {
   return (
@@ -143,7 +143,7 @@ function ValidInvitation({
           企业邀请
         </span>
       </div>
-      <h2 className="mt-2 text-2xl font-semibold text-gtext-primary">
+      <h2 className="mt-2 break-words text-2xl font-semibold text-gtext-primary">
         加入 {invitation.enterprise.name}
       </h2>
 
@@ -179,14 +179,43 @@ function ValidInvitation({
         <div className="mt-6 flex justify-center">
           <CenteredSpinner label="加载中…" />
         </div>
+      ) : invitation.nextAction === 'CONTACT_SUPPORT' ? (
+        <div className="mt-6 space-y-2" role="alert">
+          <p className="font-medium text-danger">该账号暂不可用</p>
+          <p className="text-sm leading-relaxed text-gtext-secondary">
+            请联系平台支持处理账号状态，再接受邀请。
+          </p>
+        </div>
+      ) : !['REGISTER', 'LOGIN'].includes(invitation.nextAction) ? (
+        <p role="alert" className="mt-6 text-sm text-gtext-secondary">
+          邀请信息暂未更新，请刷新页面后重试。
+        </p>
       ) : loggedIn ? (
         <AcceptAsLoggedIn
           invitation={invitation}
           token={token}
           currentEmail={user?.email ?? ''}
           hasEnterprise={Boolean(enterprise)}
+          isCurrentEnterprise={enterprise?.id === invitation.enterprise.id}
           currentEnterpriseName={enterprise?.name ?? ''}
         />
+      ) : invitation.nextAction === 'LOGIN' ? (
+        <div className="mt-6 space-y-4">
+          <div>
+            <p className="font-medium text-gtext-primary">该邮箱已有账号</p>
+            <p className="mt-1 break-words text-sm leading-relaxed text-gtext-secondary">
+              请使用 {invitation.email} 登录后接受邀请，无需重新注册或获取注册验证码。
+            </p>
+          </div>
+          <Link
+            href={`/login?redirect=${encodeURIComponent(`/join?token=${encodeURIComponent(token)}`)}`}
+            className={`${buttonVariants()} w-full`}
+          >
+            登录并接受邀请
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <OAuthProviderButtons intent="INVITATION" token={token} />
+        </div>
       ) : (
         <RegisterByInvitationForm invitation={invitation} token={token} />
       )}
@@ -306,7 +335,7 @@ function RegisterByInvitationForm({
           {needsLogin && (
             <Link
               href={`/login?redirect=${encodeURIComponent(
-                `/join?token=${token}`,
+                `/join?token=${encodeURIComponent(token)}`,
               )}`}
               className="mt-1 block text-xs font-medium text-primary hover:underline"
             >
@@ -348,12 +377,14 @@ function AcceptAsLoggedIn({
   token,
   currentEmail,
   hasEnterprise,
+  isCurrentEnterprise,
   currentEnterpriseName,
 }: {
   invitation: InvitationPreview;
   token: string;
   currentEmail: string;
   hasEnterprise: boolean;
+  isCurrentEnterprise: boolean;
   currentEnterpriseName: string;
 }) {
   const accept = useAcceptInvitation();
@@ -369,6 +400,18 @@ function AcceptAsLoggedIn({
         ? '加入失败，请稍后重试'
         : null;
 
+  if (!emailMismatch && isCurrentEnterprise) {
+    return (
+      <div className="mt-6 space-y-4">
+        <p className="text-sm text-gtext-secondary">你已是该企业成员</p>
+        <Link href="/dashboard" className={`${buttonVariants()} w-full`}>
+          进入企业
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-6 space-y-4">
       {emailMismatch && (
@@ -380,7 +423,7 @@ function AcceptAsLoggedIn({
           </p>
           <Link
             href={`/login?redirect=${encodeURIComponent(
-              `/join?token=${token}`,
+              `/join?token=${encodeURIComponent(token)}`,
             )}`}
             className="mt-2 inline-block text-xs font-medium text-primary hover:underline"
           >
@@ -393,15 +436,16 @@ function AcceptAsLoggedIn({
         <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-gtext-primary">
           <p className="font-medium">你已归属「{currentEnterpriseName}」</p>
           <p className="mt-1 text-xs leading-relaxed text-gtext-secondary">
-            一个账号同时只能属于一家企业。若确实要转到
+            无需注销账号。一个账号同时只能属于一家企业。若确实要转到
             {invitation.enterprise.name}，请先在个人设置里退出当前企业，
-            再回到本链接。原企业的数据会留在原企业。
+            退出成功后会回到本邀请。原企业的数据会留在原企业。
           </p>
           <Link
-            href="/settings"
-            className="mt-2 inline-block text-xs font-medium text-primary hover:underline"
+            href={`/settings/profile?invitationToken=${encodeURIComponent(token)}`}
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
-            去个人设置 →
+            去个人设置
+            <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       )}
@@ -413,7 +457,7 @@ function AcceptAsLoggedIn({
       )}
 
       <Button
-        className="w-full"
+        className="h-auto min-h-10 w-full whitespace-normal break-all py-2"
         disabled={blocked || accept.isPending}
         onClick={() => accept.mutate(token)}
       >

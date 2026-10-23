@@ -14,6 +14,7 @@ import {
   InvitationEmailStatusValue,
   InvitationStatusValue,
 } from "shared";
+import type { InvitationNextAction } from "shared/invitation-routing";
 import { EnterpriseContextService } from "./enterprise-context.service";
 import { MailService } from "../mail/mail.service";
 
@@ -324,7 +325,17 @@ export class InvitationService {
       throw new BadRequestException("邀请链接无效或已失效");
     }
 
-    return invitation;
+    const user = await this.prisma.user.findUnique({
+      where: { email: invitation.email },
+      select: { status: true },
+    });
+    const nextAction: InvitationNextAction = !user
+      ? "REGISTER"
+      : user.status === "ACTIVE"
+        ? "LOGIN"
+        : "CONTACT_SUPPORT";
+
+    return { ...invitation, nextAction };
   }
 
   /**
@@ -363,76 +374,68 @@ export class InvitationService {
    */
   async acceptByUser(userId: string, token: string) {
     const invitation = await this.findUsableByToken(token);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // 与创建企业和第三方邀请共用用户行锁；ReadCommitted 确保锁后读取最新归属。
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, status: true, email: true, memberships: { select: { enterpriseId: true } } },
+        });
+        if (!user) throw new NotFoundException("用户不存在");
+        if (user.status !== "ACTIVE") throw new ConflictException("账号当前不可加入企业，请联系平台");
+        if (user.email.toLowerCase() !== invitation.email) {
+          throw new BadRequestException("该邀请不是发给当前登录账号的");
+        }
+        if (user.memberships.some((m) => m.enterpriseId === invitation.enterpriseId)) {
+          throw new ConflictException("你已是该企业成员");
+        }
+        if (user.memberships.length > 0) {
+          throw new ConflictException("你已归属其他企业，请先在个人设置中退出当前企业，再接受本邀请");
+        }
+        const member = await tx.enterpriseMember.create({
+          data: {
+            userId: user.id,
+            enterpriseId: invitation.enterpriseId,
+            role: invitation.role,
+            departmentId: invitation.departmentId,
+            position: invitation.position,
+          },
+          select: {
+            id: true,
+            role: true,
+            position: true,
+            department: { select: { id: true, name: true } },
+          },
+        });
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        memberships: { select: { enterpriseId: true } },
-      },
-    });
-    if (!user) throw new NotFoundException("用户不存在");
+        // 条件消费失败会回滚上面的成员写入，防止重发、撤销或过期后的旧链接入职。
+        const claimed = await tx.enterpriseInvitation.updateMany({
+          where: {
+            id: invitation.id,
+            tokenHash: invitation.tokenHash,
+            status: "PENDING",
+            expiresAt: { gt: new Date() },
+          },
+          data: { status: "ACCEPTED", acceptedAt: new Date() },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException("该邀请已被使用");
+        }
 
-    // 邮箱绑定校验，与受邀注册同一理由：
-    // 否则链接被转发后，任何登录用户都能用它加入企业
-    if (user.email.toLowerCase() !== invitation.email) {
-      throw new BadRequestException("该邀请不是发给当前登录账号的");
-    }
+        const enterprise = await tx.enterprise.findUniqueOrThrow({
+          where: { id: invitation.enterpriseId },
+          select: { id: true, name: true },
+        });
 
-    if (
-      user.memberships.some((m) => m.enterpriseId === invitation.enterpriseId)
-    ) {
-      throw new ConflictException("你已是该企业成员");
-    }
-
-    // 已属别家企业：前端不做企业切换，加入会让你只看得到最早那家，
-    // 本企业对你而言成了"看不见的归属"。要求先退出原企业。
-    if (user.memberships.length > 0) {
-      throw new ConflictException(
-        "你已归属其他企业，请先在个人设置中退出当前企业，再接受本邀请",
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const member = await tx.enterpriseMember.create({
-        data: {
-          userId: user.id,
-          enterpriseId: invitation.enterpriseId,
-          role: invitation.role,
-          departmentId: invitation.departmentId,
-          position: invitation.position,
-        },
-        select: {
-          id: true,
-          role: true,
-          position: true,
-          department: { select: { id: true, name: true } },
-        },
-      });
-
-      // 条件更新 + count 校验：并发下只有一个请求能把 PENDING 改掉，
-      // 另一个 count=0 → 抛错回滚，避免同一链接建出两个成员
-      const claimed = await tx.enterpriseInvitation.updateMany({
-        where: {
-          id: invitation.id,
-          tokenHash: invitation.tokenHash,
-          status: "PENDING",
-          expiresAt: { gt: new Date() },
-        },
-        data: { status: "ACCEPTED", acceptedAt: new Date() },
-      });
-      if (claimed.count === 0) {
-        throw new ConflictException("该邀请已被使用");
+        return { member, enterprise };
+      }, { isolationLevel: "ReadCommitted" });
+    } catch (error) {
+      if (typeof error === "object" && error && "code" in error && (error.code === "P2034" || error.code === "P2002")) {
+        throw new ConflictException("邀请状态冲突，请刷新后重试");
       }
-
-      const enterprise = await tx.enterprise.findUniqueOrThrow({
-        where: { id: invitation.enterpriseId },
-        select: { id: true, name: true },
-      });
-
-      return { member, enterprise };
-    });
+      throw error;
+    }
   }
 
   /** 把过了期的 PENDING 收敛为 EXPIRED，让列表状态与实际一致。 */
