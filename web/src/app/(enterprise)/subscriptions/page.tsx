@@ -34,7 +34,7 @@ import { EmploymentTable } from './employment-table';
 import { RequestList } from './request-list';
 import { Modal } from './modal';
 
-type TopTab = 'employments' | 'requests';
+type TopTab = 'employments' | 'dismissed' | 'requests';
 
 /**
  * 雇佣管理。
@@ -72,9 +72,12 @@ export default function SubscriptionsPage() {
   const [approvedDays, setApprovedDays] = useState<number | undefined>(undefined);
 
   const allRows = useMemo(() => subs.map(buildEmploymentRow), [subs]);
+  const currentCount = allRows.filter((row) => !row.dismissed).length;
+  const dismissedCount = allRows.length - currentCount;
   const rows = useMemo(() => {
     const query = keyword.trim().toLowerCase();
     return allRows.filter((row) => {
+      if (row.dismissed !== (topTab === 'dismissed')) return false;
       if (!query) return true;
       const sub = row.subscription;
       return (
@@ -83,7 +86,7 @@ export default function SubscriptionsPage() {
         sub.employee.position.toLowerCase().includes(query)
       );
     });
-  }, [allRows, keyword]);
+  }, [allRows, keyword, topTab]);
 
   const busy =
     terminate.isPending || changeStatus.isPending || upgradeSub.isPending;
@@ -208,14 +211,22 @@ export default function SubscriptionsPage() {
 
       {subs.length > 0 && <SubscriptionStats subscriptions={subs} />}
 
-      {isAdmin && (
-        <div className="flex gap-2 border-b border-border">
-          <TabButton
-            active={topTab === 'employments'}
-            onClick={() => setTopTab('employments')}
-            label="雇佣列表"
-            count={subs.length}
-          />
+      <div className="flex gap-2 border-b border-border" aria-label="雇佣管理分类">
+        <TabButton
+          active={topTab === 'employments'}
+          onClick={() => setTopTab('employments')}
+          label="雇佣中"
+          count={currentCount}
+          showZeroCount
+        />
+        <TabButton
+          active={topTab === 'dismissed'}
+          onClick={() => setTopTab('dismissed')}
+          label="已解聘"
+          count={dismissedCount}
+          showZeroCount
+        />
+        {isAdmin && (
           <TabButton
             active={topTab === 'requests'}
             onClick={() => setTopTab('requests')}
@@ -223,12 +234,12 @@ export default function SubscriptionsPage() {
             count={pendingRequests.length}
             highlightCount
           />
-        </div>
-      )}
+        )}
+      </div>
 
-      {topTab === 'employments' ? (
+      {topTab !== 'requests' ? (
         <>
-          {subs.length === 0 ? (
+          {subs.length === 0 && topTab === 'employments' ? (
             <EmptyState
               icon={<Store className="h-8 w-8" />}
               title="还没有雇佣关系"
@@ -244,6 +255,7 @@ export default function SubscriptionsPage() {
               <div className="relative max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
                 <Input
+                  aria-label="搜索雇佣关系"
                   placeholder="搜索称呼、模板名或岗位"
                   className="h-10 pl-10 shadow-sm transition-shadow focus:shadow-md"
                   value={keyword}
@@ -254,18 +266,29 @@ export default function SubscriptionsPage() {
               {rows.length === 0 ? (
                 <EmptyState
                   icon={<Search className="h-8 w-8" />}
-                  title="没有匹配的雇佣关系"
-                  description="试试清空搜索"
-                  action={
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setKeyword('');
-                      }}
-                    >
-                      查看全部
-                    </Button>
+                  title={
+                    keyword.trim()
+                      ? '没有匹配的雇佣关系'
+                      : topTab === 'dismissed'
+                        ? '暂无已解聘员工'
+                        : '暂无雇佣中的员工'
                   }
+                  description={
+                    keyword.trim()
+                      ? '当前分类下没有匹配结果，试试清空搜索或切换分类。'
+                      : topTab === 'dismissed'
+                        ? '已解除的雇佣关系会保留在这里，方便查阅。'
+                        : '历史雇佣关系可在「已解聘」中查看，也可以前往人才市场雇佣员工。'
+                  }
+                  action={keyword.trim() ? (
+                    <Button size="sm" onClick={() => setKeyword('')}>
+                      清空搜索
+                    </Button>
+                  ) : topTab === 'employments' ? (
+                    <Link href="/marketplace">
+                      <Button size="sm">前往硅基人才市场</Button>
+                    </Link>
+                  ) : undefined}
                 />
               ) : (
                 <EmploymentTable
@@ -485,23 +508,26 @@ function TabButton({
   label,
   count,
   highlightCount = false,
+  showZeroCount = false,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count: number;
   highlightCount?: boolean;
+  showZeroCount?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         'relative px-4 py-2 text-sm font-medium transition-colors',
         active ? 'text-primary' : 'text-fg-muted hover:text-foreground',
       )}
     >
       {label}
-      {count > 0 && (
+      {(count > 0 || showZeroCount) && (
         <Badge
           className={cn(
             'ml-1.5',

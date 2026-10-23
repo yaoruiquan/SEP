@@ -132,10 +132,7 @@ function EmploymentTableRow({
 
   return (
     <tr
-      className={cn(
-        'border-b border-border/40 transition-colors last:border-b-0 hover:bg-muted/30',
-        dismissed && 'opacity-55',
-      )}
+      className="border-b border-border/40 transition-colors last:border-b-0 hover:bg-muted/30"
     >
       <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">

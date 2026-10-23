@@ -9,12 +9,15 @@ interface SubscriptionStatsProps {
 }
 
 export function SubscriptionStats({ subscriptions }: SubscriptionStatsProps) {
-  const totalCount = subscriptions.length;
-  const activeCount = subscriptions.filter((s) => s.status === 'ACTIVE').length;
-  const pausedCount = subscriptions.filter((s) => s.status === 'PAUSED').length;
+  const currentSubscriptions = subscriptions.filter(
+    (s) => s.status === 'ACTIVE' || s.status === 'PAUSED',
+  );
+  const totalCount = currentSubscriptions.length;
+  const activeCount = currentSubscriptions.filter((s) => s.status === 'ACTIVE').length;
+  const pausedCount = currentSubscriptions.filter((s) => s.status === 'PAUSED').length;
 
   // 计算近30天使用率：有人在用的占比
-  const usedCount = subscriptions.filter((s) => {
+  const usedCount = currentSubscriptions.filter((s) => {
     const usage = s.usage;
     return usage && usage.activeUserCount30d > 0;
   }).length;
@@ -24,7 +27,7 @@ export function SubscriptionStats({ subscriptions }: SubscriptionStatsProps) {
   const stats = [
     {
       icon: Users,
-      label: '雇佣总数',
+      label: '当前雇佣',
       value: totalCount,
       description: `${activeCount} 个活跃`,
     },

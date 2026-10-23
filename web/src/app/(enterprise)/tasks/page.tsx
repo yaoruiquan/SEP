@@ -569,7 +569,7 @@ function TasksPageContent() {
           />
         )}
         </TabsContent>
-        <TabsContent value="monitoring" className="m-0 flex min-h-0 flex-1 flex-col">
+        <TabsContent value="monitoring" className="m-0 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24 scroll-thin lg:pb-5">
           <ClientTaskMonitor taskId={taskId} subscriptionId={subscriptionId} />
         </TabsContent>
       </Tabs>
