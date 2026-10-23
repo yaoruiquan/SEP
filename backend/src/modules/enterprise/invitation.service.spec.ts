@@ -39,7 +39,7 @@ const usableInvitation = (over: Record<string, unknown> = {}) => ({
   invitedBy: 'u1',
   createdAt: new Date(),
   acceptedAt: null,
-  enterprise: { id: 'ent-acme', name: '示例科技', logo: null },
+  enterprise: { id: 'ent-acme', name: '示例科技', logo: null, status: 'ACTIVE' },
   department: null,
   ...over,
 });
@@ -51,6 +51,7 @@ describe('InvitationService', () => {
 
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       user: { findUnique: jest.fn().mockResolvedValue(null) },
       department: { findUnique: jest.fn() },
       enterpriseMember: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -79,6 +80,11 @@ describe('InvitationService', () => {
   });
 
   describe('create', () => {
+    it('企业在上下文解析后关闭，不再创建邀请', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ status: 'CLOSED' }]);
+      await expect(svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any)).rejects.toThrow('企业已关闭');
+      expect(prisma.enterpriseInvitation.create).not.toHaveBeenCalled();
+    });
     it('仅企业管理员可创建', async () => {
       await svc.create('u1', { email: 'a@b.com', role: 'MEMBER' } as any);
       expect(ctxSvc.assertEnterpriseAdmin).toHaveBeenCalled();
@@ -431,7 +437,7 @@ describe('InvitationService', () => {
         }),
       };
       tx = {
-          $queryRaw: jest.fn().mockResolvedValue([{ id: 'u-orphan' }]),
+          $queryRaw: jest.fn().mockResolvedValue([{ id: 'u-orphan', status: 'ACTIVE' }]),
           user: prisma.user,
           enterpriseMember: {
             create: jest.fn((a: any) =>
@@ -458,6 +464,14 @@ describe('InvitationService', () => {
       expect(tx.$queryRaw.mock.calls[0][1]).toBe('u-orphan');
       expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.user.findUnique.mock.invocationCallOrder[0]);
       expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'ReadCommitted' });
+    });
+
+    it('邀请初检通过后企业关闭，在同企业行锁下拒绝新增成员', async () => {
+      tx.$queryRaw.mockResolvedValueOnce([{ id: 'u-orphan', status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+      await expect(svc.acceptByUser('u-orphan', 'raw')).rejects.toThrow('企业已关闭');
+      expect(tx.$queryRaw.mock.calls[1][0].join('?')).toContain('FROM enterprises WHERE id = ? FOR UPDATE');
+      expect(tx.enterpriseMember.create).not.toHaveBeenCalled();
+      expect(tx.enterpriseInvitation.updateMany).not.toHaveBeenCalled();
     });
 
     it('加锁后重新读取归属，拒绝已被另一个邀请加入的账号', async () => {

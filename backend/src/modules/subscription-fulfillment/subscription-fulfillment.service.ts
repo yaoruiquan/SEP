@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ComputeCreditService } from '../compute-credit/compute-credit.service';
+import { assertActiveEnterpriseInTx } from '../../common/enterprise-write-lock';
 
 export interface FulfillSubscriptionParams {
   enterpriseId: string;
@@ -78,6 +79,7 @@ export class SubscriptionFulfillmentService {
     tx: Prisma.TransactionClient,
     params: FulfillSubscriptionParams,
   ): Promise<FulfillSubscriptionResult> {
+    await assertActiveEnterpriseInTx(tx, params.enterpriseId);
     const employee = await tx.digitalEmployee.findUnique({
       where: { id: params.employeeId },
       select: {

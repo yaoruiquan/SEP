@@ -51,6 +51,8 @@ export class MediaRealBillingService {
     await this.transaction(async tx => {
       const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${claims.sub} FOR UPDATE`;
       if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+      const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${claims.enterpriseId} FOR UPDATE`;
+      if (enterprises[0]?.status !== 'ACTIVE') throw new UnauthorizedException('Enterprise is not active');
       const prior = await tx.mediaRealBillingReservation.findUnique({ where: { receiptId } });
       if (prior) {
         if (prior.enterpriseId !== claims.enterpriseId || prior.userId !== claims.sub || prior.subscriptionId !== claims.subscriptionId

@@ -15,7 +15,6 @@ import type {
   AccountClosureResult,
   AccountClosureRequestDto,
 } from 'shared/account-closure';
-import type { AccountClosureRecoveryDto } from 'shared/index';
 
 /**
  * 只允许跳回**站内**路径，挡开放重定向。
@@ -419,39 +418,6 @@ export function useSubmitAccountClosure() {
       clear();
       queryClient.clear();
     },
-  });
-}
-
-export function useCancelAccountClosure() {
-  return useMutation({
-    mutationFn: (token: string) =>
-      api.post<{ message: string }>(
-        '/auth/account-closure/cancel',
-        { token },
-        { skipAuthRetry: true },
-      ),
-  });
-}
-
-export function useAccountClosureCancellationPreview(token: string | null) {
-  return useQuery({
-    queryKey: ['auth', 'account-closure', 'cancel', token] as const,
-    queryFn: () =>
-      api.get<{ scheduledFor: string; status: 'PENDING'; canCancel: true }>(
-        `/auth/account-closure/cancel?token=${encodeURIComponent(token as string)}`,
-        { skipAuthRetry: true },
-      ),
-    enabled: Boolean(token),
-    retry: false,
-  });
-}
-
-export function useRecoverAccountClosure() {
-  return useMutation({
-    mutationFn: (body: AccountClosureRecoveryDto) =>
-      api.post<{ message: string }>('/auth/account-closure/recovery', body, {
-        skipAuthRetry: true,
-      }),
   });
 }
 

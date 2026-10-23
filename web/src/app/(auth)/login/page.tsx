@@ -101,9 +101,6 @@ function LoginForm() {
           注册
         </Link>
       </p>
-      <p className="mt-3 text-center text-sm text-gtext-secondary">
-        <Link href="/account-closure/recovery" className="hover:underline">撤销账号注销申请</Link>
-      </p>
     </div>
   );
 }

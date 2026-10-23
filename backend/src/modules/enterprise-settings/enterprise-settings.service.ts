@@ -269,7 +269,10 @@ export class EnterpriseSettingsService {
     const keyPrefix = rawKey.slice(0, 12); // "sk-ent-XXXX"
     const keyHash = await bcrypt.hash(rawKey, BCRYPT_ROUNDS);
 
-    const created = await this.prisma.enterpriseApiKey.create({
+    const created = await this.prisma.$transaction(async tx => {
+      const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${enterpriseId} FOR UPDATE`;
+      if (enterprises[0]?.status !== 'ACTIVE') throw new ForbiddenException('企业已关闭，无法创建 API 密钥');
+      return tx.enterpriseApiKey.create({
       data: {
         enterpriseId,
         name: dto.name,
@@ -279,6 +282,7 @@ export class EnterpriseSettingsService {
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
         createdBy: userId,
       },
+      });
     });
 
     return {

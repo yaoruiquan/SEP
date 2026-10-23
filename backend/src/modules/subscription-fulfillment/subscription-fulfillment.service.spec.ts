@@ -5,7 +5,7 @@
  * 结果两条链路的账务结果不一致。这里的用例就是那条验收标准：
  * **市场支付和直接订阅的授权、赠送和账务结果必须一致**。
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { SubscriptionFulfillmentService } from './subscription-fulfillment.service';
 
@@ -24,6 +24,7 @@ describe('SubscriptionFulfillmentService', () => {
 
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       digitalEmployee: { findUnique: jest.fn().mockResolvedValue(EMPLOYEE) },
       subscription: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -51,6 +52,14 @@ describe('SubscriptionFulfillmentService', () => {
   };
 
   describe('新建订阅', () => {
+    it('企业关闭后拒绝新增订阅和赠送额度', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ status: 'CLOSED' }]);
+      await expect(svc.fulfill(prisma, { ...baseParams, sourceType: 'subscription' }))
+        .rejects.toThrow(ConflictException);
+      expect(prisma.subscription.create).not.toHaveBeenCalled();
+      expect(credits.grantSubscriptionCredit).not.toHaveBeenCalled();
+    });
+
     it('锁定履约时刻的模板版本，而非写死版本号', async () => {
       await svc.fulfill(prisma, { ...baseParams, sourceType: 'subscription' });
 

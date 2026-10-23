@@ -6,6 +6,7 @@ function makeAuth() {
     id: 'user-1', email: 'new@example.com', name: 'New User', avatar: null, role: 'USER',
   };
   const tx: any = {
+    $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
     user: { create: jest.fn().mockResolvedValue({ ...createdUser, emailVerifiedAt: new Date() }) },
     enterprise: { create: jest.fn().mockResolvedValue({ id: 'enterprise-1', name: 'New Enterprise' }) },
     enterpriseMember: { create: jest.fn().mockResolvedValue({ id: 'member-1', role: 'ENTERPRISE_ADMIN' }) },

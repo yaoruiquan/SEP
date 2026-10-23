@@ -29,6 +29,7 @@ describe('SubscriptionService', () => {
 
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       digitalEmployee: { findUnique: jest.fn() },
       subscription: {
         findUnique: jest.fn(),

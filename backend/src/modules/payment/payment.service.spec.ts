@@ -48,6 +48,22 @@ describe("PaymentService", () => {
   });
 
   describe("payOrderWithBalance", () => {
+    it("等待企业锁期间已支付的订单不重复扣款", async () => {
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'order-1', enterpriseId: 'ent-1', createdBy: 'user-1', status: 'PENDING' })
+        .mockResolvedValueOnce({ id: 'order-1', enterpriseId: 'ent-1', status: 'PAID' });
+      await expect(service.payOrderWithBalance('order-1', 'ent-1')).rejects.toThrow(BadRequestException);
+      expect(walletService.consume).not.toHaveBeenCalled();
+      expect(orderService.fulfillInTransaction).not.toHaveBeenCalled();
+    });
+
+    it("企业关闭后拒绝余额付款和履约", async () => {
+      prisma.order.findUnique.mockResolvedValue({ id: 'order-1', enterpriseId: 'ent-1', createdBy: 'user-1', status: 'PENDING' });
+      prisma.$queryRaw.mockResolvedValueOnce([{ status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+      await expect(service.payOrderWithBalance('order-1', 'ent-1')).rejects.toThrow(ConflictException);
+      expect(walletService.consume).not.toHaveBeenCalled();
+      expect(orderService.fulfillInTransaction).not.toHaveBeenCalled();
+    });
+
     it("应在同一事务内完成余额扣款和订单履约", async () => {
       prisma.order.findUnique.mockResolvedValue({
         id: "order-1",

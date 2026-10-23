@@ -236,21 +236,18 @@ describe('MailService', () => {
   it('注销邮件禁止控制台降级，不会把未配置 SMTP 当作发送成功', async () => {
     const service = new MailService({ get: () => undefined } as any);
     await expect(service.sendAccountClosureVerification({ to: 'user@example.com', verificationUrl: 'https://app.example.com/account-closure?token=secret' })).rejects.toMatchObject({ status: 503 });
-    await expect(service.sendAccountClosureRequested({ to: 'user@example.com', cancellationUrl: 'https://app.example.com/account-closure/cancel?token=secret', scheduledFor: new Date() })).rejects.toMatchObject({ status: 503 });
-    await expect(service.sendAccountClosureRecovery({ to: 'user@example.com', cancellationUrl: 'https://app.example.com/account-closure/cancel?token=secret', scheduledFor: new Date() })).rejects.toMatchObject({ status: 503 });
     expect(createTransport).not.toHaveBeenCalled();
   });
 
-  it('注销确认和撤回通知走 SMTP，发送异常返回脱敏 503', async () => {
+  it('注销确认邮件告知联动关闭和不可撤回，发送异常返回脱敏 503', async () => {
     const values: Record<string, string> = { MAIL_ENABLED: 'true', MAIL_HOST: 'smtp.example.com', MAIL_USER: 'mailer', MAIL_PASSWORD: 'password', MAIL_FROM_NAME: '平台' };
     const transport = { sendMail: jest.fn().mockResolvedValue(undefined) };
     createTransport.mockReturnValue(transport);
     const service = new MailService({ get: (key: string) => values[key], getOrThrow: (key: string) => values[key] } as any);
-    await service.sendAccountClosureVerification({ to: 'user@example.com', verificationUrl: 'https://app.example.com/account-closure?token=secret' });
+    await service.sendAccountClosureVerification({ to: 'user@example.com', verificationUrl: 'https://app.example.com/account-closure?token=secret', enterpriseNames: ['Acme'] });
     expect(transport.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'user@example.com', subject: '[平台] 确认注销账号', text: expect.stringContaining('20 分钟') }));
-    const scheduledFor = new Date('2026-10-30T00:00:00Z');
-    await service.sendAccountClosureRequested({ to: 'user@example.com', cancellationUrl: 'https://app.example.com/account-closure/cancel?token=recovery', scheduledFor });
-    expect(transport.sendMail.mock.calls[1][0].text).toContain(scheduledFor.toISOString());
+    expect(transport.sendMail.mock.calls[0][0].text).toContain('将同时关闭企业：Acme');
+    expect(transport.sendMail.mock.calls[0][0].text).toContain('无法撤回或恢复');
     transport.sendMail.mockRejectedValue(new Error('smtp credential secret'));
     await expect(service.sendAccountClosureVerification({ to: 'user@example.com', verificationUrl: 'https://app.example.com/account-closure?token=secret' })).rejects.toMatchObject({ status: 503, message: '注销邮件发送失败，请稍后重试' });
   });

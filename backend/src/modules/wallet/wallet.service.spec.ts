@@ -43,6 +43,7 @@ describe('WalletService', () => {
 
   beforeEach(async () => {
     const mockPrisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       enterpriseWallet: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -74,6 +75,13 @@ describe('WalletService', () => {
   });
 
   describe('getBalance', () => {
+    it('does not lazily create a wallet after enterprise closure', async () => {
+      (prisma.enterpriseWallet.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ status: 'CLOSED' }]);
+      await expect(service.getBalance('ent-1')).rejects.toThrow(ConflictException);
+      expect(prisma.enterpriseWallet.create).not.toHaveBeenCalled();
+    });
+
     it('should return wallet statistics', async () => {
       (prisma.enterpriseWallet.findUnique as jest.Mock).mockResolvedValue(mockWallet);
 
@@ -89,6 +97,28 @@ describe('WalletService', () => {
   });
 
   describe('deposit', () => {
+    it('rejects closed enterprise without writing balance or ledger', async () => {
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ status: 'CLOSED' }]);
+      await expect(service.deposit('ent-1', 100, 'order-1')).rejects.toThrow(ConflictException);
+      expect(prisma.enterpriseWallet.updateMany).not.toHaveBeenCalled();
+      expect(prisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('uses the caller transaction for recharge fulfillment', async () => {
+      const tx = {
+        $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
+        enterpriseWallet: {
+          findUnique: jest.fn().mockResolvedValue(mockWallet),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        walletTransaction: { create: jest.fn().mockResolvedValue(mockTransaction) },
+      };
+      await service.deposit('ent-1', 100, 'order-1', undefined, tx as any);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.enterpriseWallet.updateMany).toHaveBeenCalled();
+      expect(tx.walletTransaction.create).toHaveBeenCalled();
+    });
+
     it('should create deposit transaction and update balance', async () => {
       (prisma.enterpriseWallet.findUnique as jest.Mock).mockResolvedValue(mockWallet);
       (prisma.enterpriseWallet.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
@@ -232,6 +262,7 @@ describe('WalletService', () => {
 
       (prisma.enterpriseWallet.findUnique as jest.Mock)
         .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(createdWallet);
       (prisma.enterpriseWallet.create as jest.Mock).mockResolvedValue(createdWallet);
       (prisma.enterpriseWallet.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
@@ -265,6 +296,7 @@ describe('WalletService', () => {
       };
 
       (prisma.enterpriseWallet.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(createdWallet);
       (prisma.enterpriseWallet.create as jest.Mock).mockResolvedValue(createdWallet);

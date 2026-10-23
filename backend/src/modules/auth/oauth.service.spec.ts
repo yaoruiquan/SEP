@@ -168,6 +168,7 @@ describe('OAuthService invitation flow', () => {
   it('微信/QQ 无邮箱时，以邀请邮箱创建账号并原子加入企业', async () => {
     const { service, prisma } = makeService();
     const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       enterpriseInvitation: { findUnique: jest.fn().mockResolvedValue(invitationFixture()), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       authIdentity: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
       user: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'user-1' }) },
@@ -225,7 +226,7 @@ describe('OAuthService invitation flow', () => {
   it('已有第三方身份且邮箱匹配时，更新身份并接受邀请', async () => {
     const { service, prisma } = makeService();
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
       enterpriseInvitation: { findUnique: jest.fn().mockResolvedValue(invitationFixture()), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       authIdentity: { findUnique: jest.fn().mockResolvedValue({ id: 'identity-1', userId: 'user-1' }), update: jest.fn() },
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', status: 'ACTIVE', email: 'newhire@example.com' }) },
@@ -254,7 +255,7 @@ describe('OAuthService invitation flow', () => {
   ])('已有第三方账号在锁后复核状态和归属：%s %s', async (user, memberships, message) => {
     const { service, prisma } = makeService();
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1', status: 'ACTIVE' }]),
       enterpriseInvitation: { findUnique: jest.fn().mockResolvedValue(invitationFixture()), updateMany: jest.fn() },
       authIdentity: { findUnique: jest.fn().mockResolvedValue({ id: 'identity-1', userId: 'user-1' }), update: jest.fn() },
       user: { findUnique: jest.fn().mockResolvedValue(user ? { id: 'user-1', email: 'newhire@example.com', ...user } : null) },

@@ -414,7 +414,7 @@ export class MediaVideoRealService {
   private async authorize(claims: ClientEmploymentClaims, execution: boolean) {
     if (execution) this.assertRealEnabled();
     const member = await this.prisma.enterpriseMember.findFirst({
-      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' } }, select: { departmentId: true },
+      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' }, enterprise: { status: 'ACTIVE' } }, select: { departmentId: true },
     }).catch(() => videoStorageUnavailable());
     if (!member) fail(403, 'MEDIA_FORBIDDEN', '成员无视频访问权限');
     const subscription = await this.prisma.subscription.findFirst({ where: clientSubscriptionAccessWhere({

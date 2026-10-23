@@ -37,7 +37,7 @@ export class EnterpriseContextService {
    */
   async resolve(userId: string): Promise<EnterpriseContext> {
     const member = await this.prisma.enterpriseMember.findFirst({
-      where: { userId },
+      where: { userId, enterprise: { status: "ACTIVE" } },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,

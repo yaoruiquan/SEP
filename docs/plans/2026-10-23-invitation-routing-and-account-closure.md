@@ -1,8 +1,8 @@
 # 邀请分流与账号注销开发文档
 
-**Goal:** 已有账号可登录接受邀请，换企业通过退出企业完成；账号注销独立提供完整生命周期。
+**Goal:** 已有账号可登录接受邀请，换企业通过退出企业完成；账号经邮件确认立即注销，唯一成员管理员可同时关闭企业。
 
-**Architecture:** 保留 User 与 EnterpriseMember 的分离，以有效邀请为上下文决定注册或登录，不开放任意邮箱注册状态查询。第一期修复邀请入口和退出后的返回路径；第二期实现注销前检查、身份确认、撤销期及最终匿名化，不将注销作为入职条件。
+**Architecture:** 保留 User 与 EnterpriseMember 的分离，以有效邀请为上下文决定注册或登录，不开放任意邮箱注册状态查询。注销前检查资金、任务与企业归属，邮件证明绑定操作范围；同一事务关闭企业并匿名化账号，不提供撤回或找回入口，不将注销作为入职条件。
 
 **Tech Stack:** NestJS、Prisma/PostgreSQL、Next.js App Router、TanStack Query、共享 Zod、Jest/Vitest。
 
@@ -28,7 +28,7 @@
 | 非 ACTIVE | 不泄漏账号状态和原企业 | 有效邀请页提示账号暂不可用，联系支持 |
 
 - 保持当前一账号一企业规则；接收邀请不自动退企业、不自动转移角色。
-- 唯一管理员先安排其他管理员。账号注销也不能绕过此约束。
+- 企业还有其他成员时，唯一管理员先安排其他管理员再退出；企业仅剩本人且本人为管理员时，可经邮件确认同时关闭企业并注销账号。
 - 邀请有效不等于已登录。已有账号必须通过现有登录方式证明身份，持邀请链接不能重置已有账号密码。
 
 ## 3. 第一期接口
@@ -79,103 +79,77 @@ SELECT id FROM users WHERE id = $1 FOR UPDATE;
 
 ## 5. 第二期：账号注销
 
-### 5.1 状态与入口
+### 5.1 状态与入口（按最新需求修订）
 
-入口位于个人账号安全，且无企业账号也应能进入。将“退出登录”“退出企业”“注销账号”作为不同操作，展示各自影响。
+入口位于个人账号安全和无企业页面。用户为 ACTIVE 且无企业时，仅注销账号；所属企业仅剩本人且本人为 ENTERPRISE_ADMIN 时，同时关闭企业。企业还有其他成员时，须先交接并退出；平台 ADMIN、DISABLED 和 CLOSED 不能自助注销。
 
 ```text
-ACTIVE --身份验证与前置检查通过--> CLOSURE_PENDING
-CLOSURE_PENDING --本人撤销--> ACTIVE
-CLOSURE_PENDING --撤销期结束且再次检查通过--> CLOSED
-DISABLED --平台处置--> DISABLED
+账号 ACTIVE --登录 + 邮件证明 + 明确确认 + 事务检查--> CLOSED
+企业 ACTIVE --唯一成员管理员同时注销--> CLOSED
 ```
 
-- 撤销期默认 7 天，环境变量 `ACCOUNT_CLOSURE_GRACE_DAYS` 支持 1–30 的整数，无效值回退 7 天。注销请求创建时返回明确生效时间。
-- 待生效期间保留邮箱唯一性；禁止创建企业、接受邀请和新增收费行为。
-- 禁用账号不能通过注销自助解除平台限制。
-- 状态、时间、执行结果持久化；不可仅靠 Redis TTL 或前端倒计时。
+发送邮件不改变账号或企业状态。打开邮件链接仅展示确认页，不执行注销；用户输入“注销账号”并提交后立即生效。无撤销期、定时注销任务、撤回入口或找回邮件入口。确认页展示待关闭企业名称、订阅终止、权限失效及业务历史保留的后果。
 
-### 5.2 前置检查与身份确认
-
-- 所有企业归属必须先退出；唯一管理员先移交管理职责。注销不得自动删除企业或将企业资产带走。
-- 个人余额、待支付/退款/对账事项、在途任务和个人贡献收益等逐项检查，返回可行动的阻塞原因；不静默清零。
-- 注销需要有效登录会话和本人邮箱的专用确认链接，兼容密码账号及只有第三方登录的账号。确认令牌使用独立的 `ACCOUNT_CLOSURE` 目的，不复用注册验证码。
-- 提交前再次展示后果并要求输入“注销账号”；令牌使用 32 字节随机值，只存 SHA256 摘要，绑定用户和签发时邮箱，20 分钟有效，限流且一次性使用。
-
-### 5.3 撤销和最终执行
-
-- 申请后撤销普通 Web/Desktop 会话；发一封通知邮件，提供专用、限时且只允许撤销注销的恢复凭证。
-- 撤销不能通过失效的普通登录会话完成；提供独立受限入口，验证凭证且不隐式登录。邮件链接的 GET 不执行撤销，需确认后 POST。
-- 每个请求有唯一 ID；撤销凭证绑定该请求，旧请求的链接不能撤销后续申请。
-- 最终执行由幂等定时任务处理，事务锁定用户和注销请求；与撤销竞争时只能一个成功。任务失败记录原因、可重试，不提前释放邮箱。
-- 最终注销撤销会话、refresh token、设备凭证、密码重置/换绑凭证和未完成 OAuth 事务，删除登录凭据及第三方身份绑定。
-- 保留原 User ID 作为历史业务关联的匿名主体，清除个人展示字段，email 换成唯一不可投递的内部占位值后再释放原邮箱。
-- 失效原账号相关待处理邀请；旧账户标识/权限不会因相同邮箱重新注册而恢复。
-- 企业侧审计、账务和工作记录保留；个人记录的匿名化/清理范围逐表定义，不能依赖 `User.delete()` 的级联结果。
-- 钱包、支付回调和认证入口全部复核生命周期状态，避免注销检查后又新增业务的竞争窗口。
-
-### 5.4 接口与迁移
-
-新增 `AccountClosureService`、独立 controller/shared DTO、注销页面与测试：
+### 5.2 接口与证明
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| GET /auth/account-closure/eligibility | 本人查看前置检查结果 |
-| POST /auth/account-closure/verification | 已登录，发送本人邮箱专用确认链接 |
-| POST /auth/account-closure | 已登录，提交 `{token, confirmation: '注销账号'}`，返回生效时间并清理 refresh cookie |
-| GET /auth/account-closure/cancel?token=... | 公开，只读预览撤回截止时间，不改变状态 |
-| POST /auth/account-closure/cancel | 用专用凭证撤销申请 |
-| POST /auth/account-closure/recovery | 公开，提交 `{email}` 重发撤回邮件，统一响应 |
+| GET /auth/account-closure/eligibility | 已登录，返回 eligible、enterprisesToClose 和 blockers |
+| POST /auth/account-closure/verification | 已登录，发送本人邮箱专用确认邮件，每用户每分钟最多一次 |
+| POST /auth/account-closure | 已登录，提交 `{token, confirmation: '注销账号'}`，返回 `{status: 'CLOSED', closedAt, closedEnterprises}`，清理 refresh cookie |
 
-页面：`/account-closure`、`/account-closure/cancel`、`/account-closure/recovery`。安全设置和无企业页面提供申请入口，登录页提供找回撤回邮件入口。邮件确认页未登录时保留 token，经登录后返回；撤回操作不需要普通会话，也不会自动登录。
+保留 `/account-closure` 页面；删除 `/account-closure/cancel`、`/account-closure/recovery` 页面及对应 GET/POST 接口，登录页移除找回入口。邮件页未登录时保留 token，经登录返回。
 
-迁移 `20261023070000_account_closure_lifecycle` 新增 `account_closure_requests`、生命周期枚举和索引。`activeUserId` 唯一约束保证每人同时最多一份准备中/待生效申请；`cancellationTokenHash` 唯一且绑定单次申请，取消或完成后清空。记录计划执行时间、完成/取消时间、尝试次数及安全错误分类。
+令牌使用 32 字节随机值，只持久化 SHA256 摘要，独立目的 ACCOUNT_CLOSURE，20 分钟有效。绑定用户、当前邮箱及按 ID 排序的待关闭企业列表；企业归属变化后必须重发邮件。旧版不含企业范围的证明不能用于新流程。提交时重新检查用途、归属、邮箱、期限和阻塞项，等待企业锁后再次检查期限。完成时删除一次性凭证，无法重放。
 
-本地 `prisma migrate dev --create-only` 因历史迁移 `20260924081416_add_rpa_contribution_versions` 校验不一致要求重建数据库，未执行重建。改用 Prisma `migrate diff` 生成增量，仅移除与本功能无关的 `users.updatedAt` 默认值变更，再用 `prisma migrate deploy` 成功应用，并执行 `pnpm db:generate`。历史迁移未改动，其校验差异仍需单独维护；用户已有 schema 默认值修改原样保留。
-
-### 5.5 邮件安全与事务边界
-
-申请分两步激活：持用户行锁检查状态、证明和阻塞项，创建 `PREPARING` 预约；释放锁后发送撤回邮件；投递成功后重新持锁复核条件，再原子切换申请为 `PENDING`、用户为 `CLOSURE_PENDING`，消费证明并撤销全部会话。SMTP 失败则取消预约，用户维持 ACTIVE，确认链接在有效期内仍可重试。邮件投递与数据库写入不能成为单个事务；若投递后激活失败，用户仍保持 ACTIVE，邮件中的撤回链接不会产生状态变更。
-
-注销邮件必须使用可用的 SMTP；控制台邮件提供器不能冒充投递成功。沿用运营配置中心/环境变量中的现有 SMTP 配置，不新增密钥配置文件。`WEB_BASE_URL` 用于生成固定站内链接，生产环境必须是 HTTPS。邮件服务错误返回 503，不记录明文凭证。
-
-公开找回接口按邮箱每分钟 1 次、IP 每 10 分钟 5 次限流，对无账号、无待撤回申请和投递失败均返回统一提示。新邮件投递成功后才条件轮换撤回凭证；发送失败保留旧链接。轮换与取消/最终执行竞争时不恢复已结束的申请。
-
-撤销会话时只吊销 session/token，不在申请阶段永久吊销设备指纹。撤回后用户可从原桌面设备重新登录；原会话、旧 refresh token 仍无效。最终注销时删除设备行。
-
-### 5.6 前置阻塞项
+### 5.3 阻塞条件
 
 | 检查项 | 拒绝条件与处理 |
 | --- | --- |
 | 平台职责 | 平台 ADMIN 先由平台安排角色交接 |
-| 企业身份 | 任意企业成员关系存在；先退出，唯一管理员先移交 |
-| 个人钱包 | 余额不为零；先结清或联系平台处理 |
-| 订单 | 本人个人充值或本人创建的企业订单为 PENDING；先支付或关闭 |
-| 贡献收益 | 收益事件为 PENDING/AVAILABLE；先结算或人工处理 |
-| 运行任务 | TaskRun 为 RUNNING/AWAITING_CONFIRMATION；桌面镜像未到 COMPLETED/FAILED/CANCELLED/STOPPED |
-| 用量结算 | GatewayExecution 为 STARTED/USAGE_PENDING/NEEDS_RECONCILIATION，或媒体计费预约为 RESERVED/RECONCILING |
+| 企业身份 | 企业还有其他成员、本人非管理员或企业已关闭；先交接退出或联系平台 |
+| 个人钱包与收益 | 个人钱包余额非零，或贡献收益 PENDING/AVAILABLE；先结清 |
+| 企业资金 | 企业钱包余额/冻结额非零，或任意成员充值批次 amountCNY 与 consumedCNY 不相等；联系平台结清，不自动清零或转移 |
+| 待支付订单 | 本人个人充值、本人创建或待关闭企业的市场订单，以及待关闭企业充值存在 PENDING；先支付或关闭 |
+| 在途任务 | 本人或待关闭企业 TaskRun 为 RUNNING/AWAITING_CONFIRMATION，或桌面镜像未到 COMPLETED/FAILED/CANCELLED/STOPPED |
+| 用量结算 | 本人或待关闭企业 GatewayExecution 为 STARTED/USAGE_PENDING/NEEDS_RECONCILIATION，或媒体预约为 RESERVED/RECONCILING |
 
-申请、激活和最终执行都重新检查。认证、创建企业/接受邀请、桌面写入、个人充值/奖励/消费和任务创建/启动/更新使用 ACTIVE 状态约束，关键写入与注销使用同一用户行锁。Gateway 执行创建、媒体资金预约（含幂等重试）也在事务内锁定用户并复核 ACTIVE；既有媒体预约的结算/释放允许 ACTIVE/CLOSURE_PENDING 收口，但拒绝 CLOSED/DISABLED。已付款重复回调保持幂等；非 ACTIVE 账号的未履约充值不自动入账，保留待处理订单并报人工对账错误，不静默丢弃付款。
+发邮件和最终提交均重新检查，返回具体阻塞原因。企业任务及结算检查覆盖整个企业，包括已经退出的成员留下的在途工作。订阅随企业关闭终止，不自动发起退款；需结算的资产应在关闭前处理。
 
-平台认证用户列表和详情页显示 CLOSURE_PENDING/CLOSED，支持状态筛选；注销中的账号不能由普通启用/禁用操作恢复，界面禁用相关认证写操作，后端继续执行生命周期校验。
+### 5.4 事务与并发保护
 
-### 5.7 最终执行与数据范围
+注销事务先锁 users 行，再按企业 ID 锁 enterprises 行，持锁后读取最新成员、余额与任务状态，使用 ReadCommitted。创建成员、接受邀请、邀请注册/第三方登录、API Key 创建、企业财务写入、订单履约、充值入账、订阅履约、任务创建/启动/恢复、Gateway 执行和媒体预约共享企业状态检查与行锁；涉及用户时遵循 user → enterprise 顺序。
 
-定时任务每 5 分钟处理至多 100 个到期请求，先清理超过 30 分钟的 `PREPARING` 预约。最终执行与撤回共用用户行锁，复核 PENDING/截止时间后在同一事务完成。失败回滚所有清理，保留原邮箱，增加 attempts 并记录 `ELIGIBILITY_BLOCKED` 或 `FINALIZATION_FAILED`，下轮重试。
+同一事务完成：创建 COMPLETED 注销记录，企业置 CLOSED、记录 closedAt，撤销 API Key 和待处理邀请，终止 ACTIVE/PAUSED 订阅并过期 ACTIVE 赠送额度，删除本人企业成员关系，写关闭审计，匿名化用户并吊销所有认证凭证，写 ACCOUNT_CLOSED 事件。任何步骤失败整体回滚；不提前释放邮箱。
 
-| 数据表/范围 | 最终处理 |
+企业上下文、客户端雇佣及 Gateway/媒体授权只接受 ACTIVE 企业。财务回调中已完成订单保持幂等；已关闭企业的未履约支付拒绝自动入账，保留订单供人工对账，不丢弃付款事实。
+
+### 5.5 邮件边界
+
+检查通过后在事务中记录证明，释放数据库锁后调用现有 SMTP。SMTP 失败返回 503 并使本次证明失效，账号和企业仍为 ACTIVE，可重新发送。沿用现有 SMTP 配置，不新增密钥文件；控制台提供器不能冒充真实投递成功。WEB_BASE_URL 生成固定站内确认链接，生产环境必须使用 HTTPS，不记录明文 token。
+
+### 5.6 数据保留
+
+| 数据表/范围 | 处理 |
 | --- | --- |
-| users | 保留 ID 和创建时间；状态 CLOSED，姓名“已注销用户”，清除头像/邮箱验证时间，角色 USER；邮箱换成 `closed+<id>.<随机值>@account.invalid` |
-| auth_credentials、auth_identities | 删除密码凭据与第三方身份绑定 |
-| auth_tokens、auth_one_time_tokens、auth_oauth_transactions、devices | 删除登录/重置/换绑/注销证明、已关联 OAuth 事务及设备凭据 |
-| auth_sessions | 保留已吊销记录，清除 IP 和 User-Agent |
-| auth_events | 保留操作类型/时间/主体，清除 IP、User-Agent 与历史 metadata；新增注销完成事件 |
+| users | 保留 ID/创建时间；状态 CLOSED，姓名“已注销用户”，清除头像和邮箱验证时间，角色 USER；邮箱改为 `closed+<id>.<随机值>@account.invalid`，释放原邮箱 |
+| enterprises | 保留原行与业务关联，状态 CLOSED、记录关闭时间；不物理删除 |
+| enterprise_members / api_keys / invitations / subscriptions | 删除本人成员关系，吊销密钥和待处理邀请，终止有效订阅及赠送额度 |
+| auth_credentials / identities / tokens / one_time_tokens / oauth_transactions / devices | 删除登录凭据、绑定及已关联认证事务 |
+| auth_sessions / events | 吊销会话；清除 IP、User-Agent 和历史事件 metadata，新增注销完成事件 |
 | notifications | 删除个人通知 |
-| enterprise_invitations | 将原邮箱仍 PENDING 的邀请撤销，重新注册须新邀请 |
-| account_closure_requests | 保留生命周期和执行记录，清除有效撤回摘要和 activeUserId |
-| 企业成员审计、会话/任务/知识/贡献、钱包/充值/订单/账务记录 | 保留业务关联及历史内容，用户引用指向匿名主体；不级联删除，不转移到相同邮箱新账号 |
+| account_closure_requests | 新流程只写 COMPLETED，保留操作与完成时间，不创建待撤回记录 |
+| 企业审计、工作、知识、贡献、钱包、充值、订单和账务 | 保留历史，用户引用匿名主体；相同邮箱新注册不恢复旧身份、企业或权限 |
 
-本功能不承诺擦除历史业务正文中用户曾手动填写的姓名、邮箱或附件内容，也不自动删除独立文件存储对象；这些属于企业数据治理范围。保留范围须在上线验收时由产品和运营确认，页面明确告知企业账务与历史工作记录保留。
+原邮箱尚未接受的邀请也撤销；重新注册需新邀请。历史业务正文中手动填写的姓名、邮箱、附件和独立存储对象不在本次自动清理范围。
+
+### 5.7 迁移与升级
+
+新增迁移 `20261023094000_immediate_account_enterprise_closure`，增加 EnterpriseStatus（ACTIVE/CLOSED）、enterprises.status 默认 ACTIVE 和 closedAt。保留上一期状态枚举及注销记录字段以兼容历史数据，不改写旧迁移。
+
+升级前查询旧 PREPARING/PENDING 申请和 CLOSURE_PENDING 用户。有遗留时先通过旧版流程处理并复核，再切换新版本；不能直接将旧申请转换为立即注销，也不能静默恢复账号。本地检查两者均为零，未做数据清理。
+
+因本地历史迁移 `20260924081416_add_rpa_contribution_versions` 校验不一致，migrate dev 会要求重建库；本次使用 Prisma migrate diff 生成增量，再 migrate deploy 和 db:generate，未重置数据库。Review 时新增工具生成的迁移 `20261023121000_user_updated_at_default`，记录已有 `User.updatedAt` 默认值变更，保持 schema 与迁移一致，未修改已应用迁移。部署其他环境时需分别执行迁移和上述遗留检查。
 
 ## 6. 实施与验证清单
 
@@ -208,7 +182,8 @@ DISABLED --平台处置--> DISABLED
 
 - 第一期：Task 1–4 实现及自动化验证完成；实际浏览器页面验收受访问策略限制，待人工验证。
 - 第一期提交：`36b7af3 fix(auth): route existing invitees to login and preserve invitation return`。
-- 第二期：实现、数据库迁移及自动化集成验证完成；独立于邀请入职流程。按用户后续要求提交代码，实际浏览器及独立测试账号验收由用户执行。
+- 第二期原版：已提交 `f61f0ff`，下方旧版验证记录仅作为历史，不代表当前撤回策略。
+- 本次修订：按“唯一成员管理员可同时关闭企业、邮件确认后立即生效、不提供撤回”实现，迁移、自动化验证及 Review 完成。实际浏览器及独立测试账号验收待执行。
 
 ### 验证记录（2026-10-23）
 
@@ -223,7 +198,7 @@ DISABLED --平台处置--> DISABLED
 - 实际浏览器页面/截图未验证：浏览器安全策略拒绝访问本地站点，未绕过；组件测试不等于实际页面验收。
 - 上述为第一期验证记录；第一期未新增迁移，后续按用户要求已提交，未推送 Git。
 
-### 第二期验证记录（2026-10-23）
+### 第二期旧版验证记录（2026-10-23，已被本次修订替代）
 
 - 注销服务、HTTP controller 与邮件服务定向验证：3 个套件、46 项通过，覆盖令牌期限/重放/绑定、SMTP 失败、阻塞条件复核、GET 只读、撤回竞争、匿名化幂等、失败回滚与邮件找回。
 - 前端新增注销流程与 hooks：14 项通过；现有认证/邀请相关回归 46 项通过。
@@ -233,3 +208,17 @@ DISABLED --平台处置--> DISABLED
 - 前后端 TypeScript 检查、生产构建及 `git diff --check` 通过。改动文件 ESLint 无错误，后端 21 条警告、前端 1 条 React Hook Form/React Compiler 兼容性警告，未扩大范围清理。
 - Prisma `migrate status`：93 个迁移，数据库已是最新；`db:generate` 已执行。本地后端 `/api/health` 返回 `ok`，Gateway 为 `ready`。
 - 实际浏览器截图验证仍受 localhost 访问策略限制；未对真实用户发起注销或执行最终清理，未运行真实数据库并发压力测试。
+
+### 立即注销与企业关闭验证记录（2026-10-23）
+
+- 后端完整 Jest：234 个套件、5,214 项通过；9 个套件、111 项按现有配置跳过。
+- 前端完整 Vitest：107 个测试文件、1,112 项通过。
+- 完整检查后补齐企业成员钱包余额阻塞、持锁等待后的证明期限复核及订阅赠送额度失效；注销服务、HTTP controller 和邮件服务复验共 3 个套件、46 项通过。
+- 前后端 TypeScript 和生产构建通过；最后补充代码后后端 TypeScript、构建及上述定向测试再次通过。
+- 改动文件 ESLint 无错误，后端 6 条和前端 1 条现有警告；`git diff --check` 通过。
+- 本地新增迁移已应用并运行 db:generate；Review 补齐默认值迁移后共 95 个迁移，Prisma migrate diff 确认数据库与 schema 无差异。旧 PREPARING/PENDING 申请及 CLOSURE_PENDING 用户均为零。
+- 本地 `/api/health` 返回 ok、Gateway ready；`/account-closure` HTTP 200。旧撤回/找回 HTTP 接口由回归测试验证返回 404。
+- 未对真实账号执行不可逆注销，未运行真实数据库并发压力测试。浏览器访问策略仍限制实际页面截图验证，不将组件测试和 HTTP 检查视为视觉验收。
+- Review 修正重新注册需新邀请的前端文案和旧 Swagger 描述，并为已有 User.updatedAt 默认值修改补齐工具生成的独立迁移；修正后后端定向测试 46 项、前端注销流程及 hooks 测试 11 项再次通过。
+- 已关闭企业残留成员关系按异常数据阻塞并提示平台处理；正常关闭在同一事务删除本人成员关系。企业锁校验部分沿用各模块的原有写法，统一抽取属于后续非阻断维护项。
+- 未新增依赖、修改 SMTP 密钥、重置数据库或推送 Git。

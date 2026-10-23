@@ -5,6 +5,7 @@ import { EnterpriseContextService } from '../enterprise/enterprise-context.servi
 import { WalletService } from '../wallet/wallet.service';
 import type { RechargeCreateDto } from 'shared';
 import { format } from 'date-fns';
+import { assertActiveEnterpriseInTx, assertActiveUserInTx } from '../../common/enterprise-write-lock';
 import type {
   ConsumptionLogQuery,
   ConsumptionLog,
@@ -113,8 +114,10 @@ export class ComputeService {
     });
 
     if (!account) {
-      account = await this.prisma.computeAccount.create({
-        data: { enterpriseId, balance: 0 },
+      account = await this.prisma.$transaction(async (tx) => {
+        await assertActiveEnterpriseInTx(tx, enterpriseId);
+        const existing = await tx.computeAccount.findUnique({ where: { enterpriseId } });
+        return existing ?? tx.computeAccount.create({ data: { enterpriseId, balance: 0 } });
       });
     }
 
@@ -256,13 +259,17 @@ export class ComputeService {
     // 生成订单号：RCH + yyyyMMddHHmmss + 6位随机数
     const orderNo = this.generateRechargeOrderNo();
 
-    const order = await this.prisma.rechargeOrder.create({
-      data: {
-        orderNo,
-        accountId: account.id,
-        amount,
-        status: 'PENDING',
-      },
+    const order = await this.prisma.$transaction(async (tx) => {
+      await assertActiveUserInTx(tx, userId);
+      await assertActiveEnterpriseInTx(tx, account.enterpriseId);
+      return tx.rechargeOrder.create({
+        data: {
+          orderNo,
+          accountId: account.id,
+          amount,
+          status: 'PENDING',
+        },
+      });
     });
 
     return order;
@@ -308,6 +315,10 @@ export class ComputeService {
 
     // 事务：更新订单状态 + 钱包充值
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveEnterpriseInTx(tx, order.account.enterpriseId);
+      const current = await tx.rechargeOrder.findUnique({ where: { id: order.id } });
+      if (current?.status === 'PAID') return current;
+      if (!current || current.status !== 'PENDING') throw new BadRequestException('充值订单当前不可入账，请联系管理员对账');
       // 1. 更新订单状态
       const updatedOrder = await tx.rechargeOrder.update({
         where: { id: order.id },
@@ -326,6 +337,7 @@ export class ComputeService {
         Number(order.amount),
         order.id,
         `充值订单 ${orderNo}`,
+        tx,
       );
 
       return updatedOrder;

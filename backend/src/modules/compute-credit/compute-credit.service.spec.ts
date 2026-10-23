@@ -73,6 +73,7 @@ describe("ComputeCreditService.chargeUsage", () => {
     createdRecord = null;
 
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       computeUsageRecord: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn((a: any) => {
@@ -187,6 +188,16 @@ describe("ComputeCreditService.chargeUsage", () => {
       outputTokens: 0,
       ...overrides,
     } as any);
+
+  it('关闭企业拒绝新扣费，并按账号、企业的顺序锁定', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+    await expect(charge()).rejects.toThrow(ConflictException);
+    expect(prisma.$queryRaw.mock.calls[0][0].join('')).toContain('FROM users');
+    expect(prisma.$queryRaw.mock.calls[1][0].join('')).toContain('FROM enterprises');
+    expect(prisma.computeUsageRecord.create).not.toHaveBeenCalled();
+    expect(prisma.subscriptionCredit.updateMany).not.toHaveBeenCalled();
+    expect(wallet.consumeComputeUpTo).not.toHaveBeenCalled();
+  });
 
   it("赠送余额充足时全额从赠送扣，不动钱包", async () => {
     creditRow = makeCredit({ grantedCNY: new Decimal(50) });

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
+import { assertActiveEnterpriseInTx } from '../../common/enterprise-write-lock';
 import { CreateTaskDto, CreateTemplateDto, StepPatchDto, TaskQuery, UpdateTaskDto } from 'shared';
 
 const statusToDb: any = {
@@ -162,6 +163,7 @@ export class TaskService {
     const r = await this.prisma.$transaction(async (tx) => {
       await this.assertActiveUser(tx, userId);
       const m = await tx.enterpriseMember.findFirst({ where: { userId }, select: { enterpriseId: true } });
+      if (m?.enterpriseId) await assertActiveEnterpriseInTx(tx, m.enterpriseId);
       const created = await tx.taskRun.create({
       data: {
         objective: dto.objective,
@@ -231,6 +233,7 @@ export class TaskService {
 
   private async updateInTx(tx: Prisma.TransactionClient, id: string, userId: string, dto: UpdateTaskDto) {
     const old = await this.owned(id, userId, tx);
+    if (old.enterpriseId) await assertActiveEnterpriseInTx(tx, old.enterpriseId);
 
     if (dto.expectedUpdatedAt && new Date(dto.expectedUpdatedAt).getTime() !== old.updatedAt.getTime()) {
       throw new ConflictException({ message: 'Task was updated', current: this.serializeTaskRun(old) });

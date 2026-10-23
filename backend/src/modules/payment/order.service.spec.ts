@@ -2,7 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { OrderService } from "./order.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SubscriptionFulfillmentService } from "../subscription-fulfillment/subscription-fulfillment.service";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Decimal } from "@prisma/client/runtime/library";
 
 describe("OrderService", () => {
@@ -12,6 +12,7 @@ describe("OrderService", () => {
 
   beforeEach(async () => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       cartItem: {
         findMany: jest.fn(),
         deleteMany: jest.fn(),
@@ -289,6 +290,14 @@ describe("OrderService", () => {
   });
 
   describe("fulfill", () => {
+    it("关闭企业的待付款订单拒绝履约，保留人工对账状态", async () => {
+      prisma.order.findUnique.mockResolvedValue({ id: 'order-1', status: 'PENDING', enterpriseId: 'ent-1', createdBy: 'user-1', items: [] });
+      prisma.$queryRaw.mockResolvedValueOnce([{ status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+      await expect(service.fulfill('order-1', 'trade-1')).rejects.toThrow(ConflictException);
+      expect(prisma.order.update).not.toHaveBeenCalled();
+      expect(prisma.subscription.create).not.toHaveBeenCalled();
+    });
+
     it("订单不存在应返回 404", async () => {
       prisma.order.findUnique.mockResolvedValue(null);
 

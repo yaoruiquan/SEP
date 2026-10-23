@@ -8,6 +8,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
+import { assertActiveEnterpriseInTx, assertActiveUserInTx } from '../../common/enterprise-write-lock';
 import { MemberAllowanceService } from "./member-allowance.service";
 import { WalletService } from "../wallet/wallet.service";
 import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
@@ -342,6 +343,8 @@ export class ComputeCreditService {
           };
         }
 
+        if (params.userId) await assertActiveUserInTx(tx, params.userId);
+        await assertActiveEnterpriseInTx(tx, params.enterpriseId);
         // 2. 额度闸门：这一笔企业最多能出多少（不限额时为 null）
         const plan = await this.memberAllowance.planCharge(tx, {
           enterpriseId: params.enterpriseId,

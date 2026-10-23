@@ -636,6 +636,7 @@ export class ClientService {
           userId,
           enterpriseId: subscription.enterpriseId,
         },
+        enterprise: { status: 'ACTIVE' },
       },
       select: { id: true, departmentId: true },
     });

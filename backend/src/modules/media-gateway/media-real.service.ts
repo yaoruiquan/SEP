@@ -213,7 +213,7 @@ export class MediaRealService {
   private async authorize(claims: ClientEmploymentClaims, execution = true) {
     if (execution) await this.assertRealEnabled();
     const member = await this.prisma.enterpriseMember.findFirst({
-      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' } },
+      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' }, enterprise: { status: 'ACTIVE' } },
       select: { departmentId: true },
     }).catch(() => realMediaStorageUnavailable());
     if (!member) error(403, 'MEDIA_FORBIDDEN', '当前成员无媒体访问权限');

@@ -12,6 +12,7 @@ import { AlipayProvider } from "./alipay.provider";
 import { ComputeService } from "../compute/compute.service";
 import { WalletService } from "../wallet/wallet.service";
 import { PersonalWalletService } from "../personal-wallet/personal-wallet.service";
+import { assertActiveEnterpriseInTx, assertActiveUserInTx } from '../../common/enterprise-write-lock';
 
 @Injectable()
 export class PaymentService {
@@ -95,6 +96,10 @@ export class PaymentService {
     }
 
     // 确保支付宝 SDK 已初始化
+    await this.prisma.$transaction(async (tx) => {
+      await assertActiveUserInTx(tx, order.createdBy);
+      await assertActiveEnterpriseInTx(tx, order.enterpriseId);
+    });
     await this.initializeAlipay();
 
     // 生成支付表单
@@ -131,6 +136,12 @@ export class PaymentService {
         throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
       }
 
+      await assertActiveUserInTx(tx, order.createdBy);
+      await assertActiveEnterpriseInTx(tx, order.enterpriseId);
+      const current = await tx.order.findUnique({ where: { id: orderId } });
+      if (!current || current.status !== 'PENDING') {
+        throw new BadRequestException('订单当前不可支付');
+      }
       await this.walletService.consume(
         enterpriseId,
         order.totalAmount.toNumber(),
@@ -165,7 +176,11 @@ export class PaymentService {
       throw new BadRequestException(`订单状态为 ${order.status}，无法支付`);
     }
 
-    // 确保支付宝 SDK 已初始化
+    await this.prisma.$transaction(async (tx) => {
+      const account = await tx.computeAccount.findUnique({ where: { id: order.accountId } });
+      if (!account) throw new NotFoundException('算力账户不存在');
+      await assertActiveEnterpriseInTx(tx, account.enterpriseId);
+    });
     await this.initializeAlipay();
 
     // 生成支付表单

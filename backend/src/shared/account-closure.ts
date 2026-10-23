@@ -9,12 +9,12 @@ export type AccountClosureTokenDto = z.infer<typeof AccountClosureTokenSchema>;
 
 export interface AccountClosureEligibility {
   eligible: boolean;
-  gracePeriodDays: number;
+  enterprisesToClose: { id: string; name: string }[];
   blockers: { code: string; message: string }[];
 }
 
 export interface AccountClosureResult {
-  requestId: string;
-  status: 'PENDING';
-  scheduledFor: string;
+  status: 'CLOSED';
+  closedAt: string;
+  closedEnterprises: { id: string; name: string }[];
 }

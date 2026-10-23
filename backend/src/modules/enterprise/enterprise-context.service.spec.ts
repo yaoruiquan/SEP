@@ -55,7 +55,7 @@ describe('EnterpriseContextService', () => {
       const arg = prisma.enterpriseMember.findFirst.mock.calls[0][0];
       // 查询条件只能有 userId。若这里出现 enterpriseId，
       // 说明企业归属可被调用方指定 —— 等于没有隔离。
-      expect(arg.where).toEqual({ userId: 'user-1' });
+      expect(arg.where).toEqual({ userId: 'user-1', enterprise: { status: 'ACTIVE' } });
     });
 
     it('用户不属于任何企业时抛 Forbidden，而非返回空上下文', async () => {

@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import type { TaskExecutionSnapshot, TaskRunStepView } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { assertActiveEnterpriseInTx } from '../../common/enterprise-write-lock';
 import { collectDownstream } from './task-dependency';
 import { TaskEventBus } from './task-event-bus';
 import { TaskEventRecorder } from './task-event-recorder';
@@ -103,6 +104,7 @@ export class TaskExecutionService {
     const { updated, startedAt } = await this.prisma.$transaction(async (tx) => {
       await this.assertActiveUser(tx, userId);
       const run = await this.owned(taskRunId, userId, tx);
+      if (run.enterpriseId) await assertActiveEnterpriseInTx(tx, run.enterpriseId);
       if (run.status === TASK_RUN_STATUS.RUNNING) {
         throw new ConflictException('任务正在执行中');
       }
@@ -226,6 +228,7 @@ export class TaskExecutionService {
     const { run, updated, changed } = await this.prisma.$transaction(async (tx) => {
       await this.assertActiveUser(tx, userId);
       const run = await this.owned(taskRunId, userId, tx);
+      if (run.enterpriseId) await assertActiveEnterpriseInTx(tx, run.enterpriseId);
       const step = await this.requireStep(taskRunId, stepKey, tx);
       if (step.status !== TASK_STEP_STATUS.PAUSED) return { run, updated: step, changed: false };
 

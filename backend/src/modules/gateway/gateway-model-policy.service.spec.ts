@@ -76,7 +76,7 @@ describe('GatewayModelPolicyService', () => {
   it('matches member, enterprise and user together and uses the current department only', async () => {
     const policy = await service.resolvePolicy(identity);
     expect(prisma.enterpriseMember.findFirst).toHaveBeenCalledWith({
-      where: { id: 'member-1', enterpriseId: 'ent-1', userId: 'user-1' }, select: { departmentId: true },
+      where: { id: 'member-1', enterpriseId: 'ent-1', userId: 'user-1', enterprise: { status: 'ACTIVE' } }, select: { departmentId: true },
     });
     expect(prisma.departmentModelPolicy.findUnique).toHaveBeenCalledWith({
       where: { departmentId: 'dept-current' }, select: { defaultChatModel: true, allowedChatModels: true },

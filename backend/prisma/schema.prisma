@@ -25,7 +25,7 @@ model User {
   status   UserStatus @default(ACTIVE)
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   // Relations
   sessions                          ConversationSession[]
@@ -151,6 +151,11 @@ enum UserRole {
 // Enterprise Organization (企业组织) —— P0 企业组织基座
 // ============================================================================
 
+enum EnterpriseStatus {
+  ACTIVE
+  CLOSED
+}
+
 /// 企业是数据与权限的隔离边界。所有业务数据的归属最终收敛到这里。
 model Enterprise {
   id          String  @id @default(cuid())
@@ -160,6 +165,8 @@ model Enterprise {
   logo        String?
   /// 运营端元数据：冻结状态、冻结原因等
   metadata    Json?
+  status      EnterpriseStatus @default(ACTIVE)
+  closedAt    DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

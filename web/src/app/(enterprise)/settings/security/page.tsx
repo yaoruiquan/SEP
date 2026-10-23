@@ -78,7 +78,7 @@ export default function SecurityPage() {
         <Card>
           <CardHeader>
             <CardTitle>账号生命周期</CardTitle>
-            <CardDescription>注销个人账号需要邮件验证，并提供宽限期撤销。</CardDescription>
+            <CardDescription>邮件验证并确认后立即注销。只剩本人一名成员的企业将同时关闭。</CardDescription>
           </CardHeader>
           <CardContent>
             <Link href="/account-closure" className="text-sm text-primary underline">管理账号注销</Link>

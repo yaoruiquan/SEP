@@ -1,11 +1,10 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/auth-store';
 import { api } from '@/lib/api-client';
 import {
   useAccountClosureEligibility,
-  useCancelAccountClosure,
   useSubmitAccountClosure,
 } from './use-auth';
 
@@ -46,9 +45,9 @@ it('does not query eligibility before identity is restored', () => {
 
 it('clears all identity and cached tenant data after successful submission', async () => {
   vi.mocked(api.post).mockResolvedValue({
-    requestId: 'request',
-    status: 'PENDING',
-    scheduledFor: '2026-10-30T01:00:00Z',
+    status: 'CLOSED',
+    closedAt: '2026-10-30T01:00:00Z',
+    closedEnterprises: [],
   });
   const options = setup();
   options.client.setQueryData(['tenant-secrets'], 'cached');
@@ -84,20 +83,4 @@ it('retains identity and cache when submission fails', async () => {
   });
   expect(useAuthStore.getState().token).toBe('access');
   expect(options.client.getQueryData(['tenant-secrets'])).toBe('cached');
-});
-
-it('cancels without refreshing or logging in a user', async () => {
-  vi.mocked(api.post).mockResolvedValue({
-    message: '注销申请已撤销，请重新登录',
-  });
-  useAuthStore.getState().clear();
-  const { result } = renderHook(() => useCancelAccountClosure(), setup());
-  act(() => result.current.mutate('b'.repeat(32)));
-  await waitFor(() => expect(result.current.isSuccess).toBe(true));
-  expect(api.post).toHaveBeenCalledWith(
-    '/auth/account-closure/cancel',
-    { token: 'b'.repeat(32) },
-    { skipAuthRetry: true },
-  );
-  expect(useAuthStore.getState().user).toBeNull();
 });

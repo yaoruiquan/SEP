@@ -35,7 +35,7 @@ export class MediaVideoGatewayService {
 
   private async authorize(claims: ClientEmploymentClaims): Promise<string> {
     const member = await this.prisma.enterpriseMember.findFirst({
-      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' } },
+      where: { id: claims.memberId, enterpriseId: claims.enterpriseId, userId: claims.sub, user: { status: 'ACTIVE' }, enterprise: { status: 'ACTIVE' } },
       select: { departmentId: true },
     }).catch(() => videoStorageUnavailable());
     if (!member) videoGatewayError(403, 'MEDIA_FORBIDDEN', '当前成员无视频媒体访问权限');

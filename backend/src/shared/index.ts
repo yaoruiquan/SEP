@@ -823,9 +823,6 @@ export const ForgotPasswordDtoSchema = z.object({
 });
 export type ForgotPasswordDto = z.infer<typeof ForgotPasswordDtoSchema>;
 
-export const AccountClosureRecoverySchema = z.object({ email: EmailSchema });
-export type AccountClosureRecoveryDto = z.infer<typeof AccountClosureRecoverySchema>;
-
 export const RequestRegistrationEmailCodeDtoSchema = z.object({
   email: EmailSchema,
 });

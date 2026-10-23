@@ -322,6 +322,8 @@ export class AuthService {
           },
         });
 
+        const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${invitation.enterpriseId} FOR UPDATE`;
+        if (enterprises[0]?.status !== 'ACTIVE') throw new ConflictException('企业已关闭，无法接受邀请');
         const member = await tx.enterpriseMember.create({
           data: {
             userId: user.id,

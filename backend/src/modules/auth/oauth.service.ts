@@ -287,6 +287,8 @@ export class OAuthService {
         userId = created.id;
       }
 
+      const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${invitation.enterpriseId} FOR UPDATE`;
+      if (enterprises[0]?.status !== 'ACTIVE') throw new ConflictException('企业已关闭，无法接受邀请');
       const memberships = await tx.enterpriseMember.findMany({ where: { userId }, select: { enterpriseId: true } });
       if (memberships.some((m) => m.enterpriseId === invitation.enterpriseId)) throw new ConflictException('你已是该企业成员');
       if (memberships.length > 0) throw new ConflictException('你已归属其他企业，请先退出当前企业后再接受邀请');

@@ -142,6 +142,8 @@ export class InvitationService {
       now.getTime() + INVITATION_EXPIRES_DAYS * 24 * 60 * 60 * 1000,
     );
     const invitation = await this.serializable(async (tx) => {
+      const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${ctx.enterpriseId} FOR UPDATE`;
+      if (enterprises[0]?.status !== "ACTIVE") throw new ConflictException("企业已关闭，无法发送邀请");
       await this.checkEmailCooldown(tx, ctx.enterpriseId, email, now);
       const existingMember = await tx.enterpriseMember.findFirst({
         where: { enterpriseId: ctx.enterpriseId, user: { email } },
@@ -189,6 +191,8 @@ export class InvitationService {
     const invitationUrl = this.invitationUrl(token);
     const expiresAt = new Date(now.getTime() + INVITATION_EXPIRES_DAYS * 24 * 60 * 60 * 1000);
     const invitation = await this.serializable(async (tx) => {
+      const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${ctx.enterpriseId} FOR UPDATE`;
+      if (enterprises[0]?.status !== "ACTIVE") throw new ConflictException("企业已关闭，无法发送邀请");
       const current = await tx.enterpriseInvitation.findUnique({
         where: { id },
         select: { id: true, enterpriseId: true, email: true, status: true, tokenHash: true },
@@ -307,14 +311,14 @@ export class InvitationService {
         position: true,
         status: true,
         expiresAt: true,
-        enterprise: { select: { id: true, name: true, logo: true } },
+        enterprise: { select: { id: true, name: true, logo: true, status: true } },
         department: { select: { id: true, name: true } },
       },
     });
 
     // 统一用 400 + 同一措辞，不区分「不存在」与「已失效」——
     // 区分会让攻击者能用响应差异枚举有效 token
-    if (!invitation || invitation.status !== "PENDING") {
+    if (!invitation || invitation.status !== "PENDING" || invitation.enterprise.status !== "ACTIVE") {
       throw new BadRequestException("邀请链接无效或已失效");
     }
     if (invitation.expiresAt.getTime() <= Date.now()) {
@@ -347,9 +351,10 @@ export class InvitationService {
   async findUsableByToken(token: string) {
     const invitation = await this.prisma.enterpriseInvitation.findUnique({
       where: { tokenHash: this.hashToken(token) },
+      include: { enterprise: { select: { status: true } } },
     });
 
-    if (!invitation || invitation.status !== "PENDING") {
+    if (!invitation || invitation.status !== "PENDING" || invitation.enterprise.status !== "ACTIVE") {
       throw new BadRequestException("邀请链接无效或已失效");
     }
     if (invitation.expiresAt.getTime() <= Date.now()) {
@@ -393,6 +398,8 @@ export class InvitationService {
         if (user.memberships.length > 0) {
           throw new ConflictException("你已归属其他企业，请先在个人设置中退出当前企业，再接受本邀请");
         }
+        const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${invitation.enterpriseId} FOR UPDATE`;
+        if (enterprises[0]?.status !== "ACTIVE") throw new ConflictException("企业已关闭，无法接受邀请");
         const member = await tx.enterpriseMember.create({
           data: {
             userId: user.id,

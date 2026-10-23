@@ -33,6 +33,7 @@ describe('WalletService 算力专款', () => {
 
   beforeEach(async () => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
       enterpriseWallet: {
         findUnique: jest.fn().mockResolvedValue(wallet()),
         create: jest.fn(),

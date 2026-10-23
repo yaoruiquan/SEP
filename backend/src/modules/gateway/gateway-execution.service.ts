@@ -37,6 +37,8 @@ export class GatewayExecutionService implements OnModuleInit {
       return await this.prisma.$transaction(async tx => {
         const users = await tx.$queryRaw<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${claims.sub} FOR UPDATE`;
         if (!users[0] || users[0].status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+        const enterprises = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM enterprises WHERE id = ${claims.enterpriseId} FOR UPDATE`;
+        if (enterprises[0]?.status !== 'ACTIVE') throw new UnauthorizedException('Enterprise is not active');
         return tx.gatewayExecution.create({ data: {
         enterpriseId: claims.enterpriseId, userId: claims.sub, memberId: claims.memberId,
         subscriptionId: claims.subscriptionId, employeeId, modelId, requestId,

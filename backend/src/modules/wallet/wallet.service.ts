@@ -7,6 +7,7 @@ import {
 import { PrismaService } from "../../prisma/prisma.service";
 import { Prisma, WalletTransactionType } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
+import { assertActiveEnterpriseInTx } from '../../common/enterprise-write-lock';
 
 @Injectable()
 export class WalletService {
@@ -38,12 +39,14 @@ export class WalletService {
     amount: number,
     paymentOrderId: string,
     description?: string,
+    transaction?: Prisma.TransactionClient,
   ) {
     if (amount <= 0) {
       throw new BadRequestException("充值金额必须大于 0");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const deposit = async (tx: Prisma.TransactionClient) => {
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
       // 1. 获取钱包（行锁）
       const wallet = await tx.enterpriseWallet.findUnique({
         where: { enterpriseId },
@@ -87,7 +90,8 @@ export class WalletService {
           description: description || `充值 ¥${amount}`,
         },
       });
-    });
+    };
+    return transaction ? deposit(transaction) : this.prisma.$transaction(deposit);
   }
 
   /**
@@ -106,6 +110,7 @@ export class WalletService {
     }
 
     const consume = async (client: Prisma.TransactionClient) => {
+      await assertActiveEnterpriseInTx(client, enterpriseId);
       // 1. 获取钱包
       const wallet = await client.enterpriseWallet.findUnique({
         where: { enterpriseId },
@@ -186,6 +191,7 @@ export class WalletService {
     }
 
     const refund = async (client: Prisma.TransactionClient) => {
+      await assertActiveEnterpriseInTx(client, enterpriseId);
       // 1. 获取钱包
       const wallet = await client.enterpriseWallet.findUnique({
         where: { enterpriseId },
@@ -287,6 +293,7 @@ export class WalletService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
       const wallet = await tx.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
@@ -353,6 +360,7 @@ export class WalletService {
     await this.ensureWalletExists(enterpriseId);
 
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
       const wallet = await tx.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
@@ -420,6 +428,7 @@ export class WalletService {
     await this.ensureWalletExists(enterpriseId);
 
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
       const wallet = await tx.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
@@ -507,6 +516,7 @@ export class WalletService {
       return { transactionId: null, paid: new Decimal(0), unpaid: new Decimal(0) };
     }
 
+    await assertActiveEnterpriseInTx(client, enterpriseId);
     const wallet = await client.enterpriseWallet.findUnique({
       where: { enterpriseId },
     });
@@ -567,6 +577,7 @@ export class WalletService {
     meta: { relatedId?: string | null; relatedType?: string; createdBy?: string | null; description: string },
   ): Promise<{ transactionId: string }> {
     if (amount.lessThanOrEqualTo(0)) throw new BadRequestException("充值金额必须大于 0");
+    await assertActiveEnterpriseInTx(client, enterpriseId);
     const wallet = await client.enterpriseWallet.findUnique({ where: { enterpriseId } });
     if (!wallet) throw new NotFoundException(`企业钱包不存在: ${enterpriseId}`);
     if (wallet.computeReservedCNY.lessThan(amount)) {
@@ -641,6 +652,7 @@ export class WalletService {
     const delta = new Decimal(amount);
 
     return this.prisma.$transaction(async (client) => {
+      await assertActiveEnterpriseInTx(client, enterpriseId);
       const wallet = await client.enterpriseWallet.findUnique({
         where: { enterpriseId },
       });
@@ -725,8 +737,10 @@ export class WalletService {
     });
 
     if (!wallet) {
-      wallet = await this.prisma.enterpriseWallet.create({
-        data: { enterpriseId },
+      wallet = await this.prisma.$transaction(async (tx) => {
+        await assertActiveEnterpriseInTx(tx, enterpriseId);
+        const existing = await tx.enterpriseWallet.findUnique({ where: { enterpriseId } });
+        return existing ?? tx.enterpriseWallet.create({ data: { enterpriseId } });
       });
     }
 

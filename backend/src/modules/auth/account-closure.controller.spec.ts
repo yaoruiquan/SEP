@@ -10,9 +10,9 @@ describe('AccountClosureController HTTP contract', () => {
   let app: INestApplication;
   const token = 'a'.repeat(43);
   const service = {
-    eligibility: jest.fn().mockResolvedValue({ eligible: true, gracePeriodDays: 7, blockers: [] }),
+    eligibility: jest.fn().mockResolvedValue({ eligible: true, enterprisesToClose: [], blockers: [] }),
     requestVerification: jest.fn().mockResolvedValue({ message: 'sent' }),
-    request: jest.fn().mockResolvedValue({ requestId: 'r1', status: 'PENDING', scheduledFor: '2026-10-30T00:00:00Z' }),
+    request: jest.fn().mockResolvedValue({ status: 'CLOSED', closedAt: '2026-10-23T00:00:00Z', closedEnterprises: [] }),
     previewCancellation: jest.fn().mockResolvedValue({ canCancel: true }),
     cancel: jest.fn().mockResolvedValue({ message: 'cancelled' }),
     recover: jest.fn().mockResolvedValue({ message: 'processed' }),
@@ -52,25 +52,12 @@ describe('AccountClosureController HTTP contract', () => {
     expect(res.headers['set-cookie'][0]).toContain('HttpOnly');
   });
 
-  it('GET cancellation only previews and POST cancellation uses the dedicated public credential', async () => {
-    await request(app.getHttpServer()).get('/auth/account-closure/cancel').query({ token }).expect(200);
-    expect(service.previewCancellation).toHaveBeenCalledWith(token);
-    expect(service.cancel).not.toHaveBeenCalled();
-    await request(app.getHttpServer()).post('/auth/account-closure/cancel').send({ token }).expect(200);
-    expect(service.cancel).toHaveBeenCalledWith(token);
-  });
-
-  it('rejects missing and malformed credentials on both public cancellation endpoints', async () => {
-    await request(app.getHttpServer()).get('/auth/account-closure/cancel').query({ token: 'bad' }).expect(400);
-    await request(app.getHttpServer()).post('/auth/account-closure/cancel').send({}).expect(400);
+  it('does not expose cancellation or recovery endpoints', async () => {
+    await request(app.getHttpServer()).get('/auth/account-closure/cancel').query({ token }).expect(404);
+    await request(app.getHttpServer()).post('/auth/account-closure/cancel').send({ token }).expect(404);
+    await request(app.getHttpServer()).post('/auth/account-closure/recovery').send({ email: 'member@example.com' }).expect(404);
     expect(service.previewCancellation).not.toHaveBeenCalled();
     expect(service.cancel).not.toHaveBeenCalled();
-  });
-
-  it('normalizes public recovery email using shared validation', async () => {
-    await request(app.getHttpServer()).post('/auth/account-closure/recovery').send({ email: 'bad' }).expect(400);
     expect(service.recover).not.toHaveBeenCalled();
-    await request(app.getHttpServer()).post('/auth/account-closure/recovery').send({ email: ' Member@Example.com ' }).expect(200);
-    expect(service.recover).toHaveBeenCalledWith('member@example.com', expect.any(String));
   });
 });

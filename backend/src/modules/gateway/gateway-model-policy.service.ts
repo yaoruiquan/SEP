@@ -54,7 +54,7 @@ export class GatewayModelPolicyService {
 
   async resolvePolicy(identity: GatewayModelIdentity): Promise<GatewayModelPolicy> {
     const member = await this.prisma.enterpriseMember.findFirst({
-      where: { id: identity.memberId, enterpriseId: identity.enterpriseId, userId: identity.sub },
+      where: { id: identity.memberId, enterpriseId: identity.enterpriseId, userId: identity.sub, enterprise: { status: 'ACTIVE' } },
       select: { departmentId: true },
     });
     if (!member) {

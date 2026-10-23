@@ -6,307 +6,247 @@ import { AccountClosureService } from './account-closure.service';
 const token = 'a'.repeat(43);
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
-function setup() {
-  const user = { id: 'u1', email: 'member@example.com', status: 'ACTIVE', role: 'USER', name: 'Member', avatar: 'avatar' };
+function setup(withEnterprise = false) {
+  const state = {
+    user: { id: 'u1', email: 'member@example.com', status: 'ACTIVE', role: 'USER', name: 'Member', avatar: 'avatar' },
+    enterprise: { id: 'e1', name: 'Acme', status: 'ACTIVE', closedAt: null as Date | null,
+      members: withEnterprise ? [{ userId: 'u1', role: 'ENTERPRISE_ADMIN' }] : [] },
+    requests: [] as any[],
+  };
   const proof = { id: 'proof1', userId: 'u1', type: 'ACCOUNT_CLOSURE', tokenHash: digest(token),
-    consumedAt: null as Date | null, metadata: { email: user.email }, expiresAt: new Date(Date.now() + 60_000) };
-  let request: any = null;
+    consumedAt: null as Date | null, metadata: { email: state.user.email, enterpriseIds: withEnterprise ? ['e1'] : [] },
+    expiresAt: new Date(Date.now() + 60_000) };
   const count = () => jest.fn().mockResolvedValue(0);
   const deleted = () => ({ deleteMany: jest.fn().mockResolvedValue({ count: 1 }) });
+  const updated = () => ({ updateMany: jest.fn().mockResolvedValue({ count: 1 }) });
   const tx = {
-    $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'u1' }]),
     user: {
-      findUnique: jest.fn(async () => ({ ...user })),
-      update: jest.fn(async ({ data }) => Object.assign(user, data)),
+      findUnique: jest.fn(async () => ({ ...state.user })),
+      update: jest.fn(async ({ data }) => Object.assign(state.user, data)),
     },
-    enterpriseMember: { count: count() },
+    enterpriseMember: {
+      findMany: jest.fn(async () => state.enterprise.members.some((item) => item.userId === 'u1') ? [{ enterpriseId: 'e1' }] : []),
+      deleteMany: jest.fn(async () => { state.enterprise.members = []; return { count: 1 }; }),
+    },
+    enterprise: {
+      findUnique: jest.fn(async () => structuredClone(state.enterprise)),
+      update: jest.fn(async ({ data }) => Object.assign(state.enterprise, data)),
+    },
+    enterpriseWallet: { findMany: jest.fn().mockResolvedValue([{ balance: new Prisma.Decimal(0), frozenAmount: new Prisma.Decimal(0) }]) },
+    memberAllowanceTopUp: { findMany: jest.fn().mockResolvedValue([]) }, subscriptionCredit: updated(),
+    rechargeOrder: { count: count() }, enterpriseApiKey: updated(), subscription: updated(),
+    auditLog: { create: jest.fn().mockResolvedValue({}) },
     personalWallet: { findUnique: jest.fn().mockResolvedValue({ balance: new Prisma.Decimal(0) }) },
     personalRechargeOrder: { count: count() }, contributionRewardEvent: { count: count() },
     taskRun: { count: count() }, clientTaskMirror: { count: count() },
     gatewayExecution: { count: count() }, mediaRealBillingReservation: { count: count() }, order: { count: count() },
-    accountClosureRequest: {
-      findUnique: jest.fn(async ({ where }) => {
-        if (!request) return null;
-        if (where.activeUserId) return request.activeUserId === where.activeUserId ? { ...request } : null;
-        if (where.cancellationTokenHash) return request.cancellationTokenHash === where.cancellationTokenHash ? { ...request } : null;
-        return request.id === where.id ? { ...request } : null;
-      }),
-      create: jest.fn(async ({ data }) => (request = { id: 'request1', status: 'PREPARING', ...data })),
-      updateMany: jest.fn(async ({ where, data }) => {
-        if (!request || (where.status && request.status !== where.status) ||
-          (where.cancellationTokenHash && request.cancellationTokenHash !== where.cancellationTokenHash) ||
-          (where.scheduledFor?.gt && request.scheduledFor <= where.scheduledFor.gt)) return { count: 0 };
-        Object.assign(request, data);
-        return { count: 1 };
-      }),
-      update: jest.fn(async ({ data }) => Object.assign(request, data)),
-      findMany: jest.fn(async () => request ? [{ id: request.id, userId: request.userId }] : []),
-    },
+    accountClosureRequest: { create: jest.fn(async ({ data }) => {
+      const request = { id: 'request1', ...data }; state.requests.push(request); return request;
+    }) },
     authOneTimeToken: {
       findUnique: jest.fn(async () => ({ ...proof })),
-      create: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}),
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }), ...deleted(),
+      create: jest.fn().mockResolvedValue({}), ...updated(), ...deleted(),
     },
-    authSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    authToken: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), ...deleted() },
-    device: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), ...deleted() },
-    authOAuthTransaction: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), ...deleted() },
+    authSession: updated(), authToken: deleted(), device: deleted(), authOAuthTransaction: deleted(),
     authCredential: deleted(), authIdentity: deleted(), notification: deleted(),
-    authEvent: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    enterpriseInvitation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    authEvent: { create: jest.fn().mockResolvedValue({}), ...updated() },
+    enterpriseInvitation: updated(),
   };
   const prisma = { ...tx, $transaction: jest.fn(async (fn) => {
-    const snapshot = { user: { ...user }, request: request ? { ...request } : null };
-    try { return await fn(tx); } catch (error) {
-      Object.assign(user, snapshot.user); request = snapshot.request; throw error;
-    }
+    const snapshot = structuredClone(state);
+    try { return await fn(tx); } catch (error) { Object.assign(state, snapshot); throw error; }
   }) };
-  const mail = { sendAccountClosureVerification: jest.fn().mockResolvedValue(undefined), sendAccountClosureRequested: jest.fn().mockResolvedValue(undefined), sendAccountClosureRecovery: jest.fn().mockResolvedValue(undefined) };
+  const mail = { sendAccountClosureVerification: jest.fn().mockResolvedValue(undefined) };
   const values: Record<string, string> = { WEB_BASE_URL: 'https://app.example.com', NODE_ENV: 'test' };
   const config = { get: (key: string) => values[key], getOrThrow: (key: string) => values[key] };
   const limits = { consume: jest.fn().mockResolvedValue({ allowed: true }) };
   const service = new AccountClosureService(prisma as any, mail as any, config as any, limits as any);
-  const pending = async () => {
-    const result = await service.request(user.id, { token, confirmation: '注销账号' });
-    const cancellationToken = new URL(mail.sendAccountClosureRequested.mock.calls[0][0].cancellationUrl).searchParams.get('token')!;
-    return { result, cancellationToken };
-  };
-  return { service, prisma, tx, user, proof, mail, limits, values, pending, request: () => request };
+  const close = () => service.request('u1', { token, confirmation: '注销账号' });
+  return { service, prisma, tx, state, proof, mail, limits, values, close };
 }
 
-describe('AccountClosureService', () => {
-  it('blocks unresolved media reconciliation even after the reservation has left RESERVED', async () => {
+describe('AccountClosureService immediate closure', () => {
+  it('allows an account without an enterprise', async () => {
     const s = setup();
-    s.tx.mediaRealBillingReservation.count.mockImplementation(async (query: any) =>
-      query.where.status.in.includes('RECONCILING') ? 1 : 0,
-    );
-    await expect(s.service.eligibility('u1')).resolves.toMatchObject({
-      eligible: false,
-      blockers: [{ code: 'BILLING_RECONCILIATION' }],
-    });
-    await expect(s.pending()).rejects.toBeInstanceOf(ConflictException);
-    expect(s.mail.sendAccountClosureRequested).not.toHaveBeenCalled();
+    await expect(s.service.eligibility('u1')).resolves.toEqual({ eligible: true, enterprisesToClose: [], blockers: [] });
   });
 
-  it('returns separate actionable blockers for memberships, money, rewards, tasks and reconciliation', async () => {
-    const s = setup();
-    s.tx.enterpriseMember.count.mockResolvedValue(1);
+  it('allows only the last enterprise member with admin role and locks user before enterprise', async () => {
+    const s = setup(true);
+    await expect(s.service.eligibility('u1')).resolves.toEqual({
+      eligible: true, enterprisesToClose: [{ id: 'e1', name: 'Acme' }], blockers: [],
+    });
+    expect(s.tx.$queryRaw.mock.calls[0][0].join('')).toContain('FROM users');
+    expect(s.tx.$queryRaw.mock.calls[1][0].join('')).toContain('FROM enterprises');
+  });
+
+  it('blocks a multi-member enterprise without changing any data', async () => {
+    const s = setup(true); s.state.enterprise.members.push({ userId: 'u2', role: 'MEMBER' });
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ eligible: false, blockers: [{ code: 'ENTERPRISE_MEMBERSHIP' }] });
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+    expect(s.tx.enterprise.update).not.toHaveBeenCalled();
+    expect(s.tx.accountClosureRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks a sole non-admin member and already closed enterprise', async () => {
+    const s = setup(true); s.state.enterprise.members[0].role = 'MEMBER';
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ blockers: [{ code: 'ENTERPRISE_ADMIN_REQUIRED' }] });
+    s.state.enterprise.status = 'CLOSED';
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ blockers: [{ code: 'ENTERPRISE_CLOSED' }] });
+  });
+
+  it.each(['balance', 'frozenAmount'])('blocks nonzero enterprise %s', async (field) => {
+    const s = setup(true);
+    s.tx.enterpriseWallet.findMany.mockResolvedValue([{ balance: new Prisma.Decimal(0), frozenAmount: new Prisma.Decimal(0), [field]: new Prisma.Decimal('0.01') }]);
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+    expect(s.tx.enterprise.update).not.toHaveBeenCalled();
+  });
+
+  it('blocks pending enterprise recharge orders', async () => {
+    const s = setup(true); s.tx.rechargeOrder.count.mockResolvedValue(1);
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ blockers: [{ code: 'ENTERPRISE_PENDING_PAYMENT' }] });
+  });
+
+  it('blocks remaining member funds even when the enterprise wallet is empty', async () => {
+    const s = setup(true);
+    s.tx.memberAllowanceTopUp.findMany.mockResolvedValue([{ amountCNY: new Prisma.Decimal('10'), consumedCNY: new Prisma.Decimal('9.99') }]);
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ blockers: [{ code: 'ENTERPRISE_MEMBER_BALANCE' }] });
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+    expect(s.tx.enterprise.update).not.toHaveBeenCalled();
+    s.tx.memberAllowanceTopUp.findMany.mockResolvedValue([{ amountCNY: new Prisma.Decimal('10'), consumedCNY: new Prisma.Decimal('10') }]);
+    await expect(s.service.eligibility('u1')).resolves.toMatchObject({ eligible: true });
+  });
+
+  it.each(['taskRun', 'clientTaskMirror', 'gatewayExecution', 'mediaRealBillingReservation', 'order'] as const)(
+    'checks %s across the whole closing enterprise', async (model) => {
+      const s = setup(true); s.tx[model].count.mockResolvedValue(1);
+      await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+      expect(s.tx[model].count).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+        OR: expect.arrayContaining([{ enterpriseId: { in: ['e1'] } }]),
+      }) }));
+    },
+  );
+
+  it('returns actionable personal blockers and refuses platform admin closure', async () => {
+    const s = setup(); s.state.user.role = 'ADMIN';
     s.tx.personalWallet.findUnique.mockResolvedValue({ balance: new Prisma.Decimal('0.01') });
     s.tx.personalRechargeOrder.count.mockResolvedValue(1);
     s.tx.contributionRewardEvent.count.mockResolvedValue(1);
-    s.tx.clientTaskMirror.count.mockResolvedValue(1);
-    s.tx.gatewayExecution.count.mockResolvedValue(1);
+    s.tx.mediaRealBillingReservation.count.mockResolvedValue(1);
     const result = await s.service.eligibility('u1');
-    expect(result).toEqual({ eligible: false, gracePeriodDays: 7, blockers: expect.arrayContaining([
-      expect.objectContaining({ code: 'ENTERPRISE_MEMBERSHIP' }), expect.objectContaining({ code: 'PERSONAL_BALANCE' }),
+    expect(result).toMatchObject({ eligible: false, blockers: expect.arrayContaining([
+      expect.objectContaining({ code: 'PLATFORM_ADMIN' }), expect.objectContaining({ code: 'PERSONAL_BALANCE' }),
       expect.objectContaining({ code: 'PENDING_PAYMENT' }), expect.objectContaining({ code: 'UNSETTLED_REWARD' }),
-      expect.objectContaining({ code: 'ACTIVE_TASK' }), expect.objectContaining({ code: 'BILLING_RECONCILIATION' }),
+      expect.objectContaining({ code: 'BILLING_RECONCILIATION' }),
     ]) });
   });
 
-  it.each(['DISABLED', 'CLOSURE_PENDING', 'CLOSED'])('rejects %s before sending proof mail', async (status) => {
-    const s = setup(); s.user.status = status;
+  it.each(['DISABLED', 'CLOSURE_PENDING', 'CLOSED'])('rejects %s before issuing or consuming proof', async (status) => {
+    const s = setup(); s.state.user.status = status;
     await expect(s.service.requestVerification('u1')).rejects.toBeInstanceOf(ConflictException);
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
     expect(s.mail.sendAccountClosureVerification).not.toHaveBeenCalled();
   });
 
-  it('issues a dedicated email-bound hashed proof and never changes account state', async () => {
-    const s = setup();
+  it('issues a hashed proof bound to email and enterprise scope without changing state', async () => {
+    const s = setup(true);
     await s.service.requestVerification('u1');
-    const url = new URL(s.mail.sendAccountClosureVerification.mock.calls[0][0].verificationUrl);
-    const raw = url.searchParams.get('token')!;
+    const input = s.mail.sendAccountClosureVerification.mock.calls[0][0];
+    const url = new URL(input.verificationUrl);
     expect(url.pathname).toBe('/account-closure');
+    expect(input.enterpriseNames).toEqual(['Acme']);
     expect(s.tx.authOneTimeToken.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      type: 'ACCOUNT_CLOSURE', tokenHash: digest(raw), metadata: { email: s.user.email },
+      type: 'ACCOUNT_CLOSURE', tokenHash: digest(url.searchParams.get('token')!),
+      metadata: { email: s.state.user.email, enterpriseIds: ['e1'] },
     }) });
     expect(s.tx.user.update).not.toHaveBeenCalled();
-    expect(s.user.status).toBe('ACTIVE');
+    expect(s.tx.enterprise.update).not.toHaveBeenCalled();
   });
 
-  it('limits verification mail per user', async () => {
+  it('limits verification email per user', async () => {
     const s = setup(); s.limits.consume.mockResolvedValue({ allowed: false });
     await expect(s.service.requestVerification('u1')).rejects.toMatchObject({ status: 429 });
     expect(s.tx.authOneTimeToken.create).not.toHaveBeenCalled();
   });
 
-  it('invalidates undelivered verification proof', async () => {
-    const s = setup(); s.mail.sendAccountClosureVerification.mockRejectedValue(new ServiceUnavailableException());
+  it('invalidates undelivered proof while preserving ACTIVE and allowing another email', async () => {
+    const s = setup(); s.mail.sendAccountClosureVerification.mockRejectedValueOnce(new ServiceUnavailableException());
     await expect(s.service.requestVerification('u1')).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(s.prisma.authOneTimeToken.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ tokenHash: expect.any(String) }) }));
-    expect(s.user.status).toBe('ACTIVE');
+    expect(s.state.user.status).toBe('ACTIVE');
+    await expect(s.service.requestVerification('u1')).resolves.toMatchObject({ message: expect.any(String) });
   });
 
-  it.each(['foreign-user', 'expired', 'consumed', 'wrong-purpose', 'email-changed'])('rejects %s proof before reserving', async (kind) => {
+  it.each(['foreign-user', 'expired', 'consumed', 'wrong-purpose', 'email-changed', 'legacy-proof'])('rejects %s proof', async (kind) => {
     const s = setup();
     if (kind === 'foreign-user') s.proof.userId = 'u2';
     if (kind === 'expired') s.proof.expiresAt = new Date(Date.now() - 1);
     if (kind === 'consumed') s.proof.consumedAt = new Date();
     if (kind === 'wrong-purpose') s.proof.type = 'PASSWORD_RESET';
-    if (kind === 'email-changed') s.user.email = 'changed@example.com';
-    await expect(s.service.request('u1', { token, confirmation: '注销账号' })).rejects.toBeInstanceOf(BadRequestException);
+    if (kind === 'email-changed') s.state.user.email = 'changed@example.com';
+    if (kind === 'legacy-proof') delete (s.proof.metadata as any).enterpriseIds;
+    await expect(s.close()).rejects.toBeInstanceOf(BadRequestException);
     expect(s.tx.accountClosureRequest.create).not.toHaveBeenCalled();
   });
 
-  it('activates only after recovery mail delivery and revokes all ordinary credentials', async () => {
-    const s = setup();
-    s.mail.sendAccountClosureRequested.mockImplementation(async () => {
-      expect(s.user.status).toBe('ACTIVE');
-      expect(s.request().status).toBe('PREPARING');
-      expect(s.tx.authSession.updateMany).not.toHaveBeenCalled();
+  it('requires fresh mail when enterprise scope changes after verification', async () => {
+    const s = setup(true); s.proof.metadata.enterpriseIds = [];
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+    expect(s.tx.enterprise.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects proof that expires while waiting for enterprise inspection', async () => {
+    const s = setup(true);
+    s.tx.enterprise.findUnique.mockImplementationOnce(async () => {
+      s.proof.expiresAt.setTime(Date.now() - 1);
+      return structuredClone(s.state.enterprise);
     });
-    const { result, cancellationToken } = await s.pending();
-    expect(s.user.status).toBe('CLOSURE_PENDING');
-    expect(s.request()).toMatchObject({ status: 'PENDING', cancellationTokenHash: digest(cancellationToken), activeUserId: 'u1' });
-    expect(JSON.stringify(s.request())).not.toContain(cancellationToken);
-    expect(new Date(result.scheduledFor).getTime() - Date.now()).toBeGreaterThan(6.99 * 86400000);
-    expect(s.tx.authToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { session: { userId: 'u1' }, revokedAt: null } }));
-    expect(s.tx.device.updateMany).not.toHaveBeenCalled();
-    expect(s.tx.authOAuthTransaction.updateMany).toHaveBeenCalled();
+    await expect(s.close()).rejects.toBeInstanceOf(BadRequestException);
+    expect(s.tx.accountClosureRequest.create).not.toHaveBeenCalled();
   });
 
-  it('keeps ACTIVE and leaves proof retryable if recovery mail fails', async () => {
-    const s = setup(); s.mail.sendAccountClosureRequested.mockRejectedValue(new ServiceUnavailableException());
-    await expect(s.pending()).rejects.toBeInstanceOf(ServiceUnavailableException);
-    expect(s.user.status).toBe('ACTIVE');
-    expect(s.request()).toMatchObject({ status: 'CANCELLED', activeUserId: null, cancellationTokenHash: null });
-    expect(s.tx.authOneTimeToken.update).not.toHaveBeenCalled();
-    expect(s.tx.authSession.updateMany).not.toHaveBeenCalled();
+  it('rechecks a newly joined member at final submission', async () => {
+    const s = setup(true);
+    await s.service.requestVerification('u1');
+    s.state.enterprise.members.push({ userId: 'u2', role: 'MEMBER' });
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
+    expect(s.state.user.status).toBe('ACTIVE');
   });
 
-  it('rechecks new blockers after sending mail and cancels reservation on conflict', async () => {
-    const s = setup();
-    s.mail.sendAccountClosureRequested.mockImplementation(async () => { s.tx.enterpriseMember.count.mockResolvedValue(1); });
-    await expect(s.pending()).rejects.toBeInstanceOf(ConflictException);
-    expect(s.user.status).toBe('ACTIVE');
-    expect(s.request().status).toBe('CANCELLED');
-    expect(s.tx.authSession.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('does not allow a second application while recovery mail is being delivered', async () => {
-    const s = setup();
-    s.mail.sendAccountClosureRequested.mockImplementation(async () => {
-      await expect(s.service.request('u1', { token, confirmation: '注销账号' })).rejects.toBeInstanceOf(ConflictException);
-    });
-    await s.pending();
+  it('closes the enterprise and account immediately, terminates access, and preserves enterprise history', async () => {
+    const s = setup(true);
+    const result = await s.close();
+    expect(result).toMatchObject({ status: 'CLOSED', closedAt: expect.any(String), closedEnterprises: [{ id: 'e1', name: 'Acme' }] });
+    expect(s.state.enterprise).toMatchObject({ id: 'e1', status: 'CLOSED', closedAt: expect.any(Date), members: [] });
+    expect(s.tx.enterpriseApiKey.updateMany).toHaveBeenCalledWith({ where: { enterpriseId: 'e1', revokedAt: null }, data: { revokedAt: expect.any(Date) } });
+    expect(s.tx.subscription.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'TERMINATED', terminatedReason: 'enterprise_closed' }) }));
+    expect(s.tx.subscriptionCredit.updateMany).toHaveBeenCalledWith({ where: { enterpriseId: 'e1', status: 'ACTIVE' }, data: { status: 'EXPIRED', version: { increment: 1 } } });
+    expect(s.tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'ENTERPRISE_CLOSED' }) }));
+    expect(s.state.requests).toEqual([expect.objectContaining({ status: 'COMPLETED', completedAt: expect.any(Date) })]);
+    expect(s.state.user).toMatchObject({ id: 'u1', email: expect.stringMatching(/^closed\+u1\.[a-f0-9]{32}@account\.invalid$/), status: 'CLOSED', name: '已注销用户', avatar: null });
+    expect(s.tx.enterpriseInvitation.updateMany).toHaveBeenCalledWith({ where: { email: { equals: 'member@example.com', mode: 'insensitive' }, status: 'PENDING' }, data: { status: 'REVOKED' } });
+    for (const model of ['device', 'authCredential', 'authIdentity', 'authOneTimeToken', 'authOAuthTransaction', 'notification'] as const) {
+      expect(s.tx[model].deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+    }
+    expect(s.tx.authSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revokedAt: expect.any(Date), ipAddress: null, userAgent: null }) }));
+    await expect(s.close()).rejects.toBeInstanceOf(ConflictException);
     expect(s.tx.accountClosureRequest.create).toHaveBeenCalledTimes(1);
   });
 
-  it('GET preview is read only, POST cancel restores ACTIVE without restoring sessions and cannot replay', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending();
-    s.tx.user.update.mockClear(); s.tx.authSession.updateMany.mockClear();
-    await expect(s.service.previewCancellation(cancellationToken)).resolves.toMatchObject({ canCancel: true });
-    expect(s.tx.user.update).not.toHaveBeenCalled();
-    expect(s.user.status).toBe('CLOSURE_PENDING');
-    await s.service.cancel(cancellationToken);
-    expect(s.user.status).toBe('ACTIVE');
-    expect(s.request().status).toBe('CANCELLED');
-    expect(s.tx.authSession.updateMany).not.toHaveBeenCalled();
-    await expect(s.service.cancel(cancellationToken)).rejects.toBeInstanceOf(BadRequestException);
+  it('rolls enterprise and account back together when cleanup fails', async () => {
+    const s = setup(true);
+    s.tx.authIdentity.deleteMany.mockRejectedValueOnce(new Error('database error'));
+    await expect(s.close()).rejects.toThrow('database error');
+    expect(s.state.user).toMatchObject({ status: 'ACTIVE', email: 'member@example.com' });
+    expect(s.state.enterprise).toMatchObject({ status: 'ACTIVE', closedAt: null, members: [{ userId: 'u1', role: 'ENTERPRISE_ADMIN' }] });
+    expect(s.state.requests).toEqual([]);
+    await expect(s.close()).resolves.toMatchObject({ status: 'CLOSED' });
   });
 
-  it('refuses cancellation at the deadline even if finalization has not yet run', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending(); s.request().scheduledFor = new Date(Date.now() - 1);
-    await expect(s.service.cancel(cancellationToken)).rejects.toBeInstanceOf(BadRequestException);
-    expect(s.user.status).toBe('CLOSURE_PENDING');
-  });
-
-  it('rechecks cancellation condition after acquiring the user lock', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending();
-    s.tx.accountClosureRequest.updateMany.mockResolvedValueOnce({ count: 0 });
-    await expect(s.service.cancel(cancellationToken)).rejects.toBeInstanceOf(BadRequestException);
-    expect(s.user.status).toBe('CLOSURE_PENDING');
-  });
-
-  it('anonymizes once, releases email, invalidates old invitations and preserves business records', async () => {
-    const s = setup(); await s.pending(); s.request().scheduledFor = new Date(Date.now() - 1);
-    await s.service.finalize('request1', 'u1');
-    expect(s.user).toMatchObject({ id: 'u1', email: expect.stringMatching(/^closed\+u1\.[a-f0-9]{32}@account\.invalid$/), status: 'CLOSED', name: '已注销用户', avatar: null });
-    expect(s.tx.enterpriseInvitation.updateMany).toHaveBeenCalledWith({ where: { email: { equals: 'member@example.com', mode: 'insensitive' }, status: 'PENDING' }, data: { status: 'REVOKED' } });
-    expect(s.tx.authCredential.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
-    expect(s.tx.authIdentity.deleteMany).toHaveBeenCalled();
-    expect(s.tx.notification.deleteMany).toHaveBeenCalled();
-    expect(s.request()).toMatchObject({ status: 'COMPLETED', activeUserId: null, cancellationTokenHash: null });
-    s.tx.user.update.mockClear();
-    await s.service.finalize('request1', 'u1');
-    expect(s.tx.user.update).not.toHaveBeenCalled();
-  });
-
-  it('does not finalize before deadline or after cancellation', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending(); s.tx.user.update.mockClear();
-    await s.service.finalize('request1', 'u1'); expect(s.tx.user.update).not.toHaveBeenCalled();
-    await s.service.cancel(cancellationToken); s.tx.user.update.mockClear();
-    s.request().scheduledFor = new Date(Date.now() - 1);
-    await s.service.finalize('request1', 'u1'); expect(s.tx.user.update).not.toHaveBeenCalled();
-  });
-
-  it('keeps email reserved and records safe retry reason if a new financial blocker exists', async () => {
-    const s = setup(); await s.pending(); s.request().scheduledFor = new Date(Date.now() - 1);
-    s.tx.personalWallet.findUnique.mockResolvedValue({ balance: new Prisma.Decimal(1) });
-    // Cleanup query must not affect a PENDING request in the test store.
-    await s.service.processDueRequests();
-    expect(s.user).toMatchObject({ status: 'CLOSURE_PENDING', email: 'member@example.com' });
-    expect(s.request()).toMatchObject({ status: 'PENDING', lastError: 'ELIGIBILITY_BLOCKED' });
-    expect(s.tx.authIdentity.deleteMany).not.toHaveBeenCalled();
-  });
-
-  it('requires a safe configured mail origin before creating any proof', async () => {
+  it('requires a safe mail origin before creating proof', async () => {
     const s = setup(); s.values.WEB_BASE_URL = 'https://user:secret@example.com';
     await expect(s.service.requestVerification('u1')).rejects.toBeInstanceOf(BadRequestException);
     expect(s.tx.authOneTimeToken.create).not.toHaveBeenCalled();
-  });
-
-  it('recovery returns the same response for absent, active and pending accounts', async () => {
-    const s = setup();
-    s.prisma.user.findUnique.mockResolvedValueOnce(null as any);
-    const missing = await s.service.recover(s.user.email, '127.0.0.1');
-    const active = await s.service.recover(s.user.email, '127.0.0.1');
-    expect(s.mail.sendAccountClosureRecovery).not.toHaveBeenCalled();
-    await s.pending();
-    const pending = await s.service.recover(s.user.email, '127.0.0.1');
-    expect(pending).toEqual(active); expect(active).toEqual(missing);
-    expect(s.mail.sendAccountClosureRecovery).toHaveBeenCalledTimes(1);
-  });
-
-  it('recovery rotates the cancellation credential only after successful SMTP delivery', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending();
-    s.mail.sendAccountClosureRecovery.mockImplementation(async () => {
-      expect(s.request().cancellationTokenHash).toBe(digest(cancellationToken));
-    });
-    await s.service.recover(s.user.email);
-    const url = new URL(s.mail.sendAccountClosureRecovery.mock.calls[0][0].cancellationUrl);
-    const nextToken = url.searchParams.get('token')!;
-    await expect(s.service.previewCancellation(cancellationToken)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(s.service.previewCancellation(nextToken)).resolves.toMatchObject({ canCancel: true });
-  });
-
-  it('recovery mail failure keeps the old cancellation credential and returns the same public message', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending();
-    s.mail.sendAccountClosureRecovery.mockRejectedValue(new Error('smtp secret'));
-    await expect(s.service.recover(s.user.email)).resolves.toMatchObject({ message: expect.any(String) });
-    await expect(s.service.previewCancellation(cancellationToken)).resolves.toMatchObject({ canCancel: true });
-  });
-
-  it('does not restore or rotate a request cancelled while recovery mail was in flight', async () => {
-    const s = setup(); const { cancellationToken } = await s.pending();
-    s.mail.sendAccountClosureRecovery.mockImplementation(async () => { await s.service.cancel(cancellationToken); });
-    await s.service.recover(s.user.email);
-    expect(s.user.status).toBe('ACTIVE');
-    expect(s.request()).toMatchObject({ status: 'CANCELLED', cancellationTokenHash: null });
-  });
-
-  it('does not send recovery mail after the deadline or when rate limited', async () => {
-    const s = setup(); await s.pending(); s.request().scheduledFor = new Date(Date.now() - 1);
-    await s.service.recover(s.user.email); expect(s.mail.sendAccountClosureRecovery).not.toHaveBeenCalled();
-    s.request().scheduledFor = new Date(Date.now() + 100000); s.limits.consume.mockResolvedValue({ allowed: false });
-    await s.service.recover(s.user.email); expect(s.mail.sendAccountClosureRecovery).not.toHaveBeenCalled();
-  });
-
-  it('records a safe failure code and retries without releasing email after a transaction error', async () => {
-    const s = setup(); await s.pending(); s.request().scheduledFor = new Date(Date.now() - 1);
-    s.tx.authIdentity.deleteMany.mockRejectedValueOnce(new Error('private database error'));
-    await s.service.processDueRequests();
-    expect(s.user).toMatchObject({ status: 'CLOSURE_PENDING', email: 'member@example.com' });
-    expect(s.request()).toMatchObject({ status: 'PENDING', lastError: 'FINALIZATION_FAILED' });
-    await s.service.processDueRequests(); expect(s.user.status).toBe('CLOSED');
   });
 });

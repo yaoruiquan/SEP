@@ -44,6 +44,12 @@ describe('Gateway execution journal and recovery', () => {
     expect(prisma.gatewayExecution.create).not.toHaveBeenCalled();
   });
 
+  it('rejects a closed enterprise after locking its active user', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+    await expect(service.start(claims, 'employee', 'model', 'request')).rejects.toThrow('Enterprise is not active');
+    expect(prisma.gatewayExecution.create).not.toHaveBeenCalled();
+  });
+
   it('persists observed usage without making an active stream ready to settle', async () => {
     await service.saveUsage(execution.id, usage);
     expect(prisma.gatewayExecution.updateMany).toHaveBeenCalledWith(expect.objectContaining({

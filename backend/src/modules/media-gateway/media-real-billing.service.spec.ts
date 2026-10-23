@@ -72,6 +72,14 @@ describe('MediaRealBillingService', () => {
     expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
   });
 
+  it('rejects idempotent replay when enterprise closed after authentication', async () => {
+    tx.$queryRaw.mockResolvedValueOnce([{ status: 'ACTIVE' }]).mockResolvedValueOnce([{ status: 'CLOSED' }]);
+    tx.mediaRealBillingReservation.findUnique.mockResolvedValue(reservation());
+    await expect(service.reserve(claims, 'receipt-1', '5.000000', 7)).rejects.toThrow('Enterprise is not active');
+    expect(tx.mediaRealBillingReservation.findUnique).not.toHaveBeenCalled();
+    expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();
+  });
+
   it.each(['subscription', 'rate', 'amount'])('rejects reuse with a changed %s', async field => {
     tx.mediaRealBillingReservation.findUnique.mockResolvedValue({ ...reservation(),
       ...(field === 'subscription' ? { subscriptionId: 'other' } : field === 'rate' ? { usdToCnyRate: d(6) } : { reservedCny: d(6) }),

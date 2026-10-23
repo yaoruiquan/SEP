@@ -7,6 +7,7 @@ import {
 import { PrismaService } from "../../prisma/prisma.service";
 import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
+import { assertActiveEnterpriseInTx, assertActiveUserInTx } from '../../common/enterprise-write-lock';
 import { SubscriptionFulfillmentService } from "../subscription-fulfillment/subscription-fulfillment.service";
 
 type FulfillmentOrder = Prisma.OrderGetPayload<{
@@ -96,7 +97,10 @@ export class OrderService {
     );
 
     // 5. 创建订单
-    const order = await this.prisma.order.create({
+    const order = await this.prisma.$transaction(async (tx) => {
+      await assertActiveUserInTx(tx, createdBy);
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
+      return tx.order.create({
       data: {
         orderNo,
         enterpriseId,
@@ -121,6 +125,7 @@ export class OrderService {
           },
         },
       },
+      });
     });
 
     this.logger.log(
@@ -180,7 +185,10 @@ export class OrderService {
       ),
     );
 
-    return this.prisma.order.create({
+    return this.prisma.$transaction(async (tx) => {
+      await assertActiveUserInTx(tx, createdBy);
+      await assertActiveEnterpriseInTx(tx, enterpriseId);
+      return tx.order.create({
       data: {
         orderNo,
         enterpriseId,
@@ -209,6 +217,7 @@ export class OrderService {
           },
         },
       },
+      });
     });
   }
 
@@ -372,6 +381,11 @@ export class OrderService {
     payTradeNo: string,
     payChannel: "ALIPAY" | "BALANCE",
   ) {
+    await assertActiveUserInTx(tx, order.createdBy);
+    await assertActiveEnterpriseInTx(tx, order.enterpriseId);
+    const current = await tx.order.findUnique({ where: { id: order.id } });
+    if (current?.status === 'PAID') return current;
+    if (!current || current.status !== 'PENDING') throw new BadRequestException('订单当前不可履约');
     // 市场订单只能由企业管理员创建。下单到支付回调之间可能已过数天，
     // 操作人可能被降权或移出企业，所以履约时必须复核而不是信任下单时的判断。
     const purchaser = await this.fulfillment.assertEnterpriseAdmin(

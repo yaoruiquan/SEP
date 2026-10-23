@@ -71,7 +71,7 @@ describe('MediaGatewayService mock workflow', () => {
   it('rechecks active user membership and subscription/member/department grant expiry', async () => {
     await service.profiles(claims);
     expect(prisma.enterpriseMember.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
-      id: 'member-1', enterpriseId: 'enterprise-1', userId: 'user-1', user: { status: 'ACTIVE' },
+      id: 'member-1', enterpriseId: 'enterprise-1', userId: 'user-1', user: { status: 'ACTIVE' }, enterprise: { status: 'ACTIVE' },
     } }));
     const where = prisma.subscription.findFirst.mock.calls[0][0].where;
     expect(where).toMatchObject({ id: 'sub-1', enterpriseId: 'enterprise-1', status: 'ACTIVE',
@@ -452,7 +452,7 @@ describe('MediaGatewayService mock workflow', () => {
       const expiresAt = start + 1000;
       prisma.enterpriseMember.findFirst.mockImplementation(async ({ where }) => {
         expect(where).toEqual({ id: claims.memberId, enterpriseId: claims.enterpriseId,
-          userId: claims.sub, user: { status: 'ACTIVE' } });
+          userId: claims.sub, user: { status: 'ACTIVE' }, enterprise: { status: 'ACTIVE' } });
         return access.activeUser ? { departmentId: access.departmentId } : null;
       });
       prisma.subscription.findFirst.mockImplementation(async ({ where }) => {
