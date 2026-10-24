@@ -24,8 +24,9 @@ import { mediaRealSemanticHash } from './media-real-semantics';
 const REFERENCE_TTL = 15 * 60_000;
 const QUOTE_TTL = 60_000;
 const OUTPUT_TTL = 24 * 60 * 60_000;
-const error = (status: number, code: MediaRealErrorCode, message: string): never => {
-  throw new HttpException({ error: { code, message, type: status >= 500 ? 'server_error' : 'invalid_request_error', source: 'platform', param: null } }, status);
+type MediaErrorDetails = { field?: string; stage?: 'image-authorization' | 'image-quote' | 'image-submit' | 'image-query' | 'image-content'; recovery?: string };
+const error = (status: number, code: MediaRealErrorCode, message: string, details: MediaErrorDetails = {}): never => {
+  throw new HttpException({ error: { code, message, type: status >= 500 ? 'server_error' : 'invalid_request_error', source: 'platform', param: null, ...details } }, status);
 };
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
@@ -73,7 +74,7 @@ export class MediaRealService {
     await this.authorize(claims);
     const dto = this.parse(MediaRealQuoteRequestSchema, raw);
     const referenceHashes = await this.referenceHashes(claims, dto.referenceIds);
-    const profile = await this.requireProfile(claims.enterpriseId, dto);
+    const profile = await this.requireProfile(claims.enterpriseId, dto, 'image-quote');
     const price = await this.adapter.pricing(dto, profile.modelId);
     const rate = await this.usdToCnyRate();
     const amountCny = new Decimal(price.amount_usd!).mul(rate).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
@@ -97,7 +98,7 @@ export class MediaRealService {
     }
     const hashes = await this.referenceHashes(claims, dto.referenceIds);
     const semanticSha256 = this.semanticHash(dto, hashes);
-    const profile = await this.requireProfile(claims.enterpriseId, dto);
+    const profile = await this.requireProfile(claims.enterpriseId, dto, 'image-submit');
     const quote = await this.store.findQuote(dto.quoteId);
     if (!quote || quote.scope !== this.scope(claims)) error(404, 'MEDIA_NOT_FOUND', '报价不可用');
     if (Date.parse(quote.value.expiresAt) <= Date.now()) error(409, 'QUOTE_EXPIRED', '报价已过期，请重新报价');
@@ -229,11 +230,14 @@ export class MediaRealService {
     return runtime.profiles.filter(profile => profile.executionMode === 'sync-response' && profile.operations.some(op => ['generate', 'edit'].includes(op)));
   }
 
-  private async requireProfile(enterpriseId: string, dto: MediaRealQuoteRequest) {
+  private async requireProfile(enterpriseId: string, dto: MediaRealQuoteRequest, stage: 'image-quote' | 'image-submit') {
     const profile = (await this.allowedProfiles(enterpriseId)).find(item => item.profileId === dto.profileId && item.configVersion === dto.configVersion);
-    if (!profile || !profile.operations.includes(dto.operation) || !profile.capabilities.sizes.includes(dto.parameters.size) || dto.parameters.count > profile.capabilities.maxOutputs) error(409, 'CONFIG_CHANGED', '图片 Profile 或企业策略已变更');
+    if (!profile) error(409, 'CONFIG_CHANGED', '图片 Profile 或企业策略已变更', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
+    if (!profile.operations.includes(dto.operation)) error(409, 'CONFIG_CHANGED', '图片操作不受当前 Profile 支持', { field: 'operation', stage, recovery: 'revise_request' });
+    if (!profile.capabilities.sizes.includes(dto.parameters.size)) error(409, 'CONFIG_CHANGED', '图片尺寸不受当前 Profile 支持', { field: 'parameters.size', stage, recovery: 'revise_request' });
+    if (dto.parameters.count > profile.capabilities.maxOutputs) error(409, 'CONFIG_CHANGED', '图片输出数量超过当前 Profile 能力', { field: 'parameters.count', stage, recovery: 'revise_request' });
     const row = await this.prisma.mediaModelProfile.findUnique({ where: { profileId: dto.profileId } });
-    if (!row || row.configVersion !== dto.configVersion || !isSupportedImageModel(row.modelId) || !row.enabled || !row.verified) error(409, 'CONFIG_CHANGED', '当前 Profile 未通过真实图片配置校验');
+    if (!row || row.configVersion !== dto.configVersion || !isSupportedImageModel(row.modelId) || !row.enabled || !row.verified) error(409, 'CONFIG_CHANGED', '当前 Profile 未通过真实图片配置校验', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
     return { ...profile, modelId: row.modelId };
   }
 

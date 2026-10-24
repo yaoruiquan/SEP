@@ -7,17 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
-import type { MediaConnection } from './use-media-config';
+import type { MediaConnection, MediaProfile } from './use-media-config';
+import type { MediaVideoProfile } from './use-video-config';
 import type { UpdateMediaConnectionDto } from 'shared/media.dto';
 
-interface ProfileStatus {
-  profileId: string;
-  configVersion: string;
-  displayName: string;
-  modelId: string;
-  enabled: boolean;
-  verified: boolean;
-}
+type ProfileStatus = MediaProfile | MediaVideoProfile;
 interface DiscoveryModel { modelId: string; displayName: string; compatible: boolean; reason: string | null }
 interface Props {
   kind: 'image' | 'video';
@@ -33,6 +27,39 @@ interface Props {
 }
 const errorText = (error: unknown) => error instanceof ApiError ? error.message : '请求失败，请稍后重试';
 const sourceLabels = { database: '后台保存', environment: '环境变量', unconfigured: '未配置' };
+const list = (values: readonly (string | number)[] | undefined) => values?.length ? values.join('、') : '未提供';
+const yesNo = (value: boolean | undefined) => value === undefined ? '未提供' : value ? '支持' : '不支持';
+
+function ProfileCapabilities({ profile }: { profile: ProfileStatus }) {
+  if (profile.kind === 'image') {
+    const { capabilities } = profile;
+    return <dl className="mt-3 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
+      <div><dt className="inline text-fg-muted">操作：</dt><dd className="inline break-words">{list(profile.operations)}</dd></div>
+      <div><dt className="inline text-fg-muted">尺寸：</dt><dd className="inline break-words">{list(capabilities.sizes)}</dd></div>
+      <div><dt className="inline text-fg-muted">质量：</dt><dd className="inline">未提供</dd></div>
+      <div><dt className="inline text-fg-muted">最大输出：</dt><dd className="inline">{capabilities.maxOutputs}</dd></div>
+      <div><dt className="inline text-fg-muted">参考图：</dt><dd className="inline">{yesNo(capabilities.supportsReferenceImage)}</dd></div>
+      <div><dt className="inline text-fg-muted">输出尺寸 / 字节上限：</dt><dd className="inline">未提供</dd></div>
+    </dl>;
+  }
+  const { capabilities } = profile;
+  return <dl className="mt-3 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
+    <div><dt className="inline text-fg-muted">操作：</dt><dd className="inline break-words">{list(profile.operations)}</dd></div>
+    <div><dt className="inline text-fg-muted">时长（秒）：</dt><dd className="inline break-words">{list(capabilities.durationsSeconds)}</dd></div>
+    <div><dt className="inline text-fg-muted">画幅：</dt><dd className="inline break-words">{list(capabilities.aspectRatios)}</dd></div>
+    <div><dt className="inline text-fg-muted">分辨率：</dt><dd className="inline break-words">{list(capabilities.resolutions)}</dd></div>
+    <div><dt className="inline text-fg-muted">帧率：</dt><dd className="inline break-words">{list(capabilities.frameRates)}</dd></div>
+    <div><dt className="inline text-fg-muted">音频：</dt><dd className="inline">{yesNo(capabilities.supportsAudio)}</dd></div>
+    <div><dt className="inline text-fg-muted">任务查询：</dt><dd className="inline">{yesNo(capabilities.supportsTaskQuery)}</dd></div>
+    <div><dt className="inline text-fg-muted">取消：</dt><dd className="inline">{yesNo(capabilities.supportsCancel)}</dd></div>
+    <div><dt className="inline text-fg-muted">参考图数量：</dt><dd className="inline">{capabilities.maxReferenceCount}</dd></div>
+    <div><dt className="inline text-fg-muted">参考输入字节上限：</dt><dd className="inline">{capabilities.maxInputBytes.toLocaleString()} 字节</dd></div>
+    <div><dt className="inline text-fg-muted">输出尺寸 / 字节上限：</dt><dd className="inline">未提供</dd></div>
+    <div><dt className="inline text-fg-muted">输出格式：</dt><dd className="inline break-words">{list(capabilities.outputFormats)}</dd></div>
+    <div><dt className="inline text-fg-muted">结果保留：</dt><dd className="inline">{capabilities.resultRetentionSeconds} 秒</dd></div>
+    <div><dt className="inline text-fg-muted">音频模式：</dt><dd className="inline">未提供</dd></div>
+  </dl>;
+}
 
 export function MediaModelsPanelView({ kind, connection, save, discovery, profiles, updating, onDisable }: Props) {
   const name = kind === 'image' ? '图片' : '视频';
@@ -104,6 +131,14 @@ export function MediaModelsPanelView({ kind, connection, save, discovery, profil
         <div className="min-w-0 flex-1 basis-48"><p className="break-words text-sm font-medium">{profile.displayName}</p>
           <p className="break-all font-mono text-xs text-fg-muted">{profile.modelId}</p>
           {found && !found.some((model) => model.modelId === profile.modelId) && <p className="text-xs text-fg-muted">本次目录未发现此模型</p>}
+          <p className="mt-1 break-all font-mono text-xs text-fg-muted">配置版本：{profile.configVersion}</p>
+          <p className="mt-1 text-xs text-fg-muted">Profile 来源：{profile.profileId.startsWith('auto-') ? '适配器自动同步' : '人工配置'}</p>
+          <p className="mt-1 text-xs text-fg-muted">后台适配标记：{profile.verified ? '已标记适配' : '未验证 / 不兼容'} · 真实生成验收：未提供</p>
+          <p className="mt-1 text-xs text-fg-muted">具体目录、报价及真实生成验证记录：未提供</p>
+          <details className="mt-2 text-xs">
+            <summary className="w-fit cursor-pointer text-fg-muted hover:text-foreground">查看能力详情</summary>
+            <ProfileCapabilities profile={profile} />
+          </details>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">{profile.verified ? '已适配' : '待重新检测 / 配置不兼容'}</Badge>

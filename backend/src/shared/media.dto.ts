@@ -37,12 +37,43 @@ export const MediaPolicySchema = z.object({
   enabledProfileIds: z.array(MediaProfileSchema.shape.profileId).max(100).default([]),
   defaultProfileId: z.string().nullable().default(null),
   allowedOperations: z.array(MediaOperationSchema).default(['generate', 'edit']),
-  maxOutputs: z.number().int().min(1).max(8).default(4),
-  maxWidth: z.number().int().min(1).max(16384).default(4096),
-  maxHeight: z.number().int().min(1).max(16384).default(4096),
+  maxOutputs: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(4),
+  maxWidth: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(4096),
+  maxHeight: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(4096),
   video: MediaVideoPolicySchema.optional(),
 }).strict();
 export type MediaPolicy = z.infer<typeof MediaPolicySchema>;
+
+export const MediaImagePolicySchema = MediaPolicySchema.omit({ video: true });
+export type MediaImagePolicy = z.infer<typeof MediaImagePolicySchema>;
+export const MediaPolicyPreviewRequestSchema = z.object({
+  protocolVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  policy: MediaImagePolicySchema,
+}).strict();
+export type MediaPolicyPreviewRequest = z.infer<typeof MediaPolicyPreviewRequestSchema>;
+export const MediaPolicyPreviewReasonSchema = z.enum([
+  'not-authorized', 'profile-missing', 'disabled', 'unverified', 'connection-unconfigured',
+  'adapter-unsupported', 'operation-filtered', 'size-intersection-empty', 'protocol-unsupported',
+  'execution-disabled', 'unknown-capability',
+]);
+export const MediaPolicyPreviewProfileSchema = z.object({
+  profileId: MediaProfileSchema.shape.profileId,
+  configVersion: MediaProfileSchema.shape.configVersion.nullable(),
+  status: z.enum(['effective', 'not-authorized', 'unavailable', 'empty-intersection']),
+  effectiveProfile: z.unknown().nullable(),
+  reasons: z.array(MediaPolicyPreviewReasonSchema).max(8),
+}).strict();
+export const MediaPolicyPreviewSchema = z.object({
+  protocolVersion: z.union([z.literal(1), z.literal(2)]),
+  executionMode: z.enum(['real', 'disabled']),
+  configured: z.boolean(),
+  executionAvailable: z.boolean(),
+  defaultProfileId: MediaProfileSchema.shape.profileId.nullable(),
+  defaultProfileValid: z.boolean(),
+  // Admin previews may include configured profiles plus missing authorized IDs.
+  profiles: z.array(MediaPolicyPreviewProfileSchema).max(200),
+}).strict();
+export type MediaPolicyPreview = z.infer<typeof MediaPolicyPreviewSchema>;
 
 export const CreateMediaProfileDtoSchema = z.object({
   profileId: MediaProfileSchema.shape.profileId,
@@ -115,10 +146,10 @@ export type UpdateMediaConnectionDto = z.infer<typeof UpdateMediaConnectionDtoSc
 export const UpdateMediaPolicyDtoSchema = z.object({
   enabledProfileIds: MediaPolicySchema.shape.enabledProfileIds.optional(),
   defaultProfileId: z.string().nullable().optional(),
-  allowedOperations: z.array(MediaOperationSchema).min(1).optional(),
-  maxOutputs: z.number().int().min(1).max(8).optional(),
-  maxWidth: z.number().int().min(1).max(16384).optional(),
-  maxHeight: z.number().int().min(1).max(16384).optional(),
+  allowedOperations: z.array(MediaOperationSchema).optional(),
+  maxOutputs: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxWidth: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxHeight: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
 }).strict();
 export type UpdateMediaPolicyDto = z.infer<typeof UpdateMediaPolicyDtoSchema>;
 

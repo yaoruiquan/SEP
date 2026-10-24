@@ -8,6 +8,8 @@ import {
   CreateMediaProfileDto,
   CreateMediaProfileDtoSchema,
   DiscoverMediaModelsDtoSchema,
+  MediaPolicyPreviewRequest,
+  MediaPolicyPreviewRequestSchema,
   UpdateMediaConnectionDto,
   UpdateMediaConnectionDtoSchema,
   UpdateMediaPolicyDto,
@@ -132,6 +134,16 @@ export class MediaConfigController {
     @Body(new ZodValidationPipe(UpdateMediaPolicyDtoSchema)) dto: UpdateMediaPolicyDto,
   ) {
     return this.service.updateEnterpriseConfig(req.user.id, dto);
+  }
+
+  @Post('enterprise/media-config/preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '按当前服务端能力预览图片授权草稿，不保存或报价' })
+  @ApiResponse({ status: 200, description: 'Profile 有效状态与过滤原因；不返回模型 ID 或连接信息' })
+  @ApiResponse({ status: 400, description: '图片授权草稿或协议版本无效' })
+  previewEnterpriseConfig(@Request() req: AuthedRequest,
+    @Body(new ZodValidationPipe(MediaPolicyPreviewRequestSchema)) dto: MediaPolicyPreviewRequest) {
+    return this.service.previewEnterpriseConfig(req.user.id, dto);
   }
 
   @Get('enterprise/media-config/available-profiles')

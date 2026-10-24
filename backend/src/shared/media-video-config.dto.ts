@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
   MediaVideoCapabilitiesSchema, MediaVideoExecutionModeSchema, MediaVideoOperationSchema,
-  MediaVideoProfileSchema,
+  MediaVideoProfileSchema, MediaVideoResolutionSchema,
 } from './media-video.dto';
 
 // Keep this module independent of media.dto: the image policy nests this schema.
@@ -50,16 +50,45 @@ export const MediaVideoPolicySchema = z.object({
   enabledProfileIds: z.array(ProfileFields.shape.profileId).max(64).default([]),
   defaultProfileId: ProfileFields.shape.profileId.nullable().default(null),
   allowedOperations: z.array(MediaVideoOperationSchema).max(2).default(['image-to-video']),
-  maxDurationSeconds: z.number().int().positive().max(600).default(5),
-  allowedAspectRatios: z.array(z.string().regex(/^[1-9]\d*:[1-9]\d*$/)).max(16).default(['9:16']),
-  maxResolution: z.enum(['480p', '720p', '1080p', '4k']).default('720p'),
-  maxConcurrentJobs: z.number().int().positive().max(100).default(1),
+  maxDurationSeconds: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(5),
+  allowedAspectRatios: z.array(z.string().regex(/^[1-9]\d*:[1-9]\d*$/)).max(128).default(['9:16']),
+  maxResolution: z.string().trim().min(1).max(80).default('720p'),
+  maxConcurrentJobs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(1),
   /** @deprecated Kept for old clients and stored policy compatibility; real execution no longer enforces it. */
   periodBudget: z.number().finite().nonnegative().max(1_000_000_000).default(0),
 }).strict();
 export type MediaVideoPolicy = z.infer<typeof MediaVideoPolicySchema>;
 export const UpdateMediaVideoPolicyDtoSchema = MediaVideoPolicySchema.partial().strict();
 export type UpdateMediaVideoPolicyDto = z.infer<typeof UpdateMediaVideoPolicyDtoSchema>;
+export const MediaVideoPolicyPreviewRequestSchema = z.object({
+  protocolVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  policy: MediaVideoPolicySchema,
+}).strict();
+export type MediaVideoPolicyPreviewRequest = z.infer<typeof MediaVideoPolicyPreviewRequestSchema>;
+export const MediaVideoPolicyPreviewReasonSchema = z.enum([
+  'not-authorized', 'profile-missing', 'disabled', 'unverified', 'connection-unconfigured',
+  'adapter-unsupported', 'operation-filtered', 'duration-intersection-empty',
+  'aspect-ratio-intersection-empty', 'resolution-intersection-empty', 'protocol-unsupported',
+  'execution-disabled', 'unknown-capability',
+]);
+export const MediaVideoPolicyPreviewProfileSchema = z.object({
+  profileId: ProfileFields.shape.profileId,
+  configVersion: ProfileFields.shape.configVersion.nullable(),
+  status: z.enum(['effective', 'not-authorized', 'unavailable', 'empty-intersection']),
+  effectiveProfile: z.unknown().nullable(),
+  reasons: z.array(MediaVideoPolicyPreviewReasonSchema).max(12),
+}).strict();
+export const MediaVideoPolicyPreviewSchema = z.object({
+  protocolVersion: z.union([z.literal(1), z.literal(2)]),
+  executionMode: z.enum(['mock', 'real', 'disabled']),
+  configured: z.boolean(),
+  executionAvailable: z.boolean(),
+  defaultProfileId: ProfileFields.shape.profileId.nullable(),
+  defaultProfileValid: z.boolean(),
+  // Admin previews may include configured profiles plus missing authorized IDs.
+  profiles: z.array(MediaVideoPolicyPreviewProfileSchema).max(128),
+}).strict();
+export type MediaVideoPolicyPreview = z.infer<typeof MediaVideoPolicyPreviewSchema>;
 export const MediaVideoEnterpriseConfigSchema = z.object({
   policy: MediaVideoPolicySchema, configured: z.boolean(), canEdit: z.boolean(),
   mock: z.boolean(), executionTested: z.literal(false),

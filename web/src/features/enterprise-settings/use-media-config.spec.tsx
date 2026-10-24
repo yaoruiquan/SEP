@@ -8,7 +8,7 @@ import {
   useUpdateEnterpriseMediaConfig, type MediaPolicy, type MediaAvailableProfile,
 } from './use-media-config';
 
-vi.mock('@/lib/api-client', () => ({ api: { get: vi.fn(), put: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({ api: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 
 const policy: MediaPolicy = {
   enabledProfileIds: ['image-basic'], defaultProfileId: 'image-basic', allowedOperations: ['generate'],
@@ -72,11 +72,12 @@ describe('enterprise media configuration hooks', () => {
     expect(client.getQueryState(qk.availableMediaProfiles('enterprise-b'))?.isInvalidated).toBe(false);
   });
 
-  it('validates operations, numeric limits and default membership with the shared form schema', () => {
+  it('validates operations, safe numeric values and default membership with the shared form schema', () => {
     expect(MediaPolicyFormSchema.safeParse(policy).success).toBe(true);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, allowedOperations: [] }).success).toBe(false);
+    expect(MediaPolicyFormSchema.safeParse({ ...policy, allowedOperations: [] }).success).toBe(true);
     expect(MediaPolicyFormSchema.safeParse({ ...policy, maxWidth: 0 }).success).toBe(false);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxOutputs: 9 }).success).toBe(false);
+    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxOutputs: 9 }).success).toBe(true);
+    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxOutputs: Number.MAX_SAFE_INTEGER + 1 }).success).toBe(false);
     expect(MediaPolicyFormSchema.safeParse({ ...policy, defaultProfileId: 'not-selected' }).success).toBe(false);
   });
 });

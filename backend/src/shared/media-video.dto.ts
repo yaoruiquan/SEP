@@ -6,6 +6,14 @@ const DateTimeSchema = z.string().datetime({ offset: true });
 
 export const MediaVideoOperationSchema = z.enum(['image-to-video', 'text-to-video']);
 export type MediaVideoOperation = z.infer<typeof MediaVideoOperationSchema>;
+export const MediaVideoResolutionSchema = z.enum(['480p', '720p', '1080p', '4k']);
+export type MediaVideoResolution = z.infer<typeof MediaVideoResolutionSchema>;
+export const VIDEO_RESOLUTION_ORDER = ['480p', '720p', '1080p', '4k'] as const;
+export function isVideoResolutionWithinLimit(value: string, maxResolution: string): boolean {
+  const valueRank = VIDEO_RESOLUTION_ORDER.indexOf(value as typeof VIDEO_RESOLUTION_ORDER[number]);
+  const maxRank = VIDEO_RESOLUTION_ORDER.indexOf(maxResolution as typeof VIDEO_RESOLUTION_ORDER[number]);
+  return valueRank >= 0 && maxRank >= 0 && valueRank <= maxRank;
+}
 
 export const MediaVideoExecutionModeSchema = z.literal('async-query');
 
@@ -15,7 +23,7 @@ const MediaVideoCapabilitiesBaseSchema = z.object({
   supportsAudio: z.boolean().default(false),
   durationsSeconds: z.array(z.number().int().positive().max(600)).min(1).max(32),
   aspectRatios: z.array(z.string().regex(/^\d+:\d+$/)).min(1).max(16),
-  resolutions: z.array(z.enum(['480p', '720p', '1080p', '4k'])).min(1).max(8),
+  resolutions: z.array(MediaVideoResolutionSchema).min(1).max(8),
   frameRates: z.array(z.number().int().positive().max(120)).min(1).max(8),
   maxInputBytes: z.number().int().positive().max(100 * 1024 * 1024),
   maxReferenceCount: z.number().int().min(0).max(4),

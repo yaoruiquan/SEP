@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   CreateMediaVideoProfileDto, CreateMediaVideoProfileDtoSchema, MediaVideoAvailableProfile,
   MediaVideoEnterpriseConfig, MediaVideoModelDiscovery, MediaVideoPolicy, MediaVideoPolicySchema,
+  MediaVideoPolicyPreview, MediaVideoPolicyPreviewRequest, MediaVideoPolicyPreviewRequestSchema, MediaVideoPolicyPreviewSchema,
   MediaVideoProfile, MediaVideoProfileSchema, MediaVideoProfileVerification, MediaVideoRuntime,
   MediaVideoRuntimeSchema, UpdateMediaVideoPolicyDto, UpdateMediaVideoPolicyDtoSchema,
   MediaVideoRuntimeV2Schema,
@@ -13,6 +14,7 @@ import {
   VerifyMediaVideoProfileDtoSchema,
   UpdateMediaConnectionDto,
 } from 'shared';
+import { isVideoResolutionWithinLimit, VIDEO_RESOLUTION_ORDER } from '../../shared/media-video.dto';
 import fixture from '../../shared/fixtures/media-video-v1.json';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
@@ -23,7 +25,7 @@ import { SettingService } from '../setting/setting.service';
 import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model-sync.service';
 
 const MOCK_PROFILE = MediaVideoProfileSchema.parse(fixture.profile);
-const RESOLUTIONS = ['480p', '720p', '1080p', '4k'] as const;
+const RESOLUTIONS = VIDEO_RESOLUTION_ORDER;
 
 @Injectable()
 export class MediaVideoConfigService {
@@ -275,7 +277,6 @@ export class MediaVideoConfigService {
     const dto = this.parse<UpdateMediaVideoPolicyDto>(UpdateMediaVideoPolicyDtoSchema, input);
     const context = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertEnterpriseAdmin(context);
-    const available = await this.availableProfiles();
     try {
       await this.prisma.$transaction(async tx => {
         const existing = await tx.enterpriseModelConfig.findUnique({ where: { enterpriseId: context.enterpriseId } });
@@ -283,8 +284,6 @@ export class MediaVideoConfigService {
         next.enabledProfileIds = [...new Set(next.enabledProfileIds)];
         next.allowedOperations = [...new Set(next.allowedOperations)];
         next.allowedAspectRatios = [...new Set(next.allowedAspectRatios)];
-        const availableIds = new Set(available.map(profile => profile.profileId));
-        if (next.enabledProfileIds.some(id => !availableIds.has(id))) throw new BadRequestException('允许列表包含未启用、未验证或未适配的视频 Profile');
         if (next.defaultProfileId && !next.enabledProfileIds.includes(next.defaultProfileId)) throw new BadRequestException('默认视频 Profile 必须包含在企业允许列表中');
         const stored = existing?.mediaPolicy;
         if (stored !== null && stored !== undefined && (typeof stored !== 'object' || Array.isArray(stored))) {
@@ -306,12 +305,62 @@ export class MediaVideoConfigService {
     return this.getEnterpriseConfig(userId);
   }
 
-  async getRuntimeVideo(enterpriseId: string): Promise<MediaVideoRuntime> {
+  async previewEnterpriseConfig(userId: string, input: MediaVideoPolicyPreviewRequest): Promise<MediaVideoPolicyPreview> {
+    const request = this.parse<MediaVideoPolicyPreviewRequest>(MediaVideoPolicyPreviewRequestSchema, input);
+    const context = await this.enterpriseContext.resolve(userId);
+    const storedConfig = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: context.enterpriseId } });
+    const policy = context.role === 'ENTERPRISE_ADMIN' ? request.policy : this.parsePolicy(storedConfig?.mediaPolicy);
+    const configured = this.mockEnabled() || (this.settings ? (await this.getConnection()).configured : false);
+    const rows = await this.listProfiles();
+    const runtimeProfiles = await this.availableProfiles();
+    const visibleRows = context.role === 'ENTERPRISE_ADMIN' ? rows : rows.filter(profile => policy.enabledProfileIds.includes(profile.profileId));
+    const permissive: MediaVideoPolicy = { ...policy, enabledProfileIds: rows.map(profile => profile.profileId),
+      defaultProfileId: null, allowedOperations: ['image-to-video', 'text-to-video'],
+      maxDurationSeconds: Number.MAX_SAFE_INTEGER,
+      allowedAspectRatios: [...new Set(rows.flatMap(profile => profile.capabilities.aspectRatios))], maxResolution: '4k' };
+    const [available, effective] = await Promise.all([
+      request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, permissive, runtimeProfiles)
+        : this.getRuntimeVideo(context.enterpriseId, permissive, runtimeProfiles),
+      request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, policy, runtimeProfiles)
+        : this.getRuntimeVideo(context.enterpriseId, policy, runtimeProfiles),
+    ]);
+    const availableById = new Map(available.profiles.map(profile => [profile.profileId, profile] as const));
+    const effectiveById = new Map(effective.profiles.map(profile => [profile.profileId, profile] as const));
+    const executionMode = this.realEnabled() ? 'real' as const : this.mockEnabled() ? 'mock' as const : 'disabled' as const;
+    const result = { protocolVersion: request.protocolVersion, executionMode, configured, executionAvailable: effective.executionAvailable,
+      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId)),
+      profiles: [...visibleRows.map(profile => {
+        const reasons: MediaVideoPolicyPreview['profiles'][number]['reasons'] = [];
+        const baseline = availableById.get(profile.profileId);
+        const current = effectiveById.get(profile.profileId);
+        if (!policy.enabledProfileIds.includes(profile.profileId)) reasons.push('not-authorized');
+        if (!profile.enabled) reasons.push('disabled');
+        if (!profile.verified) reasons.push('unverified');
+        if (!configured) reasons.push('connection-unconfigured');
+        if (executionMode === 'disabled') reasons.push('execution-disabled');
+        if (!baseline && profile.enabled && profile.verified && configured) reasons.push('adapter-unsupported');
+        if (baseline && !current) {
+          if (!profile.operations.some(operation => policy.allowedOperations.includes(operation))) reasons.push('operation-filtered');
+          if (!baseline.capabilities.durationsSeconds.some(value => value <= policy.maxDurationSeconds)) reasons.push('duration-intersection-empty');
+          if (!baseline.capabilities.aspectRatios.some(value => policy.allowedAspectRatios.includes(value))) reasons.push('aspect-ratio-intersection-empty');
+          if (!RESOLUTIONS.includes(policy.maxResolution as typeof RESOLUTIONS[number])) reasons.push('unknown-capability');
+          else if (!baseline.capabilities.resolutions.some(value => isVideoResolutionWithinLimit(value, policy.maxResolution))) reasons.push('resolution-intersection-empty');
+        }
+        const status: MediaVideoPolicyPreview['profiles'][number]['status'] = current && executionMode !== 'disabled' ? 'effective'
+          : reasons.includes('not-authorized') ? 'not-authorized'
+            : reasons.some(reason => reason.endsWith('-intersection-empty') || reason === 'operation-filtered') ? 'empty-intersection' : 'unavailable';
+        return { profileId: profile.profileId, configVersion: profile.configVersion, status, effectiveProfile: current ?? null, reasons };
+      }), ...(context.role === 'ENTERPRISE_ADMIN' ? policy.enabledProfileIds.filter(profileId => !rows.some(profile => profile.profileId === profileId)) : [])
+        .map(profileId => ({ profileId, configVersion: null, status: 'unavailable' as const, effectiveProfile: null, reasons: ['profile-missing' as const] }))] };
+    return this.parse<MediaVideoPolicyPreview>(MediaVideoPolicyPreviewSchema, result);
+  }
+
+  async getRuntimeVideo(enterpriseId: string, policyOverride?: MediaVideoPolicy, profilesOverride?: MediaVideoProfile[]): Promise<MediaVideoRuntime> {
     const disabled: MediaVideoRuntime = { protocolVersion: 1, executionAvailable: false, defaultProfileId: null, tools: [], profiles: [] };
     if (!this.mockEnabled() && !this.realEnabled()) return disabled;
-    const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
-    const policy = this.parsePolicy(config?.mediaPolicy);
-    const profiles = (await this.availableProfiles()).filter(profile => policy.enabledProfileIds.includes(profile.profileId))
+    const config = policyOverride ? null : await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
+    const policy = policyOverride ?? this.parsePolicy(config?.mediaPolicy);
+    const profiles = (profilesOverride ?? await this.availableProfiles()).filter(profile => policy.enabledProfileIds.includes(profile.profileId))
       .map(profile => ({
         profileId: profile.profileId, kind: profile.kind, displayName: profile.displayName,
         configVersion: profile.configVersion, executionMode: profile.executionMode,
@@ -321,7 +370,7 @@ export class MediaVideoConfigService {
           supportsImageToVideo: profile.capabilities.supportsImageToVideo && policy.allowedOperations.includes('image-to-video'), supportsCancel: false,
           durationsSeconds: profile.capabilities.durationsSeconds.filter(value => value <= policy.maxDurationSeconds),
           aspectRatios: profile.capabilities.aspectRatios.filter(value => policy.allowedAspectRatios.includes(value)),
-          resolutions: profile.capabilities.resolutions.filter(value => RESOLUTIONS.indexOf(value) <= RESOLUTIONS.indexOf(policy.maxResolution)),
+          resolutions: profile.capabilities.resolutions.filter(value => isVideoResolutionWithinLimit(value, policy.maxResolution)),
         },
       })).filter(profile => profile.operations.length && profile.capabilities.durationsSeconds.length
         && profile.capabilities.aspectRatios.length && profile.capabilities.resolutions.length);
@@ -337,9 +386,9 @@ export class MediaVideoConfigService {
     });
   }
 
-  async getRuntimeVideoV2(enterpriseId: string) {
-    const legacy = await this.getRuntimeVideo(enterpriseId);
-    const modelIds = new Map((await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
+  async getRuntimeVideoV2(enterpriseId: string, policyOverride?: MediaVideoPolicy, profilesOverride?: MediaVideoProfile[]) {
+    const legacy = await this.getRuntimeVideo(enterpriseId, policyOverride, profilesOverride);
+    const modelIds = new Map((profilesOverride ?? await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
     const profiles = legacy.profiles.map(profile => {
       const c = profile.capabilities;
       const audioModes = modelIds.get(profile.profileId) === 'minimax-h3' && this.realEnabled() ? [true] : c.supportsAudio ? [false, true] : [false];

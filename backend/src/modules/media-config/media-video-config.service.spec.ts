@@ -166,6 +166,8 @@ describe('video configuration shared contracts', () => {
     expect(UpdateMediaVideoPolicyDtoSchema.safeParse({ enterpriseId: 'other' }).success).toBe(false);
     expect(UpdateMediaVideoPolicyDtoSchema.safeParse({ periodBudget: -1 }).success).toBe(false);
     expect(UpdateMediaVideoPolicyDtoSchema.safeParse({ maxConcurrentJobs: 0 }).success).toBe(false);
+    expect(UpdateMediaVideoPolicyDtoSchema.parse({ maxConcurrentJobs: Number.MAX_SAFE_INTEGER, maxResolution: '8k', allowedOperations: [] }))
+      .toEqual({ maxConcurrentJobs: Number.MAX_SAFE_INTEGER, maxResolution: '8k', allowedOperations: [] });
   });
 
   it('negotiates video independently and rejects malformed video queries', () => {
@@ -419,15 +421,22 @@ describe('MediaVideoConfigService enterprise isolation', () => {
     expect(getStored().mediaPolicy.video).toEqual({ futureVideoField: 'keep' });
   });
 
-  it('rejects non-admin updates, unavailable grants, and defaults outside the allowlist', async () => {
+  it('allows unavailable grants but keeps defaults outside the allowlist invalid', async () => {
     const { service, context, row } = setup();
-    await expect(service.updateEnterpriseConfig('user-1', { enabledProfileIds: ['unknown'] })).rejects.toBeInstanceOf(BadRequestException);
+    await service.updateEnterpriseConfig('user-1', { enabledProfileIds: ['unknown'], defaultProfileId: null });
+    await service.updateEnterpriseConfig('user-1', { enabledProfileIds: [row.profileId] });
     await expect(service.updateEnterpriseConfig('user-1', { defaultProfileId: 'unknown' })).rejects.toBeInstanceOf(BadRequestException);
-    row.verified = false;
-    await expect(service.updateEnterpriseConfig('user-1', { enabledProfileIds: [row.profileId] })).rejects.toBeInstanceOf(BadRequestException);
     context.resolve.mockResolvedValue({ enterpriseId: 'ent-1', role: 'MEMBER' });
     expect((await service.getEnterpriseConfig('user-1')).canEdit).toBe(false);
     await expect(service.updateEnterpriseConfig('user-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('marks unknown resolution authorization without treating it as executable', async () => {
+    const { service, getStored } = setup();
+    Object.assign(getStored().mediaPolicy.video, { maxResolution: '2k' });
+    const preview = await service.previewEnterpriseConfig('user-1', { policy: getStored().mediaPolicy.video });
+    expect(preview.profiles[0].reasons).toContain('unknown-capability');
+    expect(preview.profiles[0].status).not.toBe('effective');
   });
 
   it.each(['P2034', 'P2002'])('returns a retryable conflict instead of overwriting concurrent policy data: %s', async code => {

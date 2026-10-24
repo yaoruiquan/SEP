@@ -7,6 +7,7 @@ import { parseUsdToCnyRate, SETTING_KEYS } from 'shared';
 import { MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayRequestSchema } from '../../shared/media-video.dto';
 import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayRequest } from '../../shared/media-video.dto';
 import { MediaVideoPolicySchema } from '../../shared/media-video-config.dto';
+import { isVideoResolutionWithinLimit } from '../../shared/media-video.dto';
 import { MediaVideoRealProfilesSchema, MediaVideoRealReceiptSchema } from '../../shared/media-video-real.dto';
 import type { MediaVideoRealReceipt } from '../../shared/media-video-real.dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -82,7 +83,7 @@ export class MediaVideoRealService {
   async quote(claims: ClientEmploymentClaims, raw: MediaVideoGatewayQuoteRequest) {
     await this.authorize(claims, true);
     const input = this.parse(MediaVideoGatewayQuoteRequestSchema, raw);
-    const profile = await this.requireProfile(claims, input, true);
+    const profile = await this.requireProfile(claims, input, true, 'video-quote');
     const references = await this.references(claims, input.referenceIds, profile.capabilities.maxInputBytes);
     const connection = await this.adapter.connection();
     const price = await this.adapter.pricing(connection, input, profile.modelId);
@@ -97,7 +98,7 @@ export class MediaVideoRealService {
     const funding = await this.billing.quoteFunding(claims, amountCny);
     const semanticSha256 = this.semanticHash(input, references.map(r => r.sha256));
     await this.authorize(claims, true);
-    await this.requireProfile(claims, input, true);
+    await this.requireProfile(claims, input, true, 'video-quote');
     return this.store.saveQuote(this.scope(claims), {
       adapter: VIDEO_REAL_ADAPTER, consumedByClientRequestId: null,
       value: { mock: false, expiresAt, semanticSha256, pricingStatus: 'quoted', amountCny, amountUsd: price.amount_usd,
@@ -119,12 +120,12 @@ export class MediaVideoRealService {
     const scope = this.scope(claims);
     const prior = await this.store.findByClientId(claims.enterpriseId, input.clientRequestId, scope, true);
     if (prior) {
-      await this.requireProfile(claims, prior.configuration, false);
+      await this.requireProfile(claims, prior.configuration, false, 'video-submit');
       this.assertReplay(input, prior);
       return this.snapshot(await this.recover(claims, prior));
     }
     await this.authorize(claims, true);
-    const profile = await this.requireProfile(claims, input, true);
+    const profile = await this.requireProfile(claims, input, true, 'video-submit');
     const references = await this.references(claims, input.referenceIds, profile.capabilities.maxInputBytes);
     const quote = await this.store.findQuote(scope, input.quoteId);
     if (!quote) fail(404, 'MEDIA_NOT_FOUND', '视频报价不可用');
@@ -172,7 +173,7 @@ export class MediaVideoRealService {
     // Freeze a dispatch marker before POST. Any crash afterwards can only recover, never resubmit.
     try {
       await this.authorize(claims, true);
-      await this.requireProfile(claims, input, true);
+      await this.requireProfile(claims, input, true, 'video-submit');
       await this.frozenConnection(record.configuration.connectionFingerprint);
     } catch (error) {
       record.receipt.status = 'FAILED'; record.receipt.errorCode = 'CONFIG_CHANGED';
@@ -218,7 +219,7 @@ export class MediaVideoRealService {
     this.parse(ResourceIdSchema, clientRequestId);
     const record = await this.store.findByClientId(claims.enterpriseId, clientRequestId, this.scope(claims));
     if (!record) fail(404, 'MEDIA_NOT_FOUND', '未找到视频回执，不代表上游未接单');
-    await this.requireProfile(claims, record.configuration, false);
+    await this.requireProfile(claims, record.configuration, false, 'video-query');
     return this.snapshot(await this.recover(claims, record));
   }
 
@@ -241,7 +242,7 @@ export class MediaVideoRealService {
         metadata.frameRate !== output.frameRate || metadata.mimeType !== output.mimeType ||
         record.configuration.parameters.audio && metadata.hasAudio !== true) fail(502, 'OUTPUT_FAILED', '视频输出校验失败');
       await this.authorize(claims, false);
-      await this.requireProfile(claims, record.configuration, false);
+      await this.requireProfile(claims, record.configuration, false, 'video-content');
       return { output, stream };
     } catch (error) { stream.destroy(); throw error; }
   }
@@ -292,7 +293,7 @@ export class MediaVideoRealService {
             record.receipt.status = 'RESULT_EXPIRED'; record.receipt.errorCode = 'RESULT_EXPIRED';
           } else if (!['SUCCEEDED', 'PARTIAL_SUCCEEDED'].includes(record.receipt.status)) {
             await this.authorize(claims, false);
-            await this.requireProfile(claims, record.configuration, false);
+            await this.requireProfile(claims, record.configuration, false, 'video-query');
             const outputId = `${record.receipt.receiptId}-output-1`;
             downloading = true;
             const { hasAudio, ...metadata } = await this.cache.saveOutput(record.scope, outputId,
@@ -407,7 +408,7 @@ export class MediaVideoRealService {
     this.parse(ResourceIdSchema, receiptId);
     const record = await this.store.findRequest(this.scope(claims), receiptId);
     if (!record) fail(404, 'MEDIA_NOT_FOUND', '视频回执不存在');
-    await this.requireProfile(claims, record.configuration, false);
+    await this.requireProfile(claims, record.configuration, false, 'video-query');
     return record;
   }
 
@@ -424,17 +425,21 @@ export class MediaVideoRealService {
   }
 
   private async requireProfile(claims: ClientEmploymentClaims,
-    input: Pick<MediaVideoGatewayQuoteRequest, 'profileId' | 'configVersion' | 'operation' | 'parameters'>, execution: boolean) {
+    input: Pick<MediaVideoGatewayQuoteRequest, 'profileId' | 'configVersion' | 'operation' | 'parameters'>, execution: boolean,
+    stage: 'video-quote' | 'video-submit' | 'video-query' | 'video-content') {
     const row = await this.prisma.mediaModelProfile.findUnique({ where: { profileId: input.profileId } });
     if (!row || row.kind !== 'video' || row.modelId !== 'minimax-h3' || row.configVersion !== input.configVersion ||
-      !row.enabled || !row.verified || row.executionMode !== 'async-query' || !row.operations.includes(input.operation)) fail(409, 'CONFIG_CHANGED', '原视频 Profile 已变更或撤销');
+      !row.enabled || !row.verified || row.executionMode !== 'async-query' || !row.operations.includes(input.operation)) fail(409, 'CONFIG_CHANGED', '原视频 Profile 已变更或撤销', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
     const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: claims.enterpriseId } });
     const raw = config?.mediaPolicy as Record<string, unknown> | null;
     const parsed = MediaVideoPolicySchema.safeParse(raw?.video ?? {});
     if (!parsed.success) fail(403, 'MEDIA_FORBIDDEN', '企业视频策略无效');
     const policy = parsed.data;
-    if (!policy.enabledProfileIds.includes(input.profileId) || !policy.allowedOperations.includes(input.operation) ||
-      !policy.allowedAspectRatios.includes(input.parameters.aspectRatio) || policy.maxDurationSeconds < input.parameters.durationSeconds || policy.maxResolution === '480p') fail(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销');
+    if (!policy.enabledProfileIds.includes(input.profileId)) fail(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
+    if (!policy.allowedOperations.includes(input.operation)) fail(403, 'MEDIA_FORBIDDEN', '视频操作不受企业策略支持', { field: 'operation', stage, recovery: 'revise_request' });
+    if (!policy.allowedAspectRatios.includes(input.parameters.aspectRatio)) fail(403, 'MEDIA_FORBIDDEN', '视频画面比例不受企业策略支持', { field: 'parameters.aspectRatio', stage, recovery: 'revise_request' });
+    if (policy.maxDurationSeconds < input.parameters.durationSeconds) fail(403, 'MEDIA_FORBIDDEN', '视频时长超过企业策略限制', { field: 'parameters.durationSeconds', stage, recovery: 'revise_request' });
+    if (!isVideoResolutionWithinLimit(input.parameters.resolution, policy.maxResolution)) fail(403, 'MEDIA_FORBIDDEN', '视频分辨率不受企业策略支持', { field: 'parameters.resolution', stage, recovery: 'revise_request' });
     const capabilities = this.parse(z.object({
       supportsTextToVideo: z.boolean(), supportsImageToVideo: z.boolean(), supportsAudio: z.boolean(),
       durationsSeconds: z.array(z.number()), resolutions: z.array(z.string()), aspectRatios: z.array(z.string()),
@@ -445,7 +450,7 @@ export class MediaVideoRealService {
       !capabilities.durationsSeconds.includes(4) || !capabilities.resolutions.includes('720p') || !capabilities.aspectRatios.includes('16:9') ||
       !capabilities.frameRates.includes(24) || !capabilities.supportsAudio || !capabilities.outputFormats.includes('video/mp4') ||
       input.operation === 'text-to-video' && !capabilities.supportsTextToVideo || input.operation === 'image-to-video' &&
-      (!capabilities.supportsImageToVideo || capabilities.maxReferenceCount < 1)) fail(400, 'INVALID_PARAMETER', '视频 Profile 不支持冻结规格');
+      (!capabilities.supportsImageToVideo || capabilities.maxReferenceCount < 1)) fail(400, 'INVALID_PARAMETER', '视频 Profile 不支持冻结规格', { field: 'parameters', stage, recovery: 'revise_request' });
     if (execution) {
       const runtime = await this.videoConfig.getRuntimeVideo(claims.enterpriseId);
       if (!runtime.executionAvailable || (runtime as { executionMode?: string }).executionMode !== 'real' ||

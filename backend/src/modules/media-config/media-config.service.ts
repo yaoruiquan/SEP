@@ -20,6 +20,10 @@ import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model
 import {
   CreateMediaProfileDto,
   MediaCapabilitiesSchema,
+  MediaPolicyPreview,
+  MediaPolicyPreviewRequest,
+  MediaPolicyPreviewRequestSchema,
+  MediaPolicyPreviewSchema,
   MediaPolicy,
   MediaPolicySchema,
   MediaProfile,
@@ -299,7 +303,6 @@ export class MediaConfigService {
   async updateEnterpriseConfig(userId: string, dto: UpdateMediaPolicyDto) {
     const context = await this.enterpriseContext.resolve(userId);
     this.enterpriseContext.assertEnterpriseAdmin(context);
-    const available = await this.availableProfiles();
     try {
       await this.prisma.$transaction(async (tx) => {
         const existing = await tx.enterpriseModelConfig.findUnique({ where: { enterpriseId: context.enterpriseId } });
@@ -308,10 +311,6 @@ export class MediaConfigService {
         const next = parsed.data;
         next.enabledProfileIds = [...new Set(next.enabledProfileIds)];
         next.allowedOperations = [...new Set(next.allowedOperations)];
-        const availableIds = new Set(available.map((profile) => profile.profileId));
-        if (next.enabledProfileIds.some((id) => !availableIds.has(id))) {
-          throw new BadRequestException('允许列表包含未启用或未验证的媒体 Profile');
-        }
         if (next.defaultProfileId && !next.enabledProfileIds.includes(next.defaultProfileId)) {
           throw new BadRequestException('默认媒体 Profile 必须包含在企业允许列表中');
         }
@@ -334,11 +333,60 @@ export class MediaConfigService {
     return this.getEnterpriseConfig(userId);
   }
 
-  async getRuntimeMedia(enterpriseId: string): Promise<MediaRuntime> {
-    const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
-    const policy = this.parsePolicy(config?.mediaPolicy);
+  async previewEnterpriseConfig(userId: string, input: MediaPolicyPreviewRequest): Promise<MediaPolicyPreview> {
+    const request = MediaPolicyPreviewRequestSchema.parse(input);
+    const context = await this.enterpriseContext.resolve(userId);
+    const storedConfig = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: context.enterpriseId } });
+    const policy = context.role === 'ENTERPRISE_ADMIN' ? request.policy as MediaPolicy : this.parsePolicy(storedConfig?.mediaPolicy);
+    const configured = (await this.getConnection()).configured;
+    const profiles = await this.listProfiles();
+    const runtimeProfiles = await this.availableProfiles();
+    const visibleProfiles = context.role === 'ENTERPRISE_ADMIN' ? profiles : profiles.filter(profile => policy.enabledProfileIds.includes(profile.profileId));
+    const permissive: MediaPolicy = { ...policy, enabledProfileIds: profiles.map(profile => profile.profileId),
+      defaultProfileId: null, allowedOperations: ['generate', 'edit'], maxOutputs: Number.MAX_SAFE_INTEGER,
+      maxWidth: Number.MAX_SAFE_INTEGER, maxHeight: Number.MAX_SAFE_INTEGER };
+    const [available, effective] = await Promise.all([
+      request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, permissive, runtimeProfiles)
+        : this.getRuntimeMedia(context.enterpriseId, permissive, runtimeProfiles),
+      request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, policy, runtimeProfiles)
+        : this.getRuntimeMedia(context.enterpriseId, policy, runtimeProfiles),
+    ]);
+    const availableById = new Map(available.profiles.map(profile => [profile.profileId, profile] as const));
+    const effectiveById = new Map(effective.profiles.map(profile => [profile.profileId, profile] as const));
+    const executionMode = (await this.realRuntimeEnabled()) ? 'real' as const : 'disabled' as const;
+    const result = { protocolVersion: request.protocolVersion, executionMode, configured, executionAvailable: effective.executionAvailable,
+      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId)),
+      profiles: [...visibleProfiles.map(profile => {
+        const reasons: MediaPolicyPreview['profiles'][number]['reasons'] = [];
+        const baseline = availableById.get(profile.profileId);
+        const current = effectiveById.get(profile.profileId);
+        if (!policy.enabledProfileIds.includes(profile.profileId)) reasons.push('not-authorized');
+        if (!profile.enabled) reasons.push('disabled');
+        if (!profile.verified) reasons.push('unverified');
+        if (!configured) reasons.push('connection-unconfigured');
+        if (executionMode === 'disabled') reasons.push('execution-disabled');
+        if (!baseline && profile.enabled && profile.verified && configured) reasons.push('adapter-unsupported');
+        if (baseline && !current) {
+          if (!profile.operations.some(operation => policy.allowedOperations.includes(operation))) reasons.push('operation-filtered');
+          if (!baseline.capabilities.sizes.some(size => {
+            const [width, height] = size.split('x').map(Number);
+            return width <= policy.maxWidth && height <= policy.maxHeight;
+          })) reasons.push('size-intersection-empty');
+        }
+        const status: MediaPolicyPreview['profiles'][number]['status'] = current && executionMode !== 'disabled' ? 'effective'
+          : reasons.includes('not-authorized') ? 'not-authorized'
+            : reasons.some(reason => reason === 'size-intersection-empty' || reason === 'operation-filtered') ? 'empty-intersection' : 'unavailable';
+        return { profileId: profile.profileId, configVersion: profile.configVersion, status, effectiveProfile: current ?? null, reasons };
+      }), ...(context.role === 'ENTERPRISE_ADMIN' ? policy.enabledProfileIds.filter(profileId => !profiles.some(profile => profile.profileId === profileId)) : [])
+        .map(profileId => ({ profileId, configVersion: null, status: 'unavailable' as const, effectiveProfile: null, reasons: ['profile-missing' as const] }))] };
+    return MediaPolicyPreviewSchema.parse(result);
+  }
+
+  async getRuntimeMedia(enterpriseId: string, policyOverride?: MediaPolicy, profilesOverride?: MediaProfile[]): Promise<MediaRuntime> {
+    const config = policyOverride ? null : await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
+    const policy = policyOverride ?? this.parsePolicy(config?.mediaPolicy);
     const realEnabled = await this.realRuntimeEnabled();
-    const profiles = (await this.availableProfiles())
+    const profiles = (profilesOverride ?? await this.availableProfiles())
       .filter((profile) => policy.enabledProfileIds.includes(profile.profileId))
       .filter((profile) => !realEnabled || (isSupportedImageModel(profile.modelId) && profile.executionMode === 'sync-response'))
       .map((profile) => ({
@@ -373,9 +421,9 @@ export class MediaConfigService {
     };
   }
 
-  async getRuntimeMediaV2(enterpriseId: string) {
-    const legacy = await this.getRuntimeMedia(enterpriseId);
-    const modelIds = new Map((await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
+  async getRuntimeMediaV2(enterpriseId: string, policyOverride?: MediaPolicy, profilesOverride?: MediaProfile[]) {
+    const legacy = await this.getRuntimeMedia(enterpriseId, policyOverride, profilesOverride);
+    const modelIds = new Map((profilesOverride ?? await this.availableProfiles()).map(profile => [profile.profileId, profile.modelId]));
     const profiles = legacy.profiles.filter(profile => isSupportedImageModel(modelIds.get(profile.profileId) ?? '')).map(profile => {
       const capabilities = imageModelCapabilities(modelIds.get(profile.profileId) ?? '');
       const sizes = profile.capabilities.sizes.filter(size => capabilities?.sizes.includes(size as typeof IMAGE_MODEL_SIZES[number]));

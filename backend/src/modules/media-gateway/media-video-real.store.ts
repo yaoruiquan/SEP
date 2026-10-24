@@ -1,7 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma, type MediaGatewayRequest } from '@prisma/client';
 import { z } from 'zod';
-import { MediaVideoParametersSchema } from '../../shared/media-video.dto';
+import { isVideoResolutionWithinLimit, MediaVideoParametersSchema } from '../../shared/media-video.dto';
 import { MediaVideoPolicySchema } from '../../shared/media-video-config.dto';
 import { MediaVideoRealQuoteSchema, MediaVideoRealReceiptSchema, MediaVideoRealReferenceSchema } from '../../shared/media-video-real.dto';
 import type { MediaVideoRealQuote, MediaVideoRealReceipt, MediaVideoRealReference } from '../../shared/media-video-real.dto';
@@ -223,7 +223,8 @@ export class MediaVideoRealStore {
     if (!parsed.success) videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频策略无效');
     const policy = parsed.data;
     if (!policy.enabledProfileIds.includes(config.profileId) || !policy.allowedOperations.includes(config.operation) ||
-      !policy.allowedAspectRatios.includes(config.parameters.aspectRatio) || policy.maxDurationSeconds < 4 || policy.maxResolution === '480p') {
+      !policy.allowedAspectRatios.includes(config.parameters.aspectRatio) || policy.maxDurationSeconds < 4 ||
+      !isVideoResolutionWithinLimit(config.parameters.resolution, policy.maxResolution)) {
       videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销');
     }
     const activeCount = await tx.mediaGatewayRequest.count({ where: { enterpriseId,

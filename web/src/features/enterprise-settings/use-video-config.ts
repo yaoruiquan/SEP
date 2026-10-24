@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import {
   MediaVideoPolicySchema, UpdateMediaVideoPolicyDtoSchema, MediaVideoAvailableProfileSchema, MediaVideoEnterpriseConfigSchema,
+  MediaVideoPolicyPreviewRequestSchema, MediaVideoPolicyPreviewSchema, type MediaVideoPolicy,
   type UpdateMediaVideoPolicyDto, type MediaVideoEnterpriseConfig,
 } from 'shared/media-video-config.dto';
 
@@ -44,5 +45,13 @@ export function useUpdateEnterpriseVideoConfig(enterpriseId: string) {
       client.setQueryData(videoConfigKey(savedEnterpriseId), data);
       return client.invalidateQueries({ queryKey: availableVideoProfilesKey(savedEnterpriseId) });
     },
+  });
+}
+
+export function usePreviewEnterpriseVideoConfig() {
+  return useMutation({
+    mutationFn: async ({ policy }: { enterpriseId: string; policy: Omit<MediaVideoPolicy, 'periodBudget'> }) => MediaVideoPolicyPreviewSchema.parse(await api.post(
+      '/enterprise/media-config/video/preview', MediaVideoPolicyPreviewRequestSchema.parse({ protocolVersion: 2, policy }),
+    )),
   });
 }

@@ -5,6 +5,7 @@ import {
   UpdateMediaVideoPolicyDto, UpdateMediaVideoPolicyDtoSchema, UpdateMediaVideoProfileDto,
   UpdateMediaVideoProfileDtoSchema, VerifyMediaVideoProfileDto, VerifyMediaVideoProfileDtoSchema,
   UpdateMediaConnectionDto, UpdateMediaConnectionDtoSchema,
+  MediaVideoPolicyPreviewRequest, MediaVideoPolicyPreviewRequestSchema,
 } from 'shared';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -116,6 +117,16 @@ export class MediaVideoConfigController {
   updateEnterpriseConfig(@Request() req: { user: { id: string } },
     @Body(new ZodValidationPipe(UpdateMediaVideoPolicyDtoSchema)) dto: UpdateMediaVideoPolicyDto) {
     return this.service.updateEnterpriseConfig(req.user.id, dto);
+  }
+
+  @Post('enterprise/media-config/video/preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '按当前服务端能力预览视频授权草稿，不保存或报价' })
+  @ApiResponse({ status: 200, description: 'Profile 有效状态与过滤原因；不返回模型 ID 或连接信息' })
+  @ApiResponse({ status: 400, description: '视频授权草稿或协议版本无效' })
+  previewEnterpriseConfig(@Request() req: { user: { id: string } },
+    @Body(new ZodValidationPipe(MediaVideoPolicyPreviewRequestSchema)) dto: MediaVideoPolicyPreviewRequest) {
+    return this.service.previewEnterpriseConfig(req.user.id, dto);
   }
 
   @Get('enterprise/media-config/video/available-profiles')

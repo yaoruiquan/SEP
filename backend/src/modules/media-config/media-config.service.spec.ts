@@ -229,11 +229,48 @@ describe('MediaConfigService', () => {
     expect(prisma.enterpriseModelConfig.upsert).not.toHaveBeenCalled();
   });
 
-  it('rejects unverified allowlist entries and defaults outside the allowlist', async () => {
+  it('allows unavailable allowlist entries but keeps defaults inside the allowlist', async () => {
     const { service, prisma } = fixture();
-    await expect(service.updateEnterpriseConfig('admin', { enabledProfileIds: ['unknown'] })).rejects.toBeInstanceOf(BadRequestException);
+    await service.updateEnterpriseConfig('admin', { enabledProfileIds: ['unknown'], defaultProfileId: null });
+    await service.updateEnterpriseConfig('admin', { enabledProfileIds: ['product-image'] });
     await expect(service.updateEnterpriseConfig('admin', { defaultProfileId: 'unknown' })).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.enterpriseModelConfig.upsert).not.toHaveBeenCalled();
+    expect(prisma.enterpriseModelConfig.upsert).toHaveBeenCalled();
+  });
+
+  it('previews effective profiles, missing grants, default validity, and disabled execution without secrets', async () => {
+    const { service } = fixture();
+    const preview = await service.previewEnterpriseConfig('admin', { protocolVersion: 1, policy: {
+      enabledProfileIds: ['product-image', 'missing-image'], defaultProfileId: 'product-image', allowedOperations: ['generate'],
+      maxOutputs: 2, maxWidth: 1024, maxHeight: 1024,
+    } });
+    expect(preview).toMatchObject({ executionMode: 'disabled', executionAvailable: false, defaultProfileValid: false,
+      profiles: [
+        { profileId: 'product-image', status: 'unavailable', reasons: ['execution-disabled'], effectiveProfile: expect.objectContaining({ capabilities: expect.objectContaining({ sizes: ['1024x1024'] }) }) },
+        { profileId: 'missing-image', status: 'unavailable', effectiveProfile: null, reasons: ['profile-missing'] },
+      ] });
+    expect(JSON.stringify(preview)).not.toContain('private-model-id');
+    expect(JSON.stringify(preview)).not.toContain('test-secret');
+  });
+
+  it('does not expose non-authorized profile details to enterprise members', async () => {
+    const { service, context } = fixture();
+    context.resolve.mockResolvedValue({ enterpriseId: 'ent-1', role: 'MEMBER' });
+    const preview = await service.previewEnterpriseConfig('member', { policy: {
+      enabledProfileIds: [], defaultProfileId: null, allowedOperations: [], maxOutputs: 4, maxWidth: 4096, maxHeight: 4096,
+    } });
+    expect(preview.profiles).toMatchObject([{ profileId: 'product-image' }]);
+  });
+
+  it('ignores member-supplied preview grants and uses the stored enterprise policy', async () => {
+    const { service, context, prisma } = fixture();
+    context.resolve.mockResolvedValue({ enterpriseId: 'ent-1', role: 'MEMBER' });
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: {
+      enabledProfileIds: [], defaultProfileId: null, allowedOperations: [], maxOutputs: 4, maxWidth: 4096, maxHeight: 4096,
+    } });
+    const preview = await service.previewEnterpriseConfig('member', { policy: {
+      enabledProfileIds: ['product-image'], defaultProfileId: 'product-image', allowedOperations: ['generate'], maxOutputs: 4, maxWidth: 4096, maxHeight: 4096,
+    } });
+    expect(preview.profiles).toEqual([]);
   });
 
   it('stores only media policy, without modifying chat configuration', async () => {

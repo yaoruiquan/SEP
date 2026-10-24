@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '@/lib/api-client';
@@ -7,7 +7,7 @@ import { MediaVideoPolicySchema, MediaVideoAvailableProfileSchema } from 'shared
 import fixture from '../../../../backend/src/shared/fixtures/media-video-v1.json';
 import { VideoPolicyPanel } from './video-policy-panel';
 
-vi.mock('@/lib/api-client', async (original) => ({ ...await original<typeof import('@/lib/api-client')>(), api: { get: vi.fn(), put: vi.fn() } }));
+vi.mock('@/lib/api-client', async (original) => ({ ...await original<typeof import('@/lib/api-client')>(), api: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 vi.mock('@/components/ui/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const { modelId: _modelId, ...raw } = fixture.profile;
 const profile = MediaVideoAvailableProfileSchema.parse({ ...raw, enabled: true, verified: true });
@@ -29,6 +29,49 @@ beforeEach(() => {
 });
 
 describe('video policy panel', () => {
+  it('saves custom resolution, aspect ratio and larger numeric authorizations without Profile limits', async () => {
+    renderPanel();
+    fireEvent.change(await screen.findByLabelText('视频最高分辨率'), { target: { value: '8k' } });
+    fireEvent.change(screen.getByLabelText('新增授权画幅'), { target: { value: '21:9' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加画幅' }));
+    expect(screen.getByLabelText('21:9')).toBeChecked();
+    fireEvent.change(screen.getByLabelText('视频最大时长（秒）'), { target: { value: '1200' } });
+    fireEvent.change(screen.getByLabelText('视频最大并发任务'), { target: { value: '200' } });
+    expect(screen.getByRole('option', { name: 'removed-video（不可用）' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', expect.objectContaining({
+      maxResolution: '8k', maxDurationSeconds: 1200, maxConcurrentJobs: 200, allowedAspectRatios: [...policy.allowedAspectRatios, '21:9'],
+    })));
+  });
+
+  it('previews a disjoint policy without blocking save, and invalidates the result on edit', async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      protocolVersion: 2, executionMode: 'mock', configured: true, executionAvailable: false,
+      defaultProfileId: policy.defaultProfileId, defaultProfileValid: false,
+      profiles: [{ profileId: profile.profileId, configVersion: profile.configVersion, status: 'empty-intersection', effectiveProfile: null, reasons: ['aspect-ratio-intersection-empty'] }],
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: '预览当前授权' }));
+    expect(await screen.findByText('授权画幅与当前能力没有交集')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存视频策略' })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('视频最大时长（秒）'), { target: { value: '20' } });
+    expect(screen.queryByLabelText('授权预览结果')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+  });
+
+  it('hides a late preview after switching enterprise', async () => {
+    let reject!: (error: Error) => void;
+    vi.mocked(api.post).mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: '预览当前授权' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: '保存视频策略' })).toBeEnabled();
+    act(() => useAuthStore.setState({ enterprise: { id: 'b', name: '其他企业' } }));
+    await screen.findByRole('button', { name: '保存视频策略' });
+    await act(async () => { reject(new ApiError(503, '旧企业预览失败')); });
+    expect(screen.queryByText(/旧企业预览失败/)).not.toBeInTheDocument();
+  });
   it('removes unavailable selections, clears their default and saves specs to video only', async () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('checkbox', { name: /removed-video/ }));

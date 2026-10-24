@@ -73,6 +73,14 @@ describe('MediaRealService', () => {
     expect(h.record().configuration).not.toHaveProperty('creativeBrief');
   });
 
+  it('projects stable field, stage, and recovery metadata for unsupported image requests', async () => {
+    const h = harness();
+    h.mediaConfig.getRuntimeMedia.mockResolvedValue({ executionAvailable: true, profiles: [{ ...profile, capabilities: { ...profile.capabilities, sizes: ['1536x1024'] } }] });
+    await expect(h.service.quote(claims, quoteInput)).rejects.toMatchObject({ response: { error: {
+      code: 'CONFIG_CHANGED', field: 'parameters.size', stage: 'image-quote', recovery: 'revise_request',
+    } } });
+  });
+
   it('freezes the selected profile model from quote through execution and billing reconciliation', async () => {
     const h = harness();
     h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'gpt-image-1.5', enabled: true, verified: true });

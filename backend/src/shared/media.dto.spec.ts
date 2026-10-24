@@ -1,5 +1,6 @@
 import {
   CreateMediaProfileDtoSchema,
+  MediaPolicyPreviewSchema,
   MediaRuntimeQuerySchema,
   MediaRuntimeSchema,
   MediaRuntimeV2Schema,
@@ -106,5 +107,13 @@ describe('media configuration schemas', () => {
     for (const extra of [{ apiKey: 'mock-secret' }, { protocolVersion: '1' }, { skillArtifactVersion: '1' }]) {
       expect(MediaRuntimeQuerySchema.safeParse({ mediaProtocolVersion: '1', skillArtifactProtocolVersion: '1', ...extra }).success).toBe(false);
     }
+  });
+
+  it('accepts the full image admin preview profile budget', () => {
+    const profile = { profileId: 'profile-1', configVersion: null, status: 'unavailable', effectiveProfile: null, reasons: ['profile-missing'] };
+    expect(MediaPolicyPreviewSchema.safeParse({ protocolVersion: 2, executionMode: 'disabled', configured: false,
+      executionAvailable: false, defaultProfileId: null, defaultProfileValid: false,
+      profiles: Array.from({ length: 200 }, (_, index) => ({ ...profile, profileId: `profile-${index + 1}` })),
+    }).success).toBe(true);
   });
 });

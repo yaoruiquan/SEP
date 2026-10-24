@@ -55,6 +55,23 @@ describe.each(['image', 'video'] as const)('%s model configuration boundaries', 
     expect(within(screen.getByText('受限配置 A').closest('li')!).getByText('启用中')).toBeInTheDocument();
   });
 
+  it('shows each profile capability snapshot without implying real generation verification', async () => {
+    mount();
+    const row = (await screen.findByText('受限配置 A')).closest('li')!;
+    expect(within(row).getByText('配置版本：cfg_a')).toBeInTheDocument();
+    expect(within(row).getByText('Profile 来源：人工配置')).toBeInTheDocument();
+    expect(within(row).getByText('后台适配标记：已标记适配 · 真实生成验收：未提供')).toBeInTheDocument();
+    fireEvent.click(within(row).getByText('查看能力详情'));
+    if (kind === 'image') {
+      expect(within(row).getByText('1024x1024')).toBeInTheDocument();
+      expect(within(row).getAllByText('未提供')).toHaveLength(2);
+    } else {
+      expect(within(row).getByText('9:16')).toBeInTheDocument();
+      expect(within(row).getByText('video/mp4')).toBeInTheDocument();
+      expect(within(within(row).getByText('输出尺寸 / 字节上限：').parentElement!).getByText('未提供')).toBeInTheDocument();
+    }
+  });
+
   it('clears old discovery on edits and after save, requiring a new detection', async () => {
     mount();
     await screen.findByText('受限配置 A');

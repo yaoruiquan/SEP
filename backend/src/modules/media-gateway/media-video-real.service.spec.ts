@@ -465,4 +465,11 @@ describe('MediaVideoRealService', () => {
     await expect(service.submit(videoClaims, { ...request, creativeBrief: 'changed' })).rejects.toMatchObject(code('IDEMPOTENCY_CONFLICT'));
     expect(adapter.submit).toHaveBeenCalledTimes(1);
   });
+
+  it('projects stable field, stage, and recovery metadata for unsupported video policy requests', async () => {
+    db.state.enterprise.mediaPolicy.video.allowedAspectRatios = ['1:1'];
+    await expect(service.quote(videoClaims, input)).rejects.toMatchObject({ response: { error: {
+      code: 'MEDIA_FORBIDDEN', field: 'parameters.aspectRatio', stage: 'video-quote', recovery: 'revise_request',
+    } } });
+  });
 });
