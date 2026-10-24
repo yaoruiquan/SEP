@@ -155,14 +155,26 @@ describe('video configuration HTTP (real controller + service, mock Prisma, no u
     expect(prisma.mediaModelProfile.findMany).toHaveBeenCalledWith({ where: { kind: 'video' }, orderBy: { createdAt: 'asc' } });
   });
 
-  it('imports real model metadata but cannot verify, enable or select it', async () => {
+  it('allows saving authorization intent for an unverified profile but keeps it out of runtime', async () => {
     const created = await request(app.getHttpServer()).post('/api/admin/media/video/profiles').set(admin)
       .send({ ...createBody(), modelId: 'unadapted-real-video' }).expect(201);
     const path = `/api/admin/media/video/profiles/${created.body.profileId}`;
     await request(app.getHttpServer()).post(`${path}/verify`).set(admin).send({ expectedConfigVersion: created.body.configVersion }).expect(400);
     await request(app.getHttpServer()).patch(path).set(admin).send({ expectedConfigVersion: created.body.configVersion, enabled: true }).expect(400);
-    await request(app.getHttpServer()).put('/api/enterprise/media-config/video').set(enterpriseAdmin)
-      .send({ enabledProfileIds: [created.body.profileId] }).expect(400);
+    const saved = await request(app.getHttpServer()).put('/api/enterprise/media-config/video').set(enterpriseAdmin)
+      .send({ enabledProfileIds: [created.body.profileId], defaultProfileId: created.body.profileId,
+        allowedOperations: ['text-to-video'], maxDurationSeconds: 20, allowedAspectRatios: ['9:16'],
+        maxResolution: '8k', maxConcurrentJobs: 3 }).expect(200);
+    expect(saved.body.policy).toMatchObject({ enabledProfileIds: [created.body.profileId],
+      defaultProfileId: created.body.profileId, maxDurationSeconds: 20, allowedAspectRatios: ['9:16'],
+      maxResolution: '8k', maxConcurrentJobs: 3 });
+    const preview = await request(app.getHttpServer()).post('/api/enterprise/media-config/video/preview').set(enterpriseAdmin)
+      .send({ protocolVersion: 1, policy: saved.body.policy }).expect(201);
+    expect(preview.body.profiles).toContainEqual(expect.objectContaining({ profileId: created.body.profileId,
+      status: 'unavailable', reasons: expect.arrayContaining(['unverified']) }));
+    expect(preview.body.executionAvailable).toBe(false);
+    const runtime = await app.get(MediaVideoConfigService).getRuntimeVideo('ent-1');
+    expect(runtime).toMatchObject({ executionAvailable: false, profiles: [], tools: [] });
     expect(profiles.get(created.body.profileId)).toMatchObject({ enabled: false, verified: false });
   });
 
