@@ -66,18 +66,19 @@ describe('enterprise media configuration hooks', () => {
     client.setQueryData(qk.availableMediaProfiles('enterprise-b'), []);
     const { result } = renderHook(() => useUpdateEnterpriseMediaConfig('enterprise-a'), { wrapper });
     await act(async () => { await result.current.mutateAsync(policy); });
-    expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', policy);
+    expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', {
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    });
     expect(client.getQueryData(qk.mediaConfig('enterprise-a'))).toEqual(response);
     expect(client.getQueryState(qk.availableMediaProfiles('enterprise-a'))?.isInvalidated).toBe(true);
     expect(client.getQueryState(qk.availableMediaProfiles('enterprise-b'))?.isInvalidated).toBe(false);
   });
 
-  it('validates operations, safe numeric values and default membership with the shared form schema', () => {
-    expect(MediaPolicyFormSchema.safeParse(policy).success).toBe(true);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, allowedOperations: [] }).success).toBe(true);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxWidth: 0 }).success).toBe(false);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxOutputs: 9 }).success).toBe(true);
-    expect(MediaPolicyFormSchema.safeParse({ ...policy, maxOutputs: Number.MAX_SAFE_INTEGER + 1 }).success).toBe(false);
+  it('strips obsolete limits and validates only model authorization and default membership', () => {
+    expect(MediaPolicyFormSchema.parse({ ...policy, allowedOperations: [], maxWidth: -1, maxOutputs: 0 })).toEqual({
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    });
+    expect(MediaPolicyFormSchema.safeParse({ ...policy, enabledProfileIds: ['invalid profile'] }).success).toBe(false);
     expect(MediaPolicyFormSchema.safeParse({ ...policy, defaultProfileId: 'not-selected' }).success).toBe(false);
   });
 });

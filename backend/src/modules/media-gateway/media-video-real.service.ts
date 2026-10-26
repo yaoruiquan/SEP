@@ -6,8 +6,7 @@ import { z } from 'zod';
 import { parseUsdToCnyRate, SETTING_KEYS } from 'shared';
 import { MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayRequestSchema } from '../../shared/media-video.dto';
 import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayRequest } from '../../shared/media-video.dto';
-import { MediaVideoPolicySchema } from '../../shared/media-video-config.dto';
-import { isVideoResolutionWithinLimit } from '../../shared/media-video.dto';
+import { MediaVideoAuthorizationSchema } from '../../shared/media-video-config.dto';
 import { MediaVideoRealProfilesSchema, MediaVideoRealReceiptSchema } from '../../shared/media-video-real.dto';
 import type { MediaVideoRealReceipt } from '../../shared/media-video-real.dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -432,14 +431,10 @@ export class MediaVideoRealService {
       !row.enabled || !row.verified || row.executionMode !== 'async-query' || !row.operations.includes(input.operation)) fail(409, 'CONFIG_CHANGED', '原视频 Profile 已变更或撤销', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
     const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: claims.enterpriseId } });
     const raw = config?.mediaPolicy as Record<string, unknown> | null;
-    const parsed = MediaVideoPolicySchema.safeParse(raw?.video ?? {});
-    if (!parsed.success) fail(403, 'MEDIA_FORBIDDEN', '企业视频策略无效');
+    const parsed = MediaVideoAuthorizationSchema.safeParse(raw?.video ?? {});
+    if (!parsed.success) fail(403, 'MEDIA_FORBIDDEN', '企业视频授权无效');
     const policy = parsed.data;
     if (!policy.enabledProfileIds.includes(input.profileId)) fail(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
-    if (!policy.allowedOperations.includes(input.operation)) fail(403, 'MEDIA_FORBIDDEN', '视频操作不受企业策略支持', { field: 'operation', stage, recovery: 'revise_request' });
-    if (!policy.allowedAspectRatios.includes(input.parameters.aspectRatio)) fail(403, 'MEDIA_FORBIDDEN', '视频画面比例不受企业策略支持', { field: 'parameters.aspectRatio', stage, recovery: 'revise_request' });
-    if (policy.maxDurationSeconds < input.parameters.durationSeconds) fail(403, 'MEDIA_FORBIDDEN', '视频时长超过企业策略限制', { field: 'parameters.durationSeconds', stage, recovery: 'revise_request' });
-    if (!isVideoResolutionWithinLimit(input.parameters.resolution, policy.maxResolution)) fail(403, 'MEDIA_FORBIDDEN', '视频分辨率不受企业策略支持', { field: 'parameters.resolution', stage, recovery: 'revise_request' });
     const capabilities = this.parse(z.object({
       supportsTextToVideo: z.boolean(), supportsImageToVideo: z.boolean(), supportsAudio: z.boolean(),
       durationsSeconds: z.array(z.number()), resolutions: z.array(z.string()), aspectRatios: z.array(z.string()),

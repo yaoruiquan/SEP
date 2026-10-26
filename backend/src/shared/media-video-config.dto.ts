@@ -49,6 +49,8 @@ export type MediaVideoModelDiscovery = z.infer<typeof MediaVideoModelDiscoverySc
 export const MediaVideoPolicySchema = z.object({
   enabledProfileIds: z.array(ProfileFields.shape.profileId).max(64).default([]),
   defaultProfileId: ProfileFields.shape.profileId.nullable().default(null),
+  // Retained for old clients and stored JSON. These fields no longer restrict
+  // enterprise operations, generation parameters or concurrency.
   allowedOperations: z.array(MediaVideoOperationSchema).max(2).default(['image-to-video']),
   maxDurationSeconds: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(5),
   allowedAspectRatios: z.array(z.string().regex(/^[1-9]\d*:[1-9]\d*$/)).max(128).default(['9:16']),
@@ -58,6 +60,7 @@ export const MediaVideoPolicySchema = z.object({
   periodBudget: z.number().finite().nonnegative().max(1_000_000_000).default(0),
 }).strict();
 export type MediaVideoPolicy = z.infer<typeof MediaVideoPolicySchema>;
+export const MediaVideoAuthorizationSchema = MediaVideoPolicySchema.pick({ enabledProfileIds: true, defaultProfileId: true }).strip();
 export const UpdateMediaVideoPolicyDtoSchema = MediaVideoPolicySchema.partial().strict();
 export type UpdateMediaVideoPolicyDto = z.infer<typeof UpdateMediaVideoPolicyDtoSchema>;
 export const MediaVideoPolicyPreviewRequestSchema = z.object({

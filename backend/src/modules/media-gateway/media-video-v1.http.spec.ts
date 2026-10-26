@@ -240,13 +240,12 @@ describe('V1 video configuration → runtime → gateway real HTTP (in-memory Pr
     expect(state.prisma.mediaGatewayRequest.create).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['operation', 'profile', 'member', 'grant'] as const)('rechecks %s revocation on replay/query/download and restores the original request', async kind => {
+  it.each(['profile', 'member', 'grant'] as const)('rechecks %s revocation on replay/query/download and restores the original request', async kind => {
     await configure(); const { input, dto } = await prepared();
     const first = await post(`${gatewayRoot}/requests`).send(dto).expect(202);
     const path = `${gatewayRoot}/requests/${first.body.receiptId}`;
     await get(path).expect(200); const done = await get(path).expect(200);
     const content = `${path}/outputs/${done.body.outputs[0].outputId}/content`;
-    if (kind === 'operation') await policy({ allowedOperations: [] }).expect(200);
     if (kind === 'profile') await post('/api/__test/video/disable-profile').expect(201);
     if (kind === 'member') state.activeMember = false;
     if (kind === 'grant') state.grant = null;
@@ -258,6 +257,15 @@ describe('V1 video configuration → runtime → gateway real HTTP (in-memory Pr
     expect((await get(path).expect(200)).body).toEqual(done.body);
     await get(content).expect(200);
     expect((await post(`${gatewayRoot}/requests`).send(dto).expect(200)).body).toEqual(done.body);
+    expect(state.prisma.mediaGatewayRequest.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the deprecated enterprise operation restriction during replay and execution', async () => {
+    await configure(); const { input, dto } = await prepared();
+    await policy({ allowedOperations: [] }).expect(200);
+    const quote = await post(`${gatewayRoot}/quotes`).send(input).expect(201);
+    const request = await post(`${gatewayRoot}/requests`).send({ ...dto, quoteId: quote.body.quoteId }).expect(202);
+    expect(request.body.profileId).toBe(input.profileId);
     expect(state.prisma.mediaGatewayRequest.create).toHaveBeenCalledTimes(1);
   });
 

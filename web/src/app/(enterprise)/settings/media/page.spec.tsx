@@ -63,11 +63,11 @@ describe('enterprise media configuration page', () => {
     expect(screen.getByLabelText('默认 Profile')).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
     await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', {
-      ...policy, enabledProfileIds: ['image-basic'], defaultProfileId: null,
+      enabledProfileIds: ['image-basic'], defaultProfileId: null,
     }));
   });
 
-  it('saves image fields when the loaded policy also contains video authorization', async () => {
+  it('saves only profile authorization when the loaded policy contains legacy fields', async () => {
     const video = MediaVideoPolicySchema.parse({
       enabledProfileIds: ['video-basic'], defaultProfileId: 'video-basic', periodBudget: 100,
     });
@@ -75,15 +75,18 @@ describe('enterprise media configuration page', () => {
     const get = vi.mocked(api.get).getMockImplementation()!;
     vi.mocked(api.get).mockImplementation(async (path, options) => path === '/enterprise/media-config'
       ? { policy: combinedPolicy, canEdit: true, configured: true } : get(path, options));
-    vi.mocked(api.put).mockResolvedValue({ policy: { ...combinedPolicy, maxOutputs: 3 }, canEdit: true, configured: true });
+    vi.mocked(api.put).mockResolvedValue({ policy: combinedPolicy, canEdit: true, configured: true });
     renderPage();
-    fireEvent.change(await screen.findByLabelText('授权最大输出数'), { target: { value: '3' } });
+    await screen.findByLabelText('默认 Profile');
+    expect(screen.queryByLabelText('授权最大输出数')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('授权最大宽度')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('授权最大高度')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('generate')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
     await waitFor(() => expect(api.put).toHaveBeenCalledExactlyOnceWith('/enterprise/media-config', {
-      ...policy, maxOutputs: 3,
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
     }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('授权最大输出数')).toHaveValue(3);
     expect(combinedPolicy.video).toEqual(video);
   });
 
@@ -94,7 +97,6 @@ describe('enterprise media configuration page', () => {
     expect(screen.queryByRole('button', { name: '保存策略' })).not.toBeInTheDocument();
     for (const input of screen.getAllByRole('checkbox')) expect(input).toBeDisabled();
     expect(screen.getByLabelText('默认 Profile')).toBeDisabled();
-    expect(screen.getByLabelText('授权最大宽度')).toBeDisabled();
     expect(api.put).not.toHaveBeenCalled();
   });
 
@@ -114,35 +116,43 @@ describe('enterprise media configuration page', () => {
     expect(screen.getByText('暂无已验证且可用的图片 Profile')).toBeInTheDocument();
   });
 
-  it('allows an intentionally empty operation authorization', async () => {
+  it('does not expose legacy operation authorization', async () => {
     renderPage();
-    fireEvent.click(await screen.findByLabelText('generate'));
+    await screen.findByLabelText('默认 Profile');
+    expect(screen.queryByLabelText('generate')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', { ...policy, allowedOperations: [] }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', {
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    }));
   });
 
   it('shows Chinese preview reasons, allows saving an empty intersection and hides results after editing', async () => {
     vi.mocked(api.post).mockResolvedValue(emptyPreview);
     renderPage();
-    await screen.findByLabelText('授权最大宽度');
+    await screen.findByLabelText('默认 Profile');
     fireEvent.click(screen.getAllByRole('button', { name: '预览当前授权' })[0]);
     expect(await screen.findByText('授权宽高内没有当前支持的尺寸')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存策略' })).toBeEnabled();
-    expect(api.post).toHaveBeenCalledWith('/enterprise/media-config/preview', { protocolVersion: 2, policy });
-    fireEvent.change(screen.getByLabelText('授权最大宽度'), { target: { value: '20000' } });
+    expect(api.post).toHaveBeenCalledWith('/enterprise/media-config/preview', {
+      protocolVersion: 2,
+      policy: { enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId },
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: /image-basic/ }));
     expect(screen.queryByLabelText('授权预览结果')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', { ...policy, maxWidth: 20000 }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', {
+      enabledProfileIds: ['removed-image'], defaultProfileId: 'removed-image',
+    }));
   });
 
   it('keeps saving available during preview and after a preview failure', async () => {
     let reject!: (error: Error) => void;
     vi.mocked(api.post).mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
     renderPage();
-    await screen.findByLabelText('授权最大输出数');
+    await screen.findByLabelText('默认 Profile');
     fireEvent.click(screen.getAllByRole('button', { name: '预览当前授权' })[0]);
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText('授权最大输出数')).toBeEnabled();
+    expect(screen.getByLabelText('默认 Profile')).toBeEnabled();
     expect(screen.getByRole('button', { name: '保存策略' })).toBeEnabled();
     await act(async () => { reject(new ApiError(503, '预览暂时不可用')); });
     expect(await screen.findByRole('alert')).toHaveTextContent('仍可保存授权');
@@ -154,11 +164,11 @@ describe('enterprise media configuration page', () => {
     let resolve!: (value: typeof emptyPreview) => void;
     vi.mocked(api.post).mockImplementation(() => new Promise((finish) => { resolve = finish; }));
     renderPage();
-    await screen.findByLabelText('授权最大输出数');
+    await screen.findByLabelText('默认 Profile');
     fireEvent.click(screen.getAllByRole('button', { name: '预览当前授权' })[0]);
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     act(() => useAuthStore.setState({ enterprise: { id: 'enterprise-b', name: 'Enterprise B' } }));
-    await screen.findByLabelText('授权最大输出数');
+    await screen.findByLabelText('默认 Profile');
     await act(async () => { resolve(emptyPreview); });
     expect(screen.queryByLabelText('授权预览结果')).not.toBeInTheDocument();
   });
@@ -188,10 +198,10 @@ describe('enterprise media configuration page', () => {
   it('shows save errors without discarding edited values', async () => {
     vi.mocked(api.put).mockRejectedValue(new ApiError(400, '图片策略不合法'));
     renderPage();
-    const input = await screen.findByLabelText('授权最大输出数');
-    fireEvent.change(input, { target: { value: '3' } });
+    await screen.findByLabelText('默认 Profile');
+    fireEvent.click(screen.getByRole('checkbox', { name: /image-basic/ }));
     fireEvent.click(screen.getByRole('button', { name: '保存策略' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('图片策略不合法');
-    expect(input).toHaveValue(3);
+    expect(screen.getByRole('checkbox', { name: /image-basic/ })).not.toBeChecked();
   });
 });

@@ -36,6 +36,8 @@ export type MediaAvailableProfile = z.infer<typeof MediaAvailableProfileSchema>;
 export const MediaPolicySchema = z.object({
   enabledProfileIds: z.array(MediaProfileSchema.shape.profileId).max(100).default([]),
   defaultProfileId: z.string().nullable().default(null),
+  // Legacy wire/storage fields only. Enterprise authorization no longer limits
+  // operations or generation parameters; the profile/adapter owns capabilities.
   allowedOperations: z.array(MediaOperationSchema).default(['generate', 'edit']),
   maxOutputs: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(4),
   maxWidth: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(4096),
@@ -43,6 +45,10 @@ export const MediaPolicySchema = z.object({
   video: MediaVideoPolicySchema.optional(),
 }).strict();
 export type MediaPolicy = z.infer<typeof MediaPolicySchema>;
+
+// Read grants independently so malformed retired limits cannot revoke valid
+// model authorization. Unknown fields are never interpreted as permissions.
+export const MediaAuthorizationSchema = MediaPolicySchema.pick({ enabledProfileIds: true, defaultProfileId: true }).strip();
 
 export const MediaImagePolicySchema = MediaPolicySchema.omit({ video: true });
 export type MediaImagePolicy = z.infer<typeof MediaImagePolicySchema>;

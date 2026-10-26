@@ -141,13 +141,13 @@ databaseSuite('MediaVideoRealStore isolated PostgreSQL concurrency', () => {
     expect((await stores[1].findQuote(scope, claim.configuration.quoteId))?.consumedByClientRequestId).toBe(winner.clientRequestId);
   });
 
-  it.each([1, 2, 3])('cannot exceed maxConcurrentJobs with different quotes (race %s)', async () => {
+  it.each([1, 2, 3])('ignores maxConcurrentJobs with different quotes (race %s)', async () => {
     await configure({ maxConcurrentJobs: 1, periodBudget: 100 });
     const claims = await Promise.all([prepare(), prepare()]);
     const racers = racingStores('count');
-    const winner = await assertSingleClaim(await Promise.allSettled(claims.map((claim, index) => racers[index].claim(claim))), 'VIDEO_CONCURRENCY_LIMIT');
-    const unused = claims.find(claim => claim.clientRequestId !== winner.clientRequestId)!;
-    expect((await stores[0].findQuote(scope, unused.configuration.quoteId))?.consumedByClientRequestId).toBeNull();
+    const results = await Promise.all(claims.map((claim, index) => racers[index].claim(claim)));
+    expect(results.every(result => result.created)).toBe(true);
+    expect(results).toHaveLength(2);
   });
 
   it.each([1, 2, 3])('does not enforce deprecated periodBudget before wallet reservation exists (race %s)', async () => {

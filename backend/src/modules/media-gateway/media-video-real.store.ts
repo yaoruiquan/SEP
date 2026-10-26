@@ -1,8 +1,8 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma, type MediaGatewayRequest } from '@prisma/client';
 import { z } from 'zod';
-import { isVideoResolutionWithinLimit, MediaVideoParametersSchema } from '../../shared/media-video.dto';
-import { MediaVideoPolicySchema } from '../../shared/media-video-config.dto';
+import { MediaVideoParametersSchema } from '../../shared/media-video.dto';
+import { MediaVideoAuthorizationSchema } from '../../shared/media-video-config.dto';
 import { MediaVideoRealQuoteSchema, MediaVideoRealReceiptSchema, MediaVideoRealReferenceSchema } from '../../shared/media-video-real.dto';
 import type { MediaVideoRealQuote, MediaVideoRealReceipt, MediaVideoRealReference } from '../../shared/media-video-real.dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -219,18 +219,12 @@ export class MediaVideoRealStore {
   private async enforcePolicy(tx: Prisma.TransactionClient, enterpriseId: string, config: VideoRealFrozenConfiguration) {
     const row = await tx.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
     const raw = row?.mediaPolicy as Record<string, unknown> | null;
-    const parsed = MediaVideoPolicySchema.safeParse(raw?.video ?? {});
-    if (!parsed.success) videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频策略无效');
+    const parsed = MediaVideoAuthorizationSchema.safeParse(raw?.video ?? {});
+    if (!parsed.success) videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频授权无效');
     const policy = parsed.data;
-    if (!policy.enabledProfileIds.includes(config.profileId) || !policy.allowedOperations.includes(config.operation) ||
-      !policy.allowedAspectRatios.includes(config.parameters.aspectRatio) || policy.maxDurationSeconds < 4 ||
-      !isVideoResolutionWithinLimit(config.parameters.resolution, policy.maxResolution)) {
+    if (!policy.enabledProfileIds.includes(config.profileId)) {
       videoGatewayError(403, 'MEDIA_FORBIDDEN', '企业视频授权已撤销');
     }
-    const activeCount = await tx.mediaGatewayRequest.count({ where: { enterpriseId,
-      status: { in: ['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'] },
-      configuration: { path: ['adapter'], equals: VIDEO_REAL_ADAPTER } } });
-    if (activeCount >= policy.maxConcurrentJobs) videoGatewayError(409, 'VIDEO_CONCURRENCY_LIMIT', '企业视频任务并发已满');
   }
 
   private quoteMetadata(value: unknown): VideoRealQuoteMetadata {

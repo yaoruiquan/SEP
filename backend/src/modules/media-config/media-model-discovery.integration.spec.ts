@@ -72,7 +72,7 @@ describe('automatic media discovery → stored contract → authorized runtime (
     const runtime = await f.image.getRuntimeMedia('ent-1');
     expect(MediaRuntimeSchema.safeParse(runtime).success).toBe(true);
     expect(runtime).toMatchObject({ executionAvailable: true, defaultProfileId: row.profileId,
-      profiles: [{ capabilities: { maxOutputs: 2 } }] });
+      profiles: [{ capabilities: { maxOutputs: 4 } }] });
     const before = structuredClone(f.rows());
     await f.image.discoverModels();
     expect(f.rows()).toEqual(before);

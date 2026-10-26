@@ -23,10 +23,11 @@ afterEach(cleanup);
 beforeEach(() => vi.resetAllMocks());
 
 describe('enterprise video hooks', () => {
-  it('validates editable policy fields while stripping the deprecated budget field', () => {
-    expect(VideoPolicyFormSchema.safeParse(policy).success).toBe(true);
-    expect(VideoPolicyFormSchema.parse({ ...policy, periodBudget: 0 })).not.toHaveProperty('periodBudget');
-    expect(VideoPolicyFormSchema.safeParse({ ...policy, maxDurationSeconds: 0 }).success).toBe(false);
+  it('strips retired video limits and the deprecated budget field', () => {
+    expect(VideoPolicyFormSchema.parse({ ...policy, periodBudget: -1, maxDurationSeconds: 0, allowedOperations: [] })).toEqual({
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    });
+    expect(VideoPolicyFormSchema.safeParse({ ...policy, defaultProfileId: 'not-selected' }).success).toBe(false);
   });
   it('does not fetch without an enterprise', () => {
     const { wrapper } = setup();
@@ -63,16 +64,18 @@ describe('enterprise video hooks', () => {
     keys.forEach((key) => client.setQueryData(key, []));
     const { result } = renderHook(() => useUpdateEnterpriseVideoConfig('a'), { wrapper });
     await act(async () => { await result.current.mutateAsync(policy); });
-    expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', policy);
+    expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', {
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    });
     expect(client.getQueryData(videoConfigKey('a'))).toEqual(response);
     expect(keys.map((key) => client.getQueryState(key)?.isInvalidated)).toEqual([true, false, false, false]);
   });
-  it('validates specification and operation fields before saving', async () => {
+  it('validates model authorization before saving without considering retired specification fields', async () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useUpdateEnterpriseVideoConfig('a'), { wrapper });
-    await act(async () => { await expect(result.current.mutateAsync({ maxDurationSeconds: 0 })).rejects.toBeDefined(); });
+    await act(async () => { await expect(result.current.mutateAsync({ enabledProfileIds: ['invalid profile'] })).rejects.toBeDefined(); });
     expect(api.put).not.toHaveBeenCalled();
-    expect(VideoPolicyFormSchema.safeParse({ ...policy, allowedOperations: ['generate'] }).success).toBe(false);
+    expect(VideoPolicyFormSchema.safeParse({ ...policy, allowedOperations: ['generate'] }).success).toBe(true);
     expect(VideoPolicyFormSchema.safeParse({ ...policy, periodBudget: -1 }).success).toBe(true);
   });
   it('keeps an in-flight save attached to its original enterprise after identity changes', async () => {

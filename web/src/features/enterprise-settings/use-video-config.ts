@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import {
-  MediaVideoPolicySchema, UpdateMediaVideoPolicyDtoSchema, MediaVideoAvailableProfileSchema, MediaVideoEnterpriseConfigSchema,
+  MediaVideoAuthorizationSchema, MediaVideoAvailableProfileSchema, MediaVideoEnterpriseConfigSchema,
   MediaVideoPolicyPreviewRequestSchema, MediaVideoPolicyPreviewSchema, type MediaVideoPolicy,
   type UpdateMediaVideoPolicyDto, type MediaVideoEnterpriseConfig,
 } from 'shared/media-video-config.dto';
 
 export type { MediaVideoPolicy, MediaVideoAvailableProfile } from 'shared/media-video-config.dto';
 export type { MediaVideoOperation } from 'shared/media-video.dto';
-// The server still returns periodBudget for compatibility, but the enterprise
-// UI must not expose or overwrite this deprecated execution gate.
-export const VideoPolicyFormSchema = MediaVideoPolicySchema.omit({ periodBudget: true }).strip();
+// Old response fields are wire compatibility only; enterprise settings edit models.
+export const VideoPolicyFormSchema = MediaVideoAuthorizationSchema.refine(
+  policy => !policy.defaultProfileId || policy.enabledProfileIds.includes(policy.defaultProfileId),
+  { message: '默认视频模型必须在企业允许列表中', path: ['defaultProfileId'] },
+);
 export const videoConfigKey = (enterpriseId: string) => ['enterprise', enterpriseId, 'video-config'] as const;
 export const availableVideoProfilesKey = (enterpriseId: string) => ['enterprise', enterpriseId, 'available-video-profiles'] as const;
 
@@ -37,7 +39,7 @@ export function useUpdateEnterpriseVideoConfig(enterpriseId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (dto: UpdateMediaVideoPolicyDto) => api.put<EnterpriseVideoConfig>(
-      '/enterprise/media-config/video', UpdateMediaVideoPolicyDtoSchema.parse(dto),
+      '/enterprise/media-config/video', MediaVideoAuthorizationSchema.partial().parse(dto),
     ),
     onMutate: () => ({ enterpriseId }),
     onSuccess: (data, _dto, context) => {
@@ -50,8 +52,12 @@ export function useUpdateEnterpriseVideoConfig(enterpriseId: string) {
 
 export function usePreviewEnterpriseVideoConfig() {
   return useMutation({
-    mutationFn: async ({ policy }: { enterpriseId: string; policy: Omit<MediaVideoPolicy, 'periodBudget'> }) => MediaVideoPolicyPreviewSchema.parse(await api.post(
-      '/enterprise/media-config/video/preview', MediaVideoPolicyPreviewRequestSchema.parse({ protocolVersion: 2, policy }),
-    )),
+    mutationFn: async ({ policy }: { enterpriseId: string; policy: Omit<MediaVideoPolicy, 'periodBudget'> }) => {
+      const authorization = MediaVideoAuthorizationSchema.parse(policy);
+      const request = MediaVideoPolicyPreviewRequestSchema.parse({ protocolVersion: 2, policy: authorization });
+      return MediaVideoPolicyPreviewSchema.parse(await api.post(
+        '/enterprise/media-config/video/preview', { ...request, policy: authorization },
+      ));
+    },
   });
 }

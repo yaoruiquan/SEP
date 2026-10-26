@@ -26,6 +26,7 @@ import {
   MediaPolicyPreviewSchema,
   MediaPolicy,
   MediaPolicySchema,
+  MediaAuthorizationSchema,
   MediaProfile,
   MediaProfileSchema,
   MediaRuntime,
@@ -70,6 +71,9 @@ export class MediaConfigService {
       const image = MediaPolicySchema.safeParse(imagePolicy);
       if (image.success) return image.data;
     }
+    // Retired limits (including malformed historical values) are not grants.
+    const authorization = MediaAuthorizationSchema.safeParse(value ?? {});
+    if (authorization.success) return MediaPolicySchema.parse(authorization.data);
     return MediaPolicySchema.parse({});
   }
 
@@ -342,9 +346,7 @@ export class MediaConfigService {
     const profiles = await this.listProfiles();
     const runtimeProfiles = await this.availableProfiles();
     const visibleProfiles = context.role === 'ENTERPRISE_ADMIN' ? profiles : profiles.filter(profile => policy.enabledProfileIds.includes(profile.profileId));
-    const permissive: MediaPolicy = { ...policy, enabledProfileIds: profiles.map(profile => profile.profileId),
-      defaultProfileId: null, allowedOperations: ['generate', 'edit'], maxOutputs: Number.MAX_SAFE_INTEGER,
-      maxWidth: Number.MAX_SAFE_INTEGER, maxHeight: Number.MAX_SAFE_INTEGER };
+    const permissive: MediaPolicy = { ...policy, enabledProfileIds: profiles.map(profile => profile.profileId), defaultProfileId: null };
     const [available, effective] = await Promise.all([
       request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, permissive, runtimeProfiles)
         : this.getRuntimeMedia(context.enterpriseId, permissive, runtimeProfiles),
@@ -366,16 +368,8 @@ export class MediaConfigService {
         if (!configured) reasons.push('connection-unconfigured');
         if (executionMode === 'disabled') reasons.push('execution-disabled');
         if (!baseline && profile.enabled && profile.verified && configured) reasons.push('adapter-unsupported');
-        if (baseline && !current) {
-          if (!profile.operations.some(operation => policy.allowedOperations.includes(operation))) reasons.push('operation-filtered');
-          if (!baseline.capabilities.sizes.some(size => {
-            const [width, height] = size.split('x').map(Number);
-            return width <= policy.maxWidth && height <= policy.maxHeight;
-          })) reasons.push('size-intersection-empty');
-        }
         const status: MediaPolicyPreview['profiles'][number]['status'] = current && executionMode !== 'disabled' ? 'effective'
-          : reasons.includes('not-authorized') ? 'not-authorized'
-            : reasons.some(reason => reason === 'size-intersection-empty' || reason === 'operation-filtered') ? 'empty-intersection' : 'unavailable';
+          : reasons.includes('not-authorized') ? 'not-authorized' : 'unavailable';
         return { profileId: profile.profileId, configVersion: profile.configVersion, status, effectiveProfile: current ?? null, reasons };
       }), ...(context.role === 'ENTERPRISE_ADMIN' ? policy.enabledProfileIds.filter(profileId => !profiles.some(profile => profile.profileId === profileId)) : [])
         .map(profileId => ({ profileId, configVersion: null, status: 'unavailable' as const, effectiveProfile: null, reasons: ['profile-missing' as const] }))] };
@@ -389,22 +383,22 @@ export class MediaConfigService {
     const profiles = (profilesOverride ?? await this.availableProfiles())
       .filter((profile) => policy.enabledProfileIds.includes(profile.profileId))
       .filter((profile) => !realEnabled || (isSupportedImageModel(profile.modelId) && profile.executionMode === 'sync-response'))
-      .map((profile) => ({
-        profileId: profile.profileId, kind: profile.kind, displayName: profile.displayName,
-        configVersion: profile.configVersion, executionMode: profile.executionMode,
-        operations: profile.operations.filter((operation) => policy.allowedOperations.includes(operation))
-          .filter((operation) => !realEnabled || operation === 'generate' || profile.capabilities.supportsReferenceImage),
-        capabilities: {
-          ...profile.capabilities,
-          maxOutputs: Math.min(policy.maxOutputs, profile.capabilities.maxOutputs, realEnabled ? 4 : 8),
-          maxWidth: policy.maxWidth, maxHeight: policy.maxHeight,
-          sizes: profile.capabilities.sizes.filter((size) => {
-            const [width, height] = size.split('x').map(Number);
-            const standard: readonly string[] = IMAGE_MODEL_SIZES;
-            return (!realEnabled || standard.includes(size)) && width <= policy.maxWidth && height <= policy.maxHeight;
-          }),
-        },
-      }))
+      .map((profile) => {
+        const sizes = profile.capabilities.sizes.filter(size => !realEnabled || (IMAGE_MODEL_SIZES as readonly string[]).includes(size));
+        const dimensions = sizes.map(size => size.split('x').map(Number));
+        return {
+          profileId: profile.profileId, kind: profile.kind, displayName: profile.displayName,
+          configVersion: profile.configVersion, executionMode: profile.executionMode,
+          operations: profile.operations.filter((operation) => !realEnabled || operation === 'generate' || profile.capabilities.supportsReferenceImage),
+          capabilities: {
+            ...profile.capabilities,
+            maxOutputs: Math.min(profile.capabilities.maxOutputs, realEnabled ? 4 : 8),
+            maxWidth: Math.max(0, ...dimensions.map(([width]) => width)),
+            maxHeight: Math.max(0, ...dimensions.map(([, height]) => height)),
+            sizes,
+          },
+        };
+      })
       .filter((profile) => profile.operations.length > 0 && profile.capabilities.sizes.length > 0);
     const tools = realEnabled
       ? [

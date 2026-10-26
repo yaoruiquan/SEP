@@ -48,6 +48,26 @@ function fixture(config?: any) {
 }
 
 describe('MediaConfigService', () => {
+  it('ignores all retired image limits in both runtime versions and authorization preview', async () => {
+    const { service, prisma, row } = fixture({ get: jest.fn(() => 'true') });
+    row.modelId = 'gpt-image-2';
+    row.capabilities.sizes = ['1024x1024', '1536x1024', '1024x1536'];
+    const policy = { enabledProfileIds: [row.profileId], defaultProfileId: row.profileId,
+      allowedOperations: [], maxOutputs: 1, maxWidth: 1, maxHeight: 1 };
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: policy });
+    for (const runtime of [await service.getRuntimeMedia('ent-1'), await service.getRuntimeMediaV2('ent-1')]) {
+      expect(runtime).toMatchObject({ executionAvailable: true, defaultProfileId: row.profileId,
+        tools: ['image_generate', 'image_edit'], profiles: [{ operations: row.operations,
+          capabilities: { maxOutputs: 4, sizes: row.capabilities.sizes, maxWidth: 1536, maxHeight: 1536 } }] });
+    }
+    const preview = await service.previewEnterpriseConfig('admin', { policy });
+    expect(preview.profiles[0]).toMatchObject({ status: 'effective', reasons: [] });
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { ...policy, maxWidth: -1 } });
+    expect((await service.getRuntimeMedia('ent-1')).executionAvailable).toBe(true);
+    prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { ...policy, enabledProfileIds: [] } });
+    expect((await service.getRuntimeMedia('ent-1')).executionAvailable).toBe(false);
+  });
+
   it('creates an unverified profile with a server-owned version', async () => {
     const { service, prisma } = fixture();
     const dto = CreateMediaProfileDtoSchema.parse({
@@ -245,7 +265,7 @@ describe('MediaConfigService', () => {
     } });
     expect(preview).toMatchObject({ executionMode: 'disabled', executionAvailable: false, defaultProfileValid: false,
       profiles: [
-        { profileId: 'product-image', status: 'unavailable', reasons: ['execution-disabled'], effectiveProfile: expect.objectContaining({ capabilities: expect.objectContaining({ sizes: ['1024x1024'] }) }) },
+        { profileId: 'product-image', status: 'unavailable', reasons: ['execution-disabled'], effectiveProfile: expect.objectContaining({ capabilities: expect.objectContaining({ sizes: ['1024x1024', '2048x2048'] }) }) },
         { profileId: 'missing-image', status: 'unavailable', effectiveProfile: null, reasons: ['profile-missing'] },
       ] });
     expect(JSON.stringify(preview)).not.toContain('private-model-id');
@@ -290,18 +310,18 @@ describe('MediaConfigService', () => {
     await expect(service.updateEnterpriseConfig('admin', { maxOutputs: 1 })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('intersects enterprise limits without advertising executable tools or secrets', async () => {
+  it('publishes model capabilities without advertising executable tools or secrets when execution is disabled', async () => {
     const { service, prisma } = fixture();
     const runtime = await service.getRuntimeMedia('ent-1');
     expect(MediaRuntimeSchema.safeParse(runtime).success).toBe(true);
     expect(runtime).toMatchObject({ protocolVersion: 1, executionAvailable: false, tools: [], defaultProfileId: 'product-image',
-      profiles: [{ operations: ['generate'], capabilities: { maxOutputs: 2, sizes: ['1024x1024'] } }] });
+      profiles: [{ operations: ['generate', 'edit'], capabilities: { maxOutputs: 4, sizes: ['1024x1024', '2048x2048'] } }] });
     expect(prisma.mediaModelProfile.findMany.mock.calls[0][0].where).toEqual({ kind: 'image', enabled: true, verified: true });
     const json = JSON.stringify(runtime);
     for (const secret of ['private-model-id', 'test-secret', 'relay.example']) expect(json).not.toContain(secret);
   });
 
-  it('negotiates image v2 only for adapted models with defaults inside enterprise-filtered sizes', async () => {
+  it('negotiates image v2 only for adapted models with defaults inside adapter-supported sizes', async () => {
     const config = { get: jest.fn(() => 'true') } as any;
     const { service, prisma, row } = fixture(config);
     row.modelId = 'gpt-image-2';
@@ -312,18 +332,18 @@ describe('MediaConfigService', () => {
     } });
     const runtime = await service.getRuntimeMediaV2('ent-1');
     expect(runtime).toMatchObject({ protocolVersion: 2, defaultProfileId: 'product-image', profiles: [{ capabilities: {
-      sizes: ['1024x1024'], qualities: ['low', 'medium', 'high'], defaultQuality: 'medium', defaultSize: '1024x1024',
+      sizes: ['1024x1024', '1536x1024'], qualities: ['low', 'medium', 'high'], defaultQuality: 'medium', defaultSize: '1024x1024',
     } }] });
     expect(JSON.stringify(runtime)).not.toContain('gpt-image-2');
     expect(JSON.stringify(runtime)).not.toContain('test-secret');
   });
 
-  it('fails closed on malformed policy, missing connection and ineffective limits', async () => {
+  it('fails closed on missing grants or connection while ignoring obsolete size limits', async () => {
     const { service, prisma, settings } = fixture();
     prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { maxOutputs: -1 } });
     expect((await service.getRuntimeMedia('ent-1')).profiles).toEqual([]);
     prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { enabledProfileIds: ['product-image'], defaultProfileId: 'product-image', maxWidth: 1 } });
-    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ profiles: [], defaultProfileId: null });
+    expect(await service.getRuntimeMedia('ent-1')).toMatchObject({ defaultProfileId: 'product-image', profiles: [{ profileId: 'product-image' }] });
     settings.getEffectiveValue.mockResolvedValue(undefined);
     expect((await service.getRuntimeMedia('ent-1')).profiles).toEqual([]);
   });

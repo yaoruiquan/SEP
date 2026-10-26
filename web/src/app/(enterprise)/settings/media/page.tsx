@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import { ZodError } from 'zod';
 import { Image, Loader2, RefreshCw, Save, ScanSearch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -13,7 +12,7 @@ import { MediaPolicyPreview } from '@/features/enterprise-settings/media-policy-
 import {
   MediaPolicyFormSchema, useAvailableMediaProfiles, useEnterpriseMediaConfig, useUpdateEnterpriseMediaConfig, usePreviewEnterpriseMediaConfig,
 } from '@/features/enterprise-settings/use-media-config';
-import type { MediaOperation, MediaPolicy } from '@/features/enterprise-settings/use-media-config';
+import type { MediaPolicy } from '@/features/enterprise-settings/use-media-config';
 
 function errorText(error: unknown) {
   if (error instanceof ZodError) return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
@@ -52,9 +51,11 @@ function ImageSettingsPanel() {
     event.preventDefault();
     if (!policy || !canEdit || save.isPending) return;
     setFailure(null);
-    const { video: _video, ...imagePolicy } = policy;
     try {
-      await save.mutateAsync(MediaPolicyFormSchema.parse(imagePolicy));
+      await save.mutateAsync(MediaPolicyFormSchema.parse({
+        enabledProfileIds: policy.enabledProfileIds,
+        defaultProfileId: policy.defaultProfileId,
+      }));
       setDraft((current) => current?.enterpriseId === enterpriseId ? null : current);
       preview.reset();
       toast.success('图片策略已保存');
@@ -89,8 +90,7 @@ function ImageSettingsPanel() {
             </label>)}
           </div>}
       </section>
-      <section className="grid gap-4 border-t border-border pt-6 md:grid-cols-2"><label className="text-sm"><span className="mb-1 block font-medium">默认 Profile</span><select disabled={!canEdit} className="h-10 w-full rounded border border-border bg-white px-3 text-sm" value={policy.defaultProfileId ?? ''} onChange={(e) => update({ defaultProfileId: e.target.value || null })}><option value="">不设置默认</option>{policy.enabledProfileIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label><label className="text-sm"><span className="mb-1 block font-medium">授权最大输出数</span><Input disabled={!canEdit} type="number" min={1} step={1} value={policy.maxOutputs} onChange={(e) => update({ maxOutputs: Number(e.target.value) })} /></label><label className="text-sm"><span className="mb-1 block font-medium">授权最大宽度</span><Input disabled={!canEdit} type="number" min={1} step={1} value={policy.maxWidth} onChange={(e) => update({ maxWidth: Number(e.target.value) })} /></label><label className="text-sm"><span className="mb-1 block font-medium">授权最大高度</span><Input disabled={!canEdit} type="number" min={1} step={1} value={policy.maxHeight} onChange={(e) => update({ maxHeight: Number(e.target.value) })} /></label></section>
-      <fieldset disabled={!canEdit}><legend className="mb-2 text-sm font-medium">允许操作</legend><div className="flex gap-4">{(['generate', 'edit'] as MediaOperation[]).map((operation) => <label className="flex items-center gap-2 text-sm" key={operation}><input type="checkbox" checked={policy.allowedOperations.includes(operation)} onChange={(e) => update({ allowedOperations: e.target.checked ? [...new Set([...policy.allowedOperations, operation])] : policy.allowedOperations.filter((item) => item !== operation) })} />{operation}</label>)}</div></fieldset>
+      <section className="border-t border-border pt-6"><label className="block max-w-md text-sm"><span className="mb-1 block font-medium">默认 Profile</span><select disabled={!canEdit} className="h-10 w-full rounded border border-border bg-white px-3 text-sm" value={policy.defaultProfileId ?? ''} onChange={(e) => update({ defaultProfileId: e.target.value || null })}><option value="">不设置默认</option>{policy.enabledProfileIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label></section>
       </fieldset>
       {saveError && <p role="alert" className="break-words text-sm text-danger">{saveError}</p>}
       {previewMatches && preview.error && <p role="alert" className="break-words text-sm text-danger">预览失败：{errorText(preview.error)}。仍可保存授权，实际执行前由后台复核。</p>}

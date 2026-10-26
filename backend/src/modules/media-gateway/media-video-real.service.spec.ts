@@ -466,10 +466,8 @@ describe('MediaVideoRealService', () => {
     expect(adapter.submit).toHaveBeenCalledTimes(1);
   });
 
-  it('projects stable field, stage, and recovery metadata for unsupported video policy requests', async () => {
+  it('ignores deprecated enterprise parameter restrictions', async () => {
     db.state.enterprise.mediaPolicy.video.allowedAspectRatios = ['1:1'];
-    await expect(service.quote(videoClaims, input)).rejects.toMatchObject({ response: { error: {
-      code: 'MEDIA_FORBIDDEN', field: 'parameters.aspectRatio', stage: 'video-quote', recovery: 'revise_request',
-    } } });
+    await expect(service.quote(videoClaims, input)).resolves.toMatchObject({ mock: false });
   });
 });

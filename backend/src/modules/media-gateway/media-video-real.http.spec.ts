@@ -11,7 +11,7 @@ import { MediaVideoRealController } from './media-video-real.controller';
 import { MediaVideoRealGuard } from './media-video-real.guard';
 import { MediaVideoRealService } from './media-video-real.service';
 import { MediaVideoRealStore } from './media-video-real.store';
-import { fingerprint, input, newClaim, outputMetadata, scope, videoBytes, videoClaims, videoRealPrisma } from './media-video-real.test-support';
+import { fingerprint, input, outputMetadata, scope, videoBytes, videoClaims, videoRealPrisma } from './media-video-real.test-support';
 import { MEDIA_MOCK_PNG } from './media-gateway-mock.adapter';
 import { videoGatewayError } from './media-video-gateway.store';
 
@@ -90,7 +90,6 @@ describe('real video controller and guard HTTP', () => {
     [402, 'VIDEO_BUDGET_EXCEEDED', 'Video budget exceeded'],
     [403, 'MEDIA_FORBIDDEN', 'Video access revoked'],
     [409, 'QUOTE_EXPIRED', 'Video quote expired'],
-    [409, 'VIDEO_CONCURRENCY_LIMIT', 'Video concurrency limit reached'],
   ] as const)('preserves platform error %s/%s through the real filter', async (status, code, message) => {
     media.submit.mockImplementation(() => videoGatewayError(status, code, message));
     const requestId = `video-http-${code}`;
@@ -151,7 +150,6 @@ describe('real video controller and guard HTTP', () => {
 
   it.each([
     [402, 'INSUFFICIENT_FUNDS'],
-    [409, 'VIDEO_CONCURRENCY_LIMIT'],
     [409, 'QUOTE_EXPIRED'],
     [403, 'MEDIA_FORBIDDEN'],
   ] as const)('rejects actual submit %s/%s before dispatch with the audited persistence contract', async (status, code) => {
@@ -181,10 +179,6 @@ describe('real video controller and guard HTTP', () => {
     media.quote.mockImplementation(service.quote.bind(service));
     media.submit.mockImplementation(service.submit.bind(service));
     media.findByClientId.mockImplementation(service.findByClientId.bind(service));
-    if (code === 'VIDEO_CONCURRENCY_LIMIT') {
-      db.state.enterprise.mediaPolicy.video.maxConcurrentJobs = 1;
-      await store.claim(await newClaim(store, 'existing-active-request'));
-    }
     const quoteResponse = await post('/quotes').send(input).expect(201);
     const quoteId = quoteResponse.body.quoteId;
     expect(quoteResponse.body.funding.personalCny).toBe('1.400000');
@@ -221,7 +215,7 @@ describe('real video controller and guard HTTP', () => {
       expect(reserve).not.toHaveBeenCalled();
       expect(quote?.consumedByClientRequestId).toBeNull();
       expect(await store.findByClientId(videoClaims.enterpriseId, 'rejected-request', scope)).toBeNull();
-      expect(db.state.requests.size).toBe(code === 'VIDEO_CONCURRENCY_LIMIT' ? 1 : 0);
+      expect(db.state.requests.size).toBe(0);
     }
   });
 

@@ -29,19 +29,19 @@ beforeEach(() => {
 });
 
 describe('video policy panel', () => {
-  it('saves custom resolution, aspect ratio and larger numeric authorizations without Profile limits', async () => {
+  it('hides legacy video restriction fields and saves only profile authorization', async () => {
     renderPanel();
-    fireEvent.change(await screen.findByLabelText('视频最高分辨率'), { target: { value: '8k' } });
-    fireEvent.change(screen.getByLabelText('新增授权画幅'), { target: { value: '21:9' } });
-    fireEvent.click(screen.getByRole('button', { name: '添加画幅' }));
-    expect(screen.getByLabelText('21:9')).toBeChecked();
-    fireEvent.change(screen.getByLabelText('视频最大时长（秒）'), { target: { value: '1200' } });
-    fireEvent.change(screen.getByLabelText('视频最大并发任务'), { target: { value: '200' } });
+    await screen.findByLabelText('默认视频 Profile');
+    for (const label of ['视频最高分辨率', '新增授权画幅', '视频最大时长（秒）', '视频最大并发任务']) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText('允许的视频操作')).not.toBeInTheDocument();
+    expect(screen.queryByText('允许的视频画幅')).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'removed-video（不可用）' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', expect.objectContaining({
-      maxResolution: '8k', maxDurationSeconds: 1200, maxConcurrentJobs: 200, allowedAspectRatios: [...policy.allowedAspectRatios, '21:9'],
-    })));
+    await waitFor(() => expect(api.put).toHaveBeenCalledExactlyOnceWith('/enterprise/media-config/video', {
+      enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId,
+    }));
   });
 
   it('previews a disjoint policy without blocking save, and invalidates the result on edit', async () => {
@@ -54,7 +54,7 @@ describe('video policy panel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '预览当前授权' }));
     expect(await screen.findByText('授权画幅与当前能力没有交集')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存视频策略' })).toBeEnabled();
-    fireEvent.change(screen.getByLabelText('视频最大时长（秒）'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /removed-video/ }));
     expect(screen.queryByLabelText('授权预览结果')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
     await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
@@ -76,10 +76,8 @@ describe('video policy panel', () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('checkbox', { name: /removed-video/ }));
     expect(screen.getByLabelText('默认视频 Profile')).toHaveValue('');
-    fireEvent.change(screen.getByLabelText('视频最大时长（秒）'), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText('视频最大并发任务'), { target: { value: '2' } });
     fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', { enabledProfileIds: [profile.profileId], defaultProfileId: null, allowedOperations: policy.allowedOperations, maxDurationSeconds: 10, allowedAspectRatios: policy.allowedAspectRatios, maxResolution: policy.maxResolution, maxConcurrentJobs: 2 }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', { enabledProfileIds: [profile.profileId], defaultProfileId: null }));
   });
   it.each(['MEMBER', 'DEPT_MANAGER'])('keeps %s read only even when server canEdit is true', async (roleInEnterprise) => {
     useAuthStore.setState({ roleInEnterprise });
@@ -95,25 +93,16 @@ describe('video policy panel', () => {
     mockConfig(false);
     renderPanel();
     await screen.findByText('当前为只读视图，视频授权由企业管理员维护。');
-    expect(screen.getByLabelText('视频最大时长（秒）')).toBeDisabled();
-  });
-  it('shows shared validation failure and keeps edits', async () => {
-    renderPanel();
-    const input = await screen.findByLabelText('视频最大时长（秒）');
-    fireEvent.change(input, { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('maxDurationSeconds');
-    expect(input).toHaveValue(0);
-    expect(api.put).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('默认视频 Profile')).toBeDisabled();
   });
   it('keeps form values after a save error', async () => {
     vi.mocked(api.put).mockRejectedValue(new ApiError(400, '视频策略不合法'));
     renderPanel();
-    const input = await screen.findByLabelText('视频最大时长（秒）');
-    fireEvent.change(input, { target: { value: '10' } });
+    const profileCheckbox = await screen.findByRole('checkbox', { name: /mock-video-from-image/ });
+    fireEvent.click(profileCheckbox);
     fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('视频策略不合法');
-    expect(input).toHaveValue(10);
+    expect(screen.getByRole('checkbox', { name: /mock-video-from-image/ })).not.toBeChecked();
   });
   it('shows loading, failure and supports retry', async () => {
     vi.mocked(api.get).mockRejectedValue(new ApiError(503, '视频服务未开放'));
@@ -130,7 +119,7 @@ describe('video policy panel', () => {
     await screen.findByText('暂无已启用且已校验的视频 Profile');
     expect(screen.getByText(/平台 Mock 视频尚未开放/)).toBeInTheDocument();
   });
-  it('shows real video authorization semantics without exposing the deprecated budget guard', async () => {
+  it('keeps old video policy fields hidden and omits them from updates', async () => {
     vi.mocked(api.get).mockImplementation(async (path) => path === '/enterprise/media-config/video'
       ? { policy: MediaVideoPolicySchema.parse({ periodBudget: 0, maxConcurrentJobs: 2 }), canEdit: true, configured: true, mock: false, executionTested: false }
       : [profile]);
@@ -138,8 +127,10 @@ describe('video policy panel', () => {
     renderPanel();
     expect(await screen.findByText('真实视频')).toBeInTheDocument();
     expect(screen.queryByText('视频自然月预算（元）')).not.toBeInTheDocument();
-    expect(screen.getByText('实际费用以执行前报价和统一资金预占为准；并发任务由服务端限制。')).toBeInTheDocument();
+    expect(screen.queryByText(/并发任务由服务端限制/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存视频策略' }));
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config/video', expect.not.objectContaining({ periodBudget: expect.anything() })));
+    await waitFor(() => expect(api.put).toHaveBeenCalledExactlyOnceWith('/enterprise/media-config/video', {
+      enabledProfileIds: [], defaultProfileId: null,
+    }));
   });
 });

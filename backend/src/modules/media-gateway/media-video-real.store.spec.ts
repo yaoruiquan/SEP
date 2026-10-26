@@ -25,20 +25,20 @@ describe('MediaVideoRealStore', () => {
     expect(db.state.quotes.get(input.configuration.quoteId).metadata.consumedByClientRequestId).toBe(result.record.clientRequestId);
   });
 
-  it('enforces maxConcurrentJobs and rolls back quote consumption', async () => {
+  it('ignores deprecated enterprise concurrency restrictions', async () => {
     db.state.enterprise.mediaPolicy.video.maxConcurrentJobs = 1;
     await store.claim(await newClaim(store));
     const second = await newClaim(store, 'client-2');
-    await expect(store.claim(second)).rejects.toMatchObject(code('VIDEO_CONCURRENCY_LIMIT'));
-    expect(db.state.quotes.get(second.configuration.quoteId).metadata.consumedByClientRequestId).toBeNull();
+    await expect(store.claim(second)).resolves.toMatchObject({ created: true });
+    expect(db.state.quotes.get(second.configuration.quoteId).metadata.consumedByClientRequestId).toBe('client-2');
   });
 
-  it.each(['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'])('counts %s against enterprise concurrency', async status => {
+  it.each(['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'])('does not count %s against enterprise concurrency', async status => {
     const first = await store.claim(await newClaim(store));
     const row = db.state.requests.get(first.record.receipt.receiptId);
     row.status = row.receipt.status = status;
     db.state.enterprise.mediaPolicy.video.maxConcurrentJobs = 1;
-    await expect(store.claim(await newClaim(store, 'client-2'))).rejects.toMatchObject(code('VIDEO_CONCURRENCY_LIMIT'));
+    await expect(store.claim(await newClaim(store, 'client-2'))).resolves.toMatchObject({ created: true });
   });
 
   it('does not enforce the deprecated real budget field', async () => {

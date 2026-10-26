@@ -60,6 +60,26 @@ function createInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe('MediaVideoConfigService real configuration', () => {
+  it('ignores retired video limits in V1/V2 runtime and preview while still requiring model authorization', async () => {
+    const f = setup(true);
+    f.row.modelId = 'minimax-h3';
+    f.row.operations = ['image-to-video', 'text-to-video'];
+    f.row.capabilities = structuredClone(f.service['realCapabilities']());
+    const policy = f.getStored().mediaPolicy.video;
+    Object.assign(policy, { allowedOperations: [], maxDurationSeconds: 1,
+      allowedAspectRatios: [], maxResolution: 'unknown', maxConcurrentJobs: 1 });
+    for (const runtime of [await f.service.getRuntimeVideo('ent-1'), await f.service.getRuntimeVideoV2('ent-1')]) {
+      expect(runtime).toMatchObject({ executionAvailable: true, defaultProfileId: f.row.profileId,
+        profiles: [{ operations: f.row.operations, capabilities: { durationsSeconds: [4], aspectRatios: ['16:9'], resolutions: ['720p'] } }] });
+    }
+    const preview = await f.service.previewEnterpriseConfig('user-1', { policy });
+    expect(preview.profiles[0]).toMatchObject({ status: 'effective', reasons: [] });
+    policy.maxConcurrentJobs = -1;
+    expect((await f.service.getRuntimeVideo('ent-1')).executionAvailable).toBe(true);
+    policy.enabledProfileIds = [];
+    expect((await f.service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);
+  });
+
   function realSetup() {
     const f = setup(true);
     f.row.modelId = 'minimax-h3';
@@ -364,16 +384,16 @@ describe('MediaVideoConfigService enterprise isolation', () => {
 
   it.each([
     { maxDurationSeconds: 4 }, { allowedAspectRatios: ['16:9'] }, { maxResolution: '480p' },
-    { allowedOperations: ['text-to-video'] }, { enabledProfileIds: [] },
-  ])('never expands capabilities beyond policy: %s', async changes => {
+    { allowedOperations: ['text-to-video'] },
+  ])('ignores retired enterprise parameter filters: %s', async changes => {
     const { service, getStored } = setup();
     Object.assign(getStored().mediaPolicy.video, changes);
-    expect(await service.getRuntimeVideo('ent-1')).toEqual({ protocolVersion: 1, executionAvailable: false, profiles: [], tools: [], defaultProfileId: null });
+    expect(await service.getRuntimeVideo('ent-1')).toMatchObject({ protocolVersion: 1, executionAvailable: true, profiles: [{ capabilities: { durationsSeconds: [5], aspectRatios: ['9:16'], resolutions: ['720p'] } }] });
   });
 
-  it('fails closed for malformed saved video policy without advertising execution', async () => {
+  it('fails closed for malformed saved model authorization', async () => {
     const { service, getStored } = setup();
-    getStored().mediaPolicy.video.maxConcurrentJobs = -1;
+    getStored().mediaPolicy.video.enabledProfileIds = 'invalid';
     expect((await service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);
   });
 
@@ -431,12 +451,12 @@ describe('MediaVideoConfigService enterprise isolation', () => {
     await expect(service.updateEnterpriseConfig('user-1', {})).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('marks unknown resolution authorization without treating it as executable', async () => {
+  it('ignores an unknown legacy authorization resolution in preview', async () => {
     const { service, getStored } = setup();
     Object.assign(getStored().mediaPolicy.video, { maxResolution: '2k' });
     const preview = await service.previewEnterpriseConfig('user-1', { policy: getStored().mediaPolicy.video });
-    expect(preview.profiles[0].reasons).toContain('unknown-capability');
-    expect(preview.profiles[0].status).not.toBe('effective');
+    expect(preview.profiles[0].reasons).toEqual([]);
+    expect(preview.profiles[0].status).toBe('effective');
   });
 
   it.each(['P2034', 'P2002'])('returns a retryable conflict instead of overwriting concurrent policy data: %s', async code => {
