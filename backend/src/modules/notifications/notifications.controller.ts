@@ -11,6 +11,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -25,8 +26,11 @@ import type {
 
 @ApiTags('notifications')
 @Controller('notifications')
+// 通知属于普通业务：所有 REST 操作保留 default，跳过认证/聊天专属规则。
+@SkipThrottle({ auth: true, chat: true })
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
+@ApiResponse({ status: 429, description: '超过普通业务请求额度；Retry-After 为剩余等待秒数' })
 export class NotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,

@@ -1,6 +1,7 @@
 import { Controller, ForbiddenException, Get, INestApplication, Logger, Post, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Throttle } from '@nestjs/throttler';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
@@ -25,7 +26,10 @@ import { policySnapshot } from './gateway-policy.test-fixtures';
 @Controller()
 class OrdinaryController {
   @Get('rate-limit-rest') rest() { return { ok: true }; }
+  @Throttle({ auth: { ttl: 60_000, limit: 10 } })
   @Post('auth/rate-limit-login') login() { return { ok: true }; }
+  @Throttle({ chat: { ttl: 60_000, limit: 60 } })
+  @Post('rate-limit-chat') chat() { return { ok: true }; }
 }
 
 describe('Gateway production guard chain over HTTP', () => {
@@ -301,11 +305,16 @@ describe('Gateway production guard chain over HTTP', () => {
     expect(executions.start).not.toHaveBeenCalled();
   });
 
-  it('keeps existing auth/default/chat rules on ordinary REST and login routes', async () => {
-    for (const [method, path] of [['get', '/api/rate-limit-rest'], ['post', '/api/auth/rate-limit-login']] as const) {
-      for (let i = 0; i < 10; i++) await request(app.getHttpServer())[method](path).expect(method === 'post' ? 201 : 200);
+  it('scopes default/auth/chat to ordinary REST, explicit login and explicit chat handlers', async () => {
+    for (const [method, path, limit, retryHeader] of [
+      ['get', '/api/rate-limit-rest', 100, 'retry-after'],
+      ['post', '/api/auth/rate-limit-login', 10, 'retry-after-auth'],
+      ['post', '/api/rate-limit-chat', 60, 'retry-after-chat'],
+    ] as const) {
+      for (let i = 0; i < limit; i++) await request(app.getHttpServer())[method](path).expect(method === 'post' ? 201 : 200);
       const res = await request(app.getHttpServer())[method](path).expect(429);
-      expect(res.headers['retry-after-auth']).toBeDefined();
+      expect(res.headers[retryHeader]).toBe('60');
+      expect(res.headers['retry-after']).toBe('60');
       expect(res.body).not.toHaveProperty('error');
     }
     expect(rpmEval).not.toHaveBeenCalled();

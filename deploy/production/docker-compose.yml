@@ -61,6 +61,8 @@ services:
       - REFRESH_COOKIE_NAME=${REFRESH_COOKIE_NAME:-__Host-sep_refresh}
       - JWT_EXPIRE_DAYS=7
       - CORS_ORIGIN=${CORS_ORIGIN}
+      # Default stays disabled; deployment must verify the proxy chain before opting in.
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-}
 
       # 邮件：生产环境必须启用真实 SMTP，具体字段由后端启动校验。
       - MAIL_ENABLED=${MAIL_ENABLED:?MAIL_ENABLED is required}

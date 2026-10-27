@@ -17,6 +17,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -128,6 +129,7 @@ export class ConversationController {
    * Content-Type: text/event-stream
    */
   @Post(':id/messages')
+  @Throttle({ chat: { ttl: 60000, limit: 60 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送消息（SSE 流式返回）' })
   @ApiResponse({ status: 200, description: 'SSE 事件流' })

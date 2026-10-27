@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request as ExpressRequest, Response } from 'express';
 import { RunTaskDtoSchema, type RunTaskDto, type TaskStreamFrame } from 'shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -44,6 +45,7 @@ export class TaskExecutionController {
   }
 
   @Post(':id/run')
+  @Throttle({ chat: { ttl: 60000, limit: 60 } })
   @ApiOperation({ summary: '确认计划并在服务端开始执行' })
   @ApiResponse({ status: 201, description: '已入队，返回执行快照' })
   @ApiResponse({ status: 400, description: '没有可执行的步骤' })
@@ -64,6 +66,7 @@ export class TaskExecutionController {
   }
 
   @Post(':id/steps/:stepKey/retry')
+  @Throttle({ chat: { ttl: 60000, limit: 60 } })
   @ApiOperation({ summary: '从该步骤重跑（下游步骤一并重置）' })
   @ApiResponse({ status: 201, description: '已入队' })
   retry(@Request() req: AuthRequest, @Param('id') id: string, @Param('stepKey') stepKey: string) {
@@ -78,6 +81,7 @@ export class TaskExecutionController {
   }
 
   @Post(':id/steps/:stepKey/resume')
+  @Throttle({ chat: { ttl: 60000, limit: 60 } })
   @ApiOperation({ summary: '恢复已暂停的步骤' })
   resume(@Request() req: AuthRequest, @Param('id') id: string, @Param('stepKey') stepKey: string) {
     return this.service.resumeStep(id, req.user.id, stepKey);

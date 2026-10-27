@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WsAdapter } from '@nestjs/platform-ws';
@@ -7,15 +9,18 @@ import express from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
-import { basicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
+import { createBasicRateLimitMiddleware } from './common/middleware/basic-rate-limit.middleware';
 import { createJsonBodyMiddleware } from './common/middleware/json-body.middleware';
 import { CspMiddleware } from './common/middleware/csp.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { GatewayLifecycleService } from './common/lifecycle/gateway-lifecycle.service';
 import { installGatewayShutdown } from './common/lifecycle/gateway-shutdown';
+import { configureTrustedProxy } from './common/trusted-proxy';
+import { businessTracker } from './modules/security/rate-limit-policy';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  configureTrustedProxy(app.getHttpAdapter().getInstance());
   const gatewayLifecycle = app.get(GatewayLifecycleService);
   installGatewayShutdown(app, gatewayLifecycle);
   const isProduction = process.env.NODE_ENV === 'production';
@@ -45,7 +50,9 @@ async function bootstrap() {
   const cspMiddleware = new CspMiddleware();
   app.use((req, res, next) => cspMiddleware.use(req, res, next));
 
-  app.use(requestContextMiddleware, basicRateLimitMiddleware);
+  app.use(requestContextMiddleware, createBasicRateLimitMiddleware(
+    businessTracker(app.get(ConfigService), app.get(JwtService)),
+  ));
   app.use(createJsonBodyMiddleware());
   app.use(express.urlencoded({ limit: process.env.REQUEST_URLENCODED_LIMIT || '2mb', extended: true }));
   app.useGlobalFilters(new HttpExceptionFilter());

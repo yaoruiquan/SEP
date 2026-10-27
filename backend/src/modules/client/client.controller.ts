@@ -20,7 +20,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 import { Request as ExpressRequest } from 'express';
 import { ClientService } from './client.service';
@@ -110,6 +110,7 @@ export class ClientController {
    * 验证用户身份 + 注册/更新设备 → 返回 accessToken + refreshToken（在 body 中，非 cookie）
    */
   @Post('auth/login')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '客户端登录（桌面端专用）',
@@ -204,6 +205,7 @@ export class ClientController {
   }
 
   @Post('auth/refresh')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '刷新客户端普通访问令牌' })
   @ApiResponse({ status: 200, description: '刷新成功' })
@@ -229,6 +231,7 @@ export class ClientController {
    * 验证 client-refresh token + 检查订阅授权 → 签发短期 client-employment JWT
    */
   @Post('auth/token')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '获取订阅 employment token',

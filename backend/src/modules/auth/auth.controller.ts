@@ -84,6 +84,7 @@ export class AuthController {
   }
 
   @Get('invitations/verify')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '校验邀请 token（公开，无需登录）',
@@ -243,6 +244,7 @@ export class AuthController {
   }
 
   @Post('password/change')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()
@@ -266,6 +268,7 @@ export class AuthController {
   }
 
   @Post('email/verification/confirm')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '确认邮箱验证令牌' })
   async confirmEmailVerification(
@@ -288,6 +291,7 @@ export class AuthController {
   }
 
   @Post('email/change/confirm')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '确认登录邮箱修改令牌' })
   async confirmEmailChange(
@@ -325,12 +329,14 @@ export class AuthController {
   }
 
   @Get('oauth/:provider/start')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: '开始第三方登录' })
   async oauthStart(@Param('provider') provider: string) {
     return this.oauth.start({ provider, intent: 'LOGIN' });
   }
 
   @Post('oauth/:provider/link/start')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '开始绑定第三方账号' })
@@ -342,6 +348,7 @@ export class AuthController {
   }
 
   @Get('oauth/:provider/callback')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: '第三方 OAuth 回调' })
   async oauthCallback(
     @Param('provider') provider: string,
@@ -363,6 +370,7 @@ export class AuthController {
   }
 
   @Delete('oauth/identities/:id')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
@@ -375,6 +383,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '轮换 Refresh Token 并签发新的 Access Token' })
   @ApiResponse({ status: 200, description: '刷新成功，新 refresh token 写入 httpOnly cookie' })
