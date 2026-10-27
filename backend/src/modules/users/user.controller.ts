@@ -98,6 +98,8 @@ export class UserAvatarController {
   @ApiResponse({ status: 404, description: '头像不存在或已更换' })
   async read(@Param('filename') filename: string, @Response() response: ExpressResponse) {
     const { buffer, mime } = await this.userService.readAvatar(filename);
+    // Published images are embedded by the Electron client as well as the same-origin web app.
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Content-Type', mime);
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cache-Control', 'public, max-age=86400');

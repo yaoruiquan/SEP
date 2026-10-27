@@ -32,6 +32,8 @@ export class EnterpriseLogoController {
   @ApiResponse({ status: 404, description: '头像不存在或已更换' })
   async read(@Param('filename') filename: string, @Response() response: ExpressResponse) {
     const { buffer, mime } = await this.logos.read(filename);
+    // Override Helmet's same-origin default only for this published image response.
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Content-Type', mime);
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cache-Control', 'public, max-age=86400');
