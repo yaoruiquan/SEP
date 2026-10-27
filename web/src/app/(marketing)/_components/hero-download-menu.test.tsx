@@ -35,7 +35,8 @@ describe('HeroDownloadMenu', () => {
       { label: /Windows · 64 位/, fileName: 'SEP-Client-0.1.2-win-x64.exe' },
     ];
     expect(screen.getAllByRole('menuitem')).toHaveLength(expectedDownloads.length);
-    expect(screen.getByRole('button', { name: /下载客户端/ })).toHaveTextContent('v0.1.2');
+    expect(screen.getByRole('button', { name: '下载客户端' })).toHaveTextContent(/^下载客户端$/);
+    expect(screen.queryByText(/v0\.1\.2|M1\/M2\/M3\/M4/)).not.toBeInTheDocument();
     for (const { label, fileName } of expectedDownloads) {
       const item = screen.getByRole('menuitem', { name: label });
       expect(item).toHaveAttribute('href', `https://download.longdaoSEP.cn/sep-client/stable/0.1.2/${fileName}`);

@@ -25,7 +25,7 @@ export const CLIENT_RELEASE: ClientRelease = {
   artifacts: [
     {
       platform: 'macos-arm64',
-      label: 'macOS · Apple 芯片（M1/M2/M3/M4）',
+      label: 'macOS · Apple 芯片',
       fileName: 'SEP-Client-0.1.2-mac-arm64.dmg',
       url: 'https://download.longdaoSEP.cn/sep-client/stable/0.1.2/SEP-Client-0.1.2-mac-arm64.dmg',
       architecture: 'ARM64',

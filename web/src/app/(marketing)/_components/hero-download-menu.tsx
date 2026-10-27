@@ -82,7 +82,6 @@ export function HeroDownloadMenu() {
       >
         <Download className="h-4 w-4 text-gbrand-text" aria-hidden />
         下载客户端
-        <span className="text-xs font-normal text-gtext-muted">v{CLIENT_RELEASE.version}</span>
       </button>
 
       {open && (
@@ -94,7 +93,6 @@ export function HeroDownloadMenu() {
         >
           <div className="px-3 pb-2 pt-2">
             <p className="text-sm font-semibold text-gtext-primary">选择客户端版本</p>
-            <p className="mt-0.5 text-xs text-gtext-muted">SEP Client v{CLIENT_RELEASE.version}</p>
           </div>
 
           <div className="space-y-1">
