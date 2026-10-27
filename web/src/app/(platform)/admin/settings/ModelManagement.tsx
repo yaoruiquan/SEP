@@ -47,7 +47,10 @@ function inferVendor(modelId: string): keyof typeof VENDOR_CONFIG | "Other" {
 }
 
 export default function ModelManagement() {
-  const { data: models, isLoading } = usePlatformModels();
+  const [hasSynced, setHasSynced] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const { data: models, refetch } = usePlatformModels(hasSynced);
   const sync = useSyncModels();
   const updateModel = useUpdatePlatformModel();
   const testModel = useTestModel();
@@ -56,11 +59,15 @@ export default function ModelManagement() {
   const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // 历史记录保留在平台，管理列表只显示本次同步仍在上游的模型。
+  const upstreamModels = useMemo(
+    () => hasSynced ? models?.filter((model) => !model.isStale) ?? [] : [],
+    [hasSynced, models],
+  );
+
   // 筛选逻辑
   const filteredModels = useMemo(() => {
-    if (!models) return [];
-
-    return models.filter((model) => {
+    return upstreamModels.filter((model) => {
       const vendor = inferVendor(model.modelId);
 
       // 搜索过滤
@@ -77,27 +84,38 @@ export default function ModelManagement() {
       // 状态过滤
       if (statusFilter === "enabled" && !model.enabled) return false;
       if (statusFilter === "disabled" && model.enabled) return false;
-      if (statusFilter === "stale" && !model.isStale) return false;
 
       return true;
     });
-  }, [models, searchQuery, vendorFilter, statusFilter]);
+  }, [upstreamModels, searchQuery, vendorFilter, statusFilter]);
 
   // 获取所有厂商列表
   const vendors = useMemo(() => {
-    if (!models) return [];
-    const vendorSet = new Set(models.map((m) => inferVendor(m.modelId)));
+    const vendorSet = new Set(upstreamModels.map((m) => inferVendor(m.modelId)));
     return Array.from(vendorSet).sort();
-  }, [models]);
+  }, [upstreamModels]);
 
   const handleSync = async () => {
+    setIsSyncing(true);
+    setHasSynced(false);
+    setSyncError("");
     try {
       const r = await sync.mutateAsync();
+      // 等最新列表加载完成后再展示，避免把缓存中的历史全集闪回页面。
+      await refetch({ throwOnError: true });
+      setSearchQuery("");
+      setVendorFilter("all");
+      setStatusFilter("all");
+      setHasSynced(true);
       toast.success(
         `同步完成：上游 ${r.upstreamTotal} 个 · 新增 ${r.added} · 恢复 ${r.restored} · 失效 ${r.staled}`
       );
     } catch (err) {
-      toast.error(`同步失败：${(err as Error).message}`);
+      const message = err instanceof Error ? err.message : "请稍后重试";
+      setSyncError(`同步失败：${message}`);
+      toast.error(`同步失败：${message}`);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -119,25 +137,28 @@ export default function ModelManagement() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-96 w-full" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* 操作栏 */}
       <Card variant="solid">
         <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-fg-base">上游会话模型</h2>
+              <p className="mt-1 text-sm text-fg-muted">同步后仅显示上游当前支持的模型，启用后可供用户选择。</p>
+            </div>
+            <Button variant="primary" onClick={handleSync} disabled={isSyncing}>
+              <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+              {isSyncing ? "同步中..." : "同步上游"}
+            </Button>
+          </div>
+          {syncError && <p role="alert" className="mt-3 break-words text-sm text-danger">{syncError}</p>}
+          {hasSynced && <div className="mt-4 flex flex-wrap items-center gap-3">
             {/* 搜索框 */}
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
               <Input
+                aria-label="搜索上游模型"
                 placeholder="搜索模型名称或ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -147,6 +168,7 @@ export default function ModelManagement() {
 
             {/* 厂商筛选 */}
             <select
+              aria-label="筛选厂商"
               value={vendorFilter}
               onChange={(e) => setVendorFilter(e.target.value)}
               className="px-3 py-2 border border-border rounded-md bg-bg-base text-sm"
@@ -161,6 +183,7 @@ export default function ModelManagement() {
 
             {/* 状态筛选 */}
             <select
+              aria-label="筛选启用状态"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 border border-border rounded-md bg-bg-base text-sm"
@@ -168,33 +191,22 @@ export default function ModelManagement() {
               <option value="all">全部状态</option>
               <option value="enabled">已启用</option>
               <option value="disabled">已禁用</option>
-              <option value="stale">已下架</option>
             </select>
-
-            {/* 同步按钮 */}
-            <Button
-              variant="primary"
-              onClick={handleSync}
-              disabled={sync.isPending}
-            >
-              {sync.isPending ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  同步中...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  同步上游
-                </>
-              )}
-            </Button>
-          </div>
+          </div>}
         </CardContent>
       </Card>
 
-      {/* 表格 */}
-      <Card variant="solid">
+      {isSyncing ? (
+        <div role="status" aria-label="正在同步上游模型" className="space-y-3">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-36 w-full" />
+        </div>
+      ) : !hasSynced ? (
+        <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+          <p className="text-sm font-medium text-fg-base">尚未同步上游模型</p>
+          <p className="mt-2 text-sm text-fg-muted">点击「同步上游」获取当前支持的模型列表。</p>
+        </div>
+      ) : <Card variant="solid">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -226,7 +238,7 @@ export default function ModelManagement() {
                     <td colSpan={6} className="px-4 py-8 text-center text-fg-muted">
                       {searchQuery || vendorFilter !== "all" || statusFilter !== "all"
                         ? "没有符合条件的模型"
-                        : "暂无模型，点击「同步上游」拉取"}
+                        : "上游暂未返回模型，可稍后重新同步"}
                     </td>
                   </tr>
                 ) : (
@@ -271,11 +283,6 @@ export default function ModelManagement() {
                         {/* 状态标签 */}
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            {model.isStale && (
-                              <Badge className="bg-warning/10 text-warning text-xs">
-                                已下架
-                              </Badge>
-                            )}
                             {!model.hasPricing && (
                               <Badge className="bg-warning/10 text-warning text-xs">
                                 保底计费
@@ -288,6 +295,7 @@ export default function ModelManagement() {
                         <td className="px-4 py-3 text-center">
                           <input
                             type="checkbox"
+                            aria-label={`启用 ${model.label}`}
                             className="h-4 w-4 cursor-pointer accent-primary"
                             checked={model.enabled}
                             disabled={model.isStale || updateModel.isPending}
@@ -303,6 +311,7 @@ export default function ModelManagement() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              aria-label={`测试 ${model.label}`}
                               disabled={testModel.isPending}
                               onClick={() => handleTest(model.id, model.label)}
                             >
@@ -321,11 +330,11 @@ export default function ModelManagement() {
           {/* 统计信息 */}
           {filteredModels.length > 0 && (
             <div className="px-4 py-3 border-t border-border bg-bg-subtle text-xs text-fg-muted">
-              显示 {filteredModels.length} / {models?.length || 0} 个模型
+              显示 {filteredModels.length} / {upstreamModels.length} 个上游模型
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }

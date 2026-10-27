@@ -68,10 +68,13 @@ export function useUpstreamModels() {
 }
 
 /** 平台全部模型（含禁用与失效）。 */
-export function usePlatformModels() {
+export function usePlatformModels(enabled = true) {
   return useQuery<PlatformModel[]>({
     queryKey: ["models", "all"],
     queryFn: () => api.get<PlatformModel[]>("/models"),
+    enabled,
+    // 手动同步已强制刷新目录；切换回自动查询时复用该结果，避免立刻重复拉取。
+    staleTime: 30_000,
   });
 }
 
