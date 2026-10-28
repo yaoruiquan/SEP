@@ -1,5 +1,4 @@
 import { Hero } from "./_components/hero";
-import { TrustBar } from "./_components/trust-bar";
 import { BentoFeatures } from "./_components/bento-features";
 import { HowItWorks } from "./_components/how-it-works";
 import { EmployeeShowcase } from "./_components/employee-showcase";
@@ -11,7 +10,6 @@ export default function LandingPage() {
   return (
     <>
       <Hero />
-      <TrustBar />
       <EmployeeShowcase />
       <BentoFeatures />
       <HowItWorks />

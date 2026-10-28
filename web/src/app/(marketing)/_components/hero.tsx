@@ -160,13 +160,7 @@ export function Hero() {
   return (
     <section
       aria-label="产品介绍"
-      /*
-        原来是 min-h-dvh。首屏内容只有 ~470px 高，1440×900 下从 y≈600 到底部
-        是一整片空渐变 —— 占掉首屏三分之一，还把下面的数据背书条推到了折叠线外。
-        改成内容驱动高度 + 34rem 兜底（短屏 / 横屏手机不至于压塌），
-        这样 TrustBar 会在首屏底部露出一条边，用户知道下面还有东西。
-      */
-      className="relative z-20 min-h-[34rem] pt-28 pb-14 sm:pt-32 sm:pb-16"
+      className="relative z-20 flex min-h-[34rem] items-center pt-32 pb-20 sm:min-h-[38rem] lg:min-h-[min(52rem,100svh)] lg:pt-36 lg:pb-24"
     >
       {/* Aurora 背景 blobs */}
       <div className="aurora-layer" aria-hidden>
@@ -180,14 +174,14 @@ export function Hero() {
         aria-hidden
       />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-6">
+      <div className="relative z-10 mx-auto w-full max-w-[1360px] px-6">
         {/*
           左右不再对半分。文案收窄、示意图放大到 1.15fr —— 首屏的说服力来自
           「看见产品长什么样」，不是来自多读两行字。
         */}
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           {/* 左侧文案 */}
-          <div>
+          <div className="text-center lg:text-left">
             {/* 更新角标 */}
             <div className="animate-fade-up mb-8 inline-flex items-center gap-2">
               <Badge variant="glass">
@@ -199,17 +193,7 @@ export function Hero() {
               </Badge>
             </div>
 
-            {/*
-              字号上限从 4.5rem(72px) 收到 3.75rem(60px)。
-              两个原因，第二个是硬约束：
-                1. 中文是全宽方块字，同样 px 的视觉重量远大于西文 ——
-                   照英文 SaaS hero 的 72px 抄，中文会糊脸
-                2. 左栏收窄到 0.85fr 后可用宽约 483px（1440 视口），
-                   而「让公司从个体提效」8 字 × 72px ≈ 576px 放不下，
-                   会折成「让公司从个体提 / 效」把「效」挤成孤字一行
-              60px 时 8 字约 465px，从 lg(1024) 到 7xl(1280) 都能单行放下。
-            */}
-            <h1 className="animate-fade-up-d1 mb-8 text-[clamp(2.5rem,4.6vw,3.75rem)] font-bold leading-[1.12] tracking-[-0.03em] text-gtext-primary">
+            <h1 className="animate-fade-up-d1 mb-8 text-[clamp(2.25rem,10vw,2.5rem)] font-bold leading-[1.12] tracking-[-0.03em] text-gtext-primary lg:text-[clamp(2.5rem,4.6vw,4.25rem)]">
               {/*
                 渐变只落在「组织提效」四个字上。
 
@@ -235,7 +219,7 @@ export function Hero() {
               两种尺寸下都是空按钮，删掉。真要放演示入口，得先有一个真的
               录屏或可交互 demo 页可跳。
             */}
-            <div className="animate-fade-up-d3 flex flex-wrap items-start gap-3">
+            <div className="animate-fade-up-d3 flex flex-wrap items-start justify-center gap-3 lg:justify-start">
               <Link
                 href="/marketplace"
                 className="group inline-flex items-center gap-2 rounded-glass-pill bg-gbrand px-6 py-3 text-sm font-semibold text-white shadow-glass-md transition-all hover:bg-gbrand-hover hover:shadow-glass-lg"
@@ -249,17 +233,6 @@ export function Hero() {
               <HeroDownloadMenu />
             </div>
 
-            {/*
-              这里原先有一行三个勾选项：支持余额与支付宝 / 按部门或成员授权 /
-              每次执行可追踪。三条都是下面章节的原文复述 ——
-
-                支持余额与支付宝  ↔  HowItWorks 步骤 02「使用余额或支付宝完成订阅」
-                按部门或成员授权  ↔  HowItWorks 步骤 03「授权给部门或指定碳基成员」
-                每次执行可追踪    ↔  HowItWorks 步骤 03「查看执行记录」
-
-              而 TrustBar 紧贴首屏下方，社会背书（在架员工数 / 服务企业 / 累计任务）
-              已经由它承担。首屏留标题 + 一段说明 + 一个主 CTA 就够了。
-            */}
           </div>
 
           {/* 右侧 3D Mockup */}
