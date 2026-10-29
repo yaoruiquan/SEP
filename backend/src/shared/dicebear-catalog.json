@@ -1,0 +1,795 @@
+[
+  {
+    "id": "avataaars",
+    "name": "Avataaars",
+    "description": "经典卡通人物，类似 Slack 头像，适合办公场景",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "Free for personal and commercial use",
+      "url": "https://avataaars.com/",
+      "attribution": "Remix of „Avataaars” (https://avataaars.com/) by „Pablo Stanley”, licensed under „Free for personal and commercial use” (https://avataaars.com/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "avataaars-neutral",
+    "name": "Avataaars Neutral",
+    "description": "Avataaars 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "Free for personal and commercial use.",
+      "url": "https://avataaars.com/",
+      "attribution": "Remix of „Avataaars” (https://avataaars.com/) by „Pablo Stanley”, licensed under „Free for personal and commercial use.” (https://avataaars.com/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "lorelei",
+    "name": "Lorelei",
+    "description": "优雅的扁平插画人物，色彩柔和",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "Remix of „Lorelei” (https://www.figma.com/community/file/1198749693280469639) by „Lisa Wischofsky”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "lorelei-neutral",
+    "name": "Lorelei Neutral",
+    "description": "Lorelei 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "Remix of „Lorelei Neutral” (https://www.figma.com/community/file/1198749693280469639) by „Lisa Wischofsky”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "micah",
+    "name": "Micah",
+    "description": "现代简约人物头像",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Avatar Illustration System” (https://www.figma.com/community/file/829741575478342595) by „Micah Lanier”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "personas",
+    "name": "Personas",
+    "description": "3D 风格人物头像，由 Draftbit 设计",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Personas by Draftbit” (https://personas.draftbit.com/) by „Draftbit - draftbit.com”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "adventurer",
+    "name": "Adventurer",
+    "description": "冒险者风格人物",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Adventurer” (https://www.figma.com/community/file/1184595184137881796) by „Lisa Wischofsky”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "adventurer-neutral",
+    "name": "Adventurer Neutral",
+    "description": "Adventurer 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Adventurer Neutral” (https://www.figma.com/community/file/1184595184137881796) by „Lisa Wischofsky”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "big-ears",
+    "name": "Big Ears",
+    "description": "大耳朵卡通人物",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Face Generator” (https://www.figma.com/community/file/986078800058673824) by „The Visual Team”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "big-ears-neutral",
+    "name": "Big Ears Neutral",
+    "description": "Big Ears 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Face Generator” (https://www.figma.com/community/file/986078800058673824) by „The Visual Team”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "open-peeps",
+    "name": "Open Peeps",
+    "description": "扁平插画风格，表情丰富",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "Remix of „Open Peeps” (https://www.openpeeps.com/) by „Pablo Stanley”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "notionists",
+    "name": "Notionists",
+    "description": "Notion 风格头像，简约现代",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "Remix of „Notionists” (https://heyzoish.gumroad.com/l/notionists) by „Zoish”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "notionists-neutral",
+    "name": "Notionists Neutral",
+    "description": "Notionists 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "Remix of „Notionists” (https://heyzoish.gumroad.com/l/notionists) by „Zoish”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "croodles",
+    "name": "Croodles",
+    "description": "手绘涂鸦风格",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Croodles - Doodle your face” (https://www.figma.com/community/file/966199982810283152) by „vijay verma”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "croodles-neutral",
+    "name": "Croodles Neutral",
+    "description": "Croodles 的中性版本",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Croodles - Doodle your face” (https://www.figma.com/community/file/966199982810283152) by „vijay verma”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "miniavs",
+    "name": "Miniavs",
+    "description": "迷你头像风格",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Miniavs - Free Avatar Creator” (https://www.figma.com/community/file/923211396597067458) by „Webpixels”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "bottts",
+    "name": "Bottts",
+    "description": "机器人头像，强调\"数字员工\"概念",
+    "category": "robot",
+    "recommended": true,
+    "license": {
+      "name": "Free for personal and commercial use",
+      "url": "https://bottts.com/",
+      "attribution": "Remix of „Bottts” (https://bottts.com/) by „Pablo Stanley”, licensed under „Free for personal and commercial use” (https://bottts.com/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "bottts-neutral",
+    "name": "Bottts Neutral",
+    "description": "Bottts 的中性版本",
+    "category": "robot",
+    "recommended": false,
+    "license": {
+      "name": "Free for personal and commercial use",
+      "url": "https://bottts.com/",
+      "attribution": "Remix of „Bottts” (https://bottts.com/) by „Pablo Stanley”, licensed under „Free for personal and commercial use” (https://bottts.com/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "big-smile",
+    "name": "Big Smile",
+    "description": "表情丰富的卡通人物头像，适合亲切的客服与运营员工",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Custom Avatar” (https://www.figma.com/community/file/881358461963645496) by „Ashley Seo”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "pixel-art",
+    "name": "Pixel Art",
+    "description": "像素艺术风格",
+    "category": "pixel",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Pixel Art” (https://www.figma.com/community/file/1198754108850888330) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "pixel-art-neutral",
+    "name": "Pixel Art Neutral",
+    "description": "Pixel Art 的中性版本",
+    "category": "pixel",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Pixel Art Neutral” (https://www.figma.com/community/file/1198754108850888330) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "initials",
+    "name": "Initials",
+    "description": "首字母简约风，类似 GitHub 默认头像",
+    "category": "abstract",
+    "recommended": true,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Initials” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "identicon",
+    "name": "Identicon",
+    "description": "几何图形标识",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Identicon” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "shapes",
+    "name": "Shapes",
+    "description": "抽象几何形状",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Shapes” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "rings",
+    "name": "Rings",
+    "description": "同心圆环图案",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Rings” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "thumbs",
+    "name": "Thumbs",
+    "description": "拇指图标风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Thumbs” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "fun-emoji",
+    "name": "Fun Emoji",
+    "description": "趣味表情符号",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Fun Emoji Set” (https://www.figma.com/community/file/968125295144990435) by „Davis Uche”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "icons",
+    "name": "Icons",
+    "description": "图标风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/twbs/icons/blob/main/LICENSE",
+      "attribution": "The MIT License (MIT)\n\nCopyright (c) 2019-2024 The Bootstrap Authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "blobs",
+    "name": "Blobs",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Blobs” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "cameo",
+    "name": "Cameo",
+    "description": "单色极简人物剪影，适合安静的编辑式界面",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Cameo” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "clay",
+    "name": "Clay",
+    "description": "柔和立体几何图形",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Clay” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "constellation",
+    "name": "Constellation",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Constellation” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "critters",
+    "name": "Critters",
+    "description": "有触角和表情的卡通机器人角色",
+    "category": "robot",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Critters” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "cutouts",
+    "name": "Cutouts",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Cutouts” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "disco",
+    "name": "Disco",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Disco” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "dylan",
+    "name": "Dylan",
+    "description": "粗线条扁平人物，适合设计、内容与创意员工",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Dylan! The Avatar Generator” (https://www.figma.com/community/file/1356575240759683500) by „Natalia Spivak”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "gaze",
+    "name": "Gaze",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Gaze” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "glass",
+    "name": "Glass",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Glass” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "glyphs",
+    "name": "Glyphs",
+    "description": "Matt Houser 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „Abstract Avatars for All Creative Profile Use” (https://www.figma.com/community/file/1249154526125777853) by „Matt Houser”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "initial-face",
+    "name": "Initial Face",
+    "description": "字母与人脸结合的简约头像",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Initial Face” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "landscape",
+    "name": "Landscape",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Landscape” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "line-face",
+    "name": "Line Face",
+    "description": "线条人脸头像",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Line Face” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "loops",
+    "name": "Loops",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Loops” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "marbles",
+    "name": "Marbles",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Marbles” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "moods",
+    "name": "Moods",
+    "description": "抽象情绪与表情头像",
+    "category": "human",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Moods” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "patchwork",
+    "name": "Patchwork",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Patchwork” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "pixelbot",
+    "name": "Pixelbot",
+    "description": "像素风机器人",
+    "category": "robot",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Pixelbot” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "planets",
+    "name": "Planets",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Planets” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "shadows",
+    "name": "Shadows",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Shadows” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "shape-grid",
+    "name": "Shape Grid",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Shape Grid” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "slice",
+    "name": "Slice",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Slice” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "sprouts",
+    "name": "Sprouts",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Sprouts” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "squircles",
+    "name": "Squircles",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Squircles” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "stack",
+    "name": "Stack",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Stack” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "stripes",
+    "name": "Stripes",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Stripes” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "toon-head",
+    "name": "Toon Head",
+    "description": "自然比例的半身插画人物，适合通用职业员工",
+    "category": "human",
+    "recommended": true,
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Remix of „ToonHead” (https://www.figma.com/community/file/1589627891082866389) by „Johan Melin”, licensed under „CC BY 4.0” (https://creativecommons.org/licenses/by/4.0/)",
+      "requiresAttribution": true
+    }
+  },
+  {
+    "id": "triangles",
+    "name": "Triangles",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Triangles” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "voxel-art",
+    "name": "Voxel Art",
+    "description": "立体体素人物，保留服装与完整角色轮廓",
+    "category": "pixel",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Voxel Art” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "voxel-bot",
+    "name": "Voxel Bot",
+    "description": "体素机器人",
+    "category": "robot",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Voxel Bot” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "waves",
+    "name": "Waves",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Waves” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  },
+  {
+    "id": "weave",
+    "name": "Weave",
+    "description": "DiceBear 设计的头像风格",
+    "category": "abstract",
+    "recommended": false,
+    "license": {
+      "name": "CC0 1.0",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "„Weave” (https://www.dicebear.com) by „DiceBear”, licensed under „CC0 1.0” (https://creativecommons.org/publicdomain/zero/1.0/)",
+      "requiresAttribution": false
+    }
+  }
+]

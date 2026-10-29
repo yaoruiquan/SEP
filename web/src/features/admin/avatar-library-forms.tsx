@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { adminApi, type EmployeeAvatarSetting, type ManagedAvatarStyle } from './admin-api';
+import { canBindAvatarStyle, groupAvatarStyles } from './avatar-source-groups';
 
 const message = (error: unknown) => error instanceof Error ? error.message : '保存失败，请重试';
 const selectClass = 'h-10 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm';
@@ -63,7 +64,7 @@ export function AvatarLibraryForms({ employees, styles, onSaved }: {
             <label className="block space-y-2 text-sm"><span>风格说明</span><Input required maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述这套素材的视觉风格与用途" /></label>
           </> : <>
             <label className="block space-y-2 text-sm"><span>员工</span><select required className={selectClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}><option value="">请选择员工</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.position || '未设置岗位'}</option>)}</select></label>
-            <label className="block space-y-2 text-sm"><span>素材风格</span><select required className={selectClass} value={styleId} onChange={(e) => setStyleId(e.target.value)}><option value="">请选择风格</option>{styles.filter((style) => style.source === 'platform').map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</select></label>
+            <label className="block space-y-2 text-sm"><span>素材风格</span><select required className={selectClass} value={styleId} onChange={(e) => setStyleId(e.target.value)}><option value="">请选择风格</option>{groupAvatarStyles(styles.filter(canBindAvatarStyle)).map((group) => <optgroup key={group.id} label={group.name}>{group.styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</optgroup>)}</select></label>
             <label className="block space-y-2 text-sm"><span>人物图地址</span><Input required value={portraitUrl} onChange={(e) => setPortraitUrl(e.target.value)} placeholder="https://… 或 /assets/…" /></label>
             <label className="block space-y-2 text-sm"><span>头像裁切图地址（选填）</span><Input value={faceUrl} onChange={(e) => setFaceUrl(e.target.value)} placeholder="用于聊天、列表等小尺寸头像" /></label>
             <label className="block space-y-2 text-sm"><span>素材版本（选填）</span><Input maxLength={100} value={version} onChange={(e) => setVersion(e.target.value)} placeholder="例如：2026-09-v1" /></label>

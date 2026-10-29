@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Search } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { AvatarLibraryForms } from '@/features/admin/avatar-library-forms';
+import { groupAvatarStyles } from '@/features/admin/avatar-source-groups';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -48,9 +49,11 @@ function EmployeeStyleRow({ employee, styles, onSaved }: {
       <select aria-label={`${employee.name}的头像风格`} value={selection} className={selectClass}
         disabled={mutation.isPending} onChange={(event) => { setSelection(event.target.value); mutation.reset(); }}>
         <option value="follow-default" disabled={!employee.availableStyleIds.includes('follow-default')}>跟随平台默认</option>
-        {styles.map((style) => <option key={style.id} value={style.id} disabled={!employee.availableStyleIds.includes(style.id)}>
+        {!['follow-default', 'custom'].includes(employee.avatarStyle) && !styles.some((style) => style.id === employee.avatarStyle)
+          && <option value={employee.avatarStyle} disabled>原风格（已停用）</option>}
+        {groupAvatarStyles(styles).map((group) => <optgroup key={group.id} label={group.name}>{group.styles.map((style) => <option key={style.id} value={style.id} disabled={!employee.availableStyleIds.includes(style.id)}>
           {style.name}{!employee.availableStyleIds.includes(style.id) ? '（未绑定素材）' : ''}
-        </option>)}
+        </option>)}</optgroup>)}
         {(employee.availableStyleIds.includes('custom') || employee.avatarStyle === 'custom') && <option value="custom">自定义头像</option>}
       </select>
       <Button variant="outline" size="sm" disabled={selection === employee.avatarStyle} loading={mutation.isPending}
@@ -65,6 +68,7 @@ export default function AvatarStylesPage() {
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [applyToAll, setApplyToAll] = useState(false);
   const [source, setSource] = useState('all');
+  const [styleSearch, setStyleSearch] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const query = useQuery({ queryKey: ['avatar-styles'], queryFn: adminApi.getAvatarStyles });
@@ -93,7 +97,12 @@ export default function AvatarStylesPage() {
   const totalPages = Math.max(1, Math.ceil(employees.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const visibleEmployees = employees.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const visibleStyles = styles.filter((style) => source === 'all' || (source === 'platform' ? style.source !== 'dicebear' : style.source === 'dicebear'));
+  const sourceGroups = groupAvatarStyles(styles, data?.sources);
+  const styleTerm = styleSearch.trim().toLocaleLowerCase();
+  const visibleGroups = sourceGroups.filter((group) => source === 'all' || group.id === source)
+    .map((group) => ({ ...group, styles: group.styles.filter((style) =>
+      `${style.name} ${style.description} ${group.name}`.toLocaleLowerCase().includes(styleTerm)) }))
+    .filter((group) => group.styles.length > 0);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 pb-8">
@@ -124,30 +133,52 @@ export default function AvatarStylesPage() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div><h2 id="platform-styles-title" className="text-lg font-semibold">平台默认风格</h2>
                 <p className="mt-1 text-sm text-fg-muted">默认只影响跟随默认的员工；如需统一全部员工，可在确认时选择覆盖单独设置。</p></div>
-              <select aria-label="筛选风格来源" value={source} onChange={(event) => setSource(event.target.value)} className={`${selectClass} sm:w-40`}>
-                <option value="all">全部风格</option><option value="platform">平台素材</option><option value="dicebear">卡通头像库</option>
-              </select>
+              <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+                <div className="relative min-w-0 flex-1 sm:w-56"><Search className="absolute left-3 top-3 h-4 w-4 text-fg-subtle" />
+                  <Input aria-label="搜索头像风格" placeholder="搜索风格名称或用途" className="pl-9" value={styleSearch} onChange={(event) => setStyleSearch(event.target.value)} /></div>
+                <select aria-label="筛选风格来源" value={source} onChange={(event) => setSource(event.target.value)} className={`${selectClass} w-full sm:w-56`}>
+                  <option value="all">全部来源（{styles.length}）</option>
+                  {sourceGroups.map((group) => <option key={group.id} value={group.id}>{group.name}（{group.styles.length}）</option>)}
+                </select>
+              </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleStyles.map((style) => {
+            {visibleGroups.map((group) => <section key={group.id} aria-label={`${group.name}风格`} className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 pb-3">
+                <div><div className="flex items-center gap-2"><h3 className="font-semibold">{group.name}</h3><Badge variant="secondary">{group.styles.length} 种风格</Badge></div>
+                  {group.description && <p className="mt-1 text-sm text-fg-muted">{group.description}</p>}</div>
+                {group.website && <a href={group.website} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline" aria-label={`查看${group.name}来源`}>查看来源 ↗</a>}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {group.styles.map((style) => {
                 const isDefault = style.id === data.defaultStyleId;
                 return <article key={style.id} aria-label={style.name} className={`flex flex-col rounded-xl border bg-white p-5 ${isDefault ? 'border-primary ring-1 ring-primary/15' : 'border-neutral-200'}`}>
                   <div className="mb-5 flex min-h-24 items-center justify-center gap-3 rounded-lg bg-neutral-50 p-3">
                     {style.examples.length ? style.examples.slice(0, 3).map((url, index) => <Avatar key={`${url}-${index}`} src={url} portrait name={style.name} className="h-20 w-20 rounded-xl" />)
                       : <p className="text-sm text-fg-muted">绑定员工素材后显示预览</p>}
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{style.name}</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold">{style.name}</h4>
                     {isDefault && <Badge className="gap-1 bg-primary/10 text-primary"><Check className="h-3 w-3" />当前默认</Badge>}</div>
                   <p className="mt-2 flex-1 text-sm leading-6 text-fg-muted">{style.description}</p>
                   <div className="mb-3 mt-5 flex items-center justify-between text-xs text-fg-subtle">
-                    <span>{style.source === 'dicebear' ? '卡通头像库' : '平台素材'}</span><span>已匹配 {style.coverage.matched} / {style.coverage.total} 位</span>
+                    <span>{group.name}{style.totalAssets ? ` · ${style.totalAssets} 个形象` : ''}</span><span>已匹配 {style.coverage.matched} / {style.coverage.total} 位</span>
                   </div>
+                  {style.license && <p className="mb-3 text-xs leading-5 text-fg-muted">
+                    <a href={style.license.url} target="_blank" rel="noreferrer" title={style.license.attribution} className="hover:text-primary hover:underline">
+                      {style.license.name.startsWith('Free for personal') ? '免费商用' : style.license.name}
+                    </a>{style.license.requiresAttribution ? ' · 需保留署名 / 授权说明' : ''}
+                  </p>}
+                  {group.id === 'robohash' && style.license?.requiresAttribution && <p className="mb-3 break-words text-xs leading-5 text-fg-muted">{style.license.attribution}</p>}
                   <Button variant={isDefault ? 'secondary' : 'outline'} className="w-full" disabled={isDefault || !style.canSetDefault || mutation.isPending}
                     onClick={() => { mutation.reset(); setApplyToAll(false); setSelectedStyle(style.id); }}> {isDefault ? '正在使用' : '设为平台默认'}</Button>
                   {!style.canSetDefault && !isDefault && <p className="mt-2 text-xs leading-5 text-fg-muted">尚未覆盖全部员工，可在下方为已匹配的员工单独使用。</p>}
                 </article>;
               })}
-            </div>
+              </div>
+            </section>)}
+            {!visibleGroups.length && <div role="status" className="rounded-xl border border-neutral-200 bg-white p-10 text-center">
+              <p className="text-sm text-fg-muted">没有匹配的头像风格，请调整搜索或来源筛选。</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => { setStyleSearch(''); setSource('all'); }}>清除筛选</Button>
+            </div>}
           </section>
 
           <section aria-labelledby="employee-styles-title" className="rounded-xl border border-neutral-200 bg-white p-5 sm:p-6">

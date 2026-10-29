@@ -1,0 +1,454 @@
+{
+  "set1": [
+    {
+      "id": "set1-001",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-001.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-001.png",
+      "version": "2dd61f3f5605807c",
+      "originalUrl": "https://robohash.org/sep-digital-employee-001.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-002",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-002.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-002.png",
+      "version": "f8790be3c7bd602b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-002.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-003",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-003.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-003.png",
+      "version": "a6eae2faac60e4f5",
+      "originalUrl": "https://robohash.org/sep-digital-employee-003.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-004",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-004.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-004.png",
+      "version": "218e35edbf6fd248",
+      "originalUrl": "https://robohash.org/sep-digital-employee-004.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-005",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-005.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-005.png",
+      "version": "68fbeaf223ab108e",
+      "originalUrl": "https://robohash.org/sep-digital-employee-005.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-006",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-006.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-006.png",
+      "version": "24b292a951d8abdf",
+      "originalUrl": "https://robohash.org/sep-digital-employee-006.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-007",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-007.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-007.png",
+      "version": "1be187cf316797ba",
+      "originalUrl": "https://robohash.org/sep-digital-employee-007.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-008",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-008.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-008.png",
+      "version": "e4091f080f8136e2",
+      "originalUrl": "https://robohash.org/sep-digital-employee-008.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-009",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-009.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-009.png",
+      "version": "56e0ec19445c5760",
+      "originalUrl": "https://robohash.org/sep-digital-employee-009.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-010",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-010.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-010.png",
+      "version": "4bb9af91d0b5ea84",
+      "originalUrl": "https://robohash.org/sep-digital-employee-010.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-011",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-011.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-011.png",
+      "version": "b0995fd5c54e5845",
+      "originalUrl": "https://robohash.org/sep-digital-employee-011.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-012",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-012.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-012.png",
+      "version": "4adc06fb159032dd",
+      "originalUrl": "https://robohash.org/sep-digital-employee-012.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-013",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-013.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-013.png",
+      "version": "4b63de35fa49bdbd",
+      "originalUrl": "https://robohash.org/sep-digital-employee-013.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-014",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-014.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-014.png",
+      "version": "bcec0512e8228155",
+      "originalUrl": "https://robohash.org/sep-digital-employee-014.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-015",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-015.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-015.png",
+      "version": "8b38afa160d7c415",
+      "originalUrl": "https://robohash.org/sep-digital-employee-015.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-016",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-016.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-016.png",
+      "version": "b32d83f0fb34698b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-016.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-017",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-017.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-017.png",
+      "version": "40752bad3ce967e1",
+      "originalUrl": "https://robohash.org/sep-digital-employee-017.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-018",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-018.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-018.png",
+      "version": "172113928579c1f6",
+      "originalUrl": "https://robohash.org/sep-digital-employee-018.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-019",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-019.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-019.png",
+      "version": "e409b7816e5230d8",
+      "originalUrl": "https://robohash.org/sep-digital-employee-019.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-020",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-020.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-020.png",
+      "version": "5560833ad548eb0c",
+      "originalUrl": "https://robohash.org/sep-digital-employee-020.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-021",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-021.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-021.png",
+      "version": "fc98aa42705454e9",
+      "originalUrl": "https://robohash.org/sep-digital-employee-021.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-022",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-022.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-022.png",
+      "version": "1c9c85ffb8f19aee",
+      "originalUrl": "https://robohash.org/sep-digital-employee-022.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-023",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-023.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-023.png",
+      "version": "0d615de25ca5150e",
+      "originalUrl": "https://robohash.org/sep-digital-employee-023.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-024",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-024.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-024.png",
+      "version": "bf0546b476bb84ca",
+      "originalUrl": "https://robohash.org/sep-digital-employee-024.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-025",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-025.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-025.png",
+      "version": "2065113b6143f44e",
+      "originalUrl": "https://robohash.org/sep-digital-employee-025.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-026",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-026.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-026.png",
+      "version": "f063181971347cef",
+      "originalUrl": "https://robohash.org/sep-digital-employee-026.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-027",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-027.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-027.png",
+      "version": "c852d9f1ef1763f4",
+      "originalUrl": "https://robohash.org/sep-digital-employee-027.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-028",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-028.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-028.png",
+      "version": "edac9167d907b6c9",
+      "originalUrl": "https://robohash.org/sep-digital-employee-028.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-029",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-029.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-029.png",
+      "version": "3c34a62e73cc1d23",
+      "originalUrl": "https://robohash.org/sep-digital-employee-029.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-030",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-030.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-030.png",
+      "version": "0b38400045be4563",
+      "originalUrl": "https://robohash.org/sep-digital-employee-030.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-031",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-031.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-031.png",
+      "version": "0ec9c29f56e35a7e",
+      "originalUrl": "https://robohash.org/sep-digital-employee-031.png?set=set1&size=256x256"
+    },
+    {
+      "id": "set1-032",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set1-032.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set1-032.png",
+      "version": "dc8f2b69e58da0da",
+      "originalUrl": "https://robohash.org/sep-digital-employee-032.png?set=set1&size=256x256"
+    }
+  ],
+  "set3": [
+    {
+      "id": "set3-001",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-001.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-001.png",
+      "version": "7c0453fe74334830",
+      "originalUrl": "https://robohash.org/sep-digital-employee-001.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-002",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-002.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-002.png",
+      "version": "ebf9ca81cf581dd9",
+      "originalUrl": "https://robohash.org/sep-digital-employee-002.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-003",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-003.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-003.png",
+      "version": "4c45c50e7832272b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-003.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-004",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-004.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-004.png",
+      "version": "239d4c30c6a0c74b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-004.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-005",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-005.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-005.png",
+      "version": "789befeb49ef1ac0",
+      "originalUrl": "https://robohash.org/sep-digital-employee-005.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-006",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-006.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-006.png",
+      "version": "1d5f0dbf50fb379f",
+      "originalUrl": "https://robohash.org/sep-digital-employee-006.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-007",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-007.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-007.png",
+      "version": "446b677d16c3cf0f",
+      "originalUrl": "https://robohash.org/sep-digital-employee-007.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-008",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-008.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-008.png",
+      "version": "0e5aa73da40c5464",
+      "originalUrl": "https://robohash.org/sep-digital-employee-008.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-009",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-009.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-009.png",
+      "version": "9500b89d3d30713b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-009.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-010",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-010.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-010.png",
+      "version": "b97b1196efa83b5d",
+      "originalUrl": "https://robohash.org/sep-digital-employee-010.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-011",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-011.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-011.png",
+      "version": "1834e073e0ee0e60",
+      "originalUrl": "https://robohash.org/sep-digital-employee-011.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-012",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-012.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-012.png",
+      "version": "47eac3c3d3b518bc",
+      "originalUrl": "https://robohash.org/sep-digital-employee-012.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-013",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-013.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-013.png",
+      "version": "0d949d81e64402f3",
+      "originalUrl": "https://robohash.org/sep-digital-employee-013.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-014",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-014.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-014.png",
+      "version": "15553ba54eee8dbf",
+      "originalUrl": "https://robohash.org/sep-digital-employee-014.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-015",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-015.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-015.png",
+      "version": "f35e5c03cbf7337e",
+      "originalUrl": "https://robohash.org/sep-digital-employee-015.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-016",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-016.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-016.png",
+      "version": "73b2ab2d60a16d87",
+      "originalUrl": "https://robohash.org/sep-digital-employee-016.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-017",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-017.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-017.png",
+      "version": "39c7c30f120a7164",
+      "originalUrl": "https://robohash.org/sep-digital-employee-017.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-018",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-018.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-018.png",
+      "version": "365b7c8b41825a5c",
+      "originalUrl": "https://robohash.org/sep-digital-employee-018.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-019",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-019.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-019.png",
+      "version": "2481b82c4c35f701",
+      "originalUrl": "https://robohash.org/sep-digital-employee-019.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-020",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-020.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-020.png",
+      "version": "0ebe3ed877588c6f",
+      "originalUrl": "https://robohash.org/sep-digital-employee-020.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-021",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-021.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-021.png",
+      "version": "9307d9bf7bcd2765",
+      "originalUrl": "https://robohash.org/sep-digital-employee-021.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-022",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-022.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-022.png",
+      "version": "a85c72281bb0e779",
+      "originalUrl": "https://robohash.org/sep-digital-employee-022.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-023",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-023.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-023.png",
+      "version": "d95b1ce690f411e7",
+      "originalUrl": "https://robohash.org/sep-digital-employee-023.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-024",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-024.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-024.png",
+      "version": "4ee47060131d20a1",
+      "originalUrl": "https://robohash.org/sep-digital-employee-024.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-025",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-025.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-025.png",
+      "version": "8a01c88e2c45904d",
+      "originalUrl": "https://robohash.org/sep-digital-employee-025.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-026",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-026.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-026.png",
+      "version": "fd6bb6b134c24eed",
+      "originalUrl": "https://robohash.org/sep-digital-employee-026.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-027",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-027.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-027.png",
+      "version": "30c7b9f734cfbf1b",
+      "originalUrl": "https://robohash.org/sep-digital-employee-027.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-028",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-028.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-028.png",
+      "version": "071543b762c284bd",
+      "originalUrl": "https://robohash.org/sep-digital-employee-028.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-029",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-029.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-029.png",
+      "version": "aab61462e44b5f13",
+      "originalUrl": "https://robohash.org/sep-digital-employee-029.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-030",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-030.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-030.png",
+      "version": "f1bff1442668f727",
+      "originalUrl": "https://robohash.org/sep-digital-employee-030.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-031",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-031.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-031.png",
+      "version": "2e26cb3d43b182d8",
+      "originalUrl": "https://robohash.org/sep-digital-employee-031.png?set=set3&size=256x256"
+    },
+    {
+      "id": "set3-032",
+      "portraitUrl": "/assets/avatar-libraries/robohash/set3-032.png",
+      "faceUrl": "/assets/avatar-libraries/robohash/set3-032.png",
+      "version": "65e4681fa930d1ae",
+      "originalUrl": "https://robohash.org/sep-digital-employee-032.png?set=set3&size=256x256"
+    }
+  ]
+}

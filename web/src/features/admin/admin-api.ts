@@ -113,6 +113,13 @@ export interface OperationResponse {
 }
 
 // Employee Management Types
+export interface AvatarSource {
+  id: string;
+  name: string;
+  description: string;
+  website: string;
+}
+
 export interface ManagedAvatarStyle {
   id: string;
   name: string;
@@ -120,6 +127,11 @@ export interface ManagedAvatarStyle {
   category: string;
   recommended: boolean;
   source: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  license?: { name: string; url: string; attribution: string; requiresAttribution: boolean };
+  delivery?: 'generated' | 'static' | 'binding';
+  totalAssets?: number;
   examples: string[];
   coverage: { matched: number; total: number };
   canSetDefault: boolean;
@@ -138,6 +150,7 @@ export interface EmployeeAvatarSetting {
 
 export interface AvatarStylesResponse {
   styles: ManagedAvatarStyle[];
+  sources?: AvatarSource[];
   total: number;
   defaultStyleId: string;
   followersCount: number;

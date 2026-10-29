@@ -1,0 +1,5 @@
+Open Peeps by Pablo Stanley
+Source: https://www.openpeeps.com/
+CC0 1.0 Universal: https://creativecommons.org/publicdomain/zero/1.0/
+Original publicly downloadable SVGs. Face variants change the viewBox and dimensions only.
+Per-image original download URLs are retained in open-peeps-assets.json.

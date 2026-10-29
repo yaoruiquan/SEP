@@ -26,7 +26,8 @@
     "db:studio": "pnpm --filter backend db:studio",
     "db:reset": "pnpm --filter backend db:reset",
     "db:seed": "pnpm --filter backend db:seed",
-    "kill-dev": "bash scripts/kill-dev.sh"
+    "kill-dev": "bash scripts/kill-dev.sh",
+    "avatar-libraries:check": "node scripts/sync-avatar-library.mjs --check"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

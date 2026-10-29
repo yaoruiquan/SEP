@@ -403,7 +403,7 @@ export class AdminController {
 
   @Get('employees/avatar-styles')
   @ApiOperation({ summary: '获取所有可用的头像风格列表' })
-  @ApiResponse({ status: 200, description: '返回所有 DiceBear 风格及推荐列表' })
+  @ApiResponse({ status: 200, description: '返回按来源分类的头像风格、授权信息与员工覆盖情况' })
   getAvatarStyles() {
     return this.adminService.getAvatarStyles();
   }

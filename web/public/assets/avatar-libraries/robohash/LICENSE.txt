@@ -1,0 +1,9 @@
+Robots lovingly delivered by Robohash.org.
+set1 classic robots: Zikri Kader. set3 robot heads: Julian Peter Arias.
+Artwork: Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+https://creativecommons.org/licenses/by/3.0/
+Source: https://robohash.org/
+Artwork license reference: https://github.com/e1ven/Robohash#robosets
+Downloaded as 256x256 PNGs. Attribution/license/source text metadata added; pixels unchanged.
+Original download URLs and content versions are retained in robohash-assets.json.
+The MIT license of the Python server is separate from the artwork license.

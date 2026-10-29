@@ -3,9 +3,9 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType } from '@prisma/client';
-import { DICEBEAR_STYLES, FOLLOW_DEFAULT_STYLE_ID, SILICON_3D_STYLE, canonicalAvatarStyleId, generateAvatarUrl } from '../../shared/dicebear-styles';
-import { DEFAULT_AVATAR_STYLE_ID, employeeEffectiveStyle, resolveAvatarForStyle, preservedAvatarBindings, isAvatarImageUrl } from '../../common/avatar-style';
-import { withEmployeeAvatar } from '../../common/employee-avatar';
+import { AVATAR_SOURCES, SELECTABLE_AVATAR_STYLES, FOLLOW_DEFAULT_STYLE_ID, SILICON_3D_STYLE, builtinAvatarStyle, canonicalAvatarStyleId, libraryAvatarBinding } from '../../shared/dicebear-styles';
+import { DEFAULT_AVATAR_STYLE_ID, employeeEffectiveStyle, resolveAvatarForStyle, resolveAvatarBindingForStyle, preservedAvatarBindings, isAvatarImageUrl } from '../../common/avatar-style';
+import { employeeAssetBaseUrl, withEmployeeAvatar } from '../../common/employee-avatar';
 import { SettingService } from '../setting/setting.service';
 import { PersonalWalletService, assertActiveRewardRecipientInTx } from '../personal-wallet/personal-wallet.service';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -1420,9 +1420,14 @@ export class AdminService {
   private async avatarDefinitions(db: Prisma.TransactionClient = this.prisma) {
     const custom = await db.avatarStyleDefinition.findMany({ where: { active: true }, orderBy: { name: 'asc' } });
     return [
-      { ...SILICON_3D_STYLE, source: 'platform', examples: [] as string[] },
-      ...DICEBEAR_STYLES.map((style) => ({ ...style, id: `cartoon:${style.id}`, source: 'dicebear', examples: [1, 2, 3].map((n) => generateAvatarUrl(style.id, `preview-${n}`)) })),
-      ...custom.map((style) => ({ ...style, source: 'platform', examples: Array.isArray(style.examples) ? style.examples.filter((item): item is string => typeof item === 'string') : [] })),
+      ...SELECTABLE_AVATAR_STYLES.map((style) => ({
+        ...style,
+        examples: style.delivery === 'binding' ? [] as string[]
+          : [1, 2, 3].map((n) => libraryAvatarBinding(style.id, `preview-${n}`, ['产品经理', '设计师', '工程师'][n - 1])?.faceUrl
+            ?? libraryAvatarBinding(style.id, `preview-${n}`, ['产品经理', '设计师', '工程师'][n - 1])?.portraitUrl).filter((url): url is string => !!url),
+      })),
+      ...custom.map((style) => ({ ...style, source: 'platform', sourceName: '平台素材', sourceUrl: '', license: undefined, delivery: 'binding' as const,
+        examples: Array.isArray(style.examples) ? style.examples.filter((item): item is string => typeof item === 'string') : [] })),
     ];
   }
 
@@ -1454,11 +1459,13 @@ export class AdminService {
         const avatar = resolveAvatarForStyle(employee, style.id);
         return avatar ? [withEmployeeAvatar({ ...employee, avatar }).avatar!] : [];
       }).slice(0, 3);
-      return { ...style, examples, coverage: { matched, total: employees.length }, canSetDefault: matched === employees.length };
+      return { ...style, examples: examples.map((url) => url.startsWith('/') && !url.startsWith('//') ? new URL(url, employeeAssetBaseUrl()).href : url),
+        coverage: { matched, total: employees.length }, canSetDefault: matched === employees.length };
     });
     const followersCount = employees.filter((employee) => !employee.avatarStyle || employee.avatarStyle === FOLLOW_DEFAULT_STYLE_ID).length;
     return {
-      styles, total: styles.length, defaultStyleId, followersCount, overridesCount: employees.length - followersCount,
+      styles, sources: AVATAR_SOURCES.filter((source) => styles.some((style) => style.source === source.id)),
+      total: styles.length, defaultStyleId, followersCount, overridesCount: employees.length - followersCount,
       employees: prepared.map((employee) => ({
         id: employee.id, name: employee.name, position: employee.position,
         avatar: withEmployeeAvatar(employee).avatar, avatarAsset: withEmployeeAvatar(employee).avatarAsset,
@@ -1489,7 +1496,7 @@ export class AdminService {
       for (const employee of targets) {
         const avatar = resolveAvatarForStyle(employee, canonical)!;
         const bindings = employee.avatarBindings;
-        bindings[canonical] ??= { portraitUrl: avatar };
+        bindings[canonical] ??= resolveAvatarBindingForStyle(employee, canonical)!;
         const preservedCustomUrl = employee.avatarCustomUrl || (employee.avatarStyle === 'custom' ? employee.avatar : null);
         await tx.digitalEmployee.update({
           where: { id: employee.id },
@@ -1516,14 +1523,14 @@ export class AdminService {
       const custom = employee.avatarCustomUrl || (employee.avatarStyle === 'custom' ? employee.avatar : null);
       const avatar = effective === 'custom' ? custom : resolveAvatarForStyle({ ...employee, avatarBindings: bindings }, effective);
       if (!avatar) throw new BadRequestException('该员工没有可用的头像绑定');
-      if (effective !== 'custom') bindings[effective] ??= { portraitUrl: avatar };
+      if (effective !== 'custom') bindings[effective] ??= resolveAvatarBindingForStyle({ ...employee, avatarBindings: bindings }, effective)!;
       return withEmployeeAvatar(await tx.digitalEmployee.update({ where: { id: employeeId }, data: { avatar, avatarStyle: canonical, avatarCustomUrl: custom, avatarBindings: bindings } }));
     });
   }
 
   async registerAvatarStyle(input: { id: string; name: string; description: string; category: string; examples?: string[]; recommended?: boolean; totalAssets?: number }) {
     const id = input.id.trim();
-    if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(id) || [FOLLOW_DEFAULT_STYLE_ID, 'custom', SILICON_3D_STYLE.id].includes(id) || DICEBEAR_STYLES.some((style) => style.id === id)) throw new BadRequestException('风格标识无效或与内置风格冲突');
+    if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(id) || [FOLLOW_DEFAULT_STYLE_ID, 'custom'].includes(id) || builtinAvatarStyle(id)) throw new BadRequestException('风格标识无效或与内置风格冲突');
     if (input.examples?.some((url) => !isAvatarImageUrl(url))) throw new BadRequestException('素材地址必须为 HTTP(S) 或 /assets/ 路径');
     if (await this.prisma.avatarStyleDefinition.findUnique({ where: { id } })) throw new BadRequestException('该风格标识已存在');
     return this.prisma.avatarStyleDefinition.create({ data: { ...input, id, source: 'platform', examples: input.examples || [] } });
@@ -1533,8 +1540,8 @@ export class AdminService {
     if (!isAvatarImageUrl(binding.portraitUrl) || (binding.faceUrl && !isAvatarImageUrl(binding.faceUrl))) throw new BadRequestException('素材地址必须为 HTTP(S) 或 /assets/ 路径');
     const canonical = canonicalAvatarStyleId(styleId);
     return this.avatarTransaction(async (tx) => {
-      const style = (await this.avatarDefinitions(tx)).find((item) => item.id === canonical && item.source === 'platform');
-      if (!style) throw new BadRequestException('请选择平台素材风格');
+      const style = (await this.avatarDefinitions(tx)).find((item) => item.id === canonical && ['binding', 'static'].includes(item.delivery));
+      if (!style) throw new BadRequestException('请选择支持员工素材绑定的风格');
       const employee = await tx.digitalEmployee.findUnique({ where: { id: employeeId } });
       if (!employee) throw new NotFoundException('员工不存在');
       const bindings = preservedAvatarBindings(employee);

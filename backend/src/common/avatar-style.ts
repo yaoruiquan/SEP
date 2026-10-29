@@ -1,12 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import {
-  DICEBEAR_STYLES,
   FOLLOW_DEFAULT_STYLE_ID,
   SILICON_3D_STYLE,
   canonicalAvatarStyleId,
-  dicebearStyleId,
-  generateAvatarUrl,
   generateSeedFromName,
+  builtinAvatarStyle,
+  BUILTIN_AVATAR_STYLES,
+  libraryAvatarBinding,
 } from '../shared/dicebear-styles';
 import avatarRegistry from './employee-avatar-assets.json';
 
@@ -27,9 +27,7 @@ export type AvatarBindings = Record<string, AvatarBinding>;
 
 
 export function isKnownAvatarStyle(styleId: string): boolean {
-  const canonical = canonicalAvatarStyleId(styleId);
-  return canonical === SILICON_3D_STYLE.id ||
-    DICEBEAR_STYLES.some((style) => style.id === dicebearStyleId(canonical));
+  return !!builtinAvatarStyle(styleId);
 }
 
 export function requireKnownAvatarStyle(styleId: string): string {
@@ -43,6 +41,11 @@ export function requireKnownAvatarStyle(styleId: string): string {
 export function inferAvatarStyle(avatar: string | null, stored?: string | null): string {
   if (stored) return canonicalAvatarStyleId(stored);
   if (avatar?.startsWith('/assets/employees/silicon/')) return SILICON_3D_STYLE.id;
+  const local = avatar?.match(/\/avatar-library\/v\d+\/([^/]+)\/([^/?]+)/);
+  if (local) {
+    const style = BUILTIN_AVATAR_STYLES.find((style) => style.source === local[1] && style.styleId === local[2]);
+    if (style) return style.id;
+  }
   const dicebear = avatar?.match(/^https:\/\/api\.dicebear\.com\/(?:\d+\.x\/)?([^/]+)\/svg\?/);
   return dicebear ? `cartoon:${dicebear[1]}` : 'custom';
 }
@@ -67,13 +70,20 @@ export function bindingForStyle(employee: EmployeeAvatarInput, styleId: string):
 }
 
 export function resolveAvatarForStyle(employee: EmployeeAvatarInput, styleId: string): string | null {
+  return resolveAvatarBindingForStyle(employee, styleId)?.portraitUrl ?? null;
+}
+
+export function resolveAvatarBindingForStyle(employee: EmployeeAvatarInput, styleId: string): AvatarBinding | null {
   const canonical = canonicalAvatarStyleId(styleId);
   const binding = bindingForStyle(employee, canonical);
-  if (binding) return binding.portraitUrl;
-  if (canonical === SILICON_3D_STYLE.id) return platformAvatarPath(employee);
+  if (binding) return binding;
+  if (canonical === SILICON_3D_STYLE.id) {
+    const path = platformAvatarPath(employee);
+    return path ? { portraitUrl: path } : null;
+  }
   if (!isKnownAvatarStyle(canonical)) return null;
   const seed = generateSeedFromName(employee.id);
-  return generateAvatarUrl(canonical, seed);
+  return libraryAvatarBinding(canonical, seed, employee.name);
 }
 
 export function employeeEffectiveStyle(stored: string | null | undefined, defaultStyle: string): string {

@@ -253,3 +253,130 @@ describe('AvatarStylesPage', () => {
     expect(screen.queryByRole('article', { name: '未完成风格' })).not.toBeInTheDocument();
   });
 });
+
+
+const CHARACTER_STYLES = [
+  { ...DICEBEAR_STYLE, id: 'cartoon:toon-head', name: 'Toon Head', source: 'dicebear', delivery: 'generated' as const },
+  { ...DICEBEAR_STYLE, id: 'open-peeps-busts', name: 'Open Peeps 半身人物', source: 'open-peeps', delivery: 'static' as const, totalAssets: 49 },
+];
+
+describe('新增数字员工素材来源', () => {
+  const attribution = 'Robots lovingly delivered by Robohash.org. Robot artwork by Zikri Kader (set1) and Julian Peter Arias (set3).';
+  const styles = [
+    { ...DICEBEAR_STYLE, id: 'beanheads-professional', name: 'Bean Heads 职业人物', source: 'beanheads', delivery: 'generated' as const },
+    ...['set1', 'set3'].map((pack) => ({
+      ...DICEBEAR_STYLE, id: `robohash-${pack}`, name: `RoboHash ${pack}`, source: 'robohash', delivery: 'static' as const,
+      totalAssets: 32, license: { name: 'CC BY 3.0', url: 'https://creativecommons.org/licenses/by/3.0/', attribution, requiresAttribution: true },
+    })),
+  ];
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const data = response();
+    apiMocks.getAvatarStyles.mockResolvedValue(response({
+      styles: [PLATFORM_STYLE, ...styles], total: 4,
+      employees: data.employees.map((employee) => ({ ...employee, availableStyleIds: [...employee.availableStyleIds, ...styles.map((style) => style.id)] })),
+    }));
+    apiMocks.updateEmployeeAvatarStyle.mockResolvedValue({});
+  });
+  it('两个来源独立筛选，机器人署名和素材数直接可见', async () => {
+    renderPage();
+    await waitForPage();
+    fireEvent.change(screen.getByLabelText('筛选风格来源'), { target: { value: 'beanheads' } });
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByRole('article', { name: 'Bean Heads 职业人物' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('筛选风格来源'), { target: { value: 'robohash' } });
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    for (const article of screen.getAllByRole('article')) {
+      expect(within(article).getByText(attribution)).toBeVisible();
+      expect(within(article).getByText('RoboHash · 32 个形象')).toBeInTheDocument();
+    }
+  });
+  it.each(styles.map((style) => [style.id]))('员工可单独选择 %s', async (id) => {
+    renderPage();
+    await waitForPage();
+    const select = screen.getByLabelText('固定员工的头像风格');
+    expect(select.querySelector('optgroup[label="Bean Heads"]')).toBeInTheDocument();
+    expect(select.querySelector('optgroup[label="RoboHash"]')).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: id } });
+    fireEvent.click(screen.getByRole('button', { name: '保存固定员工的头像设置' }));
+    await waitFor(() => expect(apiMocks.updateEmployeeAvatarStyle).toHaveBeenCalledWith('employee-fixed', id));
+  });
+});
+
+describe('人物头像来源分类', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiMocks.getAvatarStyles.mockResolvedValue(response({ styles: [PLATFORM_STYLE, DICEBEAR_STYLE, ...CHARACTER_STYLES] }));
+  });
+
+  it('人物来源按来源分组，没有已移除的图案和姓名头像来源', async () => {
+    renderPage();
+    await waitForPage();
+    for (const [name, count] of [['平台素材', 1], ['DiceBear', 2], ['Open Peeps 原版', 1]]) {
+      expect(screen.getByRole('region', { name: `${name}风格` })).toBeInTheDocument();
+      expect(within(screen.getByLabelText('筛选风格来源')).getByRole('option', { name: `${name}（${count}）` })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole('article')).toHaveLength(4);
+    expect(screen.queryByRole('region', { name: 'Boring Avatars风格' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'UI Avatars风格' })).not.toBeInTheDocument();
+  });
+
+  it('筛选 Open Peeps 仅显示原版人物', async () => {
+    renderPage();
+    await waitForPage();
+    fireEvent.change(screen.getByLabelText('筛选风格来源'), { target: { value: 'open-peeps' } });
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByRole('article', { name: 'Open Peeps 半身人物' })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Toon Head' })).not.toBeInTheDocument();
+  });
+
+  it('风格搜索和来源筛选组合生效，空结果可清除且不影响员工搜索', async () => {
+    renderPage();
+    await waitForPage();
+    fireEvent.change(screen.getByLabelText('搜索头像风格'), { target: { value: 'Toon Head' } });
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByText('固定员工')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('筛选风格来源'), { target: { value: 'open-peeps' } });
+    expect(screen.queryAllByRole('article')).toHaveLength(0);
+    expect(screen.getByText('没有匹配的头像风格，请调整搜索或来源筛选。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    expect(screen.getAllByRole('article')).toHaveLength(4);
+    expect(screen.getByLabelText('搜索头像风格')).toHaveValue('');
+  });
+
+  it('员工人物风格按来源分组，原版静态人物可绑定覆盖', async () => {
+    renderPage();
+    await waitForPage();
+    const employeeSelect = screen.getByLabelText('固定员工的头像风格');
+    expect(employeeSelect.querySelector('optgroup[label="DiceBear"]')).toBeInTheDocument();
+    expect(employeeSelect.querySelector('optgroup[label="Open Peeps 原版"]')).toBeInTheDocument();
+    expect(employeeSelect.querySelector('optgroup[label="Boring Avatars"]')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '绑定员工素材' }));
+    const select = within(await screen.findByRole('dialog')).getByRole('combobox', { name: '素材风格' });
+    expect(within(select).getByRole('option', { name: 'Open Peeps 半身人物' })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: 'Toon Head' })).not.toBeInTheDocument();
+  });
+
+  it('已停用的当前风格保留显示，可改选人物头像', async () => {
+    const data = response({ styles: [PLATFORM_STYLE, ...CHARACTER_STYLES] });
+    data.employees[0].avatarStyle = 'cartoon:glass';
+    data.employees[0].effectiveStyleId = 'cartoon:glass';
+    apiMocks.getAvatarStyles.mockResolvedValue(data);
+    renderPage();
+    await waitForPage();
+    const select = screen.getByLabelText('跟随员工的头像风格');
+    expect(select).toHaveValue('cartoon:glass');
+    expect(within(select).getByRole('option', {name: '原风格（已停用）'})).toBeDisabled();
+  });
+
+  it('按风格显示授权信息和署名要求', async () => {
+    apiMocks.getAvatarStyles.mockResolvedValue(response({ styles: [PLATFORM_STYLE, {
+      ...DICEBEAR_STYLE, license: { name: 'CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/', attribution: 'Author credit', requiresAttribution: true },
+    }] }));
+    renderPage();
+    await waitForPage();
+    const article = screen.getByRole('article', { name: '卡通风格' });
+    expect(within(article).getByRole('link', { name: 'CC BY 4.0' })).toHaveAttribute('title', 'Author credit');
+    expect(within(article).getByText(/需保留署名/)).toBeInTheDocument();
+  });
+});
