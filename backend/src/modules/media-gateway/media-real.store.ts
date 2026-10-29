@@ -1,11 +1,11 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { MediaRealQuote, MediaRealReceipt, MediaRealReference } from 'shared';
-import { MediaRealQuoteSchema, MediaRealReceiptSchema, MediaRealReferenceSchema } from 'shared';
+import { MediaConfigVersionV3Schema, MediaProfileIdV3Schema, MediaRealAnyQuoteSchema, MediaRealAnyReceiptSchema, MediaRealReferenceSchema } from 'shared';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 
-const configurationSchema = z.object({
+const legacyConfigurationSchema = z.object({
   profileId: z.string().min(1),
   configVersion: z.string().min(1),
   modelId: z.string().min(1).max(160).optional(),
@@ -16,9 +16,18 @@ const configurationSchema = z.object({
     quality: z.enum(['low', 'medium', 'high']),
   }).strict(),
 }).strict();
+const configurationV3Schema = z.object({
+  protocolVersion: z.literal(3), semanticHashVersion: z.literal(3), specRevision: z.number().int().positive(),
+  profileId: MediaProfileIdV3Schema, configVersion: MediaConfigVersionV3Schema, modelId: z.string().min(1).max(160),
+  operation: z.enum(['generate', 'edit']), requestedSpec: z.record(z.unknown()), effectiveSpec: z.object({
+    size: z.string().min(1).max(128), count: z.number().int().min(1).max(4), quality: z.string().min(1).max(128),
+  }).passthrough(), parameterSources: z.record(z.unknown()).optional(), connectionFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  adapterVersion: z.string().min(1).max(128),
+}).strict();
+const configurationSchema = z.union([configurationV3Schema, legacyConfigurationSchema]);
 
 export type RealReferenceRecord = { scope: string; value: MediaRealReference };
-export type RealQuoteRecord = { scope: string; value: MediaRealQuote; usdToCnyRate: number };
+export type RealQuoteRecord = { scope: string; value: MediaRealQuote; usdToCnyRate: number; connectionFingerprint?: string };
 export type RealRequestRecord = {
   id: string; enterpriseId: string; clientRequestId: string; quoteId: string; upstreamRequestId: string | null;
   scope: string; semanticSha256: string; referenceIds: string[]; referenceHashes: string[]; count: number;
@@ -54,14 +63,14 @@ export class MediaRealStore {
     });
   }
 
-  async saveQuote(scope: string, value: Omit<MediaRealQuote, 'quoteId'>, usdToCnyRate: number) {
+  async saveQuote(scope: string, value: Omit<MediaRealQuote, 'quoteId'>, usdToCnyRate: number, connectionFingerprint?: string) {
     return this.safe(async () => {
-      MediaRealQuoteSchema.parse({ ...value, quoteId: 'pending' });
+      MediaRealAnyQuoteSchema.parse({ ...value, quoteId: 'pending' });
       if (!Number.isFinite(usdToCnyRate) || usdToCnyRate <= 0) realMediaStorageUnavailable();
       const row = await this.prisma.mediaRealQuote.create({ data: {
-        scope, metadata: { quote: value, usdToCnyRate }, expiresAt: new Date(value.expiresAt),
+        scope, metadata: { quote: value, usdToCnyRate, ...(connectionFingerprint ? { connectionFingerprint } : {}) }, expiresAt: new Date(value.expiresAt),
       } });
-      return MediaRealQuoteSchema.parse({ ...value, quoteId: row.id });
+      return MediaRealAnyQuoteSchema.parse({ ...value, quoteId: row.id });
     });
   }
 
@@ -71,7 +80,9 @@ export class MediaRealStore {
       if (!row) return null;
       const metadata = row.metadata as Prisma.JsonObject;
       if (typeof metadata.usdToCnyRate !== 'number' || !Number.isFinite(metadata.usdToCnyRate) || metadata.usdToCnyRate <= 0) realMediaStorageUnavailable();
-      return { scope: row.scope, usdToCnyRate: metadata.usdToCnyRate, value: MediaRealQuoteSchema.parse({
+      if (metadata.connectionFingerprint !== undefined && (typeof metadata.connectionFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(metadata.connectionFingerprint))) realMediaStorageUnavailable();
+      return { scope: row.scope, usdToCnyRate: metadata.usdToCnyRate,
+        connectionFingerprint: metadata.connectionFingerprint as string | undefined, value: MediaRealAnyQuoteSchema.parse({
         ...(metadata.quote as Prisma.JsonObject), quoteId: row.id,
       }) };
     });
@@ -115,7 +126,7 @@ export class MediaRealStore {
 
   async claim(input: Omit<RealRequestRecord, 'id' | 'revision'>): Promise<{ record: RealRequestRecord; created: boolean }> {
     return this.safe(async () => {
-      MediaRealReceiptSchema.parse(input.receipt);
+      MediaRealAnyReceiptSchema.parse(input.receipt);
       configurationSchema.parse(input.configuration);
       if (input.receipt.clientRequestId !== input.clientRequestId || input.receipt.status !== 'SUBMITTING'
         || input.receipt.profileId !== (input.configuration as z.infer<typeof configurationSchema>).profileId
@@ -139,7 +150,7 @@ export class MediaRealStore {
 
   async save(record: RealRequestRecord, upstreamRequestId = record.upstreamRequestId): Promise<RealRequestRecord> {
     return this.safe(async () => {
-      MediaRealReceiptSchema.parse(record.receipt);
+      MediaRealAnyReceiptSchema.parse(record.receipt);
       configurationSchema.parse(record.configuration);
       if (record.receipt.receiptId !== record.id || record.receipt.clientRequestId !== record.clientRequestId
         || record.receipt.profileId !== (record.configuration as z.infer<typeof configurationSchema>).profileId
@@ -158,10 +169,10 @@ export class MediaRealStore {
 
   private decode(row: any): RealRequestRecord {
     const configuration = configurationSchema.parse(row.configuration);
-    const receipt = MediaRealReceiptSchema.parse({ ...(row.receipt as Prisma.JsonObject), receiptId: row.id, status: row.status });
+    const receipt = MediaRealAnyReceiptSchema.parse({ ...(row.receipt as Prisma.JsonObject), receiptId: row.id, status: row.status });
     if (receipt.clientRequestId !== row.clientRequestId || receipt.profileId !== configuration.profileId ||
       receipt.configVersion !== configuration.configVersion || row.referenceIds.length !== row.referenceHashes.length ||
-      configuration.parameters.count !== row.count || row.referenceIds.length > 4 ||
+      ('parameters' in configuration ? configuration.parameters.count : (configuration as z.infer<typeof configurationV3Schema>).effectiveSpec.count) !== row.count || row.referenceIds.length > 4 ||
       row.referenceHashes.some((hash: unknown) => typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash))) {
       realMediaStorageUnavailable();
     }

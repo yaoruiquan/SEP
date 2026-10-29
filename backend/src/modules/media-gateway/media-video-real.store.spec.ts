@@ -1,12 +1,55 @@
 import { Prisma } from '@prisma/client';
-import { MediaVideoRealStore } from './media-video-real.store';
-import { newClaim, scope, videoClaims, videoRealPrisma } from './media-video-real.test-support';
+import { MediaVideoRealStore, VideoRealClaim, VideoRealQuoteMetadata } from './media-video-real.store';
+import { newClaim, quoteMetadata, scope, videoClaims, videoRealPrisma } from './media-video-real.test-support';
+import { MediaVideoRealReceiptSchema } from '../../shared/media-video-real.dto';
 
 const code = (value: string) => ({ response: { error: { code: value } } });
 describe('MediaVideoRealStore', () => {
   let db: ReturnType<typeof videoRealPrisma>;
   let store: MediaVideoRealStore;
   beforeEach(() => { db = videoRealPrisma(); store = new MediaVideoRealStore(db as never); });
+
+  it('persists V3 quotes and pending receipts with expanded IDs without inventing measured output', async () => {
+    const legacy = quoteMetadata();
+    const requestedSpec = { durationSeconds: 901, resolution: '1080p', audio: false };
+    const billingDimensions = { model: 'future-video', operation: 'text-to-video' as const,
+      durationSeconds: 901, resolution: '1080p' };
+    const metadata: VideoRealQuoteMetadata = { ...legacy,
+      value: { ...legacy.value, protocolVersion: 3, semanticHashVersion: 3, specRevision: 1,
+        effectiveSpec: requestedSpec, billingDimensions },
+      configuration: { adapter: legacy.configuration.adapter, protocolVersion: 3, semanticHashVersion: 3,
+        specRevision: 1, profileId: 'auto-video.future', configVersion: 'cfg:2026.10.29', modelId: 'future-video',
+        operation: 'text-to-video', requestedSpec, effectiveSpec: requestedSpec,
+        connectionFingerprint: legacy.configuration.connectionFingerprint, pricingVersion: legacy.configuration.pricingVersion,
+        amountCny: '1.400000', amountUsd: '0.2', usdToCnyRate: 7 },
+    };
+    const expandedIdQuote = await store.saveQuote(scope, metadata);
+    expect(await store.findQuote(scope, expandedIdQuote.quoteId)).toMatchObject(metadata);
+    // Enterprise authorization still uses the persisted legacy profile catalog.
+    metadata.configuration.profileId = db.state.model.profileId;
+    const quote = await store.saveQuote(scope, metadata);
+    expect(quote).toMatchObject({ protocolVersion: 3, effectiveSpec: requestedSpec });
+    expect(await store.findQuote(scope, quote.quoteId)).toMatchObject(metadata);
+    const baseline = await newClaim(store, 'v3-client');
+    const claim: VideoRealClaim = { ...baseline,
+      configuration: { ...metadata.configuration, quoteId: quote.quoteId, upstreamTaskId: null,
+        upstreamRequestId: null, dispatchState: 'NOT_DISPATCHED', outputExpiresAt: null },
+      receipt: { ...baseline.receipt, profileId: metadata.configuration.profileId,
+        configVersion: metadata.configuration.configVersion, protocolVersion: 3, semanticHashVersion: 3,
+        specRevision: 1, effectiveSpec: requestedSpec, billingDimensions, deliveryStatus: 'unknown' },
+    };
+    const result = await store.claim(claim);
+    expect(result.record.receipt).not.toHaveProperty('actualSpec');
+    expect(await store.findRequest(scope, result.record.receipt.receiptId)).toMatchObject({
+      receipt: { protocolVersion: 3, status: 'SUBMITTING' }, configuration: metadata.configuration,
+    });
+    expect(MediaVideoRealReceiptSchema.safeParse({ ...result.record.receipt, status: 'SUCCEEDED',
+      pollAfterMs: null, recovery: { canQuery: false, canCancel: false, canDownload: true },
+      outputs: [{ outputId: 'output-1', kind: 'video', mimeType: 'video/mp4', byteLength: 1,
+        sha256: 'a'.repeat(64), durationSeconds: 901, width: 1080, height: 1920,
+        frameRate: 30, thumbnailOutputId: null, expiresAt: null }],
+    }).success).toBe(false);
+  });
 
   it('has exactly one created winner for concurrent same-key requests', async () => {
     const input = await newClaim(store);

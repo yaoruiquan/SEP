@@ -34,8 +34,8 @@ describe('ClientService', () => {
   let personalWallet: any;
   let skillVersions: { resolveEffectiveVersion: jest.Mock };
   let modelPolicy: { resolvePolicy: jest.Mock };
-  let mediaConfig: { getRuntimeMedia: jest.Mock; getRuntimeMediaV2: jest.Mock };
-  let videoConfig: { getRuntimeVideo: jest.Mock; getRuntimeVideoV2: jest.Mock };
+  let mediaConfig: { getRuntimeMedia: jest.Mock; getRuntimeMediaV2: jest.Mock; getRuntimeMediaV3: jest.Mock };
+  let videoConfig: { getRuntimeVideo: jest.Mock; getRuntimeVideoV2: jest.Mock; getRuntimeVideoV3: jest.Mock };
   let skillArtifacts: { describe: jest.Mock };
 
   beforeEach(async () => {
@@ -54,8 +54,8 @@ describe('ClientService', () => {
     personalWallet = { getView: jest.fn() };
     skillVersions = { resolveEffectiveVersion: jest.fn().mockResolvedValue(null) };
     modelPolicy = { resolvePolicy: jest.fn().mockResolvedValue({ allowedModels: ['gpt-4o-mini'] }) };
-    mediaConfig = { getRuntimeMedia: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeMediaV2: jest.fn().mockResolvedValue({ protocolVersion: 2, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
-    videoConfig = { getRuntimeVideo: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeVideoV2: jest.fn().mockResolvedValue({ protocolVersion: 2, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
+    mediaConfig = { getRuntimeMedia: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeMediaV2: jest.fn().mockResolvedValue({ protocolVersion: 2, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeMediaV3: jest.fn().mockResolvedValue({ protocolVersion: 3, executionMode: 'disabled', executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
+    videoConfig = { getRuntimeVideo: jest.fn().mockResolvedValue({ protocolVersion: 1, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeVideoV2: jest.fn().mockResolvedValue({ protocolVersion: 2, executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }), getRuntimeVideoV3: jest.fn().mockResolvedValue({ protocolVersion: 3, executionMode: 'disabled', executionAvailable: false, tools: [], profiles: [], defaultProfileId: null }) };
     skillArtifacts = { describe: jest.fn().mockResolvedValue(artifactFixtures[0].artifact) };
     sessions = {
       validateRefreshToken: jest.fn().mockResolvedValue({
@@ -419,6 +419,9 @@ describe('ClientService', () => {
     expect(unsupported.runtime.media).toHaveProperty('protocolVersion', 2);
     expect(mediaConfig.getRuntimeMedia).not.toHaveBeenCalled();
     expect(mediaConfig.getRuntimeMediaV2).toHaveBeenCalledWith('ent-1');
+    const v3 = await service.getRuntime('user-1', 'sub-1', 3);
+    expect(v3.runtime.media).toHaveProperty('protocolVersion', 3);
+    expect(mediaConfig.getRuntimeMediaV3).toHaveBeenCalledWith('ent-1');
   });
 
   it('uses the shared enterprise resolver for runtime and omits skills without an approved version', async () => {
@@ -506,7 +509,7 @@ describe('ClientService', () => {
 
   it.each([
     [undefined, undefined, undefined], [1, undefined, undefined], [undefined, 1, undefined],
-    [undefined, undefined, 1], [1, 1, 1], [2, 2, 1], [1, 1, 2], [2, 1, 2],
+    [undefined, undefined, 1], [1, 1, 1], [2, 2, 1], [1, 1, 2], [2, 1, 2], [3, 1, 3],
   ])('negotiates video independently of image and artifact versions (%s, %s, %s)', async (media, artifacts, video) => {
     prisma.subscription.findFirst.mockResolvedValue({
       id: 'sub-1', templateVersion: '1.0.0', config: null,
@@ -517,9 +520,10 @@ describe('ClientService', () => {
     prisma.enterpriseModelConfig.findUnique.mockResolvedValue(null);
     const baseline = await service.getRuntime('user-1', 'sub-1', media, artifacts);
     const result = await service.getRuntime('user-1', 'sub-1', media, artifacts, video);
-    if (video === 1 || video === 2) {
-      expect(result.runtime.video).toEqual(await (video === 2 ? videoConfig.getRuntimeVideoV2 : videoConfig.getRuntimeVideo).mock.results[0].value);
-      expect(video === 2 ? videoConfig.getRuntimeVideoV2 : videoConfig.getRuntimeVideo).toHaveBeenCalledWith('ent-1');
+    if (video === 1 || video === 2 || video === 3) {
+      const getter = video === 3 ? videoConfig.getRuntimeVideoV3 : video === 2 ? videoConfig.getRuntimeVideoV2 : videoConfig.getRuntimeVideo;
+      expect(result.runtime.video).toEqual(await getter.mock.results[0].value);
+      expect(getter).toHaveBeenCalledWith('ent-1');
       const { video: _video, ...runtime } = result.runtime;
       expect(runtime).toEqual(baseline.runtime);
     } else {
@@ -547,17 +551,20 @@ describe('ClientService', () => {
       [1, undefined, true, false],
       [1, 2, true, false],
       [2, 1, true, true],
+      [3, 1, true, true],
       [undefined, 1, false, true],
       [1, 1, true, true],
     ])('negotiates media (%s) and artifact (%s) independently', async (mediaVersion, artifactVersion, expectsMedia, expectsArtifact) => {
       const result = await service.getRuntime('user-1', 'sub-mock', mediaVersion, artifactVersion);
       expect(mediaConfig.getRuntimeMedia).toHaveBeenCalledTimes(expectsMedia && mediaVersion === 1 ? 1 : 0);
       expect(mediaConfig.getRuntimeMediaV2).toHaveBeenCalledTimes(expectsMedia && mediaVersion === 2 ? 1 : 0);
+      expect(mediaConfig.getRuntimeMediaV3).toHaveBeenCalledTimes(expectsMedia && mediaVersion === 3 ? 1 : 0);
       expect(skillArtifacts.describe).toHaveBeenCalledTimes(expectsArtifact ? 1 : 0);
       expect('media' in result.runtime).toBe(expectsMedia);
       expect('skillArtifactProtocolVersion' in result.runtime).toBe(expectsArtifact);
       expect('artifact' in result.runtime.skills[0]).toBe(expectsArtifact);
-      if (expectsMedia) expect(mediaVersion === 2 ? mediaConfig.getRuntimeMediaV2 : mediaConfig.getRuntimeMedia).toHaveBeenCalledWith('ent-1');
+      if (expectsMedia) expect(mediaVersion === 3 ? mediaConfig.getRuntimeMediaV3
+        : mediaVersion === 2 ? mediaConfig.getRuntimeMediaV2 : mediaConfig.getRuntimeMedia).toHaveBeenCalledWith('ent-1');
     });
 
     it.each(SkillArtifactBlockedReasonSchema.options)('keeps chat runtime usable when installation is BLOCKED (%s)', async (reason) => {

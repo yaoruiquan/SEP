@@ -80,6 +80,13 @@ export class MediaRealBillingService {
     return this.settleVerified(receiptId, actualCny, actualUsd, verifiedModel);
   }
 
+  async settleNegotiated(receiptId: string, actualCny: string, actualUsd: string,
+    verifiedModel: string, frozenModel: string): Promise<'SETTLED' | 'RECONCILING'> {
+    if (typeof frozenModel !== 'string' || !/^[^\s\p{Cc}\p{Cf}]{1,160}$/u.test(frozenModel)
+      || verifiedModel !== frozenModel) forbidden('BILLING_PENDING');
+    return this.settleVerified(receiptId, actualCny, actualUsd, verifiedModel);
+  }
+
   private async settleVerified(receiptId: string, actualCny: string, actualUsd: string, verifiedModel: string): Promise<'SETTLED' | 'RECONCILING'> {
     const cny = this.amount(actualCny, true); const usd = this.amount(actualUsd, true);
     return this.transaction(async tx => {

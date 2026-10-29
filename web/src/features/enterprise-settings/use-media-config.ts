@@ -57,7 +57,7 @@ export function usePreviewEnterpriseMediaConfig() {
   return useMutation({
     mutationFn: async ({ policy }: { enterpriseId: string; policy: MediaPolicy }) => {
       const authorization = MediaAuthorizationSchema.parse(policy);
-      const request = MediaPolicyPreviewRequestSchema.parse({ protocolVersion: 2, policy: authorization });
+      const request = MediaPolicyPreviewRequestSchema.parse({ protocolVersion: 3, policy: authorization });
       return MediaPolicyPreviewSchema.parse(await api.post(
         '/enterprise/media-config/preview', { ...request, policy: authorization },
       ));

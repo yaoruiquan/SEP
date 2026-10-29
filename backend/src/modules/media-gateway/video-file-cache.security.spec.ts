@@ -107,6 +107,18 @@ describe('VideoFileCacheService concurrency and security', () => {
     expect(await consume(cached.stream)).toEqual(MP4);
   });
 
+  it('retains measured duration and frame rate beyond the legacy product lists', async () => {
+    const result = JSON.parse(probe().stdout);
+    result.streams[0].avg_frame_rate = '144/1';
+    result.format.duration = '901';
+    (execFile as unknown as jest.Mock).mockResolvedValue({ stdout: JSON.stringify(result) });
+    const saved = await cache.saveOutput('scope', 'output-1', content(), expiresAt);
+    expect(saved).toMatchObject({ durationSeconds: 901, frameRate: 144 });
+    const cached = await new VideoFileCacheService().streamOutput('scope', 'output-1', expected(MP4, expiresAt));
+    expect(cached.metadata).toMatchObject({ durationSeconds: 901, frameRate: 144 });
+    expect(await consume(cached.stream)).toEqual(MP4);
+  });
+
   it('refuses contradictory audio evidence on retries rather than upgrading a silent file', async () => {
     const original = await cache.saveOutput('scope', 'output-1', content(), expiresAt);
     expect(original).toMatchObject({ hasAudio: false });

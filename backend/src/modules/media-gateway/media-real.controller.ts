@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Header, Param, Post, Res, UploadedFile, UseGuards, UseInterceptors,
+  Body, Controller, Get, Header, Param, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -12,11 +12,12 @@ import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
-  MediaGatewayIdSchema, MediaRealQuoteRequestSchema, MediaRealRequestSchema,
+  MediaGatewayIdSchema, MediaRealAnyQuoteRequestSchema, MediaRealAnyRequestSchema,
 } from 'shared';
-import type { MediaRealQuoteRequest, MediaRealRequest } from 'shared';
+import type { MediaRealAnyQuoteRequest, MediaRealAnyRequest } from 'shared';
 import { MediaRealService } from './media-real.service';
 import { MediaRealGuard } from './media-real.guard';
+import { MediaSpecValidationPipe } from './media-spec-validation.pipe';
 
 @ApiTags('media-gateway-real')
 @ApiBearerAuth()
@@ -38,7 +39,9 @@ export class MediaRealController {
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: '获取当前企业允许的真实图片 Profile' })
   @ApiResponse({ status: 200, description: '真实执行能力与企业策略相交后的 Profile' })
-  profiles(@ClientEmployment() claims: ClientEmploymentClaims) { return this.media.profiles(claims); }
+  profiles(@ClientEmployment() claims: ClientEmploymentClaims, @Query('protocolVersion') version?: string) {
+    return this.media.profiles(claims, version === '3' ? 3 : 1);
+  }
 
   @Post('references')
   @Header('Cache-Control', 'no-store')
@@ -63,7 +66,7 @@ export class MediaRealController {
   @ApiResponse({ status: 422, description: '不支持的 Profile 或规格' })
   quote(
     @ClientEmployment() claims: ClientEmploymentClaims,
-    @Body(new ZodValidationPipe(MediaRealQuoteRequestSchema)) dto: MediaRealQuoteRequest,
+    @Body(new MediaSpecValidationPipe(MediaRealAnyQuoteRequestSchema)) dto: MediaRealAnyQuoteRequest,
   ) { return this.media.quote(claims, dto); }
 
   @Post('requests')
@@ -72,7 +75,7 @@ export class MediaRealController {
   @ApiResponse({ status: 202, description: '已受理或提交结果不明的真实回执' })
   async submit(
     @ClientEmployment() claims: ClientEmploymentClaims,
-    @Body(new ZodValidationPipe(MediaRealRequestSchema)) dto: MediaRealRequest,
+    @Body(new MediaSpecValidationPipe(MediaRealAnyRequestSchema)) dto: MediaRealAnyRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
     const receipt = await this.media.submit(claims, dto);

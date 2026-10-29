@@ -1,10 +1,9 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma, type MediaGatewayRequest } from '@prisma/client';
 import { z } from 'zod';
-import { MediaVideoParametersSchema } from '../../shared/media-video.dto';
-import { MediaVideoAuthorizationSchema } from '../../shared/media-video-config.dto';
-import { MediaVideoRealQuoteSchema, MediaVideoRealReceiptSchema, MediaVideoRealReferenceSchema } from '../../shared/media-video-real.dto';
-import type { MediaVideoRealQuote, MediaVideoRealReceipt, MediaVideoRealReference } from '../../shared/media-video-real.dto';
+import { MediaVideoParametersSchema, MediaConfigVersionV3Schema, MediaProfileIdV3Schema, MediaVideoSpecV3Schema, MediaVideoAuthorizationSchema,
+  MediaVideoRealQuoteBaseSchema, MediaVideoRealQuoteV3Schema, MediaVideoRealQuoteSchema, MediaVideoRealReceiptSchema, MediaVideoRealReferenceSchema } from 'shared';
+import type { MediaVideoRealQuote, MediaVideoRealReceipt, MediaVideoRealReference } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { videoGatewayError, videoStorageUnavailable } from './media-video-gateway.store';
 
@@ -12,7 +11,7 @@ export const VIDEO_REAL_ADAPTER = 'sub2api-video-v1';
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const money = z.string().regex(/^\d{1,8}\.\d{6}$/);
-const FrozenSchema = z.object({
+const LegacyFrozenSchema = z.object({
   adapter: z.literal(VIDEO_REAL_ADAPTER), profileId: id, configVersion: id,
   modelId: z.literal('minimax-h3'), operation: z.enum(['text-to-video', 'image-to-video']),
   parameters: MediaVideoParametersSchema.refine(p => p.durationSeconds === 4 && p.resolution === '720p' &&
@@ -20,21 +19,40 @@ const FrozenSchema = z.object({
   connectionFingerprint: hash, pricingVersion: z.string().min(1).max(128),
   amountCny: money, amountUsd: z.string().regex(/^\d+(?:\.\d{1,12})?$/), usdToCnyRate: z.number().finite().positive(),
 }).strict();
+const V3FrozenSchema = z.object({
+  adapter: z.literal(VIDEO_REAL_ADAPTER), protocolVersion: z.literal(3), semanticHashVersion: z.literal(3),
+  specRevision: z.number().int().positive(), profileId: MediaProfileIdV3Schema, configVersion: MediaConfigVersionV3Schema,
+  modelId: z.string().trim().min(1).max(160), operation: z.enum(['text-to-video', 'image-to-video']),
+  requestedSpec: MediaVideoSpecV3Schema, effectiveSpec: MediaVideoSpecV3Schema,
+  parameterSources: z.record(z.string(), z.union([
+    z.enum(['user', 'model', 'upstream']),
+    z.object({ source: z.enum(['user', 'model', 'upstream']), decisionRef: z.string() }).strict(),
+  ])).optional(),
+  connectionFingerprint: hash, pricingVersion: z.string().min(1).max(128),
+  amountCny: money, amountUsd: z.string().regex(/^\d+(?:\.\d{1,12})?$/), usdToCnyRate: z.number().finite().positive(),
+}).strict();
+const FrozenSchema = z.union([V3FrozenSchema, LegacyFrozenSchema]);
 const QuoteSchema = z.object({
-  adapter: z.literal(VIDEO_REAL_ADAPTER), value: MediaVideoRealQuoteSchema.omit({ quoteId: true }),
+  adapter: z.literal(VIDEO_REAL_ADAPTER), value: z.union([
+    MediaVideoRealQuoteBaseSchema.omit({ quoteId: true }), MediaVideoRealQuoteV3Schema.omit({ quoteId: true }),
+  ]),
   configuration: FrozenSchema, referenceIds: z.array(id).max(1), referenceHashes: z.array(hash).max(1),
   consumedByClientRequestId: id.nullable(),
 }).strict();
 const ReferenceSchema = z.object({
   adapter: z.literal(VIDEO_REAL_ADAPTER), value: MediaVideoRealReferenceSchema.omit({ referenceId: true }),
 }).strict();
-const ConfigurationSchema = FrozenSchema.extend({
+const DispatchSchema = z.object({
   quoteId: id,
   upstreamTaskId: z.string().regex(/^[A-Za-z0-9_.-]{1,256}$/).nullable(),
   upstreamRequestId: z.string().regex(/^[A-Za-z0-9_.:-]{1,256}$/).nullable(),
   dispatchState: z.enum(['NOT_DISPATCHED', 'DISPATCHING', 'ACCEPTED', 'REJECTED']),
   outputExpiresAt: z.string().datetime({ offset: true }).nullable(),
 }).strict();
+const ConfigurationSchema = z.union([
+  V3FrozenSchema.extend(DispatchSchema.shape),
+  LegacyFrozenSchema.extend(DispatchSchema.shape),
+]);
 export type VideoRealFrozenConfiguration = z.infer<typeof FrozenSchema>;
 export type VideoRealQuoteMetadata = z.infer<typeof QuoteSchema>;
 export type VideoRealRecord = {
@@ -42,8 +60,9 @@ export type VideoRealRecord = {
   referenceIds: string[]; referenceHashes: string[]; configuration: z.infer<typeof ConfigurationSchema>;
   receipt: MediaVideoRealReceipt; revision: number; submissionDeadline: Date; createdAt: Date;
 };
+type ReceiptWithoutId<T> = T extends unknown ? Omit<T, 'receiptId'> : never;
 export type VideoRealClaim = Omit<VideoRealRecord, 'revision' | 'createdAt' | 'receipt'> & {
-  receipt: Omit<MediaVideoRealReceipt, 'receiptId'>;
+  receipt: ReceiptWithoutId<MediaVideoRealReceipt>;
 };
 const isOurs = (value: unknown): boolean => !!value && typeof value === 'object' &&
   'adapter' in value && value.adapter === VIDEO_REAL_ADAPTER;

@@ -54,7 +54,7 @@ export function usePreviewEnterpriseVideoConfig() {
   return useMutation({
     mutationFn: async ({ policy }: { enterpriseId: string; policy: Omit<MediaVideoPolicy, 'periodBudget'> }) => {
       const authorization = MediaVideoAuthorizationSchema.parse(policy);
-      const request = MediaVideoPolicyPreviewRequestSchema.parse({ protocolVersion: 2, policy: authorization });
+      const request = MediaVideoPolicyPreviewRequestSchema.parse({ protocolVersion: 3, policy: authorization });
       return MediaVideoPolicyPreviewSchema.parse(await api.post(
         '/enterprise/media-config/video/preview', { ...request, policy: authorization },
       ));

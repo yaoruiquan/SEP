@@ -23,6 +23,8 @@ import { Sub2apiVideoAdapter } from '../media-gateway/sub2api-video.adapter';
 import { VideoFileCacheService } from '../media-gateway/video-file-cache.service';
 import { SettingService } from '../setting/setting.service';
 import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model-sync.service';
+import { MediaVideoRuntimeV3Schema } from 'shared';
+import type { MediaVideoRuntimeV3 } from 'shared';
 
 const MOCK_PROFILE = MediaVideoProfileSchema.parse(fixture.profile);
 
@@ -57,6 +59,13 @@ export class MediaVideoConfigService {
       && c.resolutions.every(value => value === '720p') && c.frameRates.every(value => value === 24)
       && c.outputFormats.every(value => value === 'video/mp4') && c.maxInputBytes <= 10 * 1024 * 1024
       && c.maxReferenceCount === 1 && c.resultRetentionSeconds === 86_400;
+  }
+
+  private v3Compatible(profile: MediaVideoProfile): boolean {
+    const c = profile.capabilities;
+    return profile.executionMode === 'async-query' && c.supportsTaskQuery && !c.supportsCancel
+      && c.maxInputBytes <= 10 * 1024 * 1024 && c.maxReferenceCount <= 1
+      && c.outputFormats.every(format => ['video/mp4', 'video/webm'].includes(format));
   }
 
   private mockEnabled(): boolean {
@@ -111,7 +120,7 @@ export class MediaVideoConfigService {
 
   private assertExecutable(profile: MediaVideoProfile): void {
     if (profile.modelId !== 'mock-video-v1' && this.realEnabled()) {
-      if (!this.realCompatible(profile)) throw new BadRequestException('真实视频首期仅适配 minimax-h3：4s 16:9 720p 24fps 带音轨 MP4');
+      if (!this.v3Compatible(profile)) throw new BadRequestException('视频配置超出通用适配器协议边界：异步查询、单 PNG 参考、MP4/WebM，不支持取消');
       return;
     }
     if (!this.mockEnabled()) throw new ServiceUnavailableException('视频仅支持显式启用的 mock，尚未接入真实执行');
@@ -196,10 +205,18 @@ export class MediaVideoConfigService {
       const connection = await this.videoAdapter.connection();
       const models = await this.videoAdapter.discover(connection);
       if (!models.some(item => item.modelId === profile.modelId)) throw new BadRequestException('当前视频连接未授权此模型');
+      const requestedSpec = dto.verificationSpec ?? { durationSeconds: profile.capabilities.durationsSeconds[0],
+        aspectRatio: profile.capabilities.aspectRatios[0], resolution: profile.capabilities.resolutions[0],
+        frameRate: profile.capabilities.frameRates[0], audio: profile.capabilities.supportsAudio,
+        outputFormat: profile.capabilities.outputFormats[0] };
+      if (profile.modelId !== 'minimax-h3' && !dto.verificationSpec) {
+        throw new BadRequestException('新模型须显式提供 verificationSpec 校验通用视频协议，不能从目录推断规格');
+      }
       for (const operation of profile.operations) await this.videoAdapter.pricing(connection, {
+        protocolVersion: 3, specRevision: 1,
         profileId: profile.profileId, configVersion: profile.configVersion, operation,
         referenceIds: operation === 'image-to-video' ? ['verification-only'] : [], creativeBrief: 'Configuration verification only',
-        parameters: { durationSeconds: 4, aspectRatio: '16:9', resolution: '720p', frameRate: 24, audio: true, outputFormat: 'video/mp4' },
+        requestedSpec,
       }, profile.modelId);
     }
     const updated = await this.prisma.mediaModelProfile.updateMany({
@@ -216,19 +233,19 @@ export class MediaVideoConfigService {
       const connection = await this.videoAdapter.connection();
       const models = await this.videoAdapter.discover(connection);
       await this.videoFiles.assertAvailable();
-      await this.modelSync.sync('video', models.filter(model => model.modelId === 'minimax-h3').map(model => ({
-        ...model, operations: ['image-to-video', 'text-to-video'], executionMode: 'async-query', capabilities: this.realCapabilities(),
+      await this.modelSync.sync('video', models.map(model => ({
+        ...model, autoCreate: model.modelId === 'minimax-h3', operations: ['image-to-video', 'text-to-video'], executionMode: 'async-query', capabilities: this.realCapabilities(),
       })), connection.fingerprint, row => {
         const parsed = MediaVideoProfileSchema.safeParse({
           profileId: row.profileId, kind: row.kind, displayName: row.displayName, modelId: row.modelId,
           configVersion: row.configVersion, operations: row.operations, executionMode: row.executionMode,
           capabilities: row.capabilities, enabled: row.enabled, verified: row.verified,
         });
-        return parsed.success && this.realCompatible(parsed.data);
+        return parsed.success && this.v3Compatible(parsed.data);
       });
       return { checkedAt: new Date().toISOString(), mock: false, executionTested: false,
         models: models.map(model => ({ ...model,
-          compatible: model.modelId === 'minimax-h3', reason: model.modelId === 'minimax-h3' ? null : '当前未适配此视频模型',
+          compatible: model.modelId === 'minimax-h3', reason: model.modelId === 'minimax-h3' ? '目录候选；需要显式配置、报价校验后启用' : '仅目录候选；可显式创建通用视频协议 Profile 并校验报价，尚未验证适配',
           suggested: model.modelId === 'minimax-h3' ? { operations: ['image-to-video', 'text-to-video'],
             executionMode: 'async-query', capabilities: this.realCapabilities() } : null,
         })),
@@ -245,7 +262,7 @@ export class MediaVideoConfigService {
     };
   }
 
-  private async availableProfiles(): Promise<MediaVideoProfile[]> {
+  private async availableProfiles(includeV3 = false): Promise<MediaVideoProfile[]> {
     if (!this.mockEnabled() && !this.realEnabled()) return [];
     if (this.realEnabled()) {
       if (!this.settings) return [];
@@ -259,12 +276,12 @@ export class MediaVideoConfigService {
       where: { kind: 'video', enabled: true, verified: true }, orderBy: { createdAt: 'asc' },
     });
     return rows.map(row => this.profileView(row)).filter(profile => this.realEnabled()
-      ? this.realCompatible(profile) : this.compatible(profile));
+      ? includeV3 ? this.v3Compatible(profile) : this.realCompatible(profile) : this.compatible(profile));
   }
 
   async getAvailableProfiles(userId: string): Promise<MediaVideoAvailableProfile[]> {
     await this.enterpriseContext.resolve(userId);
-    return (await this.availableProfiles()).map(({ modelId: _modelId, ...profile }) => profile);
+    return (await this.availableProfiles(true)).map(({ modelId: _modelId, ...profile }) => profile);
   }
 
   async getEnterpriseConfig(userId: string): Promise<MediaVideoEnterpriseConfig> {
@@ -317,16 +334,21 @@ export class MediaVideoConfigService {
     const visibleRows = context.role === 'ENTERPRISE_ADMIN' ? rows : rows.filter(profile => policy.enabledProfileIds.includes(profile.profileId));
     const permissive: MediaVideoPolicy = { ...policy, enabledProfileIds: rows.map(profile => profile.profileId), defaultProfileId: null };
     const [available, effective] = await Promise.all([
-      request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, permissive, runtimeProfiles)
-        : this.getRuntimeVideo(context.enterpriseId, permissive, runtimeProfiles),
-      request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, policy, runtimeProfiles)
-        : this.getRuntimeVideo(context.enterpriseId, policy, runtimeProfiles),
+      request.protocolVersion === 3 ? this.getRuntimeVideoV3(context.enterpriseId, permissive, rows)
+        : request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, permissive, runtimeProfiles)
+          : this.getRuntimeVideo(context.enterpriseId, permissive, runtimeProfiles),
+      request.protocolVersion === 3 ? this.getRuntimeVideoV3(context.enterpriseId, policy, rows)
+        : request.protocolVersion === 2 ? this.getRuntimeVideoV2(context.enterpriseId, policy, runtimeProfiles)
+          : this.getRuntimeVideo(context.enterpriseId, policy, runtimeProfiles),
     ]);
     const availableById = new Map(available.profiles.map(profile => [profile.profileId, profile] as const));
     const effectiveById = new Map(effective.profiles.map(profile => [profile.profileId, profile] as const));
     const executionMode = this.realEnabled() ? 'real' as const : this.mockEnabled() ? 'mock' as const : 'disabled' as const;
+    const executableProfile = (profile: (typeof effective.profiles)[number]) => request.protocolVersion !== 3
+      || ('adapter' in profile && profile.adapter.available && !profile.unavailableReason);
     const result = { protocolVersion: request.protocolVersion, executionMode, configured, executionAvailable: effective.executionAvailable,
-      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId)),
+      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId
+        && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId && executableProfile(profile))),
       profiles: [...visibleRows.map(profile => {
         const reasons: MediaVideoPolicyPreview['profiles'][number]['reasons'] = [];
         const baseline = availableById.get(profile.profileId);
@@ -337,7 +359,11 @@ export class MediaVideoConfigService {
         if (!configured) reasons.push('connection-unconfigured');
         if (executionMode === 'disabled') reasons.push('execution-disabled');
         if (!baseline && profile.enabled && profile.verified && configured) reasons.push('adapter-unsupported');
-        const status: MediaVideoPolicyPreview['profiles'][number]['status'] = current && executionMode !== 'disabled' ? 'effective'
+        if (request.protocolVersion === 3 && current && !executableProfile(current)
+          && !reasons.some(reason => ['disabled', 'unverified', 'connection-unconfigured', 'execution-disabled'].includes(reason))) {
+          reasons.push('adapter-unsupported');
+        }
+        const status: MediaVideoPolicyPreview['profiles'][number]['status'] = current && executableProfile(current) && executionMode !== 'disabled' ? 'effective'
           : reasons.includes('not-authorized') ? 'not-authorized' : 'unavailable';
         return { profileId: profile.profileId, configVersion: profile.configVersion, status, effectiveProfile: current ?? null, reasons };
       }), ...(context.role === 'ENTERPRISE_ADMIN' ? policy.enabledProfileIds.filter(profileId => !rows.some(profile => profile.profileId === profileId)) : [])
@@ -385,5 +411,71 @@ export class MediaVideoConfigService {
           outputFormat: c.outputFormats[0] } } };
     });
     return MediaVideoRuntimeV2Schema.parse({ ...legacy, protocolVersion: 2, profiles });
+  }
+
+  async getRuntimeVideoV3(enterpriseId: string, policyOverride?: MediaVideoPolicy, profilesOverride?: MediaVideoProfile[]): Promise<MediaVideoRuntimeV3> {
+    const config = policyOverride ? null : await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
+    const policy = policyOverride ?? this.parsePolicy(config?.mediaPolicy);
+    const configuredProfiles = profilesOverride ?? await this.listProfiles();
+    let connectionUsable = false;
+    if (this.realEnabled() && this.settings) {
+      try {
+        mediaConnectionFingerprint(await this.settings.getMediaConnection('video'));
+        connectionUsable = true;
+      } catch {
+        connectionUsable = false;
+      }
+    }
+    const profiles = configuredProfiles.filter(profile => policy.enabledProfileIds.includes(profile.profileId)).map(profile => {
+      const operations = profile.operations.filter(operation => operation === 'image-to-video' || operation === 'text-to-video');
+      const reason = !profile.enabled ? 'PROFILE_DISABLED'
+        : !profile.verified ? 'PROFILE_UNVERIFIED'
+          : !this.realEnabled() ? 'EXECUTION_DISABLED'
+            : !connectionUsable ? 'CONNECTION_UNAVAILABLE'
+              : profile.executionMode !== 'async-query' ? 'ADAPTER_PROTOCOL_UNSUPPORTED'
+                : operations.length === 0 ? 'ADAPTER_OPERATION_UNSUPPORTED' : undefined;
+      const capabilityHints = [
+        { field: 'durationSeconds', values: profile.capabilities.durationsSeconds, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+        { field: 'aspectRatio', values: profile.capabilities.aspectRatios, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+        { field: 'resolution', values: profile.capabilities.resolutions, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+        { field: 'frameRate', values: profile.capabilities.frameRates, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+        ...(profile.capabilities.supportsAudio
+          ? [{ field: 'audio', values: [true], source: 'profile-config', observedAt: null, confidence: 'declared' as const }]
+          : []),
+        { field: 'outputFormat', values: profile.capabilities.outputFormats, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+      ].filter(hint => hint.values.length > 0);
+      return {
+        profileId: profile.profileId, configVersion: profile.configVersion, kind: 'video' as const,
+        displayName: profile.displayName, operations, executionMode: 'async-query' as const, authorized: true,
+        adapter: {
+          id: 'sub2api-video', version: '3', available: reason === undefined, ...(reason ? { reason } : {}), operations,
+          referenceSupport: {
+            maxCount: operations.includes('image-to-video') ? 1 : 0,
+            maxInputBytes: 10 * 1024 * 1024,
+            mimeTypes: operations.includes('image-to-video') ? ['image/png'] : [],
+          },
+          supportsTaskQuery: true,
+          supportsCancel: false,
+        },
+        capabilityHints,
+        ...(reason ? { unavailableReason: reason } : {}),
+      };
+    });
+    const executable = profiles.filter(profile => profile.adapter.available);
+    const tools = [
+      ...(executable.some(profile => profile.operations.includes('image-to-video')) ? ['video_from_image'] : []),
+      ...(executable.some(profile => profile.operations.includes('text-to-video')) ? ['video_generate'] : []),
+      ...(executable.some(profile => profile.adapter.supportsTaskQuery) ? ['video_get_job'] : []),
+      ...(executable.some(profile => profile.adapter.supportsCancel) ? ['video_cancel_job'] : []),
+    ];
+    return MediaVideoRuntimeV3Schema.parse({
+      protocolVersion: 3,
+      executionMode: this.realEnabled() && connectionUsable ? 'real' : this.mockEnabled() ? 'mock' : 'disabled',
+      executionAvailable: executable.length > 0,
+      defaultProfileId: policy.defaultProfileId && profiles.some(profile => profile.profileId === policy.defaultProfileId)
+        ? policy.defaultProfileId : null,
+      tools: executable.length > 0 ? tools : [],
+      profiles,
+    });
   }
 }

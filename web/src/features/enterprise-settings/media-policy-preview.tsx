@@ -1,6 +1,7 @@
 import { MediaRuntimeProfileSchema, MediaRuntimeV2ProfileSchema, type MediaPolicyPreview as ImagePolicyPreview } from 'shared/media.dto';
 import type { MediaVideoPolicyPreview } from 'shared/media-video-config.dto';
 import { MediaVideoRuntimeProfileSchema, MediaVideoRuntimeV2ProfileSchema } from 'shared/media-video.dto';
+import { MediaRuntimeV3ProfileSchema } from 'shared/media-spec.dto';
 
 type Preview = ImagePolicyPreview | MediaVideoPolicyPreview;
 const reasons: Record<Preview['profiles'][number]['reasons'][number], string> = {
@@ -20,7 +21,18 @@ const reasons: Record<Preview['profiles'][number]['reasons'][number], string> = 
   'unknown-capability': '当前通道无法确认此授权规格',
 };
 
-function effectiveSpecs(value: unknown, protocolVersion: 1 | 2) {
+function effectiveSpecs(value: unknown, protocolVersion: 1 | 2 | 3) {
+  if (protocolVersion === 3) {
+    const profile = MediaRuntimeV3ProfileSchema.safeParse(value);
+    if (!profile.success) return 'V3 Profile 信息无效';
+    const hints = profile.data.capabilityHints.map(hint => {
+      const observedAt = hint.observedAt ? new Date(hint.observedAt).toLocaleString() : '未验证';
+      return `${hint.field}: ${hint.values.join(' / ') || '未知'}（${hint.confidence}；来源 ${hint.source}；更新时间 ${observedAt}）`;
+    });
+    const adapter = profile.data.adapter.available ? `适配器 ${profile.data.adapter.id} 已就绪`
+      : `适配器未就绪：${profile.data.adapter.reason ?? profile.data.unavailableReason ?? '原因未知'}`;
+    return `${profile.data.operations.join(' / ')} · ${adapter}${hints.length ? ` · 能力提示 ${hints.join('；')}` : ' · 能力提示未知'} · 价格将在请求规格确定后、执行前核验`;
+  }
   const image = (protocolVersion === 2 ? MediaRuntimeV2ProfileSchema : MediaRuntimeProfileSchema).safeParse(value);
   if (image.success) {
     const { capabilities: c } = image.data;

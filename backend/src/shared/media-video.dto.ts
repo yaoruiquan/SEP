@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MediaConfigVersionV3Schema, MediaProfileIdV3Schema, MediaSpecMetadataV3Schema, MediaVideoSpecV3Schema } from './media-spec.dto';
 
 const MediaVideoIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 const Sha256Schema = z.string().regex(/^[a-fA-F0-9]{64}$/);
@@ -21,10 +22,10 @@ const MediaVideoCapabilitiesBaseSchema = z.object({
   supportsTextToVideo: z.boolean().default(false),
   supportsImageToVideo: z.boolean().default(false),
   supportsAudio: z.boolean().default(false),
-  durationsSeconds: z.array(z.number().int().positive().max(600)).min(1).max(32),
+  durationsSeconds: z.array(z.number().int().positive().safe()).min(1).max(32),
   aspectRatios: z.array(z.string().regex(/^\d+:\d+$/)).min(1).max(16),
-  resolutions: z.array(MediaVideoResolutionSchema).min(1).max(8),
-  frameRates: z.array(z.number().int().positive().max(120)).min(1).max(8),
+  resolutions: z.array(z.string().trim().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u)).min(1).max(8),
+  frameRates: z.array(z.number().finite().positive().max(Number.MAX_SAFE_INTEGER)).min(1).max(8),
   maxInputBytes: z.number().int().positive().max(100 * 1024 * 1024),
   maxReferenceCount: z.number().int().min(0).max(4),
   outputFormats: z.array(z.enum(['video/mp4', 'video/webm'])).min(1).max(4),
@@ -177,6 +178,42 @@ export const MediaVideoGatewayRequestSchema = VideoRequestObjectSchema.extend({
   quoteId: MediaVideoIdSchema,
 }).superRefine(refineVideoRequest);
 export type MediaVideoGatewayRequest = z.infer<typeof MediaVideoGatewayRequestSchema>;
+
+const MediaVideoRequestV3BaseSchema = z.object({
+  protocolVersion: z.literal(3),
+  profileId: MediaProfileIdV3Schema,
+  configVersion: MediaConfigVersionV3Schema,
+  operation: MediaVideoOperationSchema,
+  referenceIds: z.array(MediaVideoIdSchema).max(4),
+  creativeBrief: z.string().trim().min(1).max(4000),
+  specRevision: MediaSpecMetadataV3Schema.shape.specRevision,
+  requestedSpec: MediaVideoSpecV3Schema,
+  parameterSources: MediaSpecMetadataV3Schema.shape.parameterSources,
+}).strict();
+
+function refineVideoRequestV3(value: z.infer<typeof MediaVideoRequestV3BaseSchema>, ctx: z.RefinementCtx): void {
+  if (value.operation === 'image-to-video' && value.referenceIds.length !== 1) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['referenceIds'], message: 'Image-to-video requires exactly one reference.' });
+  }
+  if (value.operation === 'text-to-video' && value.referenceIds.length !== 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['referenceIds'], message: 'Text-to-video does not accept references.' });
+  }
+  if (new Set(value.referenceIds).size !== value.referenceIds.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['referenceIds'], message: 'Duplicate references are not allowed.' });
+  }
+  const spec = value.requestedSpec;
+  if ((spec.width === undefined) !== (spec.height === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['requestedSpec'], message: 'Width and height must be provided together.' });
+  }
+}
+
+export const MediaVideoGatewayQuoteRequestV3Schema = MediaVideoRequestV3BaseSchema.superRefine(refineVideoRequestV3);
+export type MediaVideoGatewayQuoteRequestV3 = z.infer<typeof MediaVideoGatewayQuoteRequestV3Schema>;
+export const MediaVideoGatewayRequestV3Schema = MediaVideoRequestV3BaseSchema.extend({
+  clientRequestId: MediaVideoIdSchema,
+  quoteId: MediaVideoIdSchema,
+}).superRefine(refineVideoRequestV3);
+export type MediaVideoGatewayRequestV3 = z.infer<typeof MediaVideoGatewayRequestV3Schema>;
 
 export const MediaVideoGatewayOutputSchema = z.object({
   outputId: MediaVideoIdSchema,

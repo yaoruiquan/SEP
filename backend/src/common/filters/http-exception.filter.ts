@@ -45,6 +45,24 @@ function waitingSeconds(value: unknown): number | undefined {
   return Number.isSafeInteger(seconds) ? seconds : undefined;
 }
 
+function safeMediaSpecError(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!value) return {};
+  const safe: Record<string, unknown> = {};
+  const enums: Record<string, string[]> = {
+    source: ['request', 'authorization', 'adapter', 'pricing', 'upstream', 'output', 'platform'],
+    stage: ['validation', 'quote', 'submit', 'query', 'download', 'reconciliation'],
+    submissionState: ['not_submitted', 'submitted', 'unknown'],
+    billingState: ['not_reserved', 'reserved', 'settled', 'released', 'reconciling', 'unknown'],
+  };
+  for (const [key, allowed] of Object.entries(enums)) if (allowed.includes(String(value[key]))) safe[key] = value[key];
+  if (typeof value.retryable === 'boolean') safe.retryable = value.retryable;
+  // Reasons are platform-authored. Raw supplier text, requested values and URLs are not forwarded.
+  if (typeof value.field === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value.field)) safe.field = value.field;
+  if (typeof value.reason === 'string' && value.reason.length > 0 && value.reason.length <= 512
+    && !/[\p{Cc}\p{Cf}]|https?:\/\/|Bearer\s|api[_-]?key|authorization/iu.test(value.reason)) safe.reason = value.reason;
+  return safe;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -113,6 +131,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     const rateLimit = safeRateLimit(rawError?.rateLimit);
+    const mediaSpecError = /^\/api\/gateway\/v1\/media\/(?:real|video-real)(?:\/|$)/.test(path)
+      ? safeMediaSpecError(rawError) : {};
     const policyMetadata = safeRateLimit(rawError);
     const errors = Array.isArray(rawBody?.errors)
       ? rawBody.errors
@@ -153,6 +173,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ...(policyMetadata ?? {}),
         ...(rawError?.source === 'platform' || rawError?.source === 'upstream'
           ? { source: rawError.source } : errors?.length ? { source: 'platform' } : {}),
+        ...mediaSpecError,
         ...(rateLimit !== undefined ? { rateLimit } : {}),
       },
     });

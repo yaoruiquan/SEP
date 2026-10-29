@@ -4,11 +4,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { parseUsdToCnyRate, SETTING_KEYS } from 'shared';
-import { MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayRequestSchema } from '../../shared/media-video.dto';
-import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayRequest } from '../../shared/media-video.dto';
-import { MediaVideoAuthorizationSchema } from '../../shared/media-video-config.dto';
-import { MediaVideoRealProfilesSchema, MediaVideoRealReceiptSchema } from '../../shared/media-video-real.dto';
-import type { MediaVideoRealReceipt } from '../../shared/media-video-real.dto';
+import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayQuoteRequestV3,
+  MediaVideoGatewayRequest } from 'shared';
+import { MediaVideoAuthorizationSchema, MediaVideoRealProfilesSchema, MediaVideoRealQuoteRequestSchema, MediaVideoRealReceiptSchema, MediaVideoRealRequestSchema } from 'shared';
+import type { MediaVideoRealQuoteRequest, MediaVideoRealReceipt, MediaVideoRealRequest } from 'shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { MediaVideoConfigService } from '../media-config/media-video-config.service';
@@ -46,8 +45,14 @@ export class MediaVideoRealService {
     if (this.config.get<string>('MEDIA_VIDEO_REAL_ENABLED') !== 'true') fail(503, 'MEDIA_REAL_DISABLED', '真实视频执行未启用');
   }
 
-  async profiles(claims: ClientEmploymentClaims) {
+  async profiles(claims: ClientEmploymentClaims, protocolVersion = 1) {
     await this.authorize(claims, true);
+    if (protocolVersion === 3) {
+      const runtime = await this.videoConfig.getRuntimeVideoV3(claims.enterpriseId);
+      const profiles = runtime.profiles.filter(profile => profile.authorized);
+      if (!profiles.length) fail(403, 'MEDIA_FORBIDDEN', '当前企业无真实视频授权');
+      return { mock: false, protocolVersion: 3, persistence: 'database', billingStatus: 'NOT_RESERVED', profiles };
+    }
     const runtime = await this.videoConfig.getRuntimeVideo(claims.enterpriseId);
     if (!runtime.executionAvailable || (runtime as { executionMode?: string }).executionMode !== 'real') {
       fail(403, 'MEDIA_FORBIDDEN', '当前企业无真实视频授权');
@@ -63,13 +68,13 @@ export class MediaVideoRealService {
 
   async reference(claims: ClientEmploymentClaims, file?: Express.Multer.File, fields?: unknown) {
     await this.authorize(claims, true);
-    const profiles = await this.profiles(claims);
-    if (!profiles.profiles.some(p => p.operations.includes('image-to-video') && p.capabilities.supportsImageToVideo)) fail(403, 'MEDIA_FORBIDDEN', '无图生视频授权');
+    const profiles = await this.profiles(claims, 3);
+    if (!profiles.profiles.some((profile: any) => profile.operations.includes('image-to-video') && profile.adapter.available && profile.adapter.referenceSupport.maxCount >= 1)) fail(403, 'MEDIA_FORBIDDEN', '无图生视频授权');
     if (fields && Object.keys(fields as object).length) fail(400, 'INVALID_REFERENCE', '参考上传不接受额外字段');
     if (!file || !Buffer.isBuffer(file.buffer) || file.size !== file.buffer.length || file.mimetype !== 'image/png' || file.size > 10 * 1024 * 1024) fail(400, 'INVALID_REFERENCE', '需要不超过 10MiB 的 PNG 参考图');
     let dimensions: { width: number; height: number };
     try { dimensions = inspectMediaPng(file.buffer, 10 * 1024 * 1024); } catch { fail(400, 'INVALID_REFERENCE', '参考 PNG 无效'); }
-    if (!profiles.profiles.some(p => p.operations.includes('image-to-video') && p.capabilities.maxInputBytes >= file.size)) fail(400, 'INVALID_REFERENCE', '参考图超过 Profile 输入限制');
+    if (!profiles.profiles.some((profile: any) => profile.operations.includes('image-to-video') && profile.adapter.referenceSupport.maxInputBytes >= file.size)) fail(400, 'INVALID_REFERENCE', '参考图超过 Profile 输入限制');
     const expiresAt = new Date(Date.now() + REFERENCE_TTL).toISOString();
     const scope = this.scope(claims);
     const reference = await this.store.saveReference(scope, { mock: false, expiresAt, mimeType: 'image/png',
@@ -79,15 +84,16 @@ export class MediaVideoRealService {
     return reference;
   }
 
-  async quote(claims: ClientEmploymentClaims, raw: MediaVideoGatewayQuoteRequest) {
+  async quote(claims: ClientEmploymentClaims, raw: MediaVideoRealQuoteRequest) {
     await this.authorize(claims, true);
-    const input = this.parse(MediaVideoGatewayQuoteRequestSchema, raw);
+    const input = this.parse(MediaVideoRealQuoteRequestSchema, raw);
     const profile = await this.requireProfile(claims, input, true, 'video-quote');
     const references = await this.references(claims, input.referenceIds, profile.capabilities.maxInputBytes);
     const connection = await this.adapter.connection();
     const price = await this.adapter.pricing(connection, input, profile.modelId);
-    if (price.model !== profile.modelId || price.operation !== input.operation || price.duration_seconds !== 4 ||
-      price.resolution !== '720p' || price.pricing_status !== 'quoted' || price.amount_usd === null) fail(503, 'PRICE_UNAVAILABLE', '视频报价规格不匹配');
+    const dimensions = this.billingDimensions(input);
+    if (price.model !== profile.modelId || price.operation !== input.operation || price.duration_seconds !== dimensions.durationSeconds ||
+      price.resolution !== dimensions.resolution || price.pricing_status !== 'quoted' || price.amount_usd === null) fail(503, 'PRICE_UNAVAILABLE', '视频报价规格不匹配');
     const rate = parseUsdToCnyRate((await this.setting.getEffectiveValue(SETTING_KEYS.USD_TO_CNY_RATE)) ?? undefined);
     const amountUsd = new Decimal(price.amount_usd);
     const amountCny = amountUsd.mul(rate).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
@@ -95,24 +101,34 @@ export class MediaVideoRealService {
     const expiresAt = new Date(Math.min(Date.now() + 60_000, Date.parse(price.expires_at))).toISOString();
     if (Date.parse(expiresAt) <= Date.now()) fail(409, 'QUOTE_EXPIRED', '视频报价已过期');
     const funding = await this.billing.quoteFunding(claims, amountCny);
-    const semanticSha256 = this.semanticHash(input, references.map(r => r.sha256));
+    const semanticSha256 = this.semanticHash(input, references.map(r => r.sha256), this.scope(claims));
     await this.authorize(claims, true);
     await this.requireProfile(claims, input, true, 'video-quote');
     return this.store.saveQuote(this.scope(claims), {
       adapter: VIDEO_REAL_ADAPTER, consumedByClientRequestId: null,
       value: { mock: false, expiresAt, semanticSha256, pricingStatus: 'quoted', amountCny, amountUsd: price.amount_usd,
-        pricingVersion: price.pricing_version, usdToCnyRate: rate, billingStatus: 'NOT_RESERVED', funding },
-      configuration: { adapter: VIDEO_REAL_ADAPTER, profileId: input.profileId, configVersion: input.configVersion,
-        modelId: 'minimax-h3', operation: input.operation, parameters: input.parameters, connectionFingerprint: connection.fingerprint,
-        amountCny, amountUsd: price.amount_usd, pricingVersion: price.pricing_version, usdToCnyRate: rate },
+        pricingVersion: price.pricing_version, usdToCnyRate: rate, billingStatus: 'NOT_RESERVED', funding,
+        ...('protocolVersion' in input ? { protocolVersion: 3 as const, semanticHashVersion: 3 as const,
+          specRevision: input.specRevision, effectiveSpec: input.requestedSpec,
+          billingDimensions: { model: profile.modelId, operation: input.operation, ...dimensions } } : {}) },
+      configuration: 'protocolVersion' in input
+        ? { adapter: VIDEO_REAL_ADAPTER, protocolVersion: 3 as const, semanticHashVersion: 3 as const,
+          specRevision: input.specRevision, profileId: input.profileId, configVersion: input.configVersion,
+          modelId: profile.modelId, operation: input.operation, requestedSpec: input.requestedSpec, effectiveSpec: input.requestedSpec,
+          parameterSources: input.parameterSources,
+          connectionFingerprint: connection.fingerprint, amountCny, amountUsd: price.amount_usd,
+          pricingVersion: price.pricing_version, usdToCnyRate: rate }
+        : { adapter: VIDEO_REAL_ADAPTER, profileId: input.profileId, configVersion: input.configVersion,
+          modelId: 'minimax-h3', operation: input.operation, parameters: (input as MediaVideoGatewayQuoteRequest).parameters, connectionFingerprint: connection.fingerprint,
+          amountCny, amountUsd: price.amount_usd, pricingVersion: price.pricing_version, usdToCnyRate: rate },
       referenceIds: input.referenceIds, referenceHashes: references.map(r => r.sha256),
     });
   }
 
-  async submit(claims: ClientEmploymentClaims, raw: MediaVideoGatewayRequest): Promise<MediaVideoRealReceipt> {
+  async submit(claims: ClientEmploymentClaims, raw: MediaVideoRealRequest): Promise<MediaVideoRealReceipt> {
     // Existing requests can be recovered when the execution switch has been turned off.
     await this.authorize(claims, false);
-    const input = this.parse(MediaVideoGatewayRequestSchema, raw);
+    const input = this.parse(MediaVideoRealRequestSchema, raw);
     // The supplier contract contains generation fields only; local quote and
     // idempotency identifiers are passed separately, never as quote-schema keys.
     const { clientRequestId, quoteId: _quoteId, ...generationInput } = input;
@@ -129,9 +145,9 @@ export class MediaVideoRealService {
     const quote = await this.store.findQuote(scope, input.quoteId);
     if (!quote) fail(404, 'MEDIA_NOT_FOUND', '视频报价不可用');
     if (Date.parse(quote.value.expiresAt) <= Date.now()) fail(409, 'QUOTE_EXPIRED', '视频报价已过期');
-    const semanticSha256 = this.semanticHash(input, references.map(r => r.sha256));
+    const semanticSha256 = this.semanticHash(input, references.map(r => r.sha256), scope);
     if (semanticSha256 !== quote.value.semanticSha256 || JSON.stringify(input.referenceIds) !== JSON.stringify(quote.referenceIds) ||
-      JSON.stringify(input.parameters) !== JSON.stringify(quote.configuration.parameters) || profile.modelId !== quote.configuration.modelId) fail(409, 'IDEMPOTENCY_CONFLICT', '视频请求与冻结报价不一致');
+      !this.sameSpec(input, quote.configuration) || profile.modelId !== quote.configuration.modelId) fail(409, 'IDEMPOTENCY_CONFLICT', '视频请求与冻结报价不一致');
     const connection = await this.frozenConnection(quote.configuration.connectionFingerprint);
     const bytes = await Promise.all(references.map(r => this.cache.readReference(scope, r.referenceId,
       { sha256: r.sha256, byteLength: r.byteLength, expiresAt: r.expiresAt })));
@@ -143,6 +159,9 @@ export class MediaVideoRealService {
       receipt: { mock: false, clientRequestId: input.clientRequestId, profileId: input.profileId, configVersion: input.configVersion,
         operation: input.operation, status: 'SUBMITTING', pollAfterMs: 2000, outputs: [], billingStatus: 'NOT_RESERVED',
         amountCny: quote.value.amountCny, amountUsd: quote.value.amountUsd, errorCode: null,
+        ...('protocolVersion' in input ? { protocolVersion: 3 as const, specRevision: input.specRevision,
+          semanticHashVersion: 3 as const, effectiveSpec: input.requestedSpec, deliveryStatus: 'unknown' as const,
+          billingDimensions: { model: profile.modelId, operation: input.operation, ...this.billingDimensions(input) } } : {}),
         recovery: { canQuery: true, canCancel: false, canDownload: false } },
     });
     this.assertReplay(input, claim.record);
@@ -206,7 +225,8 @@ export class MediaVideoRealService {
         return this.snapshot((await this.store.findRequest(scope, record.receipt.receiptId)) ?? record);
       }
       record.configuration.upstreamRequestId = error instanceof VideoDispatchError ? error.requestId : record.configuration.upstreamRequestId;
-      record.receipt.status = 'SUBMISSION_UNKNOWN'; record.receipt.errorCode = 'SUBMISSION_UNKNOWN';
+      record.receipt.status = 'SUBMISSION_UNKNOWN';
+      record.receipt.errorCode = error instanceof VideoDispatchError && error.specUnsupported ? 'UPSTREAM_SPEC_UNSUPPORTED' : 'SUBMISSION_UNKNOWN';
       record.receipt.billingStatus = 'RECONCILING';
       return this.snapshot(await this.saveDispatch(record));
     }
@@ -236,10 +256,13 @@ export class MediaVideoRealService {
     const { metadata, stream } = await this.cache.streamOutput(record.scope, outputId,
       { sha256: output.sha256, byteLength: output.byteLength, expiresAt: output.expiresAt });
     try {
+      const audioMatches = 'protocolVersion' in record.configuration
+        ? 'actualSpec' in record.receipt && record.receipt.actualSpec?.hasAudio === metadata.hasAudio
+        : !this.requiresAudio(record.configuration) || metadata.hasAudio === true;
       if (metadata.byteLength > 256 * 1024 * 1024 || metadata.byteLength !== output.byteLength || metadata.sha256 !== output.sha256 ||
         metadata.width !== output.width || metadata.height !== output.height || metadata.durationSeconds !== output.durationSeconds ||
         metadata.frameRate !== output.frameRate || metadata.mimeType !== output.mimeType ||
-        record.configuration.parameters.audio && metadata.hasAudio !== true) fail(502, 'OUTPUT_FAILED', '视频输出校验失败');
+        !audioMatches) fail(502, 'OUTPUT_FAILED', '视频输出校验失败');
       await this.authorize(claims, false);
       await this.requireProfile(claims, record.configuration, false, 'video-content');
       return { output, stream };
@@ -296,11 +319,17 @@ export class MediaVideoRealService {
             const outputId = `${record.receipt.receiptId}-output-1`;
             downloading = true;
             const { hasAudio, ...metadata } = await this.cache.saveOutput(record.scope, outputId,
-              await this.adapter.rawContent(connection, record.configuration.upstreamTaskId), record.configuration.outputExpiresAt);
+              await this.adapter.rawContent(connection, record.configuration.upstreamTaskId, this.outputFormat(record.configuration)), record.configuration.outputExpiresAt);
             // Real metadata is measured from bytes, never copied from requested settings.
-            if (!this.acceptableH3Output(metadata) || record.configuration.parameters.audio && hasAudio !== true) fail(502, 'OUTPUT_FAILED', '视频成品与冻结规格不符');
+            const matches = this.outputMatches(record.configuration, metadata, hasAudio);
             record.receipt.outputs = [{ ...metadata, outputId, kind: 'video', thumbnailOutputId: null, expiresAt: record.configuration.outputExpiresAt }];
             record.receipt.status = 'SUCCEEDED'; record.receipt.errorCode = null;
+            if ('protocolVersion' in record.configuration) {
+              (record.receipt as any).actualSpec = { durationSeconds: metadata.durationSeconds, width: metadata.width, height: metadata.height,
+                frameRate: metadata.frameRate, mimeType: metadata.mimeType, hasAudio, source: 'measured' };
+              (record.receipt as any).deliveryStatus = matches;
+              if (matches === 'mismatched') record.receipt.errorCode = 'OUTPUT_SPEC_MISMATCH';
+            } else if (matches !== 'matched') fail(502, 'OUTPUT_FAILED', '视频成品与冻结规格不符');
           }
         } else if (task.status === 'failed' || task.status === 'cancelled') {
           record.receipt.status = task.status === 'cancelled' ? 'CANCELLED' : 'FAILED'; record.receipt.errorCode = 'UPSTREAM_FAILED';
@@ -331,15 +360,18 @@ export class MediaVideoRealService {
       } else if (record.configuration.upstreamRequestId) {
         if (!(await this.store.hasUniqueUpstreamRequest(record))) fail(409, 'BILLING_PENDING', '原视频账单关联不唯一');
         const usage = await this.adapter.usage(connection, record.configuration.upstreamRequestId);
+        const dimensions = this.configurationBillingDimensions(record.configuration);
         if (usage.request_id !== record.configuration.upstreamRequestId || usage.status !== 'settled' ||
-          usage.model !== 'minimax-h3' || usage.actual_cost_usd === null || usage.video_count !== 1 ||
-          usage.duration_seconds !== 4 || usage.resolution !== '720p') {
+          usage.model !== record.configuration.modelId || usage.actual_cost_usd === null || usage.video_count !== 1 ||
+          usage.duration_seconds !== dimensions.durationSeconds || usage.resolution !== dimensions.resolution) {
           record.receipt.billingStatus = 'RECONCILING';
         } else {
           const actualUsd = new Decimal(usage.actual_cost_usd);
           const actualCny = actualUsd.mul(record.configuration.usdToCnyRate).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
-          record.receipt.billingStatus = await this.billing.settleVideo(record.receipt.receiptId, actualCny,
-            actualUsd.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6), usage.model);
+          const actualUsdText = actualUsd.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
+          record.receipt.billingStatus = 'protocolVersion' in record.configuration
+            ? await this.billing.settleNegotiated(record.receipt.receiptId, actualCny, actualUsdText, usage.model, record.configuration.modelId)
+            : await this.billing.settleVideo(record.receipt.receiptId, actualCny, actualUsdText, usage.model);
           record.receipt.actualCostCny = actualCny;
         }
       } else {
@@ -424,10 +456,12 @@ export class MediaVideoRealService {
   }
 
   private async requireProfile(claims: ClientEmploymentClaims,
-    input: Pick<MediaVideoGatewayQuoteRequest, 'profileId' | 'configVersion' | 'operation' | 'parameters'>, execution: boolean,
+    input: Pick<MediaVideoGatewayQuoteRequest, 'profileId' | 'configVersion' | 'operation' | 'parameters'> |
+      Pick<MediaVideoGatewayQuoteRequestV3, 'protocolVersion' | 'profileId' | 'configVersion' | 'operation' | 'requestedSpec'>, execution: boolean,
     stage: 'video-quote' | 'video-submit' | 'video-query' | 'video-content') {
     const row = await this.prisma.mediaModelProfile.findUnique({ where: { profileId: input.profileId } });
-    if (!row || row.kind !== 'video' || row.modelId !== 'minimax-h3' || row.configVersion !== input.configVersion ||
+    const v3 = 'protocolVersion' in input;
+    if (!row || row.kind !== 'video' || (!v3 && row.modelId !== 'minimax-h3') || row.configVersion !== input.configVersion ||
       !row.enabled || !row.verified || row.executionMode !== 'async-query' || !row.operations.includes(input.operation)) fail(409, 'CONFIG_CHANGED', '原视频 Profile 已变更或撤销', { field: 'profileId', stage, recovery: 'refresh_capabilities' });
     const config = await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId: claims.enterpriseId } });
     const raw = config?.mediaPolicy as Record<string, unknown> | null;
@@ -440,16 +474,21 @@ export class MediaVideoRealService {
       durationsSeconds: z.array(z.number()), resolutions: z.array(z.string()), aspectRatios: z.array(z.string()),
       frameRates: z.array(z.number()), outputFormats: z.array(z.string()), maxInputBytes: z.number().positive(), maxReferenceCount: z.number().int().nonnegative(),
     }), row.capabilities);
-    const p = input.parameters;
-    if (p.durationSeconds !== 4 || p.resolution !== '720p' || p.aspectRatio !== '16:9' || p.frameRate !== 24 || !p.audio || p.outputFormat !== 'video/mp4' ||
+    const parameters = v3 ? null : (input as Pick<MediaVideoGatewayQuoteRequest, 'parameters'>).parameters;
+    if (!v3 && (parameters.durationSeconds !== 4 || parameters.resolution !== '720p' || parameters.aspectRatio !== '16:9' || parameters.frameRate !== 24 || !parameters.audio || parameters.outputFormat !== 'video/mp4' ||
       !capabilities.durationsSeconds.includes(4) || !capabilities.resolutions.includes('720p') || !capabilities.aspectRatios.includes('16:9') ||
       !capabilities.frameRates.includes(24) || !capabilities.supportsAudio || !capabilities.outputFormats.includes('video/mp4') ||
       input.operation === 'text-to-video' && !capabilities.supportsTextToVideo || input.operation === 'image-to-video' &&
-      (!capabilities.supportsImageToVideo || capabilities.maxReferenceCount < 1)) fail(400, 'INVALID_PARAMETER', '视频 Profile 不支持冻结规格', { field: 'parameters', stage, recovery: 'revise_request' });
+      (!capabilities.supportsImageToVideo || capabilities.maxReferenceCount < 1))) fail(400, 'INVALID_PARAMETER', '视频 Profile 不支持冻结规格', { field: 'parameters', stage, recovery: 'revise_request' });
     if (execution) {
-      const runtime = await this.videoConfig.getRuntimeVideo(claims.enterpriseId);
+      const runtime = v3 && 'getRuntimeVideoV3' in this.videoConfig
+        ? await (this.videoConfig as MediaVideoConfigService & { getRuntimeVideoV3(enterpriseId: string): Promise<any> }).getRuntimeVideoV3(claims.enterpriseId)
+        : await this.videoConfig.getRuntimeVideo(claims.enterpriseId);
       if (!runtime.executionAvailable || (runtime as { executionMode?: string }).executionMode !== 'real' ||
-        !runtime.profiles.some(p => p.profileId === input.profileId && p.configVersion === input.configVersion && p.operations.includes(input.operation))) fail(403, 'MEDIA_FORBIDDEN', '当前运行时未授权真实视频');
+        !runtime.profiles.some((profile: any) => profile.profileId === input.profileId && profile.configVersion === input.configVersion &&
+          profile.operations.includes(input.operation) && (!v3 || profile.authorized && profile.adapter?.available && profile.adapter.operations.includes(input.operation)))) {
+        fail(v3 ? 503 : 403, v3 ? 'ADAPTER_UNAVAILABLE' : 'MEDIA_FORBIDDEN', v3 ? '当前视频适配器未就绪' : '当前运行时未授权真实视频');
+      }
     }
     return { modelId: row.modelId, capabilities };
   }
@@ -486,15 +525,76 @@ export class MediaVideoRealService {
     return MediaVideoRealReceiptSchema.parse(record.receipt);
   }
 
-  private assertReplay(input: MediaVideoGatewayRequest, record: VideoRealRecord) {
+  private assertReplay(input: MediaVideoRealRequest, record: VideoRealRecord) {
     if (record.configuration.quoteId !== input.quoteId) fail(409, 'IDEMPOTENCY_CONFLICT', '幂等键已用于不同视频报价');
-    if (record.semanticSha256 !== this.semanticHash(input, record.referenceHashes)) fail(409, 'IDEMPOTENCY_CONFLICT', '幂等键请求语义哈希不匹配');
+    if (record.semanticSha256 !== this.semanticHash(input, record.referenceHashes, record.scope)) fail(409, 'IDEMPOTENCY_CONFLICT', '幂等键请求语义哈希不匹配');
     if (JSON.stringify(record.referenceIds) !== JSON.stringify(input.referenceIds)) fail(409, 'IDEMPOTENCY_CONFLICT', '幂等键参考图不匹配');
   }
 
-  private semanticHash(input: MediaVideoGatewayQuoteRequest, referenceHashes: string[]) {
+  private semanticHash(input: MediaVideoRealQuoteRequest, referenceHashes: string[], scope = '') {
+    if ('protocolVersion' in input) return hash(JSON.stringify({ semanticHashVersion: 3, protocolVersion: 3,
+      scope, adapter: VIDEO_REAL_ADAPTER, adapterVersion: '3',
+      profileId: input.profileId, configVersion: input.configVersion, operation: input.operation, specRevision: input.specRevision,
+      referenceIds: input.referenceIds.map((id, index) => ({ id, hash: referenceHashes[index] })), briefSha256: hash(input.creativeBrief), requestedSpec: input.requestedSpec,
+      parameterSources: input.parameterSources ? Object.fromEntries(Object.entries(input.parameterSources).sort(([a], [b]) => a.localeCompare(b))) : null,
+      omittedSpecFields: ['durationSeconds', 'aspectRatio', 'resolution', 'width', 'height', 'frameRate', 'audio', 'outputFormat']
+        .filter(field => !(field in input.requestedSpec)) }));
     return hash(JSON.stringify({ profileId: input.profileId, configVersion: input.configVersion, operation: input.operation,
-      referenceIds: input.referenceIds, referenceHashes, briefSha256: hash(input.creativeBrief), parameters: input.parameters }));
+      referenceIds: input.referenceIds, referenceHashes, briefSha256: hash(input.creativeBrief), parameters: (input as MediaVideoGatewayQuoteRequest).parameters }));
+  }
+
+  private billingDimensions(input: MediaVideoRealQuoteRequest) {
+    if (!('protocolVersion' in input)) {
+      const parameters = (input as MediaVideoGatewayQuoteRequest).parameters;
+      return { durationSeconds: parameters.durationSeconds, resolution: parameters.resolution };
+    }
+    if (input.requestedSpec.durationSeconds === undefined) fail(400, 'MISSING_SPEC', '视频报价缺少 durationSeconds', { field: 'requestedSpec.durationSeconds', stage: 'video-quote' });
+    const resolution = input.requestedSpec.resolution ?? (input.requestedSpec.width !== undefined && input.requestedSpec.height !== undefined
+      ? `${input.requestedSpec.width}x${input.requestedSpec.height}` : undefined);
+    if (!resolution) fail(400, 'MISSING_SPEC', '视频报价缺少 resolution 或 width/height', { field: 'requestedSpec.resolution', stage: 'video-quote' });
+    return { durationSeconds: input.requestedSpec.durationSeconds, resolution };
+  }
+
+  private configurationBillingDimensions(configuration: VideoRealRecord['configuration']) {
+    return 'protocolVersion' in configuration
+      ? { durationSeconds: configuration.effectiveSpec.durationSeconds!, resolution: configuration.effectiveSpec.resolution ?? `${configuration.effectiveSpec.width}x${configuration.effectiveSpec.height}` }
+      : { durationSeconds: (configuration as any).parameters.durationSeconds, resolution: (configuration as any).parameters.resolution };
+  }
+
+  private sameSpec(input: MediaVideoRealRequest, configuration: VideoRealRecord['configuration']): boolean {
+    return 'protocolVersion' in input && 'protocolVersion' in configuration
+      ? input.specRevision === configuration.specRevision && JSON.stringify(input.requestedSpec) === JSON.stringify(configuration.requestedSpec)
+      : !('protocolVersion' in input) && !('protocolVersion' in configuration) &&
+        JSON.stringify((input as MediaVideoGatewayRequest).parameters) === JSON.stringify((configuration as any).parameters);
+  }
+
+  private requiresAudio(configuration: VideoRealRecord['configuration']): boolean {
+    return 'protocolVersion' in configuration ? configuration.effectiveSpec.audio === true : (configuration as any).parameters.audio;
+  }
+
+  private outputFormat(configuration: VideoRealRecord['configuration']): string {
+    return 'protocolVersion' in configuration ? configuration.effectiveSpec.outputFormat ?? 'video/mp4' : (configuration as any).parameters.outputFormat;
+  }
+
+  private outputMatches(configuration: VideoRealRecord['configuration'], metadata: { byteLength: number; mimeType: string; durationSeconds: number; width: number; height: number; frameRate: number }, hasAudio: boolean | null): 'matched' | 'mismatched' | 'unknown' {
+    if (!('protocolVersion' in configuration)) return this.acceptableH3Output(metadata) && (!(configuration as any).parameters.audio || hasAudio === true) ? 'matched' : 'mismatched';
+    const spec = configuration.effectiveSpec;
+    const ratio = spec.aspectRatio?.split(':').map(Number);
+    const expectedResolution = spec.resolution?.match(/^([1-9]\d*)p$/i);
+    const unknown = spec.audio === undefined || hasAudio === null || spec.resolution !== undefined && !expectedResolution;
+    // Container duration may include a final partial frame; allow at most one measured video frame.
+    const durationTolerance = 1 / metadata.frameRate + 1e-6;
+    // ffprobe avg_frame_rate is a rational; tolerate numeric conversion only, not nearby frame-rate standards.
+    const frameRateTolerance = 1e-6;
+    const matches = metadata.byteLength > 0 && metadata.byteLength <= 256 * 1024 * 1024 &&
+      (spec.outputFormat === undefined || metadata.mimeType === spec.outputFormat) &&
+      (spec.durationSeconds === undefined || Math.abs(metadata.durationSeconds - spec.durationSeconds) <= durationTolerance) &&
+      (spec.width === undefined || metadata.width === spec.width && metadata.height === spec.height) &&
+      (ratio === undefined || BigInt(metadata.width) * BigInt(ratio[1]) === BigInt(metadata.height) * BigInt(ratio[0])) &&
+      (!expectedResolution || Math.min(metadata.width, metadata.height) === Number(expectedResolution[1])) &&
+      (spec.frameRate === undefined || Math.abs(metadata.frameRate - spec.frameRate) <= frameRateTolerance) &&
+      (spec.audio === undefined || hasAudio === null || spec.audio === hasAudio);
+    return !matches ? 'mismatched' : unknown ? 'unknown' : 'matched';
   }
 
   private acceptableH3Output(metadata: { byteLength: number; mimeType: string; durationSeconds: number; width: number; height: number; frameRate: number }): boolean {

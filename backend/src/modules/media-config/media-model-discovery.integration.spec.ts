@@ -65,10 +65,14 @@ describe('automatic media discovery → stored contract → authorized runtime (
     await f.image.discoverModels();
     expect(f.rows()).toHaveLength(1);
     const row = f.rows()[0];
-    expect(row).toMatchObject({ profileId: expect.stringMatching(/^auto-image-/), enabled: true, verified: true });
+    expect(row).toMatchObject({ profileId: expect.stringMatching(/^auto-image-/), enabled: false, verified: false });
     expect(await f.image.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, profiles: [], tools: [] });
     expect(f.prisma.enterpriseModelConfig.upsert).not.toHaveBeenCalled();
     f.authorize({ enabledProfileIds: [row.profileId], defaultProfileId: row.profileId, maxOutputs: 2 });
+    expect(await f.image.getRuntimeMedia('ent-1')).toMatchObject({ executionAvailable: false, profiles: [] });
+    f.imageAdapter.pricing.mockResolvedValue({ amount_usd: '0.04' });
+    await f.image.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion });
+    await f.image.updateProfile(row.profileId, { expectedConfigVersion: row.configVersion, enabled: true });
     const runtime = await f.image.getRuntimeMedia('ent-1');
     expect(MediaRuntimeSchema.safeParse(runtime).success).toBe(true);
     expect(runtime).toMatchObject({ executionAvailable: true, defaultProfileId: row.profileId,
@@ -76,7 +80,7 @@ describe('automatic media discovery → stored contract → authorized runtime (
     const before = structuredClone(f.rows());
     await f.image.discoverModels();
     expect(f.rows()).toEqual(before);
-    expect(f.imageAdapter.pricing).not.toHaveBeenCalled();
+    expect(f.imageAdapter.pricing).toHaveBeenCalled();
     expect(f.imageAdapter.execute).not.toHaveBeenCalled();
     expect(JSON.stringify(runtime)).not.toMatch(/test-only-key|relay\.example|gpt-image-2/);
   });
@@ -86,18 +90,22 @@ describe('automatic media discovery → stored contract → authorized runtime (
     expect(await f.video.discoverModels()).toMatchObject({ mock: false, executionTested: false });
     expect(f.rows()).toHaveLength(1);
     const row = f.rows()[0];
-    expect(row).toMatchObject({ kind: 'video', modelId: 'minimax-h3', enabled: true, verified: true });
+    expect(row).toMatchObject({ kind: 'video', modelId: 'minimax-h3', enabled: false, verified: false });
     f.authorize({ video: { enabledProfileIds: [row.profileId], defaultProfileId: row.profileId,
       allowedOperations: ['text-to-video', 'image-to-video'], maxDurationSeconds: 4, allowedAspectRatios: ['16:9'] } });
     expect(await f.video.getRuntimeVideo('ent-1')).toMatchObject({ executionAvailable: false, profiles: [] });
     f.enable();
+    expect(await f.video.getRuntimeVideo('ent-1')).toMatchObject({ executionAvailable: false, profiles: [] });
+    f.videoAdapter.pricing.mockResolvedValue({ amount_usd: '0.12' });
+    await f.video.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion });
+    await f.video.updateProfile(row.profileId, { expectedConfigVersion: row.configVersion, enabled: true });
     const runtime = await f.video.getRuntimeVideo('ent-1');
     expect(MediaVideoRuntimeSchema.safeParse(runtime).success).toBe(true);
     expect(runtime).toMatchObject({ executionAvailable: true, executionMode: 'real', defaultProfileId: row.profileId,
       tools: ['video_from_image', 'video_generate', 'video_get_job'] });
-    expect(f.videoAdapter.pricing).not.toHaveBeenCalled();
+    expect(f.videoAdapter.pricing).toHaveBeenCalledTimes(2);
     expect(f.videoAdapter.submit).not.toHaveBeenCalled();
-    expect(f.files.assertAvailable).toHaveBeenCalledTimes(1);
+    expect(f.files.assertAvailable).toHaveBeenCalledTimes(2);
     expect(f.prisma.enterpriseModelConfig.upsert).not.toHaveBeenCalled();
   });
 

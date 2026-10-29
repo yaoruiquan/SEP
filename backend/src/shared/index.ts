@@ -7,6 +7,7 @@ export * from './task.dto';
 export * from './client-task.dto';
 export * from './notification.dto';
 export * from './media.dto';
+export * from './media-spec.dto';
 export * from './media-video.dto';
 export * from './media-video-config.dto';
 export * from './media-video-real.dto';

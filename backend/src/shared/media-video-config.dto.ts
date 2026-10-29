@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { MediaVideoSpecV3Schema } from './media-spec.dto';
 import {
   MediaVideoCapabilitiesSchema, MediaVideoExecutionModeSchema, MediaVideoOperationSchema,
-  MediaVideoProfileSchema, MediaVideoResolutionSchema,
+  MediaVideoProfileSchema,
 } from './media-video.dto';
 
 // Keep this module independent of media.dto: the image policy nests this schema.
@@ -22,7 +23,10 @@ export const UpdateMediaVideoProfileDtoSchema = ProfileFields.pick({
 }).strict().refine(value => Object.keys(value).some(key => key !== 'expectedConfigVersion'), '至少提供一个修改字段');
 export type UpdateMediaVideoProfileDto = z.infer<typeof UpdateMediaVideoProfileDtoSchema>;
 
-export const VerifyMediaVideoProfileDtoSchema = z.object({ expectedConfigVersion: ProfileFields.shape.configVersion }).strict();
+export const VerifyMediaVideoProfileDtoSchema = z.object({
+  expectedConfigVersion: ProfileFields.shape.configVersion,
+  verificationSpec: MediaVideoSpecV3Schema.optional(),
+}).strict();
 export type VerifyMediaVideoProfileDto = z.infer<typeof VerifyMediaVideoProfileDtoSchema>;
 export const MediaVideoAvailableProfileSchema = ProfileFields.omit({ modelId: true });
 export type MediaVideoAvailableProfile = z.infer<typeof MediaVideoAvailableProfileSchema>;
@@ -64,7 +68,7 @@ export const MediaVideoAuthorizationSchema = MediaVideoPolicySchema.pick({ enabl
 export const UpdateMediaVideoPolicyDtoSchema = MediaVideoPolicySchema.partial().strict();
 export type UpdateMediaVideoPolicyDto = z.infer<typeof UpdateMediaVideoPolicyDtoSchema>;
 export const MediaVideoPolicyPreviewRequestSchema = z.object({
-  protocolVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
   policy: MediaVideoPolicySchema,
 }).strict();
 export type MediaVideoPolicyPreviewRequest = z.infer<typeof MediaVideoPolicyPreviewRequestSchema>;
@@ -82,7 +86,7 @@ export const MediaVideoPolicyPreviewProfileSchema = z.object({
   reasons: z.array(MediaVideoPolicyPreviewReasonSchema).max(12),
 }).strict();
 export const MediaVideoPolicyPreviewSchema = z.object({
-  protocolVersion: z.union([z.literal(1), z.literal(2)]),
+  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   executionMode: z.enum(['mock', 'real', 'disabled']),
   configured: z.boolean(),
   executionAvailable: z.boolean(),

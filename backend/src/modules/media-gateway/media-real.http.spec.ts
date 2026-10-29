@@ -129,7 +129,7 @@ describe('media real controller/guard HTTP contracts', () => {
     const response = await get('/profiles').expect(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).toEqual({ mock: false, protocolVersion: 1, persistence: 'database', profiles: [profile] });
-    expect(media.profiles).toHaveBeenCalledWith(claims);
+    expect(media.profiles).toHaveBeenCalledWith(claims, 1);
     expect(media.assertRealEnabled).toHaveBeenCalledTimes(1);
   });
 

@@ -2,7 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { MediaRealService } from './media-real.service';
 import { ImageDispatchError } from './sub2api-image.adapter';
-import { MediaRealQuoteRequestSchema } from 'shared';
+import { MediaRealQuoteRequestSchema, MediaRealQuoteRequestV3Schema, MediaRealQuoteV3Schema } from 'shared';
 import { MEDIA_MOCK_PNG } from './media-gateway-mock.adapter';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import type { RealRequestRecord } from './media-real.store';
@@ -14,26 +14,41 @@ const profile = { profileId: 'image', configVersion: 'cfg_1', executionMode: 'sy
   capabilities: { sizes: ['1024x1024'], maxOutputs: 4, supportsReferenceImage: true } };
 const quoteInput = MediaRealQuoteRequestSchema.parse({ profileId: 'image', configVersion: 'cfg_1', operation: 'generate', creativeBrief: 'Draw a product' });
 const request = { ...quoteInput, clientRequestId: 'request', quoteId: 'quote' };
+const quoteInputV3 = MediaRealQuoteRequestV3Schema.parse({
+  protocolVersion: 3, specRevision: 1, profileId: 'image', configVersion: 'cfg_1', operation: 'generate',
+  referenceIds: [], creativeBrief: 'Draw a product', requestedSpec: { width: 1, height: 1, count: 1, quality: 'medium' },
+  parameterSources: { width: 'model', height: 'model', count: 'model', quality: 'model' },
+});
 
 function harness() {
   let record: RealRequestRecord | null = null;
   let quote: any = null;
   const prisma = { enterpriseMember: { findFirst: jest.fn().mockResolvedValue({ departmentId: null }) },
+    enterpriseModelConfig: { findUnique: jest.fn().mockResolvedValue({ mediaPolicy: { enabledProfileIds: ['image'], defaultProfileId: null } }) },
     subscription: { findFirst: jest.fn().mockResolvedValue({ id: 'subscription' }) },
     mediaModelProfile: { findUnique: jest.fn().mockResolvedValue({ ...profile, modelId: 'gpt-image-2', enabled: true, verified: true }) } };
   const config = { get: jest.fn().mockReturnValue('true') };
   const settings = { getEffectiveValue: jest.fn().mockResolvedValue('7.2') };
   const mediaConfig = { getConnection: jest.fn().mockResolvedValue({ configured: true }),
-    getRuntimeMedia: jest.fn().mockResolvedValue({ executionAvailable: true, profiles: [profile] }) };
+    getRuntimeMedia: jest.fn().mockResolvedValue({ executionAvailable: true, profiles: [profile] }),
+    getRuntimeMediaV3: jest.fn().mockResolvedValue({ executionAvailable: true, profiles: [{
+      profileId: 'image', configVersion: 'cfg_1', executionMode: 'sync-response', operations: ['generate', 'edit'], authorized: true,
+      adapter: { available: true, operations: ['generate', 'edit'] },
+    }] }) };
   const adapter = { pricing: jest.fn().mockResolvedValue({ amount_usd: '0.10', pricing_version: 'price1', expires_at: new Date(Date.now() + 60_000).toISOString() }),
+    connectionSnapshot: jest.fn().mockResolvedValue({ connection: { base: 'https://media.example.test/v1', key: 'secret' }, fingerprint: 'a'.repeat(64) }),
+    connectionFingerprint: jest.fn().mockResolvedValue('a'.repeat(64)), assertConnectionFingerprint: jest.fn().mockResolvedValue(undefined),
     execute: jest.fn().mockResolvedValue({ requestId: 'upstream', images: [MEDIA_MOCK_PNG] }),
     usage: jest.fn().mockResolvedValue({ status: 'settled', actual_cost_usd: '0.08', model: 'gpt-image-2', image_count: 1 }) };
   const cache = { put: jest.fn().mockResolvedValue(undefined), get: jest.fn().mockResolvedValue(MEDIA_MOCK_PNG) };
   const billing = { quoteFunding: jest.fn().mockResolvedValue({ creditCny: '0.720000', memberWalletCny: '0.000000', personalCny: '0.000000' }),
     status: jest.fn().mockResolvedValue('RESERVED'),
-    reserve: jest.fn().mockResolvedValue(undefined), release: jest.fn().mockResolvedValue(undefined), settle: jest.fn().mockResolvedValue('SETTLED') };
+    reserve: jest.fn().mockResolvedValue(undefined), release: jest.fn().mockResolvedValue(undefined), settle: jest.fn().mockResolvedValue('SETTLED'),
+    settleNegotiated: jest.fn().mockResolvedValue('SETTLED') };
   const store = {
-    saveQuote: jest.fn(async (_scope: string, value: any, usdToCnyRate: number) => { quote = { scope: _scope, value: { ...value, quoteId: 'quote' }, usdToCnyRate }; return quote.value; }),
+    saveQuote: jest.fn(async (_scope: string, value: any, usdToCnyRate: number, connectionFingerprint?: string) => {
+      quote = { scope: _scope, value: { ...value, quoteId: 'quote' }, usdToCnyRate, connectionFingerprint }; return quote.value;
+    }),
     findQuote: jest.fn(async () => quote), findReference: jest.fn(async () => ({ scope, value: { sha256: hash, byteLength: MEDIA_MOCK_PNG.length, expiresAt: new Date(Date.now() + 60_000).toISOString() } })),
     findByClientId: jest.fn(async () => record), findRequest: jest.fn(async () => record),
     pendingRequests: jest.fn(async () => ({ records: record ? [structuredClone(record)] : [], afterId: undefined })),
@@ -54,6 +69,166 @@ function harness() {
 }
 
 describe('MediaRealService', () => {
+  it.each(['subscription', 'policy', 'profile', 'model', 'switch'] as const)(
+    'rechecks V3 execution authorization after reservation when %s changes', async change => {
+      const h = harness();
+      await h.service.quote(claims, quoteInputV3);
+      h.billing.reserve.mockImplementationOnce(async () => {
+        if (change === 'subscription') h.prisma.subscription.findFirst.mockResolvedValue(null);
+        if (change === 'policy') h.mediaConfig.getRuntimeMediaV3.mockResolvedValue({ executionAvailable: false, profiles: [] });
+        if (change === 'profile') h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'gpt-image-2', enabled: false, verified: true });
+        if (change === 'model') h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'different-image-model', enabled: true, verified: true });
+        if (change === 'switch') h.config.get.mockReturnValue('false');
+      });
+      const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'revoked-during-reserve', quoteId: 'quote' });
+      expect(receipt).toMatchObject({ status: 'FAILED', errorCode: 'CONFIG_CHANGED', billingStatus: 'RELEASED' });
+      expect(h.adapter.execute).not.toHaveBeenCalled();
+      expect(h.billing.release).toHaveBeenCalledWith('receipt');
+    },
+  );
+  it.each(['changed', 'unavailable'] as const)('releases a reserved V3 request when its pre-dispatch connection is %s', async failure => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    const unchanged = { connection: { base: 'https://media.example.test/v1', key: 'secret' }, fingerprint: 'a'.repeat(64) };
+    h.adapter.connectionSnapshot.mockResolvedValueOnce(unchanged);
+    if (failure === 'changed') h.adapter.connectionSnapshot.mockResolvedValueOnce({ ...unchanged, fingerprint: 'b'.repeat(64) });
+    else h.adapter.connectionSnapshot.mockRejectedValueOnce(new Error('connection unavailable'));
+    const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'local-failure', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ status: 'FAILED', errorCode: 'CONFIG_CHANGED', billingStatus: 'RELEASED', recovery: { canQuery: false } });
+    expect(h.adapter.execute).not.toHaveBeenCalled();
+    expect(h.billing.release).toHaveBeenCalledWith('receipt');
+  });
+
+  it('retries a local pre-dispatch failure refund without dispatching or querying usage', async () => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    h.adapter.connectionSnapshot.mockResolvedValueOnce({ connection: { base: 'https://media.example.test/v1', key: 'secret' }, fingerprint: 'a'.repeat(64) })
+      .mockRejectedValueOnce(new Error('connection unavailable'));
+    h.billing.release.mockRejectedValueOnce(new Error('billing unavailable'));
+    const submitted = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'refund-retry', quoteId: 'quote' });
+    expect(submitted).toMatchObject({ status: 'FAILED', errorCode: 'CONFIG_CHANGED', billingStatus: 'RECONCILING', recovery: { canQuery: true } });
+    const recovered = await h.service.receipt(claims, 'receipt');
+    expect(recovered).toMatchObject({ status: 'FAILED', billingStatus: 'RELEASED' });
+    expect(h.billing.release).toHaveBeenCalledTimes(2);
+    expect(h.adapter.execute).not.toHaveBeenCalled(); expect(h.adapter.usage).not.toHaveBeenCalled();
+  });
+
+  it('does not release a V3 reservation when execute has started but acceptance is unknown', async () => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    h.adapter.execute.mockRejectedValue(new ImageDispatchError(null, false));
+    const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'ambiguous-dispatch', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ status: 'SUBMISSION_UNKNOWN', billingStatus: 'RECONCILING' });
+    expect(h.billing.release).not.toHaveBeenCalled();
+  });
+
+  it('reports a known size mismatch for heterogeneous V3 outputs without inventing a shared actual size', async () => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'mixed-dimensions', quoteId: 'quote' });
+    const record = h.record();
+    record.receipt.outputs.push({ ...record.receipt.outputs[0], outputId: 'different-dimensions', width: 2, height: 2 });
+    (h.service as any).applyActualSpec(record, { size: '1x1', count: 2, quality: 'medium' });
+    expect(record.receipt).toMatchObject({ actualSpec: { count: 2 }, acceptance: { status: 'mismatched', mismatchedFields: ['size'], unknownFields: ['quality'] } });
+    expect((record.receipt as any).actualSpec.size).toBeUndefined();
+  });
+
+  it('distinguishes a removed V3 grant from an authorized profile version change', async () => {
+    const h = harness();
+    h.mediaConfig.getRuntimeMediaV3.mockResolvedValue({ executionAvailable: false, profiles: [] });
+    h.prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { enabledProfileIds: [], defaultProfileId: null } });
+    await expect(h.service.quote(claims, quoteInputV3)).rejects.toMatchObject({ response: { error: { code: 'MEDIA_FORBIDDEN' } } });
+    h.prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { enabledProfileIds: ['image'], defaultProfileId: null } });
+    await expect(h.service.quote(claims, quoteInputV3)).rejects.toMatchObject({ response: { error: { code: 'CONFIG_CHANGED' } } });
+  });
+
+  it('quotes full-length V3 size and quality labels without storage contract truncation', async () => {
+    const h = harness();
+    const dto = { ...quoteInputV3, requestedSpec: { size: 's'.repeat(128), count: 1, quality: 'q'.repeat(128) } };
+    const result = await h.service.quote(claims, dto);
+    expect(MediaRealQuoteV3Schema.safeParse(result).success).toBe(true);
+  });
+  it('retains an upstream specification error without assuming rejection before execution or releasing funds', async () => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    h.adapter.execute.mockRejectedValue(new ImageDispatchError('upstream', false, 'UPSTREAM_SPEC_UNSUPPORTED'));
+    const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'unsupported-spec', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ status: 'SUBMISSION_UNKNOWN', errorCode: 'UPSTREAM_SPEC_UNSUPPORTED', billingStatus: 'RECONCILING' });
+    await h.service.receipt(claims, receipt.receiptId);
+    expect(h.billing.release).not.toHaveBeenCalled();
+    expect(h.adapter.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not drop explicit pixel dimensions when a named size cannot express them', async () => {
+    const h = harness();
+    await expect(h.service.quote(claims, { ...quoteInputV3, requestedSpec: { size: 'auto', width: 1, height: 1, count: 1, quality: 'medium' } }))
+      .rejects.toMatchObject({ response: { error: { code: 'ADAPTER_FIELD_UNMAPPED', field: 'requestedSpec.width' } } });
+    expect(h.adapter.pricing).not.toHaveBeenCalled();
+    expect(h.billing.reserve).not.toHaveBeenCalled();
+  });
+  it('retains and settles extra safe V3 outputs while reporting count mismatch', async () => {
+    const h = harness();
+    h.adapter.execute.mockResolvedValue({ requestId: 'upstream', images: [MEDIA_MOCK_PNG, MEDIA_MOCK_PNG] });
+    h.adapter.usage.mockResolvedValue({ status: 'settled', actual_cost_usd: '0.08', model: 'gpt-image-2', image_count: 2 });
+    await h.service.quote(claims, quoteInputV3);
+    const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'extra-outputs', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ status: 'SUCCEEDED', billingStatus: 'SETTLED', actualSpec: { count: 2 },
+      acceptance: { status: 'mismatched', mismatchedFields: ['count'] }, recovery: { canDownload: true } });
+    expect(receipt.outputs).toHaveLength(2);
+  });
+
+  it('settles a negotiated unknown model with dot profile and nonlegacy config IDs', async () => {
+    const h = harness();
+    const dto = { ...quoteInputV3, profileId: 'future.image', configVersion: 'config:2026.10' };
+    h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, ...dto, modelId: 'future-image-native', enabled: true, verified: true });
+    const runtime = await h.mediaConfig.getRuntimeMediaV3();
+    h.mediaConfig.getRuntimeMediaV3.mockResolvedValue({ ...runtime, profiles: runtime.profiles.map(item => ({ ...item, profileId: dto.profileId, configVersion: dto.configVersion })) });
+    h.adapter.usage.mockResolvedValue({ status: 'settled', actual_cost_usd: '0.08', model: 'future-image-native', image_count: 1 });
+    await h.service.quote(claims, dto);
+    const receipt = await h.service.submit(claims, { ...dto, clientRequestId: 'future-request', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ protocolVersion: 3, profileId: 'future.image', configVersion: 'config:2026.10', status: 'SUCCEEDED', billingStatus: 'SETTLED' });
+    expect(h.billing.settleNegotiated).toHaveBeenCalledWith('receipt', '0.576000', '0.080000', 'future-image-native', 'future-image-native');
+  });
+
+  it.each(['amount', 'version', 'model', 'adapter', 'connection'] as const)('does not reserve or dispatch when V3 frozen %s changes', async change => {
+    const h = harness();
+    await h.service.quote(claims, quoteInputV3);
+    if (change === 'amount') h.adapter.pricing.mockResolvedValue({ amount_usd: '0.11', pricing_version: 'price1', expires_at: new Date(Date.now() + 60_000).toISOString() });
+    if (change === 'version') h.adapter.pricing.mockResolvedValue({ amount_usd: '0.10', pricing_version: 'price2', expires_at: new Date(Date.now() + 60_000).toISOString() });
+    if (change === 'model') h.prisma.mediaModelProfile.findUnique.mockResolvedValue({ ...profile, modelId: 'future-image-native', enabled: true, verified: true });
+    if (change === 'adapter') h.quote().value.adapterVersion = 'old-adapter';
+    if (change === 'connection') h.adapter.connectionSnapshot.mockResolvedValue({ connection: { base: 'https://changed.example/v1', key: 'secret' }, fingerprint: 'b'.repeat(64) });
+    await expect(h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'request-v3', quoteId: 'quote' })).rejects.toMatchObject({ response: { error: { code: 'CONFIG_CHANGED' } } });
+    expect(h.billing.reserve).not.toHaveBeenCalled();
+    expect(h.adapter.execute).not.toHaveBeenCalled();
+  });
+
+  it.each([[false, true, 'MEDIA_FORBIDDEN'], [true, false, 'ADAPTER_UNAVAILABLE']] as const)('reports V3 authorization %s and adapter availability %s precisely', async (authorized, available, code) => {
+    const h = harness();
+    const runtime = await h.mediaConfig.getRuntimeMediaV3();
+    h.mediaConfig.getRuntimeMediaV3.mockResolvedValue({ executionAvailable: false, profiles: runtime.profiles.map(item => ({ ...item, authorized, adapter: { ...item.adapter, available } })) });
+    await expect(h.service.quote(claims, quoteInputV3)).rejects.toMatchObject({ response: { error: { code, field: 'profileId' } } });
+    expect(h.adapter.pricing).not.toHaveBeenCalled();
+  });
+
+  it('quotes and submits V3 without capability-hint whitelisting or silent defaults', async () => {
+    const h = harness();
+    const quote = await h.service.quote(claims, quoteInputV3);
+    expect(quote).toMatchObject({ protocolVersion: 3, semanticHashVersion: 3,
+      effectiveSpec: { size: '1x1', count: 1, quality: 'medium' } });
+    expect(h.adapter.pricing).toHaveBeenCalledWith(expect.objectContaining({ requestedSpec: expect.objectContaining({ size: '1x1' }) }), 'gpt-image-2', expect.any(Object));
+    const receipt = await h.service.submit(claims, { ...quoteInputV3, clientRequestId: 'request-v3', quoteId: 'quote' });
+    expect(receipt).toMatchObject({ protocolVersion: 3, status: 'SUCCEEDED', actualSpec: { count: 1 },
+      acceptance: { status: 'unknown', unknownFields: ['quality'] } });
+    expect(h.billing.settleNegotiated).toHaveBeenCalledWith('receipt', '0.576000', '0.080000', 'gpt-image-2', 'gpt-image-2');
+  });
+
+  it('rejects missing V3 pricing dimensions before pricing or dispatch', async () => {
+    const h = harness();
+    const missing = MediaRealQuoteRequestV3Schema.parse({ ...quoteInputV3, requestedSpec: { count: 1 } });
+    await expect(h.service.quote(claims, missing)).rejects.toMatchObject({ response: { error: { code: 'MISSING_SPEC', field: 'requestedSpec.size' } } });
+    expect(h.adapter.pricing).not.toHaveBeenCalled(); expect(h.adapter.execute).not.toHaveBeenCalled();
+  });
   it('returns client profiles contract and respects disabled runtime', async () => {
     const h = harness();
     expect(await h.service.profiles(claims)).toMatchObject({ mock: false, persistence: 'database', profiles: [profile] });

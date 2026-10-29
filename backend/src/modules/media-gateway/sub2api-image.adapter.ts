@@ -1,6 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import type { MediaRealQuoteRequest } from '../../shared/media-real.dto';
+import type { MediaImageSpecV3, MediaRealAnyQuoteRequest, MediaRealQuoteRequestV3 } from 'shared';
 import { SettingService } from '../setting/setting.service';
 import { isSupportedImageModel } from './image-model-contract';
 import { inspectMediaPng } from './media-png';
@@ -15,7 +16,7 @@ const ModelsSchema = z.object({
 const PricingSchema = z.object({
   object: z.literal('sub2api.image_pricing'), schema_version: z.literal(1), currency: z.literal('USD'),
   model: ModelIdSchema, operation: z.enum(['generate', 'edit']), size: z.string(), n: z.number().int(),
-  quality: z.enum(['low', 'medium', 'high']), billing_mode: z.enum(['image', 'per_request', 'token']),
+  quality: z.string().min(1).max(128), billing_mode: z.enum(['image', 'per_request', 'token']),
   pricing_status: z.enum(['quoted', 'unavailable']), pricing_source: z.string().min(1),
   pricing_authority: z.literal('sub2api_customer_billing').optional(),
   amount_usd: z.string().regex(/^\d+(?:\.\d{1,12})?$/).nullable(), pricing_version: z.string().min(1).max(128),
@@ -31,17 +32,54 @@ const UsageSchema = z.object({
 });
 export type Sub2apiImageUsage = z.infer<typeof UsageSchema>;
 export interface Sub2apiImageConnection { base: string; key: string }
+export const SUB2API_IMAGE_ADAPTER_VERSION = 'sub2api-image-v3';
 export class ImageDispatchError extends HttpException {
-  constructor(readonly requestId: string | null, readonly definitelyRejected: boolean) {
-    super({ error: { code: definitelyRejected ? 'UPSTREAM_FAILED' : 'SUBMISSION_UNKNOWN', message: '图片上游执行未完成，请查询原请求' } }, 502);
+  constructor(readonly requestId: string | null, readonly definitelyRejected: boolean,
+    readonly safeCode: 'UPSTREAM_FAILED' | 'UPSTREAM_SPEC_UNSUPPORTED' = 'UPSTREAM_FAILED') {
+    super({ error: { code: safeCode === 'UPSTREAM_SPEC_UNSUPPORTED' ? safeCode : definitelyRejected ? safeCode : 'SUBMISSION_UNKNOWN',
+      message: '图片上游执行未完成，请查询原请求' } }, 502);
   }
 }
 function unavailable(code = 'PRICE_UNAVAILABLE'): never {
   throw new HttpException({ error: { code, message: '图片上游合同暂不可核验，不能提交收费执行' } }, 503);
 }
+export function resolveSub2apiImageSpec(input: MediaRealAnyQuoteRequest, stage: 'quote' | 'submit'): MediaImageSpecV3 & { size: string; count: number; quality: string } {
+  if ('parameters' in input) return input.parameters as MediaImageSpecV3 & { size: string; count: number; quality: string };
+  const requested = (input as MediaRealQuoteRequestV3).requestedSpec;
+  const reject = (code: 'MISSING_SPEC' | 'ADAPTER_FIELD_UNMAPPED', field: string, reason: string): never => {
+    throw new HttpException({ error: { code, message: reason, field, reason, stage,
+      source: code === 'MISSING_SPEC' ? 'request' : 'adapter', recovery: 'revise_request',
+      submissionState: 'not_submitted', billingState: 'not_reserved', retryable: false } }, 422);
+  };
+  const size = requested.size ?? (requested.width !== undefined && requested.height !== undefined
+    ? `${requested.width}x${requested.height}` : undefined);
+  for (const [field, value] of [['requestedSpec.size', size], ['requestedSpec.count', requested.count], ['requestedSpec.quality', requested.quality]] as const) {
+    if (value === undefined) reject('MISSING_SPEC', field, '报价所需计价字段缺失');
+  }
+  if (requested.count! > 4) reject('ADAPTER_FIELD_UNMAPPED', 'requestedSpec.count', '当前图片适配器最多可安全接收4个输出');
+  if (!/^([1-9]\d*)x([1-9]\d*)$/.test(size!)) {
+    if (requested.width !== undefined) reject('ADAPTER_FIELD_UNMAPPED', 'requestedSpec.width', '命名尺寸没有可核验的像素宽高映射');
+    if (requested.aspectRatio !== undefined) reject('ADAPTER_FIELD_UNMAPPED', 'requestedSpec.aspectRatio', '命名尺寸没有可核验的比例映射');
+  }
+  return { ...requested, size: size!, count: requested.count!, quality: requested.quality! };
+}
 @Injectable()
 export class Sub2apiImageAdapter {
   constructor(private readonly settings: SettingService) {}
+
+  async connectionFingerprint(): Promise<string> {
+    const connection = await this.connection();
+    return createHash('sha256').update(`${connection.base}\0${connection.key}`).digest('hex');
+  }
+
+  async connectionSnapshot(): Promise<{ connection: Sub2apiImageConnection; fingerprint: string }> {
+    const connection = await this.connection();
+    return { connection, fingerprint: createHash('sha256').update(`${connection.base}\0${connection.key}`).digest('hex') };
+  }
+
+  async assertConnectionFingerprint(expected: string): Promise<void> {
+    if (await this.connectionFingerprint() !== expected) unavailable('CONFIG_CHANGED');
+  }
 
   async discoverModels(connection?: Sub2apiImageConnection): Promise<Array<{ modelId: string; displayName: string }>> {
     const result = await this.call('/models', { method: 'GET' }, 15_000, 1024 * 1024, false, undefined, connection);
@@ -57,18 +95,21 @@ export class Sub2apiImageAdapter {
     return [...models.values()].sort((a, b) => a.modelId < b.modelId ? -1 : a.modelId > b.modelId ? 1 : 0);
   }
 
-  async pricing(input: MediaRealQuoteRequest, modelId = 'gpt-image-2'): Promise<Sub2apiImagePrice> {
-    if (!isSupportedImageModel(modelId)) unavailable();
+  async pricing(input: MediaRealAnyQuoteRequest, modelId = 'gpt-image-2', snapshot?: Sub2apiImageConnection): Promise<Sub2apiImagePrice> {
+    // V1/V2 requests retain the historical model allow-list. V3 carries the
+    // negotiated spec and may target an explicitly configured upstream model.
+    if ('parameters' in input && !isSupportedImageModel(modelId)) unavailable();
+    const spec = resolveSub2apiImageSpec(input, 'quote');
     const result = await this.call('/sub2api/images/pricing', {
       method: 'POST', body: JSON.stringify({ model: modelId, operation: input.operation,
-        size: input.parameters.size, n: input.parameters.count, quality: input.parameters.quality }),
+        size: spec.size, n: spec.count, quality: spec.quality }),
       headers: { 'Content-Type': 'application/json' },
-    }, 15_000, 64 * 1024);
+    }, 15_000, 64 * 1024, false, undefined, snapshot);
     const parsed = PricingSchema.safeParse(result.value);
     if (!parsed.success) unavailable();
     const price = parsed.data;
-    if (price.model !== modelId || price.operation !== input.operation || price.size !== input.parameters.size ||
-      price.n !== input.parameters.count || price.quality !== input.parameters.quality || price.pricing_status !== 'quoted' ||
+    if (price.model !== modelId || price.operation !== input.operation || price.size !== spec.size ||
+      price.n !== spec.count || price.quality !== spec.quality || price.pricing_status !== 'quoted' ||
       price.billing_mode === 'token' || price.amount_usd === null || Date.parse(price.expires_at) <= Date.now() ||
       Date.parse(price.expires_at) > Date.now() + 120_000 || Date.parse(price.observed_at) > Date.now() + 5000 ||
       (/fallback|default|unknown/i.test(price.pricing_source) &&
@@ -76,9 +117,9 @@ export class Sub2apiImageAdapter {
     return price;
   }
 
-  async usage(requestId: string): Promise<Sub2apiImageUsage> {
+  async usage(requestId: string, snapshot?: Sub2apiImageConnection): Promise<Sub2apiImageUsage> {
     if (!/^[A-Za-z0-9_.:-]{1,256}$/.test(requestId)) unavailable('BILLING_PENDING');
-    const result = await this.call(`/sub2api/usage?request_id=${encodeURIComponent(requestId)}`, { method: 'GET' }, 15_000, 64 * 1024);
+    const result = await this.call(`/sub2api/usage?request_id=${encodeURIComponent(requestId)}`, { method: 'GET' }, 15_000, 64 * 1024, false, undefined, snapshot);
     const parsed = UsageSchema.safeParse(result.value);
     if (!parsed.success || parsed.data.request_id !== requestId ||
       (parsed.data.status === 'settled' && (parsed.data.actual_cost_usd === null || parsed.data.model == null ||
@@ -88,16 +129,18 @@ export class Sub2apiImageAdapter {
   }
 
   async execute(
-    input: MediaRealQuoteRequest,
+    input: MediaRealAnyQuoteRequest,
     references: Buffer[],
     onRequestId?: (requestId: string) => Promise<void>,
     modelId = 'gpt-image-2',
+    snapshot?: Sub2apiImageConnection,
   ): Promise<{ requestId: string; images: Buffer[] }> {
-    if (!isSupportedImageModel(modelId)) unavailable();
+    if ('parameters' in input && !isSupportedImageModel(modelId)) unavailable();
+    const spec = resolveSub2apiImageSpec(input, 'submit');
     let body: BodyInit; let headers: Record<string, string> = {};
     if (input.operation === 'generate') {
-      body = JSON.stringify({ model: modelId, prompt: input.creativeBrief, n: input.parameters.count,
-        size: input.parameters.size, quality: input.parameters.quality, response_format: 'b64_json' });
+      body = JSON.stringify({ model: modelId, prompt: input.creativeBrief, n: spec.count,
+        size: spec.size, quality: spec.quality, response_format: 'b64_json' });
       headers = { 'Content-Type': 'application/json' };
     } else {
       if (!references.length || references.length !== input.referenceIds.length) unavailable('INVALID_REFERENCE');
@@ -107,22 +150,25 @@ export class Sub2apiImageAdapter {
         form.append('image[]', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), `reference-${index}.png`);
       }
       for (const [key, value] of Object.entries({ model: modelId, prompt: input.creativeBrief,
-        n: String(input.parameters.count), size: input.parameters.size, quality: input.parameters.quality, response_format: 'b64_json' })) form.append(key, value);
+        n: String(spec.count), size: spec.size, quality: spec.quality, response_format: 'b64_json' })) form.append(key, value);
       body = form;
     }
-    const result = await this.call(`/images/${input.operation === 'generate' ? 'generations' : 'edits'}`, { method: 'POST', headers, body }, 180_000, 140 * 1024 * 1024, true, onRequestId);
+    const result = await this.call(`/images/${input.operation === 'generate' ? 'generations' : 'edits'}`, { method: 'POST', headers, body }, 180_000, 140 * 1024 * 1024, true, onRequestId, snapshot, !('parameters' in input));
     if (!result.requestId) throw new ImageDispatchError(null, false);
     const value = z.object({ model: ModelIdSchema.optional(),
       data: z.array(z.object({ b64_json: z.string().min(1) })).min(1).max(4) }).safeParse(result.value);
-    if (!value.success || (value.data.model !== undefined && value.data.model !== modelId) || value.data.data.length > input.parameters.count) throw new ImageDispatchError(result.requestId, false);
+    if (!value.success || (value.data.model !== undefined && value.data.model !== modelId) ||
+      ('parameters' in input && value.data.data.length > spec.count)) throw new ImageDispatchError(result.requestId, false);
     const images: Buffer[] = [];
     try {
       for (const item of value.data.data) {
         if (item.b64_json.length > Math.ceil(25 * 1024 * 1024 / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(item.b64_json)) throw new Error();
         const bytes = Buffer.from(item.b64_json, 'base64');
         const dimensions = inspectMediaPng(bytes);
-        const [width, height] = input.parameters.size.split('x').map(Number);
-        if (dimensions.width !== width || dimensions.height !== height) throw new Error();
+        if ('parameters' in input) {
+          const expected = spec.size.match(/^([1-9]\d*)x([1-9]\d*)$/);
+          if (expected && (dimensions.width !== Number(expected[1]) || dimensions.height !== Number(expected[2]))) throw new Error();
+        }
         images.push(bytes);
       }
     } catch { throw new ImageDispatchError(result.requestId, false); }
@@ -144,7 +190,24 @@ export class Sub2apiImageAdapter {
     } catch { unavailable(); }
   }
 
-  private async call(path: string, options: RequestInit, timeout: number, maxBytes: number, dispatch = false, onRequestId?: (requestId: string) => Promise<void>, snapshot?: Sub2apiImageConnection): Promise<{ value: unknown; requestId: string | null }> {
+  private async unsupportedSpec(response: Response): Promise<boolean> {
+    if (!response.headers.get('content-type')?.includes('application/json') || !response.body) {
+      await response.body?.cancel().catch(() => {}); return false;
+    }
+    const reader = response.body.getReader(); const chunks: Buffer[] = []; let length = 0;
+    try {
+      while (true) {
+        const part = await reader.read(); if (part.done) break;
+        length += part.value.length; if (length > 64 * 1024) return false;
+        chunks.push(Buffer.from(part.value));
+      }
+      const value = z.object({ error: z.object({ code: z.string() }) }).safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      return value.success && ['unsupported_spec', 'unsupported_parameter', 'unsupported_size', 'unsupported_quality'].includes(value.data.error.code);
+    } catch { return false; }
+    finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  }
+
+  private async call(path: string, options: RequestInit, timeout: number, maxBytes: number, dispatch = false, onRequestId?: (requestId: string) => Promise<void>, snapshot?: Sub2apiImageConnection, classifySpec = false): Promise<{ value: unknown; requestId: string | null }> {
     const connection = snapshot ? this.normalizeConnection(snapshot) : await this.connection();
     let requestId: string | null = null;
     try {
@@ -164,9 +227,12 @@ export class Sub2apiImageAdapter {
         }
       }
       if (!response.ok) {
-        await response.body?.cancel();
-        // Gateway failures can include partial upstream work. Only explicit validation/auth rejection is definite.
-        if (dispatch) throw new ImageDispatchError(requestId, [400, 401, 403, 404, 413, 422, 429].includes(response.status));
+        const unsupported = dispatch && classifySpec && [400, 422].includes(response.status)
+          ? await this.unsupportedSpec(response) : false;
+        if (!response.body?.locked) await response.body?.cancel().catch(() => {});
+        // V3 supplier errors do not prove that no upstream execution or billing occurred.
+        // Keep the historical rejection contract isolated to legacy requests.
+        if (dispatch) throw new ImageDispatchError(requestId, !classifySpec && [400, 401, 403, 404, 413, 422, 429].includes(response.status), unsupported ? 'UPSTREAM_SPEC_UNSUPPORTED' : 'UPSTREAM_FAILED');
         unavailable(path.startsWith('/sub2api/usage') ? 'BILLING_PENDING' : 'PRICE_UNAVAILABLE');
       }
       if (!response.headers.get('content-type')?.includes('application/json') || !response.body) throw new Error();

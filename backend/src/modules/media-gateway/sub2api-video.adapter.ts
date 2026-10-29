@@ -1,8 +1,9 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { MediaVideoUsdSchema } from '../../shared/media-video-real.dto';
-import { MediaVideoGatewayQuoteRequestSchema, type MediaVideoGatewayQuoteRequest } from '../../shared/media-video.dto';
+import { MediaVideoUsdSchema } from 'shared';
+import { MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayQuoteRequestV3Schema,
+  type MediaVideoGatewayQuoteRequest, type MediaVideoGatewayQuoteRequestV3 } from 'shared';
 import { SettingService } from '../setting/setting.service';
 import { inspectMediaPng } from './media-png';
 
@@ -18,7 +19,7 @@ const TaskSchema = z.object({
 const PricingSchema = z.object({
   object: z.literal('sub2api.video_pricing'), schema_version: z.literal(1), currency: z.literal('USD'),
   model: ModelIdSchema, operation: z.enum(['text-to-video', 'image-to-video']),
-  resolution: z.string().min(1).max(32), duration_seconds: z.number().int().positive().max(600),
+  resolution: z.string().min(1).max(128), duration_seconds: z.number().int().positive().safe(),
   billing_mode: z.enum(['video', 'per_request']), pricing_status: z.enum(['quoted', 'unavailable']),
   pricing_source: z.string().trim().min(1).max(128), pricing_authority: z.literal('sub2api_customer_billing'),
   amount_usd: MediaVideoUsdSchema.nullable(), pricing_version: z.string().min(1).max(128),
@@ -30,21 +31,31 @@ const UsageSchema = z.object({
   object: z.literal('sub2api.video_request_usage'), schema_version: z.literal(1), currency: z.literal('USD'),
   request_id: RequestIdSchema, status: z.enum(['settled', 'pending']), model: ModelIdSchema.nullable(),
   actual_cost_usd: MediaVideoUsdSchema.nullable(), video_count: z.number().int().nonnegative().nullable(),
-  duration_seconds: z.number().finite().positive().max(600).nullable(), resolution: z.string().min(1).max(32).nullable(),
+  duration_seconds: z.number().finite().positive().max(Number.MAX_SAFE_INTEGER).nullable(), resolution: z.string().min(1).max(128).nullable(),
 }).strict();
 export type Sub2apiVideoUsage = z.infer<typeof UsageSchema>;
 export type Sub2apiVideoTask = z.infer<typeof TaskSchema>;
+export type Sub2apiVideoInput = MediaVideoGatewayQuoteRequest | MediaVideoGatewayQuoteRequestV3;
 
 export class VideoDispatchError extends HttpException {
-  constructor(readonly requestId: string | null, readonly definitelyRejected: boolean) {
+  constructor(readonly requestId: string | null, readonly definitelyRejected: boolean,
+    readonly specUnsupported = false) {
     super({ error: {
-      code: definitelyRejected ? 'UPSTREAM_FAILED' : 'SUBMISSION_UNKNOWN',
-      message: '视频提交未完成，请查询原请求',
+      code: specUnsupported ? 'UPSTREAM_SPEC_UNSUPPORTED' : definitelyRejected ? 'UPSTREAM_FAILED' : 'SUBMISSION_UNKNOWN',
+      message: specUnsupported ? '上游拒绝了请求规格，请查询原请求以确认账务状态' : '视频提交未完成，请查询原请求',
+      ...(specUnsupported ? { source: 'upstream', stage: 'submit', reason: '上游明确报告规格参数不支持',
+        retryable: false, submissionState: 'unknown', billingState: 'reconciling' } : {}),
     } }, 502);
   }
 }
 function unavailable(code = 'PRICE_UNAVAILABLE'): never {
   throw new HttpException({ error: { code, message: '视频上游合同暂不可核验' } }, 503);
+}
+function specError(code: 'MISSING_SPEC' | 'ADAPTER_FIELD_UNMAPPED', field: string, reason: string,
+  stage: 'quote' | 'submit'): never {
+  const message = code === 'MISSING_SPEC' ? '视频报价缺少必要规格' : '当前适配器无法传递请求规格';
+  throw new HttpException({ message, error: { code, message, field, reason, source: 'adapter', stage,
+    retryable: false, submissionState: 'not_submitted', billingState: 'not_reserved' } }, 422);
 }
 const fingerprint = (base: string, key: string) => createHash('sha256').update(base + '\0' + key).digest('hex');
 const MAX_CONTENT_BYTES = 256 * 1024 * 1024;
@@ -79,19 +90,19 @@ export class Sub2apiVideoAdapter {
     return [...models.values()].sort((a, b) => a.modelId < b.modelId ? -1 : a.modelId > b.modelId ? 1 : 0);
   }
 
-  async pricing(connection: Sub2apiVideoConnection, input: MediaVideoGatewayQuoteRequest, modelId: string): Promise<Sub2apiVideoPrice> {
-    this.assertInput(input, modelId);
+  async pricing(connection: Sub2apiVideoConnection, input: Sub2apiVideoInput, modelId: string): Promise<Sub2apiVideoPrice> {
+    const dimensions = this.pricingDimensions(input, modelId, 'quote');
     const result = await this.json(connection, '/sub2api/videos/pricing', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: modelId, operation: input.operation,
-        resolution: input.parameters.resolution, duration_seconds: input.parameters.durationSeconds }),
+        resolution: dimensions.resolution, duration_seconds: dimensions.durationSeconds }),
     });
     const parsed = PricingSchema.safeParse(result.value);
     if (!parsed.success) unavailable();
     const price = parsed.data;
     const now = Date.now();
-    if (price.model !== modelId || price.operation !== input.operation || price.resolution !== input.parameters.resolution ||
-      price.duration_seconds !== input.parameters.durationSeconds || price.pricing_status !== 'quoted' || price.amount_usd === null ||
+    if (price.model !== modelId || price.operation !== input.operation || price.resolution !== dimensions.resolution ||
+      price.duration_seconds !== dimensions.durationSeconds || price.pricing_status !== 'quoted' || price.amount_usd === null ||
       /public|fallback|default|unknown/i.test(price.pricing_source) ||
       Date.parse(price.observed_at) > now + 5000 || Date.parse(price.expires_at) <= now ||
       Date.parse(price.expires_at) > now + 120_000 || Date.parse(price.expires_at) <= Date.parse(price.observed_at) ||
@@ -115,14 +126,13 @@ export class Sub2apiVideoAdapter {
     return value;
   }
 
-  async submit(connection: Sub2apiVideoConnection, input: MediaVideoGatewayQuoteRequest, modelId: string,
+  async submit(connection: Sub2apiVideoConnection, input: Sub2apiVideoInput, modelId: string,
     references: Buffer[], clientRequestId: string, pricingVersion: string): Promise<{ taskId: string; requestId: string; status: Sub2apiVideoTask['status'] }> {
     this.assertInput(input, modelId);
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(clientRequestId)) unavailable('INVALID_REQUEST');
     if (references.length !== input.referenceIds.length) unavailable('INVALID_REFERENCE');
     if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(pricingVersion ?? '')) unavailable('PRICE_UNAVAILABLE');
-    const fields = { model: modelId, prompt: input.creativeBrief, seconds: 4, size: '1280x720',
-      resolution: '720p', generate_audio: true, metadata: { resolution: '768P', ratio: '16:9' } };
+    const fields = this.submitFields(input, modelId);
     let body: BodyInit;
     const headers: Record<string, string> = { 'X-Client-Request-ID': clientRequestId, 'Idempotency-Key': clientRequestId,
       'X-Video-Pricing-Version': pricingVersion, 'X-Video-Operation': input.operation };
@@ -138,7 +148,8 @@ export class Sub2apiVideoAdapter {
       body = form;
     }
     // Idempotency-Key is correlation only, not proof that a supplier deduplicates POSTs.
-    const result = await this.json(connection, '/videos', { method: 'POST', body, headers }, 'UPSTREAM_FAILED', 64 * 1024, true);
+    const result = await this.json(connection, '/videos', { method: 'POST', body, headers }, 'UPSTREAM_FAILED', 64 * 1024,
+      true, 'protocolVersion' in input);
     const task = TaskSchema.safeParse(result.value);
     if (!task.success || !result.requestId || task.data.model !== modelId ||
       task.data.task_id !== undefined && task.data.task_id !== task.data.id) throw new VideoDispatchError(result.requestId, false);
@@ -146,7 +157,7 @@ export class Sub2apiVideoAdapter {
   }
 
   async query(connection: Sub2apiVideoConnection, taskId: string, modelId: string): Promise<Sub2apiVideoTask> {
-    if (!TaskIdSchema.safeParse(taskId).success || modelId !== 'minimax-h3') unavailable('UPSTREAM_FAILED');
+    if (!TaskIdSchema.safeParse(taskId).success || !ModelIdSchema.safeParse(modelId).success) unavailable('UPSTREAM_FAILED');
     const result = await this.json(connection, `/videos/${encodeURIComponent(taskId)}`, { method: 'GET' }, 'UPSTREAM_FAILED');
     const task = TaskSchema.safeParse(result.value);
     if (!task.success || task.data.id !== taskId || task.data.model !== modelId ||
@@ -155,15 +166,16 @@ export class Sub2apiVideoAdapter {
   }
 
   /** Caller owns cancellation and file validation. Enforce the byte cap even without Content-Length. */
-  async rawContent(connection: Sub2apiVideoConnection, taskId: string): Promise<Response> {
+  async rawContent(connection: Sub2apiVideoConnection, taskId: string, outputFormat = 'video/mp4'): Promise<Response> {
     if (!TaskIdSchema.safeParse(taskId).success) unavailable('OUTPUT_FAILED');
+    if (outputFormat !== 'video/mp4') unavailable('ADAPTER_FIELD_UNMAPPED');
     let response: Response;
     try {
       response = await this.fetch(connection, `/videos/${encodeURIComponent(taskId)}/content`, { method: 'GET',
-        headers: { Accept: 'video/mp4, application/octet-stream' } }, 180_000);
+        headers: { Accept: `${outputFormat}, application/octet-stream` } }, 180_000);
       const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
       const rawLength = response.headers.get('content-length');
-      if (response.status !== 200 || !response.body || !['video/mp4', 'application/octet-stream'].includes(mime) ||
+      if (response.status !== 200 || !response.body || ![outputFormat, 'application/octet-stream'].includes(mime) ||
         rawLength !== null && (!/^\d+$/.test(rawLength) || !Number.isSafeInteger(Number(rawLength)) ||
           Number(rawLength) < 1 || Number(rawLength) > MAX_CONTENT_BYTES)) throw new Error();
     } catch {
@@ -200,12 +212,54 @@ export class Sub2apiVideoAdapter {
     return new Response(stream, { headers });
   }
 
-  private assertInput(input: MediaVideoGatewayQuoteRequest, modelId: string): void {
+  private assertInput(input: Sub2apiVideoInput, modelId: string): void {
+    if (!ModelIdSchema.safeParse(modelId).success) unavailable('ADAPTER_UNAVAILABLE');
+    if ('protocolVersion' in input) {
+      if (!MediaVideoGatewayQuoteRequestV3Schema.safeParse(input).success) unavailable('INVALID_PARAMETER');
+      this.pricingDimensions(input, modelId, 'submit');
+      return;
+    }
     const parsed = MediaVideoGatewayQuoteRequestSchema.safeParse(input);
     if (!parsed.success || modelId !== 'minimax-h3') unavailable('UNSUPPORTED_VIDEO_SPEC');
-    const p = parsed.data.parameters;
-    if (p.durationSeconds !== 4 || p.resolution !== '720p' || p.aspectRatio !== '16:9' ||
-      p.audio !== true || p.frameRate !== 24 || p.outputFormat !== 'video/mp4') unavailable('UNSUPPORTED_VIDEO_SPEC');
+    const parameters = parsed.data.parameters;
+    if (parameters.durationSeconds !== 4 || parameters.resolution !== '720p' || parameters.aspectRatio !== '16:9' ||
+      parameters.audio !== true || parameters.frameRate !== 24 || parameters.outputFormat !== 'video/mp4') unavailable('UNSUPPORTED_VIDEO_SPEC');
+  }
+
+  private pricingDimensions(input: Sub2apiVideoInput, modelId: string, stage: 'quote' | 'submit' = 'submit'): { durationSeconds: number; resolution: string } {
+    this.assertModel(modelId);
+    if (!('protocolVersion' in input)) {
+      this.assertInput(input, modelId);
+      const parameters = (input as MediaVideoGatewayQuoteRequest).parameters;
+      return { durationSeconds: parameters.durationSeconds, resolution: parameters.resolution };
+    }
+    const spec = input.requestedSpec;
+    if (spec.outputFormat !== undefined && spec.outputFormat !== 'video/mp4') {
+      specError('ADAPTER_FIELD_UNMAPPED', 'requestedSpec.outputFormat', '当前视频下载与文件校验适配器仅实现 video/mp4', stage);
+    }
+    if (spec.durationSeconds === undefined) specError('MISSING_SPEC', 'requestedSpec.durationSeconds', '上游报价合同需要明确时长', stage);
+    const resolution = spec.resolution ?? (spec.width !== undefined && spec.height !== undefined ? `${spec.width}x${spec.height}` : undefined);
+    if (!resolution) specError('MISSING_SPEC', 'requestedSpec.resolution', '上游报价合同需要 resolution 或完整 width/height', stage);
+    return { durationSeconds: spec.durationSeconds, resolution };
+  }
+
+  private submitFields(input: Sub2apiVideoInput, modelId: string): Record<string, unknown> {
+    if (!('protocolVersion' in input)) return { model: modelId, prompt: input.creativeBrief, seconds: 4, size: '1280x720',
+      resolution: '720p', generate_audio: true, metadata: { resolution: '768P', ratio: '16:9' } };
+    const dimensions = this.pricingDimensions(input, modelId);
+    const spec = input.requestedSpec;
+    const fields: Record<string, unknown> = { model: modelId, prompt: input.creativeBrief,
+      seconds: dimensions.durationSeconds, resolution: dimensions.resolution };
+    if (spec.width !== undefined && spec.height !== undefined) fields.size = `${spec.width}x${spec.height}`;
+    if (spec.aspectRatio !== undefined) fields.aspect_ratio = spec.aspectRatio;
+    if (spec.frameRate !== undefined) fields.fps = spec.frameRate;
+    if (spec.audio !== undefined) fields.generate_audio = spec.audio;
+    if (spec.outputFormat !== undefined) fields.output_format = spec.outputFormat;
+    return fields;
+  }
+
+  private assertModel(modelId: string): void {
+    if (!ModelIdSchema.safeParse(modelId).success) unavailable('ADAPTER_UNAVAILABLE');
   }
 
   private async fetch(connection: Sub2apiVideoConnection, path: string, options: RequestInit, timeout = 15_000): Promise<Response> {
@@ -220,7 +274,7 @@ export class Sub2apiVideoAdapter {
   }
 
   private async json(connection: Sub2apiVideoConnection, path: string, options: RequestInit,
-    code = 'PRICE_UNAVAILABLE', maxBytes = 64 * 1024, dispatch = false): Promise<{ value: unknown; requestId: string | null }> {
+    code = 'PRICE_UNAVAILABLE', maxBytes = 64 * 1024, dispatch = false, v3Dispatch = false): Promise<{ value: unknown; requestId: string | null }> {
     let requestId: string | null = null;
     let response: Response;
     try {
@@ -229,7 +283,8 @@ export class Sub2apiVideoAdapter {
       const clientId = response.headers.get('x-client-request-id');
       if (clientId && RequestIdSchema.safeParse(`client:${clientId}`).success) requestId = `client:${clientId}`;
       const rejectedBeforeDispatch = dispatch && response.status === 409 && response.headers.get('x-video-dispatch') === 'rejected';
-      if (!response.ok && !rejectedBeforeDispatch) {
+      const specificationRejection = dispatch && v3Dispatch && [400, 422].includes(response.status);
+      if (!response.ok && !rejectedBeforeDispatch && !specificationRejection) {
         // sub2api passes supplier HTTP errors through, so status alone cannot prove
         // that a POST was rejected before provider execution. Keep billing reserved
         // for reconciliation until the gateway exposes a provenance marker.
@@ -249,6 +304,12 @@ export class Sub2apiVideoAdapter {
         }
       } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
       const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+      if (specificationRejection) {
+        const rejected = z.object({ error: z.object({ code: z.enum([
+          'unsupported_spec', 'unsupported_parameter', 'unsupported_resolution', 'unsupported_duration',
+        ]) }) }).safeParse(value);
+        throw new VideoDispatchError(requestId, false, rejected.success);
+      }
       if (rejectedBeforeDispatch) {
         const rejected = z.object({ error: z.object({ code: z.literal('video_pricing_changed') }) }).safeParse(value);
         throw new VideoDispatchError(requestId, rejected.success);

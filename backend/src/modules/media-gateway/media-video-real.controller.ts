@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Post, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -6,12 +6,13 @@ import { memoryStorage } from 'multer';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { pipeline } from 'node:stream/promises';
-import { MediaGatewayIdSchema, MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayRequestSchema } from 'shared';
-import type { MediaVideoGatewayQuoteRequest, MediaVideoGatewayRequest } from 'shared';
+import { MediaGatewayIdSchema, MediaVideoRealQuoteRequestSchema, MediaVideoRealRequestSchema } from 'shared';
+import type { MediaVideoRealQuoteRequest, MediaVideoRealRequest } from 'shared';
 import { ClientEmploymentGuard } from '../client/client-employment.guard';
 import type { ClientEmploymentClaims } from '../client/client-employment.guard';
 import { ClientEmployment } from '../client/client-employment.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { MediaSpecValidationPipe } from './media-spec-validation.pipe';
 import { MediaVideoRealGuard } from './media-video-real.guard';
 import { MediaVideoRealService } from './media-video-real.service';
 
@@ -40,7 +41,9 @@ export class MediaVideoRealController {
   @Get('profiles')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'List authorized real video profiles' })
-  profiles(@ClientEmployment() claims: ClientEmploymentClaims) { return this.media.profiles(claims); }
+  profiles(@ClientEmployment() claims: ClientEmploymentClaims, @Query('protocolVersion') protocolVersion?: string) {
+    return this.media.profiles(claims, protocolVersion === '3' ? 3 : 1);
+  }
 
   @Post('references')
   @Header('Cache-Control', 'no-store')
@@ -55,14 +58,14 @@ export class MediaVideoRealController {
   @Post('quotes')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Freeze customer video price, input hash and connection revision' })
-  quote(@ClientEmployment() claims: ClientEmploymentClaims, @Body(new ZodValidationPipe(MediaVideoGatewayQuoteRequestSchema)) input: MediaVideoGatewayQuoteRequest) {
+  quote(@ClientEmployment() claims: ClientEmploymentClaims, @Body(new MediaSpecValidationPipe(MediaVideoRealQuoteRequestSchema)) input: MediaVideoRealQuoteRequest) {
     return this.media.quote(claims, input);
   }
 
   @Post('requests')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Submit once or recover the original real video request' })
-  async submit(@ClientEmployment() claims: ClientEmploymentClaims, @Body(new ZodValidationPipe(MediaVideoGatewayRequestSchema)) input: MediaVideoGatewayRequest,
+  async submit(@ClientEmployment() claims: ClientEmploymentClaims, @Body(new MediaSpecValidationPipe(MediaVideoRealRequestSchema)) input: MediaVideoRealRequest,
     @Res({ passthrough: true }) response: Response) {
     const receipt = await this.media.submit(claims, input);
     response.status(['SUBMITTING', 'SUBMISSION_UNKNOWN', 'QUEUED', 'RUNNING'].includes(receipt.status) ? 202 : 200);

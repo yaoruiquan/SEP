@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { Sub2apiVideoAdapter, VideoDispatchError } from './sub2api-video.adapter';
 import { MEDIA_MOCK_PNG } from './media-gateway-mock.adapter';
 import { capabilities, fingerprint, input, outputMetadata, scope, videoBytes, videoClaims, videoRealPrisma } from './media-video-real.test-support';
+import { MediaVideoGatewayQuoteRequestV3Schema } from '../../shared/media-video.dto';
 
 const code = (value: string) => ({ response: { error: { code: value } } });
 describe('MediaVideoRealService', () => {
@@ -57,6 +58,80 @@ describe('MediaVideoRealService', () => {
     return { request, receipt: await service.submit(videoClaims, request) };
   }
 
+  it.each([
+    { label: 'equivalent ratio and one-frame container rounding', spec: { aspectRatio: '2:2' },
+      measured: { durationSeconds: 8 + 1 / 30 }, deliveryStatus: 'matched' },
+    { label: 'named resolution without a measured mapping', spec: { resolution: 'cinema' },
+      measured: {}, deliveryStatus: 'unknown' },
+    { label: 'unmeasured audio', spec: {}, measured: { hasAudio: null }, deliveryStatus: 'unknown' },
+    { label: 'missing requested audio', spec: { audio: true }, measured: { hasAudio: false }, deliveryStatus: 'mismatched' },
+    { label: 'duration beyond one frame', spec: {}, measured: { durationSeconds: 8.05 }, deliveryStatus: 'mismatched' },
+    { label: '29.97 fps differs from a frozen 30 fps', spec: {}, measured: { frameRate: 30000 / 1001 }, deliveryStatus: 'mismatched' },
+    { label: 'rational frame rate tolerates numeric conversion only', spec: { frameRate: 30000 / 1001 },
+      measured: { frameRate: 29.97002997 }, deliveryStatus: 'matched' },
+    { label: 'mismatch takes precedence over unspecified audio', spec: { audio: undefined },
+      measured: { durationSeconds: 15 }, deliveryStatus: 'mismatched' },
+  ])('evaluates measured V3 delivery: $label', async ({ spec, measured, deliveryStatus }) => {
+    const value = MediaVideoGatewayQuoteRequestV3Schema.parse({ protocolVersion: 3,
+      profileId: input.profileId, configVersion: input.configVersion, operation: input.operation,
+      referenceIds: [], creativeBrief: 'V3 square product scene', specRevision: 1,
+      requestedSpec: { durationSeconds: 8, resolution: '720p', aspectRatio: '1:1', frameRate: 30,
+        audio: false, outputFormat: 'video/mp4', ...spec } });
+    Object.assign(runtime, { getRuntimeVideoV3: jest.fn(async () => ({ protocolVersion: 3,
+      executionAvailable: true, executionMode: 'real', profiles: [{ profileId: input.profileId,
+        configVersion: input.configVersion, operations: ['text-to-video'], authorized: true,
+        adapter: { available: true, operations: ['text-to-video'] } }] })) });
+    adapter.pricing.mockImplementation(async () => ({ model: 'minimax-h3', operation: input.operation,
+      resolution: value.requestedSpec.resolution, duration_seconds: 8, pricing_status: 'quoted', amount_usd: '0.2',
+      pricing_version: 'v3-pricing', expires_at: new Date(Date.now() + 60_000).toISOString() }));
+    adapter.usage.mockImplementation(async () => ({ request_id: 'client:original', status: 'settled',
+      model: 'minimax-h3', actual_cost_usd: '0.1', video_count: 1, duration_seconds: 8,
+      resolution: value.requestedSpec.resolution }));
+    Object.assign(billing, { settleNegotiated: billing.settleVideo });
+    const actual = { ...outputMetadata, durationSeconds: 8, width: 720, height: 720,
+      frameRate: 30, hasAudio: false, ...measured };
+    cache.saveOutput.mockResolvedValue(actual);
+    const quote = await service.quote(videoClaims, value);
+    const pending = await service.submit(videoClaims, { ...value, clientRequestId: 'v3-delivery', quoteId: quote.quoteId });
+    expect(pending).toMatchObject({ protocolVersion: 3, status: 'QUEUED', deliveryStatus: 'unknown' });
+    expect(pending).not.toHaveProperty('actualSpec');
+    const done = await service.receipt(videoClaims, pending.receiptId);
+    expect(done).toMatchObject({ status: 'SUCCEEDED', billingStatus: 'SETTLED', deliveryStatus,
+      actualSpec: { durationSeconds: actual.durationSeconds, width: 720, height: 720, hasAudio: actual.hasAudio } });
+    expect(done.errorCode).toBe(deliveryStatus === 'mismatched' ? 'OUTPUT_SPEC_MISMATCH' : null);
+    expect(adapter.submit).toHaveBeenCalledTimes(1);
+    expect(billing.settleVideo).toHaveBeenCalledWith(pending.receiptId, '0.700000', '0.100000', 'minimax-h3', 'minimax-h3');
+    cache.streamOutput.mockResolvedValueOnce({ metadata: actual, stream: Readable.from(videoBytes) });
+    await expect(service.content(videoClaims, done.receiptId, done.outputs[0].outputId)).resolves.toMatchObject({ output: done.outputs[0] });
+    const tampered = Readable.from(videoBytes);
+    cache.streamOutput.mockResolvedValueOnce({ metadata: { ...actual, hasAudio: actual.hasAudio !== true }, stream: tampered });
+    await expect(service.content(videoClaims, done.receiptId, done.outputs[0].outputId)).rejects.toMatchObject({ status: 502 });
+    expect(tampered.destroyed).toBe(true);
+  });
+
+  it('persists an explicit V3 upstream spec rejection without releasing funds or repeating dispatch', async () => {
+    const value = MediaVideoGatewayQuoteRequestV3Schema.parse({ protocolVersion: 3,
+      profileId: input.profileId, configVersion: input.configVersion, operation: input.operation,
+      referenceIds: [], creativeBrief: 'Private V3 scene', specRevision: 1,
+      requestedSpec: { durationSeconds: 4, resolution: '720p', audio: false } });
+    Object.assign(runtime, { getRuntimeVideoV3: jest.fn(async () => ({ protocolVersion: 3,
+      executionAvailable: true, executionMode: 'real', profiles: [{ profileId: input.profileId,
+        configVersion: input.configVersion, operations: ['text-to-video'], authorized: true,
+        adapter: { available: true, operations: ['text-to-video'] } }] })) });
+    adapter.submit.mockRejectedValue(new VideoDispatchError('client:original', false, true));
+    const quote = await service.quote(videoClaims, value);
+    const request = { ...value, clientRequestId: 'v3-rejected-spec', quoteId: quote.quoteId };
+    const receipt = await service.submit(videoClaims, request);
+    expect(receipt).toMatchObject({ status: 'SUBMISSION_UNKNOWN', errorCode: 'UPSTREAM_SPEC_UNSUPPORTED',
+      billingStatus: 'RECONCILING' });
+    expect(db.state.requests.get(receipt.receiptId).receipt.errorCode).toBe('UPSTREAM_SPEC_UNSUPPORTED');
+    adapter.usage.mockResolvedValue({ request_id: 'client:original', status: 'pending' });
+    await expect(service.submit(videoClaims, request)).resolves.toMatchObject({
+      errorCode: 'UPSTREAM_SPEC_UNSUPPORTED', billingStatus: 'RECONCILING' });
+    expect(adapter.submit).toHaveBeenCalledTimes(1);
+    expect(billing.release).not.toHaveBeenCalled();
+  });
+
   it('freezes customer price/rate/funding and never persists prompts, keys or supplier URLs', async () => {
     const quote = await service.quote(videoClaims, input);
     expect(quote).toMatchObject({ mock: false, amountCny: '1.400000', amountUsd: '0.2', usdToCnyRate: 7, billingStatus: 'NOT_RESERVED' });
@@ -82,6 +157,17 @@ describe('MediaVideoRealService', () => {
     await expect(service.profiles(videoClaims)).resolves.toMatchObject({ mock: false, profiles: [{ profileId: input.profileId }] });
     runtime.getRuntimeVideo.mockResolvedValue({ executionAvailable: true, executionMode: 'mock', profiles: [] });
     await expect(service.profiles(videoClaims)).rejects.toMatchObject(code('MEDIA_FORBIDDEN'));
+  });
+
+  it('returns V3 adapter unavailability separately from missing authorization', async () => {
+    const profile = { profileId: input.profileId, authorized: true,
+      adapter: { available: false, reason: 'CONNECTION_UNAVAILABLE' }, unavailableReason: 'CONNECTION_UNAVAILABLE' };
+    const getRuntimeVideoV3 = jest.fn(async () => ({ protocolVersion: 3, executionMode: 'disabled',
+      executionAvailable: false, profiles: [profile] }));
+    Object.assign(runtime, { getRuntimeVideoV3 });
+    await expect(service.profiles(videoClaims, 3)).resolves.toMatchObject({ protocolVersion: 3, profiles: [profile] });
+    getRuntimeVideoV3.mockResolvedValueOnce({ protocolVersion: 3, executionMode: 'disabled', executionAvailable: false, profiles: [] });
+    await expect(service.profiles(videoClaims, 3)).rejects.toMatchObject(code('MEDIA_FORBIDDEN'));
   });
 
   it.each(['text-to-video', 'image-to-video'] as const)(

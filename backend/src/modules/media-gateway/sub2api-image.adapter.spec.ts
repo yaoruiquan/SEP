@@ -1,7 +1,7 @@
 import { deflateSync } from 'node:zlib';
 import { HttpException } from '@nestjs/common';
 import { SettingService } from '../setting/setting.service';
-import { MediaRealQuoteRequestSchema } from '../../shared/media-real.dto';
+import { MediaRealQuoteRequestSchema, MediaRealQuoteRequestV3Schema } from '../../shared/media-real.dto';
 import { ImageDispatchError, Sub2apiImageAdapter } from './sub2api-image.adapter';
 
 const BASE_URL = 'https://media.example.test/v1/';
@@ -102,6 +102,91 @@ describe('Sub2apiImageAdapter', () => {
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  it.each([[400, 'unsupported_spec', 'UPSTREAM_SPEC_UNSUPPORTED'], [422, 'unsupported_parameter', 'UPSTREAM_SPEC_UNSUPPORTED'],
+    [400, 'invalid_request', 'SUBMISSION_UNKNOWN'], [429, 'unsupported_spec', 'SUBMISSION_UNKNOWN']] as const)(
+    'classifies only explicit V3 specification rejection at %i without exposing upstream secrets', async (status, code, expected) => {
+      const negotiated = MediaRealQuoteRequestV3Schema.parse({ protocolVersion: 3, specRevision: 1,
+        profileId: 'future.image', configVersion: 'future-config', operation: 'generate', referenceIds: [],
+        creativeBrief: 'A future image', requestedSpec: { size: '1x1', count: 1, quality: 'studio' } });
+      fetchMock.mockResolvedValueOnce(response({ error: { code, message: 'private-api-key https://secret.internal/account', token: API_KEY } }, { status, requestId: REQUEST_ID }));
+      const failure = await expectCode(adapter.execute(negotiated, [], undefined, 'future-image-native'), 502, expected);
+      expect(failure).toMatchObject({ definitelyRejected: false, requestId: REQUEST_ID });
+      expect(JSON.stringify(failure.getResponse())).not.toMatch(/private-api-key|secret\.internal|private-test-api-key/);
+    },
+  );
+
+  it('does not classify oversized V3 error bodies as supported specification evidence', async () => {
+    const negotiated = MediaRealQuoteRequestV3Schema.parse({ protocolVersion: 3, specRevision: 1,
+      profileId: 'future.image', configVersion: 'future-config', operation: 'generate', referenceIds: [],
+      creativeBrief: 'A future image', requestedSpec: { size: '1x1', count: 1, quality: 'studio' } });
+    fetchMock.mockResolvedValueOnce(response({ error: { code: 'unsupported_spec', message: 'x'.repeat(65 * 1024) } }, { status: 422 }));
+    await expectCode(adapter.execute(negotiated, [], undefined, 'future-image-native'), 502, 'SUBMISSION_UNKNOWN');
+  });
+
+  it.each([400, 401, 403, 404, 413, 422, 429])('keeps V3 HTTP %i failures uncertain without trusted dispatch evidence', async status => {
+    const negotiated = MediaRealQuoteRequestV3Schema.parse({ protocolVersion: 3, specRevision: 1,
+      profileId: 'future.image', configVersion: 'future-config', operation: 'generate', referenceIds: [],
+      creativeBrief: 'A future image', requestedSpec: { size: '1x1', count: 1, quality: 'studio' } });
+    fetchMock.mockResolvedValueOnce(response({ error: { code: 'provider_error' } }, { status, requestId: REQUEST_ID }));
+    const failure = await expectCode(adapter.execute(negotiated, [], undefined, 'future-image-native'), 502, 'SUBMISSION_UNKNOWN');
+    expect(failure).toMatchObject({ definitelyRejected: false, requestId: REQUEST_ID });
+  });
+
+  it('quotes pixel dimensions using the same equivalent size mapping as generation', async () => {
+    const negotiated = MediaRealQuoteRequestV3Schema.parse({ protocolVersion: 3, specRevision: 1,
+      profileId: 'future.image', configVersion: 'future-config', operation: 'generate', referenceIds: [],
+      creativeBrief: 'A future image', requestedSpec: { width: 1, height: 1, count: 1, quality: 'studio' } });
+    fetchMock.mockResolvedValueOnce(response(price({ size: '1x1', quality: 'studio' })));
+    await adapter.pricing(negotiated);
+    fetchMock.mockResolvedValueOnce(response({ data: [{ b64_json: PNG_BASE64 }] }, { requestId: REQUEST_ID }));
+    await adapter.execute(negotiated, []);
+    for (const call of fetchMock.mock.calls) expect(JSON.parse(call[1].body)).toMatchObject({ size: '1x1', n: 1, quality: 'studio' });
+  });
+
+  it.each([{ size: 'auto', width: 1, height: 1 }, { size: 'auto', aspectRatio: '1:1' }])(
+    'rejects unexpressible explicit dimensions before pricing or dispatch: %j', async dimensions => {
+      const negotiated = MediaRealQuoteRequestV3Schema.parse({ protocolVersion: 3, specRevision: 1,
+        profileId: 'future.image', configVersion: 'future-config', operation: 'generate', referenceIds: [],
+        creativeBrief: 'A future image', requestedSpec: { ...dimensions, count: 1, quality: 'studio' } });
+      await expectCode(adapter.pricing(negotiated), 422, 'ADAPTER_FIELD_UNMAPPED');
+      await expectCode(adapter.execute(negotiated, []), 422, 'ADAPTER_FIELD_UNMAPPED');
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains safe extra V3 outputs for delivery mismatch verification', async () => {
+    const negotiated = MediaRealQuoteRequestV3Schema.parse({
+      protocolVersion: 3, specRevision: 1, profileId: 'future.image', configVersion: 'future-config',
+      operation: 'generate', referenceIds: [], creativeBrief: 'A future image', requestedSpec: { size: '1x1', count: 1, quality: 'studio' },
+    });
+    fetchMock.mockResolvedValueOnce(response({ model: 'future-image-native', data: [
+      { b64_json: PNG_BASE64 }, { b64_json: PNG_BASE64 },
+    ] }, { requestId: REQUEST_ID }));
+    await expect(adapter.execute(negotiated, [], undefined, 'future-image-native')).resolves.toMatchObject({ images: [expect.any(Buffer), expect.any(Buffer)] });
+  });
+
+  it.each(['generate', 'edit'] as const)('forwards negotiated V3 model and spec in %s wire format', async operation => {
+    const negotiated = MediaRealQuoteRequestV3Schema.parse({
+      protocolVersion: 3, specRevision: 1, profileId: 'future.image', configVersion: 'config:2026.10',
+      operation, referenceIds: operation === 'edit' ? ['reference-1'] : [], creativeBrief: 'A future image',
+      requestedSpec: { size: '2048x1152', count: 1, quality: 'ultra-native' },
+    });
+    fetchMock.mockResolvedValueOnce(response(price({ model: 'future-image-native', operation,
+      size: '2048x1152', quality: 'ultra-native' })));
+    await expect(adapter.pricing(negotiated, 'future-image-native')).resolves.toMatchObject({ model: 'future-image-native' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'future-image-native', size: '2048x1152', quality: 'ultra-native', n: 1 });
+    fetchMock.mockResolvedValueOnce(response({ model: 'future-image-native', data: [{ b64_json: PNG_BASE64 }] }, { requestId: REQUEST_ID }));
+    const result = await adapter.execute(negotiated, operation === 'edit' ? [Buffer.from(PNG_BASE64, 'base64')] : [], undefined, 'future-image-native');
+    expect(result.images).toHaveLength(1);
+    const wire = fetchMock.mock.calls[1][1];
+    if (operation === 'generate') expect(JSON.parse(wire.body)).toMatchObject({ model: 'future-image-native', size: '2048x1152', quality: 'ultra-native', n: 1 });
+    else {
+      expect(wire.body).toBeInstanceOf(FormData);
+      expect(Object.fromEntries((wire.body as FormData).entries())).toMatchObject({ model: 'future-image-native', size: '2048x1152', quality: 'ultra-native', n: '1' });
+      expect((wire.body as FormData).getAll('image[]')).toHaveLength(1);
+    }
+  });
 
   it('uses the complete independent image pair and pins catalog requests to the supplied snapshot', async () => {
     fetchMock.mockImplementation(async () => response({ data: [{ id: 'gpt-image-2' }] }));

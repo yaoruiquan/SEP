@@ -91,13 +91,52 @@ describe('MediaVideoConfigService real configuration', () => {
     return f;
   }
 
+  it('verifies and enables an explicitly configured new V3 model with its declared spec', async () => {
+    const f = realSetup();
+    f.row.modelId = 'new-video-protocol-model';
+    f.row.capabilities.durationsSeconds = [1200];
+    f.row.capabilities.resolutions = ['1440p'];
+    f.row.capabilities.frameRates = [144];
+    f.row.enabled = false; f.row.verified = false;
+    f.videoAdapter.discover.mockResolvedValue([{ modelId: f.row.modelId, displayName: 'New' }]);
+    await expect(f.service.verifyProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(f.videoAdapter.pricing).not.toHaveBeenCalled();
+    expect(await f.service.verifyProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion,
+      verificationSpec: { durationSeconds: 1200, resolution: '1440p', frameRate: 144, audio: false } }))
+      .toMatchObject({ profile: { verified: true, enabled: false }, executionTested: false });
+    expect(f.videoAdapter.pricing).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ protocolVersion: 3,
+      requestedSpec: expect.objectContaining({ durationSeconds: 1200, resolution: '1440p' }) }), f.row.modelId);
+    await f.service.updateProfile(f.row.profileId, { expectedConfigVersion: f.row.configVersion, enabled: true });
+    expect((await f.service.getRuntimeVideoV3('ent-1')).executionAvailable).toBe(true);
+    expect((await f.service.getRuntimeVideo('ent-1')).executionAvailable).toBe(false);
+    expect(await f.service.getAvailableProfiles('user-1')).toEqual([expect.objectContaining({ profileId: f.row.profileId })]);
+  });
+
   it('discovers and synchronizes only exact h3 without generation or pricing calls', async () => {
     const f = realSetup();
     expect(await f.service.discoverModels()).toMatchObject({ mock: false, executionTested: false,
       models: [{ modelId: 'minimax-h3', compatible: true }, { modelId: 'minimax-m3', compatible: false, suggested: null }] });
     expect(f.prisma.mediaModelProfile.create).not.toHaveBeenCalled();
     expect(f.videoAdapter.pricing).not.toHaveBeenCalled();
-    expect(f.sync.sync).toHaveBeenCalledWith('video', [expect.objectContaining({ modelId: 'minimax-h3' })], 'test', expect.any(Function));
+    expect(f.sync.sync).toHaveBeenCalledWith('video', [expect.objectContaining({ modelId: 'minimax-h3', autoCreate: true }),
+      expect.objectContaining({ modelId: 'minimax-m3', autoCreate: false })], 'test', expect.any(Function));
+  });
+
+  it('publishes v3 video authorization, adapter implementation limits, and non-binding hints', async () => {
+    const f = realSetup();
+    const runtime = await f.service.getRuntimeVideoV3('ent-1');
+    expect(runtime).toMatchObject({ protocolVersion: 3, executionMode: 'real', executionAvailable: true,
+      tools: ['video_from_image', 'video_generate', 'video_get_job'], profiles: [{
+        profileId: f.row.profileId, authorized: true,
+        adapter: { id: 'sub2api-video', available: true, supportsTaskQuery: true, supportsCancel: false,
+          referenceSupport: { maxCount: 1, maxInputBytes: 10 * 1024 * 1024, mimeTypes: ['image/png'] } },
+      }] });
+    expect(runtime.profiles[0].capabilityHints).toContainEqual(expect.objectContaining({
+      field: 'durationSeconds', values: [4], confidence: 'declared',
+    }));
+    expect(runtime.profiles[0].capabilityHints).toContainEqual(expect.objectContaining({ field: 'audio', values: [true] }));
+    expect(JSON.stringify(runtime)).not.toContain('defaults');
   });
 
   it('saves the independent video connection without mutating image settings', async () => {

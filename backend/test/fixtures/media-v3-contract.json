@@ -1,0 +1,44 @@
+{
+  "imageQuoteRequest": {
+    "protocolVersion": 3,
+    "profileId": "authorized-image-profile",
+    "configVersion": "cfg-current",
+    "operation": "generate",
+    "referenceIds": [],
+    "creativeBrief": "Product detail photograph",
+    "specRevision": 2,
+    "requestedSpec": {
+      "size": "2048x3072",
+      "count": 2,
+      "quality": "ultra"
+    },
+    "parameterSources": {
+      "size": "user",
+      "count": "model",
+      "quality": "model"
+    }
+  },
+  "videoQuoteRequest": {
+    "protocolVersion": 3,
+    "profileId": "authorized-video-profile",
+    "configVersion": "cfg-current",
+    "operation": "text-to-video",
+    "referenceIds": [],
+    "creativeBrief": "Product closeups and usage scenes",
+    "specRevision": 1,
+    "requestedSpec": {
+      "durationSeconds": 8,
+      "aspectRatio": "9:16",
+      "resolution": "1080p",
+      "audio": false
+    },
+    "parameterSources": {
+      "durationSeconds": "model",
+      "aspectRatio": "user",
+      "resolution": "model",
+      "audio": "user"
+    }
+  },
+  "omittedImageSpec": {},
+  "omittedVideoSpec": { "audio": false }
+}

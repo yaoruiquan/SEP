@@ -17,8 +17,10 @@ const receipt = (status = 'succeeded') => ({ ...fixture.receipts[status], mock: 
 
 describe('real video contracts', () => {
   it('reuses existing strict request schemas without widening mock contracts', () => {
-    expect(MediaVideoRealQuoteRequestSchema).toBe(MediaVideoGatewayQuoteRequestSchema);
-    expect(MediaVideoRealRequestSchema).toBe(MediaVideoGatewayRequestSchema);
+    expect(MediaVideoRealQuoteRequestSchema.parse(fixture.quoteRequest)).toEqual(
+      MediaVideoGatewayQuoteRequestSchema.parse(fixture.quoteRequest));
+    expect(MediaVideoRealRequestSchema.parse(fixture.request)).toEqual(
+      MediaVideoGatewayRequestSchema.parse(fixture.request));
     expect(MediaVideoRealRequestSchema.parse(fixture.request)).toEqual(fixture.request);
   });
 

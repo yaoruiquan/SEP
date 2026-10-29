@@ -81,11 +81,11 @@ describe('mediaConnectionFingerprint', () => {
 });
 
 describe('MediaModelSyncService', () => {
-  it('creates new verified enabled profiles in a bounded Serializable transaction', async () => {
+  it('creates inert candidates in a bounded Serializable transaction', async () => {
     const m = memory();
     await m.service.sync('image', [candidate()], fingerprint(), row => row.modelId === 'model-a');
     expect(m.rows()).toEqual([expect.objectContaining({
-      ...candidate(), kind: 'image', enabled: true, verified: true,
+      ...candidate(), kind: 'image', enabled: false, verified: false,
       profileId: 'auto-image-73f95cf180a19624e4be9a71', configVersion: expect.stringMatching(/^cfg_[a-f0-9-]{36}$/),
     })]);
     expect(m.settings.getMediaConnection).toHaveBeenCalledWith('image', m.tx);
@@ -117,7 +117,7 @@ describe('MediaModelSyncService', () => {
       profile({ id: 'row-b', profileId: 'manual-b', verified: false, capabilities: { maxOutputs: 1 } })];
     const m = memory(initial);
     await m.service.sync('image', [candidate()], fingerprint(), row => row.capabilities !== null);
-    expect(m.rows()).toEqual(initial.map(row => ({ ...row, verified: true, configVersion: expect.stringMatching(/^cfg_/) })));
+    expect(m.rows()).toEqual(initial);
     expect(m.rows()[0].enabled).toBe(false);
     expect(m.tx.mediaModelProfile.create).not.toHaveBeenCalled();
     for (const call of m.tx.mediaModelProfile.updateMany.mock.calls) {
@@ -134,8 +134,8 @@ describe('MediaModelSyncService', () => {
     await m.service.sync('image', [], fingerprint(), () => true);
     expect(m.rows()).toEqual(revoked);
     await m.service.sync('image', [candidate()], fingerprint(), () => true);
-    expect(m.rows()[0]).toMatchObject({ verified: true, enabled: false });
-    expect(m.rows()[0].configVersion).not.toBe(revoked[0].configVersion);
+    expect(m.rows()[0]).toMatchObject({ verified: false, enabled: false });
+    expect(m.rows()[0].configVersion).toBe(revoked[0].configVersion);
     expect(m.rows()[1]).toEqual(revoked[1]);
   });
 
@@ -189,7 +189,7 @@ describe('MediaModelSyncService', () => {
     expect(m.rows()[1]).toMatchObject({ kind: 'video', profileId: expect.stringMatching(/^auto-video-/) });
     expect(m.settings.getMediaConnection).toHaveBeenCalledWith('video', m.tx);
     await m.service.sync('image', [], fingerprint(), () => true);
-    expect(m.rows()[1]).toMatchObject({ verified: true });
+    expect(m.rows()[1]).toMatchObject({ verified: false });
   });
 
   it('rejects an automatic ID owned by another kind and rolls back', async () => {

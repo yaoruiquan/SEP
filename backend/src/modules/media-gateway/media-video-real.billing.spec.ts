@@ -47,6 +47,18 @@ describe('MediaRealBillingService video settlement isolation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('settles a V3 model only when verified usage matches the frozen model', async () => {
+    await expect(service.settleNegotiated('video-receipt', '7.000000', '1.000000', 'new-video-model', 'new-video-model'))
+      .resolves.toBe('SETTLED');
+    expect(tx.computeUsageRecord.create).toHaveBeenCalledWith({ data: expect.objectContaining({ modelId: 'new-video-model' }) });
+  });
+
+  it.each(['another-model', '', 'model\nkey'])('rejects a V3 usage model differing from frozen model: %s', async model => {
+    await expect(service.settleNegotiated('video-receipt', '7.000000', '1.000000', model, 'new-video-model'))
+      .rejects.toMatchObject({ response: { error: { code: 'BILLING_PENDING' } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('keeps above-quote liabilities reconciling without refunding or posting duplicate usage', async () => {
     await expect(service.settleVideo('video-receipt', '8.000000', '1.142857', 'minimax-h3')).resolves.toBe('RECONCILING');
     expect(tx.personalWallet.updateMany).not.toHaveBeenCalled();

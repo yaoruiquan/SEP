@@ -18,7 +18,8 @@ const MetadataSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/), byteLength: z.number().int().positive().max(VIDEO_CACHE_MAX_BYTES),
   expiresAt: z.string().datetime({ offset: true }), mimeType: z.enum(['image/png', 'video/mp4']),
   width: z.number().int().positive().max(16384), height: z.number().int().positive().max(16384),
-  durationSeconds: z.number().positive().max(600).optional(), frameRate: z.number().positive().max(120).optional(),
+  durationSeconds: z.number().finite().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  frameRate: z.number().finite().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   hasAudio: z.boolean().optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.mimeType === 'video/mp4' && (value.durationSeconds === undefined || value.frameRate === undefined || value.hasAudio === undefined) ||

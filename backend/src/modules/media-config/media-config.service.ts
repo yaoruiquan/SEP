@@ -14,9 +14,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 import { EnterpriseContextService } from '../enterprise/enterprise-context.service';
-import { Sub2apiImageAdapter } from '../media-gateway/sub2api-image.adapter';
+import { resolveSub2apiImageSpec, Sub2apiImageAdapter } from '../media-gateway/sub2api-image.adapter';
 import { imageModelCapabilities, IMAGE_MODEL_SIZES, isSupportedImageModel } from '../media-gateway/image-model-contract';
 import { MediaModelSyncService, mediaConnectionFingerprint } from './media-model-sync.service';
+import { MediaRuntimeV3Schema } from 'shared';
+import type { MediaRuntimeV3 } from 'shared';
 import {
   CreateMediaProfileDto,
   MediaCapabilitiesSchema,
@@ -34,6 +36,7 @@ import {
   MediaModelDiscovery,
   MediaProfileVerification,
   MediaRealQuoteRequest,
+  MediaRealQuoteRequestV3,
   UpdateMediaConnectionDto,
   UpdateMediaPolicyDto,
   UpdateMediaProfileDto,
@@ -173,8 +176,8 @@ export class MediaConfigService {
     const connection = await this.settingService.getMediaConnection('image');
     const fingerprint = mediaConnectionFingerprint(connection);
     const models = await this.imageAdapter.discoverModels({ base: connection.baseUrl, key: connection.apiKey });
-    await this.modelSync.sync('image', models.filter(model => isSupportedImageModel(model.modelId)).map(model => ({
-      ...model, operations: ['generate', 'edit'], executionMode: 'sync-response',
+    await this.modelSync.sync('image', models.map(model => ({
+      ...model, autoCreate: isSupportedImageModel(model.modelId), operations: ['generate', 'edit'], executionMode: 'sync-response',
       capabilities: { supportsReferenceImage: true, maxOutputs: 4, sizes: [...IMAGE_MODEL_SIZES] },
     })), fingerprint, row => {
       const parsed = MediaProfileSchema.safeParse({
@@ -190,7 +193,7 @@ export class MediaConfigService {
         const compatible = isSupportedImageModel(model.modelId);
         return {
           ...model, compatible,
-          reason: compatible ? null : '当前图片适配器尚未支持此模型协议',
+          reason: compatible ? '目录候选；需要显式配置、报价校验后启用' : '仅目录候选；可显式创建通用图片协议 Profile 并校验报价，尚未验证适配',
           suggested: compatible ? {
             operations: ['generate', 'edit'], executionMode: 'sync-response',
             capabilities: { supportsReferenceImage: true, maxOutputs: 4, sizes: [...IMAGE_MODEL_SIZES] },
@@ -201,9 +204,9 @@ export class MediaConfigService {
   }
 
   private adapterCompatible(profile: MediaProfile): boolean {
-    return isSupportedImageModel(profile.modelId) && profile.executionMode === 'sync-response'
-      && profile.capabilities.maxOutputs <= 4
-      && profile.capabilities.sizes.every(size => (IMAGE_MODEL_SIZES as readonly string[]).includes(size))
+    return profile.executionMode === 'sync-response'
+      && profile.capabilities.maxOutputs <= 8
+      && profile.capabilities.sizes.every(size => /^\S{1,64}$/.test(size))
       && (!profile.operations.includes('edit') || profile.capabilities.supportsReferenceImage);
   }
 
@@ -213,22 +216,34 @@ export class MediaConfigService {
     if (!row) throw new NotFoundException('媒体 Profile 不存在');
     const profile = this.profileView(row);
     if (profile.configVersion !== dto.expectedConfigVersion) throw new ConflictException('媒体配置已更新，请重新加载后校验');
-    if (!isSupportedImageModel(profile.modelId) || profile.executionMode !== 'sync-response' ||
-      profile.capabilities.maxOutputs > 4 || profile.capabilities.sizes.some(size => !(IMAGE_MODEL_SIZES as readonly string[]).includes(size)) ||
+    if (profile.executionMode !== 'sync-response' ||
+      profile.capabilities.maxOutputs > 8 || profile.capabilities.sizes.some(size => !/^\S{1,64}$/.test(size)) ||
       (profile.operations.includes('edit') && !profile.capabilities.supportsReferenceImage)) {
       throw new BadRequestException('当前模型或参数超出图片适配器支持范围');
     }
     try {
       const discovered = await this.imageAdapter.discoverModels();
       if (!discovered.some(model => model.modelId === profile.modelId)) throw new BadRequestException('媒体连接的模型目录中不存在此模型');
-      const checks: MediaRealQuoteRequest[] = [];
-      for (const operation of [...new Set(profile.operations)]) {
-        for (const size of [...new Set(profile.capabilities.sizes)]) {
-          for (const quality of ['low', 'medium', 'high'] as const) {
-            for (let count = 1; count <= profile.capabilities.maxOutputs; count++) {
-              checks.push({ profileId, configVersion: profile.configVersion, operation,
-                creativeBrief: 'Media configuration preflight', referenceIds: [],
-                parameters: { size: size as MediaRealQuoteRequest['parameters']['size'], count, quality } });
+      const checks: Array<MediaRealQuoteRequest | MediaRealQuoteRequestV3> = [];
+      if (!isSupportedImageModel(profile.modelId) && !dto.verificationSpec) {
+        throw new BadRequestException('新模型须显式提供 verificationSpec 校验通用图片协议，不能从目录推断规格');
+      }
+      if (dto.verificationSpec) {
+        for (const operation of profile.operations) {
+          const input: MediaRealQuoteRequestV3 = { protocolVersion: 3, specRevision: 1, profileId,
+            configVersion: profile.configVersion, operation, creativeBrief: 'Media configuration preflight',
+            referenceIds: operation === 'edit' ? ['verification-only'] : [], requestedSpec: dto.verificationSpec };
+          checks.push({ ...input, requestedSpec: resolveSub2apiImageSpec(input, 'quote') });
+        }
+      } else {
+        for (const operation of [...new Set(profile.operations)]) {
+          for (const size of [...new Set(profile.capabilities.sizes)]) {
+            for (const quality of ['low', 'medium', 'high'] as const) {
+              for (let count = 1; count <= profile.capabilities.maxOutputs; count++) {
+                checks.push({ profileId, configVersion: profile.configVersion, operation,
+                  creativeBrief: 'Media configuration preflight', referenceIds: [],
+                  parameters: { size: size as MediaRealQuoteRequest['parameters']['size'], count, quality } });
+              }
             }
           }
         }
@@ -348,16 +363,21 @@ export class MediaConfigService {
     const visibleProfiles = context.role === 'ENTERPRISE_ADMIN' ? profiles : profiles.filter(profile => policy.enabledProfileIds.includes(profile.profileId));
     const permissive: MediaPolicy = { ...policy, enabledProfileIds: profiles.map(profile => profile.profileId), defaultProfileId: null };
     const [available, effective] = await Promise.all([
-      request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, permissive, runtimeProfiles)
-        : this.getRuntimeMedia(context.enterpriseId, permissive, runtimeProfiles),
-      request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, policy, runtimeProfiles)
-        : this.getRuntimeMedia(context.enterpriseId, policy, runtimeProfiles),
+      request.protocolVersion === 3 ? this.getRuntimeMediaV3(context.enterpriseId, permissive, profiles)
+        : request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, permissive, runtimeProfiles)
+          : this.getRuntimeMedia(context.enterpriseId, permissive, runtimeProfiles),
+      request.protocolVersion === 3 ? this.getRuntimeMediaV3(context.enterpriseId, policy, profiles)
+        : request.protocolVersion === 2 ? this.getRuntimeMediaV2(context.enterpriseId, policy, runtimeProfiles)
+          : this.getRuntimeMedia(context.enterpriseId, policy, runtimeProfiles),
     ]);
     const availableById = new Map(available.profiles.map(profile => [profile.profileId, profile] as const));
     const effectiveById = new Map(effective.profiles.map(profile => [profile.profileId, profile] as const));
     const executionMode = (await this.realRuntimeEnabled()) ? 'real' as const : 'disabled' as const;
+    const executableProfile = (profile: (typeof effective.profiles)[number]) => request.protocolVersion !== 3
+      || ('adapter' in profile && profile.adapter.available && !profile.unavailableReason);
     const result = { protocolVersion: request.protocolVersion, executionMode, configured, executionAvailable: effective.executionAvailable,
-      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId)),
+      defaultProfileId: policy.defaultProfileId, defaultProfileValid: executionMode !== 'disabled' && Boolean(policy.defaultProfileId
+        && effective.profiles.some(profile => profile.profileId === policy.defaultProfileId && executableProfile(profile))),
       profiles: [...visibleProfiles.map(profile => {
         const reasons: MediaPolicyPreview['profiles'][number]['reasons'] = [];
         const baseline = availableById.get(profile.profileId);
@@ -368,7 +388,11 @@ export class MediaConfigService {
         if (!configured) reasons.push('connection-unconfigured');
         if (executionMode === 'disabled') reasons.push('execution-disabled');
         if (!baseline && profile.enabled && profile.verified && configured) reasons.push('adapter-unsupported');
-        const status: MediaPolicyPreview['profiles'][number]['status'] = current && executionMode !== 'disabled' ? 'effective'
+        if (request.protocolVersion === 3 && current && !executableProfile(current)
+          && !reasons.some(reason => ['disabled', 'unverified', 'connection-unconfigured', 'execution-disabled'].includes(reason))) {
+          reasons.push('adapter-unsupported');
+        }
+        const status: MediaPolicyPreview['profiles'][number]['status'] = current && executableProfile(current) && executionMode !== 'disabled' ? 'effective'
           : reasons.includes('not-authorized') ? 'not-authorized' : 'unavailable';
         return { profileId: profile.profileId, configVersion: profile.configVersion, status, effectiveProfile: current ?? null, reasons };
       }), ...(context.role === 'ENTERPRISE_ADMIN' ? policy.enabledProfileIds.filter(profileId => !profiles.some(profile => profile.profileId === profileId)) : [])
@@ -430,5 +454,55 @@ export class MediaConfigService {
       executionAvailable: legacy.executionAvailable && profiles.length > 0,
       tools: profiles.length ? legacy.tools : [] };
     return MediaRuntimeV2Schema.parse(value);
+  }
+
+  async getRuntimeMediaV3(enterpriseId: string, policyOverride?: MediaPolicy, profilesOverride?: MediaProfile[]): Promise<MediaRuntimeV3> {
+    const config = policyOverride ? null : await this.prisma.enterpriseModelConfig.findUnique({ where: { enterpriseId } });
+    const policy = policyOverride ?? this.parsePolicy(config?.mediaPolicy);
+    const configuredProfiles = profilesOverride ?? await this.listProfiles();
+    const executionEnabled = this.config?.get<string>('MEDIA_GATEWAY_REAL_ENABLED') === 'true';
+    const connectionUsable = await this.realConnectionUsable();
+    const profiles = configuredProfiles.filter(profile => policy.enabledProfileIds.includes(profile.profileId)).map(profile => {
+      const operations = profile.operations.filter(operation => operation === 'generate' || operation === 'edit');
+      const reason = !profile.enabled ? 'PROFILE_DISABLED'
+        : !profile.verified ? 'PROFILE_UNVERIFIED'
+          : !executionEnabled ? 'EXECUTION_DISABLED'
+            : !connectionUsable ? 'CONNECTION_UNAVAILABLE'
+              : profile.executionMode !== 'sync-response' ? 'ADAPTER_PROTOCOL_UNSUPPORTED'
+                : operations.length === 0 ? 'ADAPTER_OPERATION_UNSUPPORTED' : undefined;
+      const hints = [
+        { field: 'size', values: profile.capabilities.sizes, source: 'profile-config', observedAt: null, confidence: 'declared' as const },
+      ].filter(hint => hint.values.length > 0);
+      return {
+        profileId: profile.profileId, configVersion: profile.configVersion, kind: 'image' as const,
+        displayName: profile.displayName, operations, executionMode: 'sync-response' as const, authorized: true,
+        adapter: {
+          id: 'sub2api-image', version: '3', available: reason === undefined, ...(reason ? { reason } : {}), operations,
+          referenceSupport: {
+            maxCount: profile.capabilities.supportsReferenceImage ? 4 : 0,
+            maxInputBytes: profile.capabilities.supportsReferenceImage ? 5 * 1024 * 1024 : 1,
+            mimeTypes: profile.capabilities.supportsReferenceImage ? ['image/png'] : [],
+          },
+          supportsTaskQuery: false, supportsCancel: false,
+        },
+        capabilityHints: hints,
+        ...(reason ? { unavailableReason: reason } : {}),
+      };
+    });
+    const executable = profiles.filter(profile => profile.adapter.available);
+    const tools = [
+      ...(executable.some(profile => profile.operations.includes('generate')) ? ['image_generate'] : []),
+      ...(executable.some(profile => profile.operations.includes('edit')) ? ['image_edit'] : []),
+    ];
+    const defaultProfileId = policy.defaultProfileId && profiles.some(profile => profile.profileId === policy.defaultProfileId)
+      ? policy.defaultProfileId : null;
+    return MediaRuntimeV3Schema.parse({
+      protocolVersion: 3 as const,
+      executionMode: executionEnabled && connectionUsable ? 'real' as const : 'disabled' as const,
+      executionAvailable: executable.length > 0,
+      defaultProfileId,
+      tools,
+      profiles,
+    });
   }
 }

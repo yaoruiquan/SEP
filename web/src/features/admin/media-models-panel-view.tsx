@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Image, RefreshCw, ScanSearch, Save, Video } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { ApiError } from '@/lib/api-client';
 import type { MediaConnection, MediaProfile } from './use-media-config';
 import type { MediaVideoProfile } from './use-video-config';
 import type { UpdateMediaConnectionDto } from 'shared/media.dto';
+import { MediaProfileWorkflow } from './media-profile-workflow';
 
 type ProfileStatus = MediaProfile | MediaVideoProfile;
 interface DiscoveryModel { modelId: string; displayName: string; compatible: boolean; reason: string | null }
@@ -33,17 +34,17 @@ const yesNo = (value: boolean | undefined) => value === undefined ? '未提供' 
 function ProfileCapabilities({ profile }: { profile: ProfileStatus }) {
   if (profile.kind === 'image') {
     const { capabilities } = profile;
-    return <dl className="mt-3 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
+    return <><p className="mt-3 text-xs text-fg-muted">能力提示来源：Profile 配置声明；更新时间：未知；验证程度：声明，未执行生成验证，不作为规格白名单。</p><dl className="mt-2 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
       <div><dt className="inline text-fg-muted">操作：</dt><dd className="inline break-words">{list(profile.operations)}</dd></div>
       <div><dt className="inline text-fg-muted">尺寸：</dt><dd className="inline break-words">{list(capabilities.sizes)}</dd></div>
       <div><dt className="inline text-fg-muted">质量：</dt><dd className="inline">未提供</dd></div>
-      <div><dt className="inline text-fg-muted">最大输出：</dt><dd className="inline">{capabilities.maxOutputs}</dd></div>
+      <div><dt className="inline text-fg-muted">声明输出数量提示：</dt><dd className="inline">{capabilities.maxOutputs}</dd></div>
       <div><dt className="inline text-fg-muted">参考图：</dt><dd className="inline">{yesNo(capabilities.supportsReferenceImage)}</dd></div>
       <div><dt className="inline text-fg-muted">输出尺寸 / 字节上限：</dt><dd className="inline">未提供</dd></div>
-    </dl>;
+    </dl></>;
   }
   const { capabilities } = profile;
-  return <dl className="mt-3 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
+  return <><p className="mt-3 text-xs text-fg-muted">能力提示来源：Profile 配置声明；更新时间：未知；验证程度：声明，未执行生成验证，不作为规格白名单。</p><dl className="mt-2 grid min-w-0 gap-x-5 gap-y-1 text-xs sm:grid-cols-2">
     <div><dt className="inline text-fg-muted">操作：</dt><dd className="inline break-words">{list(profile.operations)}</dd></div>
     <div><dt className="inline text-fg-muted">时长（秒）：</dt><dd className="inline break-words">{list(capabilities.durationsSeconds)}</dd></div>
     <div><dt className="inline text-fg-muted">画幅：</dt><dd className="inline break-words">{list(capabilities.aspectRatios)}</dd></div>
@@ -58,22 +59,19 @@ function ProfileCapabilities({ profile }: { profile: ProfileStatus }) {
     <div><dt className="inline text-fg-muted">输出格式：</dt><dd className="inline break-words">{list(capabilities.outputFormats)}</dd></div>
     <div><dt className="inline text-fg-muted">结果保留：</dt><dd className="inline">{capabilities.resultRetentionSeconds} 秒</dd></div>
     <div><dt className="inline text-fg-muted">音频模式：</dt><dd className="inline">未提供</dd></div>
-  </dl>;
+  </dl></>;
 }
 
 export function MediaModelsPanelView({ kind, connection, save, discovery, profiles, updating, onDisable }: Props) {
   const name = kind === 'image' ? '图片' : '视频';
   const Icon = kind === 'image' ? Image : Video;
-  const [form, setForm] = useState({ baseUrl: '', apiKey: '' });
-  const [dirty, setDirty] = useState(false);
+  const [draft, setDraft] = useState<{ baseUrl: string; apiKey: string } | null>(null);
+  const form = draft ?? { baseUrl: connection.data?.baseUrl ?? '', apiKey: '' };
+  const dirty = draft !== null;
   const [saveError, setSaveError] = useState('');
   const busy = save.isPending || discovery.isPending || updating;
-  useEffect(() => {
-    if (connection.data && !dirty) setForm({ baseUrl: connection.data.baseUrl, apiKey: '' });
-  }, [connection.data, dirty]);
   const edit = (field: 'baseUrl' | 'apiKey', value: string) => {
-    setDirty(true);
-    setForm((current) => ({ ...current, [field]: value }));
+    setDraft({ ...form, [field]: value });
     discovery.reset();
     setSaveError('');
   };
@@ -84,8 +82,7 @@ export function MediaModelsPanelView({ kind, connection, save, discovery, profil
     discovery.reset();
     try {
       await save.mutateAsync(form);
-      setDirty(false);
-      setForm((current) => ({ ...current, apiKey: '' }));
+      setDraft(null);
       toast.success(`${name}连接已保存，请检测并同步模型`);
     } catch (error) { setSaveError(errorText(error)); }
   };
@@ -121,7 +118,7 @@ export function MediaModelsPanelView({ kind, connection, save, discovery, profil
       <Button variant="outline" size="sm" loading={discovery.isPending} disabled={busy || dirty || !connection.data?.configured || !!connection.error}
         onClick={() => discovery.mutate()}><ScanSearch className="h-4 w-4"/>检测并同步</Button>
     </div>
-    <p className="text-xs text-fg-muted">检测不执行生成，也不自动授权企业。生成规格在客户端选择，价格按实际规格报价。</p>
+    <p className="text-xs text-fg-muted">检测只发现目录候选，不执行生成、不自动验证或启用，也不自动授权企业。价格按实际请求规格报价。</p>
     {discovery.data && <p className="text-xs text-fg-muted">检测时间：{new Date(discovery.data.checkedAt).toLocaleString()}{discovery.data.mock ? ' · mock 检测' : ''} · 本次未验收真实生成</p>}
     {discovery.error && <p role="alert" className="break-words text-sm text-danger">{errorText(discovery.error)}</p>}
     {profiles.error && <p role="alert" className="break-words text-sm text-danger">模型状态读取失败：{errorText(profiles.error)}</p>}
@@ -145,12 +142,14 @@ export function MediaModelsPanelView({ kind, connection, save, discovery, profil
           <Badge variant={profile.enabled && profile.verified ? 'default' : 'secondary'}>{!profile.enabled ? '已停用' : profile.verified ? '启用中' : '暂不可用'}</Badge>
           {profile.enabled && <Button size="sm" variant="outline" disabled={busy} onClick={() => void disable(profile)}>紧急停用</Button>}
         </div>
+        <MediaProfileWorkflow kind={kind} model={profile} profile={profile} />
       </li>)}
       {candidates.map((model) => <li key={`candidate:${model.modelId}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="min-w-0 flex-1 basis-48"><p className="break-words text-sm font-medium">{model.displayName}</p>
           <p className="break-all font-mono text-xs text-fg-muted">{model.modelId}</p>
           {model.reason && <p className="break-words text-xs text-fg-muted">{model.reason}</p>}
-        </div><Badge variant="secondary">{model.compatible ? '未生成可用配置，请检查历史限制' : '未知 / 未适配'}</Badge>
+        </div><Badge variant="secondary">{model.compatible ? '待配置校验' : '目录候选，尚未验证'}</Badge>
+        <MediaProfileWorkflow kind={kind} model={model} />
       </li>)}
       {!saved.length && !candidates.length && <li className="py-6 text-sm text-fg-muted">{profiles.isLoading ? '正在读取已同步模型' : discovery.isPending ? '检测中' : '尚无同步模型'}</li>}
     </ul>

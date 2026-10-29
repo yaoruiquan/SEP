@@ -1,6 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { MediaVideoGatewayQuoteRequestSchema } from '../../shared/media-video.dto';
+import { MediaVideoGatewayQuoteRequestSchema, MediaVideoGatewayQuoteRequestV3Schema } from '../../shared/media-video.dto';
 import { SettingService } from '../setting/setting.service';
 import { Sub2apiVideoAdapter, VideoDispatchError } from './sub2api-video.adapter';
 
@@ -15,6 +15,14 @@ function input(operation: 'text-to-video' | 'image-to-video' = 'text-to-video') 
     profileId: 'video-real', configVersion: 'v2', operation, creativeBrief: 'A ceramic mug',
     referenceIds: operation === 'image-to-video' ? ['reference-1'] : [],
     parameters: { durationSeconds: 4, aspectRatio: '16:9', resolution: '720p', frameRate: 24, audio: true, outputFormat: 'video/mp4' },
+  });
+}
+function inputV3() {
+  return MediaVideoGatewayQuoteRequestV3Schema.parse({
+    protocolVersion: 3, profileId: 'video-real', configVersion: 'v3', operation: 'text-to-video',
+    creativeBrief: 'A vertical ceramic mug advert', referenceIds: [], specRevision: 2,
+    requestedSpec: { durationSeconds: 8, aspectRatio: '9:16', resolution: '1080p', frameRate: 30, audio: false, outputFormat: 'video/mp4' },
+    parameterSources: { durationSeconds: 'model', aspectRatio: 'user', audio: 'user' },
   });
 }
 const task = (extra = {}) => ({ object: 'video', id: TASK_ID, task_id: TASK_ID, model: 'minimax-h3', status: 'queued', progress: 0, ...extra });
@@ -59,6 +67,16 @@ describe('Sub2apiVideoAdapter (mock fetch only)', () => {
     expect(JSON.stringify(error.getResponse()) + error.stack).not.toContain(KEY);
     return error;
   }
+
+  it('accepts authoritative V3 pricing and usage beyond legacy duration limits', async () => {
+    const input = inputV3();
+    input.requestedSpec.durationSeconds = 901;
+    const connection = await adapter.connection();
+    fetchMock.mockResolvedValueOnce(response(price({ duration_seconds: 901, resolution: '1080p' })))
+      .mockResolvedValueOnce(response(usage({ duration_seconds: 901, resolution: '1080p' })));
+    await expect(adapter.pricing(connection, input, 'minimax-h3')).resolves.toMatchObject({ duration_seconds: 901 });
+    await expect(adapter.usage(connection, BILLING_ID)).resolves.toMatchObject({ duration_seconds: 901 });
+  });
 
   it.each(['https://relay.example.test', BASE, BASE + '/', 'https://relay.example.test/prefix/v1/'])(
     'normalizes HTTPS settings and fingerprints base and key (%s)', async base => {
@@ -118,6 +136,39 @@ describe('Sub2apiVideoAdapter (mock fetch only)', () => {
     await expect(adapter.pricing(CONNECTION, input(), 'minimax-h3')).resolves.toMatchObject({ amount_usd: '0.128000' });
     expect(fetchMock.mock.calls[0][0]).toBe(BASE + '/sub2api/videos/pricing');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: 'minimax-h3', operation: 'text-to-video', resolution: '720p', duration_seconds: 4 });
+  });
+
+  it('prices and submits a V3 non-default specification without changing or dropping explicit fields', async () => {
+    fetchMock.mockResolvedValueOnce(response(price({ resolution: '1080p', duration_seconds: 8 })))
+      .mockResolvedValueOnce(response(task()));
+    const value = inputV3();
+    await expect(adapter.pricing(CONNECTION, value, 'minimax-h3')).resolves.toMatchObject({ resolution: '1080p', duration_seconds: 8 });
+    await expect(adapter.submit(CONNECTION, value, 'minimax-h3', [], 'client-v3', 'price-1')).resolves.toMatchObject({ taskId: TASK_ID });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: 'minimax-h3', operation: 'text-to-video', resolution: '1080p', duration_seconds: 8 });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ model: 'minimax-h3', prompt: value.creativeBrief,
+      seconds: 8, resolution: '1080p', aspect_ratio: '9:16', fps: 30, generate_audio: false, output_format: 'video/mp4' });
+  });
+
+  it('rejects missing V3 pricing dimensions before any upstream request', async () => {
+    const value = MediaVideoGatewayQuoteRequestV3Schema.parse({ ...inputV3(), requestedSpec: { aspectRatio: '9:16' } });
+    const error = await errorOf(adapter.pricing(CONNECTION, value, 'minimax-h3'), 'MISSING_SPEC');
+    expect(error.getStatus()).toBe(422);
+    expect(error.getResponse()).toMatchObject({ error: { field: 'requestedSpec.durationSeconds', source: 'adapter',
+      stage: 'quote', reason: expect.any(String), retryable: false, submissionState: 'not_submitted', billingState: 'not_reserved' } });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects V3 WebM at quote and submit before any upstream request', async () => {
+    const value = { ...inputV3(), requestedSpec: { ...inputV3().requestedSpec, outputFormat: 'video/webm' } };
+    for (const [stage, action] of [
+      ['quote', () => adapter.pricing(CONNECTION, value, 'minimax-h3')],
+      ['submit', () => adapter.submit(CONNECTION, value, 'minimax-h3', [], 'client-v3', 'price-1')],
+    ] as const) {
+      const error = await errorOf(action(), 'ADAPTER_FIELD_UNMAPPED');
+      expect(error.getResponse()).toMatchObject({ error: { field: 'requestedSpec.outputFormat', source: 'adapter',
+        stage, reason: expect.any(String), retryable: false, submissionState: 'not_submitted', billingState: 'not_reserved' } });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -210,6 +261,26 @@ describe('Sub2apiVideoAdapter (mock fetch only)', () => {
     expect(error).toBeInstanceOf(VideoDispatchError);
     expect(error).toMatchObject({ requestId: BILLING_ID, definitelyRejected: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([400, 422])('classifies an explicit V3 unsupported-spec HTTP %i without exposing supplier bodies', async status => {
+    fetchMock.mockResolvedValueOnce(response({ error: { code: 'unsupported_parameter', message: KEY,
+      url: 'https://private.invalid/?secret=private-value', body: inputV3().creativeBrief } }, status));
+    const error = await errorOf(adapter.submit(CONNECTION, inputV3(), 'minimax-h3', [], 'client-v3', 'price-1'), 'UPSTREAM_SPEC_UNSUPPORTED');
+    expect(error).toMatchObject({ definitelyRejected: false, specUnsupported: true, requestId: BILLING_ID });
+    expect(error.getResponse()).toMatchObject({ error: { source: 'upstream', stage: 'submit', retryable: false,
+      submissionState: 'unknown', billingState: 'reconciling' } });
+    expect(JSON.stringify(error.getResponse())).not.toMatch(/private.invalid|private-value|ceramic/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { status: 400, code: 'unknown_error' }, { status: 422, code: 'invalid_request' },
+    { status: 429, code: 'unsupported_spec' },
+  ])('does not infer V3 specification rejection from an unrecognized HTTP response: $status $code', async ({ status, code }) => {
+    fetchMock.mockResolvedValueOnce(response({ error: { code } }, status));
+    const error = await errorOf(adapter.submit(CONNECTION, inputV3(), 'minimax-h3', [], 'client-v3', 'price-1'), 'SUBMISSION_UNKNOWN');
+    expect(error).toMatchObject({ definitelyRejected: false, specUnsupported: false });
   });
 
   it('releases only a relay-marked pre-dispatch price rejection, never an unmarked supplier conflict', async () => {

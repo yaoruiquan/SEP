@@ -134,7 +134,7 @@ describe('enterprise media configuration page', () => {
     expect(await screen.findByText('授权宽高内没有当前支持的尺寸')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存策略' })).toBeEnabled();
     expect(api.post).toHaveBeenCalledWith('/enterprise/media-config/preview', {
-      protocolVersion: 2,
+      protocolVersion: 3,
       policy: { enabledProfileIds: policy.enabledProfileIds, defaultProfileId: policy.defaultProfileId },
     });
     fireEvent.click(screen.getByRole('checkbox', { name: /image-basic/ }));
@@ -143,6 +143,26 @@ describe('enterprise media configuration page', () => {
     await waitFor(() => expect(api.put).toHaveBeenCalledWith('/enterprise/media-config', {
       enabledProfileIds: ['removed-image'], defaultProfileId: 'removed-image',
     }));
+  });
+
+  it('renders V3 adapter availability and the source, timestamp and confidence of non-binding hints', async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      protocolVersion: 3, executionMode: 'real', configured: true, executionAvailable: true,
+      defaultProfileId: 'image-basic', defaultProfileValid: true,
+      profiles: [{ profileId: 'image-basic', configVersion: 'version-7', status: 'effective', reasons: [],
+        effectiveProfile: {
+          profileId: 'image-basic', kind: 'image', displayName: 'Basic Image', configVersion: 'version-7',
+          operations: ['generate'], executionMode: 'sync-response', authorized: true,
+          adapter: { id: 'sub2api-image', version: '3', available: true, operations: ['generate'],
+            referenceSupport: { maxCount: 0, maxInputBytes: 5242880, mimeTypes: [] }, supportsTaskQuery: false, supportsCancel: false },
+          capabilityHints: [{ field: 'size', values: ['2048x2048'], source: 'profile-config', observedAt: null, confidence: 'declared' }],
+        } }],
+    });
+    renderPage();
+    await screen.findByLabelText('默认 Profile');
+    fireEvent.click(screen.getAllByRole('button', { name: '预览当前授权' })[0]);
+    expect(await screen.findByText(/来源 profile-config；更新时间 未验证/)).toHaveTextContent('declared');
+    expect(screen.getByText(/适配器 sub2api-image 已就绪/)).toHaveTextContent('价格将在请求规格确定后、执行前核验');
   });
 
   it('keeps saving available during preview and after a preview failure', async () => {

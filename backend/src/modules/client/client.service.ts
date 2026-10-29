@@ -793,11 +793,13 @@ export class ClientService {
       };
     }));
     const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => skill !== null);
-    const media = (mediaProtocolVersion === 1 || mediaProtocolVersion === 2) && this.mediaConfig
-      ? await (mediaProtocolVersion === 2 ? this.mediaConfig.getRuntimeMediaV2(ctx.enterpriseId) : this.mediaConfig.getRuntimeMedia(ctx.enterpriseId))
+    const media = (mediaProtocolVersion === 1 || mediaProtocolVersion === 2 || mediaProtocolVersion === 3) && this.mediaConfig
+      ? await (mediaProtocolVersion === 3 ? this.mediaConfig.getRuntimeMediaV3(ctx.enterpriseId)
+        : mediaProtocolVersion === 2 ? this.mediaConfig.getRuntimeMediaV2(ctx.enterpriseId) : this.mediaConfig.getRuntimeMedia(ctx.enterpriseId))
       : undefined;
-    const video = (videoProtocolVersion === 1 || videoProtocolVersion === 2) && this.videoConfig
-      ? await (videoProtocolVersion === 2 ? this.videoConfig.getRuntimeVideoV2(ctx.enterpriseId) : this.videoConfig.getRuntimeVideo(ctx.enterpriseId))
+    const video = (videoProtocolVersion === 1 || videoProtocolVersion === 2 || videoProtocolVersion === 3) && this.videoConfig
+      ? await (videoProtocolVersion === 3 ? this.videoConfig.getRuntimeVideoV3(ctx.enterpriseId)
+        : videoProtocolVersion === 2 ? this.videoConfig.getRuntimeVideoV2(ctx.enterpriseId) : this.videoConfig.getRuntimeVideo(ctx.enterpriseId))
       : undefined;
     return {
       manifestVersion: 1,

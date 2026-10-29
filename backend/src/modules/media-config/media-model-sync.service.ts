@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingService } from '../setting/setting.service';
 
 export interface ManagedMediaCandidate {
+  autoCreate?: boolean;
   modelId: string;
   displayName: string;
   operations: string[];
@@ -59,8 +60,10 @@ export class MediaModelSyncService {
           for (const row of rows) {
             let verified = false;
             if (candidate) {
-              try { verified = compatible(row); } catch { verified = false; }
+              try { verified = row.verified && compatible(row); } catch { verified = false; }
             }
+            // Auto-discovered rows remain inert until an administrator has
+            // explicitly configured and verified the profile.
             if (row.verified !== verified) {
               const result = await tx.mediaModelProfile.updateMany({
                 where: { profileId: row.profileId, kind, configVersion: row.configVersion },
@@ -72,13 +75,16 @@ export class MediaModelSyncService {
         }
 
         for (const [modelId, candidate] of visible) {
+          if (candidate.autoCreate === false) continue;
           if (byModel.has(modelId)) continue;
           const profileId = `auto-${kind}-${createHash('sha256').update(modelId).digest('hex').slice(0, 24)}`;
           const configVersion = `cfg_${randomUUID()}`;
           const proposed = {
             id: '', profileId, kind, modelId, displayName: candidate.displayName,
             operations: [...new Set(candidate.operations)], executionMode: candidate.executionMode,
-            capabilities: candidate.capabilities, enabled: true, verified: true,
+            // Discovery creates an inert candidate. Authorization and verification
+            // are explicit administrative actions, never inferred from /models.
+            capabilities: candidate.capabilities, enabled: false, verified: false,
             configVersion, createdAt: new Date(0), updatedAt: new Date(0),
           } as MediaModelProfile;
           if (!compatible(proposed)) continue;
@@ -88,7 +94,7 @@ export class MediaModelSyncService {
             data: {
               profileId, kind, modelId, displayName: candidate.displayName,
               operations: [...new Set(candidate.operations)].sort(), executionMode: candidate.executionMode,
-              capabilities: candidate.capabilities, enabled: true, verified: true,
+              capabilities: candidate.capabilities, enabled: false, verified: false,
               configVersion,
             },
           });

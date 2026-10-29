@@ -48,6 +48,37 @@ function fixture(config?: any) {
 }
 
 describe('MediaConfigService', () => {
+  it('verifies an explicitly configured new model through V3 pricing without a static model allow-list', async () => {
+    const { service, row, imageAdapter } = fixture();
+    row.modelId = 'new-image-protocol-model';
+    row.capabilities.sizes = ['2048x2048'];
+    row.capabilities.maxOutputs = 1;
+    imageAdapter.discoverModels.mockResolvedValue([{ modelId: row.modelId, displayName: 'New' }]);
+    await expect(service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(imageAdapter.pricing).not.toHaveBeenCalled();
+    expect(await service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion,
+      verificationSpec: { size: '2048x2048', count: 1, quality: 'ultra' } }))
+      .toMatchObject({ profile: { verified: true }, executionTested: false });
+    expect(imageAdapter.pricing).toHaveBeenCalledWith(expect.objectContaining({ protocolVersion: 3,
+      requestedSpec: expect.objectContaining({ size: '2048x2048', count: 1, quality: 'ultra' }) }), row.modelId);
+  });
+
+  it('uses equivalent pixel dimensions for explicit verification and rejects an unexpressible combination', async () => {
+    const { service, row, imageAdapter } = fixture();
+    row.modelId = 'new-image-model';
+    imageAdapter.discoverModels.mockResolvedValue([{ modelId: row.modelId, displayName: 'New' }]);
+    await service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion,
+      verificationSpec: { width: 2048, height: 1024, count: 1, quality: 'ultra' } });
+    expect(imageAdapter.pricing).toHaveBeenCalledWith(expect.objectContaining({ requestedSpec: {
+      size: '2048x1024', width: 2048, height: 1024, count: 1, quality: 'ultra',
+    } }), row.modelId);
+    imageAdapter.pricing.mockClear();
+    await expect(service.verifyProfile(row.profileId, { expectedConfigVersion: row.configVersion,
+      verificationSpec: { size: 'auto', width: 2048, height: 1024, count: 1, quality: 'ultra' } }))
+      .rejects.toMatchObject({ response: { error: { code: 'ADAPTER_FIELD_UNMAPPED', field: 'requestedSpec.width' } } });
+    expect(imageAdapter.pricing).not.toHaveBeenCalled();
+  });
   it('ignores all retired image limits in both runtime versions and authorization preview', async () => {
     const { service, prisma, row } = fixture({ get: jest.fn(() => 'true') });
     row.modelId = 'gpt-image-2';
@@ -66,6 +97,25 @@ describe('MediaConfigService', () => {
     expect((await service.getRuntimeMedia('ent-1')).executionAvailable).toBe(true);
     prisma.enterpriseModelConfig.findUnique.mockResolvedValue({ mediaPolicy: { ...policy, enabledProfileIds: [] } });
     expect((await service.getRuntimeMedia('ent-1')).executionAvailable).toBe(false);
+  });
+
+  it('publishes v3 authorization separately from adapter readiness and without defaults', async () => {
+    const { service, row } = fixture({ get: jest.fn(() => 'true') });
+    const runtime = await service.getRuntimeMediaV3('ent-1');
+    expect(runtime).toMatchObject({ protocolVersion: 3, executionMode: 'real', executionAvailable: true,
+      defaultProfileId: row.profileId, tools: ['image_generate', 'image_edit'], profiles: [{
+        profileId: row.profileId, authorized: true, adapter: { id: 'sub2api-image', available: true,
+          referenceSupport: { maxCount: 4, maxInputBytes: 5 * 1024 * 1024, mimeTypes: ['image/png'] } },
+      }] });
+    expect(runtime.profiles[0].capabilityHints).toEqual([
+      expect.objectContaining({ field: 'size', values: row.capabilities.sizes, confidence: 'declared' }),
+    ]);
+    expect(JSON.stringify(runtime)).not.toContain('defaultSize');
+    row.verified = false;
+    const unavailable = await service.getRuntimeMediaV3('ent-1');
+    expect(unavailable).toMatchObject({ executionAvailable: false, tools: [], profiles: [{
+      authorized: true, adapter: { available: false, reason: 'PROFILE_UNVERIFIED' }, unavailableReason: 'PROFILE_UNVERIFIED',
+    }] });
   });
 
   it('creates an unverified profile with a server-owned version', async () => {
@@ -117,7 +167,8 @@ describe('MediaConfigService', () => {
     expect(sync.sync).toHaveBeenCalledWith('image', expect.arrayContaining([
       expect.objectContaining({ modelId: 'gpt-image-2', operations: ['generate', 'edit'] }),
     ]), expect.any(String), expect.any(Function));
-    expect(sync.sync.mock.calls[0][1]).toHaveLength(5);
+    expect(sync.sync.mock.calls[0][1]).toHaveLength(6);
+    expect(sync.sync.mock.calls[0][1][5]).toMatchObject({ autoCreate: false });
     expect(imageAdapter.pricing).not.toHaveBeenCalled();
   });
 

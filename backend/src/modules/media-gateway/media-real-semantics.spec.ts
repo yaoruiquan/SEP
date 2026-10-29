@@ -1,4 +1,4 @@
-import { MediaRealQuoteRequestSchema } from 'shared';
+import { MediaRealQuoteRequestSchema, MediaRealQuoteRequestV3Schema } from 'shared';
 import fixture from '../../shared/fixtures/media-real-semantics.json';
 import { mediaRealSemanticHash } from './media-real-semantics';
 
@@ -24,5 +24,20 @@ describe('real image semantic contract', () => {
       operation: 'generate', creativeBrief: 'test', parameters: {} });
     const explicit = MediaRealQuoteRequestSchema.parse({ ...implicit, parameters: { quality: 'medium', count: 1, size: '1024x1024' } });
     expect(mediaRealSemanticHash(implicit, [])).toBe(mediaRealSemanticHash(explicit, []));
+  });
+
+  it('binds V3 revisions, omissions, reference IDs and stable source ordering', () => {
+    const first = MediaRealQuoteRequestV3Schema.parse({
+      protocolVersion: 3, specRevision: 2, profileId: 'image', configVersion: 'cfg_1', operation: 'generate',
+      referenceIds: [], creativeBrief: 'test', requestedSpec: { size: '2048x2048', count: 2, quality: 'ultra' },
+      parameterSources: { quality: 'user', size: 'model' },
+    });
+    const reordered = MediaRealQuoteRequestV3Schema.parse({ ...first, parameterSources: { size: 'model', quality: 'user' } });
+    const context = { scope: 'enterprise/member', adapter: 'sub2api-image-v3' };
+    const value = mediaRealSemanticHash(first, [], context);
+    expect(mediaRealSemanticHash(reordered, [], context)).toBe(value);
+    expect(mediaRealSemanticHash({ ...first, specRevision: 3 }, [], context)).not.toBe(value);
+    expect(mediaRealSemanticHash({ ...first, requestedSpec: { ...first.requestedSpec, quality: undefined } }, [], context)).not.toBe(value);
+    expect(mediaRealSemanticHash(first, [], { ...context, scope: 'other' })).not.toBe(value);
   });
 });

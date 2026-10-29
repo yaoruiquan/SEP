@@ -62,6 +62,34 @@ describe('HttpExceptionFilter', () => {
     return { response, body: response.json.mock.calls[0][0] };
   }
 
+  it.each(['real', 'video-real'])('preserves safe negotiated media errors for %s', route => {
+    const details = { code: 'MISSING_SPEC', message: '需要先确定时长', field: 'requestedSpec.durationSeconds',
+      source: 'adapter', reason: '报价合同需要明确时长', stage: 'quote', retryable: false,
+      submissionState: 'not_submitted', billingState: 'not_reserved' };
+    const { body } = catchException(new HttpException({ error: details }, 400), `/api/gateway/v1/media/${route}/quotes`);
+    expect(body.error).toMatchObject(details);
+  });
+
+  it('keeps ambiguous paid submissions explicit and strips untrusted detail', () => {
+    const { body } = catchException(new HttpException({ error: {
+      code: 'SUBMISSION_UNKNOWN', message: '查询原请求', source: 'upstream', stage: 'submit', retryable: true,
+      submissionState: 'unknown', billingState: 'reconciling', field: '../private', requestedValue: 'private',
+      reason: 'Authorization: Bearer private', body: { apiKey: 'private' }, alternatives: ['https://private.example'],
+    } }, 502), '/api/gateway/v1/media/video-real/requests');
+    expect(body.error).toMatchObject({ submissionState: 'unknown', billingState: 'reconciling' });
+    expect(body.error).not.toHaveProperty('field');
+    expect(body.error).not.toHaveProperty('reason');
+    expect(JSON.stringify(body)).not.toContain('private');
+  });
+
+  it('does not extend unrelated gateway contracts with media state fields', () => {
+    const { body } = catchException(new HttpException({ error: {
+      source: 'adapter', stage: 'quote', submissionState: 'not_submitted', billingState: 'not_reserved',
+    } }, 400));
+    expect(body.error).not.toHaveProperty('submissionState');
+    expect(body.error).not.toHaveProperty('source');
+  });
+
   it('adds Retry-After to 429 responses when the producer did not set it', () => {
     const { response } = catchException(new HttpException('Too many requests', 429));
 

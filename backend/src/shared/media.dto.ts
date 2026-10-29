@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MediaVideoPolicySchema } from './media-video-config.dto';
+import { MediaImageSpecV3Schema } from './media-spec.dto';
 
 export const MediaKindSchema = z.enum(['image', 'video']);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
@@ -53,7 +54,7 @@ export const MediaAuthorizationSchema = MediaPolicySchema.pick({ enabledProfileI
 export const MediaImagePolicySchema = MediaPolicySchema.omit({ video: true });
 export type MediaImagePolicy = z.infer<typeof MediaImagePolicySchema>;
 export const MediaPolicyPreviewRequestSchema = z.object({
-  protocolVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
   policy: MediaImagePolicySchema,
 }).strict();
 export type MediaPolicyPreviewRequest = z.infer<typeof MediaPolicyPreviewRequestSchema>;
@@ -70,7 +71,7 @@ export const MediaPolicyPreviewProfileSchema = z.object({
   reasons: z.array(MediaPolicyPreviewReasonSchema).max(8),
 }).strict();
 export const MediaPolicyPreviewSchema = z.object({
-  protocolVersion: z.union([z.literal(1), z.literal(2)]),
+  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   executionMode: z.enum(['real', 'disabled']),
   configured: z.boolean(),
   executionAvailable: z.boolean(),
@@ -127,6 +128,7 @@ export type MediaModelDiscovery = z.infer<typeof MediaModelDiscoverySchema>;
 
 export const VerifyMediaProfileDtoSchema = z.object({
   expectedConfigVersion: MediaProfileSchema.shape.configVersion,
+  verificationSpec: MediaImageSpecV3Schema.optional(),
 }).strict();
 export type VerifyMediaProfileDto = z.infer<typeof VerifyMediaProfileDtoSchema>;
 export const MediaProfileVerificationSchema = z.object({
